@@ -169,13 +169,20 @@ schema_check() {
 # `unbundle_chain <bare-repository> <commit> <bundle>...`: a checkpoint's
 # bundles, oldest first, fetched into one empty repository the way a restore
 # stacks them. An incremental bundle (94S-227) needs commits only an earlier
-# one carries, so none after the first verifies on its own. The last must
-# offer <commit> as a ref tip. Paths must be absolute. Says on stdout which
+# one carries, so none after the first verifies on its own. The last bundle's
+# refs/checkpoint/worktree, peeled, must be <commit>: that is what a restore
+# checks out. It may be an annotated tag over a commit an earlier bundle
+# carries, when the capture changed nothing (94S-374), so the bundle's header
+# never lists <commit> itself. Paths must be absolute. Says on stdout which
 # bundle git refused and fails.
 unbundle_chain() {
   local repository="$1" commit="$2"
   shift 2
-  local count=$# index=0 bundle last=""
+  local count=$# index=0 bundle worktree
+  if [ "$count" -eq 0 ]; then
+    echo "no bundle to verify"
+    return 1
+  fi
   for bundle in "$@"; do
     index=$((index + 1))
     if ! git -C "$repository" bundle verify "$bundle" >/dev/null 2>&1; then
@@ -187,14 +194,13 @@ unbundle_chain() {
       echo "bundle $index of $count: git fetch refused it"
       return 1
     fi
-    last="$bundle"
   done
-  if [ -z "$last" ]; then
-    echo "no bundle to verify"
+  if ! worktree="$(git -C "$repository" rev-parse --verify --quiet "refs/chain/$count/checkpoint/worktree^{commit}")"; then
+    echo "the last bundle has no refs/checkpoint/worktree"
     return 1
   fi
-  if ! git -C "$repository" bundle list-heads "$last" | grep -q "^${commit} "; then
-    echo "$commit is not a ref tip of the last bundle"
+  if [ "$worktree" != "$commit" ]; then
+    echo "the last bundle's refs/checkpoint/worktree is $worktree, not $commit"
     return 1
   fi
 }
