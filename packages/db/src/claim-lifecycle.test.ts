@@ -34,6 +34,7 @@ const PROFILE = "profile-a";
 const RUNNABLE = {
   branch: "main",
   profileId: PROFILE,
+  profileFingerprint: `sha256:${"a".repeat(64)}`,
   repositoryId: "repo-a",
   url: "https://example.invalid/repo.git",
 };

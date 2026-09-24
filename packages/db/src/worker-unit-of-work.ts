@@ -574,19 +574,31 @@ export async function readCheckpointPointer(
   };
 }
 
-function isRunnable(
-  session: Pick<
-    SessionRow,
-    "profileId" | "repositoryId" | "repoUrl" | "branch"
-  >,
+type RunnableFields = Pick<
+  SessionRow,
+  "profileId" | "profileFingerprint" | "repositoryId" | "repoUrl" | "branch"
+>;
+
+function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
+  return (
+    pair.profileId === session.profileId &&
+    pair.repositoryId === session.repositoryId &&
+    pair.url === session.repoUrl &&
+    pair.branch === session.branch
+  );
+}
+
+// A row from before 94S-253 has no fingerprint; it runs on whatever the
+// pair's profile is now, and the claim that binds it pins that.
+function runnablePairOf(
+  session: RunnableFields,
   runnable: readonly RunnablePair[],
-): boolean {
-  return runnable.some(
+): RunnablePair | undefined {
+  return runnable.find(
     (pair) =>
-      pair.profileId === session.profileId &&
-      pair.repositoryId === session.repositoryId &&
-      pair.url === session.repoUrl &&
-      pair.branch === session.branch,
+      allowsPair(pair, session) &&
+      (session.profileFingerprint === null ||
+        session.profileFingerprint === pair.profileFingerprint),
   );
 }
 
@@ -614,15 +626,24 @@ function replayableBinding(
 }
 
 // A row with no repository id predates the catalog and matches nothing.
+// The same predicate as runnablePairOf.
 function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   if (runnable.length === 0) return sql`false`;
-  return sql`(${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${sql.join(
+  const pairs = sql.join(
     runnable.map(
       (pair) =>
         sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch})`,
     ),
     sql`, `,
-  )})`;
+  );
+  const pinned = sql.join(
+    runnable.map(
+      (pair) =>
+        sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch}, ${pair.profileFingerprint})`,
+    ),
+    sql`, `,
+  );
+  return sql`((${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}, ${sessions.profileFingerprint}) IN (${pinned}) OR (${sessions.profileFingerprint} IS NULL AND (${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${pairs})))`;
 }
 
 /**
@@ -662,7 +683,7 @@ async function giveUpOnCatalogMismatch(
     // Reserved for this launch and no later one.
     session.executionId !== launch.executionId ||
     budgetExceeded(session.costUsd, costLimitUsd) ||
-    isRunnable(session, runnable)
+    runnablePairOf(session, runnable) !== undefined
   ) {
     return null;
   }
@@ -711,7 +732,9 @@ async function giveUpOnCatalogMismatch(
     return "context_gap";
   }
   // Names ids only: the stored URL may embed a credential (94S-147).
-  const detail = `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
+  const detail = runnable.some((pair) => allowsPair(pair, session))
+    ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
+    : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
   // As `recordLaunchFailure` gives a launch up: counted, the credential
   // revoked, nothing left to rebuild.
   await tx
@@ -892,7 +915,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
           // holds a token for and a retry that mutates again.
-          if (!isRunnable(bound.session, input.runnable)) {
+          if (runnablePairOf(bound.session, input.runnable) === undefined) {
             return { outcome: "profile_unavailable" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);
@@ -979,8 +1002,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .for("update");
         // A terminate can commit between the candidate read and this lock,
         // and so can an exit that starts a restore backoff.
+        const pair = locked && runnablePairOf(locked, input.runnable);
         if (
           !locked ||
+          !pair ||
           locked.podId !== null ||
           !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
           locked.executionRevokedAt !== null ||
@@ -1021,6 +1046,8 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             executionGeneration: launch.generation,
             executionId: launch.executionId,
             podId: launch.executionId,
+            // Pins a row from before 94S-253; any other holds this already.
+            profileFingerprint: pair.profileFingerprint,
             restoreAttemptId: input.attemptId,
             updatedAt: input.now,
           })
