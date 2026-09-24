@@ -5,6 +5,7 @@ import {
   createObservability,
   InMemoryMetrics,
   InMemoryTracer,
+  logLevelFromEnv,
   MemoryLogSink,
   NoopMetrics,
   resolveLogLevel,
@@ -114,6 +115,13 @@ describe("structured logging", () => {
 
     expect(resolveLogLevel("DEBUG")).toBe("debug");
     expect(resolveLogLevel("not-a-level")).toBe("info");
+    expect(logLevelFromEnv(undefined)).toBe("info");
+    expect(logLevelFromEnv("")).toBe("info");
+    expect(logLevelFromEnv("WARN")).toBe("warn");
+    expect(resolveLogLevel(" warn ")).toBe(logLevelFromEnv(" warn "));
+    expect(() => logLevelFromEnv("inf0")).toThrow(
+      'LOG_LEVEL must be one of debug|info|warn|error, got "inf0"',
+    );
     expect(sink.records.map((record) => record.message)).toEqual(["emitted"]);
   });
 });

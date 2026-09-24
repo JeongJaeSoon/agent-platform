@@ -1,4 +1,9 @@
 import {
+  WORKER_HEARTBEAT_INTERVAL_MS,
+  WORKER_LEASE_SAFETY_MARGIN_MS,
+} from "@agent-platform/contracts";
+
+import {
   objectStoreConfigFromEnv,
   type WorkerObjectStoreConfig,
   type WorkerObjectStoreEnvironment,
@@ -87,14 +92,19 @@ export type WorkerTimeouts = {
    */
   maxTurnMs: number;
   /**
-   * How long a poll keeps retrying a gateway that answers with transient
-   * errors. The server may already have handed the turn over, so without it
-   * a worker whose heartbeats still land holds that turn forever (94S-269).
+   * How long a poll, or one batch of events, keeps retrying a gateway that
+   * answers with transient errors. The server may already have handed the
+   * turn over, and a finalize waits on its events, so without it a worker
+   * whose heartbeats still land holds that turn forever (94S-269, 94S-392).
    * Counted from the first failure; retries are not charged to `maxTurnMs`.
    */
   nextInputRetryTimeoutMs: number;
   nextInputWaitMs: number;
-  /** A pending permission or question denied once nobody has answered it. */
+  /**
+   * A pending permission or question denied once nobody has answered it,
+   * until the gateway has registered it; from then on the server's
+   * PENDING_REQUEST_TTL_SEC decides (94S-389).
+   */
   questionTimeoutMs: number;
   requestTimeoutMs: number;
   /**
@@ -146,6 +156,23 @@ export function workerConfigFromEnv(
     environment.WORKER_STOP_GRACE_SEC === undefined
       ? undefined
       : seconds(environment.WORKER_STOP_GRACE_SEC, 0, "WORKER_STOP_GRACE_SEC");
+  const nextInputWaitMs = seconds(
+    environment.WORKER_NEXT_INPUT_WAIT_SEC,
+    20,
+    "WORKER_NEXT_INPUT_WAIT_SEC",
+  );
+  const requestTimeoutMs = seconds(
+    environment.WORKER_REQUEST_TIMEOUT_SEC,
+    30,
+    "WORKER_REQUEST_TIMEOUT_SEC",
+  );
+  // A long poll the request timeout cuts short is aborted every time, and
+  // the worker never receives its next input.
+  if (nextInputWaitMs >= requestTimeoutMs) {
+    throw new Error(
+      "WORKER_NEXT_INPUT_WAIT_SEC must be less than WORKER_REQUEST_TIMEOUT_SEC",
+    );
+  }
   const egressCredentialUrl = url(
     required(
       environment.WORKER_EGRESS_CREDENTIAL_URL,
@@ -180,10 +207,13 @@ export function workerConfigFromEnv(
         environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,
       cwd: required(environment.WORKER_WORKSPACE_DIR, "WORKER_WORKSPACE_DIR"),
       home,
-      // 2 is compose's local PROVIDER_MAX_RETRIES, for a launcher that
-      // predates it; the scheduler always passes the installation's value.
+      // An installation limit, so no code default (94S-292): the scheduler
+      // always passes the installation's PROVIDER_MAX_RETRIES.
       providerMaxRetries: nonNegativeInteger(
-        environment.WORKER_PROVIDER_MAX_RETRIES ?? "2",
+        required(
+          environment.WORKER_PROVIDER_MAX_RETRIES,
+          "WORKER_PROVIDER_MAX_RETRIES",
+        ),
         "WORKER_PROVIDER_MAX_RETRIES",
       ),
     },
@@ -208,7 +238,7 @@ export function workerConfigFromEnv(
       ),
       heartbeatIntervalMs: seconds(
         environment.WORKER_HEARTBEAT_INTERVAL_SEC,
-        10,
+        WORKER_HEARTBEAT_INTERVAL_MS / 1000,
         "WORKER_HEARTBEAT_INTERVAL_SEC",
       ),
       idleTimeoutMs: seconds(
@@ -231,21 +261,13 @@ export function workerConfigFromEnv(
         60,
         "WORKER_NEXT_INPUT_RETRY_SEC",
       ),
-      nextInputWaitMs: seconds(
-        environment.WORKER_NEXT_INPUT_WAIT_SEC,
-        20,
-        "WORKER_NEXT_INPUT_WAIT_SEC",
-      ),
+      nextInputWaitMs,
       questionTimeoutMs: seconds(
         environment.QUESTION_TIMEOUT_SEC,
         1800,
         "QUESTION_TIMEOUT_SEC",
       ),
-      requestTimeoutMs: seconds(
-        environment.WORKER_REQUEST_TIMEOUT_SEC,
-        30,
-        "WORKER_REQUEST_TIMEOUT_SEC",
-      ),
+      requestTimeoutMs,
       startupTimeoutMs: seconds(
         environment.WORKER_STARTUP_TIMEOUT_SEC,
         3600,
@@ -282,7 +304,7 @@ export const SHUTDOWN_RESERVE_MS = 12_000;
  * 5s exit grace. Against the compose default lease of 30s it leaves 20s
  * of gateway outage ridden out; a longer lease leaves more.
  */
-export const LEASE_SAFETY_MARGIN_MS = 10_000;
+export const LEASE_SAFETY_MARGIN_MS = WORKER_LEASE_SAFETY_MARGIN_MS;
 
 function drainBudget(configured: number, stopGraceMs: number | undefined) {
   if (stopGraceMs === undefined) return configured;

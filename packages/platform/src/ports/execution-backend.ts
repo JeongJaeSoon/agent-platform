@@ -319,3 +319,23 @@ export class LaunchSpecMismatchError extends Error {
     this.name = "LaunchSpecMismatchError";
   }
 }
+
+/**
+ * The provider did not answer a call that may have created or started the
+ * resource, so whether it did is unknown. A timeout is not a refusal: the
+ * scheduler counts no launch failure and keeps the credential, and the next
+ * pass's inspect decides — adopting what landed, creating what did not.
+ */
+export class LaunchOutcomeUnknownError extends Error {
+  constructor(ref: ExecutionRef, options: { cause: unknown }) {
+    super(
+      `Launch of execution ${ref.executionId} generation ${ref.generation} got no answer from the provider (${
+        options.cause instanceof Error
+          ? options.cause.message
+          : String(options.cause)
+      }); left for the next pass to inspect`,
+      options,
+    );
+    this.name = "LaunchOutcomeUnknownError";
+  }
+}

@@ -23,6 +23,14 @@ export type EventPublisherOptions = {
   maxBatchSize?: number;
   now?: () => Date;
   retryDelayMs?: number;
+  /**
+   * How long one batch keeps being retried against a gateway that answers
+   * with transient errors, counted from its first failure. Past it the
+   * stream fails as on a refusal: a heartbeat that still lands would
+   * otherwise keep the lease while the turn waits on its events forever
+   * (94S-392). Unbounded when unset.
+   */
+  retryBudgetMs?: number;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -47,6 +55,7 @@ export class EventPublisher {
   private readonly maxBatchSize: number;
   private readonly now: () => Date;
   private readonly retryDelayMs: number;
+  private readonly retryBudgetMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly queue: Queued[] = [];
   private acceptedThroughValue = 0;
@@ -67,6 +76,7 @@ export class EventPublisher {
     this.maxBatchSize = options.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     this.now = options.now ?? (() => new Date());
     this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    this.retryBudgetMs = options.retryBudgetMs ?? Number.POSITIVE_INFINITY;
     this.sleep = options.sleep ?? ((ms: number) => Bun.sleep(ms));
   }
 
@@ -220,6 +230,7 @@ export class EventPublisher {
   }
 
   private async drain(): Promise<void> {
+    let failingSince: number | undefined;
     while (this.sendable()) {
       const batch = this.leadingBatch();
       try {
@@ -231,9 +242,14 @@ export class EventPublisher {
         });
         this.acceptedThroughValue = response.accepted_through;
         this.queue.splice(0, batch.length);
+        failingSince = undefined;
         this.wake();
       } catch (error) {
-        if (!isRetryable(error)) {
+        failingSince ??= performance.now();
+        if (
+          !isRetryable(error) ||
+          performance.now() - failingSince >= this.retryBudgetMs
+        ) {
           this.failure = error;
           this.onFailed(error);
           this.wake();

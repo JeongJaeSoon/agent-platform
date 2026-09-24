@@ -111,9 +111,11 @@ export class ApiHttpError extends Error {
 
 // A lost connection (isConnectionFailure), insufficient resources (53xxx:
 // too many connections, disk full), operator intervention (57xxx: admin
-// shutdown, and 57014 for a statement_timeout cancel), or the request's own
-// deadline. Walks the cause chain because Drizzle and pg-pool both wrap the
-// original error.
+// shutdown, and 57014 for a statement_timeout cancel), a transaction rolled
+// back for losing to a concurrent one (40001 serialization, 40P01 deadlock:
+// nothing it wrote landed, so the same request can simply be sent again), or
+// the request's own deadline. Walks the cause chain because Drizzle and
+// pg-pool both wrap the original error.
 export function isStorageUnavailable(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {
     if (
@@ -125,7 +127,10 @@ export function isStorageUnavailable(error: unknown): boolean {
     const code = (current as { code?: unknown } | null)?.code;
     if (
       typeof code === "string" &&
-      (code.startsWith("53") || code.startsWith("57"))
+      (code.startsWith("53") ||
+        code.startsWith("57") ||
+        code === "40001" ||
+        code === "40P01")
     ) {
       return true;
     }
@@ -143,6 +148,7 @@ export function storageUnavailableError(): ApiHttpError {
     "BACKEND_UNAVAILABLE",
     "Storage is unavailable, retry later",
     true,
+    1,
   );
 }
 
@@ -486,6 +492,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         method: context.req.method,
         path: context.req.path,
       });
+      context.header("Retry-After", String(unavailable.retryAfterSeconds));
       return errorResponse(
         context,
         unavailable.status,

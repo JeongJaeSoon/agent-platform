@@ -17,6 +17,7 @@ const launched: WorkerEnvironment = {
   AWS_REGION: "ap-northeast-1",
   S3_BUCKET: "claude-sessions",
   WORKER_OBJECT_PREFIX: "sessions/abc/",
+  WORKER_PROVIDER_MAX_RETRIES: "2",
 };
 
 describe("workerConfigFromEnv", () => {
@@ -33,6 +34,7 @@ describe("workerConfigFromEnv", () => {
     expect(config.runtime.home).toBe("/home/worker");
     expect(config.runtime.claudeConfigDir).toBe("/home/worker/.claude");
     expect(config.runtime.cwd).toBe("/workspace");
+    expect(config.runtime.providerMaxRetries).toBe(2);
   });
 
   test("keeps the design's default timers", () => {
@@ -82,6 +84,8 @@ describe("workerConfigFromEnv", () => {
     ["WORKER_WORKSPACE_DIR", { WORKER_WORKSPACE_DIR: undefined }],
     ["S3_BUCKET", { S3_BUCKET: undefined }],
     ["WORKER_OBJECT_PREFIX", { WORKER_OBJECT_PREFIX: undefined }],
+    // An installation limit with no code default (94S-292).
+    ["WORKER_PROVIDER_MAX_RETRIES", { WORKER_PROVIDER_MAX_RETRIES: undefined }],
   ])("refuses to start without %s", (name, missing) => {
     expect(() => workerConfigFromEnv({ ...launched, ...missing })).toThrow(
       name,
@@ -95,5 +99,20 @@ describe("workerConfigFromEnv", () => {
     expect(() =>
       workerConfigFromEnv({ ...launched, QUESTION_TIMEOUT_SEC: "0" }),
     ).toThrow("QUESTION_TIMEOUT_SEC must be a positive number of seconds");
+  });
+
+  test("refuses a long poll the request timeout would always abort", () => {
+    const poll = (wait: string, timeout: string) => () =>
+      workerConfigFromEnv({
+        ...launched,
+        WORKER_NEXT_INPUT_WAIT_SEC: wait,
+        WORKER_REQUEST_TIMEOUT_SEC: timeout,
+      });
+
+    expect(poll("30", "30")).toThrow(
+      "WORKER_NEXT_INPUT_WAIT_SEC must be less than WORKER_REQUEST_TIMEOUT_SEC",
+    );
+    expect(poll("40", "30")).toThrow("WORKER_NEXT_INPUT_WAIT_SEC");
+    expect(poll("29", "30")()).toBeDefined();
   });
 });

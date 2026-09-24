@@ -342,6 +342,7 @@ export class WorkerHost {
       gateway: scrubbed,
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
+      retryBudgetMs: this.options.timeouts.nextInputRetryTimeoutMs,
       onFailed: (error) => {
         if (isOwnershipLost(error)) {
           this.lose(describe(error));
@@ -418,11 +419,10 @@ export class WorkerHost {
       if (run !== undefined && ready) await this.turnLoop(run);
     } catch (error) {
       // A worker that failed but still owns the session gives it back, so
-      // recovery does not have to wait for the lease to lapse.
-      this.stop({
-        kind: isOwnershipLost(error) ? "lost" : "failed",
-        reason: describe(error),
-      });
+      // recovery does not have to wait for the lease to lapse. A loss wins
+      // over a stop already under way: no durable write may follow it.
+      if (isOwnershipLost(error)) this.lose(describe(error));
+      else this.stop({ kind: "failed", reason: describe(error) });
       this.logger.error("worker.failed", { reason: describe(error) });
       await this.shutdown(run);
       return {
@@ -551,10 +551,6 @@ export class WorkerHost {
     return this.scopeValue;
   }
 
-  private now(): Date {
-    return (this.options.now ?? (() => new Date()))();
-  }
-
   private sleep(ms: number): Promise<void> {
     return (this.options.sleep ?? ((wait: number) => Bun.sleep(wait)))(ms);
   }
@@ -566,7 +562,7 @@ export class WorkerHost {
     if (stop.kind !== "lost") {
       this.attemptState = "draining";
       // The launcher's SIGKILL clock starts with its SIGTERM, not a lease loss.
-      this.stoppedAt ??= this.now().getTime();
+      this.stoppedAt ??= performance.now();
     }
     this.announceStop();
     this.logger.info("worker.stopping", {
@@ -628,8 +624,7 @@ export class WorkerHost {
     claim: BootstrapClaimResponse;
     sentAt: number;
   } | null> {
-    const deadline =
-      this.now().getTime() + this.options.timeouts.claimTimeoutMs;
+    const deadline = performance.now() + this.options.timeouts.claimTimeoutMs;
     let retriedUnauthorized = false;
     for (;;) {
       if (this.stopping !== undefined) return null;
@@ -679,7 +674,7 @@ export class WorkerHost {
           return null;
         }
         if (!error.retryable) throw error;
-        if (this.now().getTime() >= deadline) {
+        if (performance.now() >= deadline) {
           // Nothing was waiting for this worker: KEDA-style launchers must see
           // it leave rather than sit on a slot (DESIGN §6.2).
           if (error.code === "NOT_FOUND") return null;
@@ -691,7 +686,7 @@ export class WorkerHost {
   }
 
   private async turnLoop(run: AgentRun): Promise<void> {
-    let lastInputAt = this.now().getTime();
+    let lastInputAt = performance.now();
     while (this.stopping === undefined) {
       // Before asking for input, not after: a delivered input the engine is
       // never given would be left for recovery as if it might have run.
@@ -710,7 +705,7 @@ export class WorkerHost {
         }
         // The pause was cancelled: the same engine carries on, and the time
         // spent held is not idleness.
-        lastInputAt = this.now().getTime();
+        lastInputAt = performance.now();
         continue;
       }
       // Not raced with a drain: an input the gateway hands over is this
@@ -732,7 +727,7 @@ export class WorkerHost {
           });
           return;
         }
-        const idleFor = this.now().getTime() - lastInputAt;
+        const idleFor = performance.now() - lastInputAt;
         if (idleFor >= this.options.timeouts.idleTimeoutMs) {
           this.stop({
             kind: "idle",
@@ -745,7 +740,7 @@ export class WorkerHost {
       await this.runTurn(run, next.input);
       // Idle is counted from the end of the last turn, not its start: a turn
       // longer than the idle timeout must not end the worker on the next poll.
-      lastInputAt = this.now().getTime();
+      lastInputAt = performance.now();
     }
   }
 
@@ -779,7 +774,13 @@ export class WorkerHost {
       this.options.timeouts.requestTimeoutMs,
     );
     if (!flushed || this.ownerLost) return "ended";
-    await this.pending?.flush(this.options.timeouts.requestTimeoutMs);
+    // Raced with the loss, as the release below is: a lost attempt's engine
+    // is killed now, not once these requests give up (94S-392).
+    await this.untilAbandoned(
+      this.pending?.flush(this.options.timeouts.requestTimeoutMs) ??
+        Promise.resolve(),
+    );
+    if (this.ownerLost) return "ended";
     // A mirror error latched while flushing is already draining; the
     // shutdown releases only once the gateway has recorded it, which a pause
     // release would skip. One that lands during the release request itself
@@ -790,14 +791,17 @@ export class WorkerHost {
     let held = false;
     for (;;) {
       try {
-        const response = await this.withRetry(() =>
-          this.options.gateway.release({
-            ...this.scope,
-            turn_id: null,
-            reason: "pause",
-            pause_control_id: controlId,
-          }),
+        const response = await this.untilAbandoned(
+          this.withRetry(() =>
+            this.options.gateway.release({
+              ...this.scope,
+              turn_id: null,
+              reason: "pause",
+              pause_control_id: controlId,
+            }),
+          ),
         );
+        if (response === undefined) return "ended";
         this.released = response.released;
         if (!response.released) {
           // Only a superseded epoch answers so; the heartbeat says the same.
@@ -1746,43 +1750,17 @@ export class WorkerHost {
         reason: "the restore had not stopped by the release",
       });
     }
+    const releasable = await this.settleBeforeRelease();
+    // Beating until here, not only until the engine is gone: the event tail
+    // and the pending flush can outlast the lease, and one that lapses
+    // meanwhile is fenced by the reconciler with the turn unknown (94S-392).
     if (this.heartbeat !== undefined) {
       await settledWithin(
         this.heartbeat.stop(),
         this.withinGrace(this.options.timeouts.requestTimeoutMs),
       );
     }
-    // No durable write survives owner loss: not the event tail, not the
-    // in-flight turn, not the release.
-    if (this.reportedOwnerLost()) return;
-    if (!(await this.mirrorErrorRecorded())) return;
-    const flushed = await this.untilAbandoned(
-      (this.publisher?.idle() ?? Promise.resolve()).then(
-        () => true,
-        (error) => {
-          this.logger.warn("worker.events.undelivered", {
-            reason: describe(error),
-          });
-          return false;
-        },
-      ),
-    );
-    if (flushed === undefined) {
-      this.publisher?.abandon("The drain budget ran out");
-      this.logger.warn("worker.events.undelivered", {
-        reason: "The drain budget ran out",
-      });
-    }
-    if (this.reportedOwnerLost()) return;
-    // How each request ended decides its answer's receipt; once released,
-    // the gateway can only call the undelivered ones unknown.
-    await this.pending?.flush(
-      this.withinGrace(this.options.timeouts.requestTimeoutMs),
-    );
-    // What did not land by now never will; nothing may keep retrying past
-    // the release.
-    this.pending?.stop();
-    if (this.reportedOwnerLost()) return;
+    if (!releasable || this.reportedOwnerLost()) return;
     // The pause commit was the release.
     if (this.released) return;
     this.released = true;
@@ -1832,6 +1810,44 @@ export class WorkerHost {
         reason: "The stop grace ran out before the gateway answered",
       });
     }
+  }
+
+  /**
+   * Everything the attempt still owes the gateway before it lets the session
+   * go: false when it may not be let go at all.
+   */
+  private async settleBeforeRelease(): Promise<boolean> {
+    // No durable write survives owner loss: not the event tail, not the
+    // in-flight turn, not the release.
+    if (this.reportedOwnerLost()) return false;
+    if (!(await this.mirrorErrorRecorded())) return false;
+    const flushed = await this.untilAbandoned(
+      (this.publisher?.idle() ?? Promise.resolve()).then(
+        () => true,
+        (error) => {
+          this.logger.warn("worker.events.undelivered", {
+            reason: describe(error),
+          });
+          return false;
+        },
+      ),
+    );
+    if (flushed === undefined) {
+      this.publisher?.abandon("The drain budget ran out");
+      this.logger.warn("worker.events.undelivered", {
+        reason: "The drain budget ran out",
+      });
+    }
+    if (this.reportedOwnerLost()) return false;
+    // How each request ended decides its answer's receipt; once released,
+    // the gateway can only call the undelivered ones unknown.
+    await this.pending?.flush(
+      this.withinGrace(this.options.timeouts.requestTimeoutMs),
+    );
+    // What did not land by now never will; nothing may keep retrying past
+    // the release.
+    this.pending?.stop();
+    return true;
   }
 
   /**
@@ -1901,7 +1917,7 @@ export class WorkerHost {
   private withinGrace(ms: number, reserve = RELEASE_RESERVE_MS): number {
     const grace = this.options.timeouts.stopGraceMs;
     if (grace === undefined || this.stoppedAt === undefined) return ms;
-    const left = this.stoppedAt + grace - reserve - this.now().getTime();
+    const left = this.stoppedAt + grace - reserve - performance.now();
     return Math.max(0, Math.min(ms, left));
   }
 

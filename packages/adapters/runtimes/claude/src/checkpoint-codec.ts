@@ -1,4 +1,5 @@
-import { canonical, sha256Hex } from "@agent-platform/runtime-claude-codec";
+import { canonicalJsonOfJson } from "@agent-platform/contracts";
+import { sha256Hex } from "@agent-platform/runtime-claude-codec";
 import { describeComponents } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { publicProfile } from "./profile.ts";
@@ -42,22 +43,20 @@ export function claudeProfileFingerprint(
 ): string {
   const components = describeComponents(config);
   return sha256Hex(
-    JSON.stringify(
-      canonical({
-        appendSystemPrompt: config.appendSystemPrompt ?? null,
-        mcpServers: components.mcpServers,
-        model: config.model,
-        permissionMode: config.permissionMode ?? "default",
-        plugins: components.plugins,
-        profile: publicProfile(config.profile),
-        // Only when on, so a run that never let CLAUDE.md in keeps the
-        // digest its checkpoints were taken under before this switch existed.
-        ...(config.repositoryClaudeMd === undefined
-          ? {}
-          : { repositoryClaudeMd: true }),
-        settingSources: config.settingSources ?? ["project"],
-        tools: [...config.tools].sort(),
-      }),
-    ),
+    canonicalJsonOfJson({
+      appendSystemPrompt: config.appendSystemPrompt ?? null,
+      mcpServers: components.mcpServers,
+      model: config.model,
+      permissionMode: config.permissionMode ?? "default",
+      plugins: components.plugins,
+      profile: publicProfile(config.profile),
+      // Only when on, so a run that never let CLAUDE.md in keeps the
+      // digest its checkpoints were taken under before this switch existed.
+      ...(config.repositoryClaudeMd === undefined
+        ? {}
+        : { repositoryClaudeMd: true }),
+      settingSources: config.settingSources ?? ["project"],
+      tools: [...config.tools].sort(),
+    }),
   );
 }

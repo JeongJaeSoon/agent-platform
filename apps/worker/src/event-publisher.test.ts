@@ -160,6 +160,28 @@ describe("EventPublisher", () => {
     expect(batches[1]?.events[0]?.source_sequence).toBe(1);
   });
 
+  test("stops retrying a batch once its retry budget is spent, and fails the stream (94S-392)", async () => {
+    const failed: unknown[] = [];
+    let attempts = 0;
+    const events = new EventPublisher({
+      gateway: {
+        appendEvents: async () => {
+          attempts += 1;
+          throw new WorkerGatewayRequestError(503, null, "gateway down", true);
+        },
+      },
+      scope: () => ({ ...scope, turn_id: "1" }),
+      retryDelayMs: 5,
+      retryBudgetMs: 50,
+      onFailed: (error) => failed.push(error),
+    });
+    events.publish([systemEvent("a")], "1");
+
+    await expect(events.idle()).rejects.toThrow("gateway down");
+    expect(attempts).toBeGreaterThan(1);
+    expect(failed).toHaveLength(1);
+  });
+
   test("surfaces a fenced-out write to whoever waits for the tail", async () => {
     const { publisher: events } = publisher(async () => {
       throw new WorkerGatewayRequestError(

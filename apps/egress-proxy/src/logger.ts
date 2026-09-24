@@ -28,11 +28,17 @@ const rank: Readonly<Record<ProxyLogLevel, number>> = {
   warn: 30,
 };
 
+// Unset or empty is `info`; a value naming no level stops the proxy rather
+// than quietly logging at `info` (94S-389).
 export function resolveProxyLogLevel(value: string | undefined): ProxyLogLevel {
-  const normalized = value?.toLowerCase();
-  return (PROXY_LOG_LEVELS as readonly string[]).includes(normalized ?? "")
-    ? (normalized as ProxyLogLevel)
-    : "info";
+  if (value === undefined || value.trim() === "") return "info";
+  const normalized = value.trim().toLowerCase();
+  if (!(PROXY_LOG_LEVELS as readonly string[]).includes(normalized)) {
+    throw new Error(
+      `LOG_LEVEL must be one of ${PROXY_LOG_LEVELS.join("|")}, got ${JSON.stringify(value)}`,
+    );
+  }
+  return normalized as ProxyLogLevel;
 }
 
 export function createProxyLogger(

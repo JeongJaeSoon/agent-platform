@@ -164,7 +164,21 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
         true,
       );
     }
-    const payload = await readJson(response);
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      // A 2xx whose body broke off says the write may have landed, not that
+      // it was refused: the caller replays the idempotent key (94S-392).
+      if (response.ok) {
+        throw new WorkerGatewayRequestError(
+          response.status,
+          null,
+          `POST ${path} answered a body that could not be read: ${message(error)}`,
+          true,
+        );
+      }
+    }
     if (!response.ok) throw failure(path, response.status, payload);
     try {
       return decoder.parse(payload);
@@ -176,14 +190,6 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
         false,
       );
     }
-  }
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
   }
 }
 

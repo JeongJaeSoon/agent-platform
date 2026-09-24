@@ -1,6 +1,13 @@
 import { lstat, opendir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
+  CHECKPOINT_INSTRUCTIONS_REF,
+  type CheckpointBundleRefs,
+  checkpointBundleRefs,
+  PEELED_REF_FORMAT,
+  peeledCommits,
+} from "@agent-platform/runtime-core";
+import {
   type CommittedClaudeMd,
   check,
   type Git,
@@ -8,11 +15,7 @@ import {
   runGit,
 } from "./workspace.ts";
 import {
-  CHECKPOINT_BRANCH_PREFIX,
   CHECKPOINT_GIT_CONFIG,
-  CHECKPOINT_HEAD_REF,
-  CHECKPOINT_INSTRUCTIONS_REF,
-  CHECKPOINT_WORKTREE_REF,
   checkpointGitLimits,
   required,
 } from "./workspace-capture.ts";
@@ -25,15 +28,10 @@ import {
  * captures take as an object source so the commit stays bundleable after
  * the engine prunes its own copy.
  */
-export type StagedCheckpoint = {
-  /** `refs/heads/<name>` HEAD was on, or null for a detached HEAD. */
-  branch: string | null;
-  head: string;
-  instructions: string | null;
+export type StagedCheckpoint = CheckpointBundleRefs & {
   repository: string;
   /** Every ref tip of the chain's bundles, which the next capture builds on. */
   tips: string[];
-  worktree: string;
 };
 
 /**
@@ -50,9 +48,8 @@ const CLEAR_BATCH = 1024;
 /**
  * Fetches `bundle` into a new bare repository at `repository` and reads its
  * refs back, after the `bases` it builds on, oldest first (94S-227). Throws
- * for a bundle that is not the one `captureWorkspace` writes: a ref it does
- * not write, a required ref missing, a branch that is not at HEAD's commit,
- * or a worktree commit other than the manifest's. The fetch checks every
+ * for a bundle that is not the one `captureWorkspace` writes, by the rule
+ * finalize applies too (`checkpointBundleRefs`). The fetch checks every
  * object (`fsckObjects`), so what is staged is whole.
  */
 export async function stageCheckpointBundle(input: {
@@ -109,67 +106,24 @@ export async function stageCheckpointBundle(input: {
   }
   const refs = await listed(input.bundle);
   tips.push(...refs.values());
-  // As the bundle names them; one under `CHECKPOINT_BRANCH_PREFIX` stands
-  // for the branch under `refs/heads/`.
-  const branches = [...refs.keys()].filter(
-    (name) =>
-      name.startsWith("refs/heads/") ||
-      name.startsWith(CHECKPOINT_BRANCH_PREFIX),
-  );
-  const unknown = [...refs.keys()].filter(
-    (name) =>
-      !branches.includes(name) &&
-      name !== CHECKPOINT_HEAD_REF &&
-      name !== CHECKPOINT_WORKTREE_REF &&
-      name !== CHECKPOINT_INSTRUCTIONS_REF,
-  );
-  if (unknown.length > 0 || branches.length > 1) {
-    throw new Error(
-      `Checkpoint bundle carries refs a capture does not write: ${[...unknown, ...branches.slice(1)].join(", ")}`,
-    );
-  }
   await fetch(input.bundle, `refs/*:${STAGED}*`);
-  const commit = async (name: string): Promise<string | null> => {
-    if (!refs.has(name)) return null;
-    const staged = `${STAGED}${name.slice("refs/".length)}`;
-    return (
-      await required(
-        git(["rev-parse", "--verify", "--quiet", `${staged}^{commit}`]),
-        `rev-parse ${name}`,
-      )
-    ).trim();
-  };
-  const head = await commit(CHECKPOINT_HEAD_REF);
-  const worktree = await commit(CHECKPOINT_WORKTREE_REF);
-  if (head === null || worktree === null) {
-    throw new Error(
-      `Checkpoint bundle is missing ${CHECKPOINT_HEAD_REF} or ${CHECKPOINT_WORKTREE_REF}`,
-    );
-  }
-  if (worktree !== input.gitCommit) {
-    throw new Error(
-      `Checkpoint bundle pins worktree ${worktree}, not the manifest's ${input.gitCommit}`,
-    );
-  }
-  const carried = branches[0];
-  const branch =
-    carried?.startsWith(CHECKPOINT_BRANCH_PREFIX) === true
-      ? `refs/${carried.slice(CHECKPOINT_BRANCH_PREFIX.length)}`
-      : (carried ?? null);
-  if (carried !== undefined && (await commit(carried)) !== head) {
-    throw new Error(`Checkpoint bundle's ${carried} is not at HEAD's commit`);
-  }
-  if (branch !== null && !branch.startsWith("refs/heads/")) {
-    throw new Error(`Checkpoint bundle carries ${carried}, which is no branch`);
-  }
-  return {
-    branch,
-    head,
-    instructions: await commit(CHECKPOINT_INSTRUCTIONS_REF),
-    repository,
-    tips,
-    worktree,
-  };
+  const staged = peeledCommits(
+    await required(
+      git(["for-each-ref", `--format=${PEELED_REF_FORMAT}`, STAGED]),
+      "for-each-ref",
+    ),
+  );
+  const checked = checkpointBundleRefs(
+    [...refs.keys()].map((name) => [
+      name,
+      name.startsWith("refs/")
+        ? (staged.get(`${STAGED}${name.slice("refs/".length)}`) ?? null)
+        : null,
+    ]),
+    input.gitCommit,
+  );
+  if (checked.status === "invalid") throw new Error(checked.reason);
+  return { ...checked.refs, repository, tips };
 }
 
 /**

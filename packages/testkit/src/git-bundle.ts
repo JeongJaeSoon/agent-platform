@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  CHECKPOINT_HEAD_REF,
+  CHECKPOINT_WORKTREE_REF,
+} from "@agent-platform/runtime-core";
 
 /**
  * Real `git bundle` output for tests about checkpoints.
@@ -9,7 +13,8 @@ import { join } from "node:path";
  * A hand-rolled byte string would pass the manifest's digest check and then
  * tell us nothing about whether git would accept it, which is the only thing
  * the workspace side of a checkpoint rests on. So the fixture is a throwaway
- * repository git itself bundles.
+ * repository git itself bundles, carrying the refs a capture writes
+ * (`checkpointBundleRefs`) unless a test names others.
  */
 
 export type GitBundleFixture = {
@@ -26,9 +31,12 @@ export async function createGitBundle(
     /** What the one committed file holds; defaults to the message. */
     readonly contents?: Uint8Array;
     readonly message?: string;
+    /** Refs the bundle carries, all at the commit; a capture's by default. */
+    readonly refs?: readonly string[];
   } = {},
 ): Promise<GitBundleFixture> {
   const branch = options.branch ?? "main";
+  const refs = options.refs ?? capturedRefs(branch);
   const directory = await mkdtemp(join(tmpdir(), "testkit-bundle-"));
   try {
     await git(directory, "init", `--initial-branch=${branch}`, ".");
@@ -40,7 +48,8 @@ export async function createGitBundle(
     await git(directory, "commit", "-m", options.message ?? "checkpoint");
     const commit = (await git(directory, "rev-parse", "HEAD")).trim();
     const path = join(directory, "workspace.bundle");
-    await git(directory, "bundle", "create", path, branch);
+    for (const ref of refs) await git(directory, "update-ref", ref, commit);
+    await git(directory, "bundle", "create", path, ...refs);
     const bytes = new Uint8Array(await readFile(path));
     return {
       bytes,
@@ -86,14 +95,21 @@ export async function createGitBundleChain(): Promise<{
       await git(directory, "commit", "-m", contents);
       return (await git(directory, "rev-parse", "HEAD")).trim();
     };
+    const refs = capturedRefs("main");
     const first = await commitOf("first\n");
-    const base = await bundled("base", first, "main");
+    for (const ref of refs) await git(directory, "update-ref", ref, first);
+    const base = await bundled("base", first, ...refs);
     const second = await commitOf("second\n");
-    const tip = await bundled("tip", second, "main", `^${first}`);
+    for (const ref of refs) await git(directory, "update-ref", ref, second);
+    const tip = await bundled("tip", second, ...refs, `^${first}`);
     return { base, tip };
   } finally {
     await rm(directory, { force: true, recursive: true });
   }
+}
+
+function capturedRefs(branch: string): string[] {
+  return [CHECKPOINT_HEAD_REF, CHECKPOINT_WORKTREE_REF, `refs/heads/${branch}`];
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {

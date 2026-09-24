@@ -79,6 +79,10 @@ const config: Pick<
   tools: ["Bash", "Read"],
 };
 
+const STORED_MANIFEST = JSON.parse(
+  '{"createdAt":"2026-09-22T00:00:00.000Z","cwd":"/workspace","engine":"claude","resume":"sdk-session-1","revision":3,"runtime":{"cliVersion":"2.1.270","engine":"claude","profileSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sdkVersion":"0.3.270"},"sessionId":"session-1","transcripts":{"root":{"entryCount":1,"parts":[{"bytes":42,"key":"root/part-1.jsonl","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","version":"v1"}],"sha256":"8dee112f10b72c98a7dcbb4ee385d7eb99cfb8d19f7aea457b5362ae8a0e7f72"},"subagents":{"subagents/agent-a1b2":{"entryCount":1,"parts":[{"bytes":42,"key":"sub/a.jsonl","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","version":"v1"}],"sha256":"9a2dcedff2e1deb0b3159af0a4fd193a53033c4771fddaa0a0a8e5a7c62ceb45"},"subagents/agent-a1b2c3":{"entryCount":1,"parts":[{"bytes":42,"key":"sub/b.jsonl","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","version":"v1"}],"sha256":"c1f1788862c1f8a8b3fc7f778d9f7cd69fb4175634179350b3ffa5a989a5aa2f"}}},"version":2,"workspace":{"baseBundles":[{"bytes":10,"key":"base.bundle","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","version":"v0"}],"bundle":{"bytes":1024,"key":"workspace.bundle","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","version":"v2"},"gitCommit":"0000000000000000000000000000000000000000","untracked":[{"bytes":7,"executable":true,"key":"n","path":"bin/run.sh","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}}',
+);
+
 describe("Claude checkpoint codec", () => {
   test("round-trips a manifest", () => {
     const original = manifest();
@@ -205,6 +209,29 @@ describe("Claude checkpoint codec", () => {
     expect(encodeCheckpointManifest(shuffled)).toEqual(
       encodeCheckpointManifest(ordered),
     );
+  });
+
+  // Bytes the localeCompare encoder wrote before 94S-400, as they sit in the
+  // object store: a stored manifest must still hash to its row's digest, and
+  // decoding and re-encoding it must write the same bytes. A stored manifest
+  // is verified by the digest of its bytes, never re-encoded; only subagent
+  // labels differing in case or `_` would re-encode in another order.
+  test("a manifest stored before the shared canonical JSON still verifies and re-encodes to the same bytes (94S-400)", () => {
+    const stored = new TextEncoder().encode(
+      `${JSON.stringify(STORED_MANIFEST)}\n`,
+    );
+    const digest =
+      "0cc8eb21516be6ef67fe8d81457450971676649aacf522a52ad91a23d92b002a";
+    expect(new Bun.CryptoHasher("sha256").update(stored).digest("hex")).toBe(
+      digest,
+    );
+
+    const reencoded = encodeCheckpointManifest(
+      decodeCheckpointManifest(stored),
+    );
+
+    expect(reencoded.sha256).toBe(digest);
+    expect(reencoded.bytes).toEqual(stored);
   });
 
   test("the reported digest is the digest of the encoded bytes", async () => {
@@ -831,6 +858,40 @@ describe("Claude profile fingerprint", () => {
     expect(claudeProfileFingerprint(config)).toBe(
       "eab5b7b8016c7fd35dcf94b9e9aef27c727964b297789e2eee65d5d8a4631ae3",
     );
+  });
+
+  // Digests the localeCompare encoder computed before 94S-400 for the shape
+  // the worker stamps checkpoints with (composition.ts claudeRunConfig):
+  // checkpoints taken under them must stay compatible. That shape carries no
+  // MCP servers or plugins, the only inputs whose names the two orders sort
+  // apart (`serverA` and `server_a`, say).
+  test("keeps the digests checkpoints were stamped with before 94S-400", () => {
+    expect(
+      claudeProfileFingerprint({
+        model: "claude-sonnet-4-5",
+        permissionMode: "acceptEdits",
+        profile: {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.test/",
+          auth: {
+            kind: "egress_token",
+            token: "t",
+            transport: "http://proxy:8080",
+          },
+          principal: { ownerScope: "owner-a" },
+        },
+        repositoryClaudeMd: { contents: null },
+        settingSources: [],
+        tools: ["Read", "Bash"],
+      }),
+    ).toBe("81196b9a1cf5206c655fb55fccd357a197963438e20429e09011a7ff661f9898");
+    expect(
+      claudeProfileFingerprint({
+        ...config,
+        profile: { ...config.profile, auth: { kind: "api_key", value: "x" } },
+        tools: ["Bash"],
+      }),
+    ).toBe("922926b3a10d21c4a177a3ac988fae6e02c5095ccac209d8e8655e8a493b39de");
   });
 
   test("treats an explicit default permission mode as the default", () => {

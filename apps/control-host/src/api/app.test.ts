@@ -293,6 +293,16 @@ describe("API authentication", () => {
         code: "57014",
       }),
     ],
+    [
+      "SQLSTATE 40P01 deadlock",
+      Object.assign(new Error("deadlock detected"), { code: "40P01" }),
+    ],
+    [
+      "SQLSTATE 40001 serialization failure",
+      Object.assign(new Error("could not serialize access"), {
+        code: "40001",
+      }),
+    ],
     ["pg client query_timeout", new Error("Query read timeout")],
     [
       "database host that stopped resolving",
@@ -325,6 +335,7 @@ describe("API authentication", () => {
       headers: { Authorization: "Bearer csp_any" },
     });
     expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("1");
   });
 
   test("keeps 500 for a key lookup failure that is not a storage outage", async () => {

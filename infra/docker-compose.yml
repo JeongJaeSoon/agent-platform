@@ -293,7 +293,7 @@ services:
     # Change the two values together: raising the cap without the limit
     # hands the choice of what dies to the OOM killer (94S-259 saw it kill
     # index-pack under 1 GiB), and lowering the limit without the cap does
-    # the same. A cap below 256 MiB is refused at startup.
+    # the same. A cap below 512 MiB is refused at startup.
     mem_limit: ${API_MEMORY_MB:-7168}m
     ports:
       # Loopback only; a local development listener has no business on
