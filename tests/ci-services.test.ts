@@ -20,7 +20,7 @@ echo "$*" >>"$FAKE_LOG"
 case "$1" in
 run) echo "run output of $4"; exit "\${FAKE_RUN_RC:-0}" ;;
 inspect) echo "\${FAKE_STATE:-running}" ;;
-exec) [ "\${FAKE_PROBE:-ok}" = ok ] ;;
+exec) [ "\${FAKE_PROBE:-ok}" = hang ] && exec sleep 30; [ "\${FAKE_PROBE:-ok}" = ok ] ;;
 logs) echo "container log of $4" ;;
 esac
 `,
@@ -101,6 +101,16 @@ describe("ci-services.sh", () => {
     expect(out).toContain("::error::postgres service not ready after 2s");
     expect(out).toContain("::error::localstack service not ready after 2s");
     expect(out).toContain("container log of ci-localstack");
+  });
+
+  test("keeps its deadline when the daemon stops answering", () => {
+    const env = { LOCALSTACK: "false", SERVICES_CALL_TIMEOUT: "1" };
+    services("start", env);
+    const started = Date.now();
+    const { code, out } = services("wait", { ...env, FAKE_PROBE: "hang" });
+    expect(code).toBe(1);
+    expect(out).toContain("::error::postgres service not ready after 2s");
+    expect(Date.now() - started).toBeLessThan(10_000);
   });
 });
 

@@ -13,12 +13,15 @@
 #        POSTGRES_SERVICE_IMAGE, LOCALSTACK_SERVICE_IMAGE
 #        SERVICES_DIR                     launch records (default $RUNNER_TEMP/ci-services)
 #        SERVICES_WAIT_SECONDS            wait's deadline, pull included (default 180)
+#        SERVICES_CALL_TIMEOUT            seconds one docker call may take in wait (default 10)
 #        DOCKER_CLI                       the docker command (tests replace it)
 set -euo pipefail
 
 export SERVICES_DIR=${SERVICES_DIR:-${RUNNER_TEMP:?}/ci-services}
 dir=$SERVICES_DIR
 docker=${DOCKER_CLI:-docker}
+# A stalled daemon must not hold wait past its deadline by more than this.
+bounded() { timeout "${SERVICES_CALL_TIMEOUT:-10}" "$docker" "$@"; }
 
 enabled() {
   [ "${POSTGRES:-}" = true ] && echo postgres
@@ -52,8 +55,8 @@ launch() {
 
 probe() {
   case "$1" in
-  postgres) "$docker" exec ci-postgres pg_isready -q -U postgres -d sessions ;;
-  localstack) "$docker" exec ci-localstack curl -fsS http://localhost:4566/_localstack/health ;;
+  postgres) bounded exec ci-postgres pg_isready -q -U postgres -d sessions ;;
+  localstack) bounded exec ci-localstack curl -fsS http://localhost:4566/_localstack/health ;;
   esac
 }
 
@@ -65,7 +68,7 @@ report() {
   cat "$dir/$service.out" 2>/dev/null || true
   echo "::endgroup::"
   echo "::group::${service}: container log"
-  "$docker" logs --tail 200 "ci-$service" 2>&1 || true
+  bounded logs --tail 200 "ci-$service" 2>&1 || true
   echo "::endgroup::"
 }
 
@@ -104,7 +107,7 @@ wait)
         report "$service" "could not be started (docker run exited ${rc})"
         exit 1
       fi
-      state=$("$docker" inspect --format '{{.State.Status}}' "ci-$service" 2>/dev/null || echo missing)
+      state=$(bounded inspect --format '{{.State.Status}}' "ci-$service" 2>/dev/null || echo missing)
       if [ "$state" != running ]; then
         report "$service" "container is ${state}, not running"
         exit 1

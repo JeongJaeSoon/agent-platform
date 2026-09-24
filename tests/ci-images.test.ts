@@ -112,19 +112,26 @@ describe("images.yml", () => {
     return { name, entry: entryOf(name, digest) };
   };
 
-  test("builds every app on the Dockerfiles' base, from the mirror", () => {
-    const { name, entry } = pinned("BUN_IMAGE");
-    expect({ name, mirrored: entry !== undefined }).toEqual({
-      name: "bun",
-      mirrored: true,
-    });
-    for (const dockerfile of new Bun.Glob("apps/*/Dockerfile").scanSync(root))
-      expect(read(dockerfile)).toContain(`@${entry?.digest}\n`);
+  test("builds every app on the Dockerfiles' base and frontend, from the mirror", () => {
+    const base = pinned("BUN_IMAGE");
+    const frontend = pinned("DOCKERFILE_FRONTEND_IMAGE");
+    expect({
+      base: [base.name, base.entry !== undefined],
+      frontend: [frontend.name, frontend.entry !== undefined],
+    }).toEqual({ base: ["bun", true], frontend: ["dockerfile", true] });
+    for (const dockerfile of new Bun.Glob("apps/*/Dockerfile").scanSync(root)) {
+      const source = read(dockerfile);
+      expect(source).toContain(`@${base.entry?.digest}\n`);
+      expect(source).toStartWith(
+        `# syntax=docker/dockerfile:${frontend.entry?.tag}\n`,
+      );
+    }
     const builds = steps("docker/build-push-action");
     expect(builds.length).toBe(2);
     for (const build of builds)
       expect(build.with?.["build-args"]).toBe(
-        `BUN_IMAGE=${expression("env.BUN_IMAGE")}`,
+        `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
+          `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n`,
       );
   });
 
