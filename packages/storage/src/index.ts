@@ -28,6 +28,7 @@ import {
 export * from "./checkpoint-objects.ts";
 export * from "./git-runner.ts";
 export * from "./git-workspace-bundle-verifier.ts";
+export * from "./object-route.ts";
 export {
   BodyLimitError,
   type BodyReadBounds,

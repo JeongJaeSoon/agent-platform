@@ -34,6 +34,7 @@ import {
 import {
   assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
+  checkpointObjectRouteSigner,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
 } from "./checkpoints.ts";
@@ -176,12 +177,15 @@ const authorizerListener =
         fetch: createEgressAuthorizer({
           gateway: workers,
           logger,
+          ...(checkpointStorage === "disabled"
+            ? {}
+            : { objectStore: checkpointObjectRouteSigner(checkpointStorage) }),
           token: egressAuthorizer.token,
         }),
       });
 if (authorizerListener === undefined) {
   logger.warn(
-    "Egress authorizer is off (EGRESS_AUTHORIZER_PORT unset); workers cannot reach their provider or repository",
+    "Egress authorizer is off (EGRESS_AUTHORIZER_PORT unset); workers cannot reach their provider, repository or object store",
     {},
   );
 } else {

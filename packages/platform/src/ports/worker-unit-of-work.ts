@@ -95,12 +95,14 @@ export type ClaimInput = {
   now: Date;
 };
 
-export type EgressPurpose = "provider" | "repository";
+export type EgressPurpose = "provider" | "repository" | "object_store";
 
 export type EgressIssue = {
   providerHash: Uint8Array;
   repositoryHash: Uint8Array;
+  objectStoreHash: Uint8Array;
   bindingsOf(session: {
+    id: string;
     profileId: string | null;
     repositoryId: string | null;
   }): Record<EgressPurpose, string>;

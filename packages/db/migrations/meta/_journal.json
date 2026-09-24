@@ -197,6 +197,13 @@
       "when": 1790209354663,
       "tag": "0118_restore_failure_backoff",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1790229801873,
+      "tag": "0119_worker_credentials_object_store",
+      "breakpoints": true
     }
   ]
 }

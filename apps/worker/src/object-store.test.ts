@@ -1,19 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createServer, type Server, type Socket } from "node:net";
 
 import {
   createWorkerObjectStore,
+  ObjectStoreToken,
   objectStoreConfigFromEnv,
 } from "./object-store.ts";
 
 const base = {
-  AWS_ACCESS_KEY_ID: "test",
-  AWS_ENDPOINT_URL: "http://localstack:4566",
   AWS_REGION: "ap-northeast-1",
-  AWS_SECRET_ACCESS_KEY: "not-a-real-secret",
   S3_BUCKET: "claude-sessions",
   WORKER_OBJECT_PREFIX: "sessions/s1/",
 };
+const ROUTE = "http://egress-proxy:3129";
 
 const closers: Array<() => void> = [];
 
@@ -22,106 +20,43 @@ afterEach(() => {
 });
 
 describe("objectStoreConfigFromEnv", () => {
-  test("reads the control host's storage variables plus the session prefix", () => {
-    expect(objectStoreConfigFromEnv(base)).toEqual({
-      accessKeyId: "test",
+  test("reads the bucket, region and session prefix, and goes through the route", () => {
+    expect(objectStoreConfigFromEnv(base, ROUTE)).toEqual({
       bucket: "claude-sessions",
-      egress: { noProxy: [] },
-      endpoint: "http://localstack:4566",
+      endpoint: "http://egress-proxy:3129/object-store",
       region: "ap-northeast-1",
       scope: "sessions/s1/",
-      secretAccessKey: "not-a-real-secret",
     });
   });
 
-  test("an https or absent endpoint is accepted, and the proxy is read with it", () => {
-    // The egress proxy refuses the GREASE ECH in Bun's own https client
-    // (94S-219); the store's https transport sends none (94S-254), so both
-    // an https endpoint and AWS itself are reachable again.
-    const aws = objectStoreConfigFromEnv({
-      ...base,
-      AWS_ENDPOINT_URL: undefined,
-      HTTPS_PROXY: "http://egress-proxy:3128",
-      NO_PROXY: "localhost,127.0.0.1,::1",
-    });
-    expect(aws.endpoint).toBeUndefined();
-    expect(aws.egress?.proxy?.href).toBe("http://egress-proxy:3128/");
-    expect(aws.egress?.noProxy).toEqual(["localhost", "127.0.0.1", "::1"]);
-    expect(
-      objectStoreConfigFromEnv({ ...base, AWS_ENDPOINT_URL: " " }).endpoint,
-    ).toBeUndefined();
-    expect(
-      objectStoreConfigFromEnv({
+  test("an object store credential in the environment is not read", () => {
+    // 94S-251: the worker is never handed one, and one that turned up anyway
+    // would not be used to reach the store.
+    const config = objectStoreConfigFromEnv(
+      {
         ...base,
-        AWS_ENDPOINT_URL: "https://s3.ap-northeast-1.amazonaws.com",
-      }).endpoint,
-    ).toBe("https://s3.ap-northeast-1.amazonaws.com");
-    expect(() =>
-      objectStoreConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "ftp://localstack:4566",
-      }),
-    ).toThrow("http:// or https://");
-    // An https store must be named: Bun's TLS cannot verify an address
-    // without sending a false server name (TlsTunnelHttpHandler).
-    for (const url of ["https://10.0.0.5:9000", "https://[::1]:9000"]) {
-      expect(() =>
-        objectStoreConfigFromEnv({ ...base, AWS_ENDPOINT_URL: url }),
-      ).toThrow("must name its host");
-    }
-    expect(
-      objectStoreConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: "http://10.0.0.5:9000",
-      }).endpoint,
-    ).toBe("http://10.0.0.5:9000");
-  });
-
-  test("a credential in the endpoint or the proxy is refused without being quoted", () => {
-    for (const url of [
-      "https://user:hunter2@s3.example",
-      "http://u:hunter2@",
-      "ftp://u:hunter2@localstack",
-    ]) {
-      let message = "";
-      try {
-        objectStoreConfigFromEnv({ ...base, AWS_ENDPOINT_URL: url });
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).toContain("AWS_ENDPOINT_URL");
-      expect(message).not.toContain("hunter2");
-    }
-    for (const proxy of [
-      "http://u:hunter2@egress-proxy:3128",
-      "http://u:hunter2@",
-    ]) {
-      let message = "";
-      try {
-        objectStoreConfigFromEnv({ ...base, HTTPS_PROXY: proxy });
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).toContain("HTTPS_PROXY");
-      expect(message).not.toContain("hunter2");
-    }
+        AWS_ACCESS_KEY_ID: "control-host-key",
+        AWS_SECRET_ACCESS_KEY: "control-host-secret",
+        AWS_ENDPOINT_URL: "http://localstack:4566",
+      } as typeof base,
+      ROUTE,
+    );
+    expect(JSON.stringify(config)).not.toContain("control-host");
+    expect(config.endpoint).toBe("http://egress-proxy:3129/object-store");
   });
 
   test("every variable is required and the prefix must be a key prefix", () => {
-    const requiredNames = [
-      "AWS_ACCESS_KEY_ID",
+    for (const name of [
       "AWS_REGION",
-      "AWS_SECRET_ACCESS_KEY",
       "S3_BUCKET",
       "WORKER_OBJECT_PREFIX",
-    ] as const;
-    for (const name of requiredNames) {
+    ] as const) {
       expect(() =>
-        objectStoreConfigFromEnv({ ...base, [name]: undefined }),
+        objectStoreConfigFromEnv({ ...base, [name]: undefined }, ROUTE),
       ).toThrow(name);
-      expect(() => objectStoreConfigFromEnv({ ...base, [name]: " " })).toThrow(
-        name,
-      );
+      expect(() =>
+        objectStoreConfigFromEnv({ ...base, [name]: " " }, ROUTE),
+      ).toThrow(name);
     }
     for (const prefix of [
       "sessions/s1",
@@ -132,80 +67,85 @@ describe("objectStoreConfigFromEnv", () => {
       "/",
     ]) {
       expect(() =>
-        objectStoreConfigFromEnv({ ...base, WORKER_OBJECT_PREFIX: prefix }),
+        objectStoreConfigFromEnv(
+          { ...base, WORKER_OBJECT_PREFIX: prefix },
+          ROUTE,
+        ),
       ).toThrow("WORKER_OBJECT_PREFIX");
     }
-    expect(() =>
-      objectStoreConfigFromEnv({ ...base, AWS_ENDPOINT_URL: "localstack" }),
-    ).toThrow("AWS_ENDPOINT_URL");
   });
 });
 
+/** Records what reaches it and answers like S3 would a plain put. */
+type Seen = { method: string; url: string; headers: Headers };
+
+function fakeRoute(): { requests: Seen[]; url: string } {
+  const requests: Seen[] = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      // Copied: Bun empties a request once its handler is done with it.
+      requests.push({
+        method: request.method,
+        url: request.url,
+        headers: new Headers(request.headers),
+      });
+      return new Response(null, { status: 200, headers: { etag: '"e"' } });
+    },
+  });
+  closers.push(() => server.stop(true));
+  return { requests, url: `http://127.0.0.1:${server.port}` };
+}
+
 describe("createWorkerObjectStore", () => {
   test("refuses a key outside the session prefix without touching the network", async () => {
-    const store = createWorkerObjectStore({
-      ...objectStoreConfigFromEnv(base),
-      // Nothing listens here; a request that got this far would hang or fail
-      // with a connection error, not with the scope error asserted below.
-      endpoint: "http://127.0.0.1:9",
-    });
+    const route = fakeRoute();
+    const token = new ObjectStoreToken();
+    token.useToken("weo_token");
+    const store = createWorkerObjectStore(
+      objectStoreConfigFromEnv(base, route.url),
+      () => token.current(),
+    );
     await expect(store.get("sessions/s2/x")).rejects.toThrow(
       "outside the scope sessions/s1/",
     );
     await expect(store.list("sessions/")).rejects.toThrow(
       "outside the scope sessions/s1/",
     );
+    expect(route.requests).toEqual([]);
   });
 
-  test("without an endpoint it asks the proxy for a tunnel to the bucket's AWS host", async () => {
-    // What the allowlist has to name for AWS: the SDK's virtual-hosted
-    // bucket name on 443, never a path-style or plaintext request. The SDK
-    // falls back to AWS_ENDPOINT_URL in the process environment, which the
-    // LocalStack suites set, so AWS here means AWS without it.
-    const inherited = process.env.AWS_ENDPOINT_URL;
-    delete process.env.AWS_ENDPOINT_URL;
-    closers.push(() => {
-      if (inherited !== undefined) process.env.AWS_ENDPOINT_URL = inherited;
-    });
-    const { connects, url } = await refusingProxy();
+  test("sends nothing before the claim hands out its token", async () => {
+    const route = fakeRoute();
+    const token = new ObjectStoreToken();
     const store = createWorkerObjectStore(
-      objectStoreConfigFromEnv({
-        ...base,
-        AWS_ENDPOINT_URL: undefined,
-        HTTPS_PROXY: url,
-      }),
+      objectStoreConfigFromEnv(base, route.url),
+      () => token.current(),
     );
-    await expect(store.get("sessions/s1/x")).rejects.toThrow(
-      "proxy answered CONNECT",
+    await expect(
+      store.put("sessions/s1/x", new TextEncoder().encode("x")),
+    ).rejects.toThrow("used before the claim");
+    expect(route.requests).toEqual([]);
+  });
+
+  test("an S3 request goes to the route with the token where the access key id goes", async () => {
+    const route = fakeRoute();
+    const token = new ObjectStoreToken();
+    token.useToken("weo_token");
+    const store = createWorkerObjectStore(
+      objectStoreConfigFromEnv(base, route.url),
+      () => token.current(),
     );
-    expect(connects).toEqual([
-      "CONNECT claude-sessions.s3.ap-northeast-1.amazonaws.com:443 HTTP/1.1",
-    ]);
+    await store.put("sessions/s1/transcript/part-0", new Uint8Array([1, 2]));
+    expect(route.requests).toHaveLength(1);
+    const [put] = route.requests;
+    expect(put?.method).toBe("PUT");
+    expect(new URL(put?.url ?? "http://missing").pathname).toBe(
+      "/object-store/claude-sessions/sessions/s1/transcript/part-0",
+    );
+    expect(put?.headers.get("authorization")).toContain(
+      "Credential=weo_token/",
+    );
   });
 });
-
-/** Answers every CONNECT with 403, as the egress proxy does off-allowlist. */
-async function refusingProxy(): Promise<{ connects: string[]; url: string }> {
-  const connects: string[] = [];
-  const sockets: Socket[] = [];
-  const server: Server = createServer((socket) => {
-    sockets.push(socket);
-    let head = "";
-    socket.on("data", (chunk) => {
-      head += chunk.toString("latin1");
-      if (!head.includes("\r\n\r\n")) return;
-      connects.push(head.slice(0, head.indexOf("\r\n")));
-      socket.end("HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n");
-    });
-  });
-  closers.push(() => {
-    for (const socket of sockets) socket.destroy();
-    server.close();
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("proxy did not bind a port");
-  }
-  return { connects, url: `http://127.0.0.1:${address.port}` };
-}

@@ -762,7 +762,7 @@ async function issueCredentials(
   tx: Database,
   input: Pick<ClaimInput, "credentialHash" | "credentialTtlMs" | "egress">,
   attemptId: string,
-  session: Pick<SessionRow, "profileId" | "repositoryId">,
+  session: Pick<SessionRow, "id" | "profileId" | "repositoryId">,
 ) {
   const expiresAt = fromDbNow(input.credentialTtlMs);
   const bindings = input.egress.bindingsOf(session);
@@ -785,6 +785,13 @@ async function issueCredentials(
       attemptId,
       purpose: "repository",
       binding: bindings.repository,
+      expiresAt,
+    },
+    {
+      tokenHash: input.egress.objectStoreHash,
+      attemptId,
+      purpose: "object_store",
+      binding: bindings.object_store,
       expiresAt,
     },
   ]);

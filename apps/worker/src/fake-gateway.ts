@@ -36,6 +36,9 @@ import type {
 import { WorkerGatewayRequestError } from "./gateway-client.ts";
 import type { WorkerGatewaySession } from "./worker-host.ts";
 
+/** What the fake claim hands out for the object store route. */
+export const FAKE_OBJECT_STORE_TOKEN = "weo_fake-object-store-token";
+
 /**
  * The checkpoint half of the gateway, for a test that binds it to the real
  * CheckpointService. `commit` runs for a first-time finalize that carries a
@@ -290,6 +293,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           url: "https://git.example.test/fake.git",
           branch: "main",
         },
+      },
+      object_store: {
+        access: { kind: "egress_token", token: FAKE_OBJECT_STORE_TOKEN },
       },
       principal: { owner_scope: this.options.ownerScope },
       restore: this.options.restore ?? null,
