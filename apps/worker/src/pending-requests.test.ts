@@ -485,15 +485,21 @@ describe("PendingRequestRegistry", () => {
   });
 
   test("denies a request nobody answered before it expired, and says so", async () => {
-    const harness = registry({ timeoutMs: 5 });
+    const gateway = new FakeWorkerGateway();
+    const register = gateway.registerPending.bind(gateway);
+    gateway.registerPending = async (request) => ({
+      ...(await register(request)),
+      expires_in_ms: 5,
+    });
+    const harness = registry({ gateway });
     const decision = await harness.registry.request(permission("req-late"));
 
     expect(decision.behavior).toBe("deny");
     expect(decision.behavior === "deny" ? decision.message : "").toContain(
       "No answer arrived",
     );
-    await waitFor(() => harness.gateway.settled.length === 1, "settlement");
-    expect(harness.gateway.settled[0]?.outcome).toBe("expired");
+    await waitFor(() => gateway.settled.length === 1, "settlement");
+    expect(gateway.settled[0]?.outcome).toBe("expired");
   });
 
   test("never waits longer than the gateway takes answers", async () => {
@@ -510,6 +516,39 @@ describe("PendingRequestRegistry", () => {
 
     expect(decision.behavior).toBe("deny");
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  test("waits as long as the gateway takes answers, past its own timeout", async () => {
+    const gateway = new FakeWorkerGateway();
+    const register = gateway.registerPending.bind(gateway);
+    gateway.registerPending = async (request) => ({
+      ...(await register(request)),
+      expires_in_ms: 60_000,
+    });
+    const harness = registry({ gateway, timeoutMs: 5 });
+    const decision = harness.registry.request(permission("req-long"));
+    const requestId = await harness.idFor("req-long");
+    await Bun.sleep(50);
+    gateway.answer({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+    });
+
+    expect(await decision).toEqual({ behavior: "allow" });
+  });
+
+  test("gives up on a request the gateway never registered after its own timeout", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.registerPending = () => new Promise(() => {});
+    const harness = registry({ gateway, timeoutMs: 5 });
+
+    const decision = await harness.registry.request(permission("req-stuck"));
+
+    expect(decision).toEqual({
+      behavior: "deny",
+      message: "No answer arrived within 0s",
+    });
   });
 
   test("refuses an answer of the wrong kind rather than applying it", async () => {

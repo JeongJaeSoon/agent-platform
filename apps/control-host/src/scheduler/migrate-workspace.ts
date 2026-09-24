@@ -66,9 +66,7 @@ export async function migrateWorkspaces(
 ): Promise<number> {
   const args = parseMigrateWorkspaceArgs(argv, environment);
   const config = schedulerConfigFromEnv(environment);
-  const logger = createLogger(
-    config.logLevel === undefined ? {} : { level: config.logLevel },
-  );
+  const logger = createLogger({ level: config.logLevel });
   const pool = createEnforcedPool(
     config.databaseUrl,
     logger,

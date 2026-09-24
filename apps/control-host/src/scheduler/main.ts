@@ -29,9 +29,7 @@ export async function main(
   options: { stop?: AbortSignal } = {},
 ): Promise<SchedulerRunSummary> {
   const config = schedulerConfigFromEnv(environment);
-  const logger = createLogger(
-    config.logLevel === undefined ? {} : { level: config.logLevel },
-  );
+  const logger = createLogger({ level: config.logLevel });
   // The pass-lock client comes out of this pool too, so a frozen database
   // fails the lock query as well instead of holding the pass open.
   const pool = createEnforcedPool(

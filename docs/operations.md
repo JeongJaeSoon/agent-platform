@@ -4,7 +4,7 @@
 
 ## reconciler·scheduler와 worker 격리
 
-reconciler pass(`main.ts reconciler --once`, package script `reconciler`)는 한 batch만 처리한 뒤 종료한다. lease 기한은 스스로 해석하지 않는다 — API가 heartbeat를 받을 때 `workers.lease_expires_at`에 마감 시각을 적고 reconciler는 그 시각과 DB 시계를 비교한다. `HEARTBEAT_TTL_SEC`는 API만 읽으며(기본 30, 양수가 아니면 기동 거부), reconciler는 이 값이 설정돼 있으면 기동하지 않는다(94S-132). 실제 변경 전에 대상만 확인하려면 dry-run을 명시한다. 미처리 row 또는 `queued` turn만 자동 재전달하며, 실행 중이거나 상태를 증명할 수 없는 row는 session을 `failed`로 전환하고 명시적 복구 대상으로 남긴다.
+reconciler pass(`main.ts reconciler --once`, package script `reconciler`)는 한 batch만 처리한 뒤 종료한다. lease 기한은 스스로 해석하지 않는다 — API가 heartbeat를 받을 때 `workers.lease_expires_at`에 마감 시각을 적고 reconciler는 그 시각과 DB 시계를 비교한다. `HEARTBEAT_TTL_SEC`는 API만 읽으며(기본 30, 20 이하이거나 86400을 넘으면 기동 거부 — 아래 "API 설정" 참고), reconciler는 이 값이 설정돼 있으면 기동하지 않는다(94S-132). 실제 변경 전에 대상만 확인하려면 dry-run을 명시한다. 미처리 row 또는 `queued` turn만 자동 재전달하며, 실행 중이거나 상태를 증명할 수 없는 row는 session을 `failed`로 전환하고 명시적 복구 대상으로 남긴다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -475,6 +475,21 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 - 비용 상한은 turn이 끝난 뒤에 판정한다. 그래서 진행 중인 turn은 상한을 넘을 수 있다.
 - 비용이 보고되지 않은 turn(`outcome_unknown` 등)은 0으로 더해진다.
 - 누적 비용이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다(94S-394). 도구가 engine의 token으로 Messages route를 직접 부르는 호출은 SDK `total_cost_usd`에 잡히지 않는다. 그래서 상한 전의 직접 호출은 세지 못한다. 상한을 넘긴 뒤에는 새 provider 교환이 곧바로 거절되고, 이미 열린 교환은 다음 재인가(30초 주기)에서 끊긴다. repository·object store route는 거절하지 않는다.
+
+## API 설정 (94S-389)
+
+API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control-host/src/api/api-settings.ts`)로 읽는다. 설정하지 않으면 기본값을 쓴다. 설정했는데 틀린 값이면(빈 문자열 포함) 기본값으로 돌아가지 않는다. 이때 `Refusing to start: API settings are invalid` 한 줄에 문제를 모두 남기고 기동하지 않는다. 떠 있는 API의 `/readyz`도 같은 검증을 `config` 체크로 다시 수행한다.
+
+| 변수 | 기본값 | 허용 범위 |
+|---|---|---|
+| `HEARTBEAT_TTL_SEC` | 30 | 20 초과 86400 이하. worker는 lease가 끝나기 10초 전에 lease를 내려놓고(`WORKER_LEASE_SAFETY_MARGIN_SEC`), 10초마다 heartbeat를 보낸다(`WORKER_HEARTBEAT_INTERVAL_SEC`). 둘의 합 이하이면 모든 attempt가 첫 heartbeat 무렵 lease를 잃는다. launcher는 두 worker 값을 넘기지 않으므로 기본값을 기준으로 판정한다 |
+| `PENDING_REQUEST_TTL_SEC` | 1800 | 정수 1–604800. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다린다. worker의 `QUESTION_TIMEOUT_SEC`는 gateway가 등록을 확인하기 전에만 적용된다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 |
+| `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
+| `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다 |
+
+`AUTH_MODE=none`은 egress authorizer(`EGRESS_AUTHORIZER_PORT`)와 함께 쓸 수 없다. authorizer가 켜져 있다는 것은 worker가 proxy를 거쳐 이 API에 닿는다는 뜻이다. `none` 모드에서는 worker 안의 코드가 `X-Owner-Id`로 아무 owner나 행세할 수 있으므로 기동을 거부한다. `AUTH_MODE` 값 자체(`none`|`api-key`)는 전처럼 readiness가 판정한다.
+
+worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고(94S-292), scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
 
 ## 이미지와 Compose `apps` profile
 

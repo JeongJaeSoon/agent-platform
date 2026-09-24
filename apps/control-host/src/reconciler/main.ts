@@ -8,7 +8,7 @@ import {
   reconcileOverdueInterrupts,
 } from "@agent-platform/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger } from "@agent-platform/observability";
+import { createLogger, logLevelFromEnv } from "@agent-platform/observability";
 import {
   INTERRUPT_RECEIPT_DEADLINE_MS,
   INTERRUPT_SETTLE_DEADLINE_MS,
@@ -23,7 +23,7 @@ import {
 
 export function reconcilerDatabaseUrl(environment: NodeJS.ProcessEnv): string {
   const databaseUrl =
-    environment.DATABASE_URL ?? environment.QUEUE_DATABASE_URL;
+    environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
   }
@@ -34,9 +34,9 @@ export async function main(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   const databaseUrl = reconcilerDatabaseUrl(environment);
-  const logger = createLogger(
-    environment.LOG_LEVEL === undefined ? {} : { level: environment.LOG_LEVEL },
-  );
+  const logger = createLogger({
+    level: logLevelFromEnv(environment.LOG_LEVEL),
+  });
   const pool = createEnforcedPool(
     databaseUrl,
     logger,

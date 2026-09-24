@@ -30,6 +30,15 @@ describe("egressProxyConfigFromEnv", () => {
     ).toMatchObject({ hostname: "0.0.0.0", logLevel: "info", port: 3128 });
   });
 
+  test("a level that names none fails at startup instead of logging at info", () => {
+    expect(() =>
+      egressProxyConfigFromEnv({
+        EGRESS_ALLOWLIST: "api.anthropic.com:443",
+        LOG_LEVEL: "verbose",
+      }),
+    ).toThrow('LOG_LEVEL must be one of debug|info|warn|error, got "verbose"');
+  });
+
   test("an empty policy is a misconfiguration, not a lockdown", () => {
     expect(() => egressProxyConfigFromEnv({})).toThrow("at least one");
   });

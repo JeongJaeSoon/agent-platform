@@ -84,8 +84,12 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
   const { PASS_LOOP_ROLES, passLoopConfigFromEnv, runPassLoop } = await import(
     "./pass-loop/loop.ts"
   );
-  const { createLogger } = await import("@agent-platform/observability");
+  const { createLogger, logLevelFromEnv } = await import(
+    "@agent-platform/observability"
+  );
   const config = passLoopConfigFromEnv(process.env, PASS_LOOP_ROLES[role]);
+  // Every pass child logs at this level; a typo stops the loop here, once.
+  const level = logLevelFromEnv(process.env.LOG_LEVEL);
   let passEnv: Record<string, string> | undefined;
   // The passes would refuse a bad setting one by one; refuse it here, once.
   if (role === "scheduler") {
@@ -107,9 +111,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     reconcilerDatabaseUrl(process.env);
     reconcilerSettings(process.env);
   }
-  const logger = createLogger(
-    process.env.LOG_LEVEL === undefined ? {} : { level: process.env.LOG_LEVEL },
-  );
+  const logger = createLogger({ level });
   const shutdown = new AbortController();
   for (const name of ["SIGTERM", "SIGINT"] as const) {
     process.on(name, () => {

@@ -138,7 +138,7 @@ REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 { "items": [ { "request_id": "req_…", "turn_id": "1", "kind": "permission", "tool": "Bash", "input": { "command": "echo alpha > hello.txt", … }, "expires_at": "…" } ] }
 ```
 
-요청은 30분(`PENDING_REQUEST_TTL_SEC`) 안에 답하지 않으면 거절로 끝난다.
+요청은 30분(`PENDING_REQUEST_TTL_SEC`, 정수 초) 안에 답하지 않으면 거절로 끝난다. 값을 바꾸면 worker도 그만큼 기다린다. 다만 turn 상한 `MAX_TURN_SECONDS`를 넘길 수는 없다.
 
 ### ④ 응답
 

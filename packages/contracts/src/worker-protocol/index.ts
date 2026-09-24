@@ -188,6 +188,13 @@ export const profileFingerprintSchema = z
 // deadline as the database clock names it, for logs; no worker judges by it.
 export const leaseRemainingMsSchema = z.number().int().nonnegative();
 
+// The worker's lease clock when the launcher sets neither
+// WORKER_HEARTBEAT_INTERVAL_SEC nor WORKER_LEASE_SAFETY_MARGIN_SEC, which no
+// launcher does. The API refuses a HEARTBEAT_TTL_SEC that cannot cover both:
+// with less, every attempt gives its lease up at or near its first beat.
+export const WORKER_HEARTBEAT_INTERVAL_MS = 10_000;
+export const WORKER_LEASE_SAFETY_MARGIN_MS = 10_000;
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
