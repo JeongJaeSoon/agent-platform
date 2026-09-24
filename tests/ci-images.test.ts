@@ -92,6 +92,66 @@ describe("the mirror list", () => {
   });
 });
 
+describe("images.yml", () => {
+  // 94S-317: the app builds pull their base and BuildKit from the mirror too.
+  type Step = { uses?: string; with?: Record<string, unknown> };
+  const imagesText = read(".github/workflows/images.yml");
+  const images = Bun.YAML.parse(imagesText) as {
+    env: Record<string, string>;
+    jobs: Record<string, { steps: Step[] }>;
+  };
+  const steps = (action: string) =>
+    Object.values(images.jobs)
+      .flatMap((job) => job.steps)
+      .filter((step) => step.uses?.startsWith(`${action}@`));
+  /** `${{ <body> }}`, spelled so the linter does not read a template slot. */
+  const expression = (body: string) => `\${{ ${body} }}`;
+  const pinned = (variable: string) => {
+    const [, name = "", digest] =
+      String(images.env[variable]).match(MIRROR_REF) ?? [];
+    return { name, entry: entryOf(name, digest) };
+  };
+
+  test("builds every app on the Dockerfiles' base, from the mirror", () => {
+    const { name, entry } = pinned("BUN_IMAGE");
+    expect({ name, mirrored: entry !== undefined }).toEqual({
+      name: "bun",
+      mirrored: true,
+    });
+    for (const dockerfile of new Bun.Glob("apps/*/Dockerfile").scanSync(root))
+      expect(read(dockerfile)).toContain(`@${entry?.digest}\n`);
+    const builds = steps("docker/build-push-action");
+    expect(builds.length).toBe(2);
+    for (const build of builds)
+      expect(build.with?.["build-args"]).toBe(
+        `BUN_IMAGE=${expression("env.BUN_IMAGE")}`,
+      );
+  });
+
+  test("runs BuildKit from the mirror wherever buildx is set up", () => {
+    const { name, entry } = pinned("BUILDKIT_IMAGE");
+    expect({ name, mirrored: entry !== undefined }).toEqual({
+      name: "buildkit",
+      mirrored: true,
+    });
+    const setups = steps("docker/setup-buildx-action");
+    expect(setups.length).toBe(3);
+    for (const setup of setups)
+      expect(setup.with?.["driver-opts"]).toBe(
+        `image=${expression("env.BUILDKIT_IMAGE")}`,
+      );
+  });
+
+  test("names no Docker Hub image", () => {
+    for (const { source, tag } of mirrored)
+      expect(imagesText).not.toContain(`${shortName(source)}:${tag}`);
+    for (const reference of imagesText.match(
+      /ghcr\.io\/jeongjaesoon\/agent-platform-ci\/[^\s'"]+/g,
+    ) ?? [])
+      expect(reference).toMatch(MIRROR_REF);
+  });
+});
+
 describe("assert-no-docker-hub-images.sh", () => {
   const script = join(root, ".github/scripts/assert-no-docker-hub-images.sh");
   /**
