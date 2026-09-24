@@ -354,7 +354,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With
 
 ### 세션 실행 권한 회수와 복구 (94S-321)
 
-API key 폐기(`keys revoke`)는 그 key의 다음 요청만 막고, 이미 돌고 있는 세션의 worker는 건드리지 않는다. 한 세션의 실행을 거두려면 grants CLI를 쓴다. Grant 관리 API나 UI는 알파에 없다. keys CLI와 같은 곳(API 이미지 안, 같은 DB)에서 실행하고, `--reason`은 필수다. 이유는 세션 이벤트(`execution_revoked`·`execution_restored`)에 운영자 행위로 남는다.
+API key 폐기(`keys revoke`)는 그 key로 오는 요청과 열려 있던 SSE만 끊고, 이미 돌고 있는 세션의 worker는 건드리지 않는다. 한 세션의 실행을 거두려면 grants CLI를 쓴다. Grant 관리 API나 UI는 알파에 없다. keys CLI와 같은 곳(API 이미지 안, 같은 DB)에서 실행하고, `--reason`은 필수다. 이유는 세션 이벤트(`execution_revoked`·`execution_restored`)에 운영자 행위로 남는다.
 
 ```bash
 # compose(apps profile): api 컨테이너 안에서 실행한다
@@ -375,20 +375,20 @@ receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남�
 
 **restore**는 차단만 푼다. 올라간 auth_revision, 폐기된 token, 세션이 도달한 admission 상태(stopped 또는 recovery_required)는 그대로다. 이어서 하려면 terminate 뒤처럼 owner가 resume하거나 운영자가 recovery를 결정한다. 회수한 execution이 아직 살아 있을 수 있으면 restore는 거부된다. scheduler가 kill을 끝내고 execution이 사라진 것이 관측된 뒤 다시 실행한다.
 
-결과는 한 줄이다. 성공이면 stdout에 쓰고 exit 0, 실패면 stderr에 쓰고 exit 1이다. 같은 명령을 다시 실행해도 안전하다.
+결과는 아래 표의 한 줄이다. 성공이면 stdout에 쓰고 exit 0, 거부면 stderr에 쓰고 exit 1이다. 같은 명령을 다시 실행해도 안전하다. 인자 오류나 DB 오류는 표에 없는 여러 줄 오류(stack 포함)로 stderr에 나오고 exit 1이다.
 
 | 줄 | exit | 뜻 |
 |---|---|---|
 | `revoked <id> owner=… auth_revision=… execution=<id\|none> credentials_revoked=<n> receipt=… receipt_status=<accepted\|succeeded>` | 0 | 회수했다. `receipt_status`는 kill을 기다릴 execution이 있으면 `accepted`, 없으면 곧바로 `succeeded`다 |
 | `already_revoked <id> revoked_at=… reason="…"` | 0 | 이미 회수된 세션이다. 아무것도 바꾸지 않는다 |
 | `restored <id> owner=…` | 0 | 차단을 풀었다 |
-| `not_revoked <id>` | 0 | 회수된 적이 없다. 아무것도 바꾸지 않는다 |
+| `not_revoked <id>` | 0 | 지금 회수된 상태가 아니다(이미 복구된 세션 포함). 아무것도 바꾸지 않는다 |
 | `session <id>: execution <id> has not been observed gone; restore once it has` | 1 | restore 거부. 잠시 뒤 다시 실행한다 |
 | `session <id> not found` | 1 | 그런 세션이 없다 |
 | `session <id> is closed` | 1 | 닫힌 세션은 회수할 것이 없다 |
 | `session <id> runs on a legacy pod binding with no kill path` | 1 | legacy binding이라 kill 경로가 없다 |
 
-`session_id`는 UUID여야 한다. 인자가 틀리거나 `--reason`이 비어 있으면 DB에 연결하기 전에 사용법이 담긴 오류를 stderr에 쓰고 exit 1로 끝난다. `DATABASE_URL`이 없어도 같다.
+`session_id`는 UUID여야 한다. 인자가 틀리거나 `--reason`이 비어 있으면 DB에 연결하기 전에 사용법이 담긴 오류로 끝난다. `DATABASE_URL`이 없어도 인자 검사가 먼저다.
 
 ## 설치 상한 (94S-131)
 
