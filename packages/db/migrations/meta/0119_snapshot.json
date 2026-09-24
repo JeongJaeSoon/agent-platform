@@ -1,5 +1,5 @@
 {
-  "id": "9bfe2a9c-26df-42fd-a10c-ce1d7679907a",
+  "id": "2f109a18-0e16-4dcc-9160-010f7c4f8ff5",
   "prevId": "1263a0f8-f439-4bc2-add2-17857cc6e1ec",
   "version": "7",
   "dialect": "postgresql",
@@ -1893,6 +1893,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "profile_fingerprint": {
+          "name": "profile_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "repository_id": {
           "name": "repository_id",
           "type": "text",
@@ -2658,7 +2664,7 @@
       "checkConstraints": {
         "worker_credentials_purpose_check": {
           "name": "worker_credentials_purpose_check",
-          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store')"
+          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository')"
         },
         "worker_credentials_binding_check": {
           "name": "worker_credentials_binding_check",

@@ -201,8 +201,8 @@
     {
       "idx": 119,
       "version": "7",
-      "when": 1790229801873,
-      "tag": "0119_worker_credentials_object_store",
+      "when": 1790229985734,
+      "tag": "0119_session_profile_fingerprint",
       "breakpoints": true
     }
   ]

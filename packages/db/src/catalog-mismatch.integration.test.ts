@@ -45,6 +45,7 @@ const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 64 };
 
 const pairAt = (url: string): RunnablePair => ({
   profileId: PROFILE_ID,
+  profileFingerprint: `sha256:${"a".repeat(64)}`,
   repositoryId: "sample-app",
   url,
   branch: "main",

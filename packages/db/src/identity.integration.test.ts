@@ -115,6 +115,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "restore_failure_count",
     "restore_retry_at",
     "restore_failure_reason",
+    // 94S-253
+    "profile_fingerprint",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],

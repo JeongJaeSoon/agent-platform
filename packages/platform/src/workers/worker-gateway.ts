@@ -416,27 +416,36 @@ export function createWorkerGateway(deps: {
   // Only sessions this host can actually run are claimable. Letting a
   // session whose profile left the catalog start anyway would hand it a
   // guessed runtime, and the worker would run the wrong agent or crash-loop
-  // through a queue slot. It waits for a host that knows the profile — and
-  // that still lets it run against the session's repository (94S-258).
+  // through a queue slot. It waits for a host that knows the profile — as
+  // the session was created with it (94S-253) — and that still lets it run
+  // against the session's repository (94S-258).
   const runnable: RunnablePair[] = Object.entries(catalog.repositories).flatMap(
     ([repositoryId, repository]) =>
-      repository.profiles
-        .filter((profileId) => Object.hasOwn(catalog.profiles, profileId))
-        .map((profileId) => ({
-          profileId,
-          repositoryId,
-          url: repository.url,
-          branch: repository.branch,
-        })),
+      repository.profiles.flatMap((profileId) => {
+        const profile = own(catalog.profiles, profileId);
+        return profile
+          ? [
+              {
+                profileId,
+                profileFingerprint: profileFingerprint(profile),
+                repositoryId,
+                url: repository.url,
+                branch: repository.branch,
+              },
+            ]
+          : [];
+      }),
   );
 
   // Resolved at claim time, on purpose: the catalog is where an operator
   // rotates a provider credential, and the next claim (a new generation, or
-  // a replay) is when the worker should see it. Everything else under a
-  // profile id is meant to stay put — a session's checkpoint fingerprint
-  // and transcript were made with that model and those tools, so a changed
-  // setting is a new profile id, not an edit. What the session was created
-  // against — its repository — comes from the row (WorkerBinding.repository).
+  // a replay) is when the egress route should use it. Everything else under
+  // a profile id stays put — a session's checkpoint fingerprint and
+  // transcript were made with that model and those tools — and the claim
+  // enforces it: only a profile that still hashes to the session's stored
+  // fingerprint is runnable (94S-253), so what is read here is what the
+  // session was created with. What the session was created against — its
+  // repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(
     profileId: string | null,
     providerToken: string,

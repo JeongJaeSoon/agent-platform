@@ -374,6 +374,12 @@ export const sessions = pgTable(
     authRevision: integer("auth_revision").notNull().default(0),
     executionId: text("execution_id"),
     profileId: text("profile_id"),
+    // The profile's fingerprint (catalog.ts profileFingerprint) when the
+    // session was accepted: settings and credential reference, never the
+    // value. A claim binds only on a host whose profile under this id still
+    // hashes to it (94S-253). Null on rows from before it, pinned by their
+    // next claim.
+    profileFingerprint: text("profile_fingerprint"),
     repositoryId: text("repository_id"),
     checkpointRevision: integer("checkpoint_revision"),
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
