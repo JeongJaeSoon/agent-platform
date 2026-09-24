@@ -125,7 +125,7 @@ fi
 
 echo "== tests/e2e" >&2
 set +e
-bun test ./tests/e2e/alpha-path.e2e.ts --timeout 900000 \
+bun test ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts --timeout 900000 \
   --reporter=junit --reporter-outfile="$out/junit.xml" 2>&1 | tee "$out/test.log"
 status="${PIPESTATUS[0]}"
 set -e
