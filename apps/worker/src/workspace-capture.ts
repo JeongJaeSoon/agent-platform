@@ -1,6 +1,6 @@
-import { constants } from "node:fs";
+import { createHash } from "node:crypto";
+import { constants, createReadStream } from "node:fs";
 import { lstat, mkdtemp, open, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type GitResourceLimits,
@@ -24,7 +24,8 @@ import {
  * commit on its own, and the untracked files git does not carry.
  */
 export type WorkspaceCapture = {
-  bundle: Uint8Array;
+  /** Written where the caller asked (`bundlePath`), and never read into memory. */
+  bundle: { bytes: number; path: string; sha256: string };
   /** The snapshot commit, `refs/checkpoint/worktree` in the bundle. */
   gitCommit: string;
   untracked: Array<{ bytes: Uint8Array; executable: boolean; path: string }>;
@@ -37,8 +38,8 @@ export type WorkspaceCaptureResult =
 export type WorkspaceCaptureLimits = {
   /**
    * At most the control plane's `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`, which
-   * refuses anything larger. Lower than it because the worker still holds
-   * the bundle in memory to upload it; the control plane streams it.
+   * refuses anything larger. The bundle goes to disk and is streamed from
+   * there, so what it costs is workspace quota, not memory.
    */
   maxBundleBytes: number;
   /**
@@ -62,10 +63,11 @@ export type WorkspaceCaptureLimits = {
 /**
  * Deliberately minimal: the whole history rides every checkpoint and the
  * untracked files are held in memory to be uploaded. Revisit when sessions
- * approach these (94S-227 makes bundles incremental).
+ * approach these (94S-227 makes bundles incremental). The bundle limit is
+ * the control plane's, which it verifies within its time budgets (94S-318).
  */
 export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
-  maxBundleBytes: 128 * 1024 * 1024,
+  maxBundleBytes: 256 * 1024 * 1024,
   maxFileBytes: 512 * 1024 * 1024,
   maxIndexBytes: 256 * 1024 * 1024,
   maxStagedBytes: 512 * 1024 * 1024,
@@ -158,6 +160,24 @@ export function checkpointGitLimits(
 }
 
 /**
+ * A new directory of the worker's own inside the workspace's `.git`: the
+ * workspace volume is the only disk a worker has (`/tmp` and HOME are tmpfs,
+ * paid for out of the container's memory), and inside `.git` neither git nor
+ * a capture takes it for a file of the tree. Undefined when `.git` is not a
+ * directory. The engine runs as the worker's user and could reach it anyway,
+ * so a link it planted grants nothing; what is read back is checked.
+ */
+export async function workerScratch(
+  root: string,
+  purpose: string,
+): Promise<string | undefined> {
+  const gitDirectory = join(root, ".git");
+  const found = await lstat(gitDirectory).catch(() => null);
+  if (found?.isDirectory() !== true) return undefined;
+  return mkdtemp(join(gitDirectory, `agent-platform-${purpose}-`));
+}
+
+/**
  * What any one git call in a capture may print before it is killed: the
  * tracked-file listings grow with the repository, and nothing else bounds
  * them.
@@ -213,6 +233,8 @@ const SNAPSHOT_IDENTITY = {
  */
 export async function captureWorkspace(input: {
   root: string;
+  /** A path in a directory the caller owns and removes. */
+  bundlePath: string;
   signal: AbortSignal;
   limits?: WorkspaceCaptureLimits;
   instructions?: InstructionsPin;
@@ -226,11 +248,10 @@ export async function captureWorkspace(input: {
     reason,
   });
   const gitDirectory = join(root, ".git");
-  const found = await lstat(gitDirectory).catch(() => null);
-  if (found?.isDirectory() !== true) {
+  const scratch = await workerScratch(root, "capture");
+  if (scratch === undefined) {
     return refused("the workspace .git is not a directory");
   }
-  const scratch = await mkdtemp(join(tmpdir(), "worker-capture-"));
   try {
     const repository = join(scratch, "checkpoint.git");
     const neutralized: Array<[string, string]> = [];
@@ -449,27 +470,51 @@ export async function captureWorkspace(input: {
     for (const [name, oid] of refs) {
       await check(bundling(["update-ref", name, oid]), "update-ref");
     }
-    // Written to stdout and cut off at the limit, so an oversized history
-    // costs the limit in memory and nothing on disk.
-    let bundle: Uint8Array;
+    // Written to disk under a file size limit one byte past the bundle's,
+    // so an oversized history costs that much disk and is stopped there
+    // (Linux; elsewhere it is measured once written).
+    const oversized = refused(
+      `the workspace bundle is over the ${limits.maxBundleBytes} bytes the control plane verifies`,
+    );
     try {
-      const created = await runBytes(
-        ["bundle", "create", "--quiet", "-", ...refs.map(([name]) => name)],
-        { GIT_DIR: repository },
-        limits.maxBundleBytes,
+      const created = await runGitBytes(
+        [
+          "bundle",
+          "create",
+          "--quiet",
+          input.bundlePath,
+          ...refs.map(([name]) => name),
+        ],
+        {
+          cwd: root,
+          extra: {
+            config: CHECKPOINT_GIT_CONFIG,
+            env: { GIT_DIR: repository },
+          },
+          limits: { ...gitLimits, fileSizeBytes: limits.maxBundleBytes + 1 },
+          maxStdoutBytes: OUTPUT_LIMIT_BYTES,
+          network: null,
+          overrides: neutralized,
+          redact: (text) => text,
+          signal,
+        },
       );
       if (created.code !== 0) {
         throw new Error(
           `git bundle create failed (exit ${created.code}): ${created.stderr.trim()}`,
         );
       }
-      bundle = created.stdout;
     } catch (error) {
-      if (!(error instanceof GitOutputLimitError)) throw error;
-      return refused(
-        `the workspace bundle is over the ${limits.maxBundleBytes} bytes the control plane verifies`,
-      );
+      if (
+        error instanceof GitResourceLimitError &&
+        /SIGXFSZ|signal 25\b|file too large/i.test(error.message)
+      ) {
+        return oversized;
+      }
+      throw error;
     }
+    const bundle = await digestFile(input.bundlePath);
+    if (bundle.bytes > limits.maxBundleBytes) return oversized;
 
     const untracked: WorkspaceCapture["untracked"] = [];
     let left = limits.maxUntrackedBytes;
@@ -486,7 +531,14 @@ export async function captureWorkspace(input: {
       left -= read.bytes.byteLength;
       untracked.push({ bytes: read.bytes, executable: read.executable, path });
     }
-    return { status: "captured", capture: { bundle, gitCommit, untracked } };
+    return {
+      status: "captured",
+      capture: {
+        bundle: { ...bundle, path: input.bundlePath },
+        gitCommit,
+        untracked,
+      },
+    };
   } catch (error) {
     // Any git in the capture that ran past what it may use or print, where
     // no step above has a more specific reason.
@@ -500,6 +552,18 @@ export async function captureWorkspace(input: {
   } finally {
     await rm(scratch, { force: true, recursive: true });
   }
+}
+
+async function digestFile(
+  path: string,
+): Promise<{ bytes: number; sha256: string }> {
+  const hash = createHash("sha256");
+  let bytes = 0;
+  for await (const chunk of createReadStream(path) as AsyncIterable<Buffer>) {
+    hash.update(chunk);
+    bytes += chunk.byteLength;
+  }
+  return { bytes, sha256: hash.digest("hex") };
 }
 
 /** Why `add -u` against this repository would not stage what is on disk. */

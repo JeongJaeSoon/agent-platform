@@ -1,5 +1,5 @@
-import { lstat, opendir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { lstat, opendir, rename, rm } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   type CommittedClaudeMd,
   check,
@@ -18,10 +18,11 @@ import {
 
 /**
  * A checkpoint bundle fetched into a repository of the worker's own, outside
- * the workspace, and checked against the manifest before the workspace is
- * touched. The repository outlives the restore: the instructions commit is
- * read from it, and later captures keep it as an object source so that
- * commit stays bundleable after the engine prunes its own copy.
+ * the workspace's tree, and checked against the manifest before the
+ * workspace is touched. The repository outlives the restore: the
+ * instructions commit is read from it, and later captures keep it as an
+ * object source so that commit stays bundleable after the engine prunes its
+ * own copy.
  */
 export type StagedCheckpoint = {
   /** `refs/heads/<name>` HEAD was on, or null for a detached HEAD. */
@@ -31,6 +32,12 @@ export type StagedCheckpoint = {
   repository: string;
   worktree: string;
 };
+
+/**
+ * Where, inside the restored workspace's new `.git`, the directory a restore
+ * staged into (`restoreCheckpointTree`'s `keep`) ends up.
+ */
+export const RESTORED_CHECKPOINT_DIRECTORY = "agent-platform-checkpoint";
 
 const STAGED = "refs/bundle/";
 const RESTORING = "refs/restore/";
@@ -165,8 +172,13 @@ export async function stagedClaudeMd(
  * the next capture stages them again even when they are ignored.
  *
  * The root is the mount point and stays; its contents go, so nothing a
- * previous execution wrote after the checkpoint survives. The repository is
- * new: the old one's config, hooks and remotes are the last engine's.
+ * previous execution wrote after the checkpoint survives — except `keep`,
+ * the directory directly under the root this restore downloaded and staged
+ * into (the workspace volume being the only disk a worker has), which is
+ * moved into the new `.git` as `RESTORED_CHECKPOINT_DIRECTORY`, out of the
+ * tree's way. The staged checkpoint comes back with its repository where it
+ * now is. The repository is new: the old one's config, hooks and remotes
+ * are the last engine's.
  * Stops between steps once `signal` aborts; a restore stopped half way is
  * redone whole by the next attempt, which never reads what this one left.
  */
@@ -175,30 +187,29 @@ export async function restoreCheckpointTree(input: {
   root: string;
   signal: AbortSignal;
   staged: StagedCheckpoint;
-}): Promise<void> {
-  const { root, signal, staged } = input;
-  // Everything below deletes through `root`: a link there would aim it
-  // somewhere else.
-  if (!(await lstat(root)).isDirectory()) {
-    throw new Error(`the workspace root ${root} is not a directory`);
+  keep?: string;
+}): Promise<{ kept?: string; staged: StagedCheckpoint }> {
+  const { root, signal } = input;
+  let { staged } = input;
+  const keep = input.keep === undefined ? undefined : resolve(input.keep);
+  if (
+    keep !== undefined &&
+    (dirname(keep) !== resolve(root) || !(await lstat(keep)).isDirectory())
+  ) {
+    throw new Error(`${keep} is not a directory directly under ${root}`);
   }
-  // In batches, so an execution that left millions of names behind is not
-  // read into memory at once. Each pass starts over, since what a directory
-  // stream returns after its own entries are removed is unspecified.
-  for (;;) {
-    const batch: string[] = [];
-    for await (const entry of await opendir(root)) {
-      batch.push(entry.name);
-      if (batch.length === CLEAR_BATCH) break;
-    }
-    if (batch.length === 0) break;
-    for (const name of batch) {
-      signal.throwIfAborted();
-      await rm(join(root, name), { force: true, recursive: true });
-    }
-  }
+  await clearWorkspace(root, signal, keep);
   const git = localGit(root, signal, {});
   await check(git(["init", "--quiet", "--template="]), "init");
+  let kept: string | undefined;
+  if (keep !== undefined) {
+    kept = join(root, ".git", RESTORED_CHECKPOINT_DIRECTORY);
+    await rename(keep, kept);
+    const inside = relative(keep, resolve(staged.repository));
+    if (!inside.startsWith("..")) {
+      staged = { ...staged, repository: join(kept, inside) };
+    }
+  }
   await check(
     git([
       "fetch",
@@ -235,6 +246,42 @@ export async function restoreCheckpointTree(input: {
     if (name !== "") await check(git(["update-ref", "-d", name]), "update-ref");
   }
   await check(git(["remote", "add", "origin", input.origin]), "remote add");
+  return kept === undefined ? { staged } : { kept, staged };
+}
+
+/**
+ * Removes everything under `root` but `root` itself and `spare`, a direct
+ * child of it. A restore clears the old tree before it downloads anything,
+ * so the old tree's disk is free for the checkpoint: the workspace volume's
+ * quota holds both only if it holds neither twice.
+ */
+export async function clearWorkspace(
+  root: string,
+  signal: AbortSignal,
+  spare?: string,
+): Promise<void> {
+  // Everything below deletes through `root`: a link there would aim it
+  // somewhere else.
+  if (!(await lstat(root)).isDirectory()) {
+    throw new Error(`the workspace root ${root} is not a directory`);
+  }
+  const spared = spare === undefined ? undefined : basename(spare);
+  // In batches, so an execution that left millions of names behind is not
+  // read into memory at once. Each pass starts over, since what a directory
+  // stream returns after its own entries are removed is unspecified.
+  for (;;) {
+    const batch: string[] = [];
+    for await (const entry of await opendir(root)) {
+      if (entry.name === spared) continue;
+      batch.push(entry.name);
+      if (batch.length === CLEAR_BATCH) break;
+    }
+    if (batch.length === 0) break;
+    for (const name of batch) {
+      signal.throwIfAborted();
+      await rm(join(root, name), { force: true, recursive: true });
+    }
+  }
 }
 
 /**

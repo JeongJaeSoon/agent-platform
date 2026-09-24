@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
-import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
+import type {
+  CheckpointObjectStore,
+  ImmutableObjectSource,
+} from "@agent-platform/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
 import {
   localstackEnabled,
@@ -94,6 +97,24 @@ function streamContract(harness: Harness) {
       const current = await store.stream(KEY);
       expect(decode(await collect(pinned ?? empty()))).toBe("first\n");
       expect(decode(await collect(current ?? empty()))).toBe("second\n");
+    });
+  }, 30_000);
+
+  test("a streamed putImmutable lands whole, and repeats as duplicate or conflict", async () => {
+    await harness.run(async (store) => {
+      const written = new Uint8Array(randomBytes(300 * 1024 + 17));
+      const other = new Uint8Array(randomBytes(300 * 1024 + 17));
+
+      const created = await store.putImmutable(KEY, streamed(written));
+      expect(created.outcome).toBe("created");
+      expect(await store.get(KEY)).toEqual(written);
+      expect(await store.putImmutable(KEY, streamed(written))).toMatchObject({
+        outcome: "duplicate",
+      });
+      expect(await store.putImmutable(KEY, streamed(other))).toMatchObject({
+        outcome: "conflict",
+      });
+      expect(await store.get(KEY)).toEqual(written);
     });
   }, 30_000);
 
@@ -315,6 +336,22 @@ async function collect(chunks: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
 }
 
 async function* empty(): AsyncGenerator<Uint8Array> {}
+
+/** `bytes` as a streamed body, in refilled 64 KiB chunks. */
+function streamed(bytes: Uint8Array): ImmutableObjectSource {
+  return {
+    bytes: bytes.byteLength,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    async *open() {
+      const buffer = new Uint8Array(64 * 1024);
+      for (let offset = 0; offset < bytes.byteLength; offset += 64 * 1024) {
+        const piece = bytes.subarray(offset, offset + 64 * 1024);
+        buffer.set(piece);
+        yield buffer.subarray(0, piece.byteLength);
+      }
+    },
+  };
+}
 
 function bounds(overrides: Partial<BodyReadBounds> = {}): BodyReadBounds {
   return { ...DEFAULT_BODY_READ_BOUNDS, ...overrides };

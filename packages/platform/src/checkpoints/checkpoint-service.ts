@@ -289,9 +289,10 @@ export type ObjectProtection = "locked" | "unversioned";
  * (`S3_REQUEST_BOUNDS.requestTimeout`). Disk: the spool file plus git's copy
  * of the pack, 2 × 256 MiB per verification in flight.
  *
- * Going higher means scaling that git timeout and both S3 budgets with the
- * size first. Workers stop at their own capture limit, which is lower
- * because a worker still holds the bundle in memory to upload it.
+ * Those budgets now grow with the size above 256 MiB (94S-318:
+ * `gitVerifyTimeoutMs`, `transferBudgetMs`), so going higher is a matter of
+ * disk and of the git memory cap (`CHECKPOINT_GIT_MEMORY_MB`). Workers
+ * capture up to this same limit, streamed from and to disk.
  */
 export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 256 * 1024 * 1024;
 // A reference is about 200 bytes of canonical JSON, so the object limit
