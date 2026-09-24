@@ -60,6 +60,8 @@ api_commands = {name: command.replace("bun run src/", "bun run src/api/")
 for name, command in api_commands.items():
     if not re.fullmatch(r"bun run src/api/[a-z-]+\.ts", command):
         raise SystemExit(f"apps/api script {name!r} ({command!r}) has no place in the control host")
+    if name in ("scheduler", "reconciler", "migrate-workspace"):
+        raise SystemExit(f"apps/api script {name!r} collides with a control-host script")
 write(HOST / "package.json", json.dumps({
     "name": "@agent-platform/control-host",
     "version": "0.0.0",
@@ -200,11 +202,14 @@ app_root = r"cwd: `\$\{import\.meta\.dir\}/\.\.`"
 spawned_from_root = len(re.findall(app_root, read(server_it)))
 assert spawned_from_root >= 4, spawned_from_root
 sub(server_it, app_root, "cwd: `${import.meta.dir}/../..`", count=spawned_from_root)
-sub(server_it, r'\["bun", "run", "src/server\.ts"\]', '["bun", "run", "src/main.ts", "api"]', count=3)
-# The operator commands (keys, and grants since 94S-321) it runs by path.
+# The operator commands (keys, and grants since 94S-321) it runs by path,
+# moved before the server entry becomes `src/main.ts`, which must stay put.
 commands_run = len(re.findall(r'"src/(?!server\.ts")[a-z-]+\.ts"', read(server_it)))
 assert commands_run >= 1, commands_run
 sub(server_it, r'"src/((?!server\.ts")[a-z-]+\.ts)"', r'"src/api/\1"', count=commands_run)
+sub(server_it, r'\["bun", "run", "src/server\.ts"\]', '["bun", "run", "src/main.ts", "api"]', count=3)
+if re.search(r'"src/(?!main\.ts"|api/)[^"]*\.ts"', read(server_it)):
+    raise SystemExit(f"{server_it}: a spawned path was left outside src/api")
 
 # --- repo-wide paths ------------------------------------------------------------
 # ci.yml domain jobs route files by path prefix and refuse a file two jobs
