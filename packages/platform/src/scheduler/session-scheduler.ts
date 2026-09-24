@@ -12,6 +12,7 @@ import type {
   WorkspaceRemovalResult,
 } from "../ports/execution-backend.ts";
 import {
+  LaunchOutcomeUnknownError,
   LaunchSpecMismatchError,
   launchSpecFingerprint,
   parseExecutionResources,
@@ -916,6 +917,25 @@ async function pass(
       });
       return;
     }
+    if (
+      !observed.found &&
+      !execution.claimed &&
+      execution.observedState === "unknown" &&
+      execution.nonceFingerprint !== null &&
+      storedIntentOf(execution) !== null
+    ) {
+      // An ensure the provider never answered kept its credential for this
+      // look (94S-393). Nothing landed, so the launch did fail after all,
+      // and it is counted now — a create that never takes cannot hold its
+      // slot forever. Fenced on that credential, which the record revokes:
+      // a create landing later is torn down as a failed attempt.
+      await launchFailed(
+        execution,
+        "the provider never answered the launch and no resource was created",
+        execution.nonceFingerprint,
+      );
+      return;
+    }
     const running = up && observed.state !== "pending";
     // A replacement an earlier pass committed to and did not get to finish:
     // its teardown half happened, or the host died between the two halves.
@@ -1424,9 +1444,7 @@ async function pass(
         error: messageOf(error),
         session_id: execution.sessionId,
       });
-      // A resource built from another spec was found, not a launch that
-      // failed: the next pass replaces it as a spec mismatch.
-      if (!(error instanceof LaunchSpecMismatchError)) {
+      if (countsAsLaunchFailure(error)) {
         await launchFailed(attempt, messageOf(error));
       }
       return;
@@ -1706,7 +1724,7 @@ async function pass(
         error: messageOf(error),
         session_id: sessionId,
       });
-      if (!(error instanceof LaunchSpecMismatchError)) {
+      if (countsAsLaunchFailure(error)) {
         await launchFailed(launch, messageOf(error));
       }
       continue;
@@ -1856,6 +1874,20 @@ function fieldsOf(ref: ExecutionRef) {
 
 function unknownObservation(observedAt: Date): ExecutionObservation {
   return { found: false, observedAt, providerRef: null, state: "unknown" };
+}
+
+/**
+ * Whether an ensure that threw is this launch failing. A resource built from
+ * another spec was found, not a launch that failed: the next pass replaces
+ * it as a spec mismatch. A provider that did not answer may have created or
+ * started the resource: the credential is kept and the next pass's inspect
+ * adopts what landed or creates what did not (94S-393).
+ */
+function countsAsLaunchFailure(error: unknown): boolean {
+  return !(
+    error instanceof LaunchSpecMismatchError ||
+    error instanceof LaunchOutcomeUnknownError
+  );
 }
 
 function messageOf(error: unknown): string {

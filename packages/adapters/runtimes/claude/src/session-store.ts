@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalJsonOfJson } from "@agent-platform/contracts";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
   type CheckpointObjectStore,
@@ -985,7 +986,8 @@ function deduplicate(entries: readonly TranscriptEntry[]): TranscriptEntry[] {
 
 /**
  * Deduplication across calls, for a transcript fed in part by part. Each
- * uuid is remembered by the digest of its body rather than the body itself.
+ * uuid is remembered by the digest of its body rather than the body itself,
+ * in canonical form: key order is not meaningful in JSON.
  */
 function deduplicator(): (
   entries: readonly TranscriptEntry[],
@@ -995,7 +997,7 @@ function deduplicator(): (
     entries.filter((entry) => {
       if (typeof entry.uuid !== "string") return true;
       const encoded = createHash("sha256")
-        .update(JSON.stringify(canonical(entry)))
+        .update(canonicalJsonOfJson(entry))
         .digest("hex");
       const previous = seen.get(entry.uuid);
       if (previous !== undefined) {
@@ -1007,17 +1009,6 @@ function deduplicator(): (
       seen.set(entry.uuid, encoded);
       return true;
     });
-}
-
-/** Key order is not meaningful in JSON, so compare entries independently of it. */
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => [key, canonical(nested)]),
-  );
 }
 
 function parseEntries(bytes: Uint8Array): TranscriptEntry[] {

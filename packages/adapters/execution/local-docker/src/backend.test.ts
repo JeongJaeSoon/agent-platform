@@ -3,6 +3,7 @@ import {
   type ExecutionResources,
   hashWorkerToken,
   type LaunchIntent,
+  LaunchOutcomeUnknownError,
   LaunchSpecMismatchError,
   launchNonceFingerprint,
   launchSpecFingerprint,
@@ -138,6 +139,8 @@ class FakeDocker {
   refuseStarts = false;
   /** Every start waits this long before it answers, and then takes. */
   stallStartsMs = 0;
+  /** Every worker create takes, then waits this long before it answers. */
+  stallCreatesMs = 0;
   /** What every inode helper exits with; 0 is "limit read back in force". */
   inodeHelperExit = 0;
   /** Every inode helper started, in order. */
@@ -332,6 +335,7 @@ class FakeDocker {
       }
       const body = (await request.json()) as ContainerCreateBody;
       const container = this.add(name, body, "created");
+      if (this.stallCreatesMs > 0) await Bun.sleep(this.stallCreatesMs);
       return json({ Id: container.id, Warnings: [] }, 201);
     }
     if (request.method === "GET" && path === "/containers/json") {
@@ -1368,15 +1372,37 @@ describe("LocalDockerBackend.ensureExecution", () => {
     const impatient = new LocalDockerBackend(configFor(docker.host), client);
     const intent = intentFor();
     docker.stallStartsMs = 1_000;
-    await expect(impatient.ensureExecution(intent)).rejects.toBeInstanceOf(
-      DockerTimeoutError,
-    );
+    const refusal = await impatient.ensureExecution(intent).catch((e) => e);
+    // Not a launch failure: the scheduler keeps the credential (94S-393).
+    expect(refusal).toBeInstanceOf(LaunchOutcomeUnknownError);
+    expect((refusal as Error).cause).toBeInstanceOf(DockerTimeoutError);
     // The start may have taken, so nothing is removed on a guess.
     await Bun.sleep(1_000);
     expect(docker.containers.size).toBe(1);
     docker.stallStartsMs = 0;
     const state = await impatient.inspect(intent);
     expect(state).toMatchObject({ found: true, state: "running" });
+  });
+
+  test("a create that never answered is adopted and started by the next ensure, on the same credential", async () => {
+    const client = new DockerClient(docker.host, "v1.44", { timeoutMs: 200 });
+    const impatient = new LocalDockerBackend(configFor(docker.host), client);
+    const intent = intentFor();
+    docker.stallCreatesMs = 1_000;
+    await expect(impatient.ensureExecution(intent)).rejects.toBeInstanceOf(
+      LaunchOutcomeUnknownError,
+    );
+    await Bun.sleep(1_000);
+    docker.stallCreatesMs = 0;
+    expect(await impatient.inspect(intent)).toMatchObject({
+      found: true,
+      state: "pending",
+    });
+
+    const retried = await impatient.ensureExecution(intent);
+    expect(retried).toMatchObject({ created: false, state: "running" });
+    expect(docker.containers.size).toBe(1);
+    expect(nonceIssues).toBe(1);
   });
 
   test("a created container is not started on a workspace that lost its ceiling", async () => {

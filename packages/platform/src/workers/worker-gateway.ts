@@ -943,8 +943,11 @@ export function createWorkerGateway(deps: {
         lease_remaining_ms: result.leaseRemainingMs,
         auth_revision: result.authRevision,
         // A hint, read after the fenced write: the worker's pendingControl
-        // poll is what actually hands anything over.
-        control_pending: (await pending?.hasUndelivered(fence)) ?? false,
+        // poll is what actually hands anything over. A failed read must not
+        // turn the lease already renewed into an error the worker reads as
+        // lost; the next beat reads it again (94S-392).
+        control_pending:
+          (await pending?.hasUndelivered(fence).catch(() => false)) ?? false,
       };
     },
 
