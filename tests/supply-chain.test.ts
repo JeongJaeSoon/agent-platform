@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -159,12 +159,23 @@ describe("npm-audit", () => {
 });
 
 describe("supply-chain-verdict.sh", () => {
-  const script = join(root, ".github/scripts/supply-chain-verdict.sh");
+  // A copy under its own .github, so each case brings its exceptions file.
   const verdict = async (
     results: Record<string, string>,
     noVerdict: string,
+    exceptions = "[]",
   ) => {
     const directory = await mkdtemp(join(tmpdir(), "supply-chain-"));
+    const script = join(directory, ".github/scripts/supply-chain-verdict.sh");
+    await mkdir(join(directory, ".github/scripts"), { recursive: true });
+    await copyFile(
+      join(root, ".github/scripts/supply-chain-verdict.sh"),
+      script,
+    );
+    await writeFile(
+      join(directory, ".github/vulnerability-exceptions.json"),
+      exceptions,
+    );
     for (const [scan, result] of Object.entries(results))
       await writeFile(join(directory, `${scan}.txt`), `${result}\n`);
     const run = Bun.spawnSync(["bash", script, directory, noVerdict], {
@@ -202,6 +213,19 @@ describe("supply-chain-verdict.sh", () => {
     const run = await verdict(rest, "warn");
     expect(run.code).toBe(1);
     expect(run.out).toContain("::error::worker: no result");
+  });
+
+  test("an exception without a reason fails even a clean run", async () => {
+    const run = await verdict(
+      all("clean"),
+      "warn",
+      '[{"id":"CVE-1","package":"openssl","reason":"","expires":"2099-01-01"}]',
+    );
+    expect(run.code).toBe(1);
+    expect(run.out).toContain("every entry needs id, package, reason");
+    const valid =
+      '[{"id":"CVE-1","package":"openssl","reason":"r","expires":"2099-01-01"}]';
+    expect((await verdict(all("clean"), "fail", valid)).code).toBe(0);
   });
 
   test("refuses an unknown mode", async () => {

@@ -21,6 +21,19 @@ case "$no_verdict" in warn | fail) ;; *)
   ;;
 esac
 
+# An exception without its reason or expiry must not quietly clear a
+# finding, whatever the mode: image-scan.sh applies the file without
+# checking it, and npm-audit.ts's refusal alone would only be an `error`.
+exceptions="$(dirname "$0")/../vulnerability-exceptions.json"
+if ! jq -e 'type == "array" and all(.[];
+    type == "object"
+    and all(.id, .package, .reason; type == "string" and length > 0)
+    and (.expires | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")))' \
+  "$exceptions" >/dev/null; then
+  echo "::error::${exceptions#*/.github/}: every entry needs id, package, reason and expires (YYYY-MM-DD)"
+  exit 1
+fi
+
 found=0
 missing=0
 {
