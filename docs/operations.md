@@ -447,6 +447,15 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 
 digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-24 기준 `oven/bun:1.3.10`의 마지막 빌드는 2026-02-26이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다(94S-363). Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
 
+### worker·control-host 롤백과 incremental checkpoint (94S-227)
+
+[#217](https://github.com/JeongJaeSoon/agent-platform/pull/217)(`95b0e7b5`)부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 객체만 담은 incremental bundle을 올린다. 그 사슬은 manifest의 `workspace.baseBundles`에 적힌다. manifest `version`은 그대로 2이고, incremental인지는 이 필드가 있는지로만 갈린다. **#217 이전 빌드로 롤백하면 이 필드가 있는 checkpoint를 복원하지 못한다.** 이전 빌드의 manifest 스키마는 모르는 키를 거절하기 때문이다.
+
+- **옛 worker 이미지.** 복원할 때 manifest decode가 `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"`로 실패한다. 이 실패는 workspace를 비우거나 bundle을 받기 전에 나므로 반쯤 복원된 workspace는 남지 않는다. 대신 manifest가 고정돼 있어 다시 launch해도 같은 이유로 `worker.failed`가 된다.
+- **옛 control-host.** 복원 계획이 `CHECKPOINT_UNAVAILABLE`로 거절되고, 앞 revision으로 물러나지 않는다. finalize도 incremental manifest를 거절해 pointer가 오르지 않는다. 새 worker와 섞여 있으면 첫 checkpoint처럼 홀로 선 bundle만 commit된다. 옛 GC는 decode되지 않는 세션을 건너뛰므로 base bundle을 지우지는 않는다.
+- **영향 세션 찾기.** DB에는 manifest 내용이 없다. `sessions.checkpoint_revision`이 가리키는 `checkpoints` 행(`collected_at IS NULL`)의 `manifest_ref`·`manifest_version`으로 object store에서 manifest를 받아 `jq -e '.workspace.baseBundles | length > 0'`로 가른다. 복원이 `parent_revision`을 따라 물러날 수도 있으므로 부모 행도 같이 본다. worker 로그 `worker.checkpoint.published`의 `base_bundles`가 0보다 크면 incremental로 올린 것이다.
+- **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
+
 ### 공급망 취약점 정책 (94S-363)
 
 2026-09-24 사용자 결정이다. **수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.

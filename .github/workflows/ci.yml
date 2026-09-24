@@ -243,6 +243,7 @@ jobs:
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
               - tests/retry-flaky.
+              - tests/supply-chain.
               - tests/test-files.
               - tests/third-party-notices.
               - tests/unit-part.
