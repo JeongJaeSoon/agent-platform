@@ -474,7 +474,7 @@ integration("restore failures before ready on PostgreSQL (94S-345)", () => {
     const { worker, claimed } = await claimReserved(session);
     await gateway.release(worker.principal, {
       ...worker.scope,
-      reason: `${"x".repeat(5_000)}\n    at restorePlan (session-checkpoints.ts:1:1)`,
+      reason: `${"x".repeat(5_000)}\r\n    at restorePlan (session-checkpoints.ts:1:1)`,
     });
     await gateway.confirmExecutionGone(worker.executionId);
 

@@ -137,7 +137,7 @@ export function restoreFailedAttention(
 
 /** A worker's release reason as the database keeps it: one line, bounded. */
 export function boundedReason(reason: string): string {
-  const line = reason.split("\n", 1)[0]?.trim() || "execution_gone";
+  const line = reason.split(/[\r\n]/, 1)[0]?.trim() || "execution_gone";
   return line.length <= REASON_MAX_CHARS
     ? line
     : `${line.slice(0, REASON_MAX_CHARS - 1)}…`;
