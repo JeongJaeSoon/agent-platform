@@ -71,6 +71,7 @@ import {
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
   parseTurnSequence,
+  restoreBaseRevision,
 } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
@@ -87,6 +88,12 @@ import {
 } from "./pause-control.ts";
 import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
+import {
+  boundedReason,
+  RESTORE_FAILURES_CLEARED,
+  recordRestoreFailure,
+  restoreRetryDue,
+} from "./restore-failures.ts";
 import {
   completeResume,
   failResume,
@@ -729,6 +736,7 @@ async function bindingOf(
   session: SessionRow,
   attempt: AttemptRow,
   at: Date,
+  restore?: CheckpointRef | null,
 ): Promise<WorkerBinding> {
   return {
     sessionId: session.id,
@@ -745,7 +753,7 @@ async function bindingOf(
       url: session.repoUrl,
       branch: session.branch,
     },
-    restore: await restoreRef(tx, session),
+    restore: restore === undefined ? await restoreRef(tx, session) : restore,
     costUsd: session.costUsd,
   };
 }
@@ -936,6 +944,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               isNull(sessions.executionRevokedAt),
               runnableCondition(input.runnable),
               lt(sessions.costUsd, input.costLimitUsd),
+              restoreRetryDue(),
               ...(launch.sessionId === null
                 ? []
                 : [eq(sessions.id, launch.sessionId)]),
@@ -968,12 +977,15 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(sessions.id, candidate.sessionId))
           .limit(1)
           .for("update");
-        // A terminate can commit between the candidate read and this lock.
+        // A terminate can commit between the candidate read and this lock,
+        // and so can an exit that starts a restore backoff.
         if (
           !locked ||
           locked.podId !== null ||
           !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
-          locked.executionRevokedAt !== null
+          locked.executionRevokedAt !== null ||
+          (locked.restoreRetryAt !== null &&
+            locked.restoreRetryAt > (await dbNow(tx)))
         ) {
           return { outcome: "no_session" };
         }
@@ -996,6 +1008,9 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           return { outcome: "context_gap" };
         }
 
+        // Read once: the binding hands the worker exactly the restore the
+        // session holds this attempt to reporting ready from (94S-345).
+        const restore = await restoreRef(tx, locked);
         const [session] = await tx
           .update(sessions)
           .set({
@@ -1003,6 +1018,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             executionGeneration: launch.generation,
             executionId: launch.executionId,
             podId: launch.executionId,
+            restoreAttemptId: restore === null ? null : input.attemptId,
             updatedAt: input.now,
           })
           .where(
@@ -1062,7 +1078,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           .where(eq(unassignedSessions.sessionId, session.id));
         return {
           outcome: "claimed",
-          binding: await bindingOf(tx, session, attempt, at),
+          binding: await bindingOf(tx, session, attempt, at, restore),
         };
       });
     },
@@ -1877,7 +1893,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         }
         const [attempt] = await tx
           .update(attempts)
-          .set({ state: "exited", endedAt: now, endReason: input.reason })
+          .set({
+            state: "exited",
+            endedAt: now,
+            endReason: boundedReason(input.reason),
+          })
           .where(ownedAttempt(fence))
           .returning({ id: attempts.id, executionId: attempts.executionId });
         if (!attempt) return { released: false };
@@ -1916,6 +1936,18 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
         const { session } = fenced;
+        // The attempt restored the base its claim and plan handed it, so the
+        // restores that failed before it no longer count (94S-345).
+        if (
+          session.restoreAttemptId === fence.attemptId &&
+          input.restoredRevision !== null &&
+          input.restoredRevision === restoreBaseRevision(session)
+        ) {
+          await tx
+            .update(sessions)
+            .set(RESTORE_FAILURES_CLEARED)
+            .where(eq(sessions.id, session.id));
+        }
         // Only a resume from `paused` waits on this report; a fresh or a
         // stopped-resume claim is already active.
         if (session.admissionState !== "resuming") {
@@ -2196,12 +2228,25 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             ? await contextCoverage(tx, session)
             : null;
         const contextLost = coverage !== null && contextGap(session, coverage);
+        // The worker claimed with the checkpoint and ended before it reported
+        // the restore ready (94S-345). Without counting it the session goes
+        // straight back in line and the next worker fails the same way, one
+        // generation after another. A resume counts its own launches.
+        const failedRestore =
+          session.admissionState === "active" &&
+          unresolved.length === 0 &&
+          !contextLost &&
+          launch?.claimedAttemptId != null &&
+          session.restoreAttemptId === launch.claimedAttemptId
+            ? launch.claimedAttemptId
+            : null;
         await tx
           .update(sessions)
           .set({
             podId: null,
             executionId: null,
             leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+            restoreAttemptId: null,
             updatedAt: now,
             ...(closed
               ? {}
@@ -2227,6 +2272,14 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                       : {}),
           })
           .where(eq(sessions.id, session.id));
+        const restoreOutcome =
+          failedRestore === null
+            ? null
+            : await recordRestoreFailure(tx, {
+                session,
+                attemptId: failedRestore,
+                now,
+              });
         if (resumeFailed && unresolved.length === 0) {
           await failResume(tx, {
             sessionId: session.id,
@@ -2342,7 +2395,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         const queued = queuedRow?.queued ?? 0;
         if (
           unresolved.length === 0 &&
-          ((queued > 0 && activeNow && !contextLost) ||
+          ((queued > 0 &&
+            activeNow &&
+            !contextLost &&
+            restoreOutcome !== "recovery_required") ||
             (session.admissionState === "resuming" && !resumeFailed))
         ) {
           await tx

@@ -16,12 +16,13 @@ import {
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
 } from "@agent-platform/runtime-claude";
-import type {
-  CheckpointManifest,
-  CheckpointPreparation,
-  ObjectRef,
-  RuntimeFingerprint,
-  TranscriptMirror,
+import {
+  type CheckpointManifest,
+  type CheckpointPreparation,
+  ObjectIntegrityError,
+  type ObjectRef,
+  type RuntimeFingerprint,
+  type TranscriptMirror,
 } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
@@ -1144,6 +1145,39 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     await expect(refused).rejects.toBeInstanceOf(RestoreRefused);
     await expect(refused).rejects.toMatchObject({
       code: "INCOMPATIBLE_CHECKPOINT",
+    });
+    expect(await readFile(join(workspace, "left-behind.txt"), "utf8")).toBe(
+      "stale\n",
+    );
+    expect(h.errors.map(({ event }) => event)).toEqual([
+      "worker.checkpoint.restore_refused",
+    ]);
+  });
+
+  test("refuses bytes that fail the store's checksum as damage, like a digest mismatch (94S-345)", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const get = from.objects.get.bind(from.objects);
+    from.objects.get = async (key, version) => {
+      if (key === from.ref.manifest_ref) {
+        throw new ObjectIntegrityError(key, {
+          cause: new Error(
+            'Checksum mismatch: expected "lngI3g==" but received "mONkBA==" in response header "x-amz-checksum-crc32".',
+          ),
+        });
+      }
+      return get(key, version);
+    };
+    const h = restoring(from);
+
+    const refused = h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+
+    await expect(refused).rejects.toBeInstanceOf(RestoreRefused);
+    await expect(refused).rejects.toMatchObject({
+      code: "CHECKPOINT_UNAVAILABLE",
     });
     expect(await readFile(join(workspace, "left-behind.txt"), "utf8")).toBe(
       "stale\n",

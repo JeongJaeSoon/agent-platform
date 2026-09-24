@@ -235,6 +235,14 @@ integration("context gap on PostgreSQL (94S-288)", () => {
   ) {
     const l = await launch(session);
     const claimed = await claim(l);
+    // As a worker does before its first input: a restore it never reports
+    // ready counts as a failed one (94S-345).
+    if (claimed.restore !== null) {
+      await gateway.ready(principalOf(claimed), {
+        ...scopeOf(claimed),
+        restored_revision: claimed.restore.revision,
+      });
+    }
     const next = await gateway.nextInput(
       principalOf(claimed),
       scopeOf(claimed),
