@@ -504,7 +504,17 @@ async function unbundle(
           `git bundle verify of bundle ${index + 1}/${bundles.length}: ${verified.stderr.trim()}`,
         );
       heads = (await git(["bundle", "list-heads", file])).stdout.trim();
-      await git(["fetch", "--quiet", file, `refs/*:refs/chain/${index}/*`]);
+      // fsckObjects as unbundle_chain and the worker restore fetch: a
+      // malformed object they refuse must fail the gate too.
+      await git([
+        "-c",
+        "fetch.fsckObjects=true",
+        "fetch",
+        "--quiet",
+        "--no-write-fetch-head",
+        file,
+        `refs/*:refs/chain/${index}/*`,
+      ]);
     }
     // Peeled: a capture that changed nothing tags a commit an earlier
     // bundle carries (94S-374).
