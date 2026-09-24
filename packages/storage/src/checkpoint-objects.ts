@@ -378,6 +378,37 @@ export function createCheckpointObjectCollector(options: {
   };
 }
 
+/**
+ * Whether the bucket holds any object version at all. Delete markers do not
+ * count: a bucket where every key ends in one has lost the bytes every
+ * checkpoint pins.
+ */
+export async function bucketHoldsObjectVersion(
+  client: S3ClientLike,
+  bucket: string,
+): Promise<boolean> {
+  let keyMarker: string | undefined;
+  let versionMarker: string | undefined;
+  do {
+    const page = (await client.send(
+      new ListObjectVersionsCommand({
+        Bucket: bucket,
+        KeyMarker: keyMarker,
+        VersionIdMarker: versionMarker,
+      }),
+    )) as {
+      IsTruncated?: boolean;
+      NextKeyMarker?: string;
+      NextVersionIdMarker?: string;
+      Versions?: unknown[];
+    };
+    if ((page.Versions?.length ?? 0) > 0) return true;
+    keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
+    versionMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
+  } while (keyMarker !== undefined);
+  return false;
+}
+
 export type BucketProtection = {
   /** True when the bucket has an Object Lock configuration, so holds work. */
   readonly objectLock: boolean;

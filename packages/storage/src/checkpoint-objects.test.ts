@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 
 import {
+  bucketHoldsObjectVersion,
   createCheckpointObjectStore,
   describeBucketEncryption,
 } from "./checkpoint-objects.ts";
@@ -293,6 +294,56 @@ describe("checkpoint object store", () => {
     await store.put("part", encode("two"));
 
     expect(await store.get("part")).toEqual(encode("two"));
+  });
+});
+
+describe("bucket holds an object version", () => {
+  /** Answers ListObjectVersions with `pages` in order, recording each marker. */
+  const paged = (pages: Array<Record<string, unknown>>) => {
+    const markers: unknown[] = [];
+    const client: S3ClientLike = {
+      async send(command) {
+        expect(commandName(command)).toBe("ListObjectVersionsCommand");
+        const { input } = command as Command;
+        markers.push(input.KeyMarker);
+        const page = pages.shift();
+        if (page === undefined) throw new Error("read past the last page");
+        return page;
+      },
+    };
+    return { client, markers };
+  };
+  const marker = { Key: "k", VersionId: "dm" };
+
+  test("an empty bucket holds none", async () => {
+    expect(await bucketHoldsObjectVersion(paged([{}]).client, "b")).toBe(false);
+  });
+
+  test("delete markers alone hold none, however many pages they fill", async () => {
+    const { client, markers } = paged([
+      {
+        DeleteMarkers: [marker],
+        IsTruncated: true,
+        NextKeyMarker: "k",
+        NextVersionIdMarker: "dm",
+      },
+      { DeleteMarkers: [marker] },
+    ]);
+    expect(await bucketHoldsObjectVersion(client, "b")).toBe(false);
+    expect(markers).toEqual([undefined, "k"]);
+  });
+
+  test("a version behind a page of delete markers counts", async () => {
+    const { client } = paged([
+      {
+        DeleteMarkers: [marker],
+        IsTruncated: true,
+        NextKeyMarker: "k",
+        NextVersionIdMarker: "dm",
+      },
+      { Versions: [{ Key: "m", VersionId: "v1" }], IsTruncated: true },
+    ]);
+    expect(await bucketHoldsObjectVersion(client, "b")).toBe(true);
   });
 });
 
