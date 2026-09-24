@@ -16,9 +16,10 @@
 # A commit merged within a second of the next one can reach main inside that
 # one's push (1583f5d, 6e7badf): the ref moves from an older commit straight
 # past it, so it is never the tip, and GitHub has no push event and no run to
-# give it. The push that carried it ran on a tree containing it. Such a commit
-# is `coalesced`, told apart from a lost event by main's ref activity: the
-# lost 70139eb was the tip, since the next update left from it.
+# give it. The push that carried it ran on a tree containing it, and that
+# push's own commit is judged here in turn. Such a commit is `coalesced`, told
+# apart from a lost event by main's ref activity: the lost 70139eb was the
+# tip, since the next update left from it.
 #
 # Prints one line per commit, `<verdict> <short-sha>`, where the verdict is
 # `present`, `missing`, `coalesced` or `too-recent`; a `present` line ends with
@@ -89,16 +90,23 @@ parent_of() {
 # Prints the tip of the push that carried the commit past the tip. Walks
 # parents while they were never the tip either (three merges in one push), up
 # to the one the push left from. Returns 1 when the commit was itself the tip
-# or no such push is recorded, 2 when a parent could not be looked up.
+# or no such push is recorded, 2 when GitHub could not be asked.
 carrying_push() {
-  local sha=$1 hops
+  local commit=$1 sha=$1 hops after relation
   for hops in 0 1 2 3 4 5 6 7 8 9; do
     if awk -v sha="$sha" '$2 == sha || $3 == sha { found = 1 } END { exit !found }' <<<"$ref_updates"; then
       [ "$hops" -gt 0 ] || return 1
-      # Only a fast-forward leaves from its before toward the commit; a force
-      # push's before need not be an ancestor of anything on main now.
-      awk -v sha="$sha" '$2 == sha && ($1 == "push" || $1 == "pr_merge" || $1 == "merge_queue_merge") { print $3; found = 1; exit } END { exit !found }' <<<"$ref_updates"
-      return
+      # A tip can be left more than once (moved back by a force push), and
+      # not every update from it carries the commit: only one whose after
+      # contains it does.
+      for after in $(awk -v sha="$sha" '$2 == sha && $3 !~ /^0+$/ { print $3 }' <<<"$ref_updates"); do
+        relation=$(gh api "repos/${GH_REPO}/compare/${commit}...${after}" --jq .status) || return 2
+        if [ "$relation" = ahead ]; then
+          echo "$after"
+          return 0
+        fi
+      done
+      return 1
     fi
     sha=$(parent_of "$sha") || return 2
     [ -n "$sha" ] || return 1
@@ -147,7 +155,7 @@ while read -r sha committed_at _; do
     echo "missing ${short}"
     status=1
     ;;
-  *) api_failed "parents of ${short}" ;;
+  *) api_failed "the push that carried ${short}" ;;
   esac
 done <<<"$commits"
 

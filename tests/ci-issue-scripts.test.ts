@@ -424,6 +424,7 @@ describe("check-main-push-run.sh", () => {
       [activity]: [
         "pr_merge 95b0e7b0000 3c230800000\npr_merge 654a3380000 95b0e7b0000\npr_merge 760fd000000 654a3380000",
       ],
+      "api repos/octo/repo/compare/1583f5d0000...95b0e7b0000": "ahead",
     });
 
     expect(outcome.exitCode).toBe(0);
@@ -445,6 +446,7 @@ describe("check-main-push-run.sh", () => {
       // aaaaaaa111 is outside the window, so its parent is asked for.
       "api repos/octo/repo/commits/aaaaaaa111 --jq .parents": "9999999000",
       [activity]: "pr_merge 9999999000 ccccccc333",
+      "api repos/octo/repo/compare/bbbbbbb222...ccccccc333": "ahead",
     });
 
     expect(outcome.exitCode).toBe(0);
@@ -457,7 +459,9 @@ describe("check-main-push-run.sh", () => {
     ).toHaveLength(1);
   });
 
-  test("a commit a force push jumped over is missing: the push's before says nothing about it", async () => {
+  test("an update from the parent that does not contain the commit does not cover it", async () => {
+    // aaaaaaa111 was the tip twice: it moved on to 999, a force push brought
+    // main back, and the update that made bbbbbbb222 the tip was lost.
     const outcome = await run("check-main-push-run.sh", ["bbbbbbb"], {
       "api repos/octo/repo/commits/bbbbbbb": oldCommit(
         "bbbbbbb222",
@@ -465,11 +469,29 @@ describe("check-main-push-run.sh", () => {
       ),
       "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
         "0 ",
-      [activity]: "force_push aaaaaaa111 ccccccc333",
+      [activity]:
+        "force_push 9999999000 aaaaaaa111\npr_merge aaaaaaa111 9999999000",
+      "api repos/octo/repo/compare/bbbbbbb222...9999999000": "diverged",
     });
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.stdout).toBe("missing bbbbbbb\n");
+  });
+
+  test("a failed compare exits 2 rather than judging the commit", async () => {
+    const outcome = await run("check-main-push-run.sh", ["bbbbbbb"], {
+      "api repos/octo/repo/commits/bbbbbbb": oldCommit(
+        "bbbbbbb222",
+        "aaaaaaa111",
+      ),
+      "api repos/octo/repo/actions/workflows/ci.yml/runs?event=push&head_sha=bbbbbbb222&per_page=1":
+        "0 ",
+      [activity]: "pr_merge aaaaaaa111 ccccccc333",
+    });
+
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.stdout).toBe("");
+    expect(outcome.stderr).toContain("the push that carried bbbbbbb");
   });
 
   test("a commit with no trace in the activity is missing", async () => {
