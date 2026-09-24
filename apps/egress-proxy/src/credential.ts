@@ -482,7 +482,7 @@ export type AuthorizerClient = {
 
 export type CredentialProxyOptions = {
   authorizer: AuthorizerClient;
-  /** How long one exchange may take, request body to last response byte. */
+  /** How long one exchange may take, admission to last response byte. */
   exchangeTimeoutMs?: number;
   hostname?: string;
   logger?: ProxyLogger;
@@ -588,7 +588,7 @@ export function startCredentialProxy(
     route: CredentialRoute,
     grant: EgressGrant,
     client: string,
-    revoked: AbortSignal,
+    signal: AbortSignal,
   ): Promise<Response> {
     const upstream = grant.upstream;
     const host = normalizeHost(upstream.hostname);
@@ -658,13 +658,6 @@ export function startCredentialProxy(
       logger.error("Egress authorizer signed no target", fields);
       return reply(502, "the authorizer signed no request", route.purpose);
     }
-    // From here, including the wait for the request body: a client that
-    // trickles it must still meet the deadline and the grant's end.
-    const signal = AbortSignal.any([
-      request.signal,
-      revoked,
-      AbortSignal.timeout(exchangeTimeoutMs),
-    ]);
     let response: Response;
     try {
       const body = objectStore
@@ -848,13 +841,30 @@ export function startCredentialProxy(
         return reply(503, "too many exchanges from this client", route.purpose);
       }
       const revocation = new AbortController();
+      // Everything that ends an exchange, the wait for a trickled request
+      // body included.
+      const ends = AbortSignal.any([
+        request.signal,
+        revocation.signal,
+        AbortSignal.timeout(exchangeTimeoutMs),
+      ]);
       let regrant: ReturnType<typeof setTimeout> | undefined;
       let ended = false;
+      let answered = false;
+      // Once answered, an ended exchange frees its slot whatever becomes of
+      // the body: one handed back after the worker hung up is pulled once by
+      // Bun and then neither read nor cancelled (94S-366). Until then the
+      // slot stays held, and `ends` cuts every wait of the exchange short.
+      const hungUp = () => {
+        if (answered) release();
+      };
       const release = () => {
         ended = true;
         clearTimeout(regrant);
+        ends.removeEventListener("abort", hungUp);
         admitted();
       };
+      ends.addEventListener("abort", hungUp);
       // A definite refusal cuts the exchange at once. An authorizer that
       // cannot answer does only after the grace: a blip must not break
       // every stream in flight, and an outage must not hide an ended grant.
@@ -900,12 +910,15 @@ export function startCredentialProxy(
           route,
           authorized.grant,
           client,
-          revocation.signal,
+          ends,
         );
-        return new Response(tracked(response.body, release), {
+        const relayed = new Response(tracked(response.body, release), {
           status: response.status,
           headers: response.headers,
         });
+        answered = true;
+        if (ends.aborted) release();
+        return relayed;
       } catch (error) {
         release();
         logger.error("Credential exchange failed", {
