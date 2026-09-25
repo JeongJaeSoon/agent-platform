@@ -578,8 +578,11 @@ type VmPoll = {
  * O-1 exclusions (94S-440, 94S-443; decided with Codex 2026-09-25). The
  * target itself (availability 1.0, the 2s timeout) is the config's.
  * - runner: a slot the host runner never probed says nothing of the API;
- * - host: a timeout while the VM probe saw a stall of at least
- *   `stallMinMs` overlapping the request, i.e. the whole VM stood still.
+ * - host: a timeout with no answer but 200 while the VM probe saw a stall
+ *   of at least `stallMinMs` surely overlapping the request, i.e. the whole
+ *   VM stood still. "Surely": the stall narrowed by its clock uncertainty,
+ *   the request to where curl ran whichever way the runner's own overhead
+ *   (`wallMs - ms`) fell around it.
  * Past either ratio of all samples the measurement itself is suspect, and
  * O-1 fails.
  */
@@ -595,13 +598,13 @@ const CURL_TIMEOUT = "curl exit 28";
 export function judgeReadyz(
   samples: ReadyzSample[],
   stalls: VmStall[],
-  { timeoutMs, target }: { timeoutMs: number; target: number },
+  target: number,
 ) {
   const long = stalls
     .filter((stall) => stall.gapMs >= READYZ_EXCLUSION.stallMinMs)
     .map((stall) => ({
-      from: stall.from + stall.offsetMs - stall.offsetErrorMs,
-      to: stall.to + stall.offsetMs + stall.offsetErrorMs,
+      from: stall.from + stall.offsetMs + stall.offsetErrorMs,
+      to: stall.to + stall.offsetMs - stall.offsetErrorMs,
       label: `${new Date(stall.from + stall.offsetMs).toISOString()} +${stall.gapMs}ms`,
     }));
   const runnerMissed: ReadyzSample[] = [];
@@ -622,10 +625,12 @@ export function judgeReadyz(
       continue;
     }
     const sent = Date.parse(sample.t);
-    const until = sent + Math.max(sample.wallMs, timeoutMs);
+    const from = sent + Math.max(0, sample.wallMs - sample.ms);
+    const until = sent + sample.ms;
     const stall =
-      sample.error === CURL_TIMEOUT
-        ? long.find((entry) => entry.from < until && entry.to > sent)
+      sample.error === CURL_TIMEOUT &&
+      (sample.status === 0 || sample.status === 200)
+        ? long.find((entry) => entry.from < until && entry.to > from)
         : undefined;
     if (stall) {
       hostExcluded.push({
@@ -1096,10 +1101,11 @@ export function judge(
     const key = turn.status ?? `rejected ${turn.acceptStatus}`;
     statusCounts[key] = (statusCounts[key] ?? 0) + 1;
   }
-  const readyzJudged = judgeReadyz(readyz, soak.vmStalls, {
-    timeoutMs: config.readyz.timeoutMs,
-    target: targets.readyzAvailability,
-  });
+  const readyzJudged = judgeReadyz(
+    readyz,
+    soak.vmStalls,
+    targets.readyzAvailability,
+  );
   const probePolls = {
     ok: soak.vmPolls.filter((poll) => poll.ok).length,
     failed: soak.vmPolls.filter((poll) => !poll.ok).length,

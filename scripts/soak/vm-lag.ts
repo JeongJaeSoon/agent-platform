@@ -31,7 +31,7 @@ export class StallRecorder {
     const last = this.last;
     this.last = { mono, wall };
     if (last === null) return;
-    const gapMs = mono - last.mono;
+    const gapMs = Math.round(mono - last.mono);
     if (gapMs < this.recordMs) return;
     this.stalls.push({ index: this.next++, from: last.wall, to: wall, gapMs });
     if (this.stalls.length > KEEP) this.stalls.shift();

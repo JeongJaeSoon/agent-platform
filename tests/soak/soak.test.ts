@@ -274,7 +274,7 @@ describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
     offsetErrorMs: 5,
   });
   const judge = (list: ReadyzSample[], stalls: VmStall[] = []) =>
-    judgeReadyz(list, stalls, { timeoutMs: 2000, target: 1 });
+    judgeReadyz(list, stalls, 1);
 
   test("the probe records a gap between ticks as a stall, from tick to tick", () => {
     const recorder = new StallRecorder(500);
@@ -330,9 +330,34 @@ describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
 
   test("an answer that was not 200 is the product's even inside a stall", () => {
     const refused = { ...ok(10), ok: false, status: 503 };
-    expect(
-      judge(samples({ 10: refused }), [stall(49_200, 3400)]),
-    ).toMatchObject({ pass: false, hostExcluded: 0, availability: 199 / 200 });
+    // Headers of a 503, then the body timed out.
+    const refusedSlowly = { ...timeout(10), status: 503 };
+    for (const sample of [refused, refusedSlowly]) {
+      expect(
+        judge(samples({ 10: sample }), [stall(49_200, 3400)]),
+      ).toMatchObject({
+        pass: false,
+        hostExcluded: 0,
+        availability: 199 / 200,
+      });
+    }
+  });
+
+  test("only a stall surely inside the request excuses it", () => {
+    // curl gave up after 2s, the runner noticed at 3.6s; a stall from 2.2s
+    // came after the request.
+    const late = { ...timeout(10), wallMs: 3600 };
+    expect(judge(samples({ 10: late }), [stall(52_200, 3000)])).toMatchObject({
+      pass: false,
+      hostExcluded: 0,
+    });
+    // Ended 150ms before the request on the probe's clock, placed within
+    // ±350ms: it may not have overlapped at all.
+    const loose = { ...stall(46_850, 3000), offsetErrorMs: 350 };
+    expect(judge(samples({ 10: timeout(10) }), [loose])).toMatchObject({
+      pass: false,
+      hostExcluded: 0,
+    });
   });
 
   test("host exclusions past 1% of the samples fail O-1", () => {
