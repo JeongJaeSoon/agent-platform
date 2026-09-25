@@ -161,6 +161,33 @@ describe("scripts/test-ops.sh", () => {
     expect(await dockerCalls()).toBe("");
   });
 
+  test("preflight refuses a Docker Engine older than 28", async () => {
+    const head = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"])
+      .stdout.toString()
+      .trim();
+    const dirty = Bun.spawnSync([
+      "git",
+      "-C",
+      repoRoot,
+      "status",
+      "--porcelain",
+      "--untracked-files=no",
+    ]).stdout.toString();
+    // The checkout check comes first; a working tree with edits stops there.
+    if (dirty !== "") return;
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    manifest.source_commit = head;
+    await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
+    await writeFile(
+      join(dir, "bin", "docker"),
+      `#!/bin/sh\necho "$*" >> "${calls}"\n[ "$1" = version ] && { echo 27.5.1; exit 0; }\nexit 1\n`,
+      { mode: 0o755 },
+    );
+    const result = await run(["preflight", join(dir, "release.json")], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Docker Engine 27.5.1 is too old");
+  });
+
   test("status needs a deployed release", async () => {
     const result = await run(["status"], env);
     expect(result.exitCode).toBe(1);
