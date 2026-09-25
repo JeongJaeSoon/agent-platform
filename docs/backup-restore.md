@@ -194,7 +194,7 @@ AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
 bun run scripts/dev/seed-checkpoint.ts
 
-# 2. 백업 → 복원 → 검증. writer(api·scheduler·reconciler)가 돌면 backup이 거부한다
+# 2. 백업 → 복원 → 검증. api·scheduler가 돌면 backup이 거부한다. DB를 쓰는 reconciler도 함께 멈춘다
 docker compose stop api scheduler reconciler
 dir=$(scripts/backup.sh --project agent-platform)
 scripts/restore.sh "$dir" --into ap-restore-1 --port-base 25432

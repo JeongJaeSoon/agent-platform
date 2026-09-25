@@ -331,7 +331,7 @@ get "/v1/sessions/$SID/usage" | jq .
 
 compose 2.24.6 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다.
 
-backup은 writer가 모두 멈춰 있어야 뜬다. writer는 api·scheduler·reconciler와 세션마다 뜬 worker 컨테이너다. 하나라도 돌면 `writers are running: …`으로 아무것도 쓰지 않고 끝난다. 그래서 먼저 세션을 pause해 worker를 내리고(⑦과 같다) 서비스 셋을 멈춘 뒤 백업하고, 끝나면 다시 연다.
+backup은 writer가 멈춰 있어야 뜬다. api·scheduler나 세션마다 뜬 worker 컨테이너가 하나라도 돌면 `writers are running: …`으로 아무것도 쓰지 않고 끝난다. 그래서 먼저 세션을 pause해 worker를 내리고(⑦과 같다), DB를 쓰는 reconciler까지 서비스 셋을 멈춘 뒤 백업하고, 끝나면 다시 연다.
 
 ```sh
 post "/v1/sessions/$SID/pause" "$(jq -nc --argjson r "$(revision)" '{expected_revision:$r, reason:"backup"}')" | jq .
