@@ -343,6 +343,14 @@ describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
     }
   });
 
+  test("a runner slow after curl exited does not hide a stall inside curl's run", () => {
+    // curl ran from t+5ms for 2s; the runner saw it end at 3.6s.
+    const slowRunner = { ...timeout(10), wallMs: 3600, spawnMs: 5 };
+    expect(
+      judge(samples({ 10: slowRunner }), [stall(50_100, 1200)]),
+    ).toMatchObject({ pass: true, hostExcluded: 1 });
+  });
+
   test("only a stall surely inside the request excuses it", () => {
     // curl gave up after 2s, the runner noticed at 3.6s; a stall from 2.2s
     // came after the request.

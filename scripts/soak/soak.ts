@@ -556,6 +556,8 @@ export type ReadyzSample = {
   status: number;
   t: string;
   wallMs: number;
+  /** From `t` to curl's spawn returning: curl started within it (94S-443). */
+  spawnMs?: number;
 };
 
 /** A VM probe stall, with the host clock offset of the poll that read it. */
@@ -581,8 +583,8 @@ type VmPoll = {
  * - host: a timeout with no answer but 200 while the VM probe saw a stall
  *   of at least `stallMinMs` surely overlapping the request, i.e. the whole
  *   VM stood still. "Surely": the stall narrowed by its clock uncertainty,
- *   the request to where curl ran whichever way the runner's own overhead
- *   (`wallMs - ms`) fell around it.
+ *   the request to [t + spawnMs, t + ms], where curl ran however late it
+ *   started (samples from before spawnMs: all of wallMs - ms before it).
  * Past either ratio of all samples the measurement itself is suspect, and
  * O-1 fails.
  */
@@ -625,7 +627,8 @@ export function judgeReadyz(
       continue;
     }
     const sent = Date.parse(sample.t);
-    const from = sent + Math.max(0, sample.wallMs - sample.ms);
+    const from =
+      sent + (sample.spawnMs ?? Math.max(0, sample.wallMs - sample.ms));
     const until = sent + sample.ms;
     const stall =
       sample.error === CURL_TIMEOUT &&
@@ -753,6 +756,7 @@ async function readyzProbe(
     ],
     { stderr: "ignore", stdout: "pipe" },
   );
+  const spawnMs = Date.now() - sent;
   const [text, code] = await Promise.all([
     new Response(child.stdout).text(),
     child.exited,
@@ -765,6 +769,7 @@ async function readyzProbe(
     ok: code === 0 && status === 200,
     status,
     wallMs: Date.now() - sent,
+    spawnMs,
   };
 }
 
