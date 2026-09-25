@@ -122,8 +122,8 @@ describe("alpha path over public HTTP (94S-134)", () => {
       );
 
       // 7. pause: the worker drains, checkpoints and goes away. An
-      // interrupted turn leaves the session `stopped`, not `idle`
-      // (DESIGN.md §6.5); its worker stays for the next message.
+      // interrupted turn leaves the session `stopped`, not `idle`; its
+      // worker stays for the next message.
       await api.sessionUntil(
         sessionId,
         "is stopped",

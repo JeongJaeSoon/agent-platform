@@ -60,7 +60,7 @@ RUN git config --system user.name agent-platform \
 # the build asserts that instead of adding a second account. /workspace is
 # the mount point of the per-session volume; Docker seeds a fresh volume from
 # the image path, so the directory must already exist with the worker's
-# ownership (image contract, README).
+# ownership (image contract).
 RUN test "$(id -u bun)" = 1000 && test "$(id -g bun)" = 1000 \
   && mkdir -p /workspace && chown 1000:1000 /workspace
 WORKDIR /app

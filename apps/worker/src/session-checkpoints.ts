@@ -206,7 +206,7 @@ class MirrorLost extends PublishFailure {
  * The caller holds the run's checkpoint lease for the whole of it, so no
  * tool the engine runs writes between the verdict and the commit. What the
  * engine does not run — a process a command detached from it — is not held
- * back (DESIGN §6.3.1).
+ * back.
  *
  * A claim that names a checkpoint is restored from it before the engine
  * starts; see `restorePlan`.

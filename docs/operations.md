@@ -1,6 +1,6 @@
 # 운영 참고 — 로컬 Docker 설치의 실행 기반
 
-로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에 있다. 이 문서는 그 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), CI는 [ci.md](ci.md)에 있다.
+로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에 있다. 이 문서는 그 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 
@@ -321,22 +321,6 @@ DOCKER_BACKEND_TEST=1 QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/
   bun test apps/control-host/src/scheduler/main.integration.test.ts
 ```
 
-## 의존 서비스만 띄우기와 host에서 도는 API
-
-로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001이 이미 사용 중인지 먼저 확인한다.
-
-```bash
-docker compose -f infra/docker-compose.yml up -d postgres localstack gitea egress-proxy
-docker compose -f infra/docker-compose.yml ps
-docker compose -f infra/docker-compose.yml run --rm migrate
-```
-
-compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, host 프로세스가 쓰는 것만 게시한다(94S-323): postgres `5432`, LocalStack `4566`, API 전용 Secrets Manager `4567`, Gitea 웹 UI·HTTP clone `3001`, API `3000`. Gitea SSH는 게시하지 않는다(워커는 proxy의 repository route로 HTTP clone한다). Gitea 가입은 꺼 두고(`GITEA__service__DISABLE_REGISTRATION`) 계정은 admin CLI로만 만든다. 다른 머신에서 이 서비스에 붙어야 하면 compose를 고치지 말고 SSH 터널을 쓴다. 이미지는 전부 multi-arch index digest로 고정하거나(`postgres`·`localstack`·`gitea`·`gitea-init`·`fake-messages`, Bun은 app Dockerfile과 같은 digest) 저장소에서 빌드한다(`egress-proxy`·`api`·`migrate`(API Dockerfile)·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다). egress proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 뜨고 소스를 mount하지 않으므로, proxy 코드를 고친 뒤에는 재시작이 아니라 `docker compose -f infra/docker-compose.yml up -d --build egress-proxy`로 다시 빌드해야 반영된다. 배포는 `EGRESS_PROXY_IMAGE`를 images.yml이 낸 digest(`<name>@sha256:…`)로 주고 `--build` 없이 `up -d`로 띄운다. compose는 빌드 결과에 `image:` 값을 태그로 붙이는데 digest 참조는 태그가 될 수 없어서, `--build`를 붙이면 빌드가 실패한다. `API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도 마찬가지다.
-
-기존 환경 파일이나 volume을 덮어쓰거나 삭제하지 않는다. host에서 실행하는 테스트는 컨테이너 DNS 이름이 아니라 host에 공개된 endpoint를 사용한다. PostgreSQL integration fixture는 임시 DB 생성 권한이 필요하므로 전용 로컬 테스트 DB만 지정한다. LocalStack fixture는 `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`의 로컬 테스트 설정을 요구한다. 운영 DB·운영 credential로 실행하지 않는다.
-
-API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할 수 있다. 이 모드는 기동 시 경고를 출력하며 기본값이 아니다.
-
 ## 운영자 카탈로그 (Agent Profile · repository)
 
 API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `profiles.yaml`과 `repositories.yaml`을 한 번 읽는다(94S-132). 파일이 없거나 schema에 맞지 않거나 자격 증명 참조가 풀리지 않으면 파일·경로를 적은 메시지와 함께 기동하지 않는다. 옛 `SESSION_CATALOG_JSON`은 더 읽지 않으며 설정돼 있으면 기동을 거부한다. 저장소의 `config/real-model/`은 실제 Messages API용 카탈로그이고, `--real-model` overlay(`infra/compose.real-model.yml`)가 `PLATFORM_CONFIG_DIR`를 그 디렉터리로 바꾼다([real-claude.md](real-claude.md)).
@@ -583,4 +567,4 @@ curl -s http://127.0.0.1:3000/readyz
 
 같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. compose의 `egress-proxy` label은 이 값을 따르므로 설치마다 자기 proxy가 붙는다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
 
-`.github/workflows/images.yml`은 PR·main push마다 네 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag의 **push 이벤트**에서만(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`promote` job이 `ghcr.io/<owner>/agent-platform-<app>`으로 게시한다. 두 job만 package write 권한을 가지며 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시키고, `promote`가 네 digest가 모두 통과한 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여덟 reference(네 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 **같은 run의 "Re-run failed jobs"**로 채운다(publish job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 네 digest를 한 번에 커밋하는 소비자용 release manifest는 D5이며, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 D5다.
+`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag의 **push 이벤트**에서만(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`promote` job이 `ghcr.io/<owner>/agent-platform-<app>`으로 게시한다. 두 job만 package write 권한을 가지며 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시키고, `promote`가 세 digest가 모두 통과한 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 **같은 run의 "Re-run failed jobs"**로 채운다(publish job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 커밋하는 소비자용 release manifest는 D5이며, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 D5다.

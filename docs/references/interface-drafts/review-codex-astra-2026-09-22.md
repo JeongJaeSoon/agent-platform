@@ -267,7 +267,7 @@ Port §3.2는 inbox→turn FK나 typed provenance를 요구한다. 이를 웹·A
 02 §1.1은 완료를 서버 `result` 이벤트로 판단한다고 한다. 현재 `result`는 subtype이 자유 문자열이고 오류 결과도 담는다. durable terminal은 별도 finalize 계약이다.
 
 **수정:** `result` 수신은 관측 결과로 처리하고 turn terminal·receipt·필요한 durability를 reconcile해 확정한다. 기존 설계도 승인 대기 abort에서 `success/completed` result만으로 성공 판정하지 말라고 명시한다.  
-코드: `packages/contracts/src/api/event.ts:61–68`, `worker-protocol/index.ts:131–147`; `docs/DESIGN.md:355`; UI §20.3.
+코드: `packages/contracts/src/api/event.ts:61–68`, `worker-protocol/index.ts:131–147`; [`docs/DESIGN.md:355`](https://github.com/JeongJaeSoon/agent-platform/blob/d6810caadca57db45640340c9ed5fae48b8ead71/docs/DESIGN.md#L355); UI §20.3.
 
 ### C02. 상태 표가 admission·turn·execution·receipt·delivery의 조합을 충분히 표현하지 못한다 — Major
 

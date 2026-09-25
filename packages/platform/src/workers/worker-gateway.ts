@@ -125,8 +125,8 @@ export type WorkerGatewayOptions = {
   /** Lifetime of a launch nonce registered through registerLaunch. */
   nonceTtlMs?: number;
   /**
-   * How long a registered permission or question takes answers (DESIGN
-   * §6.4: 30 minutes). The worker is told what is left, never a deadline.
+   * How long a registered permission or question takes answers (30 minutes
+   * by default). The worker is told what is left, never a deadline.
    */
   pendingTtlMs?: number;
   /** Upper bound on nextInput long-polling. */

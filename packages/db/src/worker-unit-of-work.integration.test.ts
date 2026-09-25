@@ -1027,7 +1027,7 @@ integration("worker gateway on PostgreSQL", () => {
       })
       .from(sessions)
       .where(eq(sessions.id, interrupted.session.session_id));
-    // DESIGN §6.6: an interrupt never takes the success/idle path.
+    // An interrupt never takes the success/idle path.
     expect(stopped).toEqual({ status: "stopped", admissionState: "active" });
     expect(
       await db

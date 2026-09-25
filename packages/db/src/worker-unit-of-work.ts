@@ -133,7 +133,7 @@ const ATTEMPT_PHASE_ORDER: Record<string, number> = {
 // recovery decision, not from the worker.
 const workerTerminalSchema = terminalTurnStatusSchema.exclude(["cancelled"]);
 
-// DESIGN.md §6.5/§6.6: success, failure and user interrupt each get their own
+// Success, failure and user interrupt each get their own
 // session state, and an unknown outcome never takes the idle path.
 const SESSION_STATUS_BY_TERMINAL: Record<
   TerminalTurnStatus,

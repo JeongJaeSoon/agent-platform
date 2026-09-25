@@ -49,7 +49,7 @@ export type WorkerTimeouts = {
    * in flight asks whether it has been interrupted.
    */
   answerPollIntervalMs: number;
-  /** Give up claiming a session and exit cleanly (DESIGN §6.2). */
+  /** Give up claiming a session and exit cleanly. */
   claimTimeoutMs: number;
   /**
    * Budget for a turn to finish on its own once SIGTERM arrived. Never more

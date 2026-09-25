@@ -1,6 +1,6 @@
 # 백업과 복원 (compose 설치)
 
-`scripts/backup.sh`가 한 compose 설치(PostgreSQL·checkpoint object store·Gitea)를 디렉터리 하나로 묶고, `scripts/restore.sh`가 그것을 **새 compose project**에 풀며, `scripts/verify-restore.sh`가 복원된 checkpoint pointer가 가리키는 object를 version 단위로 대조한다. 복원된 checkpoint는 새 bucket의 version으로 **다시 고정**되고 legal hold가 걸리므로, 복원본의 API도 기본값 `CHECKPOINT_OBJECT_PROTECTION=locked`로 뜬다(아래 "checkpoint 객체의 version" 절). 원본 설치의 volume·환경 파일은 어느 스크립트도 쓰지 않는다(README 규칙).
+`scripts/backup.sh`가 한 compose 설치(PostgreSQL·checkpoint object store·Gitea)를 디렉터리 하나로 묶고, `scripts/restore.sh`가 그것을 **새 compose project**에 풀며, `scripts/verify-restore.sh`가 복원된 checkpoint pointer가 가리키는 object를 version 단위로 대조한다. 복원된 checkpoint는 새 bucket의 version으로 **다시 고정**되고 legal hold가 걸리므로, 복원본의 API도 기본값 `CHECKPOINT_OBJECT_PROTECTION=locked`로 뜬다(아래 "checkpoint 객체의 version" 절). 원본 설치의 volume·환경 파일은 어느 스크립트도 쓰지 않는다([development.md](development.md#의존-서비스만-띄우기와-host에서-도는-api)의 규칙).
 
 호스트에 필요한 것: docker + compose v2.24.6 이상(`!override` 병합, `include`로 합친 스택 위의 overlay), git, jq, `sha256sum` 또는 `shasum`, 그리고 `bun install`을 마친 이 저장소 checkout. restore의 `migrate` 서비스가 checkout을 마운트한다. S3 호출은 모두 호스트에서 production S3 어댑터로 한다. object 복사·업로드·검사는 `scripts/lib/object-store-cli.ts`, checkpoint version 고정은 `scripts/lib/checkpoint-pins-cli.ts`가 맡는다(published postgres 포트로 붙는다). verify는 `scripts/lib/decode-manifest.ts`도 부른다. pg_dump·psql·git은 컨테이너 안에서 실행한다.
 
@@ -182,24 +182,6 @@ tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2
 knob: `RR_PROJECT`(원본 project 이름, 복원 project는 `<이름>r`), `RR_INSTALLATION_ID`(두 쪽 공용 `EXECUTION_INSTALLATION_ID`), `RR_PORT_BASE`(복원 project의 loopback 포트 4개, 기본값 24320), `RR_KEEP=1`(스택·이미지·backup을 남김). 두 project와 installation 라벨 자원이 이미 있으면 아무것도 지우지 않고 멈춘다.
 
 engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session_id` 컬럼은 아무 코드도 쓰지 않는다.
-
-### 결과 (2026-09-24, `fc495b83`)
-
-`RR_PROJECT=it324 RR_INSTALLATION_ID=it324`. Docker Engine 29.1.3, compose 5.0.0, claude-agent-sdk 0.3.270, Claude Code 2.1.270, worker image `sha256:2b5b8012…83eb8`.
-
-| 항목 | 원본 r1 | 복원본 r1 | resume 뒤 r2 | 결과 |
-|---|---|---|---|---|
-| engine session id(`resume`) | `d4f13b9f…be16` | 같음 | 같음 | PASS |
-| transcript part | 6개, entry 32 | 같은 sha256 6개, version만 새것 | 앞 6개 그대로 + generation 2의 2개, entry 42 | PASS |
-| part-list digest | `d77fb22a…0155` | 같음 | — | PASS |
-| workspace commit | `4d457562…a713` | 같음 | 같음 | PASS |
-| untracked `hello.txt` sha256 | `e49c81e2…78ee` | — | 같음 | PASS |
-| 새 worker 복원 | — | `worker.checkpoint.restored` r1, 같은 commit, `worker.resume.ready` | — | PASS |
-| turn 3 `cat hello.txt` | — | — | `alpha\nbeta`, turn 1·2는 completed 그대로 | PASS |
-| 모델 호출 | `rr1`, `rr2` | 없음(새 스택) | `rr3`만, history `[rr1, rr2, rr3]` | PASS |
-| worker image | backup `images.worker` = 원본 worker | — | 복원본 worker와 같음 | PASS |
-
-verify-restore는 checkpoint 2개 PASS, create-only 412, locked 기동 검사, `plan: ready under locked`를 출력했다. 이 실행은 incremental checkpoint(#217, 94S-227) 이전이라 bundle이 모두 홀로 선 것이었다. base bundle 사슬이 있는 checkpoint로 다시 돌린 기록은 94S-372에 남긴다. 원본은 backup 뒤 installation 라벨의 container·volume과 compose project 자원이 하나도 남지 않았다(이 실행 뒤 스크립트는 installation 라벨 network까지 확인한다).
 
 ## 로컬에서 끝까지 돌려 보기
 

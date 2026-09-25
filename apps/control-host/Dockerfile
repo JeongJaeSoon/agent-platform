@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Control-host image (94S-117): one executable, three roles —
 # `apps/control-host/src/main.ts api|scheduler|reconciler` — none of them
-# with the Agent SDK or the Claude Code executable (docs/DESIGN.md §9.2–9.3).
+# with the Agent SDK or the Claude Code executable.
 # Only the scheduler role is given the Docker socket, and it runs as root
 # for that (compose `user:`); the image default stays uid 1000. Built from
 # the repository root (`docker build -f apps/control-host/Dockerfile .`).

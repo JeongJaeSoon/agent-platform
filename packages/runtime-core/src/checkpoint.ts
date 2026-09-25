@@ -34,7 +34,7 @@ export type CheckpointPreparation = ReadyCheckpoint | RejectedCheckpoint;
 
 /**
  * The run's promise that nothing writes to the workspace or the transcript
- * while a checkpoint is captured and committed (DESIGN §6.3.1). While it is
+ * while a checkpoint is captured and committed. While it is
  * held every new tool call and input is refused. It is local to the run and
  * has nothing to do with the execution lease the gateway fences on: that one
  * says who owns the session, this one says nobody is writing.

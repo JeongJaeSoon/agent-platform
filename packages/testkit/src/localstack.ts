@@ -30,7 +30,7 @@ export type LocalstackBucket = {
   s3: S3Client;
 };
 
-/** LocalStack tests run only when `STORAGE_LOCALSTACK_TEST=1`, as README and CI document. */
+/** LocalStack tests run only when `STORAGE_LOCALSTACK_TEST=1`, as docs/development.md and CI document. */
 export function localstackEnabled(): boolean {
   return process.env.STORAGE_LOCALSTACK_TEST === "1";
 }

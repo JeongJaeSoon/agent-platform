@@ -62,7 +62,7 @@ describe("readiness probe", () => {
   });
 
   test("stays ready when the database is ahead by a later migration", async () => {
-    // DESIGN.md §11.5: the migration Job runs before the rollout, so the
+    // The migration Job runs before the rollout, so the
     // previous build must keep serving on a database that is one step ahead.
     const ahead = await database(true);
     await ahead.query(
