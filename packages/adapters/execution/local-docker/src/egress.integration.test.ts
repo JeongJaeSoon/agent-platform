@@ -15,6 +15,7 @@ import {
 import {
   asPrintfEscapes,
   clientHello,
+  EXTENSION_ENCRYPTED_CLIENT_HELLO,
 } from "../../../../../apps/egress-proxy/src/testing/client-hello.ts";
 import {
   containerNameFor,
@@ -42,7 +43,7 @@ import { DockerClient } from "./docker-client.ts";
 const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
-const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.10";
+const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.14";
 /**
  * A real TLS client for the tunnel: curl on OpenSSL, which sends a plain
  * ClientHello. Bun's own fetch is BoringSSL and sends GREASE ECH, which the
@@ -526,8 +527,8 @@ integration("worker egress is confined to the proxy allowlist", () => {
   }
 
   /**
-   * Bun's fetch on the worker network, told to use the proxy: a BoringSSL
-   * client, whose ClientHello carries GREASE ECH.
+   * Bun's fetch on the worker network, told to use the proxy: the BoringSSL
+   * client that sent GREASE ECH up to Bun 1.3.13.
    */
   async function bunFetchProbe(url: string): Promise<{
     exitCode: number;
@@ -775,15 +776,36 @@ console.log("TLS " + response.status + " " + (await response.text()));
     expect(await logsOf(tlsName)).toContain(`served ${tlsName}:8443`);
   }, 240_000);
 
-  test("a client that sends GREASE ECH is refused, Bun's own fetch included", async () => {
-    // Measured on Bun 1.3.x: fetch and node:https send encrypted_client_hello
-    // on every hello. The proxy cannot tell GREASE from real ECH, so it is
-    // refused, and this pins that consequence where a runtime upgrade would
-    // change it.
+  test("Bun's own fetch handshakes through the tunnel", async () => {
+    // Bun 1.3.10–1.3.13 put GREASE encrypted_client_hello on every fetch and
+    // node:https hello, which this proxy refuses; 1.3.14 does not (94S-441).
+    // This pins that where a runtime upgrade would change it back.
     const before = await logsOf(proxyName);
     const result = await bunFetchProbe(`https://${tlsName}:8443/`);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.output).not.toContain("tls-upstream");
+    expect(result.output).toContain("tls-upstream");
+    expect(result.exitCode).toBe(0);
+    const after = (await logsOf(proxyName)).slice(before.length);
+    expect(after).not.toContain("encrypted_client_hello");
+  }, 240_000);
+
+  test("a hello that carries encrypted_client_hello is refused", async () => {
+    // GREASE or real, the proxy cannot tell them apart.
+    const hello = asPrintfEscapes(
+      clientHello({
+        extensions: [
+          {
+            data: Uint8Array.from([1]),
+            type: EXTENSION_ENCRYPTED_CLIENT_HELLO,
+          },
+        ],
+        serverNames: [tlsName],
+      }),
+    );
+    const before = await logsOf(proxyName);
+    const result = await probe(
+      `{ printf 'CONNECT ${tlsName}:8443 HTTP/1.1\\r\\nhost: ${tlsName}:8443\\r\\n\\r\\n'; sleep 1; printf '${hello}'; sleep 3; } | nc ${proxyName} 3128`,
+    );
+    expect(result.output).toContain("200 Connection Established");
     const after = (await logsOf(proxyName)).slice(before.length);
     expect(after).toContain("encrypted_client_hello");
   }, 240_000);

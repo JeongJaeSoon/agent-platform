@@ -34,7 +34,7 @@ test-ops는 내부 알파 인원이 함께 쓰는 상시 설치다. Linux 호스
 | Docker Engine | 28 이상. worker 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다 | `preflight`가 거부한다 |
 | docker compose | v2.24.6 이상. 복원 훈련의 overlay가 include 위에 얹힌다 | `preflight`가 거부한다 |
 | 디스크 | Docker 데이터 루트가 xfs이고 `prjquota`로 마운트돼 있어야 한다. worker workspace volume에 용량·inode 상한을 건다 | scheduler가 기동할 때 quota probe를 돌린다. 실패하면 scheduler가 unhealthy가 되고 `deploy`·`upgrade`가 멈춘다 |
-| 도구 | git, jq, curl, 그리고 checkout에서 `bun install --frozen-lockfile`을 마친 bun 1.3.10 | S3 검사와 백업은 호스트에서 checkout의 S3 어댑터로 한다 |
+| 도구 | git, jq, curl, 그리고 checkout에서 `bun install --frozen-lockfile`을 마친 bun 1.3.14 | S3 검사와 백업은 호스트에서 checkout의 S3 어댑터로 한다 |
 | checkout | 배포할 release의 `source_commit`에 있고 로컬 변경이 없는 이 저장소 | `preflight`가 거부한다 |
 
 compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.

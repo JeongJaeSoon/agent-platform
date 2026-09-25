@@ -29,7 +29,7 @@
 | `packages/ui` | 웹 콘솔 화면이 공유하는 표현 계층. 서버가 준 상태를 그리기만 한다([packages/ui/README.md](../packages/ui/README.md)) |
 | `infra/compose.core.yml` | 모든 설치가 같이 쓰는 제품 서비스: Postgres·Gitea, one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 control-host 이미지 하나로 api·scheduler(루프)·reconciler(루프) role을 띄우고(Docker socket은 scheduler에만) worker 이미지를 smoke한다. 보안 설정은 이 파일에만 있다(94S-430) |
 | `infra/docker-compose.yml` (+ 루트 `compose.yaml`) | 로컬 스택: core 위에 `infra/compose.local.yml`(LocalStack S3·Secrets Manager, fake Messages API, 샘플 저장소 생성, 앱 이미지 빌드)을 합친다. 루트 `compose.yaml`이 이 파일을 include하므로 루트에서 `docker compose`를 그대로 쓴다. test-ops는 core 위에 `infra/compose.test-ops.yml`과 object store layer(기본 LocalStack, 또는 AWS S3)를 얹고 `scripts/test-ops.sh`로 운영한다([test-ops.md](test-ops.md)) |
-| `apps/*/Dockerfile` | control-host(api·scheduler·reconciler role)·worker·egress-proxy 이미지. base는 `oven/bun:1.3.10` digest pin, `bun install --frozen-lockfile --production` multi-stage(egress-proxy는 install 없는 한 단계). `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
+| `apps/*/Dockerfile` | control-host(api·scheduler·reconciler role)·worker·egress-proxy 이미지. base는 `oven/bun:1.3.14` digest pin, `bun install --frozen-lockfile --production` multi-stage(egress-proxy는 install 없는 한 단계). `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
 
 ## 경계
 

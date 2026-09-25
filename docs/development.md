@@ -4,7 +4,7 @@
 
 ## 준비물
 
-저장소 루트에서 Bun 1.3.10과 Git을 사용한다. 실서비스 의존 검증에는 Docker와 Compose도 필요하다. 아래 [진입점](#e2egatesoak-진입점)의 스크립트는 Docker Engine 28 이상에서 돈다.
+저장소 루트에서 Bun 1.3.14와 Git을 사용한다. 실서비스 의존 검증에는 Docker와 Compose도 필요하다. 아래 [진입점](#e2egatesoak-진입점)의 스크립트는 Docker Engine 28 이상에서 돈다.
 
 ## `bun run check`
 

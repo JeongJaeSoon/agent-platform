@@ -44,17 +44,14 @@ type Seen = { host: string; method: string; port: number };
 let isolated: IsolatedWorkspace | undefined;
 let proxy: EgressProxyServer | undefined;
 let server: FakeAnthropicServer | undefined;
-const hostVariables = new Map<string, string | undefined>();
+let hostEnv: NodeJS.ProcessEnv | undefined;
 
 afterEach(async () => {
+  if (hostEnv !== undefined) process.env = hostEnv;
+  hostEnv = undefined;
   proxy?.stop();
   server?.stop();
   await isolated?.dispose();
-  for (const [name, value] of hostVariables) {
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
-  hostVariables.clear();
   isolated = undefined;
   proxy = undefined;
   server = undefined;
@@ -141,12 +138,17 @@ async function startProxyFor(
     https_proxy: proxyUrl,
     no_proxy: "egress-proxy.invalid",
   };
+  // On a copy, which the engine's environment is built from: from Bun 1.3.12
+  // a proxy variable written to the real process.env also steers every later
+  // request of this test process, and deleting it does not take that back.
+  hostEnv = process.env;
+  const env: NodeJS.ProcessEnv = { ...hostEnv };
   for (const name of HOST_VARIABLES) {
-    hostVariables.set(name, process.env[name]);
     const value = values[name];
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
+    if (value === undefined) delete env[name];
+    else env[name] = value;
   }
+  process.env = env;
   return { allowed, denied };
 }
 

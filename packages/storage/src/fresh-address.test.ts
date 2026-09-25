@@ -190,12 +190,14 @@ function plainRequest(protocol: "http:" | "https:"): HttpRequest {
   });
 }
 
+// On a copy: from Bun 1.3.12 a proxy variable written to the real
+// process.env steers every later request of this test process, and neither
+// deleting nor emptying it takes that back (94S-441).
 function setEnv(name: string, value: string): void {
-  const saved = process.env[name];
-  process.env[name] = value;
+  const real = process.env;
+  process.env = { ...real, [name]: value };
   closers.push(() => {
-    if (saved === undefined) delete process.env[name];
-    else process.env[name] = saved;
+    process.env = real;
   });
 }
 
