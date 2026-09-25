@@ -25,13 +25,14 @@
 #
 #   tests/e2e/run.sh --real-model
 #
-# The same stack against the real Messages API (94S-373): the catalog in
-# tests/e2e/real-model replaces config/, the API alone reads the key from
-# ANTHROPIC_API_KEY (tests/e2e/compose.real-model.yml, which also caps what
-# the run can spend), and tests/e2e/real-model.e2e.ts runs in place of the
-# scripted suites. Without a key it stops before touching Docker, and it
-# fails if the key's value turns up anywhere in E2E_OUT. Paid calls, so no
-# CI job runs it; docs/quickstart.md gives the command and its cost.
+# The same stack against the real Messages API (94S-373): the API reads the
+# catalog in config/real-model and, alone, the key from ANTHROPIC_API_KEY
+# (infra/compose.real-model.yml, which also caps what the run can spend;
+# `scripts/local.sh up --real-model` starts the same overlay), and
+# tests/e2e/real-model.e2e.ts runs in place of the scripted suites. Without
+# a key it stops before touching Docker, and it fails if the key's value
+# turns up anywhere in E2E_OUT. Paid calls, so no CI job runs it;
+# docs/real-claude.md gives the command and its cost.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -68,7 +69,7 @@ label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror (94S-365).
 dc() {
   docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
-    ${real_model:+-f tests/e2e/compose.real-model.yml} \
+    ${real_model:+-f infra/compose.real-model.yml} \
     ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
 }
 
@@ -148,9 +149,9 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "claude_agent_sdk: ${sdk_version}"
   echo "claude_code: ${claude_version}"
   if [ -n "$real_model" ]; then
-    echo "model: $(sed -n 's/^ *model: //p' tests/e2e/real-model/profiles.yaml)"
-    echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' tests/e2e/real-model/profiles.yaml)"
-    echo "session_cost_limit_usd: $(sed -n 's/^ *SESSION_COST_LIMIT_USD: "\(.*\)"$/\1/p' tests/e2e/compose.real-model.yml)"
+    echo "model: $(sed -n 's/^ *model: //p' config/real-model/profiles.yaml)"
+    echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' config/real-model/profiles.yaml)"
+    echo "session_cost_limit_usd: $(sed -n 's/^ *SESSION_COST_LIMIT_USD: "\(.*\)"$/\1/p' infra/compose.real-model.yml)"
   fi
 } | tee "$out/record.txt" >&2
 

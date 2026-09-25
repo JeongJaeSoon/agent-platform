@@ -1,6 +1,7 @@
-# The catalog `tests/e2e/run.sh --real-model` mounts over config/ (94S-373):
-# the example profile pointed at the real Messages API. Paid calls, so no CI
-# job runs it (docs/quickstart.md, "실제 모델로 돌리기").
+# The catalog infra/compose.real-model.yml points the API at (94S-373,
+# 94S-431): the example profile on the real Messages API, for
+# `scripts/local.sh up --real-model` and `tests/e2e/run.sh --real-model`.
+# Paid calls, so no CI job runs it (docs/real-claude.md).
 #
 # Its own id rather than claude-coding-local, so a session made here can only
 # run against api.anthropic.com: nothing in this catalog names the compose
