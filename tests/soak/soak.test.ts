@@ -11,7 +11,14 @@ import {
   validFaults,
 } from "../../scripts/soak/messages.ts";
 import { Api, modelEvidence, turnPrompt } from "../../scripts/soak/probes.ts";
-import { validConfig } from "../../scripts/soak/soak.ts";
+import {
+  judgeReadyz,
+  READYZ_EXCLUSION,
+  type ReadyzSample,
+  type VmStall,
+  validConfig,
+} from "../../scripts/soak/soak.ts";
+import { StallRecorder } from "../../scripts/soak/vm-lag.ts";
 
 const CONFIG_DIR = join(import.meta.dir, "../../scripts/soak/config");
 
@@ -232,6 +239,143 @@ describe("94S-135 soak tooling", () => {
         (row) => row.status,
       ),
     ).toEqual(["fail"]);
+  });
+});
+
+describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
+  const T0 = Date.parse("2026-09-25T10:00:00.000Z");
+  const at = (ms: number) => new Date(T0 + ms).toISOString();
+  const ok = (i: number): ReadyzSample => ({
+    t: at(i * 5000),
+    error: null,
+    ms: 3,
+    ok: true,
+    status: 200,
+    wallMs: 20,
+  });
+  const timeout = (i: number): ReadyzSample => ({
+    t: at(i * 5000),
+    error: "curl exit 28",
+    ms: 2000,
+    ok: false,
+    status: 0,
+    wallMs: 2010,
+  });
+  // 200 samples: one exclusion is 0.5%, three are 1.5%.
+  const samples = (replace: Record<number, ReadyzSample>) =>
+    Array.from({ length: 200 }, (_, i) => replace[i] ?? ok(i));
+  const stall = (from: number, gapMs: number, offsetMs = 0): VmStall => ({
+    index: 0,
+    bootId: "b",
+    from: T0 + from,
+    to: T0 + from + gapMs,
+    gapMs,
+    offsetMs,
+    offsetErrorMs: 5,
+  });
+  const judge = (list: ReadyzSample[], stalls: VmStall[] = []) =>
+    judgeReadyz(list, stalls, { timeoutMs: 2000, target: 1 });
+
+  test("the probe records a gap between ticks as a stall, from tick to tick", () => {
+    const recorder = new StallRecorder(500);
+    for (const mono of [0, 100, 200, 1500, 1600, 2300]) {
+      recorder.tick(mono, 10_000 + mono);
+    }
+    expect(recorder.stalls).toEqual([
+      { index: 0, from: 10_200, to: 11_500, gapMs: 1300 },
+      { index: 1, from: 11_600, to: 12_300, gapMs: 700 },
+    ]);
+    expect(recorder.since(1)).toEqual([recorder.stalls[1]]);
+  });
+
+  test("a timeout a VM stall of 1s or more overlapped is excluded; O-1 passes on the rest", () => {
+    // Sample 10 is sent at 50s; the VM stood still from 49.2s to 52.6s.
+    const result = judge(samples({ 10: timeout(10) }), [stall(49_200, 3400)]);
+    expect(result).toMatchObject({
+      pass: true,
+      availability: 1,
+      judged: 199,
+      hostExcluded: 1,
+      hostExcludedRatio: 0.005,
+      productFailures: [],
+    });
+    expect(result.stalls).toMatchObject({ count: 1, maxGapMs: 3400 });
+  });
+
+  test("the probe's clock offset places the stall on the host clock", () => {
+    // In the VM's clock the stall is a minute early; the poll measured that.
+    expect(
+      judge(samples({ 10: timeout(10) }), [stall(-10_800, 3400, 60_000)]),
+    ).toMatchObject({ pass: true, hostExcluded: 1 });
+    expect(
+      judge(samples({ 10: timeout(10) }), [stall(49_200, 3400, 60_000)]),
+    ).toMatchObject({ pass: false, hostExcluded: 0 });
+  });
+
+  test("a failure no long stall overlapped stays a product failure", () => {
+    for (const stalls of [
+      [],
+      // Over before the request was sent.
+      [stall(47_000, 2900)],
+      // Overlapping, but shorter than a stall O-1 excuses.
+      [stall(50_500, READYZ_EXCLUSION.stallMinMs - 1)],
+    ]) {
+      const result = judge(samples({ 10: timeout(10) }), stalls);
+      expect(result).toMatchObject({ pass: false, hostExcluded: 0 });
+      expect(result.productFailures).toEqual([
+        { t: at(50_000), error: "curl exit 28", status: 0 },
+      ]);
+    }
+  });
+
+  test("an answer that was not 200 is the product's even inside a stall", () => {
+    const refused = { ...ok(10), ok: false, status: 503 };
+    expect(
+      judge(samples({ 10: refused }), [stall(49_200, 3400)]),
+    ).toMatchObject({ pass: false, hostExcluded: 0, availability: 199 / 200 });
+  });
+
+  test("host exclusions past 1% of the samples fail O-1", () => {
+    const list = samples({
+      10: timeout(10),
+      70: timeout(70),
+      130: timeout(130),
+    });
+    const stalls = [10, 70, 130].map((i) => stall(i * 5000 - 800, 3000));
+    expect(judge(list, stalls)).toMatchObject({
+      pass: false,
+      availability: 1,
+      hostExcluded: 3,
+      hostExcludedRatio: 0.015,
+    });
+    // Exactly 1% is still within the cap.
+    const onePercent = samples({ 10: timeout(10) }).slice(0, 100);
+    expect(judge(onePercent, stalls.slice(0, 1))).toMatchObject({
+      pass: true,
+      hostExcludedRatio: 0.01,
+    });
+  });
+
+  test("a slot the runner missed is counted apart, and too many void the measurement", () => {
+    const missed = (i: number): ReadyzSample => ({
+      ...ok(i),
+      error: "slot missed: the runner did not get to it",
+      ok: false,
+      status: 0,
+      ms: 0,
+      wallMs: 0,
+    });
+    expect(judge(samples({ 10: missed(10) }))).toMatchObject({
+      pass: true,
+      availability: 1,
+      judged: 199,
+      runnerMissed: 1,
+      hostExcluded: 0,
+      productFailures: [],
+    });
+    expect(
+      judge(samples({ 10: missed(10), 70: missed(70), 130: missed(130) })),
+    ).toMatchObject({ pass: false, availability: 1, runnerMissedRatio: 0.015 });
   });
 });
 
