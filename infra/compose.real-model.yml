@@ -1,0 +1,25 @@
+# The real-model overlay (94S-373, 94S-431): the local stack against the
+# real Messages API, for `scripts/local.sh up --real-model` over compose.yaml
+# and `tests/e2e/run.sh --real-model` over infra/docker-compose.yml. It names
+# no path, so it merges the same under either project directory.
+#
+# The API reads its catalog from config/real-model, inside the config/ the
+# core already mounts. Only the API gets the key, passed through by name
+# from the caller's environment so its value is in no file and no argument;
+# the proxy puts it on each worker call (94S-252) and api.anthropic.com:443
+# is already the proxy's default EGRESS_CREDENTIAL_ALLOWLIST. The limits
+# bound what one session can spend: the worker hands the session's remaining
+# budget to the SDK as maxBudgetUsd (94S-279).
+x-real-model-limits: &real-model-limits
+  SESSION_COST_LIMIT_USD: "1"
+  MAX_TURN_SECONDS: "600"
+
+services:
+  api:
+    environment:
+      ANTHROPIC_API_KEY:
+      PLATFORM_CONFIG_DIR: /app/config/real-model
+      <<: *real-model-limits
+  scheduler:
+    environment:
+      <<: *real-model-limits

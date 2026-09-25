@@ -10,6 +10,8 @@ const root = join(import.meta.dir, "..");
 export const CORE = "infra/compose.core.yml";
 export const LOCAL_LAYERS = [CORE, "infra/compose.local.yml"] as const;
 export const TEST_OPS_LAYERS = [CORE, "infra/compose.test-ops.yml"] as const;
+/** Over the local stack, for `--real-model` (94S-431). */
+export const REAL_MODEL = "infra/compose.real-model.yml";
 
 type Mapping = Record<string, unknown>;
 const isMapping = (value: unknown): value is Mapping =>

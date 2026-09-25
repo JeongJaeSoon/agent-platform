@@ -14,6 +14,7 @@ import {
   CORE,
   LOCAL_LAYERS,
   layeredServices,
+  REAL_MODEL,
   servicesOf,
   TEST_OPS_LAYERS,
 } from "./compose-layers.ts";
@@ -296,7 +297,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // to the same split.
     for (const overlay of [
       "tests/e2e/compose.yml",
-      "tests/e2e/compose.real-model.yml",
+      REAL_MODEL,
       "tests/e2e/compose.ci-mirror.yml",
     ]) {
       expect(
@@ -652,6 +653,16 @@ describe("compose layers", () => {
       ["image", "environment"],
       ["WORKER_IMAGE", ...Object.keys(TEST_OPS_SECRETS)],
     ],
+    [
+      REAL_MODEL,
+      ["environment"],
+      [
+        "ANTHROPIC_API_KEY",
+        "PLATFORM_CONFIG_DIR",
+        "SESSION_COST_LIMIT_USD",
+        "MAX_TURN_SECONDS",
+      ],
+    ],
   ] as const)(
     "%s only adds to the core's services",
     (layer, fields, variables) => {
@@ -844,4 +855,45 @@ describe("compose layers", () => {
         TEST_OPS_SECRETS.EGRESS_AUTHORIZER_TOKEN,
       );
   });
+
+  // 94S-431: the files scripts/local.sh and tests/e2e/run.sh start with
+  // --real-model, each rendered with a key in the caller's environment.
+  test.each([
+    [["compose.yaml", REAL_MODEL]],
+    [[...LOCAL_LAYERS, "tests/e2e/compose.yml", REAL_MODEL]],
+  ])(
+    "%p hands the key to the API alone, with the real catalog and the e2e limits",
+    (files) => {
+      const probe = `key-probe-${crypto.randomUUID()}`;
+      const { exitCode, stderr, model } = render(files, {
+        ANTHROPIC_API_KEY: probe,
+      });
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      const services = model?.services ?? {};
+      const api = services.api;
+      expect(api?.environment?.ANTHROPIC_API_KEY).toBe(probe);
+      expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe(
+        "/app/config/real-model",
+      );
+      expect(
+        api?.volumes?.find((volume) => volume.target === "/app/config")?.source,
+      ).toBe(join(root, "config"));
+      for (const [name, service] of Object.entries(services)) {
+        if (name !== "api")
+          expect({
+            name,
+            key: JSON.stringify(service).includes(probe),
+          }).toEqual({
+            name,
+            key: false,
+          });
+      }
+      for (const name of ["api", "scheduler"])
+        expect({
+          name,
+          cost: services[name]?.environment?.SESSION_COST_LIMIT_USD,
+          turn: services[name]?.environment?.MAX_TURN_SECONDS,
+        }).toEqual({ name, cost: "1", turn: "600" });
+    },
+  );
 });

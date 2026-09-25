@@ -30,7 +30,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | 항목 | 버전 | 왜 |
 |---|---|---|
 | Docker Engine | **28 이상** | 워커 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다. 28보다 낮은 daemon에서는 scheduler가 기동을 거부한다([94S-274](https://linear.app/94soon/issue/94S-274)) |
-| Docker Compose | v2, 2.24 이상 | compose의 `include`와 `env_file`의 `required`를 쓴다. 6장의 백업·복원까지 해 보려면 2.24.6 이상(`include`로 합친 스택 위에 overlay를 겹친다) |
+| Docker Compose | v2, 2.24 이상 | compose의 `include`와 `env_file`의 `required`를 쓴다. 5장의 실제 Claude와 6장의 백업·복원까지 해 보려면 2.24.6 이상(`include`로 합친 스택 위에 overlay를 겹친다) |
 | curl, jq, uuidgen | 아무 버전 | 3장의 수동 확인 |
 | lsof | 아무 버전 | 0장의 포트 점검. 없으면 점검 블록이 아무것도 출력하지 않는다(`local.sh up`이 다시 확인한다) |
 | git | 아무 버전 | clone |
@@ -301,7 +301,7 @@ bun install
 
 ## 5. 실제 Claude로 확인하기 (선택, 유료)
 
-Anthropic API key 하나로 같은 흐름을 실제 Claude에 붙여 돈다. 절차와 비용, key 취급은 [실제 모델로 돌리기](#실제-모델로-돌리기)에 있다.
+본인의 Anthropic API key로 같은 스택을 실제 Claude에 붙인다. 유료 e2e 한 번과 `scripts/local.sh up --real-model`로 직접 대화하는 방법, 비용, key 취급은 [real-claude.md](real-claude.md)에 있다.
 
 ## 6. 운영 기능 둘러보기
 
@@ -366,7 +366,6 @@ scripts/local.sh down
 | pause가 오래 `pausing`이고 `attention.code`가 `PAUSE_BLOCKED`다 | worker가 60초 안에 drain하지 못했다. 진행 중인 turn을 interrupt하거나 기다린다 |
 | pull한 코드가 반영되지 않은 것 같다 | `scripts/local.sh up`을 다시 실행한다. 이미지를 이 checkout에서 다시 빌드한다 |
 | 빌드 중 디스크가 부족하다 | `docker system df`로 확인하고, 필요 없는 이미지와 빌드 캐시를 지운다(예: `docker builder prune`) |
-| `--real-model`이 바로 exit 2로 끝난다 | `ANTHROPIC_API_KEY`가 export되지 않았다. [실제 모델로 돌리기](#실제-모델로-돌리기)의 순서대로 입력한다 |
 
 ## 스크립트된 프롬프트
 
@@ -380,53 +379,3 @@ GATE-SPEC {"id":"<이름>","steps":[{"tool":"<도구>","input":{…},"delayMs":<
 - `delayMs`·`finalDelayMs`는 그 응답을 늦춘다. 긴 turn(interrupt·terminate 시연)을 만들 때 쓴다.
 - 대본이 없는 메시지에는 `Hello from the local fake Messages API.`로 답한다.
 - 도구는 profile의 `tools`(예시: Read, Edit, Write, Glob, Grep, Bash) 안에 있어야 한다. 밖의 도구는 권한 요청 없이 거절된다.
-
-실제 모델로 돌리는 방법은 다음 절에 있다.
-
-## 실제 모델로 돌리기
-
-Anthropic API key 하나로 같은 로컬 스택을 실제 Claude에 붙여 e2e를 돈다. AWS 계정은 필요 없다(S3·Secrets Manager는 그대로 LocalStack이다). 유료 호출이므로 위 절차와 CI(`e2e`·`quickstart` job)에는 들어가지 않는다. 실 AWS S3까지 쓰는 확인은 [94S-303](https://linear.app/94soon/issue/94S-303)이다.
-
-key가 셸 history에 남지 않도록 입력받아 넘기고, 끝나면 지운다.
-
-```sh
-printf 'Anthropic API key: '
-read -rs ANTHROPIC_API_KEY
-echo
-export ANTHROPIC_API_KEY
-tests/e2e/run.sh --real-model
-unset ANTHROPIC_API_KEY
-```
-
-`ANTHROPIC_API_KEY`가 없거나 비어 있으면 Docker를 건드리기 전에 exit 2로 끝난다. fake로 대신 돌지 않는다.
-
-**무엇이 바뀌나.** `tests/e2e/run.sh`가 평소 e2e와 같은 스택(격리된 compose project, 루프백 임시 포트)을 띄우되 `tests/e2e/compose.real-model.yml`을 하나 더 얹는다.
-
-- 카탈로그가 `tests/e2e/real-model/`로 바뀐다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. key는 `value_env: ANTHROPIC_API_KEY`로 API 프로세스 환경에서 읽는다. 이 카탈로그에는 fake를 가리키는 profile이 없다.
-- key는 API 컨테이너에만 이름으로 전달된다. compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
-- `SESSION_COST_LIMIT_USD=1`, `MAX_TURN_SECONDS=600`으로 한 번의 실행에 상한을 건다.
-- 스크립트된 스위트 대신 `tests/e2e/real-model.e2e.ts`를 돈다.
-
-**무엇을 확인하나.** 모델의 문장은 보지 않는다. 도구 결과(저장소 상태)와 플랫폼 기록을 본다.
-
-1. turn 1: 샘플 저장소에 파일을 만들고 커밋한다. 권한 요청은 테스트가 허용한다.
-2. turn 2: 같은 worker에서 `git log`와 `cat`으로 그 커밋을 읽는다.
-3. pause: checkpoint가 turn 2까지 덮는다.
-4. resume 후 turn 3: 새 worker(turn 1과 겹치는 attempt 없음)에서 같은 커밋 hash와 파일 내용이 나오고, Claude Code 세션 id가 turn 1과 같다.
-5. `GET /v1/sessions/{id}/usage`: 세 turn 모두 비용을 보고했고(`complete: true`) 금액이 0보다 크며 상한을 넘지 않았다. `cost_limit_usd`는 `GET /v1/limits`와 같다.
-
-run record(`E2E_OUT`, 끝에 경로를 출력한다)의 `record.txt`에는 tested SHA, 이미지 id, SDK·Claude Code 버전과 함께 `model`, `provider_endpoint`, `session_cost_limit_usd`가 남는다. `test.log`에는 세션 id, 커밋, attempt, 실제 비용을 담은 `real_model` JSON 한 줄이 남는다.
-
-**비용.** Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 2.5달러, 캐시 읽기 0.2달러) 추정치다. Claude Code 요청 하나는 system prompt와 도구 정의로 약 2만5천 토큰이다. turn 세 개에 모델 호출은 10번 안팎이다.
-
-- 캐시가 맞으면 한 번 실행에 약 0.2달러다.
-- 캐시가 전혀 맞지 않아도 0.6달러를 넘지 않을 것으로 본다.
-- 상한은 세션당 1달러다. SDK가 호출이 끝날 때마다 누적 비용을 확인하므로 마지막 호출 하나만큼은 넘을 수 있다. 넘으면 turn이 `budget_exceeded`로 실패하고 실행도 실패한다.
-
-실제로 든 비용은 `test.log`의 `cost_usd`에 있다. 이 값은 SDK의 추정치이고, 청구액은 Console에서 확인한다. 이미지 빌드까지 합쳐 처음에는 10분 남짓 걸린다.
-
-**key가 남는 곳과 폐기.**
-
-- `run.sh`는 끝날 때 `E2E_OUT` 전체(compose 로그, 모든 worker 로그, run record, 테스트 출력)에서 key 값을 찾는다. 하나라도 나오면 파일 이름만 출력하고 실행을 실패시킨다. key 값은 어떤 로그에도 출력되지 않는다.
-- 스택이 떠 있는 동안에는 API 컨테이너 설정(`docker inspect`)에 key가 있다. `run.sh`는 끝날 때 스택을 지운다. `E2E_KEEP=1`이나 `E2E_UP_ONLY=1`로 남겼다면 `docker compose -p <project> down -v`로 직접 내린다.
-- 이 용도로는 전용 key를 만들고 Console에서 workspace 지출 한도를 걸어 두기를 권한다. 다 쓴 key는 Console의 API Keys에서 비활성화하거나 삭제한다. 셸에서는 `unset ANTHROPIC_API_KEY`로 지운다.

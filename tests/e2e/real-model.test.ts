@@ -9,17 +9,23 @@ import {
   providerUpstreamOf,
   runtimeProviderOf,
 } from "@agent-platform/platform";
-import { LOCAL_LAYERS, layeredServices } from "../compose-layers.ts";
+import {
+  LOCAL_LAYERS,
+  layeredServices,
+  REAL_MODEL as OVERLAY,
+} from "../compose-layers.ts";
 
 /**
- * The plumbing of `tests/e2e/run.sh --real-model` (94S-373), without Docker
- * or a key: the catalog it mounts, the overlay that hands the key to the API
- * alone, and the script itself run against stand-ins for docker and bun.
- * The paid run is the user's (docs/quickstart.md).
+ * The plumbing of `tests/e2e/run.sh --real-model` (94S-373) and
+ * `scripts/local.sh up --real-model` (94S-431), without Docker or a key: the
+ * catalog the API reads, the overlay that hands the key to the API alone,
+ * and both scripts run against stand-ins for docker, bun and curl. The paid
+ * run is the user's (docs/real-claude.md).
  */
 const ROOT = join(import.meta.dir, "../..");
-const CATALOG = join(ROOT, "tests/e2e/real-model");
+const CATALOG = join(ROOT, "config/real-model");
 const RUN = join(ROOT, "tests/e2e/run.sh");
+const LOCAL = join(ROOT, "scripts/local.sh");
 const KEY_VARIABLE = "ANTHROPIC_API_KEY";
 const PROBE = `leak-probe-${crypto.randomUUID()}`;
 
@@ -85,33 +91,35 @@ describe("real-model catalog", () => {
 
 describe("real-model compose overlay", () => {
   test("only the API is given the key, by name and never by value", async () => {
-    const files = [
-      ...LOCAL_LAYERS,
-      "tests/e2e/compose.yml",
-      "tests/e2e/compose.real-model.yml",
-    ];
+    const files = [...LOCAL_LAYERS, "tests/e2e/compose.yml", OVERLAY];
     for (const file of files) {
       for (const [name, service] of Object.entries(
         (await compose(file)).services,
       )) {
         const env = service.environment ?? {};
-        if (file.endsWith("real-model.yml") && name === "api") {
+        if (file === OVERLAY && name === "api") {
           expect(env[KEY_VARIABLE]).toBeNull();
         } else {
           expect(Object.hasOwn(env, KEY_VARIABLE)).toBe(false);
         }
       }
     }
-    const overlay = await Bun.file(
-      join(ROOT, "tests/e2e/compose.real-model.yml"),
-    ).text();
-    expect(overlay).toContain("../tests/e2e/real-model:/app/config:ro");
+  });
+
+  test("the API reads config/real-model inside the config/ the core mounts", () => {
+    const api = layeredServices<Service & { volumes?: string[] }>([
+      ...LOCAL_LAYERS,
+      OVERLAY,
+    ]).api;
+    expect(api?.volumes).toContain("../config:/app/config:ro");
+    expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe(
+      "/app/config/real-model",
+    );
   });
 
   test("the proxy allows the profile's endpoint and the limits cap one run", async () => {
     const base = layeredServices<Service>(LOCAL_LAYERS);
-    const overlay = (await compose("tests/e2e/compose.real-model.yml"))
-      .services;
+    const overlay = (await compose(OVERLAY)).services;
     const endpoint = new URL("https://api.anthropic.com");
     const proxy = egressProxyConfigFromEnv(defaults(base["egress-proxy"]));
     // The provider route's upstream, never the forward proxy's (94S-383).
@@ -228,7 +236,7 @@ echo " 0 fail"
     const result = run("clean", { [KEY_VARIABLE]: PROBE });
     expect(result.status).toBe(0);
     const argv = await result.argv;
-    expect(argv).toContain("-f tests/e2e/compose.real-model.yml");
+    expect(argv).toContain(`-f ${OVERLAY}`);
     expect(argv).toContain(
       "bun test ./tests/e2e/real-model.e2e.ts --timeout 900000",
     );
@@ -257,12 +265,125 @@ echo " 0 fail"
     const result = run("fake", { [KEY_VARIABLE]: PROBE }, []);
     expect(result.status).toBe(0);
     const argv = await result.argv;
-    expect(argv).not.toContain("compose.real-model.yml");
+    expect(argv).not.toContain(OVERLAY);
     expect(argv).toContain(
       "bun test ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts --timeout 900000",
     );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh\n");
     expect(record).not.toContain("model:");
+  });
+});
+
+describe("local.sh up --real-model", () => {
+  let dir: string;
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "real-model-local-"));
+    const stubs = join(dir, "bin");
+    Bun.spawnSync(["mkdir", "-p", stubs]);
+    // Answers what local.sh asks of docker, writing every argument list
+    // down. The stack "already publishes" every port, so the port check
+    // passes whatever this machine listens on.
+    const docker = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >>"$STUB_ARGV"
+case "$*" in
+  "version --format"*) echo 28.1.0 ;;
+  "compose version --short") echo "\${STUB_COMPOSE:-2.39.1}" ;;
+  *" ps --format "*)
+    for p in 3000 5432 4566 4567 3001; do printf '127.0.0.1:%s->%s/tcp, ' "$p" "$p"; done; echo ;;
+esac
+`;
+    const curl = `#!/usr/bin/env bash
+echo '{"status":"ready"}'
+`;
+    for (const [name, text] of [
+      ["docker", docker],
+      ["curl", curl],
+    ] as const) {
+      await Bun.write(join(stubs, name), text);
+      chmodSync(join(stubs, name), 0o755);
+    }
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  async function local(
+    name: string,
+    args: string[],
+    env: Record<string, string> = {},
+  ) {
+    const argv = join(dir, `${name}.argv`);
+    const result = Bun.spawnSync(["bash", LOCAL, ...args], {
+      env: {
+        PATH: `${join(dir, "bin")}:${process.env.PATH}`,
+        HOME: dir,
+        STUB_ARGV: argv,
+        ...env,
+      },
+    });
+    const file = Bun.file(argv);
+    return {
+      status: result.exitCode,
+      stderr: result.stderr.toString(),
+      argv: file.size > 0 ? await file.text() : "",
+    };
+  }
+
+  test("stops before Docker when the key is unset or empty", async () => {
+    for (const [name, env] of [
+      ["unset", {}],
+      ["empty", { [KEY_VARIABLE]: "" }],
+    ] as const) {
+      for (const verb of ["up", "reset"]) {
+        const result = await local(
+          `no-key-${verb}-${name}`,
+          [verb, "--real-model"],
+          env,
+        );
+        expect(result.status).toBe(2);
+        expect(result.stderr).toContain(
+          `--real-model needs ${KEY_VARIABLE} exported`,
+        );
+        expect(result.argv).toBe("");
+      }
+    }
+    const unknown = await local("bad-arg", ["up", "--real"], {
+      [KEY_VARIABLE]: PROBE,
+    });
+    expect(unknown.status).toBe(2);
+    expect(unknown.argv).toBe("");
+  });
+
+  test("starts the default project with the overlay, the key in no argument", async () => {
+    const result = await local("clean", ["up", "--real-model"], {
+      [KEY_VARIABLE]: PROBE,
+    });
+    expect(result.stderr).not.toContain(PROBE);
+    expect(result.status).toBe(0);
+    expect(result.argv).toContain(
+      `compose --profile apps -f compose.yaml -f ${OVERLAY} up -d --build`,
+    );
+    expect(result.argv).not.toContain(PROBE);
+    expect(result.argv).not.toContain(" -p ");
+  });
+
+  test("refuses a compose that cannot put an overlay on the include", async () => {
+    const result = await local("old-compose", ["up", "--real-model"], {
+      [KEY_VARIABLE]: PROBE,
+      STUB_COMPOSE: "2.24.5",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("too old for --real-model");
+    expect(result.argv).not.toContain(" up -d");
+  });
+
+  test("the fake stack and down add no overlay", async () => {
+    for (const verb of ["up", "down"]) {
+      const result = await local(`fake-${verb}`, [verb], {
+        [KEY_VARIABLE]: PROBE,
+      });
+      expect(result.status).toBe(0);
+      expect(result.argv).toContain("compose --profile apps ");
+      expect(result.argv).not.toContain(OVERLAY);
+    }
   });
 });
