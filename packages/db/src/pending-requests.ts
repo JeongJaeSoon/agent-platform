@@ -154,7 +154,7 @@ export function isInFlight(status: string): boolean {
 }
 
 /**
- * `needs_input` is never stored (DESIGN.md §6.4): it is a running session or
+ * `needs_input` is never stored: it is a running session or
  * turn with a request a person can still answer. Derived on read, it drops
  * back the instant the last one is answered, settled, expires or loses its
  * attempt, with no write or sweep to miss.

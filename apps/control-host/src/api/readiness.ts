@@ -129,7 +129,7 @@ export function createReadinessProbe(
     // The whole chain, not only its head: a missing or rewritten earlier
     // migration leaves the head intact while the schema differs from the one
     // this build's SQL produces. Rows after this build's last migration are
-    // fine: DESIGN.md §11.5 applies migrations in a Job before the rollout,
+    // fine: migrations are applied in a Job before the rollout,
     // so the previous build must stay ready on a database that is one step
     // ahead, and only rollback-compatible changes ship.
     const drift = migrationDrift(expected.migrations, applied);
