@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The 94S-135 judgement run on one release candidate, as one command:
 #
-#   scripts/soak/rc.sh <rc-sha>         build, record, campaigns, then the soak
-#   scripts/soak/rc.sh <rc-sha> soak    only the soak, into the same run
+#   scripts/soak/rc.sh <rc-sha>            build, record, campaigns, interrupts, soak
+#   scripts/soak/rc.sh <rc-sha> interrupt  from the interrupt campaign, same run
+#   scripts/soak/rc.sh <rc-sha> soak       only the soak, into the same run
 #
 # Refuses unless this checkout is <rc-sha>, or a later commit that changed
 # nothing under infra/ since, with nothing uncommitted. A later checkout is
@@ -19,9 +20,14 @@
 #    with a field empty;
 # 3. runs every fault/contention campaign, each on its own reset stack, and
 #    stops if any failed, so no day is spent on a candidate with a defect
-#    (`soak` resumes from here once they finished, and past a failure only
-#    with SOAK_RC_OVERRIDE naming why it was accepted);
-# 4. resets the stack and runs the 24-hour soak (config/soak-24h.json).
+#    (`interrupt` resumes from here once they finished, and past a failure
+#    only with SOAK_RC_OVERRIDE naming why it was accepted);
+# 4. resets the stack and runs the interrupt campaign (config/interrupt-3h.json:
+#    the soak's load with a judged window of 185 minutes, an interrupt every
+#    8th turn), and stops unless every criterion passed and P-3 did so on at
+#    least 500 in-window interrupts (`soak` resumes from here, past a failure
+#    only with SOAK_RC_OVERRIDE);
+# 5. resets the stack and runs the 24-hour soak (config/soak-24h.json).
 #
 # Campaigns go first because they share the soak135 project with the soak.
 # Everything lands in $SOAK_STATE/rc-<sha7>/, progress in its rc.log, the
@@ -33,9 +39,9 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 
 die() { echo "rc.sh: $*" >&2; exit 2; }
-[ "$#" -ge 1 ] && [ "$#" -le 2 ] || die "usage: $0 <rc-sha> [soak]"
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] || die "usage: $0 <rc-sha> [interrupt|soak]"
 stage="${2:-all}"
-[ "$stage" = all ] || [ "$stage" = soak ] || die "unknown stage '${stage}'"
+case "$stage" in all | interrupt | soak) ;; *) die "unknown stage '${stage}'" ;; esac
 rc="$(git rev-parse --verify "$1^{commit}")" || die "no commit $1"
 head="$(git rev-parse HEAD)"
 [ -z "$(git status --porcelain)" ] || die "uncommitted changes; the run must be committed tools alone"
@@ -104,11 +110,14 @@ if [ "$stage" = all ]; then
     printf '%s\t%s\t%s\n' "$service" "$image" "$id" >>"$out/images.tsv"
   done <"$out/services.txt"
   config="$(shasum -a 256 scripts/soak/config/soak-24h.json | cut -d' ' -f1)"
+  interrupts="$(shasum -a 256 scripts/soak/config/interrupt-3h.json | cut -d' ' -f1)"
   worker="$(docker image inspect --format '{{.Id}}' "$WORKER_IMAGE")" || die "no image ${WORKER_IMAGE}"
-  [ -n "$lock" ] && [ -n "$config" ] || die "incomplete provenance"
+  [ -n "$lock" ] && [ -n "$config" ] && [ -n "$interrupts" ] || die "incomplete provenance"
   jq -n --arg sha "$rc" --arg tools "$head" --rawfile images "$out/images.tsv" --arg lock "$lock" --arg config "$config" \
+    --arg interrupts "$interrupts" \
     --arg worker "$WORKER_IMAGE $worker" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{rc_sha: $sha, tools_sha: $tools, built_at: $at, bun_lock_sha256: $lock, soak_24h_config_sha256: $config,
+      interrupt_3h_config_sha256: $interrupts,
       worker_image: $worker,
       images: ($images | split("\n") | map(select(. != "") | split("\t") | {service: .[0], image: .[1], id: .[2]}))}' \
     >"$out/rc.json" || die "could not write rc.json"
@@ -121,19 +130,21 @@ if [ "$stage" = all ]; then
     echo pass >"$out/campaigns.status"
   else
     echo fail >"$out/campaigns.status"
-    stamp "a campaign failed: see $out/campaigns/summary.md; once settled, SOAK_RC_OVERRIDE='<why>' $0 ${rc} soak"
+    stamp "a campaign failed: see $out/campaigns/summary.md; once settled, SOAK_RC_OVERRIDE='<why>' $0 ${rc} interrupt"
     exit 1
   fi
 else
-  # The soak shares the stack with the campaigns: only after they finished,
-  # and past a failed one only with the reason it was accepted on record.
-  case "$(cat "$out/campaigns.status" 2>/dev/null)" in
+  # Each step shares the stack with the one before: only after it finished,
+  # and past a failure only with the reason it was accepted on record.
+  previous=campaigns
+  [ "$stage" = interrupt ] || previous=interrupt
+  case "$(cat "$out/${previous}.status" 2>/dev/null)" in
     pass) ;;
     fail)
-      [ -n "${SOAK_RC_OVERRIDE:-}" ] || die "campaigns failed; set SOAK_RC_OVERRIDE to the reason it was accepted"
-      stamp "soak past failed campaigns: ${SOAK_RC_OVERRIDE}"
+      [ -n "${SOAK_RC_OVERRIDE:-}" ] || die "${previous} failed; set SOAK_RC_OVERRIDE to the reason it was accepted"
+      stamp "${stage} past failed ${previous}: ${SOAK_RC_OVERRIDE}"
       ;;
-    *) die "campaigns have not finished (no ${out}/campaigns.status)" ;;
+    *) die "${previous} has not finished (no ${out}/${previous}.status)" ;;
   esac
   # The image tags are fixed, so another candidate may have rebuilt them since.
   source "$state/vars.sh"
@@ -147,6 +158,31 @@ fi
 # The soak's own record names the images' lockfile, not this checkout's.
 SOAK_PRODUCT_BUN_LOCK="$(jq -r .bun_lock_sha256 "$out/rc.json")" || die "unreadable ${out}/rc.json"
 export SOAK_PRODUCT_BUN_LOCK
+
+if [ "$stage" != soak ]; then
+  # mkdir is the lock, as for the soak below.
+  mkdir "$out/interrupt" 2>/dev/null || die "${out}/interrupt exists: an interrupt campaign already started there"
+  # Failed until proven otherwise: whatever stops the campaign from here on
+  # leaves `soak` resumable with SOAK_RC_OVERRIDE.
+  echo fail >"$out/interrupt.status"
+  stamp "interrupt campaign"
+  scripts/soak/stack.sh reset || die "stack reset failed"
+  source "$state/vars.sh"
+  bun scripts/soak/soak.ts scripts/soak/config/interrupt-3h.json "$out/interrupt"
+  judged=$?
+  failed="$(jq -r '[.[] | select(.status == "fail") | .id] | join(",")' "$out/interrupt/criteria.json")" ||
+    die "no criteria in ${out}/interrupt"
+  p3="$(jq -r '.[] | select(.id == "P-3") | .status' "$out/interrupt/criteria.json")"
+  samples="$(jq -s '[.[] | select(.op == "interrupt" and .inWindow == true)] | length' "$out/interrupt/controls.jsonl")" ||
+    die "unreadable ${out}/interrupt/controls.jsonl"
+  stamp "interrupt campaign done (status ${judged}): P-3 ${p3} on ${samples} in-window interrupts, failed [${failed}]"
+  if [ "$judged" -eq 0 ] && [ "$p3" = pass ] && [ "$samples" -ge 500 ]; then
+    echo pass >"$out/interrupt.status"
+  else
+    stamp "interrupt campaign failed (needs every criterion, and P-3 on 500 interrupts): see $out/interrupt/report.md; once settled, SOAK_RC_OVERRIDE='<why>' $0 ${rc} soak"
+    exit 1
+  fi
+fi
 
 # mkdir is the lock: one soak per run directory, whichever call gets here first.
 mkdir "$out/soak" 2>/dev/null || die "${out}/soak exists: a soak already started there"

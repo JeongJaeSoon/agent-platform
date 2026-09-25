@@ -48,7 +48,11 @@ describe("94S-135 soak tooling", () => {
 
   test("every committed config is valid and fixes its measurements", async () => {
     const files = readdirSync(CONFIG_DIR).filter((f) => f.endsWith(".json"));
-    expect(files.sort()).toEqual(["preflight-1h.json", "soak-24h.json"]);
+    expect(files.sort()).toEqual([
+      "interrupt-3h.json",
+      "preflight-1h.json",
+      "soak-24h.json",
+    ]);
     for (const file of files) {
       const config = validConfig(await Bun.file(join(CONFIG_DIR, file)).json());
       expect(config.sessions).toBe(10);
@@ -72,6 +76,21 @@ describe("94S-135 soak tooling", () => {
       await Bun.file(join(CONFIG_DIR, "soak-24h.json")).json(),
     );
     expect(soak.durationMin).toBe(24 * 60);
+    // P-3 on at least 500 interrupts over at least 3 hours (rc.sh checks the count).
+    const interrupts = validConfig(
+      await Bun.file(join(CONFIG_DIR, "interrupt-3h.json")).json(),
+    );
+    expect(
+      interrupts.durationMin - interrupts.warmupMin,
+    ).toBeGreaterThanOrEqual(180);
+    expect(interrupts).toMatchObject({
+      ...soak,
+      name: "interrupt-3h",
+      purpose: interrupts.purpose,
+      durationMin: interrupts.durationMin,
+      probes: { ...soak.probes, interruptEveryTurns: 8 },
+      measurement: interrupts.measurement,
+    });
   });
 
   test("a config the run could not judge is refused before it starts", async () => {
