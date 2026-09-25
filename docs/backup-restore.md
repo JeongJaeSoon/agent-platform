@@ -183,24 +183,6 @@ knob: `RR_PROJECT`(원본 project 이름, 복원 project는 `<이름>r`), `RR_IN
 
 engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session_id` 컬럼은 아무 코드도 쓰지 않는다.
 
-### 결과 (2026-09-24, `fc495b83`)
-
-`RR_PROJECT=it324 RR_INSTALLATION_ID=it324`. Docker Engine 29.1.3, compose 5.0.0, claude-agent-sdk 0.3.270, Claude Code 2.1.270, worker image `sha256:2b5b8012…83eb8`.
-
-| 항목 | 원본 r1 | 복원본 r1 | resume 뒤 r2 | 결과 |
-|---|---|---|---|---|
-| engine session id(`resume`) | `d4f13b9f…be16` | 같음 | 같음 | PASS |
-| transcript part | 6개, entry 32 | 같은 sha256 6개, version만 새것 | 앞 6개 그대로 + generation 2의 2개, entry 42 | PASS |
-| part-list digest | `d77fb22a…0155` | 같음 | — | PASS |
-| workspace commit | `4d457562…a713` | 같음 | 같음 | PASS |
-| untracked `hello.txt` sha256 | `e49c81e2…78ee` | — | 같음 | PASS |
-| 새 worker 복원 | — | `worker.checkpoint.restored` r1, 같은 commit, `worker.resume.ready` | — | PASS |
-| turn 3 `cat hello.txt` | — | — | `alpha\nbeta`, turn 1·2는 completed 그대로 | PASS |
-| 모델 호출 | `rr1`, `rr2` | 없음(새 스택) | `rr3`만, history `[rr1, rr2, rr3]` | PASS |
-| worker image | backup `images.worker` = 원본 worker | — | 복원본 worker와 같음 | PASS |
-
-verify-restore는 checkpoint 2개 PASS, create-only 412, locked 기동 검사, `plan: ready under locked`를 출력했다. 이 실행은 incremental checkpoint(#217, 94S-227) 이전이라 bundle이 모두 홀로 선 것이었다. base bundle 사슬이 있는 checkpoint로 다시 돌린 기록은 94S-372에 남긴다. 원본은 backup 뒤 installation 라벨의 container·volume과 compose project 자원이 하나도 남지 않았다(이 실행 뒤 스크립트는 installation 라벨 network까지 확인한다).
-
 ## 로컬에서 끝까지 돌려 보기
 
 위 e2e는 worker가 실제로 커밋한 checkpoint로 돈다(94S-246). 세션을 돌리지 않은 설치에서 스크립트만 시험할 때는 `scripts/dev/seed-checkpoint.ts`를 쓴다. 이 스크립트는 워커와 같은 계약으로 세션 하나와 커밋된 checkpoint 하나를 어느 설치에든 심는다. 이 checkpoint는 locked finalize가 남기는 모양이다. 모든 ref와 `manifest_version`이 version을 싣고, 모든 version에 hold가 걸려 있으며, `versions_held=true`다. 그래서 bucket은 versioning과 Object Lock이 켜져 있어야 한다(compose 기본값).

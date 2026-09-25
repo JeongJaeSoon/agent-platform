@@ -12,7 +12,7 @@ export type TempDatabase = {
 export type TempDatabaseOptions = {
   /**
    * Connection URL of a server the test may create databases on. Defaults to
-   * `QUEUE_DATABASE_URL`, the opt-in variable README and CI already use.
+   * `QUEUE_DATABASE_URL`, the opt-in variable docs/development.md and CI already use.
    */
   adminUrl?: string;
   /** Apply the Drizzle migrations right after creation. Defaults to true. */

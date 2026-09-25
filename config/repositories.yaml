@@ -6,7 +6,7 @@
 # naming a pair not listed answers 422. A session whose pair has since been
 # removed, or whose id now points at another URL or branch, is failed with
 # CATALOG_MISMATCH at its next launch; restoring the pair lets the next
-# message run it again, and nothing reruns on its own (README, 94S-280).
+# message run it again, and nothing reruns on its own (docs/operations.md, 94S-280).
 #
 # URLs must be http:// or https:// (a worker's only way out is the HTTP(S)
 # egress proxy) and must not carry a credential (no userinfo, no query
