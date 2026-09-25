@@ -240,6 +240,7 @@ jobs:
               - tests/ci-images.
               - tests/ci-services.
               - tests/d2-gate
+              - tests/docs-links.
               - tests/e2e/real-model.
               - tests/soak/
               - tests/ci-issue-scripts.
@@ -561,8 +562,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # For `bun run keys` only; the page asks for no `bun install`.
-      - uses: ./.github/actions/bun-setup
       - name: docs/quickstart.md
         env:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
@@ -581,7 +580,7 @@ jobs:
 
   # Research harnesses, pinned to the SDK and LiteLLM versions under
   # investigation. Their failures have never been a product regression, so they
-  # report without blocking the run; see README § CI.
+  # report without blocking the run; see docs/ci.md.
   #
   # Deliberately NOT a required status check (94S-238), for three reasons:
   #   1. It does not run on pull_request, so a required `spikes` context would
