@@ -251,6 +251,60 @@ describe("scripts/test-ops.sh", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("no release is deployed");
   });
+
+  // The provider key rotation in docs/test-ops.md: the deployed release again,
+  // worker unchanged, so nothing is approved (94S-434 found it dying under
+  // `set -u` and leaving pending.json behind).
+  test("upgrade to the same worker image needs no approval", async () => {
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    await mkdir(join(dir, "state"));
+    await writeFile(
+      join(dir, "state", "current.json"),
+      JSON.stringify(manifest),
+    );
+    await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
+    await writeFile(
+      join(dir, "state", "installation"),
+      "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+    );
+    const render = JSON.stringify({
+      services: {
+        postgres: {
+          environment: { POSTGRES_DB: "sessions", POSTGRES_USER: "postgres" },
+        },
+        scheduler: { environment: { EXECUTION_INSTALLATION_ID: "t" } },
+      },
+    });
+    const stubs: Record<string, string> = {
+      // No uncollected checkpoint; every compose call but config succeeds.
+      docker: `#!/bin/sh
+echo "$*" >> "${calls}"
+case "$*" in
+  version*) echo 28.0.4 ;;
+  "compose version --short") echo 2.38.2 ;;
+  *" config --format json") echo '${render}' ;;
+esac
+exit 0
+`,
+      git: `#!/bin/sh\ncase "$*" in *rev-parse*) echo ${manifest.source_commit} ;; esac\nexit 0\n`,
+      curl: `#!/bin/sh\necho '{"status":"ready"}'\n`,
+      // check-render needs the whole installation; the rest is the real helper.
+      bun: `#!/bin/sh\ncase "$*" in *check-render*) exit 0 ;; esac\nexec "${process.execPath}" "$@"\n`,
+    };
+    for (const [name, body] of Object.entries(stubs))
+      await writeFile(join(dir, "bin", name), body, { mode: 0o755 });
+
+    const result = await run(["upgrade", join(dir, "release.json")], env);
+    expect(result.stderr).not.toContain("unbound variable");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("upgrade: done");
+    expect(await dockerCalls()).toContain("up -d --wait");
+    expect(
+      await readFile(join(dir, "state", "pending.json"), "utf8").catch(
+        () => null,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("release manifest", () => {

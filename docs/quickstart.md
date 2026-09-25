@@ -30,7 +30,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | 항목 | 버전 | 왜 |
 |---|---|---|
 | Docker Engine | **28 이상** | 워커 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다. 28보다 낮은 daemon에서는 scheduler가 기동을 거부한다([94S-274](https://linear.app/94soon/issue/94S-274)) |
-| Docker Compose | v2, 2.24 이상 | compose의 `include`와 `env_file`의 `required`를 쓴다. 5장의 실제 Claude와 6장의 백업·복원까지 해 보려면 2.24.6 이상(`include`로 합친 스택 위에 overlay를 겹친다) |
+| Docker Compose | 2.24 이상(Docker Desktop의 5.x도 된다) | compose의 `include`와 `env_file`의 `required`를 쓴다. 5장의 실제 Claude와 6장의 백업·복원까지 해 보려면 2.24.6 이상(`include`로 합친 스택 위에 overlay를 겹친다) |
 | curl, jq, uuidgen | 아무 버전 | 3장의 수동 확인 |
 | lsof | 아무 버전 | 0장의 포트 점검. 없으면 점검 블록이 아무것도 출력하지 않는다(`local.sh up`이 다시 확인한다) |
 | git | 아무 버전 | clone |
@@ -76,6 +76,8 @@ scripts/local.sh status
 `key`는 API 컨테이너 안에서 key CLI(`apps/control-host/src/api/keys.ts`)를 돌린다. key는 stdout에 **한 번만** 출력되고, 폐기할 때 쓰는 key id는 stderr의 `key_id …` 줄에 나온다. 위 `echo`는 발급됐는지만 앞 12자로 확인한다. `quickstart`는 key의 owner id다. 웹 콘솔 사용자와 세션을 공유하려면 그 사용자의 workspace id를 쓴다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 ⑨의 recovery 호출이 403이다.
 
 `status`는 컨테이너 목록과 `/readyz` 응답을 보여 준다. api·scheduler·reconciler가 running이면 다음 장으로 넘어간다.
+
+로컬 스택은 머신마다 하나다. project 이름 `agent-platform`, 0장의 포트, worker label `agent-platform.installation=local`이 고정이다. `COMPOSE_PROJECT_NAME`으로 project만 바꿔도 포트는 그대로이고, `local.sh`는 `127.0.0.1:3000`의 `/readyz`를 기다리며, `down`은 project와 상관없이 `local` label이 붙은 worker 자원을 지운다. 다른 스택 옆에서 돌려야 하면 자기 project와 임시 포트로 뜨는 `tests/e2e/run.sh`를 쓴다(4장).
 
 코드를 새로 pull했으면 `scripts/local.sh up`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
@@ -327,15 +329,21 @@ get "/v1/sessions/$SID/usage" | jq .
 
 ### 백업 → 복원 → 검증 (수동)
 
-compose 2.24.6 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다. 세션을 하나 이상 만들어 idle이 된 뒤에 뜬다.
+compose 2.24.6 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다.
+
+backup은 writer가 모두 멈춰 있어야 뜬다. writer는 api·scheduler·reconciler와 세션마다 뜬 worker 컨테이너다. 하나라도 돌면 `writers are running: …`으로 아무것도 쓰지 않고 끝난다. 그래서 먼저 세션을 pause해 worker를 내리고(⑦과 같다) 서비스 셋을 멈춘 뒤 백업하고, 끝나면 다시 연다.
 
 ```sh
+post "/v1/sessions/$SID/pause" "$(jq -nc --argjson r "$(revision)" '{expected_revision:$r, reason:"backup"}')" | jq .
+wait_for "/v1/sessions/$SID" .admission_state paused
+docker compose stop api scheduler reconciler
 dir=$(scripts/backup.sh --project agent-platform)
 scripts/restore.sh "$dir" --into ap-restore-1 --port-base 25432
 scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄: checkpoints=N passed=N failed=0
+docker compose start api scheduler reconciler
 ```
 
-자세한 내용은 [backup-restore.md](backup-restore.md)에 있다. 복원본은 `docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v`로 정리한다.
+자세한 내용은 [backup-restore.md](backup-restore.md)에 있다. 복원본은 `docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v --rmi local`로 정리한다. `--rmi local`은 복원이 이 checkout에서 빌드한 `ap-restore-1-migrate` 이미지도 지운다.
 
 ## 7. 정리
 

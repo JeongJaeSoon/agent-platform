@@ -110,7 +110,10 @@ Object Lock을 켜면 versioning도 함께 켜진다.
 ```bash
 sudo mkdir -p /etc/agent-platform
 sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_STATE_DIR
 ```
+
+`/etc/agent-platform`은 root 소유라 파일은 제자리에 쓰는 편집기로 고친다. `sed -i`처럼 같은 디렉터리에 임시 파일을 만드는 도구는 `Permission denied`로 실패한다. 상태 디렉터리(아래 `TEST_OPS_STATE_DIR`)도 운영자가 쓸 수 있어야 한다. 스크립트는 sudo 없이 돌고, 없으면 `cannot create the state directory`로 멈춘다.
 
 | 변수 | 값 |
 |---|---|
@@ -196,6 +199,19 @@ manifest는 JSON 파일 하나다. 예시는 `infra/test-ops.release.example.jso
 
 이미지 digest는 `v*` tag push로 돈 Images workflow(`.github/workflows/images.yml`)가 ghcr.io에 올린 값이다. run의 `staged-digest-*` artifact나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/agent-platform-worker:<tag>`로 읽는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
 
+`v*` tag가 아직 없으면(첫 release 전) ghcr.io에 받을 이미지가 없다. 그때는 `source_commit`의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 manifest에 적는다. 인수 리허설([94S-434](https://linear.app/94soon/issue/94S-434))은 호스트 loopback의 registry(`127.0.0.1:5000`)로 이렇게 했다.
+
+```bash
+R=<registry>   # 예: 127.0.0.1:5000
+export API_IMAGE=$R/agent-platform-control-host:rc WORKER_IMAGE=$R/agent-platform-worker:rc \
+  EGRESS_PROXY_IMAGE=$R/agent-platform-egress-proxy:rc
+docker compose -f infra/docker-compose.yml --profile apps --profile worker build api worker egress-proxy
+for i in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
+  docker push -q "$i" && docker inspect --format '{{index .RepoDigests 0}}' "$i"
+done
+unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
+```
+
 ## 배포
 
 빈 호스트에서 한 번 한다.
@@ -223,11 +239,21 @@ scripts/test-ops.sh deploy release.json      # LocalStack
 
 그다음 `up -d --wait`로 api·scheduler·reconciler와 그 의존 서비스를 띄우고 healthcheck를 기다린다. scheduler의 첫 pass가 network isolation과 workspace quota probe를 돈다. 실패하면 scheduler·api 로그 끝부분을 출력하고 멈춘다.
 
-Gitea에는 저장소가 없다. 관리 계정과 저장소는 터널로 Gitea(3001)에 붙거나 컨테이너 안 CLI로 만든다.
+Gitea에는 계정도 저장소도 없다. 관리 계정은 컨테이너 안 CLI로 만든다. 출력의 `generated random password is '…'`가 그 계정의 비밀번호다.
 
 ```bash
 docker exec -u git agent-platform-test-ops-gitea-1 gitea admin user create \
   --username agent --email agent@agent-platform.invalid --random-password --admin
+```
+
+저장소는 CLI로 만들 수 없으므로 웹 UI(3001, 아래 "접근")나 API로 만든다. 위 카탈로그 예시는 저장소 credential을 적지 않으므로 저장소를 public으로 만든다. API로 만들 때는 위 비밀번호를 `read -rs`로 받아 쓴다.
+
+```bash
+read -rs GITEA_AGENT_PW
+curl -fsS --user "agent:$GITEA_AGENT_PW" -H 'Content-Type: application/json' \
+  -d '{"name":"sample-app","auto_init":true,"default_branch":"main","private":false}' \
+  http://127.0.0.1:3001/api/v1/user/repos
+unset GITEA_AGENT_PW
 ```
 
 ## 접근
@@ -244,10 +270,13 @@ postgres(5432)도 loopback에만 열려 있다. 운영자만 호스트에서 쓴
 ## API key 발급과 폐기
 
 ```bash
-scripts/test-ops.sh key create <owner_id> --scopes sessions:read,sessions:write
+scripts/test-ops.sh key create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
 # stdout: 평문 key(한 번만 나온다), stderr: key_id
 scripts/test-ops.sh key revoke <key_id>
 ```
+
+scope는 [quickstart](quickstart.md#1-clone과-기동)와 같다. `sessions:approve`가 없으면 권한 요청에 답하지 못해(403) `permission_mode: default` 세션이 첫 파일 변경에서 멈추고, `sessions:control`이 없으면 interrupt·pause·resume·terminate를, `sessions:recover`가 없으면 복구 결정을 못 한다.
 
 평문 key는 사용자에게 직접 전하고 저장하지 않는다. 퇴사나 분실 때는 `revoke`한다. 세션 실행 권한 회수(`grants.ts`)와 카탈로그 권한(`catalog-authority.ts`)은 API 컨테이너 안에서 부른다. 인자는 각 파일의 usage를 따른다.
 

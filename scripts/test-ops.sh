@@ -377,7 +377,7 @@ deploy() {
 }
 
 upgrade() {
-  local from_worker from_catalog affected approved_list status=0
+  local from_worker from_catalog affected approved_list="" status=0
   take_lock
   load_current
   from_worker="$WORKER_IMAGE"
