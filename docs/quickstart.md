@@ -30,7 +30,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | 항목 | 버전 | 왜 |
 |---|---|---|
 | Docker Engine | **28 이상** | 워커 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다. 28보다 낮은 daemon에서는 scheduler가 기동을 거부한다([94S-274](https://linear.app/94soon/issue/94S-274)) |
-| Docker Compose | v2, 2.20 이상 | compose의 `include`를 쓴다. 6장의 백업·복원까지 해 보려면 2.24 이상 |
+| Docker Compose | v2, 2.24 이상 | compose의 `include`와 `env_file`의 `required`를 쓴다. 6장의 백업·복원까지 해 보려면 2.24.6 이상(`include`로 합친 스택 위에 overlay를 겹친다) |
 | curl, jq, uuidgen | 아무 버전 | 3장의 수동 확인 |
 | lsof | 아무 버전 | 0장의 포트 점검. 없으면 점검 블록이 아무것도 출력하지 않는다(`local.sh up`이 다시 확인한다) |
 | git | 아무 버전 | clone |
@@ -327,7 +327,7 @@ get "/v1/sessions/$SID/usage" | jq .
 
 ### 백업 → 복원 → 검증 (수동)
 
-compose 2.24 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다. 세션을 하나 이상 만들어 idle이 된 뒤에 뜬다.
+compose 2.24.6 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다. 세션을 하나 이상 만들어 idle이 된 뒤에 뜬다.
 
 ```sh
 dir=$(scripts/backup.sh --project agent-platform)

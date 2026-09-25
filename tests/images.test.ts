@@ -10,6 +10,13 @@ import {
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
 import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
+import {
+  CORE,
+  LOCAL_LAYERS,
+  layeredServices,
+  servicesOf,
+  TEST_OPS_LAYERS,
+} from "./compose-layers.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
 // pins one and the same base digest, compose points at files that exist, and
@@ -158,10 +165,12 @@ describe("app Dockerfiles", () => {
 });
 
 describe("compose and workflow agree with the Dockerfiles", () => {
-  const compose = read("infra/docker-compose.yml");
+  const compose = read(CORE);
 
   test.each(apps)("compose builds %s from apps/%s/Dockerfile", (app) => {
-    expect(compose).toContain(`dockerfile: apps/${app}/Dockerfile`);
+    expect(read(LOCAL_LAYERS[1])).toContain(
+      `dockerfile: apps/${app}/Dockerfile`,
+    );
   });
 
   test("compose gives the API longer to stop than its drain takes", () => {
@@ -176,9 +185,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   test("no two services build the same image tag", () => {
     // Two builds exporting one tag race: "image ... already exists".
-    const { services } = Bun.YAML.parse(compose) as {
-      services: Record<string, { build?: unknown; image?: string }>;
-    };
+    const services = localStack();
     const built = Object.values(services)
       .filter((service) => service.build && service.image)
       .map((service) => service.image);
@@ -190,7 +197,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test.each(["scheduler", "reconciler"] as const)(
     "the %s runs as its role's supervised pass loop",
     (role) => {
-      const service = composeServices("infra/docker-compose.yml")[role];
+      const service = localStack()[role];
       const loop = PASS_LOOP_ROLES[role];
       expect(service?.command).toEqual([
         "bun",
@@ -254,7 +261,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       "fake-messages:4010",
       "localstack:4566",
     ];
-    const proxy = composeServices("infra/docker-compose.yml")["egress-proxy"];
+    const proxy = localStack()["egress-proxy"];
     const composeDefault = (name: string) =>
       proxy?.environment?.[name]?.match(
         new RegExp(`^\\$\\{${name}:-([^}]*)\\}$`),
@@ -304,8 +311,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // Accounts come from the admin CLI; an open sign-up is a channel
     // between sessions for anything that reaches Gitea.
     expect(
-      composeServices("infra/docker-compose.yml").gitea?.environment
-        ?.GITEA__service__DISABLE_REGISTRATION,
+      localStack().gitea?.environment?.GITEA__service__DISABLE_REGISTRATION,
     ).toBe("true");
   });
 
@@ -350,6 +356,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test("the scheduler alone mounts the Docker socket", () => {
     const mounts = compose.match(/\/var\/run\/docker\.sock:/g) ?? [];
     expect(mounts).toHaveLength(1);
+    for (const layer of [LOCAL_LAYERS[1], TEST_OPS_LAYERS[1]])
+      expect(read(layer)).not.toContain("docker.sock");
     const schedulerBlock = compose.slice(
       compose.indexOf("\n  scheduler:"),
       compose.indexOf("\n  reconciler:"),
@@ -367,7 +375,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(reconcilerBlock).toContain('profiles: ["apps"]');
     // It runs the image the api service builds rather than building the
     // same tag a second time, which races the api build on export.
-    const { api, reconciler } = composeServices("infra/docker-compose.yml");
+    const { api, reconciler } = localStack();
     expect(api?.build?.dockerfile).toBe("apps/control-host/Dockerfile");
     expect(reconciler?.build).toBeUndefined();
     expect(reconciler?.image).toBe(api?.image);
@@ -430,7 +438,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // any owner with X-Owner-Id.
     expect(compose).toContain("AUTH_MODE: $" + "{AUTH_MODE:-api-key}");
     // `up` runs migrate, so no service may take an ambient DATABASE_URL.
-    expect(compose).not.toMatch(/\$\{DATABASE_URL/);
+    for (const file of [CORE, LOCAL_LAYERS[1], TEST_OPS_LAYERS[1]])
+      expect(read(file)).not.toMatch(/\$\{DATABASE_URL/);
   });
 });
 
@@ -451,15 +460,16 @@ type ComposeService = {
 };
 
 const composeServices = (path: string) =>
-  (Bun.YAML.parse(read(path)) as { services: Record<string, ComposeService> })
-    .services;
+  servicesOf(path) as Record<string, ComposeService>;
+/** The local stack's services as infra/docker-compose.yml merges them. */
+const localStack = () => layeredServices<ComposeService>(LOCAL_LAYERS);
 
 describe("compose publishes nothing beyond loopback and runs pinned images (94S-323)", () => {
-  const services = composeServices("infra/docker-compose.yml");
+  const services = localStack();
   const restore = composeServices("infra/docker-compose.restore.yml");
 
   test.each([
-    ["docker-compose.yml", services],
+    ["the local stack", services],
     ["docker-compose.restore.yml", restore],
   ] as const)("every published port in %s is bound to 127.0.0.1", (_, file) => {
     const published = Object.entries(file).flatMap(([name, service]) =>
@@ -546,5 +556,292 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
     expect(proxy?.mem_limit).toBe("3072m");
     // The budget comment in compose is arithmetic over this default.
     expect(DEFAULT_MAX_BODY_BYTES_IN_FLIGHT).toBe(512 * 1024 * 1024);
+  });
+});
+
+type Rendered = {
+  name: string;
+  services: Record<
+    string,
+    {
+      image?: string;
+      build?: { dockerfile?: string };
+      profiles?: string[];
+      environment?: Record<string, string | null>;
+      ports?: { host_ip?: string; published?: string; target: number }[];
+      volumes?: { source?: string; target: string }[];
+    }
+  >;
+  volumes?: Record<string, unknown>;
+};
+
+/**
+ * `docker compose config` of these files with nothing but the given
+ * variables set. Rendering reads the files only; no daemon is involved.
+ */
+function render(
+  files: readonly string[],
+  variables: Record<string, string> = {},
+) {
+  const { PATH = "", HOME = "" } = Bun.env;
+  const result = Bun.spawnSync(
+    [
+      "docker",
+      "compose",
+      // Interpolation from defaults alone, not a checkout's env file. An
+      // `include` reads its own from the included file's directory, so the
+      // tests render the layers with -f rather than through one.
+      "--env-file",
+      "/dev/null",
+      "--profile",
+      "apps",
+      ...files.flatMap((file) => ["-f", join(root, file)]),
+      "config",
+      "--format",
+      "json",
+    ],
+    { env: { PATH, HOME, ...variables } },
+  );
+  return {
+    exitCode: result.exitCode,
+    stderr: result.stderr.toString(),
+    model: (result.exitCode === 0
+      ? JSON.parse(result.stdout.toString())
+      : undefined) as Rendered | undefined,
+  };
+}
+
+// 94S-430: one definition of the product services, and a layer per
+// installation that adds to it and loosens nothing.
+describe("compose layers", () => {
+  const core = servicesOf(CORE);
+  const LOCAL_DEPENDENCIES = [
+    "localstack",
+    "secrets",
+    "fake-messages",
+    "gitea-init",
+  ];
+  const APP_IMAGES = {
+    API_IMAGE: `registry.invalid/control-host@sha256:${"a".repeat(64)}`,
+    WORKER_IMAGE: `registry.invalid/worker@sha256:${"b".repeat(64)}`,
+    EGRESS_PROXY_IMAGE: `registry.invalid/egress-proxy@sha256:${"c".repeat(64)}`,
+  };
+  // The secrets whose core defaults serve the local stack only.
+  const TEST_OPS_SECRETS = {
+    POSTGRES_PASSWORD: "test-ops-postgres-placeholder",
+    EGRESS_AUTHORIZER_TOKEN: "test-ops-authorizer-placeholder",
+  };
+  const TEST_OPS_REQUIRED = { ...APP_IMAGES, ...TEST_OPS_SECRETS };
+
+  // What a layer may set on a service the core defines. Everything else —
+  // users, capabilities, read-only roots, memory limits, mounts, ports,
+  // networks, healthchecks, restart policies, allowlists — stays in the core.
+  test.each([
+    [
+      LOCAL_LAYERS[1],
+      ["build", "env_file", "environment", "depends_on"],
+      [
+        "AWS_ENDPOINT_URL",
+        "AWS_ENDPOINT_URL_SECRETS_MANAGER",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+      ],
+    ],
+    [
+      TEST_OPS_LAYERS[1],
+      ["image", "environment"],
+      ["WORKER_IMAGE", ...Object.keys(TEST_OPS_SECRETS)],
+    ],
+  ] as const)(
+    "%s only adds to the core's services",
+    (layer, fields, variables) => {
+      const touched = Object.entries(servicesOf(layer)).filter(
+        ([name]) => name in core,
+      );
+      expect(touched.length).toBeGreaterThan(0);
+      for (const [name, service] of touched) {
+        for (const field of Object.keys(service))
+          expect({
+            name,
+            field,
+            allowed: (fields as readonly string[]).includes(field),
+          }).toEqual({
+            name,
+            field,
+            allowed: true,
+          });
+        for (const variable of Object.keys(service.environment ?? {})) {
+          expect({
+            name,
+            variable,
+            allowed: (variables as readonly string[]).includes(variable),
+          }).toEqual({
+            name,
+            variable,
+            allowed: true,
+          });
+        }
+      }
+    },
+  );
+
+  test("the test-ops layer requires values and sets none", () => {
+    for (const [name, service] of Object.entries(
+      servicesOf(TEST_OPS_LAYERS[1]),
+    )) {
+      const values = Object.entries(
+        (service.environment ?? {}) as Record<string, string>,
+      );
+      if (typeof service.image === "string") values.push(["", service.image]);
+      for (const [variable, value] of values)
+        expect({ name, value }).toEqual({
+          name,
+          value: expect.stringMatching(
+            new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
+          ),
+        });
+    }
+  });
+
+  test("the core builds nothing and runs no local dependency", () => {
+    for (const [name, service] of Object.entries(core))
+      expect({ name, build: service.build }).toEqual({
+        name,
+        build: undefined,
+      });
+    for (const name of LOCAL_DEPENDENCIES) expect(core[name]).toBeUndefined();
+    expect(read(CORE)).not.toMatch(
+      /AWS_ENDPOINT_URL|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY/,
+    );
+    // A checkout's env file is the local stack's alone.
+    expect(read(CORE)).not.toMatch(/^ +env_file:/m);
+  });
+
+  test("docker-compose.yml is the core with the local layer, and renders as the tests merge them", () => {
+    const entry = Bun.YAML.parse(read("infra/docker-compose.yml")) as {
+      name?: string;
+      include?: { path?: string[] }[];
+      services?: unknown;
+    };
+    expect(entry).toEqual({
+      name: "agent-platform",
+      include: [
+        { path: LOCAL_LAYERS.map((path) => path.replace(/^infra\//, "")) },
+      ],
+    });
+    const { exitCode, stderr, model } = render(LOCAL_LAYERS);
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    const merged = localStack();
+    const services = model?.services ?? {};
+    expect(Object.keys(services).sort()).toEqual(Object.keys(merged).sort());
+    /** A value as compose resolves it with nothing set. */
+    const resolved = (value: string) =>
+      value.replace(/\$\{[A-Z0-9_]+:-([^}]*)\}/g, "$1");
+    for (const [name, service] of Object.entries(services)) {
+      const layered = merged[name];
+      // Only the keys compose files set: a developer's ../.env adds more
+      // through env_file, and never wins over these.
+      const environment =
+        layered?.environment &&
+        Object.fromEntries(
+          Object.keys(layered.environment).map((key) => [
+            key,
+            service.environment?.[key],
+          ]),
+        );
+      expect({
+        name,
+        build: service.build?.dockerfile,
+        image: service.image !== undefined,
+        profiles: service.profiles,
+        ports: service.ports?.map(
+          (port) => `${port.host_ip}:${port.published}:${port.target}`,
+        ),
+        environment,
+      }).toEqual({
+        name,
+        build: layered?.build?.dockerfile,
+        image: layered?.image !== undefined,
+        profiles: layered?.profiles,
+        ports: layered?.ports as string[] | undefined,
+        environment:
+          layered?.environment &&
+          Object.fromEntries(
+            Object.entries(layered.environment).map(([key, value]) => [
+              key,
+              resolved(String(value)),
+            ]),
+          ),
+      });
+    }
+    // Relative paths still resolve from infra/, as every overlay assumes.
+    expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
+    // LocalStack keeps S3 in memory; a data volume only suggested otherwise
+    // (94S-422).
+    expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
+      "gitea-data",
+      "postgres-data",
+    ]);
+    expect(JSON.stringify(services.localstack?.volumes)).not.toContain(
+      "/var/lib/localstack",
+    );
+  });
+
+  test("the test-ops layer refuses to render without its required values", () => {
+    for (const variable of Object.keys(TEST_OPS_REQUIRED)) {
+      const { exitCode, stderr } = render(TEST_OPS_LAYERS, {
+        ...TEST_OPS_REQUIRED,
+        [variable]: "",
+      });
+      expect({ variable, exitCode: exitCode === 0 }).toEqual({
+        variable,
+        exitCode: false,
+      });
+      expect(stderr).toContain(`${variable} must`);
+    }
+  });
+
+  test("the test-ops layer runs the core's services only, on the values it was given", () => {
+    const { exitCode, stderr, model } = render(
+      TEST_OPS_LAYERS,
+      TEST_OPS_REQUIRED,
+    );
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    const services = model?.services ?? {};
+    expect(Object.keys(services).sort()).toEqual(Object.keys(core).sort());
+    const expected: Record<string, string> = {
+      migrate: APP_IMAGES.API_IMAGE,
+      api: APP_IMAGES.API_IMAGE,
+      scheduler: APP_IMAGES.API_IMAGE,
+      reconciler: APP_IMAGES.API_IMAGE,
+      "egress-proxy": APP_IMAGES.EGRESS_PROXY_IMAGE,
+      worker: APP_IMAGES.WORKER_IMAGE,
+    };
+    for (const [name, service] of Object.entries(services)) {
+      expect({ name, build: service.build }).toEqual({
+        name,
+        build: undefined,
+      });
+      if (name in expected)
+        expect({ name, image: service.image }).toEqual({
+          name,
+          image: expected[name],
+        });
+      const databaseUrl = service.environment?.DATABASE_URL;
+      if (databaseUrl)
+        expect(databaseUrl).toContain(
+          `:${TEST_OPS_SECRETS.POSTGRES_PASSWORD}@`,
+        );
+    }
+    expect(services.scheduler?.environment?.WORKER_IMAGE).toBe(
+      APP_IMAGES.WORKER_IMAGE,
+    );
+    expect(services.postgres?.environment?.POSTGRES_PASSWORD).toBe(
+      TEST_OPS_SECRETS.POSTGRES_PASSWORD,
+    );
+    for (const name of ["api", "egress-proxy"])
+      expect(services[name]?.environment?.EGRESS_AUTHORIZER_TOKEN).toBe(
+        TEST_OPS_SECRETS.EGRESS_AUTHORIZER_TOKEN,
+      );
   });
 });

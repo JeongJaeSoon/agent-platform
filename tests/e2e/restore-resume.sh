@@ -36,7 +36,7 @@
 # a release candidate is tested on its own images, not on this checkout's.
 #
 # Needs what tests/e2e/run.sh and scripts/restore.sh need: Docker Engine 28+,
-# compose v2.24+, bun, jq. On macOS put /bin ahead of Homebrew's bash 5.3,
+# compose v2.24.6+, bun, jq. On macOS put /bin ahead of Homebrew's bash 5.3,
 # which hangs on the backup's heredoc (docs/backup-restore.md).
 set -euo pipefail
 

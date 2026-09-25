@@ -1,0 +1,450 @@
+# The product services, defined once for every installation (94S-430). Never
+# run alone: docker-compose.yml lays compose.local.yml over it for a local
+# stack, and compose.test-ops.yml is the test-ops layer. A layer adds what
+# its installation needs — builds, local dependencies, their endpoints — and
+# holds none of the security settings below, which tests/images.test.ts
+# checks. Paths are relative to this directory.
+
+# Installation limits (94S-131). The API and the scheduler both refuse to
+# start without them, and read them with one parser, so both services take
+# this one block. These are local defaults, not recommendations: size them
+# per installation.
+# The egress proxy asks the API what a worker's route token stands for
+# (94S-252), over the API's second listener, which only the proxy is given.
+# The same value on both sides. The default serves the local stack only:
+# anything that can present it gets the catalog's provider and repository
+# credentials back, so set your own in ../.env anywhere else.
+x-egress-authorizer-token: &egress-authorizer-token ${EGRESS_AUTHORIZER_TOKEN:-local-egress-authorizer-token-0123456789}
+
+x-installation-limits: &installation-limits
+  EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
+  QUEUED_INPUT_LIMIT_PER_SESSION: ${QUEUED_INPUT_LIMIT_PER_SESSION:-20}
+  # Retained input messages across the installation; 1 GiB.
+  STORAGE_LIMIT_BYTES: ${STORAGE_LIMIT_BYTES:-1073741824}
+  MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-3600}
+  SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-25}
+  PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
+
+# Every image is pinned by its multi-arch index digest or is one of the apps
+# built from this repository, so amd64 and arm64 daemons run the same bytes
+# (tests/images.test.ts).
+#
+# Published ports are loopback only, and only for what a process on this
+# host uses (README): nothing here is meant for another machine, and the
+# postgres credentials are local defaults.
+services:
+  postgres:
+    image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sessions}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../packages/db/migrations/0000_gifted_morg.sql:/docker-entrypoint-initdb.d/0000_m0.sql:ro
+      - ../packages/db/migrations/0001_giant_sphinx.sql:/docker-entrypoint-initdb.d/0001_m0.sql:ro
+      - ../packages/db/migrations/0002_thin_victor_mancha.sql:/docker-entrypoint-initdb.d/0002_m0.sql:ro
+      - ../packages/db/migrations/0003_lethal_blue_blade.sql:/docker-entrypoint-initdb.d/0003_m0.sql:ro
+    healthcheck:
+      # Over TCP: on a fresh volume the entrypoint first runs the init
+      # scripts on a socket-only server and then restarts it, and a socket
+      # check reads that temporary server as ready — migrate then connects
+      # into the restart and dies with ECONNREFUSED.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # Runs the control-host image, which carries packages/db and its installed
+  # dependencies: a bare Bun image over a read-only checkout needs a host
+  # `bun install` first. No `image:` here: the local layer builds it, and the
+  # test-ops layer names the released one.
+  migrate:
+    command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
+    environment:
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gitea:
+    image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__security__INSTALL_LOCK: "true"
+      # Accounts come from the admin CLI (gitea-init) only: an open sign-up
+      # would let anyone who reaches Gitea make a channel between sessions.
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    ports:
+      # Web UI and HTTP clone for this host. SSH is not published: workers
+      # clone over HTTP through the proxy's repository route (gitea:3000).
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - gitea-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/v1/version >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # The only route off every worker network. The scheduler gives each worker
+  # an internal network of its own and attaches this container to it under
+  # the name in EXECUTION_EGRESS_PROXY_URL (94S-216); workers are handed it as
+  # HTTP_PROXY/HTTPS_PROXY, and the two allowlists below are the whole of
+  # what a worker can reach. The label is how the scheduler finds it, so each
+  # installation on a daemon labels its own proxy with its own id.
+  egress-proxy:
+    # Released with the other apps (images.yml); a deployment points
+    # EGRESS_PROXY_IMAGE at that digest.
+    image: ${EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}
+    environment:
+      # Nothing public: a worker's one public destination is its provider,
+      # which it reaches through the credential route below (94S-383).
+      EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-}
+      # The worker gateway alone. api:3000 is the compose-run API (`apps`
+      # profile); host.docker.internal stays for an API started on the host
+      # with `bun run --cwd apps/control-host start`. `secrets` is
+      # deliberately absent.
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
+      EGRESS_PROXY_PORT: "3128"
+      # The credential routes (94S-252): workers send their provider and git
+      # calls here with an attempt-scoped token, and the proxy puts the
+      # catalog's credential on them. The authorizer is the compose-run API's
+      # second listener; for an API on the host, use
+      # http://host.docker.internal:3100.
+      EGRESS_CREDENTIAL_PORT: "3129"
+      EGRESS_AUTHORIZER_URL: ${EGRESS_AUTHORIZER_URL:-http://api:3100}
+      # Upstreams only the credential routes reach, never a worker directly
+      # (94S-383): the provider, the repository and the object store, which
+      # the object store route sends the API-signed request to (94S-251).
+      # On the forward proxy each would be a way round its route: the
+      # provider with a key of the worker's own, outside cost accounting;
+      # Gitea without a token; LocalStack, which takes any signature, into
+      # every session's prefix. fake-messages:4010 is the example profile's
+      # Messages API (94S-132).
+      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443}
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,localstack:4566}
+      EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    extra_hosts:
+      # The worker gateway runs on the host; only the proxy may reach it.
+      - "host.docker.internal:host-gateway"
+    labels:
+      agent-platform.egress-proxy: ${EXECUTION_INSTALLATION_ID:-local}
+    # Also unhealthy when /app/src no longer matches what the process loaded
+    # (94S-319). The image bakes the source in, so this now only fires when
+    # someone mounts a source tree over it and moves that checkout.
+    healthcheck:
+      test: ["CMD", "bun", "run", "/app/src/healthcheck.ts"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    # On every worker network, so held to what a worker is held to (94S-388).
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+    # Every worker's only way out: one that dies comes back as the same
+    # container, still on the worker networks it was on.
+    restart: unless-stopped
+    # Memory budget, as an upper bound rather than a measurement:
+    #   512 MiB of credential route request bodies
+    #     (DEFAULT_MAX_BODY_BYTES_IN_FLIGHT, apps/egress-proxy/src/credential.ts)
+    #   + 64 MiB of their response queues (256 exchanges x 256 KiB)
+    #   + 2048 MiB of forward proxy queues (256 connections x 2 x 4 MiB,
+    #     apps/egress-proxy/src/proxy.ts; a queue passes its cap by at most
+    #     the one read that crossed it)
+    #   + 256 MiB for Bun itself = 2880 MiB, under 3072 MiB
+    # Change it with those caps: a limit under their sum hands the choice of
+    # which exchange fails to the OOM killer.
+    mem_limit: 3072m
+
+  # `apps` profile: the sessions API and the scheduler.
+  # `docker compose --profile apps up -d --build`.
+  # Every value below has a working default. The local layer also reads a
+  # ../.env when present and never writes it (README rule); no other
+  # installation picks up a checkout's .env.
+  api:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    profiles: ["apps"]
+    # Docker's default 10s would SIGKILL a shutdown that may run to
+    # SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s,
+    # apps/control-host/src/api/shutdown.ts); one open SSE stream is enough to use the
+    # whole drain. Keep this above the sum.
+    stop_grace_period: 45s
+    # No `init: true`: the image's own ENTRYPOINT is tini (apps/control-host/Dockerfile),
+    # so the git helpers the checkpoint verifier orphans are reaped wherever
+    # the image runs, not only here.
+    #
+    # Memory budget, as an upper bound rather than a measurement. Up to 2
+    # bundles are verified at once (DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS).
+    # Each has git fetch and its index-pack alive together, each capped at
+    # CHECKPOINT_GIT_MEMORY_MB of address space (fsck runs after them, not
+    # beside). The service itself streams the bundle to a spool file and
+    # holds none of it (94S-230), so the 256 MiB per verification it used
+    # to hold is now headroom. So:
+    #   2 x (2 x 1536) MiB = 6144 MiB for verification
+    #   + 512 MiB for the API itself     = 6656 MiB, under 7168 MiB
+    # Measured far below it: two concurrent verifications of 94S-259's worst
+    # honest bundle (480 MiB file, one edit) peaked at 3.5 GiB including page
+    # cache, which the kernel reclaims before it OOM-kills anything. A crafted
+    # delta can drive index-pack to the cap, so the bound, not the measurement,
+    # sets the limit.
+    # Change the two values together: raising the cap without the limit
+    # hands the choice of what dies to the OOM killer (94S-259 saw it kill
+    # index-pack under 1 GiB), and lowering the limit without the cap does
+    # the same. A cap below 512 MiB is refused at startup.
+    mem_limit: ${API_MEMORY_MB:-7168}m
+    ports:
+      # Loopback only; a local development listener has no business on
+      # other hosts' interfaces even in api-key mode.
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      # api-key, not none: workers reach this listener through the proxy
+      # (api:3000 in EGRESS_PRIVATE_ALLOWLIST) and in `none` mode /v1 takes
+      # any X-Owner-Id as the caller's identity, so a compromised worker could
+      # act as any owner. Issue a key with
+      # `docker compose exec api bun run apps/control-host/src/api/keys.ts create <owner>
+      # --scopes sessions:read,sessions:write`.
+      # /internal routes carry their own worker authentication either way.
+      AUTH_MODE: ${AUTH_MODE:-api-key}
+      <<: *installation-limits
+      # Read by the API alone: every lease it grants carries its deadline
+      # into the database, and the reconciler refuses to start with its own.
+      HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: "3000"
+      # The egress proxy's authorizer (94S-252). Not published and not on
+      # any worker allowlist: only the proxy, on this compose network, calls
+      # it. Without both the API starts, and every worker's provider and
+      # repository call is refused.
+      EGRESS_AUTHORIZER_PORT: "3100"
+      EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
+      # The operator catalog (94S-132): config/ mounted below. The image
+      # carries none, so an API without a mounted catalog does not start.
+      PLATFORM_CONFIG_DIR: /app/config
+      # Checkpoint object store (94S-201): the same bucket the scheduler
+      # hands each worker. The API reads manifests, transcripts and workspace
+      # bundles back from it to verify a checkpoint before the session pointer
+      # advances; without it the API refuses to start
+      # (CHECKPOINT_OBJECT_STORE=disabled is the explicit opt-out). Its
+      # endpoint and credentials are the layer's: compose.local.yml points it
+      # at LocalStack.
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      S3_BUCKET: ${S3_BUCKET:-claude-sessions}
+      # Pin every checkpoint object by version and hold what a checkpoint
+      # commits (94S-229); the bucket above is created with Object Lock.
+      # "unversioned" reads by key only — for a bucket without versioning. A
+      # restored bucket needs no such thing: restore re-pins (94S-282).
+      CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
+      # Sized with mem_limit above.
+      CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
+    volumes:
+      - ../config:/app/config:ro
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3000/readyz'); if (!r.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      gitea:
+        condition: service_healthy
+
+  # Not a long-running service: workers are launched per session by the
+  # scheduler through the Docker socket, which is why this one has no
+  # depends_on and no network of its own. The entry exists so `up` in the
+  # `apps` profile builds the image WORKER_IMAGE names — the scheduler
+  # starts after it — and runs it once as a smoke check that prints the
+  # bundled Claude Code version and exits. `--profile worker build` still
+  # builds it alone.
+  worker:
+    image: ${WORKER_IMAGE:-agent-platform-worker:dev}
+    profiles: ["apps", "worker"]
+    command: ["claude", "--version"]
+    network_mode: none
+    read_only: true
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+      - /home/bun:uid=1000,gid=1000
+
+  # The control host's scheduler role (94S-117): the same pass loop as the
+  # reconciler below (apps/control-host/src/pass-loop), one scheduling pass
+  # per child process every SCHEDULER_INTERVAL_SEC. It gives up after
+  # SCHEDULER_MAX_CONSECUTIVE_FAILURES failed passes so the restart policy
+  # engages, and the healthcheck is unhealthy when the last pass failed, when
+  # a pass runs past its deadline, or once no pass has succeeded for
+  # SCHEDULER_HEALTH_STALE_SEC; a pass skipped because another held the lock
+  # counts as neither. `docker compose exec scheduler cat
+  # /tmp/scheduler-status.json` shows the last outcomes. A frozen database
+  # ends a pass on its own: JOB_POOL_TIMEOUTS (packages/db/src/pool.ts) bound
+  # the failing statement to connect 5s + read 20s and the pass-lock unlock
+  # to another 20s, and every store call after a lost connection fails at
+  # once, so the pass exits 1 about 45s in (94S-255). Docker calls are
+  # bounded by EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC, except a stop: the daemon
+  # answers it only once the worker has drained, up to
+  # EXECUTION_DOCKER_STOP_TIMEOUT_SEC. A kill asks and does not wait (the next
+  # pass confirms the worker gone), but a pass can still wait out one whole
+  # stop, so SCHEDULER_PASS_TIMEOUT_SEC must exceed stop + request timeout or
+  # the scheduler refuses to start (94S-385). It is the watchdog for the rest.
+  #
+  # Stopping: SIGTERM stops the loop, and the pass in flight stops at its next
+  # safe point, before any further reservation; it is killed 30s later
+  # (PASS_LOOP_ROLES.scheduler.stopGraceSec). A worker stop it was waiting on
+  # goes on in the daemon. stop_grace_period leaves room for that before
+  # Docker kills the loop itself. Stopping the scheduler ends no worker: a
+  # slot is given back only once a pass has seen the worker gone.
+  scheduler:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    profiles: ["apps"]
+    # The control-host image's scheduler role. Where a layer builds that
+    # image, `api` does, and depends_on a healthy api orders the build before
+    # this container.
+    # Root on purpose: the process owns the Docker socket, and whoever
+    # holds that socket is root on the daemon host anyway. The socket's
+    # group id differs per daemon (Desktop, colima, Linux), so a fixed
+    # non-root uid would only work on some of them while buying no
+    # isolation on any.
+    user: "0:0"
+    command: ["bun", "run", "apps/control-host/src/main.ts", "scheduler"]
+    restart: unless-stopped
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "bun", "run", "apps/control-host/src/main.ts", "scheduler", "--health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # Workers reach the API only through the proxy; `api` resolves on the
+      # default network the proxy also sits on (EGRESS_PRIVATE_ALLOWLIST).
+      WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
+      WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
+      EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
+      EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
+      <<: *installation-limits
+      # Docker Desktop cannot carry a project quota, so the local stack opts out
+      # (94S-215); a daemon on xfs+prjquota should set it back to `on`.
+      EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:-off}
+      EXECUTION_WORKSPACE_QUOTA_MB: ${EXECUTION_WORKSPACE_QUOTA_MB:-4096}
+      EXECUTION_WORKSPACE_QUOTA_INODES: ${EXECUTION_WORKSPACE_QUOTA_INODES:-1000000}
+      EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: ${EXECUTION_WORKSPACE_GC_MIN_AGE_SEC:-3600}
+      EXECUTION_WORKSPACE_STOPPED_TTL_SEC: ${EXECUTION_WORKSPACE_STOPPED_TTL_SEC:-86400}
+      WORKER_CPUS: ${WORKER_CPUS:-1}
+      WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
+      # The bucket and region the scheduler names to each worker. No key and
+      # no endpoint: workers reach the object store through the proxy's
+      # object store route, signed by the API (94S-251).
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      S3_BUCKET: ${S3_BUCKET:-claude-sessions}
+      SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
+      SCHEDULER_MAX_CONSECUTIVE_FAILURES: ${SCHEDULER_MAX_CONSECUTIVE_FAILURES:-3}
+      # Above SCHEDULER_INTERVAL_SEC + SCHEDULER_PASS_TIMEOUT_SEC, or the
+      # scheduler refuses to start: two successes can be that far apart.
+      SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-200}
+      # Above EXECUTION_DOCKER_STOP_TIMEOUT_SEC + the request timeout (94S-385).
+      SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-180}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      egress-proxy:
+        condition: service_healthy
+      worker:
+        condition: service_completed_successfully
+
+  # Lease expiry, overdue interrupts and terminations, and orphan sessions are
+  # recovered by nothing else, so this runs by default with the other apps
+  # (94S-320). The control host's reconciler role (`main.ts reconciler`, the
+  # pass loop in apps/control-host/src/pass-loop) runs one pass per child
+  # process every RECONCILER_INTERVAL_SEC, kills a pass that outlives
+  # RECONCILER_PASS_TIMEOUT_SEC, and exits after
+  # RECONCILER_MAX_CONSECUTIVE_FAILURES failed passes in a row so the restart
+  # policy engages. The healthcheck reads the status file the loop writes and
+  # is unhealthy when the last pass failed, when a pass runs past its
+  # deadline, or once no pass has succeeded for RECONCILER_HEALTH_STALE_SEC;
+  # `docker compose exec reconciler cat /tmp/reconciler-status.json` shows the
+  # last success and failure. Passes are serial here, and every write a pass
+  # makes is re-judged under row locks, so an overlapping or restarted pass
+  # does nothing twice.
+  #
+  # No Docker socket: the reconciler only records intent in the database
+  # (a fenced epoch, `desired_state = terminated`); the scheduler does the
+  # removal and confirms it. No env_file either: HEARTBEAT_TTL_SEC belongs to
+  # the API, and the reconciler refuses to start if it is set.
+  #
+  # No build either: it runs the image the api service builds, and a second
+  # service building the same tag races it on export. Starting it on its own
+  # needs that image first (`docker compose build api`).
+  reconciler:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    profiles: ["apps"]
+    command: ["bun", "run", "apps/control-host/src/main.ts", "reconciler"]
+    restart: unless-stopped
+    # A stopped pass has 10s to roll back before the loop kills it
+    # (PASS_LOOP_ROLES.reconciler.stopGraceSec); Docker waits longer.
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "bun", "run", "apps/control-host/src/main.ts", "reconciler", "--health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      # Always the compose postgres, never an ambient DATABASE_URL: `up`
+      # runs migrate, and a production DSN sitting in someone's shell or
+      # env file must not get migrated by starting the local stack. An
+      # external database is run against by the apps outside compose.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      RECONCILER_INTERVAL_SEC: ${RECONCILER_INTERVAL_SEC:-10}
+      RECONCILER_PASS_TIMEOUT_SEC: ${RECONCILER_PASS_TIMEOUT_SEC:-60}
+      RECONCILER_MAX_CONSECUTIVE_FAILURES: ${RECONCILER_MAX_CONSECUTIVE_FAILURES:-3}
+      RECONCILER_HEALTH_STALE_SEC: ${RECONCILER_HEALTH_STALE_SEC:-90}
+      RECONCILER_BATCH_SIZE: ${RECONCILER_BATCH_SIZE:-100}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+networks:
+  # Worker networks are not declared here: the scheduler creates one per
+  # worker (internal, IPv6 off) and removes it with the worker.
+  default:
+
+volumes:
+  postgres-data:
+  gitea-data:

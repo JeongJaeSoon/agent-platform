@@ -9,6 +9,7 @@ import {
   providerUpstreamOf,
   runtimeProviderOf,
 } from "@agent-platform/platform";
+import { LOCAL_LAYERS, layeredServices } from "../compose-layers.ts";
 
 /**
  * The plumbing of `tests/e2e/run.sh --real-model` (94S-373), without Docker
@@ -85,7 +86,7 @@ describe("real-model catalog", () => {
 describe("real-model compose overlay", () => {
   test("only the API is given the key, by name and never by value", async () => {
     const files = [
-      "infra/docker-compose.yml",
+      ...LOCAL_LAYERS,
       "tests/e2e/compose.yml",
       "tests/e2e/compose.real-model.yml",
     ];
@@ -108,7 +109,7 @@ describe("real-model compose overlay", () => {
   });
 
   test("the proxy allows the profile's endpoint and the limits cap one run", async () => {
-    const base = (await compose("infra/docker-compose.yml")).services;
+    const base = layeredServices<Service>(LOCAL_LAYERS);
     const overlay = (await compose("tests/e2e/compose.real-model.yml"))
       .services;
     const endpoint = new URL("https://api.anthropic.com");

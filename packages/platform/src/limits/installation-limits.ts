@@ -5,7 +5,7 @@ import { STORAGE_ACCOUNTED_CONTENT_VALUES } from "@agent-platform/contracts";
  * reads them with this one parser, so the API that admits input, the gateway
  * that dispatches it and the scheduler that launches workers cannot disagree
  * about them. There are no defaults here on purpose: a missing value stops
- * the process, and the documented defaults live in `infra/docker-compose.yml`.
+ * the process, and the documented defaults live in `infra/compose.core.yml`.
  */
 export type InstallationLimits = {
   /** Worker containers that may hold a slot at once. */

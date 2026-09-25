@@ -86,7 +86,7 @@ export const MIN_CHECKPOINT_GIT_MEMORY_MB = 512;
  * together with the container's memory limit: up to
  * `DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS` verifications run at once,
  * each with git fetch and index-pack alive together under this cap apiece
- * (see infra/docker-compose.yml).
+ * (see infra/compose.core.yml).
  */
 export function checkpointGitMemoryBytesFromEnv(
   environment: CheckpointStorageEnvironment,

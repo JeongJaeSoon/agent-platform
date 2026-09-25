@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 API_URL=http://127.0.0.1:3000
 PORTS="3000 5432 4566 4567 3001"
 MIN_ENGINE_MAJOR=28
-MIN_COMPOSE=2.20
+MIN_COMPOSE=2.24
 READY_TIMEOUT_SEC=${LOCAL_READY_TIMEOUT_SEC:-180}
 LABEL=agent-platform.installation=local
 
@@ -51,7 +51,7 @@ preflight() {
   compose_version=$(docker compose version --short 2>/dev/null) ||
     die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" ||
-    die "docker compose $compose_version is too old; compose.yaml needs $MIN_COMPOSE or newer (include)"
+    die "docker compose $compose_version is too old; compose.yaml needs $MIN_COMPOSE or newer (include, env_file required)"
   # A port this stack already publishes is its own; any other listener is not.
   ours=$(compose ps --format '{{.Ports}}' 2>/dev/null || true)
   for port in $PORTS; do
