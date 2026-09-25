@@ -484,6 +484,7 @@ export async function interruptProbe(
     receiptStatus,
     extra: {
       reachedSlowStep: reached !== null,
+      sentAt: new Date(posted.sentAt).toISOString(),
       slowPendingUntil:
         pendingUntil === null ? null : new Date(pendingUntil).toISOString(),
       acceptedBy: new Date(acceptedBy).toISOString(),

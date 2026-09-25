@@ -195,7 +195,7 @@ export function validConfig(value: unknown): SoakConfig {
 
 type Clock = { stopping: boolean };
 
-type TurnRecord = {
+export type TurnRecord = {
   slot: number;
   generation: number;
   sessionId: string | null;
@@ -267,7 +267,12 @@ class Soak {
   }
 
   recordControl(sample: ControlSample): void {
-    const inWindow = this.inWindow(Date.now());
+    // An interrupt belongs to the window its POST went out in, as rc.sh
+    // counts them; the others by when their probe ended.
+    const sentAt = sample.extra?.sentAt;
+    const inWindow = this.inWindow(
+      typeof sentAt === "string" ? Date.parse(sentAt) : Date.now(),
+    );
     this.controls.push(sample);
     this.out.jsonl("controls").write({ ...sample, inWindow });
   }
@@ -597,18 +602,26 @@ export const READYZ_EXCLUSION = {
 const RUNNER_ERRORS = ["slot missed", "probe did not run"];
 const CURL_TIMEOUT = "curl exit 28";
 
+/**
+ * The stalls long enough to excuse anything, on the host clock and narrowed
+ * by their clock uncertainty, each reaching `tailMs` past its end.
+ */
+function longStalls(stalls: VmStall[], tailMs = 0) {
+  return stalls
+    .filter((stall) => stall.gapMs >= READYZ_EXCLUSION.stallMinMs)
+    .map((stall) => ({
+      from: stall.from + stall.offsetMs + stall.offsetErrorMs,
+      to: stall.to + stall.offsetMs - stall.offsetErrorMs + tailMs,
+      label: `${new Date(stall.from + stall.offsetMs).toISOString()} +${stall.gapMs}ms`,
+    }));
+}
+
 export function judgeReadyz(
   samples: ReadyzSample[],
   stalls: VmStall[],
   target: number,
 ) {
-  const long = stalls
-    .filter((stall) => stall.gapMs >= READYZ_EXCLUSION.stallMinMs)
-    .map((stall) => ({
-      from: stall.from + stall.offsetMs + stall.offsetErrorMs,
-      to: stall.to + stall.offsetMs - stall.offsetErrorMs,
-      label: `${new Date(stall.from + stall.offsetMs).toISOString()} +${stall.gapMs}ms`,
-    }));
+  const long = longStalls(stalls);
   const runnerMissed: ReadyzSample[] = [];
   const hostExcluded: Array<{
     t: string;
@@ -677,6 +690,162 @@ export function judgeReadyz(
   };
 }
 
+/**
+ * P-3 host exclusions (94S-444; decided with Codex 2026-09-25), on O-1's
+ * rule: an interrupt whose engine_stopped came later than the target while
+ * a VM stall of at least `stallMinMs`, or the `afterStallMs` after it the
+ * stack takes to catch up (RC4: readyz slow ~20s after one), surely
+ * overlapped [POST sent, engine_stopped]. Only lateness is excused: an
+ * excluded interrupt must still settle `interrupted` in time with its
+ * receipt and engine_stopped on record, and its session's next turn must
+ * complete. Past the ratio of all interrupts the measurement is suspect,
+ * and P-3 fails. The targets themselves are the config's.
+ */
+export const INTERRUPT_EXCLUSION = {
+  afterStallMs: 20_000,
+  maxHostExcludedRatio: 0.01,
+};
+
+export function judgeInterrupts(
+  samples: ControlSample[],
+  turns: Array<
+    Pick<
+      TurnRecord,
+      | "acceptStatus"
+      | "contextKept"
+      | "kind"
+      | "sentAt"
+      | "sessionId"
+      | "status"
+      | "turnId"
+    >
+  >,
+  stalls: VmStall[],
+  targets: Pick<
+    SoakConfig["targets"],
+    "interruptEffectMs" | "interruptTerminalMs"
+  >,
+) {
+  const windows = longStalls(stalls, INTERRUPT_EXCLUSION.afterStallMs);
+  const terminalMsOf = (sample: ControlSample): number | null =>
+    typeof sample.extra?.terminalMs === "number"
+      ? sample.extra.terminalMs
+      : null;
+  const settledInTime = (sample: ControlSample) => {
+    const ms = terminalMsOf(sample);
+    return ms !== null && ms <= targets.interruptTerminalMs;
+  };
+  const continued = (sample: ControlSample) =>
+    Number(sample.extra?.continuedAfterInterrupt ?? 0) > 0;
+  const nextTurn = (sample: ControlSample) => {
+    const own = turns.find(
+      (turn) =>
+        turn.sessionId === sample.sessionId && turn.turnId === sample.turnId,
+    );
+    if (!own) return null;
+    return (
+      turns
+        .filter(
+          (turn) =>
+            turn.sessionId === sample.sessionId && turn.sentAt > own.sentAt,
+        )
+        .sort((a, b) => a.sentAt - b.sentAt)[0] ?? null
+    );
+  };
+  const late: ControlSample[] = [];
+  const hostExcluded: Array<{
+    sessionId: string;
+    turnId: string | null;
+    sentAt: string;
+    effectMs: number;
+    terminalMs: number | null;
+    stall: string;
+    nextTurn: string | null;
+    broken: string[];
+  }> = [];
+  for (const sample of samples) {
+    if (
+      sample.effectMs === null ||
+      sample.effectMs <= targets.interruptEffectMs
+    )
+      continue;
+    const sentAt =
+      typeof sample.extra?.sentAt === "string"
+        ? Date.parse(sample.extra.sentAt)
+        : Number.NaN;
+    const effectAt = sentAt + sample.effectMs;
+    const stall = Number.isFinite(sentAt)
+      ? windows.find((entry) => entry.from < effectAt && entry.to > sentAt)
+      : undefined;
+    if (!stall) {
+      late.push(sample);
+      continue;
+    }
+    const next = nextTurn(sample);
+    const nextOk =
+      next !== null &&
+      next.kind === "normal" &&
+      next.acceptStatus === 202 &&
+      next.status === "completed" &&
+      next.contextKept === true;
+    const broken = [
+      sample.extra?.valid === true ? null : "invalid",
+      sample.effect === "interrupted" ? null : `effect ${sample.effect}`,
+      settledInTime(sample) ? null : "terminal late",
+      sample.receiptStatus === "succeeded"
+        ? null
+        : `receipt ${sample.receiptStatus}`,
+      continued(sample) ? "continued" : null,
+      nextOk ? null : "next turn not completed",
+    ].filter((reason): reason is string => reason !== null);
+    hostExcluded.push({
+      sessionId: sample.sessionId,
+      turnId: sample.turnId,
+      sentAt: new Date(sentAt).toISOString(),
+      effectMs: sample.effectMs,
+      terminalMs: terminalMsOf(sample),
+      stall: stall.label,
+      nextTurn: next ? `${next.turnId} ${next.status}` : null,
+      broken,
+    });
+  }
+  const total = samples.length;
+  const hostExcludedRatio = total ? hostExcluded.length / total : 0;
+  return {
+    pass:
+      total > 0 &&
+      samples.every(
+        (sample) =>
+          sample.extra?.valid === true &&
+          sample.effect === "interrupted" &&
+          sample.effectMs !== null &&
+          settledInTime(sample) &&
+          !continued(sample),
+      ) &&
+      late.length === 0 &&
+      hostExcluded.every((entry) => entry.broken.length === 0) &&
+      hostExcludedRatio <= INTERRUPT_EXCLUSION.maxHostExcludedRatio,
+    samples: total,
+    judged: total - hostExcluded.length,
+    valid: samples.filter((sample) => sample.extra?.valid === true).length,
+    unobserved: samples.filter((sample) => sample.effectMs === null).length,
+    notInterrupted: samples.filter((sample) => sample.effect !== "interrupted")
+      .length,
+    settledLate: samples.filter((sample) => !settledInTime(sample)).length,
+    continued: samples.filter(continued).length,
+    late: late.map(({ sessionId, turnId, effectMs }) => ({
+      sessionId,
+      turnId,
+      effectMs,
+    })),
+    hostExcluded: hostExcluded.length,
+    hostExcludedRatio,
+    hostExcludedSamples: hostExcluded,
+    terminalMs: samples
+      .map(terminalMsOf)
+      .filter((ms): ms is number => ms !== null),
+  };
+}
 type ReconcilerSample = {
   t: string;
   code: number;
@@ -1033,15 +1202,12 @@ export function judge(
     samples.filter((sample) => sample.acceptStatus !== 202).length;
   const valid = (samples: ControlSample[]) =>
     samples.filter((sample) => sample.extra?.valid === true);
-  const validInterrupts = valid(interrupts);
-  const terminalMsOf = (sample: ControlSample): number | null =>
-    typeof sample.extra?.terminalMs === "number"
-      ? sample.extra.terminalMs
-      : null;
-  const settledInTime = (sample: ControlSample) => {
-    const ms = terminalMsOf(sample);
-    return ms !== null && ms <= targets.interruptTerminalMs;
-  };
+  const interruptsJudged = judgeInterrupts(
+    interrupts,
+    turns,
+    soak.vmStalls,
+    targets,
+  );
   const validTerminates = valid(terminates);
 
   const stages = (samples: StartupSample[]) => {
@@ -1094,9 +1260,6 @@ export function judge(
   const contextLost = turns.filter((turn) => turn.contextKept === false);
   const contextChecked = turns.filter((turn) => turn.contextKept !== null);
   const startedTwice = turns.filter((turn) => (turn.startsAnswered ?? 0) > 1);
-  const continued = interrupts.filter(
-    (sample) => Number(sample.extra?.continuedAfterInterrupt ?? 0) > 0,
-  );
   const succeededWhileRunning = terminates.filter(
     (sample) => sample.extra?.succeededWhileRunning === true,
   );
@@ -1190,20 +1353,10 @@ export function judge(
     criterion({
       id: "P-3",
       area: "성능·종료 의미",
-      input: `interrupt ${interrupts.length}건 (유효 ${validInterrupts.length}: 느린 호출 중·202·receipt no_op=false): accepted ${JSON.stringify(acceptedOf(interrupts))}`,
-      expected: `유효하지 않은 표본 0, 모든 표본이 ${targets.interruptEffectMs}ms 안에 engine_stopped 관찰, ${targets.interruptTerminalMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0`,
-      actual: `effect ${JSON.stringify(effect(validInterrupts))}, terminal ${JSON.stringify(distribution(interrupts.map(terminalMsOf).filter((ms): ms is number => ms !== null)))}, 무효 ${interrupts.length - validInterrupts.length}, 관찰 못 함 ${interrupts.filter((s) => s.effectMs === null).length}, interrupted 아님 ${interrupts.filter((s) => s.effect !== "interrupted").length}, 확정 늦음 ${interrupts.filter((s) => !settledInTime(s)).length}, 계속 호출 ${continued.length}`,
-      pass:
-        interrupts.length > 0 &&
-        validInterrupts.length === interrupts.length &&
-        interrupts.every(
-          (sample) =>
-            sample.effect === "interrupted" &&
-            sample.effectMs !== null &&
-            sample.effectMs <= targets.interruptEffectMs &&
-            settledInTime(sample),
-        ) &&
-        continued.length === 0,
+      input: `interrupt ${interrupts.length}건 (유효 ${interruptsJudged.valid}: 느린 호출 중·202·receipt no_op=false): accepted ${JSON.stringify(acceptedOf(interrupts))}, VM stall probe poll ${JSON.stringify(probePolls)}`,
+      expected: `유효하지 않은 표본 0, host 제외가 아닌 모든 표본이 ${targets.interruptEffectMs}ms 안에 engine_stopped 관찰, 모든 표본이 ${targets.interruptTerminalMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0. host 제외는 [POST, engine_stopped]가 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall의 [시작, 끝+${INTERRUPT_EXCLUSION.afterStallMs}ms]와 겹친 늦은 effect만이고, 그 표본도 receipt succeeded와 그 세션의 다음 turn completed가 있어야 한다. host 제외 ≤ ${INTERRUPT_EXCLUSION.maxHostExcludedRatio * 100}%(넘으면 측정 무효)`,
+      actual: `effect ${JSON.stringify(effect(valid(interrupts)))}, terminal ${JSON.stringify(distribution(interruptsJudged.terminalMs))}, 무효 ${interrupts.length - interruptsJudged.valid}, 관찰 못 함 ${interruptsJudged.unobserved}, interrupted 아님 ${interruptsJudged.notInterrupted}, 확정 늦음 ${interruptsJudged.settledLate}, 계속 호출 ${interruptsJudged.continued}, effect 초과(제외 아님) ${JSON.stringify(interruptsJudged.late)}, host 제외 ${interruptsJudged.hostExcluded}건(${interruptsJudged.hostExcludedRatio}, 판정 표본 ${interruptsJudged.judged}) ${JSON.stringify(interruptsJudged.hostExcludedSamples)}`,
+      pass: interruptsJudged.pass,
     }),
     criterion({
       id: "P-4",
@@ -1380,6 +1533,10 @@ export function judge(
       interrupt: {
         accepted: acceptedOf(interrupts),
         effect: effect(interrupts),
+        judged: interruptsJudged.judged,
+        hostExcluded: interruptsJudged.hostExcluded,
+        hostExcludedRatio: interruptsJudged.hostExcludedRatio,
+        hostExcludedSamples: interruptsJudged.hostExcludedSamples,
       },
       terminate: {
         accepted: acceptedOf(terminates),

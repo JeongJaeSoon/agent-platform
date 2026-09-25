@@ -25,7 +25,8 @@
 # 4. resets the stack and runs the interrupt campaign (config/interrupt-3h.json:
 #    the soak's load with a judged window of 185 minutes, an interrupt every
 #    8th turn), and stops unless every criterion passed and P-3 did so on at
-#    least 500 in-window interrupts (`soak` resumes from here, past a failure
+#    least 500 in-window interrupts it did not host-exclude (94S-444) (`soak`
+#    resumes from here, past a failure
 #    only with SOAK_RC_OVERRIDE);
 # 5. resets the stack and runs the 24-hour soak (config/soak-24h.json).
 #
@@ -196,9 +197,13 @@ if [ "$stage" != soak ]; then
   failed="$(jq -r '[.[] | select(.status == "fail") | .id] | join(",")' "$out/interrupt/criteria.json")" ||
     die "no criteria in ${out}/interrupt"
   p3="$(jq -r '.[] | select(.id == "P-3") | .status' "$out/interrupt/criteria.json")"
-  samples="$(jq -s '[.[] | select(.op == "interrupt" and .inWindow == true)] | length' "$out/interrupt/controls.jsonl")" ||
-    die "unreadable ${out}/interrupt/controls.jsonl"
-  stamp "interrupt campaign done (status ${judged}): P-3 ${p3} on ${samples} in-window interrupts, failed [${failed}]"
+  samples="$(jq -n --slurpfile summary "$out/interrupt/summary.json" '
+    [$summary[0].interrupt.hostExcludedSamples[] | [.sessionId, .turnId]] as $excluded
+    | [inputs | select(.op == "interrupt" and .inWindow == true)
+        | select([.sessionId, .turnId] | IN($excluded[]) | not)] | length' \
+    "$out/interrupt/controls.jsonl")" ||
+    die "unreadable ${out}/interrupt/controls.jsonl or summary.json"
+  stamp "interrupt campaign done (status ${judged}): P-3 ${p3} on ${samples} in-window interrupts not host-excluded, failed [${failed}]"
   if [ "$judged" -eq 0 ] && [ "$p3" = pass ] && [ "$samples" -ge 500 ]; then
     echo pass >"$out/interrupt.status"
   else
