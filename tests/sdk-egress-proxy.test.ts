@@ -47,11 +47,11 @@ let server: FakeAnthropicServer | undefined;
 let hostEnv: NodeJS.ProcessEnv | undefined;
 
 afterEach(async () => {
+  if (hostEnv !== undefined) process.env = hostEnv;
+  hostEnv = undefined;
   proxy?.stop();
   server?.stop();
   await isolated?.dispose();
-  if (hostEnv !== undefined) process.env = hostEnv;
-  hostEnv = undefined;
   isolated = undefined;
   proxy = undefined;
   server = undefined;
