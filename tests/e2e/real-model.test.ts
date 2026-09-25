@@ -367,13 +367,20 @@ echo '{"status":"ready"}'
   });
 
   test("refuses a compose that cannot put an overlay on the include", async () => {
-    const result = await local("old-compose", ["up", "--real-model"], {
-      [KEY_VARIABLE]: PROBE,
-      STUB_COMPOSE: "2.24.5",
-    });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("too old for --real-model");
-    expect(result.argv).not.toContain(" up -d");
+    for (const verb of ["up", "reset"]) {
+      const result = await local(
+        `old-compose-${verb}`,
+        [verb, "--real-model"],
+        {
+          [KEY_VARIABLE]: PROBE,
+          STUB_COMPOSE: "2.24.5",
+        },
+      );
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("too old for --real-model");
+      // A reset that cannot start deletes nothing either.
+      expect(result.argv).not.toMatch(/ (up -d|down)/);
+    }
   });
 
   test("the fake stack and down add no overlay", async () => {

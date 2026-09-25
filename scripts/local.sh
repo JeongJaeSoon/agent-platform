@@ -152,7 +152,8 @@ key() {
 case "${1:-}" in
   up) shift; mode "$@"; up ;;
   down) down ;;
-  reset) shift; mode "$@"; down && up ;;
+  # Checked before down too, so a reset that cannot start deletes nothing.
+  reset) shift; mode "$@"; preflight; down && up ;;
   status) status ;;
   key) shift; key "$@" ;;
   *) usage ;;
