@@ -185,6 +185,7 @@ jobs:
               - tests/checkpoint-flow.
               - tests/checkpoint-pins.
               - tests/object-store-route.
+              - tests/test-ops.
               - tests/worker-checkpoint-publish.
             skips:
               # skipIf(linux): the runner can enforce the limits.

@@ -1,0 +1,26 @@
+# The test-ops object store while no AWS account is in use
+# (TEST_OPS_OBJECT_STORE=localstack, the default), merged after
+# compose.test-ops.yml: the local stack's LocalStack and its bucket
+# (claude-sessions), which the API signs for with LocalStack's own key.
+#
+# LocalStack keeps S3 in memory. A restart of its container, of Docker or of
+# the host loses every checkpoint object, and the API then refuses to start
+# (94S-422) until `test-ops.sh reseed` puts a backup's objects back or
+# `test-ops.sh reset` empties the installation. docs/test-ops.md.
+services:
+  localstack:
+    extends:
+      file: compose.local.yml
+      service: localstack
+  api:
+    environment:
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      localstack:
+        condition: service_healthy
+  scheduler:
+    depends_on:
+      localstack:
+        condition: service_healthy
