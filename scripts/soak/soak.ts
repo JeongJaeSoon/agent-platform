@@ -267,7 +267,12 @@ class Soak {
   }
 
   recordControl(sample: ControlSample): void {
-    const inWindow = this.inWindow(Date.now());
+    // An interrupt belongs to the window its POST went out in, as rc.sh
+    // counts them; the others by when their probe ended.
+    const sentAt = sample.extra?.sentAt;
+    const inWindow = this.inWindow(
+      typeof sentAt === "string" ? Date.parse(sentAt) : Date.now(),
+    );
     this.controls.push(sample);
     this.out.jsonl("controls").write({ ...sample, inWindow });
   }
@@ -708,6 +713,7 @@ export function judgeInterrupts(
       TurnRecord,
       | "acceptStatus"
       | "contextKept"
+      | "kind"
       | "sentAt"
       | "sessionId"
       | "status"
@@ -778,9 +784,10 @@ export function judgeInterrupts(
     const next = nextTurn(sample);
     const nextOk =
       next !== null &&
+      next.kind === "normal" &&
       next.acceptStatus === 202 &&
       next.status === "completed" &&
-      next.contextKept !== false;
+      next.contextKept === true;
     const broken = [
       sample.extra?.valid === true ? null : "invalid",
       sample.effect === "interrupted" ? null : `effect ${sample.effect}`,

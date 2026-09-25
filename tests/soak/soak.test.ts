@@ -460,6 +460,7 @@ describe("P-3 host exclusions (94S-444)", () => {
         sessionId: sample.sessionId,
         turnId: "9",
         sentAt: sentAt(i) + 40_000,
+        kind: "normal",
         acceptStatus: 202,
         status: "completed",
         contextKept: true,
@@ -555,6 +556,13 @@ describe("P-3 host exclusions (94S-444)", () => {
         : turn,
     );
     cases.push([interrupt(10, 7637), "next turn not completed", stuck]);
+    // Completed, but nothing showed it kept the session's context.
+    const unchecked = turnsOf(list).map((turn) =>
+      turn.sessionId === "session-10" && turn.turnId === "9"
+        ? { ...turn, contextKept: null }
+        : turn,
+    );
+    cases.push([interrupt(10, 7637), "next turn not completed", unchecked]);
     const ended = turnsOf(list).filter(
       (turn) => !(turn.sessionId === "session-10" && turn.turnId === "9"),
     );
