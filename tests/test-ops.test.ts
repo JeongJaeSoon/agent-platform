@@ -111,6 +111,16 @@ describe("scripts/test-ops.sh", () => {
     expect(await dockerCalls()).toBe("");
   });
 
+  test("refuses the local stack's project name", async () => {
+    const result = await run(["status"], {
+      ...env,
+      TEST_OPS_PROJECT: "agent-platform",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("is the local stack's project");
+    expect(await dockerCalls()).toBe("");
+  });
+
   test("needs its env file", async () => {
     const result = await run(["status"], {
       ...env,
@@ -286,6 +296,7 @@ describe("rendered installation", () => {
           ANTHROPIC_API_KEY: filler("k"),
           PLATFORM_CATALOG_DIR: catalog,
           EXECUTION_WORKSPACE_QUOTA: "on",
+          EXECUTION_INSTALLATION_ID: "test-ops",
           EGRESS_CREDENTIAL_ALLOWLIST:
             "api.anthropic.com:443,ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
           EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
@@ -332,6 +343,7 @@ describe("rendered installation", () => {
     env("api").CHECKPOINT_OBJECT_PROTECTION = "unversioned";
     env("postgres").POSTGRES_PASSWORD = "a/b@c";
     env("scheduler").EXECUTION_WORKSPACE_QUOTA = "off";
+    env("scheduler").EXECUTION_INSTALLATION_ID = "local";
     env("egress-proxy").EGRESS_CREDENTIAL_ALLOWLIST = "api.anthropic.com:443";
     env("egress-proxy").EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST =
       "gitea:3000,fake-messages:4010";
@@ -350,6 +362,7 @@ describe("rendered installation", () => {
       "api CHECKPOINT_OBJECT_PROTECTION must be locked",
       "POSTGRES_PASSWORD may hold only letters, digits and . _ ~ -",
       "EXECUTION_WORKSPACE_QUOTA must be on",
+      'EXECUTION_INSTALLATION_ID must name this installation, not "local"',
       "EGRESS_CREDENTIAL_ALLOWLIST must name ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
       "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names fake-messages:4010, a local-only service",
       `the manifest says sha256:${"0".repeat(64)}`,

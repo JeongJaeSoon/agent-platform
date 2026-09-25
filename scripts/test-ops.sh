@@ -29,10 +29,17 @@ ENV_FILE="${TEST_OPS_ENV_FILE:-/etc/agent-platform/test-ops.env}"
 STATE_DIR="${TEST_OPS_STATE_DIR:-/var/lib/agent-platform/test-ops}"
 PROJECT="${TEST_OPS_PROJECT:-agent-platform-test-ops}"
 CURRENT="${STATE_DIR}/current.json"
+# The manifest of an upgrade that stopped the installation and did not finish.
+PENDING="${STATE_DIR}/pending.json"
+# project=… and installation=… of what deploy started; every later command
+# must name the same.
+IDENTITY="${STATE_DIR}/installation"
+LOCK="${STATE_DIR}/lock"
 HELPER="${REPO_ROOT}/scripts/lib/test-ops.ts"
 API_URL=http://127.0.0.1:3000
 MIN_ENGINE_MAJOR=28
-MIN_COMPOSE=2.24
+# 2.24.6: the restore drill's overlay over an include (docker-compose.restore.yml).
+MIN_COMPOSE=2.24.6
 WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
@@ -93,7 +100,31 @@ case "$VERB" in
   *) usage ;;
 esac
 [ -z "$APPROVED" ] || [ -r "$APPROVED" ] || die "approval file $APPROVED not found"
+case "$PROJECT" in
+  ""|[!a-z0-9]*|*[!a-z0-9_-]*) die "TEST_OPS_PROJECT must match [a-z0-9][a-z0-9_-]*: '$PROJECT'" ;;
+  agent-platform) die "TEST_OPS_PROJECT agent-platform is the local stack's project" ;;
+esac
 umask 077
+
+# EXIT runs these last registered first: a reopen or a drill teardown before
+# the lock goes.
+CLEANUPS=()
+on_exit() {
+  local i
+  # Each in a subshell: one that dies must not skip the rest.
+  for ((i = ${#CLEANUPS[@]} - 1; i >= 0; i--)); do (eval "${CLEANUPS[i]}") || true; done
+}
+trap on_exit EXIT
+
+# One lifecycle command at a time per installation: a second backup or an
+# upgrade would reopen the writers under a running backup. A lock left by a
+# killed run names its pid; remove the directory once that run is gone.
+take_lock() {
+  mkdir "$LOCK" 2>/dev/null \
+    || die "another test-ops command holds $LOCK ($(cat "$LOCK/pid" 2>/dev/null || echo "pid unknown")); if none runs, remove it"
+  echo "$$" > "$LOCK/pid"
+  CLEANUPS+=('rm -rf "$LOCK"')
+}
 
 # --- settings ------------------------------------------------------------------
 check_env_file() {
@@ -122,7 +153,21 @@ load_manifest() {
 
 load_current() {
   [ -r "$CURRENT" ] || die "no release is deployed ($CURRENT); deploy one first"
+  if [ -e "$PENDING" ] && [ "$VERB" != status ] \
+    && ! { [ "$VERB" = upgrade ] && cmp -s "$MANIFEST" "$PENDING"; }; then
+    die "an upgrade to $PENDING did not finish and the installation may be stopped; rerun upgrade with that manifest"
+  fi
   load_manifest "$CURRENT"
+}
+
+# The rendered installation is the one deploy started: same project, same
+# installation id, whose label is how its workers are found.
+check_identity() {
+  local installation
+  installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
+  [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
+  [ "$(printf 'project=%s\ninstallation=%s' "$PROJECT" "$installation")" = "$(cat "$IDENTITY")" ] \
+    || die "project '$PROJECT' with installation '$installation' is not what was deployed ($(tr '\n' ' ' < "$IDENTITY")); EXECUTION_INSTALLATION_ID and TEST_OPS_PROJECT cannot change"
 }
 
 # compose on the installation's settings: the env file through --env-file,
@@ -172,14 +217,17 @@ with_api_store() {
 }
 
 # --- preflight -------------------------------------------------------------------
-# Is version $1 (like 28.3.2 or v2.39.1) at least $2 (major.minor)?
+# Is version $1 (like 28.3.2, v2.39.1 or 2.24.6-desktop.1) at least $2 (x.y.z)?
 version_at_least() {
-  local have=${1#v} want=$2 have_major have_minor
-  have_major=${have%%[!0-9]*}
-  have_minor=${have#"$have_major".}
-  have_minor=${have_minor%%[!0-9]*}
-  [ "${have_major:-0}" -gt "${want%%.*}" ] ||
-    { [ "${have_major:-0}" -eq "${want%%.*}" ] && [ "${have_minor:-0}" -ge "${want#*.}" ]; }
+  local IFS=. i have_part want_part
+  # shellcheck disable=SC2206 # split on the dots
+  local -a have=(${1#v}) want=($2)
+  for i in 0 1 2; do
+    have_part=${have[i]:-0}
+    have_part=${have_part%%[!0-9]*}
+    want_part=${want[i]:-0}
+    [ "${have_part:-0}" -eq "$want_part" ] || { [ "${have_part:-0}" -gt "$want_part" ]; return; }
+  done
 }
 
 # The loaded manifest against this host. The workspace quota itself is the
@@ -193,7 +241,7 @@ preflight() {
   [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] \
     || die "the checkout has local changes; the compose files must be the release's"
   engine="$(docker version --format '{{.Server.Version}}' 2>/dev/null)" || die "cannot reach the Docker daemon"
-  version_at_least "$engine" "${MIN_ENGINE_MAJOR}.0" \
+  version_at_least "$engine" "${MIN_ENGINE_MAJOR}.0.0" \
     || die "Docker Engine $engine is too old; worker networks need $MIN_ENGINE_MAJOR or newer (gateway_mode_ipv4=isolated)"
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
@@ -225,6 +273,7 @@ start_apps() {
 stop_writers() {
   local installation workers
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
+  [ -n "$installation" ] || die "no EXECUTION_INSTALLATION_ID; cannot tell this installation's workers apart"
   log "stopping admissions and writers: api, scheduler, reconciler"
   ops_compose stop api scheduler reconciler
   workers="$(docker ps -q --filter "label=agent-platform.installation=${installation}")" \
@@ -256,11 +305,13 @@ uncollected_sessions() {
 }
 
 deploy() {
+  take_lock
   [ ! -e "$CURRENT" ] || die "a release is already deployed ($CURRENT); use upgrade"
   ! project_has_resources "$PROJECT" \
     || die "project '$PROJECT' already has containers, volumes or networks while $CURRENT names no release"
   load_manifest "$MANIFEST"
   preflight
+  printf 'project=%s\ninstallation=%s' "$PROJECT" "$(rendered scheduler EXECUTION_INSTALLATION_ID)" > "$IDENTITY"
   start_apps
   record_release "$MANIFEST" deploy
   log "deploy: done — issue a key with scripts/test-ops.sh key create <owner> --scopes sessions:read,sessions:write"
@@ -268,11 +319,13 @@ deploy() {
 
 upgrade() {
   local from_worker from_catalog affected approved_list status=0
+  take_lock
   load_current
   from_worker="$WORKER_IMAGE"
   from_catalog="$CATALOG_REVISION"
   load_manifest "$MANIFEST"
   preflight
+  check_identity
   affected="${STATE_DIR}/upgrade-$(date -u +%Y%m%dT%H%M%SZ).sessions"
   gate() {
     bun_script "$HELPER" upgrade-gate "$from_worker" "$WORKER_IMAGE" "$affected" ${APPROVED:+"$APPROVED"}
@@ -308,12 +361,16 @@ upgrade() {
       > "${STATE_DIR}/approvals/$(date -u +%Y%m%dT%H%M%SZ)-upgrade.json"
     log "upgrade: $(printf '%s\n' "$approved_list" | grep -c .) session(s) approved to become INCOMPATIBLE_CHECKPOINT; recorded in ${STATE_DIR}/approvals"
   fi
+  # Until the new release is up and recorded, every command but status and
+  # this same upgrade refuses: current.json no longer says what runs.
+  cp "$MANIFEST" "$PENDING"
   start_apps
   # The API reads the catalog once at startup; a bind mount's new contents
   # recreate nothing on their own.
   [ "$CATALOG_REVISION" = "$from_catalog" ] \
     || ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" --force-recreate --no-deps api
   record_release "$MANIFEST" upgrade
+  rm -f "$PENDING"
   log "upgrade: done"
 }
 
@@ -321,8 +378,10 @@ status_report() {
   local role root
   load_current
   render
+  check_identity
   ops_compose ps
   echo "release: $(jq -c . "$CURRENT")"
+  [ ! -e "$PENDING" ] || echo "UNFINISHED upgrade to: $(jq -c . "$PENDING")"
   echo "readyz: $(readyz)"
   for role in scheduler reconciler; do
     if ops_compose exec -T "$role" bun run apps/control-host/src/main.ts "$role" --health </dev/null >/dev/null 2>&1; then
@@ -338,15 +397,19 @@ status_report() {
 
 key() {
   load_current
+  render
+  check_identity
   ops_compose exec -T api bun run apps/control-host/src/api/keys.ts "$@" </dev/null
 }
 
 backup() {
   local bucket
+  take_lock
   load_current
   render
+  check_identity
   bucket="$(rendered api S3_BUCKET)"
-  trap reopen EXIT
+  CLEANUPS+=(reopen)
   stop_writers
   with_api_store "${REPO_ROOT}/scripts/backup.sh" --project "$PROJECT" --out "${STATE_DIR}/backups" \
     --bucket "$bucket" --object-store env
@@ -354,23 +417,23 @@ backup() {
 
 restore_drill() {
   local log_file status=0
+  take_lock
   load_current
   render
-  # Globals, not locals: the EXIT trap reads them after this returns, and an
-  # empty project name would make compose fall back to the local stack's.
-  DRILL="${PROJECT}-drill-$(date -u +%Y%m%dt%H%M%Sz)"
+  check_identity
+  # Globals, not locals: the cleanup reads them at exit, and an empty
+  # project name would make compose fall back to the local stack's.
+  DRILL="${PROJECT}-drill-$(date -u +%Y%m%dt%H%M%Sz)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+  ! project_has_resources "$DRILL" || die "project $DRILL already exists"
   log_file="${STATE_DIR}/restore-drills/${DRILL}.log"
   # restore.sh runs migrate from the local layer, which would build the
   # control-host image from this checkout. The released one, under the name
   # compose looks for first, is what this installation migrates with.
   MIGRATE_IMAGE="${DRILL}-migrate"
   docker tag "$API_IMAGE" "$MIGRATE_IMAGE"
-  if [ "$KEEP" = 1 ]; then
-    trap 'docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1 || true' EXIT
-  else
-    trap 'docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/docker-compose.yml" down -v >/dev/null 2>&1 || true
-docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1 || true' EXIT
-  fi
+  CLEANUPS+=('docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1')
+  [ "$KEEP" = 1 ] \
+    || CLEANUPS+=('docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/docker-compose.yml" down -v >/dev/null 2>&1')
   log "restore-drill: $BACKUP_DIR into project $DRILL and bucket $DRILL_BUCKET; log $log_file"
   {
     with_api_store "${REPO_ROOT}/scripts/restore.sh" "$BACKUP_DIR" --into "$DRILL" --object-store env \

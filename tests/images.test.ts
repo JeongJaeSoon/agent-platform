@@ -642,6 +642,7 @@ describe("compose layers", () => {
   const TEST_OPS_SETTINGS = {
     ...API_KEYS,
     S3_BUCKET: "test-ops-bucket",
+    EXECUTION_INSTALLATION_ID: "test-ops",
     PLATFORM_CATALOG_DIR: "/etc/agent-platform/catalog",
     EXECUTION_WORKSPACE_QUOTA: "on",
     EGRESS_CREDENTIAL_ALLOWLIST:

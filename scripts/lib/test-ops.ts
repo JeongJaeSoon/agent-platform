@@ -191,6 +191,11 @@ export async function checkRender(
       problems.push(
         `${name} may hold only letters, digits and . _ ~ - (it goes into DATABASE_URL unescaped)`,
       );
+  const installation = env("scheduler", "EXECUTION_INSTALLATION_ID") ?? "";
+  if (!/^[a-z0-9][a-z0-9_.-]*$/.test(installation) || installation === "local")
+    problems.push(
+      `EXECUTION_INSTALLATION_ID must name this installation, not ${JSON.stringify(installation)} (local is the local stack's)`,
+    );
   if (env("scheduler", "EXECUTION_WORKSPACE_QUOTA") !== "on")
     problems.push("EXECUTION_WORKSPACE_QUOTA must be on (xfs with prjquota)");
 
