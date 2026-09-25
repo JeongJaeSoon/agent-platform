@@ -2,7 +2,7 @@
   "name": "interrupt-3h",
   "purpose": "94S-135 interrupt 캠페인. 24시간 soak와 같은 부하(10세션, terminate·pause/resume 포함)에서 interrupt 표본을 500건 넘게 모아 P-3(engine_stopped 5초 이하, interrupted 50초 이하)을 판정한다. rc.sh는 이 캠페인의 P-3 통과와 표본 500건 이상을 확인한 뒤에만 24시간 soak로 넘어간다.",
   "sessions": 10,
-  "durationMin": 190,
+  "durationMin": 200,
   "warmupMin": 15,
   "drainSec": 300,
   "quiesceSec": 90,
@@ -51,7 +51,7 @@
     "acceptance": {
       "endpoints": ["POST /v1/sessions/{id}/messages", "POST /v1/sessions"],
       "timer": "호스트에서 요청 송신부터 202/201 응답 본문 수신까지(fetch 왕복). loopback 게시 포트로 직접 호출한다.",
-      "window": "램프가 끝나고 warmupMin(15분)이 지난 시점부터 durationMin(190분) 종료까지",
+      "window": "램프가 끝나고 warmupMin(15분)이 지난 시점부터 durationMin(200분) 종료까지, 곧 185분",
       "sample": "창 안에서 보낸 모든 요청. 202/201이 아닌 응답은 따로 센다.",
       "judgement": "POST messages의 p95가 acceptP95Ms 이하"
     },

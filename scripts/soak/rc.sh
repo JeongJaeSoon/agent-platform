@@ -23,9 +23,10 @@
 #    (`interrupt` resumes from here once they finished, and past a failure
 #    only with SOAK_RC_OVERRIDE naming why it was accepted);
 # 4. resets the stack and runs the interrupt campaign (config/interrupt-3h.json:
-#    the soak's load for 190 minutes, an interrupt every 8th turn), and stops
-#    unless P-3 passed on at least 500 in-window interrupts (`soak` resumes
-#    from here, past a failure only with SOAK_RC_OVERRIDE);
+#    the soak's load with a judged window of 185 minutes, an interrupt every
+#    8th turn), and stops unless every criterion passed and P-3 did so on at
+#    least 500 in-window interrupts (`soak` resumes from here, past a failure
+#    only with SOAK_RC_OVERRIDE);
 # 5. resets the stack and runs the 24-hour soak (config/soak-24h.json).
 #
 # Campaigns go first because they share the soak135 project with the soak.
@@ -165,16 +166,19 @@ if [ "$stage" != soak ]; then
   scripts/soak/stack.sh reset || die "stack reset failed"
   source "$state/vars.sh"
   bun scripts/soak/soak.ts scripts/soak/config/interrupt-3h.json "$out/interrupt"
-  stamp "interrupt campaign done (status $?)"
-  # Only P-3 decides here: the soak judges the rest over 24 hours.
-  p3="$(jq -r '.[] | select(.id == "P-3") | .status' "$out/interrupt/criteria.json")" || die "no P-3 in ${out}/interrupt"
+  judged=$?
+  # Failed until proven otherwise, so a crash below still leaves `soak` resumable with an override.
+  echo fail >"$out/interrupt.status"
+  failed="$(jq -r '[.[] | select(.status == "fail") | .id] | join(",")' "$out/interrupt/criteria.json")" ||
+    die "no criteria in ${out}/interrupt"
+  p3="$(jq -r '.[] | select(.id == "P-3") | .status' "$out/interrupt/criteria.json")"
   samples="$(jq -s '[.[] | select(.op == "interrupt" and .inWindow == true)] | length' "$out/interrupt/controls.jsonl")" ||
     die "unreadable ${out}/interrupt/controls.jsonl"
-  if [ "$p3" = pass ] && [ "$samples" -ge 500 ]; then
+  stamp "interrupt campaign done (status ${judged}): P-3 ${p3} on ${samples} in-window interrupts, failed [${failed}]"
+  if [ "$judged" -eq 0 ] && [ "$p3" = pass ] && [ "$samples" -ge 500 ]; then
     echo pass >"$out/interrupt.status"
   else
-    echo fail >"$out/interrupt.status"
-    stamp "interrupt campaign: P-3 ${p3} on ${samples} in-window interrupts (needs pass on 500); see $out/interrupt/report.md; once settled, SOAK_RC_OVERRIDE='<why>' $0 ${rc} soak"
+    stamp "interrupt campaign failed (needs every criterion, and P-3 on 500 interrupts): see $out/interrupt/report.md; once settled, SOAK_RC_OVERRIDE='<why>' $0 ${rc} soak"
     exit 1
   fi
 fi

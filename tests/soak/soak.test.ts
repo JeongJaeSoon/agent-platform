@@ -80,7 +80,9 @@ describe("94S-135 soak tooling", () => {
     const interrupts = validConfig(
       await Bun.file(join(CONFIG_DIR, "interrupt-3h.json")).json(),
     );
-    expect(interrupts.durationMin).toBeGreaterThanOrEqual(180);
+    expect(
+      interrupts.durationMin - interrupts.warmupMin,
+    ).toBeGreaterThanOrEqual(180);
     expect(interrupts).toMatchObject({
       ...soak,
       name: "interrupt-3h",
