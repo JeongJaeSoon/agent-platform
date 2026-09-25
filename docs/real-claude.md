@@ -53,15 +53,16 @@ unset ANTHROPIC_API_KEY
 
 run record(`E2E_OUT`, 끝에 경로를 출력한다)의 `record.txt`에는 tested SHA, 이미지 id, SDK·Claude Code 버전과 함께 `model`, `provider_endpoint`, `session_cost_limit_usd`가 남는다. `test.log`에는 세션 id, 커밋, attempt, 실제 비용을 담은 `real_model` JSON 한 줄이 남는다. 성공하면 `tests: pass=1 skip=0 fail=0`이다.
 
-`run.sh`는 끝날 때 `E2E_OUT` 전체(compose 로그, 모든 worker 로그, run record, 테스트 출력)에서 key 값을 찾는다. 하나라도 나오면 파일 이름만 출력하고 실행을 실패시킨다. key 값은 어떤 로그에도 출력되지 않는다. `E2E_KEEP=1`로 스택을 남겼다면 끝에 출력되는 `kept: compose project <project>, installation <installation>`의 두 값으로 직접 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 label로 지운다.
+`run.sh`는 끝날 때 `E2E_OUT` 전체(compose 로그, 모든 worker 로그, run record, 테스트 출력)에서 key 값을 찾는다. 하나라도 나오면 파일 이름만 출력하고 실행을 실패시킨다. key 값은 어떤 로그에도 출력되지 않는다. `E2E_KEEP=1`로 스택을 남겼다면 끝에 출력되는 `kept: compose project <project>, installation <installation>`의 두 값으로 직접 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 label로 지우고, run.sh가 tag를 붙인 이미지 셋은 이름으로 지운다.
 
 ```sh
-P=<project>; I=<installation>
+P='e2e-123456789'; I='e2e123456789'   # kept: 줄의 project와 installation 값으로 바꾼다
 docker compose -p "$P" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
   -f infra/compose.real-model.yml --profile apps down -v --remove-orphans --rmi local
 docker ps -aq --filter "label=agent-platform.installation=$I" | xargs -r docker rm -f
 docker network ls -q --filter "label=agent-platform.installation=$I" | xargs -r docker network rm
 docker volume ls -q --filter "label=agent-platform.installation=$I" | xargs -r docker volume rm
+docker image rm "agent-platform-control-host:$P" "agent-platform-worker:$P" "agent-platform-egress-proxy:$P"
 ```
 
 ## B. 실제 Claude와 직접 대화하기
