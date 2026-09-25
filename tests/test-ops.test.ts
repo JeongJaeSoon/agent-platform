@@ -26,7 +26,11 @@ import {
   probeStore,
   type RenderedModel,
 } from "../scripts/lib/test-ops.ts";
-import { TEST_OPS_LAYERS, TEST_OPS_STORE_LAYERS } from "./compose-layers.ts";
+import {
+  COMPOSE_RENDER_TIMEOUT_MS,
+  TEST_OPS_LAYERS,
+  TEST_OPS_STORE_LAYERS,
+} from "./compose-layers.ts";
 
 /**
  * scripts/test-ops.sh without a daemon (94S-432): its argument and settings
@@ -427,16 +431,21 @@ describe("rendered installation", () => {
         await checkRender(render(store), { catalogRevision: revision, store }),
       ).toBe(revision);
     },
+    COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  test("a render is checked against the store it is meant for", async () => {
-    await expect(
-      checkRender(render("localstack"), { store: "s3" }),
-    ).rejects.toThrow("service localstack is local-only");
-    await expect(
-      checkRender(render("s3"), { store: "localstack" }),
-    ).rejects.toThrow("service localstack is missing");
-  });
+  test(
+    "a render is checked against the store it is meant for",
+    async () => {
+      await expect(
+        checkRender(render("localstack"), { store: "s3" }),
+      ).rejects.toThrow("service localstack is local-only");
+      await expect(
+        checkRender(render("s3"), { store: "localstack" }),
+      ).rejects.toThrow("service localstack is missing");
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
   test("the catalog revision follows every file's path and bytes", async () => {
     const before = await catalogRevision(catalog);
@@ -448,91 +457,103 @@ describe("rendered installation", () => {
     expect(await catalogRevision(catalog)).not.toBe(before);
   });
 
-  test("reports every way a render is not a test-ops installation", async () => {
-    const model = render("s3");
-    const services = model.services ?? {};
-    const env = (name: string) => {
-      const found = services[name]?.environment;
-      if (found === undefined) throw new Error(`${name} has no environment`);
-      return found;
-    };
-    services.localstack = { image: "localstack/localstack:3" };
-    services.migrate = { ...services.migrate, build: { context: ".." } };
-    services.worker = { ...services.worker, image: "ghcr.io/x/worker:v1" };
-    services.gitea = {
-      ...services.gitea,
-      ports: [{ host_ip: "0.0.0.0", published: "3001", target: 3000 }],
-    };
-    env("api").AUTH_MODE = "none";
-    env("api").CHECKPOINT_OBJECT_PROTECTION = "unversioned";
-    env("postgres").POSTGRES_PASSWORD = "a/b@c";
-    env("scheduler").EXECUTION_WORKSPACE_QUOTA = "off";
-    env("scheduler").EXECUTION_INSTALLATION_ID = "local";
-    env("egress-proxy").EGRESS_CREDENTIAL_ALLOWLIST = "api.anthropic.com:443";
-    env("egress-proxy").EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST =
-      "gitea:3000,fake-messages:4010";
-    env("api").AWS_ENDPOINT_URL = "http://localstack:4566";
-    const found = await checkRender(model, {
-      catalogRevision: `sha256:${"0".repeat(64)}`,
-      store: "s3",
-    }).then(
-      () => "",
-      (error: Error) => error.message,
-    );
-    for (const expected of [
-      "service localstack is local-only",
-      "service migrate builds its image",
-      "service worker runs ghcr.io/x/worker:v1, not an image by digest",
-      "service gitea publishes 3001 on 0.0.0.0",
-      "api AUTH_MODE must be api-key",
-      "api CHECKPOINT_OBJECT_PROTECTION must be locked",
-      "POSTGRES_PASSWORD may hold only letters, digits and . _ ~ -",
-      "EXECUTION_WORKSPACE_QUOTA must be on",
-      'EXECUTION_INSTALLATION_ID must name this installation, not "local"',
-      "EGRESS_CREDENTIAL_ALLOWLIST must name ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
-      "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names fake-messages:4010, a local-only service",
-      "api AWS_ENDPOINT_URL must be unset: the store is AWS S3",
-      `the manifest says sha256:${"0".repeat(64)}`,
-    ])
-      expect(found).toContain(expected);
-  });
+  test(
+    "reports every way a render is not a test-ops installation",
+    async () => {
+      const model = render("s3");
+      const services = model.services ?? {};
+      const env = (name: string) => {
+        const found = services[name]?.environment;
+        if (found === undefined) throw new Error(`${name} has no environment`);
+        return found;
+      };
+      services.localstack = { image: "localstack/localstack:3" };
+      services.migrate = { ...services.migrate, build: { context: ".." } };
+      services.worker = { ...services.worker, image: "ghcr.io/x/worker:v1" };
+      services.gitea = {
+        ...services.gitea,
+        ports: [{ host_ip: "0.0.0.0", published: "3001", target: 3000 }],
+      };
+      env("api").AUTH_MODE = "none";
+      env("api").CHECKPOINT_OBJECT_PROTECTION = "unversioned";
+      env("postgres").POSTGRES_PASSWORD = "a/b@c";
+      env("scheduler").EXECUTION_WORKSPACE_QUOTA = "off";
+      env("scheduler").EXECUTION_INSTALLATION_ID = "local";
+      env("egress-proxy").EGRESS_CREDENTIAL_ALLOWLIST = "api.anthropic.com:443";
+      env("egress-proxy").EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST =
+        "gitea:3000,fake-messages:4010";
+      env("api").AWS_ENDPOINT_URL = "http://localstack:4566";
+      const found = await checkRender(model, {
+        catalogRevision: `sha256:${"0".repeat(64)}`,
+        store: "s3",
+      }).then(
+        () => "",
+        (error: Error) => error.message,
+      );
+      for (const expected of [
+        "service localstack is local-only",
+        "service migrate builds its image",
+        "service worker runs ghcr.io/x/worker:v1, not an image by digest",
+        "service gitea publishes 3001 on 0.0.0.0",
+        "api AUTH_MODE must be api-key",
+        "api CHECKPOINT_OBJECT_PROTECTION must be locked",
+        "POSTGRES_PASSWORD may hold only letters, digits and . _ ~ -",
+        "EXECUTION_WORKSPACE_QUOTA must be on",
+        'EXECUTION_INSTALLATION_ID must name this installation, not "local"',
+        "EGRESS_CREDENTIAL_ALLOWLIST must name ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names fake-messages:4010, a local-only service",
+        "api AWS_ENDPOINT_URL must be unset: the store is AWS S3",
+        `the manifest says sha256:${"0".repeat(64)}`,
+      ])
+        expect(found).toContain(expected);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
-  test("reports every way a render is not a LocalStack test-ops installation", async () => {
-    const model = render("localstack");
-    const services = model.services ?? {};
-    const api = services.api?.environment;
-    const proxy = services["egress-proxy"]?.environment;
-    if (api === undefined || proxy === undefined)
-      throw new Error("api or egress-proxy has no environment");
-    services.secrets = {
-      image: `localstack/localstack@sha256:${"d".repeat(64)}`,
-    };
-    api.AWS_ENDPOINT_URL = "http://127.0.0.1:4566";
-    api.S3_BUCKET = "ops-bucket";
-    proxy.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST = "gitea:3000,secrets:4566";
-    const found = await checkRender(model, { store: "localstack" }).then(
-      () => "",
-      (error: Error) => error.message,
-    );
-    for (const expected of [
-      "service secrets is local-only",
-      "api AWS_ENDPOINT_URL must be http://localstack:4566",
-      "S3_BUCKET must be claude-sessions",
-      "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must name localstack:4566",
-      "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names secrets:4566, a local-only service",
-    ])
-      expect(found).toContain(expected);
-  });
+  test(
+    "reports every way a render is not a LocalStack test-ops installation",
+    async () => {
+      const model = render("localstack");
+      const services = model.services ?? {};
+      const api = services.api?.environment;
+      const proxy = services["egress-proxy"]?.environment;
+      if (api === undefined || proxy === undefined)
+        throw new Error("api or egress-proxy has no environment");
+      services.secrets = {
+        image: `localstack/localstack@sha256:${"d".repeat(64)}`,
+      };
+      api.AWS_ENDPOINT_URL = "http://127.0.0.1:4566";
+      api.S3_BUCKET = "ops-bucket";
+      proxy.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST = "gitea:3000,secrets:4566";
+      const found = await checkRender(model, { store: "localstack" }).then(
+        () => "",
+        (error: Error) => error.message,
+      );
+      for (const expected of [
+        "service secrets is local-only",
+        "api AWS_ENDPOINT_URL must be http://localstack:4566",
+        "S3_BUCKET must be claude-sessions",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must name localstack:4566",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names secrets:4566, a local-only service",
+      ])
+        expect(found).toContain(expected);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
-  test("refuses the checkout's own catalog", async () => {
-    const model = render("localstack");
-    const volume = model.services?.api?.volumes?.[0];
-    if (volume === undefined) throw new Error("api mounts nothing");
-    volume.source = join(repoRoot, "config");
-    await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
-      "is inside the checkout",
-    );
-  });
+  test(
+    "refuses the checkout's own catalog",
+    async () => {
+      const model = render("localstack");
+      const volume = model.services?.api?.volumes?.[0];
+      if (volume === undefined) throw new Error("api mounts nothing");
+      volume.source = join(repoRoot, "config");
+      await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
+        "is inside the checkout",
+      );
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 });
 
 describe("bucket round trip", () => {

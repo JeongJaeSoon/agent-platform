@@ -17,6 +17,12 @@ export const TEST_OPS_STORE_LAYERS = {
   s3: "infra/compose.test-ops.s3.yml",
 } as const;
 
+/**
+ * For a test that runs `docker compose config`: a cold runner's first call
+ * has taken 12.8s against bun's 5s default (94S-438).
+ */
+export const COMPOSE_RENDER_TIMEOUT_MS = 30_000;
+
 type Mapping = Record<string, unknown>;
 const isMapping = (value: unknown): value is Mapping =>
   typeof value === "object" && value !== null && !Array.isArray(value);

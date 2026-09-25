@@ -11,6 +11,7 @@ import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
 import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
 import {
+  COMPOSE_RENDER_TIMEOUT_MS,
   CORE,
   LOCAL_LAYERS,
   layeredServices,
@@ -792,75 +793,79 @@ describe("compose layers", () => {
     expect(read(CORE)).not.toMatch(/^ +env_file:/m);
   });
 
-  test("docker-compose.yml is the core with the local layer, and renders as the tests merge them", () => {
-    const entry = Bun.YAML.parse(read("infra/docker-compose.yml")) as {
-      name?: string;
-      include?: { path?: string[] }[];
-      services?: unknown;
-    };
-    expect(entry).toEqual({
-      name: "agent-platform",
-      include: [
-        { path: LOCAL_LAYERS.map((path) => path.replace(/^infra\//, "")) },
-      ],
-    });
-    const { exitCode, stderr, model } = render(LOCAL_LAYERS);
-    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-    const merged = localStack();
-    const services = model?.services ?? {};
-    expect(Object.keys(services).sort()).toEqual(Object.keys(merged).sort());
-    /** A value as compose resolves it with nothing set. */
-    const resolved = (value: string) =>
-      value.replace(/\$\{[A-Z0-9_]+:-([^}]*)\}/g, "$1");
-    for (const [name, service] of Object.entries(services)) {
-      const layered = merged[name];
-      // Only the keys compose files set: a developer's ../.env adds more
-      // through env_file, and never wins over these.
-      const environment =
-        layered?.environment &&
-        Object.fromEntries(
-          Object.keys(layered.environment).map((key) => [
-            key,
-            service.environment?.[key],
-          ]),
-        );
-      expect({
-        name,
-        build: service.build?.dockerfile,
-        image: service.image !== undefined,
-        profiles: service.profiles,
-        ports: service.ports?.map(
-          (port) => `${port.host_ip}:${port.published}:${port.target}`,
-        ),
-        environment,
-      }).toEqual({
-        name,
-        build: layered?.build?.dockerfile,
-        image: layered?.image !== undefined,
-        profiles: layered?.profiles,
-        ports: layered?.ports as string[] | undefined,
-        environment:
+  test(
+    "docker-compose.yml is the core with the local layer, and renders as the tests merge them",
+    () => {
+      const entry = Bun.YAML.parse(read("infra/docker-compose.yml")) as {
+        name?: string;
+        include?: { path?: string[] }[];
+        services?: unknown;
+      };
+      expect(entry).toEqual({
+        name: "agent-platform",
+        include: [
+          { path: LOCAL_LAYERS.map((path) => path.replace(/^infra\//, "")) },
+        ],
+      });
+      const { exitCode, stderr, model } = render(LOCAL_LAYERS);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      const merged = localStack();
+      const services = model?.services ?? {};
+      expect(Object.keys(services).sort()).toEqual(Object.keys(merged).sort());
+      /** A value as compose resolves it with nothing set. */
+      const resolved = (value: string) =>
+        value.replace(/\$\{[A-Z0-9_]+:-([^}]*)\}/g, "$1");
+      for (const [name, service] of Object.entries(services)) {
+        const layered = merged[name];
+        // Only the keys compose files set: a developer's ../.env adds more
+        // through env_file, and never wins over these.
+        const environment =
           layered?.environment &&
           Object.fromEntries(
-            Object.entries(layered.environment).map(([key, value]) => [
+            Object.keys(layered.environment).map((key) => [
               key,
-              resolved(String(value)),
+              service.environment?.[key],
             ]),
+          );
+        expect({
+          name,
+          build: service.build?.dockerfile,
+          image: service.image !== undefined,
+          profiles: service.profiles,
+          ports: service.ports?.map(
+            (port) => `${port.host_ip}:${port.published}:${port.target}`,
           ),
-      });
-    }
-    // Relative paths still resolve from infra/, as every overlay assumes.
-    expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
-    // LocalStack keeps S3 in memory; a data volume only suggested otherwise
-    // (94S-422).
-    expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
-      "gitea-data",
-      "postgres-data",
-    ]);
-    expect(JSON.stringify(services.localstack?.volumes)).not.toContain(
-      "/var/lib/localstack",
-    );
-  });
+          environment,
+        }).toEqual({
+          name,
+          build: layered?.build?.dockerfile,
+          image: layered?.image !== undefined,
+          profiles: layered?.profiles,
+          ports: layered?.ports as string[] | undefined,
+          environment:
+            layered?.environment &&
+            Object.fromEntries(
+              Object.entries(layered.environment).map(([key, value]) => [
+                key,
+                resolved(String(value)),
+              ]),
+            ),
+        });
+      }
+      // Relative paths still resolve from infra/, as every overlay assumes.
+      expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
+      // LocalStack keeps S3 in memory; a data volume only suggested otherwise
+      // (94S-422).
+      expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
+        "gitea-data",
+        "postgres-data",
+      ]);
+      expect(JSON.stringify(services.localstack?.volumes)).not.toContain(
+        "/var/lib/localstack",
+      );
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
   test.each([
     ["s3", S3_LAYERS, Object.keys(TEST_OPS_REQUIRED)],
@@ -884,67 +889,72 @@ describe("compose layers", () => {
         expect(stderr).toContain(`${variable} must`);
       }
     },
+    COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  test("the test-ops layers on s3 run the core's services only, on the values they were given", () => {
-    const { exitCode, stderr, model } = render(S3_LAYERS, TEST_OPS_REQUIRED);
-    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-    const services = model?.services ?? {};
-    expect(Object.keys(services).sort()).toEqual(Object.keys(core).sort());
-    const expected: Record<string, string> = {
-      migrate: APP_IMAGES.API_IMAGE,
-      api: APP_IMAGES.API_IMAGE,
-      scheduler: APP_IMAGES.API_IMAGE,
-      reconciler: APP_IMAGES.API_IMAGE,
-      "egress-proxy": APP_IMAGES.EGRESS_PROXY_IMAGE,
-      worker: APP_IMAGES.WORKER_IMAGE,
-    };
-    for (const [name, service] of Object.entries(services)) {
-      expect({ name, build: service.build }).toEqual({
-        name,
-        build: undefined,
-      });
-      if (name in expected)
-        expect({ name, image: service.image }).toEqual({
+  test(
+    "the test-ops layers on s3 run the core's services only, on the values they were given",
+    () => {
+      const { exitCode, stderr, model } = render(S3_LAYERS, TEST_OPS_REQUIRED);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      const services = model?.services ?? {};
+      expect(Object.keys(services).sort()).toEqual(Object.keys(core).sort());
+      const expected: Record<string, string> = {
+        migrate: APP_IMAGES.API_IMAGE,
+        api: APP_IMAGES.API_IMAGE,
+        scheduler: APP_IMAGES.API_IMAGE,
+        reconciler: APP_IMAGES.API_IMAGE,
+        "egress-proxy": APP_IMAGES.EGRESS_PROXY_IMAGE,
+        worker: APP_IMAGES.WORKER_IMAGE,
+      };
+      for (const [name, service] of Object.entries(services)) {
+        expect({ name, build: service.build }).toEqual({
           name,
-          image: expected[name],
+          build: undefined,
         });
-      const databaseUrl = service.environment?.DATABASE_URL;
-      if (databaseUrl)
-        expect(databaseUrl).toContain(
-          `:${TEST_OPS_SECRETS.POSTGRES_PASSWORD}@`,
-        );
-    }
-    expect(services.scheduler?.environment?.WORKER_IMAGE).toBe(
-      APP_IMAGES.WORKER_IMAGE,
-    );
-    expect(services.postgres?.environment?.POSTGRES_PASSWORD).toBe(
-      TEST_OPS_SECRETS.POSTGRES_PASSWORD,
-    );
-    for (const name of ["api", "egress-proxy"])
-      expect(services[name]?.environment?.EGRESS_AUTHORIZER_TOKEN).toBe(
-        TEST_OPS_SECRETS.EGRESS_AUTHORIZER_TOKEN,
+        if (name in expected)
+          expect({ name, image: service.image }).toEqual({
+            name,
+            image: expected[name],
+          });
+        const databaseUrl = service.environment?.DATABASE_URL;
+        if (databaseUrl)
+          expect(databaseUrl).toContain(
+            `:${TEST_OPS_SECRETS.POSTGRES_PASSWORD}@`,
+          );
+      }
+      expect(services.scheduler?.environment?.WORKER_IMAGE).toBe(
+        APP_IMAGES.WORKER_IMAGE,
       );
-    // The keys reach the API and nothing else; the core's catalog mount is
-    // replaced, not added to.
-    for (const [name, service] of Object.entries(services))
-      for (const [variable, value] of Object.entries(API_KEYS))
-        expect({
-          name,
-          variable,
-          value: service.environment?.[variable],
-        }).toEqual({
-          name,
-          variable,
-          value: name === "api" ? value : undefined,
-        });
-    expect(
-      services.api?.volumes?.map(
-        (volume) => `${volume.source}:${volume.target}`,
-      ),
-    ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
-    expect(services.api?.environment?.AWS_ENDPOINT_URL).toBeUndefined();
-  });
+      expect(services.postgres?.environment?.POSTGRES_PASSWORD).toBe(
+        TEST_OPS_SECRETS.POSTGRES_PASSWORD,
+      );
+      for (const name of ["api", "egress-proxy"])
+        expect(services[name]?.environment?.EGRESS_AUTHORIZER_TOKEN).toBe(
+          TEST_OPS_SECRETS.EGRESS_AUTHORIZER_TOKEN,
+        );
+      // The keys reach the API and nothing else; the core's catalog mount is
+      // replaced, not added to.
+      for (const [name, service] of Object.entries(services))
+        for (const [variable, value] of Object.entries(API_KEYS))
+          expect({
+            name,
+            variable,
+            value: service.environment?.[variable],
+          }).toEqual({
+            name,
+            variable,
+            value: name === "api" ? value : undefined,
+          });
+      expect(
+        services.api?.volumes?.map(
+          (volume) => `${volume.source}:${volume.target}`,
+        ),
+      ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
+      expect(services.api?.environment?.AWS_ENDPOINT_URL).toBeUndefined();
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
   // 94S-431: the files scripts/local.sh and tests/e2e/run.sh start with
   // --real-model, each rendered with a key in the caller's environment.
@@ -985,50 +995,55 @@ describe("compose layers", () => {
           turn: services[name]?.environment?.MAX_TURN_SECONDS,
         }).toEqual({ name, cost: "1", turn: "600" });
     },
+    COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  test("the test-ops layers on localstack add the local stack's LocalStack and nothing else", () => {
-    const required = Object.fromEntries(
-      Object.entries(TEST_OPS_REQUIRED).filter(
-        ([name]) => !S3_ONLY.includes(name),
-      ),
-    );
-    const { exitCode, stderr, model } = render(LOCALSTACK_LAYERS, required);
-    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-    const services = model?.services ?? {};
-    expect(Object.keys(services).sort()).toEqual(
-      [...Object.keys(core), "localstack"].sort(),
-    );
-    const local = localStack();
-    expect(services.localstack?.image).toBe(local.localstack?.image);
-    expect(
-      services.localstack?.ports?.map(
-        (port) => `${port.host_ip}:${port.published}:${port.target}`,
-      ),
-    ).toEqual(["127.0.0.1:4566:4566"]);
-    expect(services.api?.environment?.AWS_ENDPOINT_URL).toBe(
-      "http://localstack:4566",
-    );
-    // The bucket infra/localstack/init creates.
-    expect(services.api?.environment?.S3_BUCKET).toBe("claude-sessions");
-    for (const name of ["api", "scheduler"])
-      expect(Object.keys(services[name]?.depends_on ?? {})).toContain(
-        "localstack",
+  test(
+    "the test-ops layers on localstack add the local stack's LocalStack and nothing else",
+    () => {
+      const required = Object.fromEntries(
+        Object.entries(TEST_OPS_REQUIRED).filter(
+          ([name]) => !S3_ONLY.includes(name),
+        ),
       );
-    // LocalStack's key signs for the API alone; the provider key too.
-    for (const [name, service] of Object.entries(services)) {
-      if (name === "localstack") continue;
-      for (const variable of [...S3_ONLY.slice(1), "ANTHROPIC_API_KEY"])
-        expect({
-          name,
-          variable,
-          set: service.environment?.[variable] !== undefined,
-        }).toEqual({ name, variable, set: name === "api" });
-    }
-    expect(
-      services.api?.volumes?.map(
-        (volume) => `${volume.source}:${volume.target}`,
-      ),
-    ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
-  });
+      const { exitCode, stderr, model } = render(LOCALSTACK_LAYERS, required);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      const services = model?.services ?? {};
+      expect(Object.keys(services).sort()).toEqual(
+        [...Object.keys(core), "localstack"].sort(),
+      );
+      const local = localStack();
+      expect(services.localstack?.image).toBe(local.localstack?.image);
+      expect(
+        services.localstack?.ports?.map(
+          (port) => `${port.host_ip}:${port.published}:${port.target}`,
+        ),
+      ).toEqual(["127.0.0.1:4566:4566"]);
+      expect(services.api?.environment?.AWS_ENDPOINT_URL).toBe(
+        "http://localstack:4566",
+      );
+      // The bucket infra/localstack/init creates.
+      expect(services.api?.environment?.S3_BUCKET).toBe("claude-sessions");
+      for (const name of ["api", "scheduler"])
+        expect(Object.keys(services[name]?.depends_on ?? {})).toContain(
+          "localstack",
+        );
+      // LocalStack's key signs for the API alone; the provider key too.
+      for (const [name, service] of Object.entries(services)) {
+        if (name === "localstack") continue;
+        for (const variable of [...S3_ONLY.slice(1), "ANTHROPIC_API_KEY"])
+          expect({
+            name,
+            variable,
+            set: service.environment?.[variable] !== undefined,
+          }).toEqual({ name, variable, set: name === "api" });
+      }
+      expect(
+        services.api?.volumes?.map(
+          (volume) => `${volume.source}:${volume.target}`,
+        ),
+      ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 });
