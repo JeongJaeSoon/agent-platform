@@ -7,7 +7,7 @@ const root = join(import.meta.dir, "..");
 // Inline links and images `[text](target)` and reference definitions
 // `[label]: target`. Fenced blocks and code spans are dropped first: a
 // snippet showing Markdown is not a link.
-const INLINE = /!?\[[^\]]*\]\(\s*(<[^>]*>|[^)\s]+)/g;
+const INLINE = /!?\[(?:[^[\]]|\[[^\]]*\])*\]\(\s*(<[^>]*>|[^)\s]+)/g;
 const REFERENCE = /^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/gm;
 
 function relativeTargets(markdown: string): string[] {
@@ -19,7 +19,7 @@ function relativeTargets(markdown: string): string[] {
   );
   return targets
     .filter((target) => !/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(target))
-    .map((target) => decodeURI(target.replace(/[#?].*$/, "")))
+    .map((target) => decodeURIComponent(target.replace(/[#?].*$/, "")))
     .filter((path) => path !== "");
 }
 
@@ -47,7 +47,8 @@ describe("Markdown relative links", () => {
     const page = [
       "[a](docs/a.md) [b](../b.md#part) ![c](img/c%20d.png)",
       "[web](https://x.test/y) [anchor](#here) [mail](mailto:a@x.test)",
-      "[root](/abs/path.md) [angle](<e f.md>)",
+      "[root](/abs/path.md) [angle](<e f.md>) [a [nested] label](n.md)",
+      "[escaped](x%23y.md#frag)",
       "`[code](not-a-link.md)`",
       "```",
       "[fenced](not-a-link-either.md)",
@@ -55,7 +56,15 @@ describe("Markdown relative links", () => {
       "[ref]: ./ref.md",
     ].join("\n");
     expect(relativeTargets(page).sort()).toEqual(
-      ["../b.md", "./ref.md", "docs/a.md", "e f.md", "img/c d.png"].sort(),
+      [
+        "../b.md",
+        "./ref.md",
+        "docs/a.md",
+        "e f.md",
+        "img/c d.png",
+        "n.md",
+        "x#y.md",
+      ].sort(),
     );
   });
 });

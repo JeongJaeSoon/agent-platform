@@ -134,7 +134,7 @@ export function buildSdkOptions(
     },
     cwd: config.cwd,
     env: runtimeEnvironment(config),
-    // The checkpoint quiescence gate (DESIGN §6.3.1). PreToolUse runs for
+    // The checkpoint quiescence gate. PreToolUse runs for
     // every tool before the permission check, auto-allowed ones included, so
     // it is where a checkpoint lease refuses a new writer; the other three
     // are the ways a tool it admitted can end. An allow answers nothing:

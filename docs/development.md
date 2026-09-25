@@ -48,7 +48,7 @@ API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할
 
 ## e2e·gate·soak 진입점
 
-모두 이 checkout에서 이미지를 빌드한다. `quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
+`quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 대부분 이 checkout에서 이미지를 빌드하지만, `rc.sh`는 인자로 받은 RC commit에서 빌드하고 `campaign.sh`는 `stack.sh up`이 빌드한 이미지를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
 
 | 명령 | 확인하는 것 | CI | 더 읽을 곳 |
 |---|---|---|---|

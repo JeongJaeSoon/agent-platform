@@ -110,7 +110,7 @@ export type CheckpointTranscripts = {
  * memory (`WORKER_MEMORY_MB`, 2048 by default), not a storage policy. The
  * worker checks it before publishing, finalize before reading any part, and
  * a restore before fetching any part — all against these same values. A
- * session past it keeps running on its last checkpoint: see DESIGN §6.3.1.
+ * session past it keeps running on its last checkpoint.
  */
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
 export const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;

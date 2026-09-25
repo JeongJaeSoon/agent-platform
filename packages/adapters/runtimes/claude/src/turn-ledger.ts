@@ -27,7 +27,7 @@ import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
  * name, so nothing this run captures is safely resumable, and it refuses to
  * prepare a checkpoint until a fresh run re-mirrors from the local file.
  *
- * A turn boundary is not quiescence (DESIGN §6.3.1). A tool the engine let
+ * A turn boundary is not quiescence. A tool the engine let
  * through the PreToolUse gate is in flight until a hook or its tool_result
  * settles it, a permission callback is a tool about to run, and a background
  * task (a backgrounded Bash, a subagent) keeps writing after the turn's result.

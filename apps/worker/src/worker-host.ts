@@ -676,7 +676,7 @@ export class WorkerHost {
         if (!error.retryable) throw error;
         if (performance.now() >= deadline) {
           // Nothing was waiting for this worker: KEDA-style launchers must see
-          // it leave rather than sit on a slot (DESIGN §6.2).
+          // it leave rather than sit on a slot.
           if (error.code === "NOT_FOUND") return null;
           throw error;
         }
@@ -1663,7 +1663,7 @@ export class WorkerHost {
   }
 
   /**
-   * Takes the checkpoint lease with the verdict (DESIGN §6.3.1), so nothing
+   * Takes the checkpoint lease with the verdict, so nothing
    * writes between the quiescence check and the pointer CAS. A capture that
    * fails or produces nothing to commit gives the lease back at once.
    */

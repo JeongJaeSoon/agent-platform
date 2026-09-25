@@ -62,7 +62,7 @@ describe("workerConfigFromEnv", () => {
     // Unknown grace: the configured budget stands, and nothing is bounded.
     expect(drain(undefined).drainTimeoutMs).toBe(100_000);
     expect(drain(undefined).stopGraceMs).toBeUndefined();
-    // DESIGN's 120 s leaves the whole default drain.
+    // The 120 s default stop grace leaves the whole default drain.
     expect(drain("120").drainTimeoutMs).toBe(100_000);
     expect(drain("60").drainTimeoutMs).toBe(60_000 - SHUTDOWN_RESERVE_MS);
     // LocalDocker's 10 s pays for the shutdown only: no drain at all.

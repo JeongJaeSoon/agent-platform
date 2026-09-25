@@ -73,7 +73,7 @@ export type LocalDockerBackendConfig = {
   requestTimeoutMs: number;
   /**
    * Seconds between SIGTERM and SIGKILL on terminate, handed to the worker as
-   * `WORKER_STOP_GRACE_SEC` so it sizes its drain to fit. DESIGN §6.6's 120.
+   * `WORKER_STOP_GRACE_SEC` so it sizes its drain to fit. 120 by default.
    */
   stopTimeoutSeconds: number;
   tmpfsSizeBytes: number;
