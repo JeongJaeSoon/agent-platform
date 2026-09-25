@@ -107,12 +107,17 @@ esac
 umask 077
 
 # EXIT runs these last registered first: a reopen or a drill teardown before
-# the lock goes.
+# the lock goes. Each in a subshell, so one that dies skips none of the rest,
+# but the command then fails: a backup whose reopen failed left the
+# installation stopped.
 CLEANUPS=()
 on_exit() {
-  local i
-  # Each in a subshell: one that dies must not skip the rest.
-  for ((i = ${#CLEANUPS[@]} - 1; i >= 0; i--)); do (eval "${CLEANUPS[i]}") || true; done
+  local status=$? i failed=0
+  for ((i = ${#CLEANUPS[@]} - 1; i >= 0; i--)); do (eval "${CLEANUPS[i]}") || failed=1; done
+  if [ "$failed" = 1 ] && [ "$status" = 0 ]; then
+    log "a cleanup step failed (above)"
+    exit 1
+  fi
 }
 trap on_exit EXIT
 
@@ -246,6 +251,8 @@ preflight() {
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
   render
+  # Before the bucket is touched with what may be another installation's settings.
+  [ ! -e "$IDENTITY" ] || check_identity
   with_render check-render --catalog-revision "$CATALOG_REVISION" >/dev/null \
     || die "the settings are not a test-ops installation's (above)"
   with_render probe-store || die "the bucket or the API's S3 key failed (above)"
@@ -284,10 +291,28 @@ stop_writers() {
   fi
 }
 
+# stop_writers stops every worker carrying the installation id, so a new
+# installation must not share one with anything already on the daemon.
+in_use_by_others() {
+  local installation found
+  installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
+  found="$(docker ps -aq --filter "label=agent-platform.installation=${installation}" \
+    && docker ps -aq --filter "label=agent-platform.egress-proxy=${installation}")" \
+    || die "docker ps failed; cannot tell whether installation id $installation is in use"
+  [ -z "$found" ] \
+    || die "containers on this daemon already carry installation id $installation; pick another EXECUTION_INSTALLATION_ID"
+}
+
 # What stop_writers stopped, started again as it was: nothing is recreated.
 reopen() {
   log "reopening"
   start_apps --no-recreate
+}
+
+# Back to the release current.json names, after an upgrade stopped short.
+reopen_current() {
+  reopen
+  rm -f "$PENDING"
 }
 
 record_release() {
@@ -311,6 +336,7 @@ deploy() {
     || die "project '$PROJECT' already has containers, volumes or networks while $CURRENT names no release"
   load_manifest "$MANIFEST"
   preflight
+  in_use_by_others
   printf 'project=%s\ninstallation=%s' "$PROJECT" "$(rendered scheduler EXECUTION_INSTALLATION_ID)" > "$IDENTITY"
   start_apps
   record_release "$MANIFEST" deploy
@@ -324,8 +350,8 @@ upgrade() {
   from_worker="$WORKER_IMAGE"
   from_catalog="$CATALOG_REVISION"
   load_manifest "$MANIFEST"
+  [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
   preflight
-  check_identity
   affected="${STATE_DIR}/upgrade-$(date -u +%Y%m%dT%H%M%SZ).sessions"
   gate() {
     bun_script "$HELPER" upgrade-gate "$from_worker" "$WORKER_IMAGE" "$affected" ${APPROVED:+"$APPROVED"}
@@ -338,17 +364,20 @@ upgrade() {
     exit "$EXIT_REFUSED"
   fi
   [ "$status" = 0 ] || die "upgrade gate failed"
+  # From here until the new release is up and recorded, every command but
+  # status and this same upgrade refuses: what runs may be neither release.
+  cp "$MANIFEST" "$PENDING"
   if [ "$WORKER_IMAGE" != "$from_worker" ]; then
     # Again with no writer left: a checkpoint committed meanwhile, or by a
     # worker of the old image still running, is either on the approved list
     # or stops the upgrade.
     stop_writers
-    uncollected_sessions > "$affected" || { reopen; die "could not list the sessions with uncollected checkpoints"; }
+    uncollected_sessions > "$affected" || { reopen_current; die "could not list the sessions with uncollected checkpoints"; }
     status=0
     approved_list="$(gate)" || status=$?
     if [ "$status" != 0 ]; then
       log "upgrade: the affected sessions changed while writers stopped; reopening the current release"
-      reopen
+      reopen_current
       exit "$EXIT_REFUSED"
     fi
   fi
@@ -361,9 +390,6 @@ upgrade() {
       > "${STATE_DIR}/approvals/$(date -u +%Y%m%dT%H%M%SZ)-upgrade.json"
     log "upgrade: $(printf '%s\n' "$approved_list" | grep -c .) session(s) approved to become INCOMPATIBLE_CHECKPOINT; recorded in ${STATE_DIR}/approvals"
   fi
-  # Until the new release is up and recorded, every command but status and
-  # this same upgrade refuses: current.json no longer says what runs.
-  cp "$MANIFEST" "$PENDING"
   start_apps
   # The API reads the catalog once at startup; a bind mount's new contents
   # recreate nothing on their own.
@@ -431,7 +457,8 @@ restore_drill() {
   # compose looks for first, is what this installation migrates with.
   MIGRATE_IMAGE="${DRILL}-migrate"
   docker tag "$API_IMAGE" "$MIGRATE_IMAGE"
-  CLEANUPS+=('docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1')
+  # With --keep the drill's containers still use it; the tag then stays.
+  CLEANUPS+=('docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1 || true')
   [ "$KEEP" = 1 ] \
     || CLEANUPS+=('docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/docker-compose.yml" down -v >/dev/null 2>&1')
   log "restore-drill: $BACKUP_DIR into project $DRILL and bucket $DRILL_BUCKET; log $log_file"

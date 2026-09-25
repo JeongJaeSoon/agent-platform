@@ -94,7 +94,7 @@ sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/te
 
 | 변수 | 값 |
 |---|---|
-| `EXECUTION_INSTALLATION_ID` | `test-ops`. scheduler가 띄운 worker 컨테이너와 egress proxy의 label이다. `local`(로컬 스택)이면 거부하고, 배포한 뒤에는 바꿀 수 없다 |
+| `EXECUTION_INSTALLATION_ID` | `test-ops`. scheduler가 띄운 worker 컨테이너와 egress proxy의 label이다. `local`(로컬 스택)이거나 이 daemon의 컨테이너가 이미 같은 값을 달고 있으면 `deploy`가 거부하고, 배포한 뒤에는 바꿀 수 없다 |
 | `POSTGRES_PASSWORD` | 무작위 값. `DATABASE_URL`에 escape 없이 들어가므로 영문·숫자·`.` `_` `~` `-`만 쓴다. `preflight`가 다른 문자를 거부한다 |
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값. API와 egress proxy가 같은 값을 쓴다 |
 | `AWS_REGION` | `ap-northeast-1` |
@@ -116,7 +116,7 @@ sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/te
 | `TEST_OPS_STATE_DIR` | `/var/lib/agent-platform/test-ops`. 배포한 manifest(`current.json`), 이력(`history.log`), 업그레이드 승인, 백업, 복원 훈련 기록 |
 | `TEST_OPS_PROJECT` | `agent-platform-test-ops`. 로컬 스택의 `agent-platform`이면 거부한다 |
 
-`deploy`는 project 이름과 `EXECUTION_INSTALLATION_ID`를 상태 디렉터리의 `installation` 파일에 적는다. 그 뒤의 명령은 둘 중 하나라도 다르면 거부한다. 백업과 업그레이드가 멈추는 worker를 이 label로 찾기 때문이다. `deploy`·`upgrade`·`backup`·`restore-drill`은 상태 디렉터리의 `lock`을 잡고 한 번에 하나만 돈다. 강제 종료된 실행이 lock을 남기면 그 pid가 없는 것을 확인하고 디렉터리를 지운다.
+`deploy`는 project 이름과 `EXECUTION_INSTALLATION_ID`를 상태 디렉터리의 `installation` 파일에 적는다. 그 뒤의 명령은 둘 중 하나라도 다르면 거부한다. `preflight`는 bucket을 건드리기 전에 이것부터 확인한다. 백업과 업그레이드가 멈추는 worker를 이 label로 찾기 때문이다. `deploy`·`upgrade`·`backup`·`restore-drill`은 상태 디렉터리의 `lock`을 잡고 한 번에 하나만 돈다. 강제 종료된 실행이 lock을 남기면 그 pid가 없는 것을 확인하고 디렉터리를 지운다.
 
 ## 카탈로그
 
@@ -255,7 +255,7 @@ scripts/test-ops.sh upgrade release-new.json
 - 영향받는 세션이 없으면 승인 없이 진행한다. worker 이미지가 같으면 writer도 멈추지 않고, 설정이나 이미지가 바뀐 컨테이너만 새로 만든다.
 - 카탈로그 revision이 바뀌면 API를 다시 만든다. API는 카탈로그를 기동할 때 한 번만 읽는다.
 - 끝나면 `current.json`을 새 manifest로 바꾸고 `history.log`에 한 줄 남긴다.
-- 새 release가 뜨기 전에 실패하면(예: scheduler quota probe 실패) 설치가 멈춘 채로 남을 수 있다. 그 manifest는 `pending.json`에 남고, 원인을 고친 뒤 같은 manifest로 `upgrade`를 다시 부를 때까지 `status` 말고 다른 명령은 모두 거부한다.
+- 게이트를 통과한 순간(writer를 멈추기 전) 새 manifest를 `pending.json`에 적는다. 새 release가 뜨기 전에 실패하면(예: scheduler quota probe 실패) 설치가 멈춘 채로 남을 수 있고, 그때 `pending.json`이 남아 원인을 고친 뒤 같은 manifest로 `upgrade`를 다시 부를 때까지 `status` 말고 다른 명령은 모두 거부한다.
 
 되돌리기는 이전 manifest로 `upgrade`하는 것이다. worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다. 업그레이드 전에는 백업을 한 번 찍는다.
 
@@ -267,7 +267,7 @@ scripts/test-ops.sh backup
 
 1. 신규 접수를 멈춘다: api, scheduler, reconciler를 멈추고, scheduler가 띄운 worker 컨테이너(`agent-platform.installation=<id>` label)도 멈춘다. 진행 중이던 턴은 끊기고, 다시 열린 뒤 reconciler가 lease 만료로 회수한다.
 2. `scripts/backup.sh --object-store env`로 DB·checkpoint object·Gitea를 `$TEST_OPS_STATE_DIR/backups/backup-<시각>`에 묶는다. backup.sh가 writer가 남았는지 스스로 다시 보고, 남았으면 거부한다. 실패한 백업은 `.failed`로 남고 성공본 이름을 얻지 못한다.
-3. 성공하든 실패하든 멈춘 서비스를 그대로(재생성 없이) 다시 연다.
+3. 성공하든 실패하든 멈춘 서비스를 그대로(재생성 없이) 다시 연다. 다시 열지 못하면 백업이 성공했어도 명령은 실패로 끝난다. `status`로 확인하고 원인을 고친 뒤, `current.json`의 사본으로 `upgrade`를 부르면 같은 release로 다시 뜬다.
 
 주기: 매일 한 번, 사용이 적은 시간에. 그리고 업그레이드 직전. 백업 디렉터리에는 Gitea 설정의 비밀과 DB 전체가 들어 있다. `0700`으로 두고, 호스트 밖 보관소에 암호화해 복사한다. checkpoint GC는 백업과 겹치면 안 된다. 백업 중에는 API가 멈춰 있으므로 GC를 부를 수 없다.
 
