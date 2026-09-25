@@ -162,13 +162,14 @@ export SOAK_PRODUCT_BUN_LOCK
 if [ "$stage" != soak ]; then
   # mkdir is the lock, as for the soak below.
   mkdir "$out/interrupt" 2>/dev/null || die "${out}/interrupt exists: an interrupt campaign already started there"
+  # Failed until proven otherwise: whatever stops the campaign from here on
+  # leaves `soak` resumable with SOAK_RC_OVERRIDE.
+  echo fail >"$out/interrupt.status"
   stamp "interrupt campaign"
   scripts/soak/stack.sh reset || die "stack reset failed"
   source "$state/vars.sh"
   bun scripts/soak/soak.ts scripts/soak/config/interrupt-3h.json "$out/interrupt"
   judged=$?
-  # Failed until proven otherwise, so a crash below still leaves `soak` resumable with an override.
-  echo fail >"$out/interrupt.status"
   failed="$(jq -r '[.[] | select(.status == "fail") | .id] | join(",")' "$out/interrupt/criteria.json")" ||
     die "no criteria in ${out}/interrupt"
   p3="$(jq -r '.[] | select(.id == "P-3") | .status' "$out/interrupt/criteria.json")"
