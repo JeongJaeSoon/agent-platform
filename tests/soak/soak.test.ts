@@ -10,11 +10,19 @@ import {
   specIds,
   validFaults,
 } from "../../scripts/soak/messages.ts";
-import { Api, modelEvidence, turnPrompt } from "../../scripts/soak/probes.ts";
 import {
+  Api,
+  type ControlSample,
+  modelEvidence,
+  turnPrompt,
+} from "../../scripts/soak/probes.ts";
+import {
+  INTERRUPT_EXCLUSION,
+  judgeInterrupts,
   judgeReadyz,
   READYZ_EXCLUSION,
   type ReadyzSample,
+  type TurnRecord,
   type VmStall,
   validConfig,
 } from "../../scripts/soak/soak.ts";
@@ -412,6 +420,168 @@ describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
   });
 });
 
+describe("P-3 host exclusions (94S-444)", () => {
+  const T0 = Date.parse("2026-09-25T13:00:00.000Z");
+  const targets = { interruptEffectMs: 5000, interruptTerminalMs: 50_000 };
+  const sentAt = (i: number) => T0 + i * 60_000;
+  // RC4 13:52: accepted after 3.6s, engine_stopped at 7.6s, settled at 18s.
+  const interrupt = (i: number, effectMs = 1500): ControlSample => ({
+    op: "interrupt",
+    sessionId: `session-${i}`,
+    turnId: "8",
+    acceptStatus: 202,
+    acceptedMs: 50,
+    effectMs,
+    effect: "interrupted",
+    receiptId: `receipt-${i}`,
+    receiptMs: 18_058,
+    receiptStatus: "succeeded",
+    extra: {
+      sentAt: new Date(sentAt(i)).toISOString(),
+      terminalMs: 18_055,
+      continuedAfterInterrupt: 0,
+      receiptResult: { no_op: false },
+      valid: true,
+    },
+  });
+  const samples = (count: number, replace: Record<number, ControlSample>) =>
+    Array.from({ length: count }, (_, i) => replace[i] ?? interrupt(i));
+  const turnsOf = (list: ControlSample[]): TurnRecord[] =>
+    list.flatMap((sample, i) => [
+      {
+        sessionId: sample.sessionId,
+        turnId: "8",
+        sentAt: sentAt(i) - 3000,
+        acceptStatus: 202,
+        status: "interrupted",
+        contextKept: true,
+      },
+      {
+        sessionId: sample.sessionId,
+        turnId: "9",
+        sentAt: sentAt(i) + 40_000,
+        acceptStatus: 202,
+        status: "completed",
+        contextKept: true,
+      },
+    ]) as TurnRecord[];
+  // A stall that ended `endedBeforeMs` before interrupt i was sent.
+  const stallBefore = (i: number, endedBeforeMs: number, gapMs = 1600) => ({
+    index: 0,
+    bootId: "b",
+    from: sentAt(i) - endedBeforeMs - gapMs,
+    to: sentAt(i) - endedBeforeMs,
+    gapMs,
+    offsetMs: 0,
+    offsetErrorMs: 5,
+  });
+  const judge = (
+    list: ControlSample[],
+    stalls: VmStall[],
+    turns = turnsOf(list),
+  ) => judgeInterrupts(list, turns, stalls, targets);
+
+  test("a late interrupt within 20s after a stall is excluded; P-3 passes on the rest", () => {
+    const list = samples(200, { 10: interrupt(10, 7637) });
+    const result = judge(list, [stallBefore(10, 16_000)]);
+    expect(result).toMatchObject({
+      pass: true,
+      samples: 200,
+      judged: 199,
+      hostExcluded: 1,
+      hostExcludedRatio: 0.005,
+      late: [],
+    });
+    expect(result.hostExcludedSamples).toEqual([
+      {
+        sessionId: "session-10",
+        turnId: "8",
+        sentAt: new Date(sentAt(10)).toISOString(),
+        effectMs: 7637,
+        terminalMs: 18_055,
+        stall: new Date(sentAt(10) - 17_600).toISOString().concat(" +1600ms"),
+        nextTurn: "9 completed",
+        broken: [],
+      },
+    ]);
+    // An interrupt on time inside the window is judged, not excluded.
+    expect(judge(samples(200, {}), [stallBefore(10, 16_000)])).toMatchObject({
+      pass: true,
+      hostExcluded: 0,
+      judged: 200,
+    });
+  });
+
+  test("a late interrupt outside every window stays a P-3 failure", () => {
+    for (const stalls of [
+      [],
+      // Its 20s tail, narrowed by the clock error, ended before the POST.
+      [stallBefore(10, INTERRUPT_EXCLUSION.afterStallMs - 5)],
+      // Began after engine_stopped was read.
+      [stallBefore(10, -10_000)],
+      // Shorter than a stall anything is excused for.
+      [stallBefore(10, 1000, READYZ_EXCLUSION.stallMinMs - 1)],
+    ]) {
+      expect(
+        judge(samples(200, { 10: interrupt(10, 7637) }), stalls),
+      ).toMatchObject({
+        pass: false,
+        hostExcluded: 0,
+        late: [{ sessionId: "session-10", turnId: "8", effectMs: 7637 }],
+      });
+    }
+    // A sample from before the probe recorded when its POST went out.
+    const unplaced = interrupt(10, 7637);
+    unplaced.extra = { ...unplaced.extra, sentAt: undefined };
+    expect(
+      judge(samples(200, { 10: unplaced }), [stallBefore(10, 16_000)]),
+    ).toMatchObject({ pass: false, hostExcluded: 0 });
+  });
+
+  test("an excluded interrupt still has to settle, be receipted and let its session go on", () => {
+    const stalls = [stallBefore(10, 16_000)];
+    const settledLate = interrupt(10, 7637);
+    settledLate.extra = { ...settledLate.extra, terminalMs: 50_001 };
+    const unreceipted = { ...interrupt(10, 7637), receiptStatus: null };
+    const cases: Array<[ControlSample, string, TurnRecord[]?]> = [
+      [settledLate, "terminal late"],
+      [unreceipted, "receipt null"],
+      [{ ...interrupt(10, 7637), effect: "failed" }, "effect failed"],
+    ];
+    const list = samples(200, { 10: interrupt(10, 7637) });
+    const stuck = turnsOf(list).map((turn) =>
+      turn.sessionId === "session-10" && turn.turnId === "9"
+        ? { ...turn, status: "timeout" }
+        : turn,
+    );
+    cases.push([interrupt(10, 7637), "next turn not completed", stuck]);
+    const ended = turnsOf(list).filter(
+      (turn) => !(turn.sessionId === "session-10" && turn.turnId === "9"),
+    );
+    cases.push([interrupt(10, 7637), "next turn not completed", ended]);
+    for (const [sample, reason, turns] of cases) {
+      const result = judge(samples(200, { 10: sample }), stalls, turns);
+      expect(result.pass).toBe(false);
+      expect(result.hostExcludedSamples[0]?.broken).toContain(reason);
+    }
+  });
+
+  test("host exclusions past 1% of the interrupts fail P-3", () => {
+    const late = { 10: interrupt(10, 7637), 70: interrupt(70, 6000) };
+    const list = samples(200, { ...late, 130: interrupt(130, 5100) });
+    const stalls = [10, 70, 130].map((i) => stallBefore(i, 10_000));
+    expect(judge(list, stalls)).toMatchObject({
+      pass: false,
+      hostExcluded: 3,
+      hostExcludedRatio: 0.015,
+      late: [],
+    });
+    // Exactly 1% is still within the cap.
+    expect(
+      judge(samples(100, { 10: interrupt(10, 7637) }), stalls.slice(0, 1)),
+    ).toMatchObject({ pass: true, hostExcluded: 1, hostExcludedRatio: 0.01 });
+  });
+});
 describe("Api.statusPhase (94S-382)", () => {
   test("reads the turn's phase off the stream, resumes from the last id, and waits out the stream limit", async () => {
     const seen: Array<string | null> = [];
