@@ -632,7 +632,27 @@ describe("compose layers", () => {
     POSTGRES_PASSWORD: "test-ops-postgres-placeholder",
     EGRESS_AUTHORIZER_TOKEN: "test-ops-authorizer-placeholder",
   };
-  const TEST_OPS_REQUIRED = { ...APP_IMAGES, ...TEST_OPS_SECRETS };
+  // The rest of what the env file must give (94S-432): the API alone holds
+  // the S3 key and the provider key.
+  const API_KEYS = {
+    AWS_ACCESS_KEY_ID: "test-ops-s3-key-id",
+    AWS_SECRET_ACCESS_KEY: "test-ops-s3-key",
+    ANTHROPIC_API_KEY: "test-ops-provider-key",
+  };
+  const TEST_OPS_SETTINGS = {
+    ...API_KEYS,
+    S3_BUCKET: "test-ops-bucket",
+    PLATFORM_CATALOG_DIR: "/etc/agent-platform/catalog",
+    EXECUTION_WORKSPACE_QUOTA: "on",
+    EGRESS_CREDENTIAL_ALLOWLIST:
+      "api.anthropic.com:443,test-ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
+    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
+  };
+  const TEST_OPS_REQUIRED = {
+    ...APP_IMAGES,
+    ...TEST_OPS_SECRETS,
+    ...TEST_OPS_SETTINGS,
+  };
 
   // What a layer may set on a service the core defines. Everything else —
   // users, capabilities, read-only roots, memory limits, mounts, ports,
@@ -650,8 +670,14 @@ describe("compose layers", () => {
     ],
     [
       TEST_OPS_LAYERS[1],
-      ["image", "environment"],
-      ["WORKER_IMAGE", ...Object.keys(TEST_OPS_SECRETS)],
+      ["image", "environment", "volumes"],
+      [
+        "WORKER_IMAGE",
+        ...Object.keys(TEST_OPS_SECRETS),
+        ...Object.keys(TEST_OPS_SETTINGS).filter(
+          (name) => name !== "PLATFORM_CATALOG_DIR",
+        ),
+      ],
     ],
     [
       REAL_MODEL,
@@ -711,6 +737,18 @@ describe("compose layers", () => {
             new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
           ),
         });
+      // The one mount a layer may set: the API's catalog, read-only.
+      expect({ name, volumes: service.volumes }).toEqual({
+        name,
+        volumes:
+          name === "api"
+            ? [
+                expect.stringMatching(
+                  /^\$\{PLATFORM_CATALOG_DIR:\?[^}]+\}:\/app\/config:ro$/,
+                ),
+              ]
+            : undefined,
+      });
     }
   });
 
@@ -854,6 +892,25 @@ describe("compose layers", () => {
       expect(services[name]?.environment?.EGRESS_AUTHORIZER_TOKEN).toBe(
         TEST_OPS_SECRETS.EGRESS_AUTHORIZER_TOKEN,
       );
+    // The keys reach the API and nothing else; the core's catalog mount is
+    // replaced, not added to.
+    for (const [name, service] of Object.entries(services))
+      for (const [variable, value] of Object.entries(API_KEYS))
+        expect({
+          name,
+          variable,
+          value: service.environment?.[variable],
+        }).toEqual({
+          name,
+          variable,
+          value: name === "api" ? value : undefined,
+        });
+    expect(
+      services.api?.volumes?.map(
+        (volume) => `${volume.source}:${volume.target}`,
+      ),
+    ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
+    expect(services.api?.environment?.AWS_ENDPOINT_URL).toBeUndefined();
   });
 
   // 94S-431: the files scripts/local.sh and tests/e2e/run.sh start with
