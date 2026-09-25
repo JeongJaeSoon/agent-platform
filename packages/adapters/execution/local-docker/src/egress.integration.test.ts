@@ -42,7 +42,7 @@ import { DockerClient } from "./docker-client.ts";
 const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
-const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.10";
+const PROXY_IMAGE = process.env.EGRESS_PROXY_TEST_IMAGE ?? "oven/bun:1.3.14";
 /**
  * A real TLS client for the tunnel: curl on OpenSSL, which sends a plain
  * ClientHello. Bun's own fetch is BoringSSL and sends GREASE ECH, which the

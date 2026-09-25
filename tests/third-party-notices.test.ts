@@ -26,7 +26,7 @@ import {
 } from "../scripts/third-party-notices.ts";
 
 const root = join(import.meta.dir, "..");
-const base = { bun: "1.3.10", digest: `sha256:${"0".repeat(64)}` };
+const base = { bun: "1.3.14", digest: `sha256:${"0".repeat(64)}` };
 
 // Shaped like bun.lock: workspaces by path, packages by hoisting key.
 const lock: Lockfile = {
@@ -262,12 +262,12 @@ describe("license policy", () => {
       ],
       base,
     );
-    const build = BUN_BUILDS["1.3.10"];
-    expect(text).toContain(`oven/bun:1.3.10@${base.digest}`);
+    const build = BUN_BUILDS["1.3.14"];
+    expect(text).toContain(`oven/bun:1.3.14@${base.digest}`);
     expect(text).toContain(`commit \`${build?.revision}\``);
     expect(text).toContain(`oven-sh/WebKit/tree/${build?.webkit}`);
     expect(text).toContain(`oven-sh/tinycc/tree/${build?.tinycc}`);
-    expect(text).toContain("oven-sh/bun/tree/bun-v1.3.10");
+    expect(text).toContain("oven-sh/bun/tree/bun-v1.3.14");
     expect(text).toContain(
       `Bun ${CLAUDE_CODE_BUN["0.3.270"]} 런타임을 내장한다`,
     );
@@ -356,9 +356,9 @@ describe("base image pins", () => {
     const pinned = baseImageOf(
       readFileSync(join(root, "apps/worker/Dockerfile"), "utf8"),
     );
-    expect(pinned.bun).toBe("1.3.10");
+    expect(pinned.bun).toBe("1.3.14");
     expect(pinned.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(() => baseImageOf("FROM oven/bun:1.3.10")).toThrow();
+    expect(() => baseImageOf("FROM oven/bun:1.3.14")).toThrow();
   });
 
   test("the Bun running this test is a pinned build", () => {

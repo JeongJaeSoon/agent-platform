@@ -49,7 +49,7 @@ const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const enabled = process.env.DOCKER_BACKEND_TEST === "1" && databaseUrl;
 const integration = enabled ? describe : describe.skip;
 
-const WORKER_IMAGE = process.env.BUN_TEST_IMAGE ?? "oven/bun:1.3.10";
+const WORKER_IMAGE = process.env.BUN_TEST_IMAGE ?? "oven/bun:1.3.14";
 const SHELL_IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const PROXY_SOURCE = resolve(import.meta.dir, "..", "apps/egress-proxy");
 const PROFILE_ID = "claude-coding-v1";

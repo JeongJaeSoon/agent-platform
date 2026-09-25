@@ -34,7 +34,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | curl, jq, uuidgen | 아무 버전 | 3장의 수동 확인 |
 | lsof | 아무 버전 | 0장의 포트 점검. 없으면 점검 블록이 아무것도 출력하지 않는다(`local.sh up`이 다시 확인한다) |
 | git | 아무 버전 | clone |
-| Bun | 1.3.10 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
+| Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
 
 로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(LocalStack S3), **4567**(LocalStack Secrets Manager), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
 

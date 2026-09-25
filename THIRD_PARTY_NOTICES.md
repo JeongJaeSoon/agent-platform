@@ -6,16 +6,16 @@
 
 ## 베이스 이미지와 OS 패키지
 
-세 이미지 모두 `oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e`(Dockerfile의 `BUN_IMAGE`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다. 빌드할 때 `apt-get upgrade`로 Debian 보안 수정을 올리므로 이미지의 Debian 패키지 버전은 베이스 digest의 것보다 새로울 수 있다.
+세 이미지 모두 `oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4`(Dockerfile의 `BUN_IMAGE`) 위에 만든다. 이 베이스는 Debian 13(trixie) slim이다. 빌드할 때 `apt-get upgrade`로 Debian 보안 수정을 올리므로 이미지의 Debian 패키지 버전은 베이스 digest의 것보다 새로울 수 있다.
 
-### Bun 1.3.10 (`/usr/local/bin/bun`)
+### Bun 1.3.14 (`/usr/local/bin/bun`)
 
-- **라이선스.** Bun 자체는 MIT다. 함께 링크된 라이브러리와 각각의 라이선스는 https://github.com/oven-sh/bun/blob/bun-v1.3.10/LICENSE.md 에 있다. 이미지에는 Oven이 배포한 실행 파일이 수정 없이 들어 있다.
-- **빌드.** oven-sh/bun commit `30e609e08073cf7114bfb278506962a5b19d0677`(`bun --revision`)이다. images.yml이 빌드한 이미지(linux/amd64)마다 이 값을 확인한다.
+- **라이선스.** Bun 자체는 MIT다. 함께 링크된 라이브러리와 각각의 라이선스는 https://github.com/oven-sh/bun/blob/bun-v1.3.14/LICENSE.md 에 있다. 이미지에는 Oven이 배포한 실행 파일이 수정 없이 들어 있다.
+- **빌드.** oven-sh/bun commit `0d9b296af33f2b851fcbf4df3e9ec89751734ba4`(`bun --revision`)이다. images.yml이 빌드한 이미지(linux/amd64)마다 이 값을 확인한다.
 - **LGPL-2.1 구성요소.** Bun은 아래 라이브러리를 정적으로 링크한다. LGPL-2.1 전문은 이미지 안 `/usr/share/common-licenses/LGPL-2.1`에 있다.
-  - JavaScriptCore·WebCore(WebKit): https://github.com/oven-sh/WebKit/tree/4a6a32c32c11ffb9f5a94c310b10f50130bfe6de
+  - JavaScriptCore·WebCore(WebKit): https://github.com/oven-sh/WebKit/tree/5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b
   - TinyCC: https://github.com/oven-sh/tinycc/tree/12882eee073cfe5c7621bcfadf679e1372d4537b
-- **대응 소스와 재링크.** 이 실행 파일 전체의 소스는 https://github.com/oven-sh/bun/tree/bun-v1.3.10 이다. 위 라이브러리를 고쳐 Bun을 다시 링크하는 절차는 https://github.com/oven-sh/bun/blob/bun-v1.3.10/CONTRIBUTING.md 의 "Building WebKit locally"다. WebKit을 위 commit으로 받아 `bun run build:local`로 빌드한다. LICENSE.md에 적힌 `make jsc`·`zig build`는 옛 절차다.
+- **대응 소스와 재링크.** 이 실행 파일 전체의 소스는 https://github.com/oven-sh/bun/tree/bun-v1.3.14 이다. 위 라이브러리를 고쳐 Bun을 다시 링크하는 절차는 https://github.com/oven-sh/bun/blob/bun-v1.3.14/CONTRIBUTING.md 의 "Building WebKit locally"다. WebKit을 위 commit으로 받아 `bun run build:local`로 빌드한다. LICENSE.md에 적힌 `make jsc`·`zig build`는 옛 절차다.
 
 ### Debian 패키지와 대응 소스
 
@@ -119,7 +119,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | aria-hidden | 1.2.6 | MIT | worker |
 | body-parser | 2.3.0 | MIT | worker |
 | bowser | 2.14.1 | MIT | control-host, worker |
-| bun-types | 1.3.10 | MIT | control-host, worker |
+| bun-types | 1.3.14 | MIT | control-host, worker |
 | bytes | 3.1.2 | MIT | worker |
 | call-bind-apply-helpers | 1.0.2 | MIT | worker |
 | call-bound | 1.0.4 | MIT | worker |
@@ -252,7 +252,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 - `@aws-sdk/credential-provider-login@3.972.79` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
 - `@aws-sdk/nested-clients@3.997.45` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
 - `@aws-sdk/nested-clients@3.997.46` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
-- `bun-types@1.3.10` (MIT): 저작자 표기 없음, https://github.com/oven-sh/bun
+- `bun-types@1.3.14` (MIT): 저작자 표기 없음, https://github.com/oven-sh/bun
 - `drizzle-orm@0.45.2` (Apache-2.0): Drizzle Team, https://github.com/drizzle-team/drizzle-orm.git
 - `pg-types@2.2.0` (MIT): Brian M. Carlson, git://github.com/brianc/node-pg-types.git
 - `pgpass@1.0.5` (MIT): Hannes Hörl, https://github.com/hoegaarden/pgpass.git

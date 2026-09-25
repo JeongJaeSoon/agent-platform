@@ -313,7 +313,7 @@ docker network ls --filter label=agent-platform.worker-network=true \
   --format '{{.Name}} {{.Labels}}'
 ```
 
-실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). egress suite는 backend가 띄운 worker 셋(설치 둘)으로 worker 사이 차단과 proxy 재부착·orphan 네트워크 회수를 보고, internal 네트워크·바깥 네트워크·upstream 두 개·host `openssl`로 만든 인증서를 쓰는 TLS upstream·그 인증서로 LocalStack 앞에 세운 TLS front(https S3 endpoint)·`oven/bun:1.3.10`으로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`·`curlimages/curl`로 확인하며 인터넷을 쓰지 않는다(이미지 pull 제외). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
+실제 Docker daemon 대상 테스트는 `DOCKER_BACKEND_TEST=1`로 opt-in한다(`busybox:1.36`을 sleep으로 띄움). egress suite는 backend가 띄운 worker 셋(설치 둘)으로 worker 사이 차단과 proxy 재부착·orphan 네트워크 회수를 보고, internal 네트워크·바깥 네트워크·upstream 두 개·host `openssl`로 만든 인증서를 쓰는 TLS upstream·그 인증서로 LocalStack 앞에 세운 TLS front(https S3 endpoint)·`oven/bun:1.3.14`로 띄운 proxy를 직접 만들어 컨테이너 안에서 `wget`·`nc`·`curlimages/curl`로 확인하며 인터넷을 쓰지 않는다(이미지 pull 제외). scheduler의 15 세션 → 컨테이너 ≤ 10 검증은 `QUEUE_DATABASE_URL`까지 있어야 실행된다.
 
 ```bash
 DOCKER_BACKEND_TEST=1 bun run --cwd packages/adapters/execution/local-docker test:docker
@@ -480,9 +480,9 @@ worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 �
 
 ## 이미지와 Compose `apps` profile
 
-앱 이미지는 `apps/{control-host,worker,egress-proxy}/Dockerfile` 셋이 정의한다(94S-117). 셋 다 저장소 루트를 context로 `oven/bun:1.3.10`의 multi-arch index digest 하나를 base로 pin한다(`tests/images.test.ts`가 digest 일치를 검사). control-host 이미지 하나가 api·scheduler·reconciler 세 role을 모두 돌린다 — compose에서는 `api`만 빌드하고 scheduler·reconciler는 같은 `API_IMAGE`를 쓴다. 같은 태그를 두 서비스가 함께 빌드하면 export가 경합하기 때문이다. control-host·worker는 `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사하고, egress-proxy는 `bun install` 없이 자기 소스만 담은 한 stage다(94S-323).
+앱 이미지는 `apps/{control-host,worker,egress-proxy}/Dockerfile` 셋이 정의한다(94S-117). 셋 다 저장소 루트를 context로 `oven/bun:1.3.14`의 multi-arch index digest 하나를 base로 pin한다(`tests/images.test.ts`가 digest 일치를 검사). control-host 이미지 하나가 api·scheduler·reconciler 세 role을 모두 돌린다 — compose에서는 `api`만 빌드하고 scheduler·reconciler는 같은 `API_IMAGE`를 쓴다. 같은 태그를 두 서비스가 함께 빌드하면 export가 경합하기 때문이다. control-host·worker는 `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사하고, egress-proxy는 `bun install` 없이 자기 소스만 담은 한 stage다(94S-323).
 
-digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-24 기준 `oven/bun:1.3.10`의 마지막 빌드는 2026-02-26이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다(94S-363). Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
+digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-25 기준 `oven/bun:1.3.14`의 마지막 빌드는 2026-05-13이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다(94S-363). Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
 
 ### worker 안에서 만든 commit의 작성자 (94S-423)
 
@@ -515,7 +515,7 @@ system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에�
 2. **Bun의 LGPL-2.1 정적 링크(JavaScriptCore·WebCore·TinyCC)를 Oven이 공개한 소스와 빌드 절차로 충족하는가.** (지금: Bun commit, WebKit·TinyCC commit, 재링크 절차 링크, 이미지 안의 LGPL-2.1 전문을 적는다.)
    - 근거는 LGPL-2.1 §6이다. 재링크할 수 있는 형태를 주거나, (c) 3년 이상 유효한 서면 제공 약속을 붙이거나, (d) 같은 곳에서 받을 수 있게 해야 한다. https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html#SEC6
    - Bun은 전체가 공개 소스(MIT)라서 누구나 다시 빌드할 수 있다. 그래도 소스는 우리 서버가 아니라 GitHub(oven-sh)에 있다. 이 점은 질문 1과 같은 쟁점이다.
-   - Bun의 LICENSE.md가 적은 재링크 절차(`make jsc`, `zig build`)는 낡았다. 고지에는 CONTRIBUTING.md의 "Building WebKit locally"를 적었다. https://github.com/oven-sh/bun/blob/bun-v1.3.10/LICENSE.md
+   - Bun의 LICENSE.md가 적은 재링크 절차(`make jsc`, `zig build`)는 낡았다. 고지에는 CONTRIBUTING.md의 "Building WebKit locally"를 적었다. https://github.com/oven-sh/bun/blob/bun-v1.3.14/LICENSE.md
 3. **번들 Claude Code 실행 파일 안의 Bun 1.4.3 런타임(JavaScriptCore, LGPL-2.1)에 대해 재배포자인 우리에게 의무가 있는가.** (지금: 내장 사실과 버전만 적는다.)
    - 이 실행 파일은 독점 소프트웨어라 우리는 재링크 수단을 줄 수 없다.
    - Bun 1.4.3은 2026-09-24 현재 oven-sh/bun에 공개 tag가 없다. 그래서 대응 WebKit commit도 우리가 특정할 수 없다. 확인은 Anthropic에 해야 한다. https://github.com/oven-sh/bun/releases

@@ -111,18 +111,18 @@ export const REVIEWED: Record<string, { license: string; reason: string }> = {
 /**
  * The Bun build the notices describe, per Bun version the Dockerfiles pin,
  * read from the oven-sh/bun tag: the commit `Bun.revision` reports, and the
- * LGPL-2.1 libraries it links statically, WebKit (WEBKIT_VERSION in
- * cmake/tools/SetupWebKit.cmake) and TinyCC (COMMIT in
- * cmake/targets/BuildTinyCC.cmake). A Bun bump fails until its entry is
- * added, so the source the notices point to is always the source shipped.
+ * LGPL-2.1 libraries it links statically, WebKit (WEBKIT_VERSION) and TinyCC
+ * (TINYCC_COMMIT), both in scripts/build/deps/ since 1.3.14 (cmake/ before).
+ * A Bun bump fails until its entry is added, so the source the notices point
+ * to is always the source shipped.
  */
 export const BUN_BUILDS: Record<
   string,
   { revision: string; webkit: string; tinycc: string }
 > = {
-  "1.3.10": {
-    revision: "30e609e08073cf7114bfb278506962a5b19d0677",
-    webkit: "4a6a32c32c11ffb9f5a94c310b10f50130bfe6de",
+  "1.3.14": {
+    revision: "0d9b296af33f2b851fcbf4df3e9ec89751734ba4",
+    webkit: "5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b",
     tinycc: "12882eee073cfe5c7621bcfadf679e1372d4537b",
   },
 };

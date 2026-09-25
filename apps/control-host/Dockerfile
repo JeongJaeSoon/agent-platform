@@ -6,9 +6,9 @@
 # for that (compose `user:`); the image default stays uid 1000. Built from
 # the repository root (`docker build -f apps/control-host/Dockerfile .`).
 #
-# Base pinned by the multi-arch index digest of oven/bun:1.3.10; see
+# Base pinned by the multi-arch index digest of oven/bun:1.3.14; see
 # apps/worker/Dockerfile for why and tests/images.test.ts for the check.
-ARG BUN_IMAGE=oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+ARG BUN_IMAGE=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
 
 FROM ${BUN_IMAGE} AS deps
 WORKDIR /app

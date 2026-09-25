@@ -7,7 +7,7 @@
 # docs/quickstart.md runs as written. tests/ci-images.test.ts holds every
 # reference here to the compose file and the mirror list.
 x-mirror-build-args: &mirror-build-args
-  BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+  BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
   # The Dockerfiles' `# syntax=docker/dockerfile:1.7`, which BuildKit would
   # otherwise fetch from Docker Hub.
   BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/agent-platform-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
@@ -20,7 +20,7 @@ services:
   secrets:
     image: ghcr.io/jeongjaesoon/agent-platform-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
   fake-messages:
-    image: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+    image: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
   gitea:
     image: ghcr.io/jeongjaesoon/agent-platform-ci/gitea@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
   gitea-init:

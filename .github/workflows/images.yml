@@ -42,7 +42,7 @@ env:
   # BuildKit that setup-buildx-action runs, and the Dockerfile frontend.
   # ci-image-mirror.yml copies them; tests/ci-images.test.ts holds them to
   # that list and the Dockerfiles.
-  BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+  BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
   BUILDKIT_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
   # The frontend the Dockerfiles' `# syntax=` line names, by the digest of
   # that tag; BUILDKIT_SYNTAX overrides the line, which BuildKit would

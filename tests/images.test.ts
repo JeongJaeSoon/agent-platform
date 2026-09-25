@@ -43,7 +43,7 @@ const basePins = Object.fromEntries(
 describe("app Dockerfiles", () => {
   test.each(apps)("%s pins its base image by digest", (app) => {
     const { pin, source } = basePins[app];
-    expect(pin).toMatch(/^oven\/bun:1\.3\.10@sha256:[0-9a-f]{64}$/);
+    expect(pin).toMatch(/^oven\/bun:1\.3\.14@sha256:[0-9a-f]{64}$/);
     // Every FROM goes through the ARG; a literal tag would silently float.
     const froms = source.match(/^FROM .*$/gm) ?? [];
     expect(froms.length).toBeGreaterThan(0);

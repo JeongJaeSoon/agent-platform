@@ -3,7 +3,7 @@
 # Code executable bundled with @anthropic-ai/claude-agent-sdk 0.3.270. Built
 # from the repository root (`docker build -f apps/worker/Dockerfile .`).
 #
-# Base pinned by the multi-arch index digest of oven/bun:1.3.10 so amd64 CI
+# Base pinned by the multi-arch index digest of oven/bun:1.3.14 so amd64 CI
 # and arm64 laptops build from one file. tests/images.test.ts keeps the three
 # app Dockerfiles on the same digest; bump them together.
 #
@@ -17,7 +17,7 @@
 # otherwise leave its fixes out of a build that still passes. A fix that
 # would remove a package stays held back (no full-upgrade in an image) and
 # surfaces in images.yml's scan instead.
-ARG BUN_IMAGE=oven/bun:1.3.10@sha256:b86c67b531d87b4db11470d9b2bd0c519b1976eee6fcd71634e73abfa6230d2e
+ARG BUN_IMAGE=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
 
 FROM ${BUN_IMAGE} AS deps
 WORKDIR /app
