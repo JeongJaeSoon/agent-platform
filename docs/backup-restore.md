@@ -194,7 +194,8 @@ AWS_ENDPOINT_URL=http://127.0.0.1:4566 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test S3_BUCKET=claude-sessions \
 bun run scripts/dev/seed-checkpoint.ts
 
-# 2. 백업 → 복원 → 검증
+# 2. 백업 → 복원 → 검증. api·scheduler가 돌면 backup이 거부한다. DB를 쓰는 reconciler도 함께 멈춘다
+docker compose stop api scheduler reconciler
 dir=$(scripts/backup.sh --project agent-platform)
 scripts/restore.sh "$dir" --into ap-restore-1 --port-base 25432
 scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄들: bucket PASS, "<session>@<rev> plan: ready under locked"
@@ -206,8 +207,9 @@ EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=10
 MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # + 위와 같은 AWS 자격 증명
 
-# 4. 정리 (복원본만)
-docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v
+# 4. 정리 (복원본만. --rmi local은 복원이 빌드한 migrate 이미지)
+docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v --rmi local
+docker compose start api scheduler reconciler   # 원본을 다시 연다
 ```
 
 `tests/backup-restore.test.ts`는 docker 없이 다음을 검사한다: schema 게이트와 SHA256SUMS 게이트, verify-restore의 bundle 사슬 적용(`unbundle_chain`), 가짜 S3 HTTP 서버에 대한 `--object-store env` 복원 대상 거부(원본 bucket 이름, version·delete marker가 있는 bucket, Object Lock이 없는 bucket, 쓰기 요청 0건), `objects/` 밖을 가리키는 key 거부, 가짜 `docker`에 대한 writer 가동 중 백업 거부와 실패한 백업의 `.failed` 이름. `tests/checkpoint-pins.test.ts`는 in-memory versioned store로 capture·재고정과 그 거부 경로(base bundle 사슬 포함), 재고정한 checkpoint의 locked `getRestorePlan`을 검사하며 `bun run test`에 포함된다.
