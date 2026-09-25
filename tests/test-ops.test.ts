@@ -20,19 +20,21 @@ import {
   catalogRevision,
   checkRender,
   decideUpgrade,
+  type ObjectStoreMode,
   parseReleaseManifest,
   probeRoundTrip,
   probeStore,
   type RenderedModel,
 } from "../scripts/lib/test-ops.ts";
-import { TEST_OPS_LAYERS } from "./compose-layers.ts";
+import { TEST_OPS_LAYERS, TEST_OPS_STORE_LAYERS } from "./compose-layers.ts";
 
 /**
  * scripts/test-ops.sh without a daemon (94S-432): its argument and settings
  * refusals, and the checks of scripts/lib/test-ops.ts it runs — the release
  * manifest, the rendered installation, the bucket round trip and the
- * upgrade gate. Deploying, upgrading and backing up a running installation
- * need a host with Docker and an AWS account; that rehearsal is 94S-434's.
+ * upgrade gate. Deploying, upgrading, backing up and reseeding a running
+ * installation need a host with Docker; that rehearsal is 94S-434's, and
+ * the s3 store on a real AWS account 94S-303's.
  */
 
 const repoRoot = join(import.meta.dir, "..");
@@ -99,8 +101,12 @@ describe("scripts/test-ops.sh", () => {
     [["upgrade", "a.json", "--approve-sessions"]],
     [["status", "extra"]],
     [["backup", "--now"]],
+    [["backup", "--stop", "--now"]],
     [["key"]],
-    [["restore-drill", "backups/b"]],
+    [["reseed"]],
+    [["reseed", "backups/b", "backups/c"]],
+    [["reset"]],
+    [["reset", "--force"]],
     [["restore-drill", "--bucket", "drill"]],
     [["restore-drill", "backups/b", "--bucket", "drill", "--port-base", "x"]],
     [["restore-drill", "backups/b", "backups/c", "--bucket", "drill"]],
@@ -198,6 +204,48 @@ describe("scripts/test-ops.sh", () => {
     expect(result.stderr).toContain("Docker Engine 27.5.1 is too old");
   });
 
+  test("refuses an object store it does not know", async () => {
+    const result = await run(["status"], {
+      ...env,
+      TEST_OPS_OBJECT_STORE: "gcs",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "TEST_OPS_OBJECT_STORE must be localstack or s3, not 'gcs'",
+    );
+    expect(await dockerCalls()).toBe("");
+  });
+
+  test("keeps the object store deploy recorded", async () => {
+    await mkdir(join(dir, "state"));
+    await writeFile(
+      join(dir, "state", "installation"),
+      "project=agent-platform-test-ops\ninstallation=test-ops\nobject_store=localstack",
+    );
+    const result = await run(["status"], {
+      ...env,
+      TEST_OPS_OBJECT_STORE: "s3",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "the installation was deployed on localstack; moving it to s3 is a reset and a new deploy",
+    );
+    expect(await dockerCalls()).toBe("");
+  });
+
+  test.each([
+    ["localstack", ["--bucket", "drill"], "drop --bucket"],
+    ["s3", [], "restore-drill on s3 needs --bucket"],
+  ])("restore-drill on %s refuses %j", async (store, extra, message) => {
+    const result = await run(["restore-drill", "backups/b", ...extra], {
+      ...env,
+      TEST_OPS_OBJECT_STORE: store,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(message);
+    expect(await dockerCalls()).toBe("");
+  });
+
   test("status needs a deployed release", async () => {
     const result = await run(["status"], env);
     expect(result.exitCode).toBe(1);
@@ -263,7 +311,7 @@ describe("rendered installation", () => {
   });
 
   /** The real layers rendered as scripts/test-ops.sh renders them. */
-  function render(): RenderedModel {
+  function render(store: ObjectStoreMode): RenderedModel {
     const { PATH = "", HOME = "" } = Bun.env;
     const digest = (c: string) => `@sha256:${c.repeat(64)}`;
     // Placeholders only: the render never leaves this process.
@@ -276,7 +324,9 @@ describe("rendered installation", () => {
         "/dev/null",
         "--profile",
         "apps",
-        ...TEST_OPS_LAYERS.flatMap((file) => ["-f", join(repoRoot, file)]),
+        ...[...TEST_OPS_LAYERS, TEST_OPS_STORE_LAYERS[store]].flatMap(
+          (file) => ["-f", join(repoRoot, file)],
+        ),
         "config",
         "--format",
         "json",
@@ -290,16 +340,24 @@ describe("rendered installation", () => {
           EGRESS_PROXY_IMAGE: `ghcr.io/x/egress-proxy${digest("c")}`,
           POSTGRES_PASSWORD: filler("p"),
           EGRESS_AUTHORIZER_TOKEN: filler("t"),
-          S3_BUCKET: "ops-bucket",
+          ...(store === "s3" ? { S3_BUCKET: "ops-bucket" } : {}),
           AWS_ACCESS_KEY_ID: filler("i"),
           AWS_SECRET_ACCESS_KEY: filler("s"),
           ANTHROPIC_API_KEY: filler("k"),
           PLATFORM_CATALOG_DIR: catalog,
           EXECUTION_WORKSPACE_QUOTA: "on",
           EXECUTION_INSTALLATION_ID: "test-ops",
-          EGRESS_CREDENTIAL_ALLOWLIST:
-            "api.anthropic.com:443,ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
-          EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
+          ...(store === "s3"
+            ? {
+                EGRESS_CREDENTIAL_ALLOWLIST:
+                  "api.anthropic.com:443,ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
+                EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
+              }
+            : {
+                EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443",
+                EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:
+                  "gitea:3000,localstack:4566",
+              }),
         },
       },
     );
@@ -307,11 +365,23 @@ describe("rendered installation", () => {
     return JSON.parse(result.stdout.toString()) as RenderedModel;
   }
 
-  test("the test-ops layers pass, and the mounted catalog is what the manifest names", async () => {
-    const revision = await catalogRevision(catalog);
-    expect(await checkRender(render(), { catalogRevision: revision })).toBe(
-      revision,
-    );
+  test.each(["localstack", "s3"] as const)(
+    "the test-ops layers on %s pass, and the mounted catalog is what the manifest names",
+    async (store) => {
+      const revision = await catalogRevision(catalog);
+      expect(
+        await checkRender(render(store), { catalogRevision: revision, store }),
+      ).toBe(revision);
+    },
+  );
+
+  test("a render is checked against the store it is meant for", async () => {
+    await expect(
+      checkRender(render("localstack"), { store: "s3" }),
+    ).rejects.toThrow("service localstack is local-only");
+    await expect(
+      checkRender(render("s3"), { store: "localstack" }),
+    ).rejects.toThrow("service localstack is missing");
   });
 
   test("the catalog revision follows every file's path and bytes", async () => {
@@ -325,7 +395,7 @@ describe("rendered installation", () => {
   });
 
   test("reports every way a render is not a test-ops installation", async () => {
-    const model = render();
+    const model = render("s3");
     const services = model.services ?? {};
     const env = (name: string) => {
       const found = services[name]?.environment;
@@ -347,8 +417,10 @@ describe("rendered installation", () => {
     env("egress-proxy").EGRESS_CREDENTIAL_ALLOWLIST = "api.anthropic.com:443";
     env("egress-proxy").EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST =
       "gitea:3000,fake-messages:4010";
+    env("api").AWS_ENDPOINT_URL = "http://localstack:4566";
     const found = await checkRender(model, {
       catalogRevision: `sha256:${"0".repeat(64)}`,
+      store: "s3",
     }).then(
       () => "",
       (error: Error) => error.message,
@@ -365,17 +437,47 @@ describe("rendered installation", () => {
       'EXECUTION_INSTALLATION_ID must name this installation, not "local"',
       "EGRESS_CREDENTIAL_ALLOWLIST must name ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
       "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names fake-messages:4010, a local-only service",
+      "api AWS_ENDPOINT_URL must be unset: the store is AWS S3",
       `the manifest says sha256:${"0".repeat(64)}`,
     ])
       expect(found).toContain(expected);
   });
 
+  test("reports every way a render is not a LocalStack test-ops installation", async () => {
+    const model = render("localstack");
+    const services = model.services ?? {};
+    const api = services.api?.environment;
+    const proxy = services["egress-proxy"]?.environment;
+    if (api === undefined || proxy === undefined)
+      throw new Error("api or egress-proxy has no environment");
+    services.secrets = {
+      image: `localstack/localstack@sha256:${"d".repeat(64)}`,
+    };
+    api.AWS_ENDPOINT_URL = "http://127.0.0.1:4566";
+    api.S3_BUCKET = "ops-bucket";
+    proxy.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST = "gitea:3000,secrets:4566";
+    const found = await checkRender(model, { store: "localstack" }).then(
+      () => "",
+      (error: Error) => error.message,
+    );
+    for (const expected of [
+      "service secrets is local-only",
+      "api AWS_ENDPOINT_URL must be http://localstack:4566",
+      "S3_BUCKET must be claude-sessions",
+      "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must name localstack:4566",
+      "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names secrets:4566, a local-only service",
+    ])
+      expect(found).toContain(expected);
+  });
+
   test("refuses the checkout's own catalog", async () => {
-    const model = render();
+    const model = render("localstack");
     const volume = model.services?.api?.volumes?.[0];
     if (volume === undefined) throw new Error("api mounts nothing");
     volume.source = join(repoRoot, "config");
-    await expect(checkRender(model)).rejects.toThrow("is inside the checkout");
+    await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
+      "is inside the checkout",
+    );
   });
 });
 

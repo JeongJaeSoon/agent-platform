@@ -3,7 +3,7 @@
  *
  *   bun run scripts/lib/test-ops.ts manifest <release.json>
  *   bun run scripts/lib/test-ops.ts catalog-revision <dir>
- *   bun run scripts/lib/test-ops.ts check-render [--catalog-revision <rev>] < rendered.json
+ *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--catalog-revision <rev>] < rendered.json
  *   bun run scripts/lib/test-ops.ts probe-store < rendered.json
  *   bun run scripts/lib/test-ops.ts upgrade-gate <from-worker> <to-worker> <affected> [<approved>]
  *
@@ -38,6 +38,20 @@ export const PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 
 /** What compose.local.yml runs and a test-ops installation must not. */
 const LOCAL_ONLY = ["localstack", "secrets", "fake-messages", "gitea-init"];
+
+/**
+ * Where a test-ops installation keeps checkpoint objects: LocalStack, in
+ * memory, while no AWS account is in use (2026-09-25), or AWS S3 itself.
+ */
+export type ObjectStoreMode = "localstack" | "s3";
+export const OBJECT_STORE_MODES: readonly ObjectStoreMode[] = [
+  "localstack",
+  "s3",
+];
+
+/** The bucket infra/localstack/init creates, and the endpoint the API uses. */
+const LOCALSTACK_BUCKET = "claude-sessions";
+const LOCALSTACK_ENDPOINT = "http://localstack:4566";
 
 /** RFC 3986 unreserved: survives inside the compose-built DATABASE_URL. */
 const URL_SAFE = /^[A-Za-z0-9._~-]+$/;
@@ -150,20 +164,27 @@ export type RenderedModel = { services?: Record<string, RenderedService> };
 /**
  * Refuses a render that is not a test-ops installation: one that runs or
  * builds a local dependency, names an image by tag, publishes beyond
- * loopback, loosens the API's modes, builds a DSN a password breaks, leaves
- * workers without a route to the bucket, runs workspaces without quota, or
- * mounts a catalog other than the manifest's. Every problem is reported at
- * once. Returns the mounted catalog's revision.
+ * loopback, loosens the API's modes, builds a DSN a password breaks, points
+ * the API at another object store than `store`, leaves workers without a
+ * route to it, runs workspaces without quota, or mounts a catalog other than
+ * the manifest's. Every problem is reported at once. Returns the mounted
+ * catalog's revision.
  */
 export async function checkRender(
   model: RenderedModel,
-  options: { readonly catalogRevision?: string } = {},
+  options: {
+    readonly catalogRevision?: string;
+    readonly store: ObjectStoreMode;
+  },
 ): Promise<string> {
   const services = model.services ?? {};
   const problems: string[] = [];
   const env = (service: string, name: string) =>
     services[service]?.environment?.[name] ?? undefined;
-  for (const name of LOCAL_ONLY)
+  const localOnly = LOCAL_ONLY.filter(
+    (name) => !(options.store === "localstack" && name === "localstack"),
+  );
+  for (const name of localOnly)
     if (name in services) problems.push(`service ${name} is local-only`);
   for (const [name, service] of Object.entries(services)) {
     if (service.build !== undefined)
@@ -201,22 +222,42 @@ export async function checkRender(
 
   const bucket = env("api", "S3_BUCKET") ?? "";
   const region = env("api", "AWS_REGION") ?? "";
-  // The object store route calls the virtual-hosted name, or the regional
-  // one for a bucket name with a dot (docs/operations.md).
-  const s3Host = bucket.includes(".")
-    ? `s3.${region}.amazonaws.com:443`
-    : `${bucket}.s3.${region}.amazonaws.com:443`;
+  const endpoint = env("api", "AWS_ENDPOINT_URL");
   const list = (name: string) =>
     (env("egress-proxy", name) ?? "")
       .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean);
-  if (!list("EGRESS_CREDENTIAL_ALLOWLIST").includes(s3Host))
-    problems.push(
-      `EGRESS_CREDENTIAL_ALLOWLIST must name ${s3Host}, or workers cannot write checkpoints`,
-    );
+  if (options.store === "localstack") {
+    if (!("localstack" in services))
+      problems.push("service localstack is missing (store localstack)");
+    if (endpoint !== LOCALSTACK_ENDPOINT)
+      problems.push(`api AWS_ENDPOINT_URL must be ${LOCALSTACK_ENDPOINT}`);
+    if (bucket !== LOCALSTACK_BUCKET)
+      problems.push(
+        `S3_BUCKET must be ${LOCALSTACK_BUCKET}, the bucket LocalStack creates`,
+      );
+    if (
+      !list("EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST").includes("localstack:4566")
+    )
+      problems.push(
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must name localstack:4566, or workers cannot write checkpoints",
+      );
+  } else {
+    if (endpoint !== undefined)
+      problems.push("api AWS_ENDPOINT_URL must be unset: the store is AWS S3");
+    // The object store route calls the virtual-hosted name, or the regional
+    // one for a bucket name with a dot (docs/operations.md).
+    const s3Host = bucket.includes(".")
+      ? `s3.${region}.amazonaws.com:443`
+      : `${bucket}.s3.${region}.amazonaws.com:443`;
+    if (!list("EGRESS_CREDENTIAL_ALLOWLIST").includes(s3Host))
+      problems.push(
+        `EGRESS_CREDENTIAL_ALLOWLIST must name ${s3Host}, or workers cannot write checkpoints`,
+      );
+  }
   for (const entry of list("EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST"))
-    if (LOCAL_ONLY.includes(entry.split(":")[0] ?? ""))
+    if (localOnly.includes(entry.split(":")[0] ?? ""))
       problems.push(
         `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names ${entry}, a local-only service`,
       );
@@ -427,14 +468,19 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "check-render": {
+      const [storeFlag, store, revisionFlag, revision, ...rest] = args;
       if (
-        args.length !== 0 &&
-        (args[0] !== "--catalog-revision" || args.length !== 2)
+        storeFlag !== "--store" ||
+        !OBJECT_STORE_MODES.includes(store as ObjectStoreMode) ||
+        rest.length > 0 ||
+        (revisionFlag !== undefined &&
+          (revisionFlag !== "--catalog-revision" || revision === undefined))
       )
         return usage();
       console.log(
         await checkRender(await stdinModel(), {
-          ...(args[1] === undefined ? {} : { catalogRevision: args[1] }),
+          ...(revision === undefined ? {} : { catalogRevision: revision }),
+          store: store as ObjectStoreMode,
         }),
       );
       return 0;
@@ -471,7 +517,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render [--catalog-revision <rev>] | probe-store | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }

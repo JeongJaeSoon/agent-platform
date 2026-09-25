@@ -17,6 +17,7 @@ import {
   REAL_MODEL,
   servicesOf,
   TEST_OPS_LAYERS,
+  TEST_OPS_STORE_LAYERS,
 } from "./compose-layers.ts";
 
 // What the image definitions promise without a daemon: every app Dockerfile
@@ -357,7 +358,11 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test("the scheduler alone mounts the Docker socket", () => {
     const mounts = compose.match(/\/var\/run\/docker\.sock:/g) ?? [];
     expect(mounts).toHaveLength(1);
-    for (const layer of [LOCAL_LAYERS[1], TEST_OPS_LAYERS[1]])
+    for (const layer of [
+      LOCAL_LAYERS[1],
+      TEST_OPS_LAYERS[1],
+      ...Object.values(TEST_OPS_STORE_LAYERS),
+    ])
       expect(read(layer)).not.toContain("docker.sock");
     const schedulerBlock = compose.slice(
       compose.indexOf("\n  scheduler:"),
@@ -439,7 +444,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // any owner with X-Owner-Id.
     expect(compose).toContain("AUTH_MODE: $" + "{AUTH_MODE:-api-key}");
     // `up` runs migrate, so no service may take an ambient DATABASE_URL.
-    for (const file of [CORE, LOCAL_LAYERS[1], TEST_OPS_LAYERS[1]])
+    for (const file of [
+      CORE,
+      LOCAL_LAYERS[1],
+      TEST_OPS_LAYERS[1],
+      ...Object.values(TEST_OPS_STORE_LAYERS),
+    ])
       expect(read(file)).not.toMatch(/\$\{DATABASE_URL/);
   });
 });
@@ -571,6 +581,7 @@ type Rendered = {
       environment?: Record<string, string | null>;
       ports?: { host_ip?: string; published?: string; target: number }[];
       volumes?: { source?: string; target: string }[];
+      depends_on?: Record<string, unknown>;
     }
   >;
   volumes?: Record<string, unknown>;
@@ -633,7 +644,7 @@ describe("compose layers", () => {
     EGRESS_AUTHORIZER_TOKEN: "test-ops-authorizer-placeholder",
   };
   // The rest of what the env file must give (94S-432): the API alone holds
-  // the S3 key and the provider key.
+  // the S3 key (on s3) and the provider key.
   const API_KEYS = {
     AWS_ACCESS_KEY_ID: "test-ops-s3-key-id",
     AWS_SECRET_ACCESS_KEY: "test-ops-s3-key",
@@ -654,6 +665,13 @@ describe("compose layers", () => {
     ...TEST_OPS_SECRETS,
     ...TEST_OPS_SETTINGS,
   };
+  // What only the s3 store's layer requires; LocalStack needs none of it.
+  const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+  const S3_LAYERS = [...TEST_OPS_LAYERS, TEST_OPS_STORE_LAYERS.s3];
+  const LOCALSTACK_LAYERS = [
+    ...TEST_OPS_LAYERS,
+    TEST_OPS_STORE_LAYERS.localstack,
+  ];
 
   // What a layer may set on a service the core defines. Everything else —
   // users, capabilities, read-only roots, memory limits, mounts, ports,
@@ -676,7 +694,7 @@ describe("compose layers", () => {
         "WORKER_IMAGE",
         ...Object.keys(TEST_OPS_SECRETS),
         ...Object.keys(TEST_OPS_SETTINGS).filter(
-          (name) => name !== "PLATFORM_CATALOG_DIR",
+          (name) => name !== "PLATFORM_CATALOG_DIR" && !S3_ONLY.includes(name),
         ),
       ],
     ],
@@ -689,6 +707,12 @@ describe("compose layers", () => {
         "SESSION_COST_LIMIT_USD",
         "MAX_TURN_SECONDS",
       ],
+    ],
+    [TEST_OPS_STORE_LAYERS.s3, ["environment"], S3_ONLY],
+    [
+      TEST_OPS_STORE_LAYERS.localstack,
+      ["environment", "depends_on"],
+      ["AWS_ENDPOINT_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
     ],
   ] as const)(
     "%s only adds to the core's services",
@@ -723,35 +747,36 @@ describe("compose layers", () => {
     },
   );
 
-  test("the test-ops layer requires values and sets none", () => {
-    for (const [name, service] of Object.entries(
-      servicesOf(TEST_OPS_LAYERS[1]),
-    )) {
-      const values = Object.entries(
-        (service.environment ?? {}) as Record<string, string>,
-      );
-      if (typeof service.image === "string") values.push(["", service.image]);
-      for (const [variable, value] of values)
-        expect({ name, value }).toEqual({
+  test.each([TEST_OPS_LAYERS[1], TEST_OPS_STORE_LAYERS.s3])(
+    "%s requires values and sets none",
+    (layer) => {
+      for (const [name, service] of Object.entries(servicesOf(layer))) {
+        const values = Object.entries(
+          (service.environment ?? {}) as Record<string, string>,
+        );
+        if (typeof service.image === "string") values.push(["", service.image]);
+        for (const [variable, value] of values)
+          expect({ name, value }).toEqual({
+            name,
+            value: expect.stringMatching(
+              new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
+            ),
+          });
+        // The one mount a layer may set: the API's catalog, read-only.
+        expect({ name, volumes: service.volumes }).toEqual({
           name,
-          value: expect.stringMatching(
-            new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
-          ),
+          volumes:
+            name === "api" && layer === TEST_OPS_LAYERS[1]
+              ? [
+                  expect.stringMatching(
+                    /^\$\{PLATFORM_CATALOG_DIR:\?[^}]+\}:\/app\/config:ro$/,
+                  ),
+                ]
+              : undefined,
         });
-      // The one mount a layer may set: the API's catalog, read-only.
-      expect({ name, volumes: service.volumes }).toEqual({
-        name,
-        volumes:
-          name === "api"
-            ? [
-                expect.stringMatching(
-                  /^\$\{PLATFORM_CATALOG_DIR:\?[^}]+\}:\/app\/config:ro$/,
-                ),
-              ]
-            : undefined,
-      });
-    }
-  });
+      }
+    },
+  );
 
   test("the core builds nothing and runs no local dependency", () => {
     for (const [name, service] of Object.entries(core))
@@ -837,25 +862,32 @@ describe("compose layers", () => {
     );
   });
 
-  test("the test-ops layer refuses to render without its required values", () => {
-    for (const variable of Object.keys(TEST_OPS_REQUIRED)) {
-      const { exitCode, stderr } = render(TEST_OPS_LAYERS, {
-        ...TEST_OPS_REQUIRED,
-        [variable]: "",
-      });
-      expect({ variable, exitCode: exitCode === 0 }).toEqual({
-        variable,
-        exitCode: false,
-      });
-      expect(stderr).toContain(`${variable} must`);
-    }
-  });
+  test.each([
+    ["s3", S3_LAYERS, Object.keys(TEST_OPS_REQUIRED)],
+    [
+      "localstack",
+      LOCALSTACK_LAYERS,
+      Object.keys(TEST_OPS_REQUIRED).filter((name) => !S3_ONLY.includes(name)),
+    ],
+  ] as const)(
+    "the test-ops layers on %s refuse to render without their required values",
+    (_store, layers, required) => {
+      for (const variable of required) {
+        const { exitCode, stderr } = render(layers, {
+          ...TEST_OPS_REQUIRED,
+          [variable]: "",
+        });
+        expect({ variable, exitCode: exitCode === 0 }).toEqual({
+          variable,
+          exitCode: false,
+        });
+        expect(stderr).toContain(`${variable} must`);
+      }
+    },
+  );
 
-  test("the test-ops layer runs the core's services only, on the values it was given", () => {
-    const { exitCode, stderr, model } = render(
-      TEST_OPS_LAYERS,
-      TEST_OPS_REQUIRED,
-    );
+  test("the test-ops layers on s3 run the core's services only, on the values they were given", () => {
+    const { exitCode, stderr, model } = render(S3_LAYERS, TEST_OPS_REQUIRED);
     expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
     const services = model?.services ?? {};
     expect(Object.keys(services).sort()).toEqual(Object.keys(core).sort());
@@ -954,4 +986,49 @@ describe("compose layers", () => {
         }).toEqual({ name, cost: "1", turn: "600" });
     },
   );
+
+  test("the test-ops layers on localstack add the local stack's LocalStack and nothing else", () => {
+    const required = Object.fromEntries(
+      Object.entries(TEST_OPS_REQUIRED).filter(
+        ([name]) => !S3_ONLY.includes(name),
+      ),
+    );
+    const { exitCode, stderr, model } = render(LOCALSTACK_LAYERS, required);
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    const services = model?.services ?? {};
+    expect(Object.keys(services).sort()).toEqual(
+      [...Object.keys(core), "localstack"].sort(),
+    );
+    const local = localStack();
+    expect(services.localstack?.image).toBe(local.localstack?.image);
+    expect(
+      services.localstack?.ports?.map(
+        (port) => `${port.host_ip}:${port.published}:${port.target}`,
+      ),
+    ).toEqual(["127.0.0.1:4566:4566"]);
+    expect(services.api?.environment?.AWS_ENDPOINT_URL).toBe(
+      "http://localstack:4566",
+    );
+    // The bucket infra/localstack/init creates.
+    expect(services.api?.environment?.S3_BUCKET).toBe("claude-sessions");
+    for (const name of ["api", "scheduler"])
+      expect(Object.keys(services[name]?.depends_on ?? {})).toContain(
+        "localstack",
+      );
+    // LocalStack's key signs for the API alone; the provider key too.
+    for (const [name, service] of Object.entries(services)) {
+      if (name === "localstack") continue;
+      for (const variable of [...S3_ONLY.slice(1), "ANTHROPIC_API_KEY"])
+        expect({
+          name,
+          variable,
+          set: service.environment?.[variable] !== undefined,
+        }).toEqual({ name, variable, set: name === "api" });
+    }
+    expect(
+      services.api?.volumes?.map(
+        (volume) => `${volume.source}:${volume.target}`,
+      ),
+    ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
+  });
 });

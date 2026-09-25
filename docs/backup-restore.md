@@ -4,7 +4,7 @@
 
 호스트에 필요한 것: docker + compose v2.24.6 이상(`!override` 병합, `include`로 합친 스택 위의 overlay), git, jq, `sha256sum` 또는 `shasum`, 그리고 `bun install`을 마친 이 저장소 checkout. restore의 `migrate` 서비스가 checkout을 마운트한다. S3 호출은 모두 호스트에서 production S3 어댑터로 한다. object 복사·업로드·검사는 `scripts/lib/object-store-cli.ts`, checkpoint version 고정은 `scripts/lib/checkpoint-pins-cli.ts`가 맡는다(published postgres 포트로 붙는다). verify는 `scripts/lib/decode-manifest.ts`도 부른다. pg_dump·psql·git은 컨테이너 안에서 실행한다.
 
-test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scripts/test-ops.sh backup`과 `restore-drill`이 writer를 멈추고 API의 S3 설정으로 부른다([test-ops.md](test-ops.md)).
+test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scripts/test-ops.sh backup`·`restore-drill`·`reseed`가 writer를 멈추고 설치의 object store(LocalStack 또는 API의 S3 설정)로 부른다([test-ops.md](test-ops.md)).
 
 ## object store 고르기
 

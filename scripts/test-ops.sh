@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The test-ops installation's lifecycle in one place (94S-432, docs/test-ops.md):
 #
-#   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, settings, catalog, bucket and S3 key
-#                                              (the deployed release when no manifest is named)
+#   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, settings, catalog, and on s3 the bucket
+#                                              and S3 key (the deployed release when no manifest is named)
 #   scripts/test-ops.sh deploy <manifest>       preflight, then start a release on an empty host
 #   scripts/test-ops.sh upgrade <manifest> [--approve-sessions <file>]
 #                                              preflight, then move to another release. A worker image
@@ -10,9 +10,18 @@
 #                                              unless <file> lists exactly the affected sessions
 #   scripts/test-ops.sh status                  containers, release, /readyz, scheduler and reconciler health, disk
 #   scripts/test-ops.sh key create <owner> --scopes <scope>[,<scope>...] | key revoke <key_id>
-#   scripts/test-ops.sh backup                  stop admissions and writers, scripts/backup.sh, reopen
-#   scripts/test-ops.sh restore-drill <backup-dir> --bucket <new-empty-bucket> [--port-base 25432] [--keep]
-#                                              restore into a new project and bucket, verify, tear the project down
+#   scripts/test-ops.sh backup [--stop]         stop admissions and writers, scripts/backup.sh, reopen
+#                                              (--stop: leave them stopped, before a planned restart)
+#   scripts/test-ops.sh restore-drill <backup-dir> [--bucket <new-empty-bucket>] [--port-base 25432] [--keep]
+#                                              restore into a new project (and on s3 the new bucket), verify,
+#                                              tear the project down
+#   scripts/test-ops.sh reseed <backup-dir>     localstack: put a backup's objects back into an emptied
+#                                              LocalStack (after a restart), then start
+#   scripts/test-ops.sh reset --yes             delete the installation and ALL its data; deploy again after
+#
+# The object store is $TEST_OPS_OBJECT_STORE at deploy: localstack (the
+# default; in memory, lost on any restart) or s3 (AWS S3). Deploy records it
+# and every later command uses that.
 #
 # Settings come from one env file outside the checkout, $TEST_OPS_ENV_FILE
 # (/etc/agent-platform/test-ops.env, mode 0600), which compose reads through
@@ -22,6 +31,10 @@
 # $TEST_OPS_PROJECT (agent-platform-test-ops).
 #
 # Exit codes: 2 usage, 3 upgrade refused, 1 anything else.
+#
+# LocalStack keeps S3 in memory: after a restart of its container, Docker or
+# the host the API refuses to start (94S-422) until reseed or reset
+# (docs/test-ops.md).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
@@ -31,8 +44,8 @@ PROJECT="${TEST_OPS_PROJECT:-agent-platform-test-ops}"
 CURRENT="${STATE_DIR}/current.json"
 # The manifest of an upgrade that stopped the installation and did not finish.
 PENDING="${STATE_DIR}/pending.json"
-# project=… and installation=… of what deploy started; every later command
-# must name the same.
+# project=…, installation=… and object_store=… of what deploy started;
+# every later command must name the same.
 IDENTITY="${STATE_DIR}/installation"
 LOCK="${STATE_DIR}/lock"
 HELPER="${REPO_ROOT}/scripts/lib/test-ops.ts"
@@ -44,7 +57,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -58,6 +71,7 @@ BACKUP_DIR=""
 DRILL_BUCKET=""
 PORT_BASE=25432
 KEEP=0
+STOP=0
 case "$VERB" in
   preflight)
     [ $# -le 1 ] || usage
@@ -78,8 +92,18 @@ case "$VERB" in
       esac
     done
     ;;
-  status|backup)
+  status)
     [ $# -eq 0 ] || usage
+    ;;
+  backup)
+    case "$*" in "") ;; --stop) STOP=1 ;; *) usage ;; esac
+    ;;
+  reseed)
+    [ $# -eq 1 ] || usage
+    BACKUP_DIR="$1"
+    ;;
+  reset)
+    [ "$*" = --yes ] || usage
     ;;
   key)
     [ $# -ge 1 ] || usage
@@ -94,7 +118,7 @@ case "$VERB" in
         *) [ -z "$BACKUP_DIR" ] || usage; BACKUP_DIR="$1"; shift ;;
       esac
     done
-    [ -n "$BACKUP_DIR" ] && [ -n "$DRILL_BUCKET" ] || usage
+    [ -n "$BACKUP_DIR" ] || usage
     case "$PORT_BASE" in ''|*[!0-9]*) usage ;; esac
     ;;
   *) usage ;;
@@ -158,7 +182,7 @@ load_manifest() {
 
 load_current() {
   [ -r "$CURRENT" ] || die "no release is deployed ($CURRENT); deploy one first"
-  if [ -e "$PENDING" ] && [ "$VERB" != status ] \
+  if [ -e "$PENDING" ] && [ "$VERB" != status ] && [ "$VERB" != reset ] \
     && ! { [ "$VERB" = upgrade ] && cmp -s "$MANIFEST" "$PENDING"; }; then
     die "an upgrade to $PENDING did not finish and the installation may be stopped; rerun upgrade with that manifest"
   fi
@@ -167,12 +191,14 @@ load_current() {
 
 # The rendered installation is the one deploy started: same project, same
 # installation id, whose label is how its workers are found.
+identity() {
+  printf 'project=%s\ninstallation=%s\nobject_store=%s' "$PROJECT" "$(rendered scheduler EXECUTION_INSTALLATION_ID)" "$STORE"
+}
+
 check_identity() {
-  local installation
-  installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
   [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
-  [ "$(printf 'project=%s\ninstallation=%s' "$PROJECT" "$installation")" = "$(cat "$IDENTITY")" ] \
-    || die "project '$PROJECT' with installation '$installation' is not what was deployed ($(tr '\n' ' ' < "$IDENTITY")); EXECUTION_INSTALLATION_ID and TEST_OPS_PROJECT cannot change"
+  [ "$(identity)" = "$(cat "$IDENTITY")" ] \
+    || die "$(identity | tr '\n' ' ') is not what was deployed ($(tr '\n' ' ' < "$IDENTITY")); TEST_OPS_PROJECT, EXECUTION_INSTALLATION_ID and the object store cannot change"
 }
 
 # compose on the installation's settings: the env file through --env-file,
@@ -185,7 +211,8 @@ ops_compose() {
   done
   env -i "${pass[@]}" API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" EGRESS_PROXY_IMAGE="$EGRESS_PROXY_IMAGE" \
     docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" --profile apps \
-    -f "${REPO_ROOT}/infra/compose.core.yml" -f "${REPO_ROOT}/infra/compose.test-ops.yml" "$@"
+    -f "${REPO_ROOT}/infra/compose.core.yml" -f "${REPO_ROOT}/infra/compose.test-ops.yml" \
+    -f "${REPO_ROOT}/infra/compose.test-ops.${STORE}.yml" "$@"
 }
 
 # The installation as its containers get it. Held in memory only: it
@@ -253,10 +280,16 @@ preflight() {
   render
   # Before the bucket is touched with what may be another installation's settings.
   [ ! -e "$IDENTITY" ] || check_identity
-  with_render check-render --catalog-revision "$CATALOG_REVISION" >/dev/null \
+  with_render check-render --store "$STORE" --catalog-revision "$CATALOG_REVISION" >/dev/null \
     || die "the settings are not a test-ops installation's (above)"
-  with_render probe-store || die "the bucket or the API's S3 key failed (above)"
-  log "preflight: passed — Docker Engine $engine, compose $compose_version, source $SOURCE_COMMIT, catalog $CATALOG_REVISION"
+  if [ "$STORE" = s3 ]; then
+    with_render probe-store || die "the bucket or the API's S3 key failed (above)"
+  else
+    # LocalStack starts with the installation; the API checks its bucket at
+    # startup, and deploy and upgrade wait for that.
+    log "preflight: object store is LocalStack, in memory — a restart loses every checkpoint object (docs/test-ops.md)"
+  fi
+  log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, catalog $CATALOG_REVISION"
 }
 
 # --- lifecycle -------------------------------------------------------------------
@@ -337,7 +370,7 @@ deploy() {
   load_manifest "$MANIFEST"
   preflight
   in_use_by_others
-  printf 'project=%s\ninstallation=%s' "$PROJECT" "$(rendered scheduler EXECUTION_INSTALLATION_ID)" > "$IDENTITY"
+  identity > "$IDENTITY"
   start_apps
   record_release "$MANIFEST" deploy
   log "deploy: done — issue a key with scripts/test-ops.sh key create <owner> --scopes sessions:read,sessions:write"
@@ -407,6 +440,7 @@ status_report() {
   check_identity
   ops_compose ps
   echo "release: $(jq -c . "$CURRENT")"
+  echo "object store: $STORE"
   [ ! -e "$PENDING" ] || echo "UNFINISHED upgrade to: $(jq -c . "$PENDING")"
   echo "readyz: $(readyz)"
   for role in scheduler reconciler; do
@@ -435,14 +469,102 @@ backup() {
   render
   check_identity
   bucket="$(rendered api S3_BUCKET)"
-  CLEANUPS+=(reopen)
+  if [ "$STOP" = 1 ]; then
+    log "backup: writers stay stopped (--stop); after the restart, run reseed with this backup"
+  else
+    CLEANUPS+=(reopen)
+  fi
   stop_writers
-  with_api_store "${REPO_ROOT}/scripts/backup.sh" --project "$PROJECT" --out "${STATE_DIR}/backups" \
-    --bucket "$bucket" --object-store env
+  if [ "$STORE" = s3 ]; then
+    with_api_store "${REPO_ROOT}/scripts/backup.sh" --project "$PROJECT" --out "${STATE_DIR}/backups" \
+      --bucket "$bucket" --object-store env
+  else
+    "${REPO_ROOT}/scripts/backup.sh" --project "$PROJECT" --out "${STATE_DIR}/backups" \
+      --bucket "$bucket" --object-store localstack
+  fi
+}
+
+# The objects a LocalStack installation lost in a restart, put back from a
+# backup the way scripts/restore.sh fills a new bucket: create-only upload,
+# then every checkpoint re-pinned to its new version and held. The database
+# is the installation's own and must not have moved on since the backup
+# (backup --stop before a planned restart): the re-pin checks every
+# uncollected checkpoint against the uploaded bytes before it writes, and
+# refuses otherwise. A failure leaves the writers stopped; reset is then
+# what is left.
+reseed() {
+  local bucket manifest_keys skip expected restored
+  take_lock
+  load_current
+  render
+  check_identity
+  [ "$STORE" = localstack ] || die "reseed refills a LocalStack installation's bucket; this one is on $STORE"
+  [ -r "$BACKUP_DIR/manifest.json" ] || die "$BACKUP_DIR is not a backup (no manifest.json)"
+  verify_checksums "$BACKUP_DIR" || die "SHA256SUMS mismatch in $BACKUP_DIR; the bundle is damaged or edited"
+  schema_check "$BACKUP_DIR/manifest.json" || die "the backup's schema is not this release's"
+  bucket="$(rendered api S3_BUCKET)"
+  [ "$(jq -r '.source.project' "$BACKUP_DIR/manifest.json")" = "$PROJECT" ] \
+    && [ "$(jq -r '.objects.bucket' "$BACKUP_DIR/manifest.json")" = "$bucket" ] \
+    || die "$BACKUP_DIR is not a backup of project $PROJECT and bucket $bucket"
+  stop_writers
+  ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" postgres localstack
+  # Empty, or this is not the restart it is meant for: the upload is
+  # create-only and would stop at the first key anyway.
+  object_store "$PROJECT" "$bucket" check-target \
+    || die "bucket $bucket in LocalStack is not empty; reseed only refills it after a restart"
+  object_store "$PROJECT" "$bucket" create-only-check \
+    || die "bucket $bucket does not refuse a second create-only write"
+  manifest_keys="$(ops_compose exec -T postgres psql -v ON_ERROR_STOP=1 -X -q -At \
+    -U "$(rendered postgres POSTGRES_USER)" -d "$(rendered postgres POSTGRES_DB)" \
+    -c "SELECT DISTINCT manifest_ref FROM checkpoints WHERE collected_at IS NULL ORDER BY 1" </dev/null)" \
+    || die "could not list the checkpoint manifests"
+  skip="$(mktemp)"
+  CLEANUPS+=("rm -f '$skip'")
+  printf '%s\n' "$manifest_keys" > "$skip"
+  object_store "$PROJECT" "$bucket" upload "$BACKUP_DIR/objects" "$skip" >/dev/null \
+    || die "the upload stopped; the installation stays stopped — reset it (docs/test-ops.md)"
+  checkpoint_pins "$PROJECT" "$bucket" repin "$BACKUP_DIR/objects" >/dev/null \
+    || die "the re-pin refused, most likely because the database moved on since the backup; the installation stays stopped — reset it (docs/test-ops.md)"
+  expected="$(jq -r '.objects.count' "$BACKUP_DIR/manifest.json")"
+  restored="$(object_store "$PROJECT" "$bucket" count)" || die "could not count the objects in $bucket"
+  [ "$restored" = "$expected" ] \
+    || die "$restored objects in $bucket after the re-pin, the backup has $expected; the installation stays stopped"
+  start_apps
+  printf '%s reseed by %s: %s objects from %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$restored" "$BACKUP_DIR" \
+    >> "${STATE_DIR}/history.log"
+  log "reseed: $restored objects back in $bucket; the installation is up"
+}
+
+# Everything of this installation goes: containers, volumes (database, Gitea,
+# and in LocalStack whatever is left), the workers and workspace volumes the
+# scheduler made, and the recorded release. Keys are gone with the database.
+reset() {
+  local installation old
+  take_lock
+  load_current
+  render
+  check_identity
+  installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
+  log "reset: deleting project $PROJECT (installation $installation) and ALL its data"
+  ops_compose down -v --remove-orphans
+  docker ps -aq --filter "label=agent-platform.installation=${installation}" | xargs -r docker rm -f >/dev/null
+  docker network ls -q --filter "label=agent-platform.installation=${installation}" | xargs -r docker network rm >/dev/null
+  docker volume ls -q --filter "label=agent-platform.installation=${installation}" | xargs -r docker volume rm >/dev/null
+  old="${STATE_DIR}/reset-$(date -u +%Y%m%dT%H%M%SZ).json"
+  mv "$CURRENT" "$old"
+  rm -f "$IDENTITY" "$PENDING"
+  printf '%s reset by %s: project %s, release %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$PROJECT" "$old" \
+    >> "${STATE_DIR}/history.log"
+  log "reset: done; deploy again with scripts/test-ops.sh deploy $old, then issue keys again"
 }
 
 restore_drill() {
   local log_file status=0
+  if [ "$STORE" = s3 ]; then
+    [ -n "$DRILL_BUCKET" ] || die "restore-drill on s3 needs --bucket, a new empty Object Lock bucket"
+  else
+    [ -z "$DRILL_BUCKET" ] || die "restore-drill on localstack restores into the drill's own LocalStack; drop --bucket"
+  fi
   take_lock
   load_current
   render
@@ -461,13 +583,23 @@ restore_drill() {
   CLEANUPS+=('docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1 || true')
   [ "$KEEP" = 1 ] \
     || CLEANUPS+=('docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/docker-compose.yml" down -v >/dev/null 2>&1')
-  log "restore-drill: $BACKUP_DIR into project $DRILL and bucket $DRILL_BUCKET; log $log_file"
-  {
-    with_api_store "${REPO_ROOT}/scripts/restore.sh" "$BACKUP_DIR" --into "$DRILL" --object-store env \
-      --bucket "$DRILL_BUCKET" --port-base "$PORT_BASE" \
-      && with_api_store "${REPO_ROOT}/scripts/verify-restore.sh" --project "$DRILL" --object-store env \
-        --bucket "$DRILL_BUCKET"
-  } 2>&1 | tee "$log_file" || status=$?
+  if [ "$STORE" = s3 ]; then
+    log "restore-drill: $BACKUP_DIR into project $DRILL and bucket $DRILL_BUCKET; log $log_file"
+    {
+      with_api_store "${REPO_ROOT}/scripts/restore.sh" "$BACKUP_DIR" --into "$DRILL" --object-store env \
+        --bucket "$DRILL_BUCKET" --port-base "$PORT_BASE" \
+        && with_api_store "${REPO_ROOT}/scripts/verify-restore.sh" --project "$DRILL" --object-store env \
+          --bucket "$DRILL_BUCKET"
+    } 2>&1 | tee "$log_file" || status=$?
+  else
+    # The drill's own LocalStack, under the backup's bucket name.
+    DRILL_BUCKET="$(jq -r '.objects.bucket' "$BACKUP_DIR/manifest.json")" || die "$BACKUP_DIR has no readable manifest.json"
+    log "restore-drill: $BACKUP_DIR into project $DRILL and its own LocalStack; log $log_file"
+    {
+      "${REPO_ROOT}/scripts/restore.sh" "$BACKUP_DIR" --into "$DRILL" --port-base "$PORT_BASE" \
+        && "${REPO_ROOT}/scripts/verify-restore.sh" --project "$DRILL" --bucket "$DRILL_BUCKET"
+    } 2>&1 | tee "$log_file" || status=$?
+  fi
   if [ "$status" = 0 ]; then
     echo "restore-drill: PASSED" | tee -a "$log_file"
   else
@@ -481,8 +613,20 @@ restore_drill() {
 }
 
 check_env_file
+# Deploy takes TEST_OPS_OBJECT_STORE (localstack by default) and records it;
+# after that, the recorded one is the installation's.
+STORE="$(sed -n 's/^object_store=//p' "$IDENTITY" 2>/dev/null || true)"
+if [ -z "$STORE" ]; then
+  STORE="${TEST_OPS_OBJECT_STORE:-localstack}"
+elif [ -n "${TEST_OPS_OBJECT_STORE:-}" ] && [ "$TEST_OPS_OBJECT_STORE" != "$STORE" ]; then
+  die "the installation was deployed on $STORE; moving it to $TEST_OPS_OBJECT_STORE is a reset and a new deploy (docs/test-ops.md)"
+fi
+case "$STORE" in
+  localstack|s3) ;;
+  *) die "TEST_OPS_OBJECT_STORE must be localstack or s3, not '$STORE'" ;;
+esac
 case "$VERB" in
-  deploy|upgrade|backup|restore-drill)
+  deploy|upgrade|backup|restore-drill|reseed|reset)
     mkdir -p "${STATE_DIR}/approvals" "${STATE_DIR}/backups" "${STATE_DIR}/restore-drills" \
       || die "cannot create the state directory $STATE_DIR (TEST_OPS_STATE_DIR)"
     ;;
@@ -498,4 +642,6 @@ case "$VERB" in
   key) key "$@" ;;
   backup) backup ;;
   restore-drill) restore_drill ;;
+  reseed) reseed ;;
+  reset) reset ;;
 esac

@@ -1,15 +1,16 @@
-# The test-ops layer over compose.core.yml (94S-430), merged after it:
+# The test-ops layer over compose.core.yml (94S-430), merged after it and
+# before the object store's layer:
 #
-#   docker compose -f infra/compose.core.yml -f infra/compose.test-ops.yml ...
+#   docker compose -f infra/compose.core.yml -f infra/compose.test-ops.yml \
+#     -f infra/compose.test-ops.<localstack|s3>.yml ...
 #
 # scripts/test-ops.sh is how it runs (docs/test-ops.md): the release manifest
 # names the three app images by digest, and the installation's env file,
 # outside the checkout, every other value below. The layer runs no local
 # dependency, builds nothing, and only requires values — it sets none — so
 # a forgotten one stops compose instead of falling back to a core default
-# meant for the local stack. The object store is AWS S3 itself: no
-# endpoint, the key on the API alone. tests/images.test.ts renders this and
-# keeps the security settings out of it.
+# meant for the local stack. The provider key goes to the API alone.
+# tests/images.test.ts renders this and keeps the security settings out of it.
 services:
   postgres:
     environment:
@@ -20,9 +21,6 @@ services:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
-      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must name the installation's bucket}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be the API's S3 key}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be the API's S3 key}
       # The operator's shared provider key (internal alpha only, 94S-376);
       # the catalog's profiles name it with `value_env: ANTHROPIC_API_KEY`.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be the operator's provider key}
@@ -37,7 +35,6 @@ services:
       # How this installation's workers and proxy are told apart from any
       # other on the daemon; the core's `local` belongs to the local stack.
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:?EXECUTION_INSTALLATION_ID must name this installation}
-      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must name the installation's bucket}
       EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:?EXECUTION_WORKSPACE_QUOTA must be set (on, with xfs prjquota)}
   reconciler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
@@ -46,8 +43,9 @@ services:
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
       # The core defaults name the local stack's upstreams. Here: the
-      # provider and the bucket's S3 host, and Gitea.
-      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:?EGRESS_CREDENTIAL_ALLOWLIST must name the provider and the bucket's S3 host}
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:?EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must be set (gitea:3000)}
+      # provider, Gitea, and the object store — the bucket's S3 host, or
+      # localstack:4566.
+      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:?EGRESS_CREDENTIAL_ALLOWLIST must name the provider (and the bucket's S3 host on s3)}
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:?EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must be set (gitea:3000, and localstack:4566 on localstack)}
   worker:
     image: ${WORKER_IMAGE:?WORKER_IMAGE must name the released worker image}
