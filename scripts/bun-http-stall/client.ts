@@ -34,13 +34,7 @@ const server = Bun.spawn(["node", join(import.meta.dir, "server.mjs")], {
   stdout: "pipe",
   stderr: "inherit",
 });
-const reader = server.stdout.getReader();
-const first = await reader.read();
-reader.releaseLock();
-const { port } = JSON.parse(new TextDecoder().decode(first.value)) as {
-  port: number;
-};
-
+let port = 0;
 const agent = new http.Agent({ keepAlive: true, maxSockets: 50 });
 
 let lists = 0;
@@ -49,19 +43,29 @@ const stalls: string[] = [];
 /** Resolves once the body ended or, recorded in `stalls`, stopped. */
 function exchange(method: string, path: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    let bytes = 0;
+    let head = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Every exchange here completes in milliseconds, so this much silence
+    // before the head or between chunks is a stall, not a slow body.
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        stalls.push(
+          `${method} ${path} stopped ${head ? `after ${bytes} bytes` : "before the head"}`,
+        );
+        request.destroy();
+        resolve();
+      }, stallMs);
+    };
     const request = http.request(
       { host: "127.0.0.1", port, method, path, agent },
       (response) => {
-        let bytes = 0;
-        // Every body here arrives in milliseconds; this is the head-to-end
-        // bound, well past anything but a stall.
-        const timer = setTimeout(() => {
-          stalls.push(`${method} ${path} stopped after ${bytes} bytes`);
-          response.destroy();
-          resolve();
-        }, stallMs);
+        head = true;
+        arm();
         response.on("data", (chunk: Buffer) => {
           bytes += chunk.byteLength;
+          arm();
         });
         response.on("end", () => {
           clearTimeout(timer);
@@ -73,7 +77,11 @@ function exchange(method: string, path: string): Promise<void> {
         });
       },
     );
-    request.on("error", reject);
+    request.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    arm();
     request.end(method === "PUT" ? new Uint8Array(9) : undefined);
   });
 }
@@ -98,6 +106,17 @@ async function session(id: number): Promise<void> {
 }
 
 try {
+  const reader = server.stdout.getReader();
+  const first = await Promise.race([
+    reader.read(),
+    Bun.sleep(10_000).then(() => {
+      throw new Error("server.mjs printed no port within 10s");
+    }),
+  ]);
+  reader.releaseLock();
+  ({ port } = JSON.parse(new TextDecoder().decode(first.value)) as {
+    port: number;
+  });
   await Promise.all(Array.from({ length: sessions }, (_, id) => session(id)));
 } finally {
   server.kill();
