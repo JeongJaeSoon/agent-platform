@@ -39,6 +39,7 @@ import {
   terminateProbe,
   turnPrompt,
 } from "./probes.ts";
+import type { Stall } from "./vm-lag.ts";
 
 /**
  * The 94S-135 soak runner: N sessions repeating scripted turns against the
@@ -223,6 +224,12 @@ class Soak {
   readonly turns: TurnRecord[] = [];
   readonly controls: ControlSample[] = [];
   readonly readyz: ReadyzSample[] = [];
+  readonly vmStalls: VmStall[] = [];
+  readonly vmPolls: VmPoll[] = [];
+  readonly vmCursor: { bootId: string | null; index: number } = {
+    bootId: null,
+    index: 0,
+  };
   readonly phases: Array<Record<string, unknown>> = [];
   readonly reconciler: ReconcilerSample[] = [];
   readonly invariantSamples: Array<{
@@ -542,14 +549,133 @@ async function every(
  * timer measured here would charge that stall to the API. `wallMs` is kept
  * beside it so such a stall stays visible.
  */
-type ReadyzSample = {
+export type ReadyzSample = {
   error: string | null;
   ms: number;
   ok: boolean;
   status: number;
   t: string;
   wallMs: number;
+  /** From `t` to curl's spawn returning: curl started within it (94S-443). */
+  spawnMs?: number;
 };
+
+/** A VM probe stall, with the host clock offset of the poll that read it. */
+export type VmStall = Stall & {
+  bootId: string;
+  offsetMs: number;
+  offsetErrorMs: number;
+};
+
+type VmPoll = {
+  t: string;
+  ok: boolean;
+  bootId?: string;
+  rttMs?: number;
+  stalls?: number;
+  error?: string;
+};
+
+/**
+ * O-1 exclusions (94S-440, 94S-443; decided with Codex 2026-09-25). The
+ * target itself (availability 1.0, the 2s timeout) is the config's.
+ * - runner: a slot the host runner never probed says nothing of the API;
+ * - host: a timeout with no answer but 200 while the VM probe saw a stall
+ *   of at least `stallMinMs` surely overlapping the request, i.e. the whole
+ *   VM stood still. "Surely": the stall narrowed by its clock uncertainty,
+ *   the request to [t + spawnMs, t + ms], where curl ran however late it
+ *   started (samples from before spawnMs: all of wallMs - ms before it).
+ * Past either ratio of all samples the measurement itself is suspect, and
+ * O-1 fails.
+ */
+export const READYZ_EXCLUSION = {
+  stallMinMs: 1000,
+  maxHostExcludedRatio: 0.01,
+  maxRunnerMissedRatio: 0.01,
+};
+
+const RUNNER_ERRORS = ["slot missed", "probe did not run"];
+const CURL_TIMEOUT = "curl exit 28";
+
+export function judgeReadyz(
+  samples: ReadyzSample[],
+  stalls: VmStall[],
+  target: number,
+) {
+  const long = stalls
+    .filter((stall) => stall.gapMs >= READYZ_EXCLUSION.stallMinMs)
+    .map((stall) => ({
+      from: stall.from + stall.offsetMs + stall.offsetErrorMs,
+      to: stall.to + stall.offsetMs - stall.offsetErrorMs,
+      label: `${new Date(stall.from + stall.offsetMs).toISOString()} +${stall.gapMs}ms`,
+    }));
+  const runnerMissed: ReadyzSample[] = [];
+  const hostExcluded: Array<{
+    t: string;
+    error: string | null;
+    stall: string;
+  }> = [];
+  const product: ReadyzSample[] = [];
+  let ok = 0;
+  for (const sample of samples) {
+    if (sample.ok) {
+      ok++;
+      continue;
+    }
+    if (RUNNER_ERRORS.some((prefix) => sample.error?.startsWith(prefix))) {
+      runnerMissed.push(sample);
+      continue;
+    }
+    const sent = Date.parse(sample.t);
+    const from =
+      sent + (sample.spawnMs ?? Math.max(0, sample.wallMs - sample.ms));
+    const until = sent + sample.ms;
+    const stall =
+      sample.error === CURL_TIMEOUT &&
+      (sample.status === 0 || sample.status === 200)
+        ? long.find((entry) => entry.from < until && entry.to > from)
+        : undefined;
+    if (stall) {
+      hostExcluded.push({
+        t: sample.t,
+        error: sample.error,
+        stall: stall.label,
+      });
+    } else {
+      product.push(sample);
+    }
+  }
+  const total = samples.length;
+  const judged = total - runnerMissed.length - hostExcluded.length;
+  const ratio = (n: number) => (total ? n / total : 0);
+  const availability = judged > 0 ? ok / judged : null;
+  return {
+    pass:
+      availability !== null &&
+      availability >= target &&
+      ratio(hostExcluded.length) <= READYZ_EXCLUSION.maxHostExcludedRatio &&
+      ratio(runnerMissed.length) <= READYZ_EXCLUSION.maxRunnerMissedRatio,
+    samples: total,
+    ok,
+    judged,
+    availability,
+    productFailures: product.map(({ t, error, status }) => ({
+      t,
+      error,
+      status,
+    })),
+    runnerMissed: runnerMissed.length,
+    runnerMissedRatio: ratio(runnerMissed.length),
+    hostExcluded: hostExcluded.length,
+    hostExcludedRatio: ratio(hostExcluded.length),
+    hostExcludedSamples: hostExcluded,
+    stalls: {
+      count: long.length,
+      maxGapMs: Math.max(0, ...stalls.map((stall) => stall.gapMs)),
+      list: long.map((stall) => stall.label),
+    },
+  };
+}
 
 type ReconcilerSample = {
   t: string;
@@ -630,6 +756,7 @@ async function readyzProbe(
     ],
     { stderr: "ignore", stdout: "pipe" },
   );
+  const spawnMs = Date.now() - sent;
   const [text, code] = await Promise.all([
     new Response(child.stdout).text(),
     child.exited,
@@ -642,7 +769,73 @@ async function readyzProbe(
     ok: code === 0 && status === 200,
     status,
     wallMs: Date.now() - sent,
+    spawnMs,
   };
+}
+
+/**
+ * Reads the VM probe's new stalls. A poll slower than the stalls the soak
+ * judges on is dropped whole: its clock offset is too loose to place them.
+ */
+function vmLagUrl(env: SoakEnv): string {
+  if (!env.vmLagUrl) {
+    throw new Error(
+      "SOAK_VM_LAG_URL is not set: bring the stack up with this checkout's scripts/soak/stack.sh",
+    );
+  }
+  return env.vmLagUrl;
+}
+
+async function pollVmStalls(soak: Soak, url: string): Promise<void> {
+  const cursor = soak.vmCursor;
+  const t = new Date().toISOString();
+  const poll = soak.out.jsonl("vm-probe");
+  try {
+    const sent = Date.now();
+    const response = await fetch(`${url}/stalls?since=${cursor.index}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    const body = (await response.json()) as {
+      bootId: string;
+      now: number;
+      stalls: Stall[];
+    };
+    const received = Date.now();
+    const rttMs = received - sent;
+    if (rttMs >= READYZ_EXCLUSION.stallMinMs) {
+      throw new Error(`poll took ${rttMs}ms`);
+    }
+    // A restarted probe counts from 0 again; what it missed while down
+    // stays missed, which only leaves failures unexcused.
+    if (body.bootId !== cursor.bootId) {
+      const reread = cursor.index > 0;
+      cursor.bootId = body.bootId;
+      cursor.index = 0;
+      if (reread) throw new Error(`probe restarted as ${body.bootId}`);
+    }
+    const offsetMs = Math.round((sent + received) / 2 - body.now);
+    const offsetErrorMs = Math.ceil(rttMs / 2);
+    const sink = soak.out.jsonl("vm-stalls");
+    for (const stall of body.stalls) {
+      const entry = { ...stall, bootId: body.bootId, offsetMs, offsetErrorMs };
+      soak.vmStalls.push(entry);
+      sink.write(entry);
+      cursor.index = stall.index + 1;
+    }
+    const sample = {
+      t,
+      ok: true,
+      bootId: body.bootId,
+      rttMs,
+      stalls: body.stalls.length,
+    };
+    soak.vmPolls.push(sample);
+    poll.write(sample);
+  } catch (error) {
+    const sample = { t, ok: false, error: String(error) };
+    soak.vmPolls.push(sample);
+    poll.write(sample);
+  }
 }
 
 function background(soak: Soak, clock: Clock): Promise<void>[] {
@@ -667,6 +860,9 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
     every(clock, config.invariants.intervalMin * 60_000, async () => {
       await invariantSample(soak);
     }),
+    every(clock, config.sampleIntervalSec * 1000, () =>
+      pollVmStalls(soak, vmLagUrl(env)),
+    ),
   ];
   // The compose reconciler (94S-320) runs its own loop; its status file is
   // the record of whether passes kept succeeding over the whole run.
@@ -721,6 +917,8 @@ export type JudgeInput = Pick<
   | "readyz"
   | "reconciler"
   | "turns"
+  | "vmPolls"
+  | "vmStalls"
 >;
 
 /** The longest stretch in [from, to] with no sample, in ms. */
@@ -908,8 +1106,15 @@ export function judge(
     const key = turn.status ?? `rejected ${turn.acceptStatus}`;
     statusCounts[key] = (statusCounts[key] ?? 0) + 1;
   }
-  const readyzOk = readyz.filter((sample) => sample.ok).length;
-  const availability = readyz.length ? readyzOk / readyz.length : null;
+  const readyzJudged = judgeReadyz(
+    readyz,
+    soak.vmStalls,
+    targets.readyzAvailability,
+  );
+  const probePolls = {
+    ok: soak.vmPolls.filter((poll) => poll.ok).length,
+    failed: soak.vmPolls.filter((poll) => !poll.ok).length,
+  };
   const lastObservations = invariantSamples.at(-1)?.observations ?? {};
   const maxObservation = (name: string) =>
     Math.max(
@@ -1081,10 +1286,10 @@ export function judge(
     criterion({
       id: "O-1",
       area: "관측",
-      input: `/readyz ${readyz.length}회, ${config.readyz.intervalMs}ms 간격`,
-      expected: `가용률 ≥ ${targets.readyzAvailability}`,
-      actual: `가용률 ${availability}, 실패 ${readyz.length - readyzOk}회, 응답 시간(curl) ${JSON.stringify(distribution(readyz.map((sample) => sample.ms)))}`,
-      pass: availability !== null && availability >= targets.readyzAvailability,
+      input: `/readyz ${readyz.length}회, ${config.readyz.intervalMs}ms 간격, VM stall probe poll ${JSON.stringify(probePolls)}`,
+      expected: `러너 결측과 host 제외를 뺀 표본의 가용률 ≥ ${targets.readyzAvailability}. host 제외는 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall이 요청 구간과 겹친 timeout만이다. host 제외 ≤ ${READYZ_EXCLUSION.maxHostExcludedRatio * 100}%, 러너 결측 ≤ ${READYZ_EXCLUSION.maxRunnerMissedRatio * 100}%(넘으면 측정 무효)`,
+      actual: `가용률 ${readyzJudged.availability} (${readyzJudged.ok}/${readyzJudged.judged}), 제품 실패 ${JSON.stringify(readyzJudged.productFailures)}, host 제외 ${readyzJudged.hostExcluded}회(${readyzJudged.hostExcludedRatio}), 러너 결측 ${readyzJudged.runnerMissed}회(${readyzJudged.runnerMissedRatio}), VM stall ≥${READYZ_EXCLUSION.stallMinMs}ms ${readyzJudged.stalls.count}회·최대 ${readyzJudged.stalls.maxGapMs}ms(목록은 summary.json readyz.stalls), 응답 시간(curl) ${JSON.stringify(distribution(readyz.map((sample) => sample.ms)))}`,
+      pass: readyzJudged.pass,
     }),
     criterion({
       id: "O-3",
@@ -1191,7 +1396,7 @@ export function judge(
       startup: startupRows,
       ramp: rampRows,
       turns: { total: turns.length, byStatus: statusCounts },
-      readyz: { samples: readyz.length, ok: readyzOk, availability },
+      readyz: { ...readyzJudged, probePolls },
       anomalies: soak.anomalies.length,
       invariantSamples: invariantSamples.length,
     },
@@ -1208,6 +1413,7 @@ async function main(): Promise<number> {
   }
   const config = validConfig(await Bun.file(configPath).json());
   const env = soakEnv();
+  vmLagUrl(env);
   const stamp = new Date().toISOString().replaceAll(":", "").slice(0, 15);
   const dir = resolve(
     outArg ??
@@ -1293,6 +1499,7 @@ async function main(): Promise<number> {
   await invariantSample(soak);
   clock.stopping = true;
   await Promise.all(tasks);
+  await pollVmStalls(soak, vmLagUrl(env));
   workers.stop();
   soak.lifetimes.stop();
 
@@ -1388,6 +1595,8 @@ function rejudge(dir: string): number {
       readyz: readJsonl(at("readyz.jsonl")),
       reconciler: readJsonl(at("reconciler.jsonl")),
       turns: readJsonl(at("turns.jsonl")),
+      vmPolls: readJsonl(at("vm-probe.jsonl")),
+      vmStalls: readJsonl(at("vm-stalls.jsonl")),
     },
     { ...meta, rejudged_at: new Date().toISOString() },
   );

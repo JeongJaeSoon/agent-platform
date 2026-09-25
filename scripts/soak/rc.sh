@@ -32,6 +32,19 @@
 # Campaigns go first because they share the soak135 project with the soak.
 # Everything lands in $SOAK_STATE/rc-<sha7>/, progress in its rc.log, the
 # gate's report in d2-gate/.
+#
+# A stage may run from a later tools commit than the one that built the
+# images, under the same checks (descends from the RC, infra/ unchanged,
+# clean); rc.json's `stages` records, for every stage run, the product SHA
+# and the tools SHA it ran with. To run the soak again with fixed tools on
+# the images already built (94S-443):
+#
+#   stop the rc.sh still running, if any, and `stack.sh down`
+#   mv $SOAK_STATE/rc-<sha7>/soak $SOAK_STATE/rc-<sha7>/soak.<why>
+#   check out the tools commit (clean), then: scripts/soak/rc.sh <rc-sha> soak
+#
+# The images are not rebuilt; the soak refuses if their ids differ from
+# rc.json. The campaigns rerun the same way with scripts/soak/campaign.sh.
 set -uo pipefail
 umask 077
 
@@ -58,12 +71,22 @@ if [ "$stage" = all ]; then
   [ ! -e "$out" ] || die "${out} exists; move it aside first"
 else
   [ -f "$out/rc.json" ] || die "no ${out}/rc.json; run without a stage first"
-  jq -e --arg head "$head" '.tools_sha == $head' "$out/rc.json" >/dev/null ||
-    die "checkout ${head} is not the tools commit the campaigns ran with ($out/rc.json)"
 fi
 mkdir -p "$out"
 exec > >(tee -a "$out/rc.log") 2>&1
 stamp() { echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ) $*"; }
+# One entry per stage run, so a stage rerun from later tools stays on record.
+record_stage() {
+  local config=""
+  [ -z "${2:-}" ] || config="$(shasum -a 256 "$2" | cut -d' ' -f1)"
+  jq --arg stage "$1" --arg product "$rc" --arg tools "$head" --arg config "$config" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.stages = (.stages // []) + [{stage: $stage, product_sha: $product, tools_sha: $tools,
+      config_sha256: (if $config == "" then null else $config end), started_at: $at}]' \
+    "$out/rc.json" >"$out/rc.json.tmp" && mv "$out/rc.json.tmp" "$out/rc.json" ||
+    die "could not record the ${1} stage in rc.json"
+  stamp "${1}: product ${rc}, tools ${head}"
+}
 
 if [ "$stage" = all ]; then
   # From nothing: a stack left up (its database, bucket and Gitea) fails the
@@ -125,7 +148,7 @@ if [ "$stage" = all ]; then
     "$out/rc.json" >/dev/null || die "rc.json has an image without an id: $out/rc.json"
   stamp "rc.json written"
 
-  stamp "campaigns"
+  record_stage campaigns
   if SOAK_CAMPAIGNS_OUT="$out/campaigns" scripts/soak/campaign.sh; then
     echo pass >"$out/campaigns.status"
   else
@@ -165,7 +188,7 @@ if [ "$stage" != soak ]; then
   # Failed until proven otherwise: whatever stops the campaign from here on
   # leaves `soak` resumable with SOAK_RC_OVERRIDE.
   echo fail >"$out/interrupt.status"
-  stamp "interrupt campaign"
+  record_stage interrupt scripts/soak/config/interrupt-3h.json
   scripts/soak/stack.sh reset || die "stack reset failed"
   source "$state/vars.sh"
   bun scripts/soak/soak.ts scripts/soak/config/interrupt-3h.json "$out/interrupt"
@@ -185,9 +208,10 @@ if [ "$stage" != soak ]; then
 fi
 
 # mkdir is the lock: one soak per run directory, whichever call gets here first.
-mkdir "$out/soak" 2>/dev/null || die "${out}/soak exists: a soak already started there"
+mkdir "$out/soak" 2>/dev/null ||
+  die "${out}/soak exists: a soak already started there (to run it again, move it aside first)"
 
-stamp "soak 24h"
+record_stage soak scripts/soak/config/soak-24h.json
 scripts/soak/stack.sh reset || die "stack reset failed"
 source "$state/vars.sh"
 bun scripts/soak/soak.ts scripts/soak/config/soak-24h.json "$out/soak"
