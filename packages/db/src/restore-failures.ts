@@ -19,6 +19,12 @@ type SessionRow = typeof sessions.$inferSelect;
  */
 export const RESTORE_FAILURE_LIMIT = 3;
 
+/** A deterministic runtime/profile mismatch cannot succeed on another launch. */
+export const INCOMPATIBLE_CHECKPOINT_REASON = "incompatible_checkpoint";
+
+const INCOMPATIBLE_CHECKPOINT_PREFIX =
+  "Checkpoint restore refused (INCOMPATIBLE_CHECKPOINT):";
+
 /** Leaves room for the worker's error while keeping it one line of a row. */
 const REASON_MAX_CHARS = 500;
 
@@ -73,9 +79,17 @@ export async function recordStartupFailure(
     .from(attempts)
     .where(eq(attempts.id, input.attemptId))
     .limit(1);
-  const reason = boundedReason(attempt?.endReason ?? "execution_gone");
+  const endReason = attempt?.endReason ?? "execution_gone";
+  const restoring = startupFailure(session) === "restore";
+  const incompatible =
+    restoring &&
+    (endReason === INCOMPATIBLE_CHECKPOINT_REASON ||
+      endReason.startsWith(INCOMPATIBLE_CHECKPOINT_PREFIX));
+  const reason = incompatible
+    ? INCOMPATIBLE_CHECKPOINT_REASON
+    : boundedReason(endReason);
   const failures = session.restoreFailureCount + 1;
-  const stopped = failures >= RESTORE_FAILURE_LIMIT;
+  const stopped = incompatible || failures >= RESTORE_FAILURE_LIMIT;
   const [updated] = await tx
     .update(sessions)
     .set({
@@ -92,7 +106,6 @@ export async function recordStartupFailure(
     })
     .where(eq(sessions.id, session.id))
     .returning({ retryAt: sessions.restoreRetryAt });
-  const restoring = startupFailure(session) === "restore";
   const failure = {
     type: "system",
     subtype: restoring ? "checkpoint_restore_failed" : "startup_failed",
@@ -128,7 +141,11 @@ export async function recordStartupFailure(
     phase: "failed",
     extra: {
       admission_state: "recovery_required",
-      reason: restoring ? "restore_failed" : "startup_failed",
+      reason: incompatible
+        ? INCOMPATIBLE_CHECKPOINT_REASON
+        : restoring
+          ? "restore_failed"
+          : "startup_failed",
     },
     turnRowId: null,
     now,

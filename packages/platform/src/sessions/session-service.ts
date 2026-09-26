@@ -462,7 +462,7 @@ export function createSessionService(deps: {
         case "not_restore_failed":
           throw new SessionServiceError(
             "REQUEST_STALE",
-            `Session is ${result.admissionState} and was not stopped by failed checkpoint restores; retry_restore applies only to a recovery_required session whose RESTORE_FAILED attention reached its limit`,
+            `Session is ${result.admissionState} and was not stopped by failed checkpoint restores; retry_restore applies only to a recovery_required session whose RESTORE_FAILED attention reached its limit or reports incompatible_checkpoint`,
           );
         default:
           return result.response;

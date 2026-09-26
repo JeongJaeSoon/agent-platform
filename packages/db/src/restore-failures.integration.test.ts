@@ -20,7 +20,10 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
-import { RESTORE_FAILURE_LIMIT } from "./restore-failures.ts";
+import {
+  INCOMPATIBLE_CHECKPOINT_REASON,
+  RESTORE_FAILURE_LIMIT,
+} from "./restore-failures.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -316,6 +319,8 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
 
   const REFUSED =
     "Checkpoint restore refused (CHECKPOINT_UNAVAILABLE): manifests/x/0 arrived damaged: it fails the store's own checksum";
+  const INCOMPATIBLE =
+    "Checkpoint restore refused (INCOMPATIBLE_CHECKPOINT): sdkVersion 1 where this worker runs 2";
 
   /** A worker claims with the restore, fails it, releases, and is seen gone. */
   async function failRestore(session: Session, release = true) {
@@ -458,6 +463,69 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect((await sessionRow(session.sessionId)).restoreAttemptId).toBe(
       claimed.attempt_id,
     );
+  });
+
+  test("holds an incompatible checkpoint after its first failed launch", async () => {
+    const session = await checkpointedSession("incompatible");
+    const start = (await sessionRow(session.sessionId)).executionGeneration;
+    const { worker } = await claimReserved(session);
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: INCOMPATIBLE,
+    });
+    await gateway.confirmExecutionGone(worker.executionId);
+
+    const held = await sessionRow(session.sessionId);
+    expect(held.admissionState).toBe("recovery_required");
+    expect(held.status).toBe("failed");
+    expect(held.restoreFailureCount).toBe(1);
+    expect(held.restoreFailureReason).toBe(INCOMPATIBLE_CHECKPOINT_REASON);
+    expect(held.restoreRetryAt).toBeNull();
+    expect(held.executionGeneration).toBe(start + 1);
+    expect(await launchable(session)).toBe(false);
+    expect(await queuedTurns(session.sessionId)).toBe(1);
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toEqual({
+      code: "RESTORE_FAILED",
+      reason: INCOMPATIBLE_CHECKPOINT_REASON,
+      failures: 1,
+      retry_at: null,
+    });
+    expect(
+      await systemEvents(session.sessionId, "checkpoint_restore_failed"),
+    ).toEqual([
+      expect.objectContaining({
+        checkpoint_revision: 0,
+        failures: 1,
+        limit: RESTORE_FAILURE_LIMIT,
+        reason: INCOMPATIBLE_CHECKPOINT_REASON,
+        retry_at: null,
+      }),
+    ]);
+    const [status] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(eq(events.sessionId, session.sessionId), eq(events.type, "status")),
+      )
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(status?.payload).toMatchObject({
+      phase: "failed",
+      admission_state: "recovery_required",
+      reason: INCOMPATIBLE_CHECKPOINT_REASON,
+    });
+
+    expect(await decide(session, "retry_restore")).toMatchObject({
+      outcome: "accepted",
+    });
+    const retried = await sessionRow(session.sessionId);
+    expect(retried.admissionState).toBe("active");
+    expect(retried.restoreFailureCount).toBe(0);
+    expect(retried.restoreFailureReason).toBeNull();
+    expect(await launchable(session)).toBe(true);
   });
 
   test("retry_restore restores the same checkpoint again, with the count started over (94S-348)", async () => {
