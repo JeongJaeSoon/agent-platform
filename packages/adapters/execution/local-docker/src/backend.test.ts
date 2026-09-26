@@ -143,6 +143,8 @@ class FakeDocker {
   stallCreatesMs = 0;
   /** What every inode helper exits with; 0 is "limit read back in force". */
   inodeHelperExit = 0;
+  /** Every inode helper start waits this long before it runs. */
+  stallHelperStartsMs = 0;
   /** Every inode helper started, in order. */
   readonly inodeHelperRuns: ContainerCreateBody[] = [];
   /** Ids of every inode helper ever created, removed or not. */
@@ -656,10 +658,18 @@ class FakeDocker {
       if (container.status === "running")
         return new Response(null, { status: 304 });
       if (isHelper) {
-        // The helper does its work and exits before anyone waits on it.
+        if (this.stallHelperStartsMs > 0) {
+          await Bun.sleep(this.stallHelperStartsMs);
+        }
+        // The helper does its work and exits before anyone waits on it. A
+        // volume gone by then is one Docker makes afresh, without a size, so
+        // it has no xfs project of its own.
         this.inodeHelperRuns.push(container.body);
         container.status = "exited";
-        container.exitCode = this.inodeHelperExit;
+        const source = container.body.HostConfig.Mounts[0]?.Source ?? "";
+        container.exitCode = this.volumes.has(source)
+          ? this.inodeHelperExit
+          : 12;
         return new Response(null, { status: 204 });
       }
       container.status = "running";
@@ -3503,6 +3513,43 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     await expect(backend.verifyWorkspaceQuota()).rejects.toThrow(
       "cannot put a size and inode quota",
     );
+    expect(probesLeft()).toEqual([]);
+  });
+
+  test("a young probe is another preflight's, mid-run, and is left alone (94S-418)", async () => {
+    // Only the old leftover is an interrupted run's. The preflight runs
+    // outside the pass lock, so a young one may still be in use.
+    const labels = {
+      [LABELS.installation]: "test-a",
+      [LABELS.quotaProbe]: "true",
+    };
+    docker.addVolume(`${probePrefix}old00000`, labels);
+    docker.addVolume(
+      `${probePrefix}young000`,
+      labels,
+      null,
+      new Date(Date.now() - 5_000).toISOString(),
+    );
+    await expect(backend.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(probesLeft()).toEqual([`${probePrefix}young000`]);
+  });
+
+  test("two preflights at once both pass (94S-418)", async () => {
+    // The second one's stray sweep lands while the first one's helper is
+    // still starting, e.g. a standalone --once beside the loop's pass.
+    docker.stallHelperStartsMs = 100;
+    const first = backend.verifyWorkspaceQuota();
+    const deadline = Date.now() + 5_000;
+    while (probesLeft().length === 0 && Date.now() < deadline) {
+      await Bun.sleep(1);
+    }
+    expect(probesLeft()).toHaveLength(1);
+    const second = backend.verifyWorkspaceQuota();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      undefined,
+      undefined,
+    ]);
+    expect(docker.inodeHelperRuns).toHaveLength(2);
     expect(probesLeft()).toEqual([]);
   });
 
