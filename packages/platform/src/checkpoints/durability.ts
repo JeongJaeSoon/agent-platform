@@ -88,26 +88,6 @@ export function nextPendingReason(
   return checkpointReasonHoldsWork(stored) ? stored : reported;
 }
 
-export type CheckpointAdmission =
-  | { admitted: true }
-  | { admitted: false; code: "CHECKPOINT_UNAVAILABLE"; message: string };
-
-/**
- * Whether the session may take a new turn or record a terminal outcome. A
- * turn the platform cannot checkpoint must not be reported as durably finished,
- * so the SDK reporting success is not on its own enough to confirm one.
- */
-export function checkpointAdmission(
-  pendingReason: CheckpointBlockReason | null,
-): CheckpointAdmission {
-  if (!checkpointReasonHoldsWork(pendingReason)) return { admitted: true };
-  return {
-    admitted: false,
-    code: "CHECKPOINT_UNAVAILABLE",
-    message: `Session cannot be checkpointed: ${pendingReason}`,
-  };
-}
-
 export type DurabilityFacts = {
   checkpointCommittedAt: Date | null;
   checkpointFallbackRevision: number | null;
@@ -116,7 +96,7 @@ export type DurabilityFacts = {
   lastCheckpointedTurnId: string | null;
   lastCompletedTurnId: string | null;
   lastTranscriptPersistedAt: Date | null;
-  pendingReason: CheckpointBlockReason | null;
+  pendingReason: CheckpointBlockReason | "unknown" | null;
 };
 
 export function projectDurability(facts: DurabilityFacts): SessionDurability {

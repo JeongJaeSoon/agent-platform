@@ -26,7 +26,6 @@ import type {
   Principal,
   SessionAction,
 } from "../authorization/policy.ts";
-import { checkpointAdmission } from "../checkpoints/durability.ts";
 import { budgetExceeded } from "../limits/installation-limits.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
@@ -318,15 +317,11 @@ export function createSessionService(deps: {
           const rejection = ADMISSION_REJECTIONS[result.admissionState];
           throw new SessionServiceError(rejection.code, rejection.message);
         }
-        case "checkpoint_unavailable": {
-          const admission = checkpointAdmission(result.reason);
+        case "checkpoint_unavailable":
           throw new SessionServiceError(
             "CHECKPOINT_UNAVAILABLE",
-            admission.admitted
-              ? `Session cannot be checkpointed: ${result.reason}`
-              : admission.message,
+            `Session cannot be checkpointed: ${result.reason}`,
           );
-        }
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
