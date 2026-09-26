@@ -280,6 +280,42 @@ describe("usageMeter", () => {
       });
     });
 
+    test("a search result too long to parse is still counted, split or whole (Codex R3)", () => {
+      const huge = sse([
+        {
+          type: "content_block_start",
+          index: 1,
+          content_block: {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_1",
+            content: [
+              {
+                type: "web_search_result",
+                encrypted_content: "x".repeat(300 * 1024),
+              },
+            ],
+          },
+        },
+      ]);
+      const head = sse([
+        {
+          type: "message_start",
+          message: { model: "claude-opus-5", usage: { input_tokens: 5 } },
+        },
+      ]);
+      expect(
+        metered("text/event-stream", [head, huge]).web_search_requests,
+      ).toBe(1);
+      expect(
+        metered("text/event-stream", [
+          head,
+          huge.slice(0, 1000),
+          huge.slice(1000, 280 * 1024),
+          huge.slice(280 * 1024),
+        ]).web_search_requests,
+      ).toBe(1);
+    });
+
     test("a stream cut short keeps the tool counts it saw", () => {
       const stream = sse([
         {

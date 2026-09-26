@@ -225,6 +225,19 @@ export function usageMeter(contentType: string | null): UsageMeter {
         }
       }
     };
+    // A line too long to parse is counted from its head: a search result can
+    // outgrow the limit, and only a successful one does, an error being a
+    // few bytes. Its type fields lead the event.
+    const skipped = (head: string) => {
+      const start = head.slice(0, 512);
+      if (
+        start.startsWith("data:") &&
+        start.includes('"content_block_start"') &&
+        start.includes('"web_search_tool_result"')
+      ) {
+        searched += 1;
+      }
+    };
     return {
       observe(chunk) {
         const lines = decoder.decode(chunk, { stream: true }).split("\n");
@@ -232,6 +245,7 @@ export function usageMeter(contentType: string | null): UsageMeter {
         for (const piece of lines) {
           const whole = skipping ? piece : line + piece;
           if (skipping || whole.length > MAX_EVENT_LINE_BYTES) {
+            if (!skipping) skipped(whole);
             delivered += whole.length;
           } else if (whole.startsWith("data:")) {
             event(whole.slice(5).trim());
@@ -245,6 +259,7 @@ export function usageMeter(contentType: string | null): UsageMeter {
         }
         line += last;
         if (line.length > MAX_EVENT_LINE_BYTES) {
+          skipped(line);
           delivered += line.length;
           line = "";
           skipping = true;
