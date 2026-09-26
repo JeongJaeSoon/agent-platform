@@ -19,15 +19,31 @@ describe("runtime-core contracts", () => {
       "resume",
       "resume",
     ]);
-    const keys: Array<keyof AgentRuntime> = ["capabilities", "start"];
-    const runKeys: Array<keyof AgentRun> = [
-      "send",
-      "events",
-      "interrupt",
-      "abort",
-      "close",
-      "prepareCheckpoint",
-    ];
-    expect(keys.length + runKeys.length).toBe(8);
+  });
+
+  // `satisfies` fails the type check on a member missing here or one the
+  // interface no longer has; the runtime assertion cannot see either.
+  test("the listed members are exactly AgentRuntime's and AgentRun's", () => {
+    const runtimeMembers = {
+      capabilities: true,
+      start: true,
+    } satisfies Record<keyof AgentRuntime, true>;
+    const runMethods = {
+      abort: true,
+      close: true,
+      events: true,
+      finishInput: true,
+      holdsInput: true,
+      interrupt: true,
+      leaseCheckpoint: true,
+      prepareCheckpoint: true,
+      ready: true,
+      send: true,
+    } satisfies Record<
+      Exclude<keyof AgentRun, typeof Symbol.asyncIterator>,
+      true
+    >;
+    expect(Object.keys(runtimeMembers)).toHaveLength(2);
+    expect(Object.keys(runMethods)).toHaveLength(10);
   });
 });

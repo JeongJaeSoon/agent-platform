@@ -13,7 +13,7 @@ test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scr
 | 값 | 대상 | 접속 정보 |
 |---|---|---|
 | `localstack`(기본값) | compose project의 LocalStack | published 4566 포트. 자격 증명과 region은 `docker inspect`로 그 컨테이너가 받은 env에서 읽는다 |
-| `env` | 호출 셸이 가리키는 S3 호환 저장소(AWS S3 포함) | API와 같은 변수(`storageConfigFromEnv`): `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, 그리고 `AWS_ENDPOINT_URL`(없으면 AWS S3). 세 변수 중 하나라도 없으면 시작하지 않는다 |
+| `env` | 호출 셸이 가리키는 S3 호환 저장소(AWS S3 포함) | API와 같은 변수(`checkpointStorageConfigFromEnv`): `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, 그리고 `AWS_ENDPOINT_URL`(없으면 AWS S3). 세 변수 중 하나라도 없으면 시작하지 않는다 |
 
 `env` 대상 자격 증명에 필요한 S3 권한은 다음과 같다.
 

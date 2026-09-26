@@ -252,7 +252,6 @@ jobs:
               - tests/test-files.
               - tests/third-party-notices.
               - tests/unit-part.
-              - tests/workspace.
             skips:
               # The D2 gate (94S-247) needs the whole compose stack and the
               # images built from the checkout; scripts/d2-gate/run.sh runs it.

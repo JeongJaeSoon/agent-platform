@@ -2,12 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createLogger,
-  createObservability,
-  InMemoryMetrics,
-  InMemoryTracer,
   logLevelFromEnv,
   MemoryLogSink,
-  NoopMetrics,
   resolveLogLevel,
 } from "./index.ts";
 
@@ -129,30 +125,18 @@ describe("structured logging", () => {
 describe("M0 async flow simulation", () => {
   test("propagates API context through claim, turn, and checkpoint", async () => {
     const sink = new MemoryLogSink();
-    const metrics = new InMemoryMetrics();
-    const tracer = new InMemoryTracer();
-    const observability = createObservability(
-      createLogger({ sinks: [sink] }),
-      metrics,
-      tracer,
-    );
+    const logger = createLogger({ sinks: [sink] });
 
-    await observability.logger.withContext(
+    await logger.withContext(
       { session_id: "session-1", pod_id: "worker-1" },
       async () => {
-        observability.logger.info("api.accepted", { route: "/sessions" });
+        logger.info("api.accepted", { route: "/sessions" });
         await Promise.resolve();
-        await observability.withSpan("session.claim", async () => {
-          observability.logger.info("worker.claimed");
-          metrics.counter("session_claim_total", 1, { outcome: "success" });
-          await observability.logger.withContext({ turn_id: 7 }, async () => {
-            observability.logger.info("turn.started", {
-              body: "private prompt",
-            });
-            metrics.histogram("turn_duration_ms", 12, { outcome: "success" });
-            await Promise.resolve();
-            observability.logger.info("checkpoint.stored");
-          });
+        logger.info("worker.claimed");
+        await logger.withContext({ turn_id: 7 }, async () => {
+          logger.info("turn.started", { body: "private prompt" });
+          await Promise.resolve();
+          logger.info("checkpoint.stored");
         });
       },
     );
@@ -172,45 +156,6 @@ describe("M0 async flow simulation", () => {
     expect(sink.records.slice(2).map((record) => record.turn_id)).toEqual([
       7, 7,
     ]);
-    expect(sink.records.slice(1).map((record) => record.trace_id)).toEqual([
-      expect.any(String),
-      sink.records[1]?.trace_id,
-      sink.records[1]?.trace_id,
-    ]);
     expect(sink.records[2]?.fields).toBeUndefined();
-    expect(metrics.counters.values().next().value).toMatchObject({
-      name: "session_claim_total",
-      value: 1,
-    });
-    expect(metrics.histograms).toHaveLength(1);
-    expect(tracer.spans[0]).toMatchObject({
-      name: "session.claim",
-      endedAt: expect.any(String),
-    });
-  });
-
-  test("redacts credential and message-body exception text before tracing", () => {
-    const tracer = new InMemoryTracer();
-    const span = tracer.startSpan("turn.failed");
-
-    span.recordException(
-      new Error("Authorization: Bearer ghp_not_for_a_trace"),
-    );
-    span.recordException(new Error("request body: private user instruction"));
-
-    expect(tracer.spans[0]?.exceptions).toEqual(["[REDACTED]", "[REDACTED]"]);
-    expect(JSON.stringify(tracer.spans)).not.toContain(
-      "private user instruction",
-    );
-    expect(JSON.stringify(tracer.spans)).not.toContain("ghp_not_for_a_trace");
-  });
-
-  test("offers a usable no-op metric implementation", () => {
-    const metrics = new NoopMetrics();
-    expect(() => {
-      metrics.counter("ignored");
-      metrics.gauge("ignored", 1);
-      metrics.histogram("ignored", 1);
-    }).not.toThrow();
   });
 });

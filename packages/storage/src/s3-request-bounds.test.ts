@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
-import { createStorageS3Client, type StorageConfig } from "./index.ts";
+import { createStorageS3Client, type StorageS3Settings } from "./index.ts";
 import {
   DEFAULT_BODY_READ_BOUNDS,
   S3_MAX_ATTEMPTS,
@@ -220,16 +220,8 @@ async function stallingXmlPeer(status: number): Promise<string> {
   return listen(server);
 }
 
-function configFor(s3Endpoint: string): StorageConfig {
+function configFor(s3Endpoint: string): { s3: StorageS3Settings } {
   return {
-    bucket: "bucket",
-    chunkBytes: 1024,
-    git: {
-      authorEmail: "test@example.com",
-      authorName: "test",
-      token: "test",
-      username: "test",
-    },
     s3: {
       accessKeyId: "test",
       endpoint: s3Endpoint,

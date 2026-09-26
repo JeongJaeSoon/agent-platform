@@ -13,7 +13,7 @@
  *
  * Environment: S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID,
  * AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL unless the store is AWS S3
- * itself — the variables the API reads (`storageConfigFromEnv`).
+ * itself — the variables the API reads (`checkpointStorageConfigFromEnv`).
  *
  * Exit 2 on usage, 4 when check-target refuses the bucket as a restore
  * target (the source's own, or not empty), 1 on anything else.

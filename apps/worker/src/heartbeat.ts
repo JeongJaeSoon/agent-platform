@@ -190,7 +190,7 @@ export class Heartbeat {
       .then(
         (response) => {
           if (waiting || !this.stopped) {
-            this.renew(response, sentAt, scope, transcript);
+            this.renew(response, sentAt, transcript);
           }
         },
         (error: unknown) => {
@@ -216,7 +216,6 @@ export class Heartbeat {
   private renew(
     response: HeartbeatResponse,
     sentAt: number,
-    scope: WorkerScope,
     transcript: TranscriptReport | undefined,
   ): void {
     if (this.lost) return;
@@ -233,11 +232,6 @@ export class Heartbeat {
     );
     if (transcript?.mirror_error != null) this.mirrorErrorAnswered = true;
     if (response.control_pending) this.options.onControlPending?.();
-    if (response.auth_revision !== scope.auth_revision) {
-      // The session's authorization moved on, so this token's binding is
-      // already behind and every write it makes would be fenced out.
-      this.declareLost(`auth_revision advanced to ${response.auth_revision}`);
-    }
   }
 
   private refused(error: unknown): void {

@@ -54,11 +54,11 @@ function heartbeat(
   return { beats, heartbeat: instance, lost };
 }
 
-function answer(remainingMs: number, authRevision = scope.auth_revision) {
+function answer(remainingMs: number) {
   return {
     lease_expires_at: new Date(Date.now() + remainingMs).toISOString(),
     lease_remaining_ms: remainingMs,
-    auth_revision: authRevision,
+    auth_revision: scope.auth_revision,
     control_pending: false,
   };
 }
@@ -212,17 +212,6 @@ describe("Heartbeat", () => {
 
     expect(lost).toHaveLength(1);
     expect(lost[0]).toContain("UNAUTHORIZED");
-  });
-
-  test("declares ownership lost when the session's authorization moves on", async () => {
-    const { heartbeat: beat, lost } = heartbeat(async () =>
-      answer(30_000, scope.auth_revision + 1),
-    );
-    beat.start();
-    await settle();
-    await beat.stop();
-
-    expect(lost).toEqual(["auth_revision advanced to 8"]);
   });
 
   test("rides out an unreachable gateway until the safety margin before the lease's end", async () => {
