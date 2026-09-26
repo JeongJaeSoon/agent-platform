@@ -143,8 +143,8 @@ class FakeDocker {
   stallCreatesMs = 0;
   /** What every inode helper exits with; 0 is "limit read back in force". */
   inodeHelperExit = 0;
-  /** Every inode helper start waits this long before it runs. */
-  stallHelperStartsMs = 0;
+  /** Every inode helper create waits on this before the daemon takes it. */
+  holdHelperCreates: Promise<void> | null = null;
   /** Every inode helper started, in order. */
   readonly inodeHelperRuns: ContainerCreateBody[] = [];
   /** Ids of every inode helper ever created, removed or not. */
@@ -303,6 +303,12 @@ class FakeDocker {
       // takes a fresh name each run and is never part of one.
       const peek = (await request.clone().json()) as ContainerCreateBody;
       if (peek.Labels[INODE_HELPER_LABEL] !== undefined) {
+        await this.holdHelperCreates;
+        // Docker makes a mount's missing volume afresh, with no size.
+        const source = peek.HostConfig.Mounts[0]?.Source ?? "";
+        if (!this.volumes.has(source)) {
+          this.addVolume(source, {}, null, new Date().toISOString());
+        }
         const helper = this.add(name, peek, "created");
         this.inodeHelperIds.add(helper.id);
         return json({ Id: helper.id, Warnings: [] }, 201);
@@ -658,18 +664,15 @@ class FakeDocker {
       if (container.status === "running")
         return new Response(null, { status: 304 });
       if (isHelper) {
-        if (this.stallHelperStartsMs > 0) {
-          await Bun.sleep(this.stallHelperStartsMs);
-        }
         // The helper does its work and exits before anyone waits on it. A
-        // volume gone by then is one Docker makes afresh, without a size, so
-        // it has no xfs project of its own.
+        // volume created without a size has no xfs project of its own.
         this.inodeHelperRuns.push(container.body);
         container.status = "exited";
         const source = container.body.HostConfig.Mounts[0]?.Source ?? "";
-        container.exitCode = this.volumes.has(source)
-          ? this.inodeHelperExit
-          : 12;
+        container.exitCode =
+          this.volumes.get(source)?.options?.size === undefined
+            ? 12
+            : this.inodeHelperExit;
         return new Response(null, { status: 204 });
       }
       container.status = "running";
@@ -3534,17 +3537,42 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     expect(probesLeft()).toEqual([`${probePrefix}young000`]);
   });
 
+  test("a long request timeout keeps a probe young for longer (94S-418)", async () => {
+    // Twenty one-minute requests: a 15-minute-old probe may still be live.
+    const patient = new LocalDockerBackend({
+      ...configFor(docker.host),
+      requestTimeoutMs: 60_000,
+    });
+    docker.addVolume(
+      `${probePrefix}slow0000`,
+      { [LABELS.installation]: "test-a", [LABELS.quotaProbe]: "true" },
+      null,
+      new Date(Date.now() - 15 * 60_000).toISOString(),
+    );
+    await expect(patient.verifyWorkspaceQuota()).resolves.toBeUndefined();
+    expect(probesLeft()).toEqual([`${probePrefix}slow0000`]);
+  });
+
   test("two preflights at once both pass (94S-418)", async () => {
-    // The second one's stray sweep lands while the first one's helper is
-    // still starting, e.g. a standalone --once beside the loop's pass.
-    docker.stallHelperStartsMs = 100;
+    // The second one's stray sweep lands between the first one's probe and
+    // its helper, e.g. a standalone --once beside the loop's pass.
+    let release = () => {};
+    docker.holdHelperCreates = new Promise((resolve) => {
+      release = resolve;
+    });
+    const probeCreates = () =>
+      docker.requests.filter((r) => r.path === "/volumes/create").length;
+    const until = async (done: () => boolean) => {
+      const deadline = Date.now() + 5_000;
+      while (!done() && Date.now() < deadline) await Bun.sleep(1);
+      expect(done()).toBe(true);
+    };
     const first = backend.verifyWorkspaceQuota();
-    const deadline = Date.now() + 5_000;
-    while (probesLeft().length === 0 && Date.now() < deadline) {
-      await Bun.sleep(1);
-    }
-    expect(probesLeft()).toHaveLength(1);
+    await until(() => probesLeft().length === 1);
     const second = backend.verifyWorkspaceQuota();
+    // Its create is asked for only once its sweep is done.
+    await until(() => probeCreates() === 2);
+    release();
     await expect(Promise.all([first, second])).resolves.toEqual([
       undefined,
       undefined,

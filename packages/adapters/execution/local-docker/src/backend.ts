@@ -269,8 +269,14 @@ const NETWORK_PREFIX = "ap-net-";
 const VOLUME_PREFIX = "ap-ws-";
 /** The preflight probe's volume; see `LABELS.quotaProbe` for its labels. */
 const QUOTA_PROBE_PREFIX = "ap-quota-probe-";
-/** A probe lives one create, one inode helper run and one removal; far past all three. */
-const STRAY_PROBE_AGE_MS = 10 * 60_000;
+/**
+ * How old a probe must be before another preflight takes it for a leftover.
+ * A probe lives a handful of Docker requests, each bounded by the request
+ * timeout; the multiple leaves room for the stray helpers the inode helper
+ * clears first.
+ */
+const STRAY_PROBE_MIN_AGE_MS = 10 * 60_000;
+const STRAY_PROBE_REQUEST_TIMEOUTS = 20;
 /** Docker's own wording when the volume driver cannot honour `size`. */
 const NO_QUOTA_SUPPORT = "no quota support";
 // Docker: [a-zA-Z0-9][a-zA-Z0-9_.-]*
@@ -562,7 +568,12 @@ export class LocalDockerBackend implements ExecutionBackend {
     // lock, so a young one may be another preflight's, mid-run (94S-418).
     // Failing to remove one is not worth refusing the launch over: the
     // volume is empty, and the probe below still has to pass.
-    const cutoff = Date.now() - STRAY_PROBE_AGE_MS;
+    const cutoff =
+      Date.now() -
+      Math.max(
+        STRAY_PROBE_MIN_AGE_MS,
+        STRAY_PROBE_REQUEST_TIMEOUTS * this.config.requestTimeoutMs,
+      );
     for (const stray of await this.client.listVolumes([
       `${LABELS.quotaProbe}=true`,
       `${LABELS.installation}=${this.config.installationId}`,
