@@ -9,7 +9,7 @@ import {
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerInterruptRoutes } from "./interrupt.ts";
 
-const createApiApp = recordRouteErrors("interrupt.test.ts");
+const createApiApp = recordRouteErrors("routes/interrupt.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const RECEIPT = "019a0000-0000-7000-8000-000000000001";

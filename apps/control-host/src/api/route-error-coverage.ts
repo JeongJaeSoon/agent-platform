@@ -12,8 +12,8 @@ import {
 } from "./app.ts";
 import { scopedRouteErrors } from "./scope-policy.ts";
 
-// The test file whose requests must produce every error status a route's
-// handler declares. The OpenAPI parity test holds the keys' union to the
+// The test file (from this directory) whose requests must produce every
+// error status a route's handler declares. The OpenAPI parity test holds the keys' union to the
 // routes Hono serves.
 export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "app.test.ts": ["GET /v1"],
@@ -24,7 +24,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/auth/logout",
     "GET /v1/auth/me",
   ],
-  "sessions.test.ts": [
+  "routes/sessions.test.ts": [
     "POST /v1/sessions",
     "GET /v1/sessions",
     "GET /v1/sessions/{id}",
@@ -35,15 +35,15 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/resume",
     "POST /v1/sessions/{id}/recovery-decisions",
   ],
-  "receipts.test.ts": ["GET /v1/receipts/{id}"],
-  "pending.test.ts": [
+  "routes/receipts.test.ts": ["GET /v1/receipts/{id}"],
+  "routes/pending.test.ts": [
     "GET /v1/sessions/{id}/pending-requests",
     "POST /v1/sessions/{id}/answers",
   ],
-  "interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
-  "pause.test.ts": ["POST /v1/sessions/{id}/pause"],
-  "usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
-  "events.test.ts": ["GET /v1/sessions/{id}/events"],
+  "routes/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
+  "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
+  "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
+  "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims
@@ -141,10 +141,16 @@ export function recordRouteErrors(file: string): typeof createApiApp {
     app.request = async (input, init, ...rest) => {
       const response = await request(input, init, ...rest);
       if (response.status >= 400) {
-        const method =
-          init?.method ?? (input instanceof Request ? input.method : "GET");
+        const method = (
+          init?.method ?? (input instanceof Request ? input.method : "GET")
+        ).toUpperCase();
         const url = input instanceof Request ? input.url : String(input);
-        const target = `${method.toUpperCase()} ${new URL(url, "http://localhost").pathname}`;
+        // Hono serves HEAD with the GET handler and ignores a trailing slash.
+        const path = new URL(url, "http://localhost").pathname.replace(
+          /(.)\/$/,
+          "$1",
+        );
+        const target = `${method === "HEAD" ? "GET" : method} ${path}`;
         const operation = OPERATIONS.find((candidate) =>
           candidate.pattern.test(target),
         );

@@ -14,7 +14,7 @@ import {
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPendingRoutes } from "./pending.ts";
 
-const createApiApp = recordRouteErrors("pending.test.ts");
+const createApiApp = recordRouteErrors("routes/pending.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 

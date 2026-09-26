@@ -15,7 +15,7 @@ import {
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 
-const createApiApp = recordRouteErrors("sessions.test.ts");
+const createApiApp = recordRouteErrors("routes/sessions.test.ts");
 
 const codingProfile: SessionCatalog["profiles"][string] = {
   runtime_kind: "claude_agent_sdk",

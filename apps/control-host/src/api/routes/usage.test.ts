@@ -7,7 +7,7 @@ import { allowAllPolicy, createUsageService } from "@agent-platform/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerUsageRoutes } from "./usage.ts";
 
-const createApiApp = recordRouteErrors("usage.test.ts");
+const createApiApp = recordRouteErrors("routes/usage.test.ts");
 
 const app = createApiApp({
   authMode: "none",

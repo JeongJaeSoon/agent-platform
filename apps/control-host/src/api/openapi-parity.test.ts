@@ -76,12 +76,18 @@ test("every Hono handler is declared in the OpenAPI route table", () => {
 
 // The statuses themselves are compared where the handlers answer them: each
 // route test file records its responses (route-error-coverage.ts).
-test("every Hono handler has one test file that checks its error statuses", () => {
+test("every Hono handler has one test file that checks its error statuses", async () => {
   const owned = Object.values(ROUTE_ERROR_TESTS).flat();
   expect(owned.length, "a route is owned by two files").toBe(
     new Set(owned).size,
   );
   expect(owned.sort()).toEqual([...honoRoutes()].sort());
+  for (const file of Object.keys(ROUTE_ERROR_TESTS)) {
+    const source = await Bun.file(`${import.meta.dir}/${file}`).text();
+    expect(source, `${file} does not record its route errors`).toContain(
+      `recordRouteErrors("${file}")`,
+    );
+  }
 });
 
 test("OpenAPI routes without a handler are exactly the pending list", () => {

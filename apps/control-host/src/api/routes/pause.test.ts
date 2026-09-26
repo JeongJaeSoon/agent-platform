@@ -12,7 +12,7 @@ import {
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPauseRoutes } from "./pause.ts";
 
-const createApiApp = recordRouteErrors("pause.test.ts");
+const createApiApp = recordRouteErrors("routes/pause.test.ts");
 
 const sessionId = "019a0000-0000-7000-8000-000000000001";
 const path = `/v1/sessions/${sessionId}/pause`;
