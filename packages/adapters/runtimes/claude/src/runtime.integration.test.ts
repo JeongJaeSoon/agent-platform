@@ -1029,8 +1029,8 @@ describe("the engine's API key against its own tools (94S-410)", () => {
     // there is no /proc.
     await Bun.write(join(workspace, "probe.sh"), probe);
     await mkdir(join(workspace, ".claude"), { recursive: true });
-    // A repository's SessionStart hook is the earliest code the checkout
-    // runs; it must not have been handed the descriptor.
+    // Code the checkout runs through a SessionStart hook must not be handed
+    // the descriptor.
     const hookReport = join(workspace, "hook-fd.txt");
     await Bun.write(
       join(workspace, ".claude", "settings.json"),

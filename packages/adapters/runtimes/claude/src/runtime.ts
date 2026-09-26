@@ -232,19 +232,31 @@ function spawnEngine(
       apiKey === undefined
         ? ["pipe", "pipe", "ignore"]
         : ["pipe", "pipe", "ignore", "pipe"],
-    onExit: (_process, code, signal) => {
-      const signalCode = (signal ?? null) as NodeJS.Signals | null;
-      processObserver?.onExit?.(child.pid, code, signalCode);
-      events.emit("exit", code, signalCode);
-    },
   });
   processObserver?.onSpawn(child.pid);
+  // Not Bun's onExit, which may fire before spawn returns and so before the
+  // SDK listens: `exited` settles no earlier than the next microtask.
+  child.exited.then(
+    () => {
+      processObserver?.onExit?.(child.pid, child.exitCode, child.signalCode);
+      events.emit("exit", child.exitCode, child.signalCode);
+    },
+    (error: unknown) => {
+      if (events.listenerCount("error") > 0) events.emit("error", error);
+    },
+  );
   const descriptor = child.stdio[ENGINE_API_KEY_DESCRIPTOR];
   if (apiKey !== undefined && typeof descriptor === "number") {
+    const line = Buffer.from(`${apiKey}\n`);
     try {
-      writeSync(descriptor, `${apiKey}\n`);
+      let written = 0;
+      while (written < line.length) {
+        written += writeSync(descriptor, line, written);
+      }
     } catch {
-      // An engine gone before reading resets the socket; its exit reports that.
+      // An engine without its key line waits for it forever, or has
+      // already gone; either way, stopping it is what reports the failure.
+      child.kill();
     }
   }
   const input = child.stdin;
