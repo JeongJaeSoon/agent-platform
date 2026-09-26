@@ -147,8 +147,9 @@ export type ProviderUsageInput = {
 };
 
 export type ProviderUsageResult =
-  // `replayed`: the same report again, counted the first time only.
-  | { outcome: "recorded" | "replayed" }
+  // `replayed`: the same report again, counted the first time only. The
+  // cost is what was charged: rounded up to the micro-dollar.
+  | { outcome: "recorded" | "replayed"; costUsd: number }
   // No such attempt of that session.
   | { outcome: "unknown_attempt" }
   // The exchange id was recorded with other contents.

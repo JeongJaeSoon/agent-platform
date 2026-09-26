@@ -7,6 +7,7 @@ const nothing = {
   cacheCreationInputTokens: 0,
   cacheCreation1hInputTokens: 0,
   cacheReadInputTokens: 0,
+  estimated: false,
 };
 
 describe("priceProviderUsage (94S-409)", () => {
@@ -19,6 +20,7 @@ describe("priceProviderUsage (94S-409)", () => {
       cacheCreationInputTokens: 3_000_000,
       cacheCreation1hInputTokens: 1_000_000,
       cacheReadInputTokens: 1_000_000,
+      estimated: false,
     });
     expect(pricedBy).toBe("table");
     // 2 + 10 + 2 × 2 × 1.25 + 1 × 2 × 2 + 0.2

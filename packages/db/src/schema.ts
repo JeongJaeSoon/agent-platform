@@ -914,6 +914,11 @@ export const providerUsage = pgTable(
     cacheReadInputTokens: bigint("cache_read_input_tokens", {
       mode: "number",
     }).notNull(),
+    // The proxy estimated the call high because its answer did not say what
+    // it used: a stream cut short, or a body it could not read.
+    estimated: boolean().notNull(),
+    // What was charged: the priced amount rounded up to the micro-dollar,
+    // clamped to what the column holds. Exactly what the session got.
     costUsd: numeric("cost_usd", {
       precision: 14,
       scale: 6,

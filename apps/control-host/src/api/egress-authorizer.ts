@@ -114,6 +114,7 @@ const usageReportSchema = z
         cache_creation_input_tokens: tokenCount,
         cache_creation_1h_input_tokens: tokenCount,
         cache_read_input_tokens: tokenCount,
+        estimated: z.boolean(),
       })
       .strict(),
   })
@@ -276,6 +277,7 @@ export function createEgressAuthorizer(deps: {
         cacheCreationInputTokens: usage.cache_creation_input_tokens,
         cacheCreation1hInputTokens: usage.cache_creation_1h_input_tokens,
         cacheReadInputTokens: usage.cache_read_input_tokens,
+        estimated: usage.estimated,
       },
     });
     if (priced.pricedBy === "fallback") {

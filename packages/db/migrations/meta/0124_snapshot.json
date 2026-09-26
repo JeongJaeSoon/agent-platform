@@ -1,5 +1,5 @@
 {
-  "id": "88240bb7-ea85-40c1-9e9b-83218e527829",
+  "id": "554cf86d-578e-4e42-be7f-06285e96d142",
   "prevId": "fa666202-0e6e-4388-9e3d-b511d253f822",
   "version": "7",
   "dialect": "postgresql",
@@ -1602,6 +1602,12 @@
         "cache_read_input_tokens": {
           "name": "cache_read_input_tokens",
           "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "estimated": {
+          "name": "estimated",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true
         },

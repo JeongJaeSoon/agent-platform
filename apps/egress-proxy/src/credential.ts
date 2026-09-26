@@ -743,8 +743,12 @@ export function startCredentialProxy(
       return reply(502, "the authorizer signed no request", route.purpose);
     }
     let response: Response;
+    // What a Messages answer that says too little about its usage is
+    // charged from.
+    let sent: Uint8Array | null = null;
     try {
       const body = whole === null ? objectBody(request, grant) : await whole;
+      if (body instanceof Uint8Array) sent = body;
       response = await upstreamExchange(
         {
           address,
@@ -830,7 +834,16 @@ export function startCredentialProxy(
     const meter = usageMeter(response.headers.get("content-type"));
     const exchangeId = crypto.randomUUID();
     return new Response(
-      metered(guarded, meter, signal, (usage) => {
+      metered(guarded, meter, signal, () => {
+        const usage = meter.result(sent);
+        if (usage.estimated) {
+          logger.warn("Provider usage estimated", {
+            ...fields,
+            model: usage.model,
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+          });
+        }
         void reportUsage(grant, exchangeId, usage);
       }),
       { status: response.status, headers },
@@ -1233,15 +1246,14 @@ function metered(
   body: ReadableStream<Uint8Array> | null,
   meter: UsageMeter,
   ended: AbortSignal,
-  settle: (usage: MessagesUsage) => void,
+  settle: () => void,
 ): ReadableStream<Uint8Array> | null {
   let settled = false;
   const done = () => {
     if (settled) return;
     settled = true;
     ended.removeEventListener("abort", done);
-    const usage = meter.result();
-    if (usage !== null) settle(usage);
+    settle();
   };
   if (body === null || ended.aborted) {
     done();

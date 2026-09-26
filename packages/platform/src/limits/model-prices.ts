@@ -83,6 +83,8 @@ export type ProviderUsage = {
   cacheCreationInputTokens: number;
   cacheCreation1hInputTokens: number;
   cacheReadInputTokens: number;
+  /** The proxy estimated some of it high; the answer did not say. */
+  estimated: boolean;
 };
 
 export function priceProviderUsage(usage: ProviderUsage): {

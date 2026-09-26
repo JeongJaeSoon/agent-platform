@@ -622,7 +622,7 @@ describe("startCredentialProxy", () => {
       });
     });
 
-    test("count_tokens, an error answer and one without usage report nothing", async () => {
+    test("count_tokens and an error answer report nothing; a success without usage is charged from its request (Codex R1)", async () => {
       const up = upstream((request) =>
         new URL(request.url).pathname.endsWith("/count_tokens")
           ? Response.json({ input_tokens: 12 })
@@ -645,9 +645,17 @@ describe("startCredentialProxy", () => {
           headers: { "x-api-key": WORKER_TOKEN, "x-case": "error" },
         })
       ).text();
-      await (await messages(server.port)).text();
       await Bun.sleep(100);
       expect(auth.reported).toEqual([]);
+      const body = '{"model":"claude-sonnet-4-5","max_tokens":64}';
+      await (await messages(server.port, { body })).text();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]?.usage).toMatchObject({
+        model: "claude-sonnet-4-5",
+        input_tokens: body.length,
+        output_tokens: 64,
+        estimated: true,
+      });
     });
 
     test("a report the authorizer could not take is sent again under the same id; a refused one is not", async () => {

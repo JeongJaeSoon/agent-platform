@@ -184,6 +184,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       cacheCreationInputTokens: 0,
       cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 0,
+      estimated: false,
       ...counts,
     };
   }
@@ -576,11 +577,24 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
         usage: usage({ cacheReadInputTokens: 1 }),
       });
 
+      // The ledger holds what the session was charged, so the two add up.
       expect(await sessionCost(session.session_id)).toBe(0.000001);
+      const [row] = await db
+        .select({ costUsd: providerUsage.costUsd })
+        .from(providerUsage)
+        .where(eq(providerUsage.sessionId, session.session_id));
+      expect(row?.costUsd).toBe(0.000001);
     });
 
-    test("a sum past what the column holds saturates instead of failing the report", async () => {
+    test("a sum or a call past what the column holds saturates instead of failing the report (Codex R1)", async () => {
       const { session, claimed } = await bound();
+      await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ outputTokens: Number.MAX_SAFE_INTEGER }),
+      });
+      expect(await sessionCost(session.session_id)).toBe(MAX_SESSION_COST_USD);
       await spend(session.session_id, MAX_SESSION_COST_USD - 1);
 
       await gateway.recordProviderUsage({

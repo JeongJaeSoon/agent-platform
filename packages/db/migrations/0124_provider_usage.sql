@@ -8,6 +8,7 @@ CREATE TABLE "provider_usage" (
 	"cache_creation_input_tokens" bigint NOT NULL,
 	"cache_creation_1h_input_tokens" bigint NOT NULL,
 	"cache_read_input_tokens" bigint NOT NULL,
+	"estimated" boolean NOT NULL,
 	"cost_usd" numeric(14, 6) NOT NULL,
 	"priced_by" text NOT NULL,
 	"recorded_at" timestamp with time zone DEFAULT now() NOT NULL,

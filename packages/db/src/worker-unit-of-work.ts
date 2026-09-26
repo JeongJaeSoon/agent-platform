@@ -1301,13 +1301,21 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           cacheCreationInputTokens: input.usage.cacheCreationInputTokens,
           cacheCreation1hInputTokens: input.usage.cacheCreation1hInputTokens,
           cacheReadInputTokens: input.usage.cacheReadInputTokens,
+          estimated: input.usage.estimated,
         };
-        const inserted = await tx
+        // Rounded up to the column's micro-dollar, or a stream of tiny calls
+        // would each round away to nothing; clamped to the column, so a
+        // runaway figure saturates the budget instead of failing the report.
+        const [inserted] = await tx
           .insert(providerUsage)
-          .values({ ...call, costUsd: input.costUsd, pricedBy: input.pricedBy })
+          .values({
+            ...call,
+            costUsd: sql`LEAST(ceil(${input.costUsd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
+            pricedBy: input.pricedBy,
+          })
           .onConflictDoNothing({ target: providerUsage.exchangeId })
-          .returning({ exchangeId: providerUsage.exchangeId });
-        if (inserted.length === 0) {
+          .returning({ costUsd: providerUsage.costUsd });
+        if (inserted === undefined) {
           const [stored] = await tx
             .select({
               exchangeId: providerUsage.exchangeId,
@@ -1320,24 +1328,24 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               cacheCreation1hInputTokens:
                 providerUsage.cacheCreation1hInputTokens,
               cacheReadInputTokens: providerUsage.cacheReadInputTokens,
+              estimated: providerUsage.estimated,
+              costUsd: providerUsage.costUsd,
             })
             .from(providerUsage)
             .where(eq(providerUsage.exchangeId, input.exchangeId));
-          return stored !== undefined &&
-            payloadHash(stored) === payloadHash(call)
-            ? { outcome: "replayed" }
+          if (stored === undefined) return { outcome: "conflict" };
+          const { costUsd, ...was } = stored;
+          return payloadHash(was) === payloadHash(call)
+            ? { outcome: "replayed", costUsd }
             : { outcome: "conflict" };
         }
-        // Rounded up to the column's micro-dollar, or a stream of tiny calls
-        // would each round away to nothing; clamped to the column, so a
-        // runaway total saturates the budget instead of failing the report.
         await tx
           .update(sessions)
           .set({
-            costUsd: sql`LEAST(${sessions.costUsd} + ceil(${input.costUsd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
+            costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
           })
           .where(eq(sessions.id, input.sessionId));
-        return { outcome: "recorded" };
+        return { outcome: "recorded", costUsd: inserted.costUsd };
       });
     },
 

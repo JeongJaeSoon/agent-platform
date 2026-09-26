@@ -471,6 +471,7 @@ describe("credential routes end to end (94S-252)", () => {
       cacheCreationInputTokens: 0,
       cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 0,
+      estimated: false,
     });
     expect(costUsd).toBeGreaterThan(0);
     expect(await meteredCost(claim.session_id, 1)).toEqual({
