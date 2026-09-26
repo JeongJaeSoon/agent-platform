@@ -8,19 +8,16 @@ export type SessionAction =
   // ordinary keys.
   | "sessions:recover";
 
+// Whether the actor may take the action at all. Ownership is not asked here:
+// every store reads and writes under actor.ownerId in its own transaction, so
+// another owner's session is a 404 from there (94S-397).
 export interface AuthorizationPolicy {
-  authorize(
-    actor: Principal,
-    action: SessionAction,
-    resource: { ownerId: string },
-  ): boolean;
+  authorize(actor: Principal, action: SessionAction): boolean;
 }
 
-// Owner match only. Scopes are checked at the HTTP edge before a service is
-// called (apps/control-host/src/api/scope-policy.ts, 94S-132); this policy is where they
-// move once something other than the API calls these services.
-export const ownerScopedPolicy: AuthorizationPolicy = {
-  authorize(actor, _action, resource) {
-    return actor.ownerId === resource.ownerId;
-  },
+// Scopes are checked at the HTTP edge before a service is called
+// (apps/control-host/src/api/scope-policy.ts, 94S-132); this policy is where
+// they move once something other than the API calls these services.
+export const allowAllPolicy: AuthorizationPolicy = {
+  authorize: () => true,
 };

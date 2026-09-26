@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  checkpointAdmission,
   checkpointPendingReason,
   checkpointReasonHoldsWork,
   nextPendingReason,
@@ -78,7 +77,6 @@ describe("a run that was not quiescent", () => {
 
   test.each(refusals)("%s holds no work back", (reason) => {
     expect(checkpointReasonHoldsWork(reason)).toBe(false);
-    expect(checkpointAdmission(reason)).toEqual({ admitted: true });
     expect(storedPendingReasonHoldsWork(reason)).toBe(false);
   });
 
@@ -98,20 +96,6 @@ describe("a run that was not quiescent", () => {
     expect(nextPendingReason("mirror_error", "publish_failed")).toBe(
       "mirror_error",
     );
-  });
-});
-
-describe("checkpoint admission", () => {
-  test("admits work while nothing is pending", () => {
-    expect(checkpointAdmission(null)).toEqual({ admitted: true });
-  });
-
-  test("holds new turns and terminal confirmations after a mirror failure", () => {
-    expect(checkpointAdmission("mirror_error")).toEqual({
-      admitted: false,
-      code: "CHECKPOINT_UNAVAILABLE",
-      message: "Session cannot be checkpointed: mirror_error",
-    });
   });
 });
 

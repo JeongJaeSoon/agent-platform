@@ -196,6 +196,30 @@ describe("PendingRequestRegistry", () => {
     ]);
   });
 
+  test("shows the file a permission request writes", async () => {
+    const harness = registry();
+    const input = { file_path: "/workspace/src/a.ts", content: "x" };
+    void harness.registry.request({
+      input,
+      requestId: "req-write",
+      signal: new AbortController().signal,
+      tool: "Write",
+      toolUseId: "toolu_req-write",
+    });
+    await harness.idFor("req-write");
+
+    const [registration] = harness.gateway.registered();
+    expect(registration?.request).toEqual({
+      kind: "permission",
+      tool: "Write",
+      input,
+    });
+    const event = harness.published[0];
+    expect(event?.event === "question" ? event.data.input : null).toEqual(
+      input,
+    );
+  });
+
   test("registers only once the events before the callback are stored", async () => {
     let stored: (() => void) | undefined;
     const harness = registry({

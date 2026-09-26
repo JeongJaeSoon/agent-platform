@@ -26,8 +26,8 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  allowAllPolicy,
   createSessionService,
-  ownerScopedPolicy,
   type SessionCatalog,
 } from "@agent-platform/platform";
 import { asc, count, eq } from "drizzle-orm";
@@ -103,7 +103,7 @@ integration("sessions API on PostgreSQL", () => {
     }) =>
       createSessionService({
         limits,
-        authorization: ownerScopedPolicy,
+        authorization: allowAllPolicy,
         inputs: createPostgresSessionUnitOfWork(db),
         controls: createPostgresSessionControl(db),
         reader: createPostgresSessionReader(db),
@@ -600,6 +600,28 @@ integration("sessions API on PostgreSQL", () => {
       stranger,
     );
     expect(foreign.status).toBe(404);
+  }, 60_000);
+
+  test("a pending reason a newer build recorded still gives the detail, and holds input back (94S-396)", async () => {
+    const sessionId = await createdSession("future-reason");
+    await db
+      .update(sessions)
+      .set({
+        checkpointPendingAttemptId: "attempt-x",
+        checkpointPendingReason: "future_reason",
+      })
+      .where(eq(sessions.id, sessionId));
+    const response = await app.request(`/v1/sessions/${sessionId}`, {
+      headers: { "X-Owner-Id": owner },
+    });
+    expect(response.status).toBe(200);
+    expect(
+      getSessionResponseSchema.parse(await response.json()).durability
+        .checkpoint_pending_reason,
+    ).toBe("unknown");
+    const refused = await append(sessionId, "future-reason-append");
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).error.code).toBe("CHECKPOINT_UNAVAILABLE");
   }, 60_000);
 
   test("a stopped session resumes with 202 over an advisory pending reason, and is refused over a mirror failure (94S-284)", async () => {

@@ -1,6 +1,5 @@
 import type {
   AdmissionState,
-  CheckpointBlockReason,
   CreateSessionResponse,
   ListSessionsQuery,
   ListTurnsQuery,
@@ -64,7 +63,8 @@ export type AppendMessageResult =
   | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
   // The session cannot be checkpointed (blocking pending reason): a turn run
   // now could never be reported as durably finished, so none is accepted.
-  | { outcome: "checkpoint_unavailable"; reason: CheckpointBlockReason }
+  // `reason` is the stored text, which may be one a newer build recorded.
+  | { outcome: "checkpoint_unavailable"; reason: string }
   | InputLimitRefusal;
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.

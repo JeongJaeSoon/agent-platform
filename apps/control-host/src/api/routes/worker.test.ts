@@ -287,6 +287,37 @@ describe("/internal/worker", () => {
     ).toEqual({ status: 403, code: "FORBIDDEN" });
   });
 
+  test("bootstrap-claim refuses a bearer nonce other than the one it claims with (94S-397)", async () => {
+    await seedSession();
+    const first = await claimed();
+    expect(
+      (
+        await post("release", first.binding.session_credential, {
+          ...scope(first.binding),
+          reason: "idle_timeout",
+        })
+      ).status,
+    ).toBe(200);
+    await seedSession();
+    const second = await gateway.registerLaunch({
+      executionId: "exec-2",
+      generation: 1,
+      backend: "local_docker",
+    });
+    const claim = {
+      execution_id: "exec-2",
+      execution_generation: 1,
+      credential: { kind: "launch_nonce", nonce: second.nonce },
+    };
+    expect(
+      await errorOf(await post("bootstrap-claim", first.nonce, claim)),
+    ).toEqual({ status: 401, code: "UNAUTHORIZED" });
+    // The refusal consumed nothing: the launch still claims with its own.
+    expect((await post("bootstrap-claim", second.nonce, claim)).status).toBe(
+      200,
+    );
+  });
+
   test("a session token cannot act for a binding it does not own", async () => {
     const seeded = await seedSession();
     const { binding } = await claimed();

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   attemptStateSchema,
+  type CheckpointBlockReason,
   type CreateSessionResponse,
   checkpointBlockReasonSchema,
   createSessionResponseSchema,
@@ -35,8 +36,8 @@ import type {
   SessionUnitOfWork,
 } from "@agent-platform/platform";
 import {
-  checkpointReasonHoldsWork,
   projectDurability,
+  storedPendingReasonHoldsWork,
 } from "@agent-platform/platform";
 import {
   and,
@@ -261,15 +262,10 @@ export function createPostgresSessionUnitOfWork(
         // A turn accepted now would run on a transcript the platform cannot
         // read back; it could never be reported as durably finished. An
         // advisory reason (the run was not quiescent) holds nothing back.
-        const pendingReason =
-          session.checkpointPendingReason === null
-            ? null
-            : checkpointBlockReasonSchema.parse(
-                session.checkpointPendingReason,
-              );
+        const pendingReason = session.checkpointPendingReason;
         if (
           pendingReason !== null &&
-          checkpointReasonHoldsWork(pendingReason)
+          storedPendingReasonHoldsWork(pendingReason)
         ) {
           return { outcome: "checkpoint_unavailable", reason: pendingReason };
         }
@@ -336,6 +332,15 @@ export function createPostgresSessionUnitOfWork(
 // survives the round trip (JS Date would truncate to milliseconds).
 type Cursor = { created_at: string; id: string };
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
+// The newest event in stream order (ids are commit order within a session),
+// one index probe where max(created_at) visited every event of every listed
+// session (94S-396). Qualified by hand: drizzle renders a single-table
+// select's columns bare, and a bare "id" here would be the event's.
+const LAST_EVENT_AT = sql<Date | null>`(
+  SELECT e.created_at FROM ${events} e
+  WHERE e.session_id = ${sessions}.id
+  ORDER BY e.id DESC LIMIT 1
+)`.mapWith(events.createdAt);
 // Only the exact shape PostgreSQL renders; JS Date.parse is far more lenient
 // than the timestamptz cast and a forged cursor must not reach the query.
 const PG_TIMESTAMPTZ_TEXT =
@@ -506,6 +511,22 @@ export function createPostgresSessionReader(
       })
       .from(turns);
 
+  // A reason a newer build recorded reads as unknown after a rollback
+  // rather than failing the whole detail.
+  function publicPendingReason(
+    sessionId: string,
+    stored: string | null,
+  ): CheckpointBlockReason | "unknown" | null {
+    if (stored === null) return null;
+    const parsed = checkpointBlockReasonSchema.safeParse(stored);
+    if (parsed.success) return parsed.data;
+    options.logger?.warn("Stored checkpoint pending reason is unknown", {
+      session_id: sessionId,
+      checkpoint_pending_reason: stored,
+    });
+    return "unknown";
+  }
+
   // `?status=` filters on what the list shows, not on the stored column.
   function publicStatusIs(status: SessionStatus) {
     if (!isInFlight(status)) {
@@ -519,11 +540,16 @@ export function createPostgresSessionReader(
   }
 
   async function summarize(
-    rows: { session: SessionRow; awaitingInput: boolean }[],
+    executor: Database,
+    rows: {
+      session: SessionRow;
+      awaitingInput: boolean;
+      lastEventAt: Date | null;
+    }[],
   ): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
     const ids = rows.map(({ session }) => session.id);
-    const openTurns = await db
+    const openTurns = await executor
       .select({
         sessionId: turns.sessionId,
         sequence: turns.sequence,
@@ -536,16 +562,8 @@ export function createPostgresSessionReader(
           inArray(turns.status, ["queued", "running", "needs_input"]),
         ),
       );
-    const lastEvents = await db
-      .select({ sessionId: events.sessionId, at: max(events.createdAt) })
-      .from(events)
-      .where(inArray(events.sessionId, ids))
-      .groupBy(events.sessionId);
-    const lastEventAt = new Map(
-      lastEvents.map((row) => [row.sessionId, row.at]),
-    );
 
-    return rows.map(({ session: row, awaitingInput }) => {
+    return rows.map(({ session: row, awaitingInput, lastEventAt }) => {
       const mine = openTurns.filter((turn) => turn.sessionId === row.id);
       const current = mine
         .filter((turn) => turn.status !== "queued")
@@ -560,7 +578,7 @@ export function createPostgresSessionReader(
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,
-        last_event_at: lastEventAt.get(row.id)?.toISOString() ?? null,
+        last_event_at: lastEventAt?.toISOString() ?? null,
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
       };
@@ -575,6 +593,7 @@ export function createPostgresSessionReader(
           session: sessions,
           cursorAt: CREATED_AT_TEXT,
           awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`,
+          lastEventAt: LAST_EVENT_AT,
         })
         .from(sessions)
         .where(
@@ -600,7 +619,7 @@ export function createPostgresSessionReader(
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
-        items: await summarize(page),
+        items: await summarize(db, page),
         next_cursor:
           rows.length > query.limit && last
             ? encodeCursor({ created_at: last.cursorAt, id: last.session.id })
@@ -608,96 +627,120 @@ export function createPostgresSessionReader(
       };
     },
 
-    async getSession(
+    getSession(
       ownerId: string,
       sessionId: string,
     ): Promise<SessionDetailRecord | null> {
-      // The count and the status it projects come from one statement, so
-      // the detail never says needs_input beside a count of zero.
-      const [read] = await db
-        .select({
-          session: sessions,
-          pendingCount: sql<number>`(SELECT count(*)::int FROM (${actionableOfSession(db)}) AS actionable)`,
-        })
-        .from(sessions)
-        .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
-        .limit(1);
-      if (!read) return null;
-      const row = read.session;
-      const [summary] = await summarize([
-        { session: row, awaitingInput: read.pendingCount > 0 },
-      ]);
-      if (!summary) return null;
-      const [[execution], [completed], [checkpoint]] = await Promise.all([
-        db
-          .select({
-            backend: executions.backend,
-            state: executions.observedState,
-            observed_at: executions.observedAt,
-          })
-          .from(executions)
-          .where(eq(executions.sessionId, sessionId))
-          .orderBy(desc(executions.generation))
-          .limit(1),
-        db
-          .select({ sequence: max(turns.sequence) })
-          .from(turns)
-          .where(
-            and(eq(turns.sessionId, sessionId), eq(turns.status, "completed")),
-          ),
-        // The turn the *pointer's* checkpoint closed, not the newest
-        // checkpoint row: the two agree only while nothing is committing.
-        row.checkpointRevision === null
-          ? Promise.resolve([undefined])
-          : db
-              .select({ sequence: turns.sequence })
-              .from(checkpoints)
-              .innerJoin(turns, eq(turns.id, checkpoints.turnId))
-              .where(
-                and(
-                  eq(checkpoints.sessionId, sessionId),
-                  eq(checkpoints.revision, row.checkpointRevision),
-                ),
-              )
-              .limit(1),
-      ]);
-      return {
-        ...summary,
-        execution: execution
-          ? executionObservationSchema.parse({
-              ...execution,
-              observed_at: execution.observed_at?.toISOString() ?? null,
+      // One snapshot for every field: read one by one, a turn starting
+      // between two reads showed running beside current_turn_id null.
+      // A reader built on a caller's transaction gets a savepoint here and
+      // the caller's isolation instead, so that must hold a snapshot too.
+      return db.transaction(
+        async (tx) => {
+          // The count and the status it projects come from one statement,
+          // so the detail never says needs_input beside a count of zero.
+          const [read] = await tx
+            .select({
+              session: sessions,
+              pendingCount: sql<number>`(SELECT count(*)::int FROM (${actionableOfSession(tx)}) AS actionable)`,
+              lastEventAt: LAST_EVENT_AT,
+              isolation: sql<string>`current_setting('transaction_isolation')`,
             })
-          : null,
-        checkpoint_revision: row.checkpointRevision,
-        pending_request_count: read.pendingCount,
-        attention:
-          (await pauseAttention(db, row)) ??
-          (await contextGapAttention(db, row)) ??
-          startupFailedAttention(row),
-        cost_usd: row.costUsd,
-        repo_url: row.repoUrl,
-        branch: row.branch,
-        profile_fingerprint: row.profileFingerprint,
-        durability: projectDurability({
-          checkpointCommittedAt: row.checkpointCommittedAt,
-          checkpointFallbackRevision: row.checkpointFallbackRevision,
-          checkpointRevision: row.checkpointRevision,
-          contextResetTurnId:
-            row.contextResetTurnSequence === null
-              ? null
-              : String(row.contextResetTurnSequence),
-          lastCheckpointedTurnId:
-            checkpoint?.sequence == null ? null : String(checkpoint.sequence),
-          lastCompletedTurnId:
-            completed?.sequence == null ? null : String(completed.sequence),
-          lastTranscriptPersistedAt: row.lastTranscriptPersistedAt,
-          pendingReason:
-            row.checkpointPendingReason === null
-              ? null
-              : checkpointBlockReasonSchema.parse(row.checkpointPendingReason),
-        }),
-      };
+            .from(sessions)
+            .where(
+              and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)),
+            )
+            .limit(1);
+          if (!read) return null;
+          if (read.isolation === "read committed") {
+            throw new Error("Session detail needs a snapshot transaction");
+          }
+          const row = read.session;
+          const [summary] = await summarize(tx, [
+            {
+              session: row,
+              awaitingInput: read.pendingCount > 0,
+              lastEventAt: read.lastEventAt,
+            },
+          ]);
+          if (!summary) return null;
+          const [execution] = await tx
+            .select({
+              backend: executions.backend,
+              state: executions.observedState,
+              observed_at: executions.observedAt,
+            })
+            .from(executions)
+            .where(eq(executions.sessionId, sessionId))
+            .orderBy(desc(executions.generation))
+            .limit(1);
+          const [completed] = await tx
+            .select({ sequence: max(turns.sequence) })
+            .from(turns)
+            .where(
+              and(
+                eq(turns.sessionId, sessionId),
+                eq(turns.status, "completed"),
+              ),
+            );
+          // The turn the *pointer's* checkpoint closed, not the newest
+          // checkpoint row: the two agree only while nothing is committing.
+          const [checkpoint] =
+            row.checkpointRevision === null
+              ? []
+              : await tx
+                  .select({ sequence: turns.sequence })
+                  .from(checkpoints)
+                  .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+                  .where(
+                    and(
+                      eq(checkpoints.sessionId, sessionId),
+                      eq(checkpoints.revision, row.checkpointRevision),
+                    ),
+                  )
+                  .limit(1);
+          return {
+            ...summary,
+            execution: execution
+              ? executionObservationSchema.parse({
+                  ...execution,
+                  observed_at: execution.observed_at?.toISOString() ?? null,
+                })
+              : null,
+            checkpoint_revision: row.checkpointRevision,
+            pending_request_count: read.pendingCount,
+            attention:
+              (await pauseAttention(tx, row)) ??
+              (await contextGapAttention(tx, row)) ??
+              startupFailedAttention(row),
+            cost_usd: row.costUsd,
+            repo_url: row.repoUrl,
+            branch: row.branch,
+            profile_fingerprint: row.profileFingerprint,
+            durability: projectDurability({
+              checkpointCommittedAt: row.checkpointCommittedAt,
+              checkpointFallbackRevision: row.checkpointFallbackRevision,
+              checkpointRevision: row.checkpointRevision,
+              contextResetTurnId:
+                row.contextResetTurnSequence === null
+                  ? null
+                  : String(row.contextResetTurnSequence),
+              lastCheckpointedTurnId:
+                checkpoint?.sequence == null
+                  ? null
+                  : String(checkpoint.sequence),
+              lastCompletedTurnId:
+                completed?.sequence == null ? null : String(completed.sequence),
+              lastTranscriptPersistedAt: row.lastTranscriptPersistedAt,
+              pendingReason: publicPendingReason(
+                sessionId,
+                row.checkpointPendingReason,
+              ),
+            }),
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     async listTurns(ownerId: string, sessionId: string, query: ListTurnsQuery) {

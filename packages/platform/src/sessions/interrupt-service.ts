@@ -8,7 +8,11 @@ import type {
 } from "../authorization/policy.ts";
 import type { TurnInterrupts } from "../ports/turn-interrupts.ts";
 import { TERMINATE_DEADLINE_MS } from "../scheduler/session-scheduler.ts";
-import { payloadHash, SessionServiceError } from "./session-service.ts";
+import {
+  payloadHash,
+  requirePermitted,
+  SessionServiceError,
+} from "./session-service.ts";
 
 /**
  * How long an accepted interrupt may stay unsettled before the reconciler
@@ -38,13 +42,7 @@ export function createInterruptService(deps: {
       sessionId: string,
       input: { idempotencyKey: string; body: InterruptSessionRequest },
     ): Promise<ControlAcceptedResponse> {
-      if (
-        !authorization.authorize(actor, "sessions:control", {
-          ownerId: actor.ownerId,
-        })
-      ) {
-        throw new SessionServiceError("NOT_FOUND", "Resource not found");
-      }
+      requirePermitted(authorization, actor, "sessions:control");
       const result = await store.interruptAtomic({
         principal: actor,
         sessionId,

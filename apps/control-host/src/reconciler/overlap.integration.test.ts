@@ -17,9 +17,9 @@ import {
 } from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
+  allowAllPolicy,
   createInterruptService,
   createWorkerGateway,
-  ownerScopedPolicy,
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
@@ -214,7 +214,7 @@ integration("reconciler passes that overlap", () => {
     // Heartbeating, but its interrupt is past both deadlines.
     const stuck = await runningSession();
     const interrupted = await createInterruptService({
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       store: createPostgresTurnInterrupts(db),
     }).interrupt(stuck.owner, stuck.sessionId, {
       idempotencyKey: crypto.randomUUID(),

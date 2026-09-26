@@ -6,9 +6,9 @@ import type {
   WorkerScope,
 } from "@agent-platform/contracts";
 import {
+  allowAllPolicy,
   createPendingRequestService,
   createWorkerGateway,
-  ownerScopedPolicy,
   payloadHash,
   type SessionCatalog,
   SessionServiceError,
@@ -133,7 +133,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = gatewayWith();
     service = createPendingRequestService({
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       store: createPostgresPendingRequests(db),
     });
   }, 60_000);
@@ -821,19 +821,23 @@ integration("pending requests and answers on PostgreSQL", () => {
   test("expiry is judged at each statement, not at the start of a longer transaction", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const { requestId } = await register(worker, permission());
-    await db.transaction(async (tx) => {
-      await tx
-        .update(pendingRequests)
-        .set({ expiresAt: sql`clock_timestamp() + interval '1 second'` })
-        .where(eq(pendingRequests.requestId, requestId));
-      const reader = createPostgresSessionReader(tx);
-      const before = await reader.getSession(owner.ownerId, sessionId);
-      expect(before?.status).toBe("needs_input");
-      await tx.execute(sql`SELECT pg_sleep(1.2)`);
-      const after = await reader.getSession(owner.ownerId, sessionId);
-      expect(after?.status).toBe("running");
-      expect(after?.pending_request_count).toBe(0);
-    });
+    // Repeatable read: the detail's fields must share one snapshot.
+    await db.transaction(
+      async (tx) => {
+        await tx
+          .update(pendingRequests)
+          .set({ expiresAt: sql`clock_timestamp() + interval '1 second'` })
+          .where(eq(pendingRequests.requestId, requestId));
+        const reader = createPostgresSessionReader(tx);
+        const before = await reader.getSession(owner.ownerId, sessionId);
+        expect(before?.status).toBe("needs_input");
+        await tx.execute(sql`SELECT pg_sleep(1.2)`);
+        const after = await reader.getSession(owner.ownerId, sessionId);
+        expect(after?.status).toBe("running");
+        expect(after?.pending_request_count).toBe(0);
+      },
+      { isolationLevel: "repeatable read" },
+    );
   });
 
   test("a stored needs_input reads from the pending requests like running does", async () => {

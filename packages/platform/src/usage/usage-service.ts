@@ -12,7 +12,10 @@ import {
   STORAGE_ACCOUNTED_CONTENT,
 } from "../limits/installation-limits.ts";
 import type { UsageReader } from "../ports/usage-reader.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
+import {
+  requirePermitted,
+  SessionServiceError,
+} from "../sessions/session-service.ts";
 
 /**
  * A limit as a decimal string without rounding it: the parser accepts more
@@ -68,16 +71,10 @@ export function createUsageService(deps: {
       actor: Principal,
       sessionId: string,
     ): Promise<SessionUsageResponse> {
+      requirePermitted(authorization, actor, "sessions:read");
+      const usage = await reader.sessionUsage(actor.ownerId, sessionId);
       // Another owner's session does not exist as far as this principal can
       // tell, the same answer every session read gives.
-      if (
-        !authorization.authorize(actor, "sessions:read", {
-          ownerId: actor.ownerId,
-        })
-      ) {
-        throw new SessionServiceError("NOT_FOUND", "Resource not found");
-      }
-      const usage = await reader.sessionUsage(actor.ownerId, sessionId);
       if (!usage) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
