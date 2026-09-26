@@ -362,6 +362,46 @@ uncollected_sessions() {
     -c "SELECT DISTINCT session_id FROM checkpoints WHERE collected_at IS NULL ORDER BY 1" </dev/null
 }
 
+# Sessions whose current checkpoint the target worker image cannot restore.
+# verify-restore's complete summary distinguishes an expected incompatible
+# verdict from a broken/incomplete check; the helper falls back to every
+# uncollected session for the latter.
+upgrade_affected_sessions() {
+  local previous_worker="$1" affected="$2" all output catalog_dir bucket status=0
+  all="$(mktemp)"
+  output="$(mktemp)"
+  if ! uncollected_sessions > "$all"; then
+    rm -f "$all" "$output"
+    return 1
+  fi
+  if [ "$WORKER_IMAGE" = "$previous_worker" ]; then
+    cp "$all" "$affected"
+    rm -f "$all" "$output"
+    return 0
+  fi
+  catalog_dir="$(printf '%s' "$RENDER" | jq -er \
+    '[.services.api.volumes[]? | select(.target == "/app/config") | .source]
+     | if length == 1 then .[0] else error("expected one /app/config mount") end')" || status=1
+  bucket="$(rendered api S3_BUCKET)"
+  [ -n "$bucket" ] || status=1
+  if [ "$status" = 0 ]; then
+    if [ "$STORE" = s3 ]; then
+      (with_api_store "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
+        --object-store env --bucket "$bucket" --image "$WORKER_IMAGE" --config-dir "$catalog_dir") \
+        > "$output" || status=$?
+    else
+      "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
+        --object-store localstack --bucket "$bucket" --image "$WORKER_IMAGE" --config-dir "$catalog_dir" \
+        > "$output" || status=$?
+    fi
+  fi
+  if ! bun_script "$HELPER" upgrade-impact "$status" "$output" "$all" > "$affected"; then
+    cp "$all" "$affected"
+    log "upgrade: could not classify restore plans; fail-closed to every uncollected session"
+  fi
+  rm -f "$all" "$output"
+}
+
 deploy() {
   take_lock
   [ ! -e "$CURRENT" ] || die "a release is already deployed ($CURRENT); use upgrade"
@@ -390,7 +430,7 @@ upgrade() {
     bun_script "$HELPER" upgrade-gate "$from_worker" "$WORKER_IMAGE" "$affected" ${APPROVED:+"$APPROVED"}
   }
   # First with the writers up, so a refusal costs no downtime.
-  uncollected_sessions > "$affected" || die "could not list the sessions with uncollected checkpoints"
+  upgrade_affected_sessions "$from_worker" "$affected" || die "could not list the sessions with uncollected checkpoints"
   gate >/dev/null || status=$?
   if [ "$status" = "$EXIT_REFUSED" ]; then
     log "upgrade: affected sessions are in $affected; after review, rerun with --approve-sessions <a file of exactly those ids>"
@@ -405,7 +445,7 @@ upgrade() {
     # worker of the old image still running, is either on the approved list
     # or stops the upgrade.
     stop_writers
-    uncollected_sessions > "$affected" || { reopen_current; die "could not list the sessions with uncollected checkpoints"; }
+    upgrade_affected_sessions "$from_worker" "$affected" || { reopen_current; die "could not list the sessions with uncollected checkpoints"; }
     status=0
     approved_list="$(gate)" || status=$?
     if [ "$status" != 0 ]; then

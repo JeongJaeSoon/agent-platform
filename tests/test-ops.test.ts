@@ -25,6 +25,7 @@ import {
   probeRoundTrip,
   probeStore,
   type RenderedModel,
+  upgradeImpact,
 } from "../scripts/lib/test-ops.ts";
 import {
   COMPOSE_RENDER_TIMEOUT_MS,
@@ -724,4 +725,52 @@ describe("upgrade gate", () => {
       await rm(dir, { force: true, recursive: true });
     }
   });
+});
+
+describe("worker image upgrade impact", () => {
+  const uncollected = ["s1", "s2"];
+
+  test("needs no approval when the target runtime and profile stay compatible", () => {
+    expect(
+      upgradeImpact({
+        exitCode: 0,
+        output: [
+          "PASS s1@1 plan: ready under locked",
+          "PASS s2@2 plan: ready under locked",
+          "checkpoints=2 passed=2 failed=0",
+        ].join("\n"),
+        uncollected,
+      }),
+    ).toEqual({ affected: [], failClosed: false });
+  });
+
+  test("lists only sessions incompatible with the target runtime", () => {
+    expect(
+      upgradeImpact({
+        exitCode: 5,
+        output: [
+          "PASS s1@1 plan: ready under locked",
+          "FAIL s2@2 plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → 2.1.271",
+          "checkpoints=2 passed=2 failed=1",
+        ].join("\n"),
+        uncollected,
+      }),
+    ).toEqual({ affected: ["s2"], failClosed: false });
+  });
+
+  test.each([
+    [
+      5,
+      "FAIL bucket b: Object Lock not configured\ncheckpoints=2 passed=0 failed=1",
+    ],
+    [1, "verify stopped before plans"],
+  ])(
+    "falls back to every uncollected session when verification fails",
+    (exitCode, output) => {
+      expect(upgradeImpact({ exitCode, output, uncollected })).toMatchObject({
+        affected: uncollected,
+        failClosed: true,
+      });
+    },
+  );
 });

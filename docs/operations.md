@@ -588,6 +588,10 @@ worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=agent-plat
 
 system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에서 정한 값이 있으면 그쪽이 이긴다. 세션의 작성자를 바꾸려면 workspace 저장소에 `git config user.name`·`git config user.email`을 쓴다. `git commit --author`는 author만 바꾸고 committer는 그대로 둔다. `git config --global`은 tmpfs HOME에 쓰이므로 worker가 바뀌면 사라진다. 저장소 설정도 checkpoint에서 복원한 worker에서는 사라진다. 복원이 workspace를 비우고 저장소를 새로 만들기 때문이다. 그때부터는 다시 기본 작성자로 commit된다. 카탈로그나 설치 설정으로 기본값을 바꾸는 기능은 두지 않았다. 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
 
+### worker 이미지 업그레이드와 checkpoint 호환 (94S-465)
+
+`scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. 현재는 세션별 worker 이미지 고정이 없으며, 호환될 때만 새 이미지에서 이어진다(94S-387·94S-465; 세션별 고정은 94S-467 범위).
+
 ### worker·control-host 롤백과 incremental checkpoint (94S-227)
 
 [#217](https://github.com/JeongJaeSoon/agent-platform/pull/217)(`95b0e7b5`)부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 객체만 담은 incremental bundle을 올린다. 그 사슬은 manifest의 `workspace.baseBundles`에 적힌다. manifest `version`은 그대로 2이고, incremental인지는 이 필드가 있는지로만 갈린다. **#217 이전 빌드로 롤백하면 이 필드가 있는 checkpoint를 복원하지 못한다.** 이전 빌드의 manifest 스키마는 모르는 키를 거절하기 때문이다.
