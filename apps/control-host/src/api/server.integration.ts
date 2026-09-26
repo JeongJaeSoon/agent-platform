@@ -591,13 +591,14 @@ integration("API server on PostgreSQL", () => {
       const stdout = serverStdout(server.stdout);
       const serverStderr = new Response(server.stderr).text();
       const blocker = await pool.connect();
+      let held: Awaited<ReturnType<typeof heldConnection>> | undefined;
       let exitCode: number | undefined;
       try {
         const { port } = await waitForServer(server, stdout, serverStderr, {
           path: "/healthz",
           headers: {},
         });
-        const held = await heldConnection(port);
+        held = await heldConnection(port);
         await held.get("/healthz");
 
         // The key lookup waits on this lock, so the request stays in flight
@@ -607,14 +608,25 @@ integration("API server on PostgreSQL", () => {
         const inFlight = fetch(`http://127.0.0.1:${port}/v1`, {
           headers: { Authorization: `Bearer ${plaintext}` },
         });
-        const waiting = async () =>
+        let settled = false;
+        const settle = () => {
+          settled = true;
+        };
+        inFlight.then(settle, settle);
+        const blocked = async () =>
           (
             await pool.query<{ n: number }>(
               `SELECT count(*)::int AS n FROM pg_stat_activity
-                WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+                WHERE datname = current_database() AND wait_event_type = 'Lock'
+                  AND query ILIKE '%api_keys%' AND pid <> pg_backend_pid()`,
             )
           ).rows[0]?.n ?? 0;
-        while ((await waiting()) === 0) await Bun.sleep(POLL_INTERVAL_MS);
+        const blockedBy = Date.now() + SERVER_START_DEADLINE_MS;
+        while ((await blocked()) === 0) {
+          expect(settled).toBe(false);
+          expect(Date.now()).toBeLessThan(blockedBy);
+          await Bun.sleep(POLL_INTERVAL_MS);
+        }
 
         const signalledAt = Date.now();
         server.kill("SIGTERM");
@@ -650,6 +662,7 @@ integration("API server on PostgreSQL", () => {
         exitCode = await server.exited;
         expect(Date.now() - signalledAt).toBeLessThan(SHUTDOWN_DRAIN_MS);
       } finally {
+        held?.close();
         await blocker.query("ROLLBACK").catch(() => {});
         blocker.release();
         if (exitCode === undefined) {

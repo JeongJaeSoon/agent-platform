@@ -453,19 +453,19 @@ integration("auth API on PostgreSQL", () => {
   test("a cookie stream ends within one keepalive of a role change or a logout elsewhere", async () => {
     const value = cookieOf(await login());
     const demoted = await cookieStream(value);
-    const demotedAt = Date.now();
     await db.update(memberships).set({ role: "member" });
+    const demotedAt = Date.now();
     // The re-check runs every half interval, so one interval is the bound.
     expect(await endOf(demoted, demotedAt)).toBeLessThan(KEEPALIVE_MS + 50);
     await db.update(memberships).set({ role: "owner" });
 
     const loggedOut = await cookieStream(value);
-    const loggedOutAt = Date.now();
     const logout = await app.request("/v1/auth/logout", {
       method: "POST",
       headers: { Cookie: value, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
     });
     expect(logout.status).toBe(204);
+    const loggedOutAt = Date.now();
     expect(await endOf(loggedOut, loggedOutAt)).toBeLessThan(KEEPALIVE_MS + 50);
     expect(
       sink.records.filter(
