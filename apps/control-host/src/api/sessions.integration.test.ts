@@ -26,8 +26,8 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  allowAllPolicy,
   createSessionService,
-  ownerScopedPolicy,
   type SessionCatalog,
 } from "@agent-platform/platform";
 import { asc, count, eq } from "drizzle-orm";
@@ -103,7 +103,7 @@ integration("sessions API on PostgreSQL", () => {
     }) =>
       createSessionService({
         limits,
-        authorization: ownerScopedPolicy,
+        authorization: allowAllPolicy,
         inputs: createPostgresSessionUnitOfWork(db),
         controls: createPostgresSessionControl(db),
         reader: createPostgresSessionReader(db),

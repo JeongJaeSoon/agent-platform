@@ -5,8 +5,8 @@ import {
   type Receipt,
 } from "@agent-platform/contracts";
 import {
+  allowAllPolicy,
   createSessionService,
-  ownerScopedPolicy,
   type SessionReader,
 } from "@agent-platform/platform";
 import { createApiApp } from "../app.ts";
@@ -34,7 +34,7 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
     },
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     catalog: { profiles: {}, repositories: {} },
     inputs: {
       acceptInputAtomic: async () => {

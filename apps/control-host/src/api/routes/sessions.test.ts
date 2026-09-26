@@ -5,8 +5,8 @@ import {
 } from "@agent-platform/contracts";
 import { InvalidCursorError } from "@agent-platform/db";
 import {
+  allowAllPolicy,
   createSessionService,
-  ownerScopedPolicy,
   type SessionCatalog,
   type SessionControl,
   type SessionReader,
@@ -60,7 +60,7 @@ function app(
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
     },
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     catalog,
     inputs: {
       acceptInputAtomic: async () => {
@@ -731,8 +731,7 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         sessionCostLimitUsd: 1_000,
       },
       authorization: {
-        authorize: (actor, action, resource) =>
-          actor.ownerId === resource.ownerId && action !== "sessions:recover",
+        authorize: (_actor, action) => action !== "sessions:recover",
       },
       catalog,
       inputs: {

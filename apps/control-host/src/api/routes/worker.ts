@@ -27,10 +27,8 @@ import {
   WorkerGatewayError,
   type WorkerPrincipal,
 } from "@agent-platform/platform";
-import type { Context } from "hono";
 import type { z } from "zod";
 import {
-  type ApiEnvironment,
   ApiHttpError,
   type ApiRouter,
   isStorageUnavailable,
@@ -67,17 +65,13 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
 
 // Internal worker protocol. It never shares the /v1 API-key middleware: the
 // bearer token here is a launch nonce (bootstrapClaim only) or the session
-// token bootstrapClaim issued, and the gateway checks it names the binding
-// the body claims to act for.
+// token bootstrapClaim issued. A session token must name the binding the body
+// acts for (the gateway checks); a launch nonce must be the one the body
+// claims with.
 export function registerWorkerRoutes(
   router: ApiRouter,
   gateway: WorkerGateway,
 ) {
-  const authenticate = (context: Context<ApiEnvironment>) =>
-    mapped(() =>
-      gateway.authenticate(bearerToken(context.req.header("Authorization"))),
-    );
-
   function call<Req extends z.ZodType, Res extends z.ZodType>(
     path: string,
     request: Req,
@@ -85,12 +79,14 @@ export function registerWorkerRoutes(
     handle: (
       principal: WorkerPrincipal,
       body: z.infer<Req>,
+      token: string | null,
     ) => Promise<z.input<Res>>,
   ) {
     router.post(`${WORKER_ROUTE_PREFIX}${path}`, async (context) => {
-      const principal = await authenticate(context);
+      const token = bearerToken(context.req.header("Authorization"));
+      const principal = await mapped(() => gateway.authenticate(token));
       const body = await parseJsonBody(context, request);
-      const result = await mapped(() => handle(principal, body));
+      const result = await mapped(() => handle(principal, body, token));
       return jsonWithSchema(context, response, result);
     });
   }
@@ -99,7 +95,20 @@ export function registerWorkerRoutes(
     "/bootstrap-claim",
     bootstrapClaimRequestSchema,
     bootstrapClaimResponseSchema,
-    (principal, body) => gateway.bootstrapClaim(principal, body),
+    (principal, body, token) => {
+      if (
+        principal.kind === "bootstrap" &&
+        body.credential.kind === "launch_nonce" &&
+        body.credential.nonce !== token
+      ) {
+        throw new WorkerGatewayError(
+          401,
+          "UNAUTHORIZED",
+          "The bearer launch nonce is not the one the claim carries",
+        );
+      }
+      return gateway.bootstrapClaim(principal, body);
+    },
   );
   call(
     "/next-input",

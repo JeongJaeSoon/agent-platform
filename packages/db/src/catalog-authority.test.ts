@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  allowAllPolicy,
   type CatalogProfile,
   catalogRevision,
   createSessionService,
   createWorkerGateway,
-  ownerScopedPolicy,
   type SessionCatalog,
   type WorkerGateway,
   WorkerGatewayError,
@@ -115,7 +115,7 @@ function gatewayOf(catalog: SessionCatalog): WorkerGateway {
 
 async function createSession(): Promise<string> {
   const service = createSessionService({
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),

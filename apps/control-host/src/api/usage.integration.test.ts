@@ -14,10 +14,10 @@ import {
   workerLaunches,
 } from "@agent-platform/db";
 import {
+  allowAllPolicy,
   createUsageService,
   type InputLimits,
   type InstallationLimits,
-  ownerScopedPolicy,
 } from "@agent-platform/platform";
 import {
   createTempDatabase,
@@ -56,7 +56,7 @@ integration("usage API on PostgreSQL (94S-275)", () => {
     pool = new Pool({ connectionString: database.url, max: 5 });
     db = drizzle(pool, { schema });
     const service = createUsageService({
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       reader: createPostgresUsageReader(db),
       limits,
     });

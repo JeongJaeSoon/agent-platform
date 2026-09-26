@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerScope } from "@agent-platform/contracts";
 import {
+  allowAllPolicy,
   createPendingRequestService,
   createSessionService,
   createWorkerGateway,
-  ownerScopedPolicy,
   type SessionCatalog,
   SessionServiceError,
   type WorkerGateway,
@@ -94,7 +94,7 @@ afterEach(async () => {
 /** A session whose first turn has a permission request open on its worker. */
 async function askingSession() {
   const service = createSessionService({
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),
@@ -172,7 +172,7 @@ async function askingSession() {
 
 async function answerCode(sessionId: string, requestId: string) {
   const service = createPendingRequestService({
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     store: createPostgresPendingRequests(db),
   });
   try {

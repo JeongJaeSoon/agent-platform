@@ -19,10 +19,7 @@ import {
   webSessions,
 } from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import {
-  createSessionService,
-  ownerScopedPolicy,
-} from "@agent-platform/platform";
+import { allowAllPolicy, createSessionService } from "@agent-platform/platform";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -79,7 +76,7 @@ integration("auth API on PostgreSQL", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
