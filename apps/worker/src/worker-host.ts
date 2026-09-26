@@ -269,7 +269,10 @@ export class WorkerHost {
    * release that commits the pause ends the loop.
    */
   private pauseControl: string | undefined;
-  /** The pause whose release is out and not yet answered. */
+  /**
+   * The pause whose release may have committed unseen: one is out, or one
+   * went unanswered and nothing has said since whether it landed.
+   */
   private pauseReleasing: string | undefined;
   private turn: Turn | undefined;
   private readonly accounting = new TurnAccounting();
@@ -840,10 +843,9 @@ export class WorkerHost {
                 throw error;
               }),
           ),
-        ).finally(() => {
-          this.pauseReleasing = undefined;
-        });
+        );
         if (response === undefined) return "ended";
+        this.pauseReleasing = undefined;
         // Already read as committed from a refusal elsewhere; a retry that
         // answers after that changes nothing.
         if (this.released) return "committed";
@@ -869,6 +871,11 @@ export class WorkerHost {
         return "committed";
       } catch (error) {
         if (this.ownerLost || this.released) return "ended";
+        // Given up on by a stop with its outcome unknown: the stop decides
+        // how this attempt ends, and a later refusal can still show the
+        // release committed.
+        if (isRetryable(error)) return "ended";
+        this.pauseReleasing = undefined;
         const code =
           error instanceof WorkerGatewayRequestError ? error.code : null;
         if (code === "REQUEST_STALE") {

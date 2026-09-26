@@ -397,6 +397,41 @@ describe("WorkerHost pause (94S-137)", () => {
       expect(log).not.toContain("worker.ownership.lost");
     });
 
+    // The commit's own stop intent is what brings the SIGTERM.
+    test("a drain while the release is unanswered still ends paused when a heartbeat is refused", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(gateway, async () => {
+        host.drain("received SIGTERM");
+        gateway.heartbeatFailure = "UNAUTHORIZED";
+        throw lostAnswer();
+      });
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).not.toContain("worker.failed");
+      expect(gateway.releases).toHaveLength(1);
+    });
+
+    test("a drain that gives up on the unanswered release is not a failure when nothing refuses", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(gateway, async () => {
+        host.drain("received SIGTERM");
+        throw lostAnswer();
+      });
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("drained");
+      expect(log).not.toContain("worker.failed");
+    });
+
     test("a retry of a release that did not commit goes through as before", async () => {
       const { gateway, host } = harness([{ type: "await-input" }], {
         timeouts: { idleTimeoutMs: 1 },
