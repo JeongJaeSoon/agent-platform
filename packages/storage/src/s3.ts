@@ -423,22 +423,9 @@ export async function bodyBytes(
  *
  * A stalled body is a property of the connection, not of the object: the bound
  * destroys the stream on its way out, so the retry's request opens a fresh
- * socket instead of queueing behind the dead one. Returns undefined for a
- * missing key, which is how both callers tell "absent" from "failed".
- */
-export async function getObjectBytes(
-  client: S3ClientLike,
-  bucket: string,
-  key: string,
-  bounds: BodyReadBounds = DEFAULT_BODY_READ_BOUNDS,
-): Promise<Uint8Array | undefined> {
-  return (await getObjectVersion(client, bucket, key, { bounds }))?.bytes;
-}
-
-/**
- * `getObjectBytes` that can ask for one version and says which version
- * answered. A missing version is undefined, like a missing key: S3 answers
- * both with 404.
+ * socket instead of queueing behind the dead one. Says which version
+ * answered; a missing key or version is undefined — S3 answers both with 404 —
+ * which is how callers tell "absent" from "failed".
  */
 export async function getObjectVersion(
   client: S3ClientLike,

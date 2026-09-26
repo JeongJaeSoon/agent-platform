@@ -35,23 +35,18 @@ import type {
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
-  storageConfigFromEnv,
 } from "@agent-platform/storage";
 import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+import { s3SettingsFromEnv } from "../lib/object-store-cli.ts";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 
-const config = storageConfigFromEnv({
-  ...process.env,
-  GIT_AUTHOR_EMAIL: "seed@example.invalid",
-  GIT_AUTHOR_NAME: "seed",
-  GIT_TOKEN: "unused",
-  GIT_USERNAME: "seed",
-});
+const bucket = process.env.S3_BUCKET;
+if (!bucket) throw new Error("S3_BUCKET is required");
 const objects = createCheckpointObjectStore({
-  bucket: config.bucket,
-  client: createStorageS3Client(config),
+  bucket,
+  client: createStorageS3Client({ s3: s3SettingsFromEnv() }),
 });
 
 const sessionId = randomUUID();

@@ -95,12 +95,6 @@ const NOT_SETTINGS: Record<string, string> = {
   GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
   GIT_CONFIG_COUNT: "written into git's environment, not read",
   NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
-  // storageConfigFromEnv, which only scripts/dev/seed-checkpoint.ts calls.
-  GIT_AUTHOR_EMAIL: "dev seed script only",
-  GIT_AUTHOR_NAME: "dev seed script only",
-  GIT_TOKEN: "dev seed script only",
-  GIT_USERNAME: "dev seed script only",
-  TRANSCRIPT_CHUNK_BYTES: "dev seed script only",
 };
 
 function withoutComments(source: string): string {
