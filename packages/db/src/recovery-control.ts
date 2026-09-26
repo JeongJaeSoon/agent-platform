@@ -29,6 +29,7 @@ import {
 import { publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
+  INCOMPATIBLE_CHECKPOINT_REASON,
   RESTORE_FAILURE_LIMIT,
   RESTORE_FAILURES_CLEARED,
 } from "./restore-failures.ts";
@@ -577,7 +578,8 @@ async function retryRestore(
 > | null> {
   if (
     session.admissionState !== "recovery_required" ||
-    session.restoreFailureCount < RESTORE_FAILURE_LIMIT ||
+    (session.restoreFailureCount < RESTORE_FAILURE_LIMIT &&
+      session.restoreFailureReason !== INCOMPATIBLE_CHECKPOINT_REASON) ||
     !hasRestorePoint(session)
   ) {
     return {
