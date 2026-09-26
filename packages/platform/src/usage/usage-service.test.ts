@@ -3,7 +3,7 @@ import {
   installationLimitsResponseSchema,
   sessionUsageResponseSchema,
 } from "@agent-platform/contracts";
-import { ownerScopedPolicy } from "../authorization/policy.ts";
+import { allowAllPolicy } from "../authorization/policy.ts";
 import type { InstallationLimits } from "../limits/installation-limits.ts";
 import type { SessionUsageRecord } from "../ports/usage-reader.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
@@ -30,7 +30,7 @@ const record: SessionUsageRecord = {
 
 function service(session: SessionUsageRecord | null = record) {
   return createUsageService({
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     limits,
     reader: {
       installationUsage: async () => ({

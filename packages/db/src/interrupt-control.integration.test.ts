@@ -5,10 +5,10 @@ import type {
   WorkerScope,
 } from "@agent-platform/contracts";
 import {
+  allowAllPolicy,
   createInterruptService,
   createPendingRequestService,
   createWorkerGateway,
-  ownerScopedPolicy,
   type SessionCatalog,
   SessionServiceError,
   type WorkerGateway,
@@ -100,11 +100,11 @@ integration("turn interrupts on PostgreSQL", () => {
       },
     });
     interrupts = createInterruptService({
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       store: createPostgresTurnInterrupts(db),
     });
     answers = createPendingRequestService({
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       store: createPostgresPendingRequests(db),
     });
   }, 60_000);

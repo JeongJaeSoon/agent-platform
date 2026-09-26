@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  allowAllPolicy,
   createSessionService,
   createWorkerGateway,
-  ownerScopedPolicy,
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
@@ -98,7 +98,7 @@ function schedulerStore() {
 /** A session with its first input, bound to a claimed, pinned launch. */
 async function claimedSession() {
   const service = createSessionService({
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),

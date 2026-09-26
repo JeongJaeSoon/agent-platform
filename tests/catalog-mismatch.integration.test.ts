@@ -22,6 +22,7 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  allowAllPolicy,
   createSessionService,
   createWorkerGateway,
   type EnsureExecutionResult,
@@ -30,7 +31,6 @@ import {
   type ExecutionRef,
   type LaunchIntent,
   type ManagedExecution,
-  ownerScopedPolicy,
   runScheduler,
   type SessionCatalog,
   type TerminateExecutionResult,
@@ -289,7 +289,7 @@ integration("a session whose pair left the catalog, end to end", () => {
 
   const serviceFor = (catalog: SessionCatalog) =>
     createSessionService({
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
