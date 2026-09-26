@@ -303,14 +303,14 @@ scripts/test-ops.sh upgrade release-new.json
 
 `upgrade`는 새 manifest로 preflight를 돈 뒤 다음 규칙을 따른다.
 
-- **worker 이미지가 바뀌고 `collected_at IS NULL`인 checkpoint가 하나라도 있으면 거부한다.** 복원은 SDK·CLI 버전이 정확히 같아야 하므로, 그 세션들은 다음 복원에서 `INCOMPATIBLE_CHECKPOINT`를 거쳐 `RESTORE_FAILED`가 된다([94S-387](https://linear.app/94soon/issue/94S-387)). 거부할 때 영향받는 세션 id를 모두 출력하고 `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`에 적는다. 종료 코드는 3이다.
+- **worker 이미지가 바뀌면 `scripts/verify-restore.sh --image <새 이미지>`의 restore plan으로 현재 checkpoint를 검사한다.** engine·SDK·CLI·profile digest가 모두 같아 호환되는 세션은 승인 없이 이어진다. `INCOMPATIBLE_CHECKPOINT`인 세션만 영향 목록에 올려 거부하고, id를 `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`에 적는다. 종료 코드는 3이다. 검사를 끝까지 돌릴 수 없거나 불호환 외 실패가 하나라도 섞이면 fail-closed로 `collected_at IS NULL`인 checkpoint의 세션을 모두 영향 목록에 올리고 그 사실을 로그에 남긴다([94S-387](https://linear.app/94soon/issue/94S-387)).
 - 목록을 검토하고 사용자에게 알린 뒤, 정확히 그 id들을 담은 파일로 다시 부른다.
 
   ```bash
   scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt
   ```
 
-  승인 목록이 영향 목록과 하나라도 다르면 거부한다. worker 이미지가 바뀌면 writer를 멈추고(아래 "백업"과 같은 순서) 목록을 한 번 더 뽑는다. 그 사이 새 checkpoint가 생겨 목록이 바뀌었으면 원래 release를 다시 열고 거부한다. 진행하면 `approvals/<시각>-upgrade.json`에 시각·운영자·전후 worker 이미지·세션 목록을 남긴다.
+  승인 목록이 영향 목록과 하나라도 다르면 거부한다. worker 이미지가 바뀌면 writer를 멈추고(아래 "백업"과 같은 순서) 같은 restore plan 검사를 한 번 더 한다. 그 사이 새 checkpoint가 생기거나 호환 판정이 바뀌어 목록이 달라졌으면 원래 release를 다시 열고 거부한다. 진행하면 `approvals/<시각>-upgrade.json`에 시각·운영자·전후 worker 이미지·세션 목록을 남긴다. 불호환 세션을 `start_fresh`로 복구하면 이전 checkpoint의 context를 잃는다.
 - 영향받는 세션이 없으면 승인 없이 진행한다. worker 이미지가 같으면 writer도 멈추지 않고, 설정이나 이미지가 바뀐 컨테이너만 새로 만든다.
 - 카탈로그 revision이 바뀌면 API를 다시 만든다. API는 카탈로그를 기동할 때 한 번만 읽는다.
 - 끝나면 `current.json`을 새 manifest로 바꾸고 `history.log`에 한 줄 남긴다.

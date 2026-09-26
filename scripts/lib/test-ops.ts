@@ -5,6 +5,7 @@
  *   bun run scripts/lib/test-ops.ts catalog-revision <dir>
  *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--catalog-revision <rev>] < rendered.json
  *   bun run scripts/lib/test-ops.ts probe-store < rendered.json
+ *   bun run scripts/lib/test-ops.ts upgrade-impact <verify-exit> <verify-output> <uncollected>
  *   bun run scripts/lib/test-ops.ts upgrade-gate <from-worker> <to-worker> <affected> [<approved>]
  *
  * rendered.json is `docker compose config --format json` of the test-ops
@@ -396,12 +397,73 @@ export type UpgradeVerdict =
   | { readonly proceed: true; readonly approved: readonly string[] }
   | { readonly proceed: false; readonly reason: string };
 
+export type UpgradeImpact = {
+  readonly affected: readonly string[];
+  readonly failClosed: boolean;
+  readonly reason?: string;
+};
+
 /**
- * A worker image change turns every checkpoint that is not collected into
- * INCOMPATIBLE_CHECKPOINT at its next restore (94S-387). The upgrade goes
- * ahead only when nothing is affected, or when the operator approved exactly
- * the sessions that are: one more or one fewer means the list they read is
- * not the one that would break.
+ * Reads verify-restore's complete run, accepting exit 5 only when every
+ * failure is a target-image incompatibility. Any incomplete or mixed result
+ * falls back to all uncollected sessions.
+ */
+export function upgradeImpact(input: {
+  readonly exitCode: number;
+  readonly output: string;
+  readonly uncollected: readonly string[];
+}): UpgradeImpact {
+  const sorted = (ids: readonly string[]) => [...new Set(ids)].sort();
+  const fallback = sorted(input.uncollected);
+  const failClosed = (reason: string): UpgradeImpact => ({
+    affected: fallback,
+    failClosed: true,
+    reason,
+  });
+  const lines = input.output.split("\n").map((line) => line.trim());
+  const failures = lines.filter((line) => line.startsWith("FAIL "));
+  const summaries = lines.flatMap((line) => {
+    const match = /^checkpoints=\d+ passed=\d+ failed=(\d+)$/.exec(line);
+    return match === null ? [] : [Number(match[1])];
+  });
+  if (summaries.length !== 1)
+    return failClosed("verify-restore did not produce one complete summary");
+  if (summaries[0] !== failures.length)
+    return failClosed("verify-restore's summary does not match its failures");
+  if (
+    (failures.length === 0 && input.exitCode !== 0) ||
+    (failures.length > 0 && input.exitCode !== 5)
+  )
+    return failClosed(
+      `verify-restore exited ${input.exitCode} for ${failures.length} failure(s)`,
+    );
+
+  const incompatible: string[] = [];
+  for (const failure of failures) {
+    const match =
+      /^FAIL (.+)@[0-9]+ plan: incompatible with the target image \(checkpoint → image\): /.exec(
+        failure,
+      );
+    if (match === null)
+      return failClosed(
+        "verify-restore found a failure other than incompatibility",
+      );
+    incompatible.push(match[1] as string);
+  }
+  const affected = sorted(incompatible);
+  const uncollected = new Set(fallback);
+  if (affected.some((sessionId) => !uncollected.has(sessionId)))
+    return failClosed(
+      "verify-restore named an incompatible session outside the uncollected set",
+    );
+  return { affected, failClosed: false };
+}
+
+/**
+ * The upgrade goes ahead only when no session is incompatible with the target
+ * worker image, or when the operator approved exactly the sessions that are:
+ * one more or one fewer means the list they read is not the one that would
+ * break.
  */
 export function decideUpgrade(input: {
   readonly affected: readonly string[];
@@ -493,6 +555,24 @@ async function main(argv: readonly string[]): Promise<number> {
       );
       return 0;
     }
+    case "upgrade-impact": {
+      const [exitCodeText, output, uncollected] = args;
+      if (!exitCodeText || !output || !uncollected || args.length !== 3)
+        return usage();
+      const exitCode = Number(exitCodeText);
+      if (!Number.isSafeInteger(exitCode) || exitCode < 0) return usage();
+      const impact = upgradeImpact({
+        exitCode,
+        output: await readFile(output, "utf8"),
+        uncollected: await lines(uncollected),
+      });
+      if (impact.failClosed)
+        console.error(
+          `upgrade impact: ${impact.reason}; fail-closed to all ${impact.affected.length} uncollected session(s)`,
+        );
+      console.log(impact.affected.join("\n"));
+      return 0;
+    }
     case "upgrade-gate": {
       const [fromWorker, toWorker, affected, approved] = args;
       if (!fromWorker || !toWorker || !affected || args.length > 4)
@@ -517,7 +597,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }
