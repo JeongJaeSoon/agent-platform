@@ -588,24 +588,25 @@ export type VmStall = Stall & {
 };
 
 /**
- * The host probe (94S-453): curl from the host, each slot, to two published
- * ports that do no product work — the VM probe's /healthz and the soak
- * Messages API's /clock. They cross the same Docker Desktop port forward
- * readyz takes, which can hold requests while the VM keeps ticking (RC4
- * 06:05:52Z, 07:00:48Z) where vm-lag cannot see it. A request of
- * `nearMissMs` or more is listed. A host stall is where both targets were
- * surely held at once for READYZ_EXCLUSION's `stallMinMs` or more each: one
- * slow target alone may be that container, not the shared path. A held
- * request also spent up to `slackMs` on ordinary work, on either side of
- * the stall, so the stall surely covered its run less that much at each
- * end. Requests overlap, so a held one never stops the next slot's.
+ * The host probe (94S-453): curl from the host, each slot, to the /healthz
+ * of two idle containers that do no product work, vm-lag and its twin
+ * host-echo. Both sit behind the same Docker Desktop port forward readyz
+ * takes, which can hold requests while the VM keeps ticking (RC4 06:05:52Z,
+ * 07:00:48Z) where vm-lag's ticks cannot see it. A request of `nearMissMs`
+ * or more is listed. A target is held where a request of READYZ_EXCLUSION's
+ * `stallMinMs` or more got no answer but 200; such a request also spent up
+ * to `slackMs` on ordinary work on either side of the hold, so the hold
+ * surely covered its run less that much at each end. A host stall is a
+ * stretch of `stallMinMs` or more where both targets were held at once:
+ * one target alone may be its own container, not the shared path. Slots do
+ * not wait on each other, so a held request never delays the next.
  */
 export const HOST_PROBE = {
   intervalMs: 500,
   timeoutMs: 2000,
   nearMissMs: 500,
   slackMs: 100,
-  targets: { "vm-lag": "/healthz", messages: "/clock" },
+  targets: ["vm-lag", "host-echo"],
 };
 
 /** A worker's own engine_stopped log line, on the container clock. */
@@ -671,45 +672,66 @@ const heldOnly = (sample: ReadyzSample) =>
   (sample.error === CURL_TIMEOUT &&
     (sample.status === 0 || sample.status === 200));
 
-/** One target's held requests, narrowed to where the hold surely was. */
-function heldWindows(samples: HostProbeSample[], target: string) {
-  return samples.flatMap((sample) => {
-    if (
-      sample.target !== target ||
-      sample.ms < READYZ_EXCLUSION.stallMinMs ||
-      !heldOnly(sample)
-    ) {
-      return [];
-    }
-    const ran = curlSurely(sample);
-    const from = ran.from + HOST_PROBE.slackMs;
-    const to = ran.until - HOST_PROBE.slackMs;
-    return from < to
-      ? [{ from, to, label: `${target} ${sample.t} +${sample.ms}ms` }]
-      : [];
-  });
+/**
+ * Where one target was surely held, as disjoint stretches in time order:
+ * each held request narrowed by the slack, overlapping ones merged.
+ */
+function heldStretches(samples: HostProbeSample[], target: string) {
+  const held = samples
+    .flatMap((sample) => {
+      if (
+        sample.target !== target ||
+        sample.ms < READYZ_EXCLUSION.stallMinMs ||
+        !heldOnly(sample)
+      ) {
+        return [];
+      }
+      const ran = curlSurely(sample);
+      const from = ran.from + HOST_PROBE.slackMs;
+      const to = ran.until - HOST_PROBE.slackMs;
+      return from < to ? [{ from, to }] : [];
+    })
+    .sort((a, b) => a.from - b.from);
+  const merged: Array<{ from: number; to: number }> = [];
+  for (const next of held) {
+    const last = merged.at(-1);
+    if (last && next.from <= last.to) last.to = Math.max(last.to, next.to);
+    else merged.push({ ...next });
+  }
+  return merged;
 }
 
 /** The host probe's stalls, shaped as `longStalls`. */
 function hostStalls(samples: HostProbeSample[], tailMs = 0) {
-  const [first = "", second = ""] = Object.keys(HOST_PROBE.targets);
-  const others = heldWindows(samples, second);
-  return heldWindows(samples, first).flatMap((a) =>
-    others.flatMap((b) => {
-      const from = Math.max(a.from, b.from);
-      const to = Math.min(a.to, b.to);
-      return from < to
-        ? [{ from, to: to + tailMs, label: `host ${a.label} & ${b.label}` }]
-        : [];
-    }),
+  const [a = [], b = []] = HOST_PROBE.targets.map((target) =>
+    heldStretches(samples, target),
   );
+  const stalls: Array<{ from: number; to: number; label: string }> = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const x = a[i] as { from: number; to: number };
+    const y = b[j] as { from: number; to: number };
+    const from = Math.max(x.from, y.from);
+    const to = Math.min(x.to, y.to);
+    if (to - from >= READYZ_EXCLUSION.stallMinMs) {
+      stalls.push({
+        from,
+        to: to + tailMs,
+        label: `host ${new Date(from).toISOString()} +${to - from}ms`,
+      });
+    }
+    if (x.to < y.to) i++;
+    else j++;
+  }
+  return stalls;
 }
 
 /** The host probe's record for the report; its stalls feed the exclusions. */
 export function summarizeHostProbe(samples: HostProbeSample[]) {
   const stalls = hostStalls(samples);
   const targets = Object.fromEntries(
-    Object.keys(HOST_PROBE.targets).map((target) => {
+    HOST_PROBE.targets.map((target) => {
       const own = samples.filter((sample) => sample.target === target);
       return [
         target,
@@ -721,7 +743,7 @@ export function summarizeHostProbe(samples: HostProbeSample[]) {
           otherFailures: own.filter(
             (sample) => !sample.ok && sample.error !== CURL_TIMEOUT,
           ).length,
-          held: heldWindows(own, target).length,
+          held: heldStretches(own, target).length,
           latency: distribution(
             own.filter((sample) => sample.ok).map((sample) => sample.ms),
           ),
@@ -1132,7 +1154,6 @@ export async function curlLoop(
   const running = new Set<Promise<void>>();
   let slot = Date.now();
   while (!clock.stopping) {
-    const t = new Date().toISOString();
     const own = slot;
     const probe = curlProbe(url, timeoutMs, own + grace)
       .catch((error) =>
@@ -1142,7 +1163,7 @@ export async function curlLoop(
         record(
           sample === null
             ? failed(own, "slot missed: the runner did not get to it")
-            : { t, ...sample },
+            : sample,
         ),
       );
     running.add(probe);
@@ -1155,12 +1176,15 @@ export async function curlLoop(
   await Promise.all(running);
 }
 
-/** null when the probe could not start by `notAfter`. */
+/**
+ * null when the probe could not start by `notAfter`. `t` and `wallMs` count
+ * from one instant, the one curlSurely() bounds curl's start from.
+ */
 async function curlProbe(
   url: string,
   timeoutMs: number,
   notAfter: number,
-): Promise<Omit<ReadyzSample, "t"> | null> {
+): Promise<ReadyzSample | null> {
   const sent = Date.now();
   if (sent > notAfter) return null;
   const child = Bun.spawn(
@@ -1185,6 +1209,7 @@ async function curlProbe(
   const [httpCode = "0", seconds = "0"] = text.trim().split(" ");
   const status = Number(httpCode);
   return {
+    t: new Date(sent).toISOString(),
     error: code === 0 ? null : `curl exit ${code}`,
     ms: Math.round(Number(seconds) * 1000),
     ok: code === 0 && status === 200,
@@ -1198,6 +1223,19 @@ async function curlProbe(
  * Reads the VM probe's new stalls. A poll slower than the stalls the soak
  * judges on is dropped whole: its clock offset is too loose to place them.
  */
+/** The host probe's targets, by name; refuses a stack from before them. */
+function hostProbeUrls(env: SoakEnv): Record<string, string> {
+  if (!env.hostEchoUrl) {
+    throw new Error(
+      "SOAK_HOST_ECHO_URL is not set: bring the stack up with this checkout's scripts/soak/stack.sh",
+    );
+  }
+  return {
+    "vm-lag": `${vmLagUrl(env)}/healthz`,
+    "host-echo": `${env.hostEchoUrl}/healthz`,
+  };
+}
+
 function vmLagUrl(env: SoakEnv): string {
   if (!env.vmLagUrl) {
     throw new Error(
@@ -1274,10 +1312,10 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
         out.jsonl("readyz").write(sample);
       },
     ),
-    ...Object.entries(HOST_PROBE.targets).map(([target, path]) =>
+    ...Object.entries(hostProbeUrls(env)).map(([target, url]) =>
       curlLoop(
         clock,
-        `${target === "vm-lag" ? vmLagUrl(env) : env.messagesUrl}${path}`,
+        url,
         HOST_PROBE.intervalMs,
         HOST_PROBE.timeoutMs,
         (sample) => {
@@ -1633,7 +1671,7 @@ export function judge(
       id: "P-3",
       area: "성능·종료 의미",
       input: `interrupt ${interrupts.length}건 (유효 ${interruptsJudged.valid}: 느린 호출 중·202·receipt no_op=false): accepted ${JSON.stringify(acceptedOf(interrupts))}, VM stall probe poll ${JSON.stringify(probePolls)}`,
-      expected: `유효하지 않은 표본 0, 모든 표본의 engine_stopped를 SSE에서 관찰, host 제외가 아닌 모든 표본의 제품 effect(POST → worker 로그 engine_stopped, POST 앞뒤 /clock 값으로 옮긴 host 시계의 가장 늦은 시각) ≤ ${targets.interruptEffectMs}ms, 모든 표본이 ${targets.interruptTerminalMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0. host 제외는 [POST, 제품 effect]가 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall 또는 host stall의 [시작, 끝+${INTERRUPT_EXCLUSION.afterStallMs}ms]와 겹친 늦은 effect만이고, 그 표본도 receipt succeeded와 그 세션의 다음 turn completed가 있어야 한다. host 제외 ≤ ${INTERRUPT_EXCLUSION.maxHostExcludedRatio * 100}%(넘으면 측정 무효). SSE 관측 시각은 함께 싣되 판정하지 않는다`,
+      expected: `유효하지 않은 표본 0, 모든 표본의 engine_stopped를 SSE에서 관찰, host 제외가 아닌 모든 표본의 제품 effect(POST → worker 로그 engine_stopped, POST 앞뒤 /clock 값으로 옮긴 host 시계의 가장 늦은 시각) ≤ ${targets.interruptEffectMs}ms, 모든 표본이 ${targets.interruptTerminalMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0. host 제외는 [POST, 제품 effect]가 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall 또는 host stall의 [시작, 끝+${INTERRUPT_EXCLUSION.afterStallMs}ms]와 겹친 늦은 effect만이고, 그 표본도 receipt succeeded와 그 세션의 다음 turn completed가 있어야 한다. host 제외 ≤ ${INTERRUPT_EXCLUSION.maxHostExcludedRatio * 100}%(넘으면 측정 무효). SSE 관측 시각은 함께 싣는다. worker 로그를 그 event에 묶을 수 없는 표본(로그 줄이 없거나 둘 이상, POST 앞뒤 /clock 값 중 하나라도 없음, 계산 값이 음수이거나 SSE보다 늦음)은 SSE 관측 값으로 판정한다`,
       actual: `제품 effect ${JSON.stringify(distribution(interruptsJudged.effectMs))}(worker 로그 ${interruptsJudged.effectFromWorkerLog}건, 나머지는 SSE 값), SSE 관측 ${JSON.stringify(distribution(interruptsJudged.sseEffectMs))}·${targets.interruptEffectMs}ms 초과 ${JSON.stringify(interruptsJudged.sseLate)}, terminal ${JSON.stringify(distribution(interruptsJudged.terminalMs))}, 무효 ${interrupts.length - interruptsJudged.valid}, 관찰 못 함 ${interruptsJudged.unobserved}, interrupted 아님 ${interruptsJudged.notInterrupted}, 확정 늦음 ${interruptsJudged.settledLate}, 계속 호출 ${interruptsJudged.continued}, effect 초과(제외 아님) ${JSON.stringify(interruptsJudged.late)}, host 제외 ${interruptsJudged.hostExcluded}건(${interruptsJudged.hostExcludedRatio}, 판정 표본 ${interruptsJudged.judged}) ${JSON.stringify(interruptsJudged.hostExcludedSamples)}`,
       pass: interruptsJudged.pass,
     }),
@@ -1718,7 +1756,7 @@ export function judge(
     criterion({
       id: "O-1",
       area: "관측",
-      input: `/readyz ${readyz.length}회, ${config.readyz.intervalMs}ms 간격, VM stall probe poll ${JSON.stringify(probePolls)}, host probe ${hostProbe.samples}회(${HOST_PROBE.intervalMs}ms 간격, 대상마다 ${JSON.stringify(HOST_PROBE.targets)})`,
+      input: `/readyz ${readyz.length}회, ${config.readyz.intervalMs}ms 간격, VM stall probe poll ${JSON.stringify(probePolls)}, host probe ${hostProbe.samples}회(${HOST_PROBE.intervalMs}ms 간격, ${HOST_PROBE.targets.join("·")} /healthz)`,
       expected: `러너 결측과 host 제외를 뺀 표본의 가용률 ≥ ${targets.readyzAvailability}. host 제외는 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall, 또는 두 host probe 대상이 함께 ${READYZ_EXCLUSION.stallMinMs}ms 이상 막힌 host stall이 요청 구간과 확실히 겹친 timeout만이다. host 제외 ≤ ${READYZ_EXCLUSION.maxHostExcludedRatio * 100}%, 러너 결측 ≤ ${READYZ_EXCLUSION.maxRunnerMissedRatio * 100}%(넘으면 측정 무효)`,
       actual: `가용률 ${readyzJudged.availability} (${readyzJudged.ok}/${readyzJudged.judged}), 제품 실패 ${JSON.stringify(readyzJudged.productFailures)}, host 제외 ${readyzJudged.hostExcluded}회(${readyzJudged.hostExcludedRatio}), 러너 결측 ${readyzJudged.runnerMissed}회(${readyzJudged.runnerMissedRatio}), VM stall ≥${READYZ_EXCLUSION.stallMinMs}ms ${readyzJudged.stalls.count}회·최대 ${readyzJudged.stalls.maxGapMs}ms(목록은 summary.json readyz.stalls), host stall ${hostProbe.stalls.count}회, host probe ${HOST_PROBE.nearMissMs}ms 이상 또는 실패 ${hostProbe.nearMisses.length}회, 대상별 ${JSON.stringify(Object.fromEntries(Object.entries(hostProbe.targets).map(([target, row]) => [target, { timeouts: row.timeouts, otherFailures: row.otherFailures, held: row.held }])))}(목록은 summary.json hostProbe), 응답 시간(curl) ${JSON.stringify(distribution(readyz.map((sample) => sample.ms)))}`,
       pass: readyzJudged.pass,
@@ -1854,7 +1892,7 @@ async function main(): Promise<number> {
   }
   const config = validConfig(await Bun.file(configPath).json());
   const env = soakEnv();
-  vmLagUrl(env);
+  hostProbeUrls(env);
   const stamp = new Date().toISOString().replaceAll(":", "").slice(0, 15);
   const dir = resolve(
     outArg ??

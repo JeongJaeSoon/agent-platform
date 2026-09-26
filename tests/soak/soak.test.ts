@@ -623,7 +623,7 @@ describe("host probe and the P-3 split (94S-453)", () => {
   // The shared port forward held both targets over the same stretch.
   const heldBoth = (at: number, ms: number): HostProbeSample[] => [
     host("vm-lag", at, ms),
-    host("messages", at + 200, ms),
+    host("host-echo", at + 200, ms),
   ];
   const hostTimeout = { ok: false, error: "curl exit 28", status: 0 };
 
@@ -632,12 +632,12 @@ describe("host probe and the P-3 split (94S-453)", () => {
     expect(HOST_PROBE.nearMissMs).toBe(500);
     const summary = summarizeHostProbe([
       host("vm-lag", 0, 3),
-      host("messages", 0, 4),
+      host("host-echo", 0, 4),
       host("vm-lag", 500, 600),
       ...heldBoth(1000, 1800),
       // Only one target held: that container, not the path.
       host("vm-lag", 10_000, 2000, hostTimeout),
-      host("messages", 20_000, 0, {
+      host("host-echo", 20_000, 0, {
         ok: false,
         error: "curl exit 7",
         status: 0,
@@ -647,13 +647,18 @@ describe("host probe and the P-3 split (94S-453)", () => {
       samples: 7,
       targets: {
         "vm-lag": { samples: 4, ok: 3, timeouts: 1, otherFailures: 0, held: 2 },
-        messages: { samples: 3, ok: 2, timeouts: 0, otherFailures: 1, held: 1 },
+        "host-echo": {
+          samples: 3,
+          ok: 2,
+          timeouts: 0,
+          otherFailures: 1,
+          held: 1,
+        },
       },
       stalls: { count: 1 },
     });
-    expect(summary.stalls.list).toEqual([
-      `host vm-lag ${iso(1000)} +1800ms & messages ${iso(1200)} +1800ms`,
-    ]);
+    // vm-lag surely held 1105–2700, host-echo 1305–2900.
+    expect(summary.stalls.list).toEqual([`host ${iso(1305)} +1395ms`]);
     expect(summary.nearMisses.map((entry) => entry.t)).toEqual(
       [500, 1000, 1200, 10_000, 20_000].map(iso),
     );
@@ -731,7 +736,7 @@ describe("host probe and the P-3 split (94S-453)", () => {
         heldBoth(50_300, 1500),
         [
           host("vm-lag", 50_300, 2000, hostTimeout),
-          host("messages", 50_400, 2000, hostTimeout),
+          host("host-echo", 50_400, 2000, hostTimeout),
         ],
       ]) {
         const result = judge([host("vm-lag", 49_500, 3), ...probe]);
@@ -740,9 +745,7 @@ describe("host probe and the P-3 split (94S-453)", () => {
           hostExcluded: 1,
           productFailures: [],
         });
-        expect(result.hostExcludedSamples[0]?.stall).toStartWith(
-          `host vm-lag ${iso(50_300)}`,
-        );
+        expect(result.hostExcludedSamples[0]?.stall).toStartWith("host ");
       }
     });
 
@@ -751,12 +754,14 @@ describe("host probe and the P-3 split (94S-453)", () => {
         [],
         // One target alone.
         [host("vm-lag", 50_300, 1800)],
-        [host("messages", 50_300, 1800)],
+        [host("host-echo", 50_300, 1800)],
         // Held at different times.
-        [host("vm-lag", 50_000, 1200), host("messages", 51_000, 1000)],
+        [host("vm-lag", 50_000, 1200), host("host-echo", 51_000, 1000)],
+        // Held together, but for 945ms: less than a stall.
+        [host("vm-lag", 50_000, 1300), host("host-echo", 50_150, 1300)],
         [
           host("vm-lag", 50_300, READYZ_EXCLUSION.stallMinMs - 1),
-          host("messages", 50_300, 1800),
+          host("host-echo", 50_300, 1800),
         ],
         // Refused or answered by something other than 200: not the path.
         [
@@ -765,11 +770,11 @@ describe("host probe and the P-3 split (94S-453)", () => {
             error: "curl exit 7",
             status: 0,
           }),
-          host("messages", 50_300, 1800),
+          host("host-echo", 50_300, 1800),
         ],
         [
           host("vm-lag", 50_300, 1800, { ok: false, status: 503 }),
-          host("messages", 50_300, 1800),
+          host("host-echo", 50_300, 1800),
         ],
         // Sent 50ms before readyz gave up: less the slack, it ran after.
         heldBoth(51_950, 1500),
@@ -782,13 +787,27 @@ describe("host probe and the P-3 split (94S-453)", () => {
       }
     });
 
+    test("a target held by back-to-back requests counts as one hold", () => {
+      // Each vm-lag request overlaps host-echo's for 895ms; together 1495ms.
+      const probe = [
+        host("vm-lag", 50_000, 1100),
+        host("vm-lag", 50_600, 1100),
+        host("host-echo", 50_000, 1900),
+      ];
+      expect(judge(probe)).toMatchObject({ pass: true, hostExcluded: 1 });
+      expect(judge(probe.slice(1))).toMatchObject({ hostExcluded: 0 });
+      expect(summarizeHostProbe(probe).stalls.list).toEqual([
+        `host ${iso(50_105)} +1495ms`,
+      ]);
+    });
+
     test("curl may start after its spawn returned: only its last `ms` before the runner saw it end count", () => {
       // curl said 1.8s, the runner saw it end 3s after sending: it surely
       // ran only from 1.2s to 1.8s, after this readyz request ended at 1.2s.
       const early: ReadyzSample = { ...timedOut, ms: 1200, wallMs: 1210 };
       const late = [
         host("vm-lag", 50_000, 1800, { wallMs: 3000 }),
-        host("messages", 50_000, 1800, { wallMs: 3000 }),
+        host("host-echo", 50_000, 1800, { wallMs: 3000 }),
       ];
       expect(
         judgeReadyz(
