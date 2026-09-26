@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { distribution, soakEnv } from "./lib.ts";
+import { container, distribution, type SoakEnv, soakEnv } from "./lib.ts";
 import { Api } from "./probes.ts";
 import { curlLoop, HOST_PROBE, type HostProbeSample } from "./soak.ts";
 
@@ -18,6 +18,7 @@ const CYCLES = 24;
 const MINUTES_PER_CYCLE = 5;
 const SAMPLE_COUNT = CYCLES * MINUTES_PER_CYCLE;
 const ACCEPT_P95_MS = 500;
+const RC4_PRODUCT_SHA = "40864efa17cf0690be669a445bb37da8ace91daa";
 
 export type PhasePlanEntry = {
   sequence: number;
@@ -160,34 +161,54 @@ function gitSha(): string {
 
 type RcRecord = {
   rc_sha?: unknown;
-  images?: Array<{ image?: unknown; id?: unknown }>;
+  images?: Array<{ service?: unknown; image?: unknown; id?: unknown }>;
 };
 
-function imageId(image: string): string {
-  const result = Bun.spawnSync([
-    "docker",
-    "image",
-    "inspect",
-    "--format",
-    "{{.Id}}",
-    image,
-  ]);
+function commandText(command: string[], description: string): string {
+  const result = Bun.spawnSync(command);
   if (result.exitCode !== 0) {
     throw new Error(
-      `could not inspect image ${image}: ${result.stderr.toString().trim()}`,
+      `${description}: ${result.stderr.toString().trim() || `exit ${result.exitCode}`}`,
     );
   }
   return result.stdout.toString().trim();
 }
 
+function imageId(image: string): string {
+  return commandText(
+    ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+    `could not inspect image ${image}`,
+  );
+}
+
+function containerImageId(name: string): string {
+  return commandText(
+    ["docker", "inspect", "--format", "{{.Image}}", name],
+    `could not inspect container ${name}`,
+  );
+}
+
 function verifyRcImages(
   rcPath: string,
-  images: readonly string[],
-): { rcJson: string; productSha: string; imageIds: Record<string, string> } {
+  env: SoakEnv,
+  egressProxyImage: string,
+): {
+  rcJson: string;
+  productSha: string;
+  imageIds: Record<string, string>;
+  containerImageIds: Record<string, string>;
+  apiUrl: string;
+} {
   const rc = JSON.parse(readFileSync(rcPath, "utf8")) as RcRecord;
   if (typeof rc.rc_sha !== "string" || !Array.isArray(rc.images)) {
     throw new Error(`${rcPath} has no RC SHA or image records`);
   }
+  if (rc.rc_sha !== RC4_PRODUCT_SHA) {
+    throw new Error(
+      `${rcPath} records product SHA ${rc.rc_sha}, expected ${RC4_PRODUCT_SHA}`,
+    );
+  }
+  const images = [env.apiImage, env.workerImage, egressProxyImage];
   const imageIds: Record<string, string> = {};
   for (const image of images) {
     const current = imageId(image);
@@ -201,19 +222,61 @@ function verifyRcImages(
     }
     imageIds[image] = current;
   }
-  return { rcJson: rcPath, productSha: rc.rc_sha, imageIds };
+
+  const containerImageIds = {
+    api: containerImageId(container(env, "api")),
+    "egress-proxy": containerImageId(container(env, "egress-proxy")),
+  };
+  if (containerImageIds.api !== imageIds[env.apiImage]) {
+    throw new Error(
+      `running API container uses ${containerImageIds.api}, expected ${imageIds[env.apiImage]}`,
+    );
+  }
+  if (containerImageIds["egress-proxy"] !== imageIds[egressProxyImage]) {
+    throw new Error(
+      `running egress-proxy container uses ${containerImageIds["egress-proxy"]}, expected ${imageIds[egressProxyImage]}`,
+    );
+  }
+
+  const published = commandText(
+    [
+      "docker",
+      "compose",
+      "-p",
+      env.project,
+      ...env.composeFiles,
+      "--profile",
+      "apps",
+      "--profile",
+      "worker",
+      "port",
+      "api",
+      "3000",
+    ],
+    "could not read the soak API published port",
+  );
+  const expectedApiUrl = `http://${published}`;
+  const configuredApiUrl = new URL(env.apiUrl);
+  if (
+    configuredApiUrl.origin !== expectedApiUrl ||
+    configuredApiUrl.pathname !== "/"
+  ) {
+    throw new Error(
+      `SOAK_API_URL ${env.apiUrl} is not the soak compose API at ${expectedApiUrl}`,
+    );
+  }
+  return {
+    rcJson: rcPath,
+    productSha: rc.rc_sha,
+    imageIds,
+    containerImageIds,
+    apiUrl: env.apiUrl,
+  };
 }
 
-async function steadySessionCount(api: Api): Promise<number> {
-  const steadyStates = new Set([
-    "active",
-    "pausing",
-    "paused",
-    "resuming",
-    "stopping",
-  ]);
+async function activeSessionIds(api: Api): Promise<string[]> {
   let cursor: string | null = null;
-  let count = 0;
+  const ids: string[] = [];
   do {
     const query = new URLSearchParams({ limit: "100" });
     if (cursor) query.set("cursor", cursor);
@@ -224,23 +287,99 @@ async function steadySessionCount(api: Api): Promise<number> {
       );
     }
     const page = response.body as {
-      items?: Array<{ admission_state?: unknown }>;
+      items?: Array<{ id?: unknown; admission_state?: unknown }>;
       next_cursor?: unknown;
     };
     if (!Array.isArray(page.items)) {
       throw new Error("session list response has no items");
     }
-    count += page.items.filter(
-      (item) =>
-        typeof item.admission_state === "string" &&
-        steadyStates.has(item.admission_state),
-    ).length;
+    for (const item of page.items) {
+      if (item.admission_state !== "active") continue;
+      if (typeof item.id !== "string") {
+        throw new Error("active session list entry has no id");
+      }
+      ids.push(item.id);
+    }
     if (page.next_cursor !== null && typeof page.next_cursor !== "string") {
       throw new Error("session list response has an invalid next_cursor");
     }
     cursor = page.next_cursor;
   } while (cursor !== null);
-  return count;
+  return ids.sort();
+}
+
+type WorkloadSnapshot = {
+  sessionIds: string[];
+  workers: Array<{ name: string; sessionId: string; imageId: string }>;
+};
+
+async function verifySteadyWorkload(
+  api: Api,
+  env: SoakEnv,
+  workerImageId: string,
+  expectedSessionIds?: readonly string[],
+): Promise<WorkloadSnapshot> {
+  const sessionIds = await activeSessionIds(api);
+  const expected = [...(expectedSessionIds ?? sessionIds)].sort();
+  if (expectedSessionIds === undefined && sessionIds.length !== 10) {
+    throw new Error(
+      `expected exactly 10 admission-active sessions, found ${sessionIds.length}`,
+    );
+  }
+  const active = new Set(sessionIds);
+  const missing = expected.filter((id) => !active.has(id));
+  if (missing.length > 0) {
+    throw new Error(
+      `steady sessions are no longer active: ${missing.join(", ")}`,
+    );
+  }
+
+  const listing = commandText(
+    [
+      "docker",
+      "ps",
+      "--filter",
+      `label=agent-platform.installation=${env.installation}`,
+      "--filter",
+      "name=ap-worker-",
+      "--format",
+      '{{.Names}}\t{{.Label "agent-platform.session-id"}}',
+    ],
+    "could not list running soak workers",
+  );
+  const workers = listing
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [name, sessionId] = line.split("\t");
+      if (!name || !sessionId) {
+        throw new Error(`running worker has incomplete identity: ${line}`);
+      }
+      return { name, sessionId, imageId: containerImageId(name) };
+    });
+  for (const worker of workers) {
+    if (worker.imageId !== workerImageId) {
+      throw new Error(
+        `running worker ${worker.name} uses ${worker.imageId}, expected ${workerImageId}`,
+      );
+    }
+  }
+  for (const sessionId of expected) {
+    const count = workers.filter(
+      (worker) => worker.sessionId === sessionId,
+    ).length;
+    if (count !== 1) {
+      throw new Error(
+        `steady session ${sessionId} has ${count} running workers, expected 1`,
+      );
+    }
+  }
+  if (workers.length !== 10) {
+    throw new Error(
+      `expected exactly 10 running steady workers, found ${workers.length}`,
+    );
+  }
+  return { sessionIds: expected, workers };
 }
 
 function atomicJson(path: string, value: unknown): void {
@@ -322,24 +461,22 @@ async function main(): Promise<number> {
   const rcPath = resolve(
     rcArg ?? process.env.P2_PHASE_RC_JSON ?? join(dir, "..", "rc.json"),
   );
-  const provenance = verifyRcImages(rcPath, [
-    env.apiImage,
-    env.workerImage,
-    egressProxyImage,
-  ]);
-  const api = new Api(env.apiUrl, env.apiKey);
-  const initialSteadySessions = await steadySessionCount(api);
-  if (initialSteadySessions !== 10) {
-    throw new Error(
-      `expected 10 steady sessions before warmup, found ${initialSteadySessions}`,
-    );
+  const provenance = verifyRcImages(rcPath, env, egressProxyImage);
+  const workerImageId = provenance.imageIds[env.workerImage];
+  if (!workerImageId) {
+    throw new Error(`no verified image ID for ${env.workerImage}`);
   }
+  const api = new Api(env.apiUrl, env.apiKey);
+  const initialWorkload = await verifySteadyWorkload(api, env, workerImageId);
 
   const toolsSha = gitSha();
   const createdAt = new Date().toISOString();
   const plan = buildPhasePlan(Date.now());
   const samples: PhaseSample[] = [];
   const hostProbe: HostProbeSample[] = [];
+  let warmupWorkload: WorkloadSnapshot | null = null;
+  let finalWorkload: WorkloadSnapshot | null = null;
+  let finalProvenance: typeof provenance | null = null;
   const writeArtifacts = (
     judgement: PhaseJudgement | null,
     observedInvalidReasons: readonly string[] = [],
@@ -353,7 +490,10 @@ async function main(): Promise<number> {
       productSha: provenance.productSha,
       toolsSha,
       provenance,
-      initialSteadySessions,
+      finalProvenance,
+      initialWorkload,
+      warmupWorkload,
+      finalWorkload,
       verdict,
       plan,
       samples,
@@ -396,12 +536,12 @@ async function main(): Promise<number> {
     const first = plan[0];
     if (!first) throw new Error("phase plan is empty");
     await waitUntil(first.plannedAtMs - 10_000);
-    const steadySessions = await steadySessionCount(api);
-    if (steadySessions !== 10) {
-      throw new Error(
-        `expected 10 steady sessions after warmup, found ${steadySessions}`,
-      );
-    }
+    warmupWorkload = await verifySteadyWorkload(
+      api,
+      env,
+      workerImageId,
+      initialWorkload.sessionIds,
+    );
     for (const entry of plan) {
       await waitUntil(entry.plannedAtMs);
       const posted = await api.createSession(
@@ -433,6 +573,13 @@ async function main(): Promise<number> {
       ];
       writeArtifacts(null, observedInvalidReasons);
     }
+    finalProvenance = verifyRcImages(rcPath, env, egressProxyImage);
+    finalWorkload = await verifySteadyWorkload(
+      api,
+      env,
+      workerImageId,
+      initialWorkload.sessionIds,
+    );
   } catch (error) {
     runtimeError = String(error);
   } finally {
