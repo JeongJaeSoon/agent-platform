@@ -6,8 +6,10 @@ import {
   type InterruptTurnInput,
   type InterruptTurnResult,
 } from "@agent-platform/platform";
-import { createApiApp } from "../app.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerInterruptRoutes } from "./interrupt.ts";
+
+const createApiApp = recordRouteErrors("routes/interrupt.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const RECEIPT = "019a0000-0000-7000-8000-000000000001";
@@ -129,5 +131,13 @@ describe("interrupt route", () => {
       expect((await invalid.response).status).toBe(400);
       expect(invalid.seen).toHaveLength(0);
     }
+    const oversized = interrupt(accepted, {
+      target_turn_id: "x".repeat(65 * 1024),
+    });
+    expect(await errorOf(oversized.response)).toEqual({
+      status: 413,
+      code: "PAYLOAD_TOO_LARGE",
+    });
+    expect(oversized.seen).toHaveLength(0);
   });
 });

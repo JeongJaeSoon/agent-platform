@@ -9,8 +9,10 @@ import {
   createSessionService,
   type SessionReader,
 } from "@agent-platform/platform";
-import { createApiApp } from "../app.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerReceiptRoutes } from "./receipts.ts";
+
+const createApiApp = recordRouteErrors("routes/receipts.test.ts");
 
 const receipt: Receipt = {
   id: "4d6d1a3e-1f1c-4c3a-9f3e-2b1c1d1e1f10",

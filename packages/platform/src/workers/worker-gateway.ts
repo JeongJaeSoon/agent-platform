@@ -465,7 +465,7 @@ export function createWorkerGateway(deps: {
     const profile = profileId ? own(catalog.profiles, profileId) : undefined;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
-        409,
+        503,
         "BACKEND_UNAVAILABLE",
         "The session's runtime profile is not in this host's catalog",
         true,
@@ -522,7 +522,7 @@ export function createWorkerGateway(deps: {
   function moved(what: string): never {
     throw new WorkerGatewayError(
       409,
-      "BACKEND_UNAVAILABLE",
+      "CATALOG_MISMATCH",
       `The ${what} changed in the catalog since this attempt was claimed`,
     );
   }
@@ -731,7 +731,7 @@ export function createWorkerGateway(deps: {
           );
         case "profile_unavailable":
           throw new WorkerGatewayError(
-            409,
+            503,
             "BACKEND_UNAVAILABLE",
             "The session's profile, or its pairing with the session's repository, is not in this host's catalog",
             true,

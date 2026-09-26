@@ -152,10 +152,11 @@ export function storageUnavailableError(): ApiHttpError {
   );
 }
 
-// What the error hook answers on any route for a failure nothing mapped.
+// What the app answers around the handlers; route tests need not produce
+// these to match the OpenAPI document (route-error-coverage.ts).
+// The error hook, on any route, for a failure nothing mapped.
 export const globalRouteErrors = [500];
-// Errors the auth middleware can produce on every /v1 route; the OpenAPI
-// parity test holds the root operation to this.
+// The auth middleware, on every authenticated /v1 route.
 export const rootRouteErrors = [401, 503];
 // What the same middleware adds on an unsafe method: the CSRF refusal of a
 // cookie principal.
@@ -163,11 +164,6 @@ export const mutationRouteErrors = [403];
 // What every /v1 route that reads a body can answer before its handler runs,
 // public or not: the body deadline.
 export const bodyRouteErrors = [408];
-// Liveness never fails; readiness only ever answers 503 NOT_READY.
-export const probeRouteErrors: Record<string, number[]> = {
-  "GET /healthz": [],
-  "GET /readyz": [503],
-};
 
 const missingKeyStore: ApiKeyStore = {
   async find() {

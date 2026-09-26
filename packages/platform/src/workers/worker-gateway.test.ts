@@ -596,7 +596,7 @@ describe("WorkerGateway", () => {
     });
     await expect(
       stranger.bootstrapClaim({ kind: "bootstrap" }, request),
-    ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
     // A replay does not check the budget, so a session that spent past it
     // in between is answered with nothing left rather than a negative.
     const spent = createWorkerGateway({
@@ -1549,7 +1549,7 @@ describe("authorizeEgress (94S-252)", () => {
         profiles: { p: moved },
         repositories: { app: repository },
       }).instance.authorizeEgress({ token: "wep_x", purpose: "provider" }),
-    ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
     const rotated: CatalogProfile = {
       ...profile,
       provider: {

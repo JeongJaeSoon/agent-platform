@@ -9,6 +9,7 @@ import type {
 } from "../authorization/policy.ts";
 import type { PendingRequestStore } from "../ports/pending-requests.ts";
 import {
+  idempotencyConflict,
   payloadHash,
   requirePermitted,
   SessionServiceError,
@@ -51,10 +52,7 @@ export function createPendingRequestService(deps: {
       });
       switch (result.outcome) {
         case "conflict":
-          throw new SessionServiceError(
-            "IDEMPOTENCY_CONFLICT",
-            "Idempotency-Key was already used with a different payload",
-          );
+          return idempotencyConflict();
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "expired":

@@ -11,8 +11,10 @@ import {
   createPendingRequestService,
   type PendingRequestStore,
 } from "@agent-platform/platform";
-import { createApiApp } from "../app.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPendingRoutes } from "./pending.ts";
+
+const createApiApp = recordRouteErrors("routes/pending.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 
@@ -159,5 +161,16 @@ describe("pending-request routes", () => {
         }).response,
       ),
     ).toEqual({ status: 400, code: "BAD_REQUEST" });
+    const oversized = answer(accepted, {
+      request_id: "req_1",
+      kind: "permission",
+      decision: "deny",
+      reason: "x".repeat(65 * 1024),
+    });
+    expect(await errorOf(oversized.response)).toEqual({
+      status: 413,
+      code: "PAYLOAD_TOO_LARGE",
+    });
+    expect(oversized.seen).toHaveLength(0);
   });
 });

@@ -1976,7 +1976,7 @@ integration("worker gateway on PostgreSQL", () => {
           credential: { kind: "launch_nonce", nonce: l.nonce },
         }),
       ),
-    ).toEqual({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    ).toEqual({ status: 503, code: "BACKEND_UNAVAILABLE" });
     // The worker that holds the first token is untouched: same revision,
     // same token, and it can still take its turn.
     const [attempt] = await db
@@ -2829,7 +2829,7 @@ integration("worker gateway on PostgreSQL", () => {
         gatewayFor({ "sample-app": { ...registered, profiles: ["other"] } }),
         l,
       ),
-    ).rejects.toMatchObject({ status: 409, code: "BACKEND_UNAVAILABLE" });
+    ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
     const [row] = await db
       .select({ authRevision: sessions.authRevision })
       .from(sessions)
