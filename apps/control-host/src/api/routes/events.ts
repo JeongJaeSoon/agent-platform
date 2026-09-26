@@ -10,7 +10,7 @@ import type { EventPage, SessionService } from "@agent-platform/platform";
 import { streamSSE } from "hono/streaming";
 import { ApiHttpError, type ApiRouter } from "../app.ts";
 import type { SessionEventWakeup } from "../events/notifications.ts";
-import { mapped, requireParams } from "./sessions.ts";
+import { mapped, requireParams } from "./errors.ts";
 
 // api.md § 이벤트: 15 s keepalive, and a revoked key ends the stream within
 // the same window: a credential check is re-run every half interval and a
@@ -28,12 +28,6 @@ export const SSE_REPLAY_MAX_BYTES = 1024 * 1024;
 // bound. Sized for the alpha's single API process; raise via server env.
 export const SSE_MAX_STREAMS = 256;
 export const SSE_MAX_STREAMS_PER_OWNER = 8;
-
-// 410 CURSOR_EXPIRED is declared for clients and reserved here; alpha never
-// trims events, so nothing produces it yet.
-export const eventRouteErrors: Record<string, number[]> = {
-  "GET /v1/sessions/{id}/events": [400, 401, 404, 410, 429, 503],
-};
 
 export interface EventStreamOptions {
   wakeup: SessionEventWakeup;

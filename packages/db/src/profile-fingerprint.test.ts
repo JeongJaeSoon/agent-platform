@@ -270,7 +270,7 @@ describe("profile fingerprint pinned at create (94S-253)", () => {
     const l = await launch(original, sessionId, false);
     const first = await claim(original, l);
     expect(await refusal(claim(gatewayOf(WIDENED), l))).toEqual({
-      status: 409,
+      status: 503,
       code: "BACKEND_UNAVAILABLE",
     });
     // Nothing moved: the first token still authenticates.
@@ -311,7 +311,7 @@ describe("profile fingerprint pinned at create (94S-253)", () => {
       .where(eq(sessions.id, sessionId));
 
     expect(await refusal(claim(gatewayOf(WIDENED), l))).toEqual({
-      status: 409,
+      status: 503,
       code: "BACKEND_UNAVAILABLE",
     });
     expect(await storedFingerprint(sessionId)).toBeNull();

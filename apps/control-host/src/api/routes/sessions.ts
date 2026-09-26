@@ -4,7 +4,6 @@ import {
   createSessionResponseSchema,
   getSessionResponseSchema,
   getTurnResponseSchema,
-  idempotencyKeySchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
   listTurnsQuerySchema,
@@ -18,125 +17,14 @@ import {
   terminateSessionResponseSchema,
   turnIdParamsSchema,
 } from "@agent-platform/contracts";
-import { InvalidCursorError } from "@agent-platform/db";
+import type { SessionService } from "@agent-platform/platform";
+import { type ApiRouter, jsonWithSchema, parseJsonBody } from "../app.ts";
 import {
-  type SessionService,
-  SessionServiceError,
-} from "@agent-platform/platform";
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { z } from "zod";
-import {
-  type ApiEnvironment,
-  ApiHttpError,
-  type ApiRouter,
-  isStorageUnavailable,
-  jsonWithSchema,
-  parseJsonBody,
-  storageUnavailableError,
-} from "../app.ts";
-
-const STATUS_BY_CODE: Partial<
-  Record<SessionServiceError["code"], ContentfulStatusCode>
-> = {
-  IDEMPOTENCY_CONFLICT: 409,
-  REVISION_CONFLICT: 409,
-  UNSUPPORTED_CAPABILITY: 422,
-  NOT_FOUND: 404,
-  FORBIDDEN: 403,
-  REQUEST_STALE: 409,
-  CHECKPOINT_UNAVAILABLE: 409,
-  SESSION_PAUSED: 409,
-  SESSION_RESUMING: 409,
-  PAUSE_COMMITTING: 409,
-  SESSION_STOPPED: 409,
-  SESSION_CLOSED: 409,
-  RECOVERY_REQUIRED: 409,
-  RATE_LIMITED: 429,
-  STORAGE_LIMIT_EXCEEDED: 413,
-  BACKEND_UNAVAILABLE: 503,
-};
-
-// pg connection/admin-shutdown errors (SQLSTATE 08xxx, 57Pxx) and socket
-// failures; drizzle wraps them, so look at the cause too.
-export async function mapped<T>(work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      throw new ApiHttpError(
-        STATUS_BY_CODE[error.code] ?? 500,
-        error.code,
-        error.message,
-        error.retry !== undefined,
-        error.retry?.afterSeconds,
-      );
-    }
-    if (error instanceof InvalidCursorError) {
-      throw new ApiHttpError(400, "BAD_REQUEST", "Invalid cursor");
-    }
-    if (isStorageUnavailable(error)) {
-      throw storageUnavailableError();
-    }
-    throw error;
-  }
-}
-
-// Error statuses each handler can produce; the OpenAPI parity test holds the
-// route table to this. 413 on the two input routes is also the storage limit,
-// 429 the per-session queue limit (94S-131).
-export const sessionRouteErrors: Record<string, number[]> = {
-  "POST /v1/sessions": [400, 401, 409, 413, 422, 429, 503],
-  "GET /v1/sessions": [400, 401, 503],
-  "GET /v1/sessions/{id}": [401, 404, 503],
-  "POST /v1/sessions/{id}/messages": [400, 401, 404, 409, 413, 429, 503],
-  "GET /v1/sessions/{id}/turns": [400, 401, 404, 503],
-  "GET /v1/sessions/{id}/turns/{turn_id}": [401, 404, 503],
-  "POST /v1/sessions/{id}/terminate": [400, 401, 404, 409, 413, 422, 503],
-  "POST /v1/sessions/{id}/resume": [400, 401, 403, 404, 409, 413, 422, 503],
-  "POST /v1/sessions/{id}/recovery-decisions": [
-    400, 401, 403, 404, 409, 413, 422, 503,
-  ],
-};
-
-export function requireIdempotencyKey(
-  context: Context<ApiEnvironment>,
-): string {
-  const key = idempotencyKeySchema.safeParse(
-    context.req.header("Idempotency-Key"),
-  );
-  if (!key.success) {
-    throw new ApiHttpError(
-      400,
-      "BAD_REQUEST",
-      "Idempotency-Key header is required",
-    );
-  }
-  return key.data;
-}
-
-// A malformed id is indistinguishable from a missing session on purpose.
-export function requireParams<T extends z.ZodType>(
-  context: Context<ApiEnvironment>,
-  schema: T,
-): z.infer<T> {
-  const params = schema.safeParse(context.req.param());
-  if (!params.success) {
-    throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
-  }
-  return params.data;
-}
-
-function requireQuery<T extends z.ZodType>(
-  context: Context<ApiEnvironment>,
-  schema: T,
-): z.infer<T> {
-  const query = schema.safeParse(context.req.query());
-  if (!query.success) {
-    throw new ApiHttpError(400, "BAD_REQUEST", "Query parameters are invalid");
-  }
-  return query.data;
-}
+  mapped,
+  requireIdempotencyKey,
+  requireParams,
+  requireQuery,
+} from "./errors.ts";
 
 export function registerSessionRoutes(
   router: ApiRouter,

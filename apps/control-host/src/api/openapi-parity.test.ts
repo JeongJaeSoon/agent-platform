@@ -1,55 +1,28 @@
 import { expect, test } from "bun:test";
-import {
-  API_ROUTE_SCOPES,
-  buildOpenApiDocument,
-} from "@agent-platform/contracts";
+import { buildOpenApiDocument } from "@agent-platform/contracts";
 import type {
   InterruptService,
   PendingRequestService,
   SessionService,
   UsageService,
 } from "@agent-platform/platform";
-import {
-  bodyRouteErrors,
-  createApiApp,
-  globalRouteErrors,
-  mutationRouteErrors,
-  probeRouteErrors,
-  rootRouteErrors,
-} from "./app.ts";
+import { createApiApp } from "./app.ts";
 import type { BootstrapGate, IdentityStore } from "./auth.ts";
-import {
-  authRouteErrors,
-  registerAuthRoutes,
-  registerPublicAuthRoutes,
-} from "./routes/auth.ts";
-import { eventRouteErrors, registerEventRoutes } from "./routes/events.ts";
-import {
-  interruptRouteErrors,
-  registerInterruptRoutes,
-} from "./routes/interrupt.ts";
-import { pauseRouteErrors, registerPauseRoutes } from "./routes/pause.ts";
-import { pendingRouteErrors, registerPendingRoutes } from "./routes/pending.ts";
-import {
-  receiptRouteErrors,
-  registerReceiptRoutes,
-} from "./routes/receipts.ts";
-import {
-  registerSessionRoutes,
-  sessionRouteErrors,
-} from "./routes/sessions.ts";
-import { registerUsageRoutes, usageRouteErrors } from "./routes/usage.ts";
-import { scopedRouteErrors } from "./scope-policy.ts";
-
-const SCOPED_ROUTES = new Set(
-  API_ROUTE_SCOPES.map((route) => `${route.method} ${route.path}`),
-);
+import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
+import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerEventRoutes } from "./routes/events.ts";
+import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import { registerPauseRoutes } from "./routes/pause.ts";
+import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerUsageRoutes } from "./routes/usage.ts";
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
 const NOT_YET_IMPLEMENTED: string[] = [];
 
-function honoRoutes(only?: "public"): Set<string> {
+function honoRoutes(): Set<string> {
   const auth = {
     identity: {} as IdentityStore,
     bootstrap: {} as BootstrapGate,
@@ -58,7 +31,6 @@ function honoRoutes(only?: "public"): Set<string> {
     authMode: "none",
     registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
     registerRoutes: (router) => {
-      if (only === "public") return;
       registerAuthRoutes(router, auth);
       registerSessionRoutes(router, {} as SessionService);
       registerReceiptRoutes(router, {} as SessionService);
@@ -85,28 +57,15 @@ function honoRoutes(only?: "public"): Set<string> {
   );
 }
 
-function openApiOperations(): Map<string, { errors: number[] }> {
-  const document = buildOpenApiDocument();
-  return new Map(
-    Object.entries(document.paths).flatMap(([path, operations]) =>
-      Object.entries(operations).map(([method, operation]) => [
-        `${method.toUpperCase()} ${path}`,
-        {
-          errors: Object.keys((operation as { responses: object }).responses)
-            .map(Number)
-            .filter((status) => status >= 400),
-        },
-      ]),
+function openApiRoutes(): Set<string> {
+  return new Set(
+    Object.entries(buildOpenApiDocument().paths).flatMap(([path, operations]) =>
+      Object.keys(operations).map(
+        (method) => `${method.toUpperCase()} ${path}`,
+      ),
     ),
   );
 }
-
-function openApiRoutes(): Set<string> {
-  return new Set(openApiOperations().keys());
-}
-
-// Declared but not yet produced by any handler.
-const DECLARED_ONLY_ERRORS: Record<string, number[]> = {};
 
 test("every Hono handler is declared in the OpenAPI route table", () => {
   const declared = openApiRoutes();
@@ -115,46 +74,14 @@ test("every Hono handler is declared in the OpenAPI route table", () => {
   }
 });
 
-test("each handler's error statuses match its OpenAPI operation", () => {
-  const declared = openApiOperations();
-  const publicRoutes = honoRoutes("public");
-  for (const route of honoRoutes()) {
-    const implemented =
-      route === "GET /v1"
-        ? rootRouteErrors
-        : (probeRouteErrors[route] ??
-          authRouteErrors[route] ??
-          receiptRouteErrors[route] ??
-          eventRouteErrors[route] ??
-          pendingRouteErrors[route] ??
-          interruptRouteErrors[route] ??
-          pauseRouteErrors[route] ??
-          usageRouteErrors[route] ??
-          sessionRouteErrors[route]);
-    expect(implemented, `${route} has no error status table`).toBeDefined();
-    // Errors the app adds around the handler: the error hook on every route,
-    // and what the /v1 middleware answers before the handler runs.
-    const middleware = [
-      ...globalRouteErrors,
-      ...(route.startsWith("POST /v1")
-        ? [
-            ...bodyRouteErrors,
-            ...(publicRoutes.has(route) ? [] : mutationRouteErrors),
-          ]
-        : []),
-      ...(SCOPED_ROUTES.has(route) ? scopedRouteErrors : []),
-    ];
-    const expected = [
-      ...new Set([
-        ...(implemented ?? []),
-        ...(DECLARED_ONLY_ERRORS[route] ?? []),
-        ...middleware,
-      ]),
-    ].sort();
-    expect([...(declared.get(route)?.errors ?? [])].sort(), route).toEqual(
-      expected,
-    );
-  }
+// The statuses themselves are compared where the handlers answer them: each
+// route test file records its responses (route-error-coverage.ts).
+test("every Hono handler has one test file that checks its error statuses", () => {
+  const owned = Object.values(ROUTE_ERROR_TESTS).flat();
+  expect(owned.length, "a route is owned by two files").toBe(
+    new Set(owned).size,
+  );
+  expect(owned.sort()).toEqual([...honoRoutes()].sort());
 });
 
 test("OpenAPI routes without a handler are exactly the pending list", () => {

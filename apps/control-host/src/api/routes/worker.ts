@@ -31,10 +31,8 @@ import type { z } from "zod";
 import {
   ApiHttpError,
   type ApiRouter,
-  isStorageUnavailable,
   jsonWithSchema,
   parseJsonBody,
-  storageUnavailableError,
 } from "../app.ts";
 
 export const WORKER_ROUTE_PREFIX = "/worker";
@@ -55,9 +53,6 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
         error.message,
         error.retryable,
       );
-    }
-    if (isStorageUnavailable(error)) {
-      throw storageUnavailableError();
     }
     throw error;
   }

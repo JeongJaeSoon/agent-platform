@@ -15,7 +15,7 @@ import type {
   WorkspaceRow,
 } from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import { BODY_IDLE_TIMEOUT_SECONDS, createApiApp } from "./app.ts";
+import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
 import {
   apiKeyPrincipal,
   bootstrapGateFromEnv,
@@ -35,7 +35,10 @@ import {
   RESPONSE_IDLE_TIMEOUT_SECONDS,
 } from "./deadline.ts";
 import { hashApiKey } from "./keys.ts";
+import { recordRouteErrors } from "./route-error-coverage.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+
+const createApiApp = recordRouteErrors("auth.test.ts");
 
 // In-memory identity store with the same null/row semantics as the SQL
 // helpers; the integration test covers the real queries.
@@ -316,6 +319,16 @@ describe("bootstrap", () => {
     expect((await h.bootstrap()).status).toBe(201);
   });
 
+  test("an oversized body is 413 and leaves the token unspent", async () => {
+    const h = harness();
+    const oversized = await h.bootstrap({
+      display_name: "x".repeat(65 * 1024),
+    });
+    expect(oversized.status).toBe(413);
+    expect(await errorCode(oversized)).toBe("PAYLOAD_TOO_LARGE");
+    expect((await h.bootstrap()).status).toBe(201);
+  });
+
   test("a failed insert releases the token for another try", async () => {
     const h = harness();
     const original = h.identity.bootstrap.bind(h.identity);
@@ -478,6 +491,16 @@ describe("login, logout, me", () => {
     const b = await unknown.json();
     expect(a.error.message).toBe(b.error.message);
     expect(wrong.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  test("a malformed body is 400 and an oversized one 413", async () => {
+    const h = harness();
+    const malformed = await h.json("/v1/auth/login", { email: 1 }, BROWSER);
+    expect(malformed.status).toBe(400);
+    expect(await errorCode(malformed)).toBe("BAD_REQUEST");
+    const oversized = await h.login("x".repeat(65 * 1024));
+    expect(oversized.status).toBe(413);
+    expect(await errorCode(oversized)).toBe("PAYLOAD_TOO_LARGE");
   });
 
   test("a disabled account or membership cannot log in", async () => {

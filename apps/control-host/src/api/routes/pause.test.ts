@@ -9,8 +9,10 @@ import {
   type PauseSessionResult,
   type SessionControl,
 } from "@agent-platform/platform";
-import { createApiApp } from "../app.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPauseRoutes } from "./pause.ts";
+
+const createApiApp = recordRouteErrors("pause.test.ts");
 
 const sessionId = "019a0000-0000-7000-8000-000000000001";
 const path = `/v1/sessions/${sessionId}/pause`;
@@ -112,6 +114,10 @@ describe("POST /v1/sessions/{id}/pause", () => {
     expect((await pause({ expected_revision: 1, force: true })).status).toBe(
       400,
     );
+    expect(
+      (await pause({ expected_revision: 1, reason: "x".repeat(65 * 1024) }))
+        .status,
+    ).toBe(413);
     expect(
       (
         await pause(

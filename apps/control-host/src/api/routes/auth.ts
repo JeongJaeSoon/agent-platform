@@ -40,15 +40,6 @@ import {
   webSessionCookie,
 } from "../auth.ts";
 
-// Error statuses each handler can produce; the OpenAPI parity test holds the
-// route table to this.
-export const authRouteErrors: Record<string, number[]> = {
-  "POST /v1/auth/bootstrap": [400, 401, 409, 413, 503],
-  "POST /v1/auth/login": [400, 401, 403, 413, 429, 503],
-  "POST /v1/auth/logout": [401, 403, 503],
-  "GET /v1/auth/me": [401, 503],
-};
-
 export interface AuthRouteDeps {
   identity: IdentityStore;
   bootstrap: BootstrapGate;
