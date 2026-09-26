@@ -367,7 +367,11 @@ export type ControlSample = {
   acceptStatus: number;
   /** POST round trip: the accepted response time. */
   acceptedMs: number;
-  /** POST sent → the effect observed (null: not within the budget). */
+  /**
+   * POST sent → the effect observed by the runner (null: not within the
+   * budget). For an interrupt that is the SSE read; P-3 judges the worker's
+   * own engine_stopped time where its log has one (94S-453).
+   */
   effectMs: number | null;
   effect: string | null;
   op: "interrupt" | "terminate" | "pause" | "resume";
@@ -485,6 +489,9 @@ export async function interruptProbe(
     extra: {
       reachedSlowStep: reached !== null,
       sentAt: new Date(posted.sentAt).toISOString(),
+      // Places the worker's engine_stopped log line on this clock (94S-453).
+      clockOffsetMs: clock.offsetMs,
+      clockRttMs: clock.rttMs,
       slowPendingUntil:
         pendingUntil === null ? null : new Date(pendingUntil).toISOString(),
       acceptedBy: new Date(acceptedBy).toISOString(),

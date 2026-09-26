@@ -17,11 +17,14 @@ import {
   turnPrompt,
 } from "../../scripts/soak/probes.ts";
 import {
+  HOST_PROBE,
   INTERRUPT_EXCLUSION,
   judgeInterrupts,
   judgeReadyz,
   READYZ_EXCLUSION,
   type ReadyzSample,
+  readEngineStops,
+  summarizeHostProbe,
   type TurnRecord,
   type VmStall,
   validConfig,
@@ -499,6 +502,7 @@ describe("P-3 host exclusions (94S-444)", () => {
         turnId: "8",
         sentAt: new Date(sentAt(10)).toISOString(),
         effectMs: 7637,
+        sseEffectMs: 7637,
         terminalMs: 18_055,
         stall: new Date(sentAt(10) - 17_600).toISOString().concat(" +1600ms"),
         nextTurn: "9 completed",
@@ -590,6 +594,317 @@ describe("P-3 host exclusions (94S-444)", () => {
     ).toMatchObject({ pass: true, hostExcluded: 1, hostExcludedRatio: 0.01 });
   });
 });
+describe("host probe and the P-3 split (94S-453)", () => {
+  const T0 = Date.parse("2026-09-26T07:00:00.000Z");
+  const iso = (ms: number) => new Date(T0 + ms).toISOString();
+  // A host probe request sent `at` after T0 that took `ms` in curl.
+  const host = (
+    at: number,
+    ms: number,
+    extra: Partial<ReadyzSample> = {},
+  ): ReadyzSample => ({
+    t: iso(at),
+    error: null,
+    ms,
+    ok: true,
+    status: 200,
+    wallMs: ms + 5,
+    spawnMs: 2,
+    ...extra,
+  });
+  const hostTimeout = { ok: false, error: "curl exit 28", status: 0 };
+
+  test("the probe runs at least every second and lists near misses from 500ms", () => {
+    expect(HOST_PROBE.intervalMs).toBeLessThanOrEqual(1000);
+    expect(HOST_PROBE.nearMissMs).toBe(500);
+    const summary = summarizeHostProbe([
+      host(0, 3),
+      host(500, 600),
+      host(1000, 1800),
+      host(3000, 2000, hostTimeout),
+      host(5000, 0, { ok: false, error: "curl exit 7", status: 0 }),
+      host(5500, 0, {
+        ok: false,
+        error: "slot missed: the runner did not get to it",
+        status: 0,
+      }),
+    ]);
+    expect(summary).toMatchObject({
+      samples: 6,
+      ok: 3,
+      timeouts: 1,
+      otherFailures: 2,
+      stalls: {
+        count: 2,
+        list: [`host ${iso(1000)} +1800ms`, `host ${iso(3000)} +2000ms`],
+      },
+    });
+    expect(summary.nearMisses.map((entry) => entry.t)).toEqual(
+      [500, 1000, 3000, 5000, 5500].map(iso),
+    );
+  });
+
+  describe("O-1", () => {
+    // RC4 06:05:52Z: readyz timed out at 2s, the VM probe ticked on.
+    const timedOut: ReadyzSample = {
+      t: iso(50_000),
+      error: "curl exit 28",
+      ms: 2000,
+      ok: false,
+      status: 0,
+      wallMs: 2010,
+    };
+    const readyz = Array.from({ length: 200 }, (_, i) =>
+      i === 10
+        ? timedOut
+        : {
+            t: iso(i * 5000),
+            error: null,
+            ms: 3,
+            ok: true,
+            status: 200,
+            wallMs: 20,
+          },
+    );
+    const judge = (probe: ReadyzSample[]) => judgeReadyz(readyz, [], 1, probe);
+
+    test("a timeout the host probe saw held is excluded though the VM ticked on", () => {
+      for (const held of [
+        host(50_300, 1800),
+        host(50_300, 2000, hostTimeout),
+      ]) {
+        const result = judge([host(49_500, 3), held, host(52_500, 4)]);
+        expect(result).toMatchObject({
+          pass: true,
+          hostExcluded: 1,
+          productFailures: [],
+        });
+        expect(result.hostExcludedSamples[0]?.stall).toBe(
+          `host ${held.t} +${held.ms}ms`,
+        );
+      }
+    });
+
+    test("only a held request of 1s or more excuses, and only where it surely overlapped", () => {
+      for (const probe of [
+        [],
+        [host(50_300, READYZ_EXCLUSION.stallMinMs - 1)],
+        // Refused or answered by something other than 200: not the path.
+        [host(50_300, 1800, { ok: false, error: "curl exit 7", status: 0 })],
+        [host(50_300, 1800, { ok: false, status: 503 })],
+        // Sent 50ms before readyz gave up: less the slack, it ran after.
+        [host(51_950, 1500)],
+      ]) {
+        expect(judge(probe)).toMatchObject({
+          pass: false,
+          hostExcluded: 0,
+          productFailures: [{ t: timedOut.t }],
+        });
+      }
+    });
+  });
+
+  describe("P-3", () => {
+    const targets = { interruptEffectMs: 5000, interruptTerminalMs: 50_000 };
+    const sentAt = (i: number) => T0 + i * 60_000;
+    const interrupt = (
+      i: number,
+      sseMs: number | null = 1500,
+      clock: Record<string, unknown> = { clockOffsetMs: 1, clockRttMs: 2 },
+    ): ControlSample => ({
+      op: "interrupt",
+      sessionId: `session-${i}`,
+      turnId: "456",
+      acceptStatus: 202,
+      acceptedMs: 12,
+      effectMs: sseMs,
+      effect: "interrupted",
+      receiptId: `receipt-${i}`,
+      receiptMs: 6416,
+      receiptStatus: "succeeded",
+      extra: {
+        sentAt: new Date(sentAt(i)).toISOString(),
+        ...clock,
+        terminalMs: 6415,
+        continuedAfterInterrupt: 0,
+        receiptResult: { no_op: false },
+        valid: true,
+      },
+    });
+    // engine_stopped logged at `afterMs` past the POST on the container's clock.
+    const stop = (i: number, afterMs: number, sessionId = `session-${i}`) => ({
+      sessionId,
+      turnId: "456",
+      at: sentAt(i) + afterMs,
+    });
+    const samples = (replace: Record<number, ControlSample>) =>
+      Array.from({ length: 200 }, (_, i) => replace[i] ?? interrupt(i));
+    const effectOf = (
+      sample: ControlSample,
+      evidence: Parameters<typeof judgeInterrupts>[4],
+    ) => judgeInterrupts([sample], [], [], targets, evidence).effectMs[0];
+
+    test("RC4 07:00:48Z: stopped at 2.2s, read at 5.1s — P-3 judges the stop and reports the read", () => {
+      const result = judgeInterrupts(
+        samples({ 10: interrupt(10, 5106) }),
+        [],
+        [],
+        targets,
+        { engineStops: [stop(10, 2210)] },
+      );
+      // 2210 + offset 1 + half the 2ms round trip.
+      expect(result).toMatchObject({
+        pass: true,
+        late: [],
+        hostExcluded: 0,
+        effectFromWorkerLog: 1,
+        sseLate: [
+          {
+            sessionId: "session-10",
+            turnId: "456",
+            sseEffectMs: 5106,
+            effectMs: 2212,
+          },
+        ],
+      });
+      expect(Math.max(...result.effectMs)).toBe(2212);
+      expect(Math.max(...result.sseEffectMs)).toBe(5106);
+    });
+
+    test("a late stop fails P-3 unless a host probe stall overlapped it", () => {
+      const list = samples({ 10: interrupt(10, 7000) });
+      const engineStops = [stop(10, 6000)];
+      expect(
+        judgeInterrupts(list, [], [], targets, { engineStops }),
+      ).toMatchObject({
+        pass: false,
+        late: [
+          {
+            sessionId: "session-10",
+            turnId: "456",
+            effectMs: 6002,
+            sseEffectMs: 7000,
+          },
+        ],
+      });
+      const turns = [
+        {
+          sessionId: "session-10",
+          turnId: "456",
+          sentAt: sentAt(10) - 3000,
+          acceptStatus: 202,
+          status: "interrupted",
+          contextKept: true,
+        },
+        {
+          sessionId: "session-10",
+          turnId: "457",
+          sentAt: sentAt(10) + 40_000,
+          kind: "normal",
+          acceptStatus: 202,
+          status: "completed",
+          contextKept: true,
+        },
+      ] as TurnRecord[];
+      const held = host(sentAt(10) - T0 + 100, 1500);
+      const result = judgeInterrupts(list, turns, [], targets, {
+        engineStops,
+        host: [held],
+      });
+      expect(result).toMatchObject({ pass: true, late: [], hostExcluded: 1 });
+      expect(result.hostExcludedSamples[0]).toMatchObject({
+        effectMs: 6002,
+        sseEffectMs: 7000,
+        stall: `host ${held.t} +1500ms`,
+        broken: [],
+      });
+    });
+
+    test("the stop is placed on the host clock at its latest, and never beats the SSE read", () => {
+      // The probe's own reading: container 300ms ahead, ±20ms.
+      expect(
+        effectOf(interrupt(10, 5106, { clockOffsetMs: -300, clockRttMs: 40 }), {
+          engineStops: [stop(10, 2500)],
+        }),
+      ).toBe(2220);
+      // A sample without one takes the run's nearest reading within a minute.
+      const clock = [
+        { t: iso(10 * 60_000 - 30_000), offsetMs: 5, rttMs: 4 },
+        { t: iso(10 * 60_000 + 50_000), offsetMs: 500, rttMs: 4 },
+      ];
+      expect(
+        effectOf(interrupt(10, 5106, {}), {
+          engineStops: [stop(10, 2500)],
+          clock,
+        }),
+      ).toBe(2507);
+      expect(
+        effectOf(interrupt(10, 5106, {}), {
+          engineStops: [stop(10, 2500)],
+          clock: [{ t: iso(10 * 60_000 - 61_000), offsetMs: 5, rttMs: 4 }],
+        }),
+      ).toBe(5106);
+      for (const engineStops of [
+        // Later than the runner's read, or before the POST: the clock is off.
+        [stop(10, 6000)],
+        [stop(10, -10)],
+        // Another session's turn of the same number.
+        [stop(11, 2500, "session-10-other")],
+        [],
+      ]) {
+        expect(effectOf(interrupt(10, 5106), { engineStops })).toBe(5106);
+      }
+    });
+
+    test("an interrupt the runner never read stays unobserved, whatever the log says", () => {
+      const result = judgeInterrupts(
+        samples({ 10: interrupt(10, null) }),
+        [],
+        [],
+        targets,
+        { engineStops: [stop(10, 2000)] },
+      );
+      expect(result).toMatchObject({
+        pass: false,
+        unobserved: 1,
+        effectFromWorkerLog: 0,
+      });
+    });
+
+    test("engine stops are read per worker log, under the session it claimed", () => {
+      const dir = mkdtempSync(join(tmpdir(), "soak-workers-"));
+      const line = (record: Record<string, unknown>) =>
+        `${JSON.stringify({ timestamp: iso(0), level: "info", ...record })}\n`;
+      const stopped = (turn: string, at: number) =>
+        line({
+          timestamp: iso(at),
+          event: "worker.turn.engine_stopped",
+          turn_id: turn,
+          control_id: "c",
+        });
+      const claimed = (session: string) =>
+        line({ event: "worker.claimed", session_id: session });
+      writeFileSync(
+        join(dir, "ap-worker-a-g1.log"),
+        stopped("1", 100) + claimed("s1") + "not json\n" + stopped("7", 2000),
+      );
+      writeFileSync(
+        join(dir, "ap-worker-a-g1.log.stderr"),
+        claimed("s3") + stopped("7", 3000),
+      );
+      writeFileSync(
+        join(dir, "ap-worker-b-g1.log"),
+        claimed("s2") + stopped("7", 2500),
+      );
+      expect(readEngineStops(dir).sort((a, b) => a.at - b.at)).toEqual([
+        { sessionId: "s1", turnId: "7", at: T0 + 2000 },
+        { sessionId: "s2", turnId: "7", at: T0 + 2500 },
+      ]);
+      expect(readEngineStops(join(dir, "missing"))).toEqual([]);
+    });
+  });
+});
+
 describe("Api.statusPhase (94S-382)", () => {
   test("reads the turn's phase off the stream, resumes from the last id, and waits out the stream limit", async () => {
     const seen: Array<string | null> = [];
