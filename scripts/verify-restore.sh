@@ -14,10 +14,13 @@
 # are marked `pointer`. Last, the restored API's own path is asked: its
 # `locked` startup bucket check and a restore plan for every pointer.
 #
-# --image <worker image> asks each plan with that image's engine, SDK and CLI
-# versions: a pointer sealed under others fails as incompatible. The profile
-# digest stays the checkpoint's, so an image that computes it differently is
-# not caught. Without --image each plan is asked with the checkpoint's own
+# --image <worker image> asks each plan as a worker of that image would: its
+# engine, SDK and CLI versions, and the profile digest its own code computes
+# from the claim the API would hand the session, built from the session row
+# and the catalog in --config-dir (default config/, the API's own default;
+# config/real-model for a real-model stack). A pointer sealed under another
+# build, or under a digest the image no longer computes, fails as
+# incompatible. Without --image each plan is asked with the checkpoint's own
 # runtime, and the image check is printed as SKIP.
 #
 # Exit 0 when every row passes, 5 when any fails. A database with no
@@ -27,7 +30,8 @@
 # reads the store the environment names, as scripts/restore.sh does.
 #
 # Usage: scripts/verify-restore.sh --project <project> [--bucket claude-sessions]
-#                                  [--object-store localstack|env] [--image <worker image>]
+#                                  [--object-store localstack|env]
+#                                  [--image <worker image> [--config-dir <dir>]]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
@@ -35,9 +39,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 PROJECT=""
 BUCKET=claude-sessions
 IMAGE=""
+CONFIG_DIR="$REPO_ROOT/config"
 
 usage() {
-  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -47,6 +52,7 @@ while [ $# -gt 0 ]; do
     --bucket) BUCKET="$2"; shift 2 ;;
     --object-store) set_object_store "$2"; shift 2 ;;
     --image) [ -n "${2:-}" ] || usage; IMAGE="$2"; shift 2 ;;
+    --config-dir) [ -n "${2:-}" ] || usage; CONFIG_DIR="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) log "unknown argument: $1"; usage ;;
   esac
@@ -55,9 +61,9 @@ done
 require_tools docker jq git bun
 PLANS_ARGS=()
 if [ -n "$IMAGE" ]; then
-  IMAGE_RUNTIME="$(image_runtime "$IMAGE")" || die "could not read the runtime of image $IMAGE"
-  log "verify: plans asked for image $IMAGE: $IMAGE_RUNTIME"
-  PLANS_ARGS=(--runtime "$IMAGE_RUNTIME")
+  [ -d "$CONFIG_DIR" ] || die "catalog directory not found: $CONFIG_DIR"
+  log "verify: plans asked for image $IMAGE with the catalog in $CONFIG_DIR"
+  PLANS_ARGS=(--image "$IMAGE" "$CONFIG_DIR")
 fi
 
 WORK="$(mktemp -d)"

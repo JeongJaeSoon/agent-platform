@@ -193,7 +193,7 @@ type ClaudeRunConfig = Pick<
  * different runs.
  */
 function claudeRunConfig(
-  config: WorkerConfig,
+  config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
   launch: Pick<RuntimeLaunch, "principal" | "runtimeConfig">,
   committedClaudeMd: () => string | null,
 ): ClaudeRunConfig {
@@ -230,8 +230,10 @@ function claudeRunConfig(
  * read: the digest records only that the profile lets it in.
  */
 export function claudeClaimFingerprint(
-  config: WorkerConfig,
-): (claim: BootstrapClaimResponse) => RuntimeFingerprint {
+  config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
+): (
+  claim: Pick<BootstrapClaimResponse, "principal" | "runtime_config">,
+) => RuntimeFingerprint {
   return (claim) => ({
     ...CLAUDE_RUNTIME_FINGERPRINT,
     profileSha256: claudeProfileFingerprint(

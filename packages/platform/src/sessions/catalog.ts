@@ -4,6 +4,7 @@ import {
   canonicalJson,
   permissionModeSchema,
   projectSettingsSchema,
+  type RuntimeConfig,
   type runtimeConfigSchema,
 } from "@agent-platform/contracts";
 import { z } from "zod";
@@ -255,6 +256,26 @@ export function runtimeProviderOf(
     kind: profile.provider.kind,
     endpoint: profile.provider.endpoint,
     auth: { kind: "egress_token", token },
+  };
+}
+
+/**
+ * The profile as a claim hands it to the worker, which hashes it into the
+ * checkpoint fingerprint; `scripts/lib/checkpoint-pins.ts` rebuilds it to ask
+ * a target image for that digest (94S-452).
+ */
+export function runtimeConfigOf(
+  profile: CatalogProfile,
+  providerToken: string,
+): RuntimeConfig {
+  return {
+    model: profile.model,
+    tools: profile.tools,
+    permission_mode: profile.permission_mode,
+    provider: runtimeProviderOf(profile, providerToken),
+    ...(profile.project_settings?.claude_md === true
+      ? { project_settings: profile.project_settings }
+      : {}),
   };
 }
 
