@@ -324,22 +324,27 @@ describe("WorkerHost pause (94S-137)", () => {
       ).toEqual([PAUSE.control_id]);
     });
 
-    test("ends paused when a heartbeat is refused while the release is still unanswered", async () => {
-      const { gateway, host, log } = harness([{ type: "await-input" }], {
-        timeouts: { idleTimeoutMs: 1 },
-      });
-      commitsFirst(gateway, () => {
-        gateway.heartbeatFailure = "UNAUTHORIZED";
-        return new Promise<void>(() => {});
-      });
-      gateway.control = PAUSE;
+    // UNAUTHORIZED for a beat sent after the commit; STALE_EPOCH for one
+    // that authenticated before it and waited on the fence.
+    test.each(["UNAUTHORIZED", "STALE_EPOCH"] as const)(
+      "ends paused when a heartbeat is refused with %s while the release is still unanswered",
+      async (code) => {
+        const { gateway, host, log } = harness([{ type: "await-input" }], {
+          timeouts: { idleTimeoutMs: 1 },
+        });
+        commitsFirst(gateway, () => {
+          gateway.heartbeatFailure = code;
+          return new Promise<void>(() => {});
+        });
+        gateway.control = PAUSE;
 
-      const summary = await host.runLoop();
+        const summary = await host.runLoop();
 
-      expect(summary.outcome).toBe("paused");
-      expect(log).not.toContain("worker.ownership.lost");
-      expect(gateway.releases).toHaveLength(1);
-    });
+        expect(summary.outcome).toBe("paused");
+        expect(log).not.toContain("worker.ownership.lost");
+        expect(gateway.releases).toHaveLength(1);
+      },
+    );
 
     test("a retry of a release that did not commit goes through as before", async () => {
       const { gateway, host } = harness([{ type: "await-input" }], {

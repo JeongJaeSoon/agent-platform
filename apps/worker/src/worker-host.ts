@@ -612,15 +612,17 @@ export class WorkerHost {
     // a fence that is gone; that is the release, not a lease loss.
     if (this.released) return;
     if (this.stopping?.kind === "lost") return;
-    // Committing the pause revokes this credential, so a refusal of it while
-    // the release is unanswered is most likely that commit, its answer lost
-    // (94S-415). A double fault — the credential revoked by a terminate as
-    // the release went out — is reported paused too; the session's state
+    // Committing the pause revokes this credential and moves the epoch on,
+    // so either refusal while the release is unanswered is most likely that
+    // commit, its answer lost (94S-415): UNAUTHORIZED for a request that
+    // came after it, STALE_EPOCH for one that authenticated before it and
+    // waited on its fence. A double fault — the binding ended by a terminate
+    // as the release went out — is reported paused too; the session's state
     // on the server is the record either way.
     if (
       this.pauseReleasing !== undefined &&
       error instanceof WorkerGatewayRequestError &&
-      error.code === "UNAUTHORIZED"
+      (error.code === "UNAUTHORIZED" || error.code === "STALE_EPOCH")
     ) {
       this.released = true;
       this.logger.warn("worker.pause.committed", {
