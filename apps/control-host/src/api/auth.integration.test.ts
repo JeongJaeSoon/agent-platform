@@ -264,7 +264,7 @@ integration("auth API on PostgreSQL", () => {
       .select({ ownerId: schema.sessions.ownerId })
       .from(schema.sessions)
       .where(eq(schema.sessions.id, created.session_id));
-    // The user's partition is the workspace (contracts authorizationContextFor).
+    // The user's partition is the workspace (94S-150).
     expect(row?.ownerId).toBe(workspaceId);
 
     const bearer = await json("/v1/sessions", sessionBody, {
