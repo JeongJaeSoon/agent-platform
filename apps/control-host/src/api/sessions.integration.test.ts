@@ -245,6 +245,18 @@ integration("sessions API on PostgreSQL", () => {
       queue: 1,
       unassigned: 1,
     });
+    const [partitions] = await db
+      .select({
+        session: sessions.partition,
+        signal: unassignedSessions.partition,
+      })
+      .from(sessions)
+      .innerJoin(
+        unassignedSessions,
+        eq(unassignedSessions.sessionId, sessions.id),
+      )
+      .where(eq(sessions.id, created.session_id));
+    expect(partitions).toEqual({ session: "default", signal: "default" });
     const [receipt] = await db
       .select()
       .from(receipts)

@@ -34,6 +34,7 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerEventRoutes } from "./routes/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
@@ -41,6 +42,7 @@ const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 const WRONG = "an adequately wrong password";
+const KEEPALIVE_MS = 300;
 
 integration("auth API on PostgreSQL", () => {
   let database: TempDatabase;
@@ -117,6 +119,19 @@ integration("auth API on PostgreSQL", () => {
       registerRoutes: (router) => {
         registerAuthRoutes(router, auth);
         registerSessionRoutes(router, sessions);
+        registerEventRoutes(router, sessions, {
+          // No NOTIFY source here: a wait lasts until the stream ends.
+          wakeup: {
+            wait: (_, signal) =>
+              new Promise((resolve) =>
+                signal.addEventListener("abort", () => resolve(), {
+                  once: true,
+                }),
+              ),
+          },
+          keepaliveMs: KEEPALIVE_MS,
+          logger,
+        });
       },
     });
   }, 60_000);
@@ -397,5 +412,81 @@ integration("auth API on PostgreSQL", () => {
     const late = cookieOf(await login());
     expect(await status(late)).toBe(200);
     expect(await db.$count(webSessions)).toBe(WEB_SESSIONS_PER_USER);
+  });
+
+  // A cookie-opened stream, read up to its first frame so it is live.
+  async function cookieStream(value: string) {
+    const created = await json("/v1/sessions", sessionBody, {
+      Cookie: value,
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      "Idempotency-Key": crypto.randomUUID(),
+    });
+    expect(created.status).toBe(201);
+    const { session_id } = createSessionResponseSchema.parse(
+      await created.json(),
+    );
+    const response = await app.request(`/v1/sessions/${session_id}/events`, {
+      headers: { Cookie: value },
+    });
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("no body");
+    expect((await reader.read()).done).toBe(false);
+    return reader;
+  }
+
+  // Resolves with the milliseconds from `since` to the end of the stream.
+  async function endOf(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    since: number,
+  ): Promise<number> {
+    for (;;) {
+      const chunk = await Promise.race([
+        reader.read(),
+        Bun.sleep(5_000).then(() => ({ done: false, value: undefined })),
+      ]);
+      if (chunk.value === undefined && !chunk.done) throw new Error("hung");
+      if (chunk.done) return Date.now() - since;
+    }
+  }
+
+  test("a cookie stream ends within one keepalive of a role change or a logout elsewhere", async () => {
+    const value = cookieOf(await login());
+    const demoted = await cookieStream(value);
+    const demotedAt = Date.now();
+    await db.update(memberships).set({ role: "member" });
+    // The re-check runs every half interval, so one interval is the bound.
+    expect(await endOf(demoted, demotedAt)).toBeLessThan(KEEPALIVE_MS + 50);
+    await db.update(memberships).set({ role: "owner" });
+
+    const loggedOut = await cookieStream(value);
+    const loggedOutAt = Date.now();
+    const logout = await app.request("/v1/auth/logout", {
+      method: "POST",
+      headers: { Cookie: value, [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
+    });
+    expect(logout.status).toBe(204);
+    expect(await endOf(loggedOut, loggedOutAt)).toBeLessThan(KEEPALIVE_MS + 50);
+    expect(
+      sink.records.filter(
+        (record) =>
+          record.message === "SSE stream closed" &&
+          record.fields?.reason === "credential_revoked",
+      ),
+    ).toHaveLength(2);
+  }, 15_000);
+
+  test("a disabled user or membership cannot log in and its cookie stops working", async () => {
+    const me = async (value: string) =>
+      (await app.request("/v1/auth/me", { headers: { Cookie: value } })).status;
+    for (const table of [users, memberships]) {
+      const value = cookieOf(await login());
+      expect(await me(value)).toBe(200);
+      await db.update(table).set({ disabledAt: sql`clock_timestamp()` });
+      expect((await login()).status).toBe(401);
+      expect(await me(value)).toBe(401);
+      await db.update(table).set({ disabledAt: null });
+      expect(await me(value)).toBe(200);
+    }
   });
 });

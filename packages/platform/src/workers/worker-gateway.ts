@@ -74,7 +74,7 @@ export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 // back to the state a claim leaves behind, which reopens the one-shot
 // bootstrap replay; the terminal states belong to release and to the
 // backend's own observation, not to a self-report.
-const HEARTBEAT_STATES = new Set<AttemptState>([
+export const HEARTBEAT_STATES = new Set<AttemptState>([
   "starting",
   "running",
   "draining",
