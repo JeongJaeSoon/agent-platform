@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { closeSync, fstatSync, openSync } from "node:fs";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
@@ -351,7 +352,50 @@ describe("Claude SDK adapter options", () => {
     });
     if (spawned === undefined) throw new Error("no spawn");
     let printed = "";
-    for await (const chunk of spawned.stdout) printed += chunk;
+    for await (const chunk of spawned.stdout) {
+      printed += Buffer.from(chunk).toString();
+    }
     expect(printed).toBe("placeholder");
   }, 10_000);
+
+  test("a spawned engine's key socket is closed once, never again on a reused descriptor (94S-410)", async () => {
+    // node:child_process under Bun closed the extra stdio socket again when
+    // it was collected; a later Bun.spawn then failed with EBADF on the
+    // pipe that had taken the number.
+    const options = buildSdkOptions(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    for (let round = 0; round < 10; round++) {
+      const spawned = options.spawnClaudeCodeProcess?.({
+        command: "/bin/sh",
+        args: ["-c", "read -r key <&3; exec 3<&-; sleep 0.05"],
+        env: { PATH: process.env.PATH },
+        signal: new AbortController().signal,
+      });
+      if (spawned === undefined) throw new Error("no spawn");
+      await new Promise((resolve) => spawned.once("exit", resolve));
+    }
+    const held = Array.from({ length: 60 }, () => openSync("/dev/null", "r"));
+    try {
+      Bun.gc(true);
+      await Bun.sleep(100);
+      Bun.gc(true);
+      await Bun.sleep(100);
+      const closedUnderneath = held.filter((fd) => {
+        try {
+          fstatSync(fd);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+      expect(closedUnderneath).toEqual([]);
+    } finally {
+      for (const fd of held) {
+        try {
+          closeSync(fd);
+        } catch {}
+      }
+    }
+  }, 20_000);
 });

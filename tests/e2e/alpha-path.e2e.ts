@@ -485,6 +485,8 @@ describe("concurrency regressions (94S-134)", () => {
           printed,
         );
       if (report === null) throw new Error(`no probe output in ${printed}`);
+      // The ticket's acceptance evidence, kept in the CI log.
+      console.log(report[0]);
       const [, envHits, readable, hits, engine, direct] = report;
       expect({ envHits, hits, direct }).toEqual({
         envHits: "0",
