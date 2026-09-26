@@ -123,6 +123,21 @@ const HOST_PROXY_VARIABLES = [
   "no_proxy",
 ] as const;
 
+/**
+ * The descriptor the engine reads its API key from (94S-410). The engine
+ * reads it once, closes it and drops the variable before any tool runs, and
+ * a socket, unlike a pipe or a file, cannot be reopened through the
+ * engine's fd directory under /proc by a process it was never handed to.
+ */
+export const ENGINE_API_KEY_DESCRIPTOR = 3;
+
+/** The key `runtimeEnvironment` leaves out, for the spawn to write down the descriptor. */
+export function engineApiKey(profile: RuntimeProfile): string | undefined {
+  const auth = profile.auth;
+  if (auth.kind === "bearer") return undefined;
+  return auth.kind === "egress_token" ? auth.token : auth.value;
+}
+
 export function runtimeEnvironment(
   config: Pick<
     ClaudeRuntimeConfig,
@@ -154,18 +169,23 @@ export function runtimeEnvironment(
     environment.NODE_EXTRA_CA_CERTS = config.trustedCaBundle;
   }
   const auth = config.profile.auth;
+  if (auth.kind === "bearer") {
+    environment.ANTHROPIC_AUTH_TOKEN = auth.value;
+  } else {
+    // What the engine's environment holds, every tool it runs inherits and
+    // anything else of the same uid reads in its environ under /proc, so
+    // the key comes down a socket instead (engineApiKey).
+    environment.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR = String(
+      ENGINE_API_KEY_DESCRIPTOR,
+    );
+  }
   if (auth.kind === "egress_token") {
     // The engine talks to the egress proxy's credential route, which puts the
     // real credential on the request (94S-252); the token is all it holds.
     // The route is plain HTTP on the worker network, so it must not be sent
     // through the forward proxy, which would refuse it anyway.
     environment.ANTHROPIC_BASE_URL = normalizeEndpoint(auth.transport);
-    environment.ANTHROPIC_API_KEY = auth.token;
     bypassProxyFor(environment, new URL(auth.transport).hostname, host);
-  } else if (auth.kind === "bearer") {
-    environment.ANTHROPIC_AUTH_TOKEN = auth.value;
-  } else {
-    environment.ANTHROPIC_API_KEY = auth.value;
   }
   return environment;
 }

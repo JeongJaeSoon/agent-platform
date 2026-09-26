@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { Writable } from "node:stream";
 import type {
   AgentRun,
   AgentRuntime,
@@ -16,6 +17,8 @@ import {
   type ClaudeRuntimeConfig,
 } from "./config.ts";
 import {
+  ENGINE_API_KEY_DESCRIPTOR,
+  engineApiKey,
   type RuntimePolicy,
   runtimeEnvironment,
   validateRuntimeConfig,
@@ -198,26 +201,35 @@ export function buildSdkOptions(
       snapshot: true,
     },
     tools: config.tools,
-    ...(processObserver === undefined
-      ? {}
-      : {
-          spawnClaudeCodeProcess: (options) => {
-            const child = spawn(options.command, options.args, {
-              cwd: options.cwd,
-              env: options.env as NodeJS.ProcessEnv,
-              signal: options.signal,
-              stdio: ["pipe", "pipe", "pipe"],
-            });
-            const pid = child.pid;
-            if (pid !== undefined) {
-              processObserver.onSpawn(pid);
-              child.once("exit", (code, signal) =>
-                processObserver.onExit?.(pid, code, signal),
-              );
-            }
-            return child;
-          },
-        }),
+    spawnClaudeCodeProcess: (options) => {
+      const apiKey = engineApiKey(config.profile);
+      const child = spawn(options.command, options.args, {
+        cwd: options.cwd,
+        env: options.env as NodeJS.ProcessEnv,
+        signal: options.signal,
+        // A "pipe" past stdio is a socket pair, which the engine reads
+        // directly and closes (ENGINE_API_KEY_DESCRIPTOR).
+        stdio:
+          apiKey === undefined
+            ? ["pipe", "pipe", "pipe"]
+            : ["pipe", "pipe", "pipe", "pipe"],
+      });
+      if (apiKey !== undefined) {
+        const descriptor = child.stdio[ENGINE_API_KEY_DESCRIPTOR] as Writable;
+        // An engine that dies before reading resets the socket; its exit
+        // is what reports that, not an unhandled error here.
+        descriptor.on("error", () => {});
+        descriptor.end(`${apiKey}\n`);
+      }
+      const pid = child.pid;
+      if (pid !== undefined && processObserver !== undefined) {
+        processObserver.onSpawn(pid);
+        child.once("exit", (code, signal) =>
+          processObserver.onExit?.(pid, code, signal),
+        );
+      }
+      return child;
+    },
   };
 }
 

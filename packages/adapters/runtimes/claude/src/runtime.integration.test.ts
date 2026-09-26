@@ -1003,6 +1003,116 @@ describe("checkpoint quiescence against the actual SDK (94S-208)", () => {
   }, 30_000);
 });
 
+describe("the engine's API key against its own tools (94S-410)", () => {
+  test("a Bash tool finds the key in no environment and no descriptor", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-410-" });
+    const { home, workspace } = isolated;
+    const token = "wep_94s410-tool-must-not-see";
+    // The bracket keeps the pattern from matching the probe's own argv.
+    const mark = "tool-must-not-se[e]";
+    const probe = [
+      `mark='${mark}'`,
+      `env_key=$(env | grep -c -e "$mark" -e '^ANTHROPIC_API_KE[Y]=')`,
+      "readable=0; hits=0",
+      "for f in /proc/[0-9]*/environ; do",
+      '  [ -r "$f" ] || continue',
+      '  tr "\\0" "\\n" < "$f" 2>/dev/null | grep -q . || continue',
+      "  readable=$((readable+1))",
+      '  tr "\\0" "\\n" < "$f" | grep -q -e "$mark" && hits=$((hits+1))',
+      "done",
+      'files=$(grep -rl -e "$mark" "$HOME" "$CLAUDE_CONFIG_DIR" 2>/dev/null | wc -l | tr -d " ")',
+      "engine_fd=closed; [ -e /proc/$PPID/fd/3 ] && engine_fd=open",
+      "self_fd=closed; [ -e /dev/fd/3 ] && self_fd=open",
+      'echo "probe env_key=$env_key readable=$readable hits=$hits files=$files engine_fd=$engine_fd self_fd=$self_fd"',
+    ].join("\n");
+    // Run by sh whatever the engine's shell is: zsh stops at the glob when
+    // there is no /proc.
+    await Bun.write(join(workspace, "probe.sh"), probe);
+    await mkdir(join(workspace, ".claude"), { recursive: true });
+    // A repository's SessionStart hook runs before the first request, so it
+    // is the earliest the checkout can look for the descriptor.
+    const hookReport = join(workspace, "hook-fd.txt");
+    await Bun.write(
+      join(workspace, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command: `if [ -e /dev/fd/3 ]; then echo open; else echo closed; fi > ${JSON.stringify(hookReport)}`,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    server = startFakeAnthropicServer((_request, index) =>
+      index === 0
+        ? toolReply("Bash", { command: "sh probe.sh" }, "toolu_probe")
+        : textReply("probed"),
+    );
+    const run = new ClaudeSdkRuntime({
+      endpoints: ["https://api.anthropic.com"],
+      models: ["claude-sonnet-4-5"],
+    }).start(
+      {
+        claudeConfigDir: home,
+        correlationId: "94s-410",
+        mode: "new",
+        cwd: workspace,
+        home,
+        maxTurns: 2,
+        model: "claude-sonnet-4-5",
+        profile: {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.com",
+          auth: { kind: "egress_token", token, transport: server.url },
+          principal: { ownerScope: "owner-a" },
+        },
+        settingSources: ["project"],
+        tools: ["Bash"],
+      },
+      { onPermission: async () => ({ behavior: "allow" }) },
+    );
+    const consume = (async () => {
+      for await (const frame of run) {
+        if (frame.envelope.message.type === "result") run.finishInput();
+      }
+    })();
+    run.send({ message: "probe", uuid: crypto.randomUUID() });
+    await withTimeout(consume, 20_000, "The probe turn did not settle");
+
+    expect(server.requests).toHaveLength(2);
+    for (const request of server.requests) {
+      expect(request.headers["x-api-key"]).toBe(token);
+      expect(JSON.stringify(request.body)).not.toContain(token);
+    }
+    const output = JSON.stringify(server.requests[1]?.body.messages);
+    const report =
+      /probe env_key=(\d+) readable=(\d+) hits=(\d+) files=(\d+) engine_fd=(\w+) self_fd=(\w+)/.exec(
+        output,
+      );
+    if (report === null) throw new Error(`no probe output in ${output}`);
+    const [, envKey, readable, hits, files, engineFd, selfFd] = report;
+    expect({ envKey, hits, files, engineFd, selfFd }).toEqual({
+      envKey: "0",
+      hits: "0",
+      files: "0",
+      engineFd: "closed",
+      selfFd: "closed",
+    });
+    // Where there is a /proc (the worker, CI), the probe must have read the
+    // engine's environ and more, or "no hits" proves nothing.
+    if (process.platform === "linux") {
+      expect(Number(readable)).toBeGreaterThan(1);
+    }
+    expect((await Bun.file(hookReport).text()).trim()).toBe("closed");
+  }, 30_000);
+});
+
 async function withTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,

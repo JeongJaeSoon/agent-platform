@@ -362,10 +362,11 @@ describe("credential routes end to end (94S-252)", () => {
     // The catalog's credentials are not there to print at all.
     expect(printed).not.toContain(providerValue);
     expect(printed).not.toContain(repositoryPassword);
-    // The attempt's own tokens are (the engine needs one), and the scrubber
-    // the worker puts in front of its events removes every one of them.
+    // Nor is the engine's own token: it goes down a descriptor the engine
+    // closes (94S-410). Whatever else of the attempt's a tool finds, the
+    // scrubber the worker puts in front of its events removes.
     const held = claimSecrets(claim, bootstrapNonce);
-    expect(printed).toContain(claim.runtime_config.provider.auth.token);
+    expect(printed).not.toContain(claim.runtime_config.provider.auth.token);
     const scrubbed = new SecretScrubber(held).scrub(printed);
     for (const value of held) {
       if (value !== undefined) expect(scrubbed).not.toContain(value);
