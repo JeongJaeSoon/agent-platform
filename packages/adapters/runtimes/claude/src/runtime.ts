@@ -251,7 +251,9 @@ function spawnEngine(
     try {
       let written = 0;
       while (written < line.length) {
-        written += writeSync(descriptor, line, written);
+        const count = writeSync(descriptor, line, written);
+        if (count === 0) throw new Error("key descriptor accepted nothing");
+        written += count;
       }
     } catch {
       // An engine without its key line waits for it forever, or has
