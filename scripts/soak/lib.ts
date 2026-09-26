@@ -31,6 +31,8 @@ export type SoakEnv = {
   s3Url: string;
   /** The VM stall probe (94S-443); only the soak runner needs it. */
   vmLagUrl: string | null;
+  /** The host probe's second target (94S-453); only the soak runner needs it. */
+  hostEchoUrl: string | null;
   workerImage: string;
 };
 
@@ -57,6 +59,7 @@ export function soakEnv(vars = process.env): SoakEnv {
     project: need("SOAK_PROJECT"),
     s3Url: need("SOAK_S3_URL"),
     vmLagUrl: vars.SOAK_VM_LAG_URL || null,
+    hostEchoUrl: vars.SOAK_HOST_ECHO_URL || null,
     workerImage: need("WORKER_IMAGE"),
   };
 }
