@@ -135,6 +135,15 @@ integration("session reader on PostgreSQL (94S-396)", () => {
     ).toBe(at.toISOString());
   });
 
+  test("a detail read in a caller's read committed transaction is refused", async () => {
+    const { sessionId } = await queuedSession();
+    await db.transaction(async (tx) => {
+      await expect(
+        createPostgresSessionReader(tx).getSession(OWNER, sessionId),
+      ).rejects.toThrow("Session detail needs a snapshot transaction");
+    });
+  });
+
   test("every detail field comes from one snapshot", async () => {
     const { sessionId, turnId } = await queuedSession();
     const reader = createPostgresSessionReader(db);

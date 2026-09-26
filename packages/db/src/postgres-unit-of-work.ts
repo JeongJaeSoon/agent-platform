@@ -633,8 +633,8 @@ export function createPostgresSessionReader(
     ): Promise<SessionDetailRecord | null> {
       // One snapshot for every field: read one by one, a turn starting
       // between two reads showed running beside current_turn_id null.
-      // A reader built on a caller's transaction gets a savepoint here, and
-      // the caller's isolation decides instead.
+      // A reader built on a caller's transaction gets a savepoint here and
+      // the caller's isolation instead, so that must hold a snapshot too.
       return db.transaction(
         async (tx) => {
           // The count and the status it projects come from one statement,
@@ -644,6 +644,7 @@ export function createPostgresSessionReader(
               session: sessions,
               pendingCount: sql<number>`(SELECT count(*)::int FROM (${actionableOfSession(tx)}) AS actionable)`,
               lastEventAt: LAST_EVENT_AT,
+              isolation: sql<string>`current_setting('transaction_isolation')`,
             })
             .from(sessions)
             .where(
@@ -651,6 +652,9 @@ export function createPostgresSessionReader(
             )
             .limit(1);
           if (!read) return null;
+          if (read.isolation === "read committed") {
+            throw new Error("Session detail needs a snapshot transaction");
+          }
           const row = read.session;
           const [summary] = await summarize(tx, [
             {
