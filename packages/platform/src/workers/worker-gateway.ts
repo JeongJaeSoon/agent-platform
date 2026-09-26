@@ -39,6 +39,10 @@ import {
 } from "../checkpoints/checkpoint-service.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
 import { budgetExceeded } from "../limits/installation-limits.ts";
+import {
+  type ProviderUsage,
+  priceProviderUsage,
+} from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
 import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
@@ -825,10 +829,10 @@ export function createWorkerGateway(deps: {
         upstream,
       });
       if (request.purpose === "provider") {
-        // The engine's own calls are also held to the limit by the SDK's
-        // budget, but a tool that calls the route directly with the engine's
-        // token is counted nowhere; a session past its limit gets no new
-        // provider exchange, and the proxy's regrant cuts an open one (94S-394).
+        // What a session has spent is metered here, a tool's direct calls
+        // with the engine's token included (94S-409); a session past its
+        // limit gets no new provider exchange, and the proxy's regrant cuts
+        // an open one (94S-394).
         if (budgetExceeded(result.costUsd, deps.options.sessionCostLimitUsd)) {
           throw new WorkerGatewayError(
             403,
@@ -859,6 +863,37 @@ export function createWorkerGateway(deps: {
         moved("session's repository");
       }
       return grant(repositoryUpstreamOf(pair.repository));
+    },
+
+    // What one Messages call through the provider route used, as the proxy
+    // read it off the answer (94S-409). This is the session's spend: the
+    // engine's calls and any a tool made with the engine's token alike.
+    async recordProviderUsage(report: {
+      exchangeId: string;
+      sessionId: string;
+      attemptId: string;
+      usage: ProviderUsage;
+    }): Promise<{ costUsd: number; pricedBy: "table" | "fallback" }> {
+      const priced = priceProviderUsage(report.usage);
+      const result = await work.recordProviderUsageAtomic({
+        ...report,
+        ...priced,
+      });
+      if (result.outcome === "unknown_attempt") {
+        throw new WorkerGatewayError(
+          404,
+          "NOT_FOUND",
+          "No such attempt of that session",
+        );
+      }
+      if (result.outcome === "conflict") {
+        throw new WorkerGatewayError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "That exchange was reported with other usage",
+        );
+      }
+      return priced;
     },
 
     async nextInput(

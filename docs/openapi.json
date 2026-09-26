@@ -3445,7 +3445,7 @@
               },
               "source": {
                 "type": "string",
-                "const": "sdk_total_cost_usd"
+                "const": "provider_usage"
               },
               "completeness_scope": {
                 "type": "string",

@@ -9,6 +9,7 @@ import type {
   WorkerEvent,
   WorkspaceRepository,
 } from "@agent-platform/contracts";
+import type { ProviderUsage } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
@@ -133,6 +134,25 @@ export type EgressAuthorization =
   // Unknown, revoked, expired, or presented for another purpose.
   | { outcome: "invalid_token" }
   | FenceRejection;
+
+// One Messages call the egress proxy metered, priced (94S-409). The ids are
+// the ones the proxy's grant carried, so the attempt may have ended since.
+export type ProviderUsageInput = {
+  exchangeId: string;
+  sessionId: string;
+  attemptId: string;
+  usage: ProviderUsage;
+  costUsd: number;
+  pricedBy: "table" | "fallback";
+};
+
+export type ProviderUsageResult =
+  // `replayed`: the same report again, counted the first time only.
+  | { outcome: "recorded" | "replayed" }
+  // No such attempt of that session.
+  | { outcome: "unknown_attempt" }
+  // The exchange id was recorded with other contents.
+  | { outcome: "conflict" };
 
 export type ClaimResult =
   | { outcome: "claimed" | "replayed"; binding: WorkerBinding }
@@ -419,6 +439,10 @@ export interface WorkerUnitOfWork {
     tokenHash: Uint8Array;
     purpose: EgressPurpose;
   }): Promise<EgressAuthorization>;
+  // Adds a metered call's cost to its session, once per exchange id.
+  recordProviderUsageAtomic(
+    input: ProviderUsageInput,
+  ): Promise<ProviderUsageResult>;
   nextInputAtomic(input: NextInputInput): Promise<NextInputResult>;
   heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult>;
   commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult>;

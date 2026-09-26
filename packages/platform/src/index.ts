@@ -3,6 +3,7 @@ export * from "./checkpoints/checkpoint-collector.ts";
 export * from "./checkpoints/checkpoint-service.ts";
 export * from "./checkpoints/durability.ts";
 export * from "./limits/installation-limits.ts";
+export * from "./limits/model-prices.ts";
 export * from "./ports/checkpoint-collection.ts";
 export * from "./ports/checkpoint-store.ts";
 export * from "./ports/checkpoint-verifier.ts";

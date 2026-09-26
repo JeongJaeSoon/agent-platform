@@ -23,6 +23,8 @@ import { createLogger } from "@agent-platform/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
+  priceProviderUsage,
+  type WorkerGateway,
 } from "@agent-platform/platform";
 import {
   ClaudeSdkRuntime,
@@ -98,6 +100,7 @@ afterEach(async () => {
 
 type Topology = {
   claim: BootstrapClaimResponse;
+  gateway: WorkerGateway;
   bootstrapNonce: string;
   credentialUrl: string;
   providerValue: string;
@@ -214,12 +217,78 @@ async function topology(): Promise<Topology> {
   );
   return {
     claim,
+    gateway,
     bootstrapNonce: launch.nonce,
     credentialUrl: `http://127.0.0.1:${proxy.port}`,
     providerValue,
     repositoryPassword,
     repositoryUrl,
   };
+}
+
+/** One engine turn through the credential route, as a worker runs it. */
+async function engineTurn(
+  claim: BootstrapClaimResponse,
+  credentialUrl: string,
+) {
+  isolated = await createIsolatedWorkspace({ prefix: "94s-252-" });
+  const profile = engineProfile(
+    claim.runtime_config.provider,
+    claim.principal.owner_scope,
+    credentialUrl,
+  );
+  const config = {
+    claudeConfigDir: isolated.home,
+    correlationId: "94s-252",
+    cwd: isolated.workspace,
+    home: isolated.home,
+    maxTurns: 1,
+    mode: "new" as const,
+    model: claim.runtime_config.model,
+    profile,
+    settingSources: [] as [],
+    tools: [],
+  };
+  const environment = runtimeEnvironment(config, { PATH: process.env.PATH });
+  const run = new ClaudeSdkRuntime({
+    endpoints: [claim.runtime_config.provider.endpoint],
+    models: [claim.runtime_config.model],
+  }).start(config, {
+    onPermission: async () => ({ behavior: "deny", message: "no tools" }),
+  });
+  run.send({ message: "hello through the route", uuid: crypto.randomUUID() });
+  run.finishInput();
+  const results: Array<Record<string, unknown>> = [];
+  for await (const frame of run) {
+    const message = frame.envelope.message as Record<string, unknown>;
+    if (message.type === "result") results.push(message);
+  }
+  return { environment, results };
+}
+
+/** The session's cost once `rows` metered calls have been recorded. */
+async function meteredCost(sessionId: string, rows: number) {
+  if (client === undefined) throw new Error("no database");
+  const db = drizzle(client, { schema });
+  const by = performance.now() + 10_000;
+  for (;;) {
+    const recorded = await db
+      .select({ costUsd: schema.providerUsage.costUsd })
+      .from(schema.providerUsage)
+      .where(eq(schema.providerUsage.sessionId, sessionId));
+    if (recorded.length >= rows) {
+      const [session] = await db
+        .select({ costUsd: schema.sessions.costUsd })
+        .from(schema.sessions)
+        .where(eq(schema.sessions.id, sessionId));
+      return {
+        session: session?.costUsd,
+        metered: recorded.reduce((sum, row) => sum + row.costUsd, 0),
+      };
+    }
+    if (performance.now() > by) throw new Error("usage never recorded");
+    await Bun.sleep(20);
+  }
 }
 
 describe("credential routes end to end (94S-252)", () => {
@@ -230,41 +299,10 @@ describe("credential routes end to end (94S-252)", () => {
     expect(JSON.stringify(claim)).not.toContain(providerValue);
     expect(claim.runtime_config.provider.auth.kind).toBe("egress_token");
 
-    isolated = await createIsolatedWorkspace({ prefix: "94s-252-" });
-    const profile = engineProfile(
-      claim.runtime_config.provider,
-      claim.principal.owner_scope,
-      credentialUrl,
-    );
-    const config = {
-      claudeConfigDir: isolated.home,
-      correlationId: "94s-252",
-      cwd: isolated.workspace,
-      home: isolated.home,
-      maxTurns: 1,
-      mode: "new" as const,
-      model: claim.runtime_config.model,
-      profile,
-      settingSources: [] as [],
-      tools: [],
-    };
-    const environment = runtimeEnvironment(config, { PATH: process.env.PATH });
+    const { environment, results } = await engineTurn(claim, credentialUrl);
     expect(JSON.stringify(environment)).not.toContain(providerValue);
     expect(environment.ANTHROPIC_BASE_URL).toBe(`${credentialUrl}/provider`);
-
-    const run = new ClaudeSdkRuntime({
-      endpoints: [claim.runtime_config.provider.endpoint],
-      models: [claim.runtime_config.model],
-    }).start(config, {
-      onPermission: async () => ({ behavior: "deny", message: "no tools" }),
-    });
-    run.send({ message: "hello through the route", uuid: crypto.randomUUID() });
-    run.finishInput();
-    let results = 0;
-    for await (const frame of run) {
-      if (frame.envelope.message.type === "result") results += 1;
-    }
-    expect(results).toBe(1);
+    expect(results).toHaveLength(1);
 
     // The upstream saw the catalog's key and never the attempt's token.
     expect(messages.requests.length).toBeGreaterThan(0);
@@ -404,6 +442,95 @@ describe("credential routes end to end (94S-252)", () => {
     expect(over.status).toBe(403);
     await over.text();
     expect(messages.requests).toHaveLength(served);
+  }, 60_000);
+
+  test("94S-409: a tool's direct call on the engine's token is metered into the session's cost", async () => {
+    const { claim, credentialUrl } = await topology();
+    const direct = await fetch(`${credentialUrl}/provider/v1/messages`, {
+      method: "POST",
+      headers: {
+        "x-api-key": claim.runtime_config.provider.auth.token,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: claim.runtime_config.model,
+        max_tokens: 16,
+        stream: true,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+    expect(direct.status).toBe(200);
+    await direct.text();
+
+    // The fake answers with one input and four output tokens.
+    const { costUsd } = priceProviderUsage({
+      model: claim.runtime_config.model,
+      inputTokens: 1,
+      outputTokens: 4,
+      cacheCreationInputTokens: 0,
+      cacheCreation1hInputTokens: 0,
+      cacheReadInputTokens: 0,
+    });
+    expect(costUsd).toBeGreaterThan(0);
+    expect(await meteredCost(claim.session_id, 1)).toEqual({
+      session: costUsd,
+      metered: costUsd,
+    });
+  }, 60_000);
+
+  test("94S-409: an engine turn is counted once: the session's cost is what the proxy metered, and finalize adds nothing", async () => {
+    const { claim, gateway, credentialUrl } = await topology();
+    if (messages === undefined) throw new Error("no Messages server");
+    const principal = {
+      kind: "session" as const,
+      sessionId: claim.session_id,
+      attemptId: claim.attempt_id,
+      leaseEpoch: claim.lease_epoch,
+      executionGeneration: claim.execution_generation,
+      authRevision: claim.auth_revision,
+    };
+    const scope = (turnId: string | null) => ({
+      session_id: claim.session_id,
+      turn_id: turnId,
+      attempt_id: claim.attempt_id,
+      lease_epoch: claim.lease_epoch,
+      execution_generation: claim.execution_generation,
+      auth_revision: claim.auth_revision,
+    });
+    const next = await gateway.nextInput(principal, scope(null));
+    const turnId = next.input?.turn_id ?? null;
+    expect(turnId).not.toBeNull();
+
+    const { results } = await engineTurn(claim, credentialUrl);
+    const sdkCost = results[0]?.total_cost_usd;
+    if (typeof sdkCost !== "number") throw new Error("no engine cost");
+    const calls = messages.requests.filter((request) =>
+      request.path.startsWith("/v1/messages?"),
+    ).length;
+    expect(calls).toBeGreaterThan(0);
+    const metered = await meteredCost(claim.session_id, calls);
+
+    await gateway.finalize(principal, {
+      ...scope(turnId),
+      turn_id: turnId ?? "",
+      finalize_key: "fin-1",
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+        cost_usd: sdkCost,
+      },
+      checkpoint: null,
+    });
+
+    const settled = await meteredCost(claim.session_id, calls);
+    expect(settled.session).toBe(metered.metered);
+    expect(settled.metered).toBe(metered.metered);
+    // The engine priced the same calls the same way.
+    expect(settled.session).toBeCloseTo(sdkCost, 6);
   }, 60_000);
 
   test("the route refuses a token for the other purpose and one it never issued", async () => {

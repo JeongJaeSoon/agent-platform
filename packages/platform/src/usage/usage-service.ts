@@ -85,7 +85,7 @@ export function createUsageService(deps: {
         cost: {
           amount_usd: usage.costUsd,
           kind: "estimated",
-          source: "sdk_total_cost_usd",
+          source: "provider_usage",
           completeness_scope: "turn_reports",
           complete:
             usage.unreportedTurnCount === 0 && usage.openTurnCount === 0,

@@ -53,11 +53,12 @@ export const installationLimitsResponseSchema = z
   .strict();
 
 /**
- * GET /v1/sessions/{id}/usage (94S-275). The cost is the engine's own
- * estimate (SDK `total_cost_usd`), never a bill. `complete` is about turn
- * reports only: false while a turn is running or when a turn ended without
- * reporting a cost, in which case `amount_usd` is what was reported so far
- * and the true total is unknown.
+ * GET /v1/sessions/{id}/usage (94S-275). The cost is an estimate, never a
+ * bill: every Messages call the egress proxy saw, the engine's and a tool's
+ * alike, priced by the platform's table (94S-409). A session from before
+ * that also carries the engine's own turn totals up to then. `complete` is
+ * about turn reports only: false while a turn is running or when a turn
+ * ended without reporting a cost, in which case the true total is unknown.
  */
 export const sessionUsageResponseSchema = z
   .object({
@@ -68,7 +69,7 @@ export const sessionUsageResponseSchema = z
       .object({
         amount_usd: costUsdSchema,
         kind: z.literal("estimated"),
-        source: z.literal("sdk_total_cost_usd"),
+        source: z.literal("provider_usage"),
         completeness_scope: z.literal("turn_reports"),
         complete: z.boolean(),
         reported_turn_count: countSchema,

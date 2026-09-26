@@ -10,6 +10,7 @@ import {
 } from "./policy.ts";
 import { systemResolver } from "./proxy.ts";
 import { type UpstreamBody, upstreamExchange } from "./upstream-http.ts";
+import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
 
 /**
  * The proxy's credential routes (94S-252): the one place a worker's request
@@ -41,6 +42,12 @@ import { type UpstreamBody, upstreamExchange } from "./upstream-http.ts";
 
 export const DEFAULT_CREDENTIAL_PORT = 3129;
 const DEFAULT_AUTHORIZE_TIMEOUT_MS = 10_000;
+/**
+ * Waits between tries of one usage report. The report carries the exchange's
+ * id, so a try whose answer was lost and the one after it charge once; a
+ * report still refused after the last try goes uncounted, and says so.
+ */
+const DEFAULT_USAGE_REPORT_BACKOFF_MS = [1_000, 5_000, 15_000];
 /**
  * One exchange, start to last byte. A clone of a large repository is one
  * exchange (the pack streams back on the upload-pack POST), and the worker
@@ -509,6 +516,8 @@ export type CredentialProxyOptions = {
   regrantGraceMs?: number;
   regrantIntervalMs?: number;
   resolve?: EgressResolver;
+  /** Waits between tries of a usage report the authorizer could not take. */
+  usageReportBackoffMs?: readonly number[];
   /** Roots for https upstreams; tests name a private CA. */
   upstreamCa?: string;
 };
@@ -536,6 +545,9 @@ export function startCredentialProxy(
   const maxPerClient =
     options.maxExchangesPerClient ?? DEFAULT_MAX_EXCHANGES_PER_CLIENT;
   const authorizeUrl = new URL("/authorize", options.authorizer.url);
+  const usageUrl = new URL("/usage", options.authorizer.url);
+  const usageBackoffMs =
+    options.usageReportBackoffMs ?? DEFAULT_USAGE_REPORT_BACKOFF_MS;
   const maxBodyBytes =
     options.maxBodyBytesInFlight ?? DEFAULT_MAX_BODY_BYTES_IN_FLIGHT;
   let open = 0;
@@ -600,6 +612,57 @@ export function startCredentialProxy(
       return { kind: "refused", status: 503 };
     }
     return { kind: "granted", grant };
+  }
+
+  // What one Messages call used goes to the API, which prices it and adds it
+  // to the session's cost (94S-409). After the exchange, never in its way:
+  // the worker already has its answer, and the ids come from the grant, so
+  // an attempt that has since lost its session is still charged for it.
+  async function reportUsage(
+    grant: EgressGrant,
+    exchangeId: string,
+    usage: MessagesUsage,
+  ): Promise<void> {
+    const fields = {
+      session_id: grant.sessionId,
+      attempt_id: grant.attemptId,
+      exchange_id: exchangeId,
+      model: usage.model,
+    };
+    const body = JSON.stringify({
+      exchange_id: exchangeId,
+      session_id: grant.sessionId,
+      attempt_id: grant.attemptId,
+      usage,
+    });
+    for (let tried = 0; ; tried++) {
+      let status: number | null = null;
+      try {
+        const response = await fetch(usageUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${options.authorizer.token}`,
+            "content-type": "application/json",
+          },
+          body,
+          redirect: "error",
+          signal: AbortSignal.timeout(
+            options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS,
+          ),
+        });
+        status = response.status;
+        await response.body?.cancel();
+      } catch {}
+      if (status !== null && status >= 200 && status < 300) return;
+      // A refusal is an answer about the report, and asking again would get
+      // the same one; only an authorizer that could not answer is retried.
+      const backoff = usageBackoffMs[tried];
+      if ((status !== null && status < 500) || backoff === undefined) {
+        logger.error("Provider usage went unreported", { ...fields, status });
+        return;
+      }
+      await Bun.sleep(backoff);
+    }
   }
 
   async function exchange(
@@ -751,7 +814,7 @@ export function startCredentialProxy(
         route.purpose,
       );
     }
-    return new Response(
+    const guarded =
       response.body?.pipeThrough(
         secretGuard(secrets, () =>
           logger.error("Credential route upstream echoed the credential", {
@@ -759,7 +822,17 @@ export function startCredentialProxy(
             status: response.status,
           }),
         ),
-      ) ?? null,
+      ) ?? null;
+    // count_tokens is free; only a Messages answer is metered.
+    if (route.purpose !== "provider" || route.path !== "/v1/messages") {
+      return new Response(guarded, { status: response.status, headers });
+    }
+    const meter = usageMeter(response.headers.get("content-type"));
+    const exchangeId = crypto.randomUUID();
+    return new Response(
+      metered(guarded, meter, signal, (usage) => {
+        void reportUsage(grant, exchangeId, usage);
+      }),
       { status: response.status, headers },
     );
   }
@@ -1136,6 +1209,56 @@ function tracked(
           controller.close();
           return;
         }
+        controller.enqueue(next.value);
+      } catch (error) {
+        done();
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      done();
+      return reader.cancel(reason);
+    },
+  });
+}
+
+/**
+ * A body read through `meter`, which is settled once however the exchange
+ * ends: the body in full, broken or cancelled, or the exchange cut, which is
+ * all a worker that hung up leaves behind (Bun neither reads nor cancels the
+ * body after that, 94S-366). A cut stream was still billed for what the
+ * upstream had done.
+ */
+function metered(
+  body: ReadableStream<Uint8Array> | null,
+  meter: UsageMeter,
+  ended: AbortSignal,
+  settle: (usage: MessagesUsage) => void,
+): ReadableStream<Uint8Array> | null {
+  let settled = false;
+  const done = () => {
+    if (settled) return;
+    settled = true;
+    ended.removeEventListener("abort", done);
+    const usage = meter.result();
+    if (usage !== null) settle(usage);
+  };
+  if (body === null || ended.aborted) {
+    done();
+    if (body === null) return null;
+  }
+  ended.addEventListener("abort", done);
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          done();
+          controller.close();
+          return;
+        }
+        meter.observe(next.value);
         controller.enqueue(next.value);
       } catch (error) {
         done();
