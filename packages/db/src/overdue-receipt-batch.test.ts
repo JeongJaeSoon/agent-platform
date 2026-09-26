@@ -4,6 +4,10 @@ import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
+import {
+  createPostgresSchedulerStore,
+  OVERDUE_TERMINATION_SWEEP_LIMIT,
+} from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { controlIntents, receipts, sessions, turns } from "./schema.ts";
 import { expireOverdueInterrupts } from "./turn-interrupts.ts";
@@ -12,6 +16,7 @@ import { expireOverdueInterrupts } from "./turn-interrupts.ts";
  * 94S-399: a reconciler back from a long stop finds a backlog of overdue
  * receipts. Each pass flips at most RECONCILER_BATCH_SIZE of them, so the
  * statement stays inside the pass timeout, and the next pass takes the rest.
+ * The scheduler's terminate sweep has its own fixed batch (94S-450).
  */
 
 const LIMIT = 2;
@@ -119,15 +124,29 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
     expect(await expire(false)).toBe(0);
   });
 
-  test("terminations without a limit, as the scheduler sweeps, take all", async () => {
-    for (let index = 0; index < LIMIT + 1; index += 1) {
-      await acceptedReceipt("terminate");
-    }
-    expect(
-      await expireOverdueTerminations(db, {
+  test("the scheduler sweep takes one batch per pass too (94S-450)", async () => {
+    await db.insert(receipts).values(
+      Array.from({ length: OVERDUE_TERMINATION_SWEEP_LIMIT + 1 }, () => ({
+        id: crypto.randomUUID(),
+        ownerId: "owner-a",
+        operation: "terminate",
+        targetRef: {},
+        createdAt: LONG_AGO,
+      })),
+    );
+    const store = createPostgresSchedulerStore(db, {
+      sessionCostLimitUsd: 1_000,
+      connectForLock: () => Promise.reject(new Error("not used")),
+    });
+    const sweep = () =>
+      store.markOverdueTerminations({
         now: new Date(),
         deadlineMs: DEADLINE_MS,
-      }),
-    ).toBe(LIMIT + 1);
+      });
+
+    expect(await sweep()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
+    expect(await unknownCount()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
+    expect(await sweep()).toBe(1);
+    expect(await sweep()).toBe(0);
   });
 });

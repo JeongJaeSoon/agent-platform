@@ -110,6 +110,13 @@ const FINAL_ADMISSION_STATES: Array<
  */
 const LAUNCH_ERROR_MAX_CHARS = 1_000;
 
+/**
+ * Overdue terminate receipts one pass turns `unknown` (94S-450). A backlog
+ * is worked off over several passes, as the reconciler's batch does, rather
+ * than in one statement that can outlast the pass.
+ */
+export const OVERDUE_TERMINATION_SWEEP_LIMIT = 100;
+
 /** `sessions.id` is a uuid column; anything else cannot be asked about. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1039,7 +1046,10 @@ export function createPostgresSchedulerStore(
     },
 
     markOverdueTerminations(input): Promise<number> {
-      return expireOverdueTerminations(db, input);
+      return expireOverdueTerminations(db, {
+        ...input,
+        limit: OVERDUE_TERMINATION_SWEEP_LIMIT,
+      });
     },
   };
 }
