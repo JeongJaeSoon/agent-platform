@@ -246,6 +246,7 @@ jobs:
               - tests/soak/
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
+              - tests/local-sh.
               - tests/retry-flaky.
               - tests/supply-chain.
               - tests/test-files.

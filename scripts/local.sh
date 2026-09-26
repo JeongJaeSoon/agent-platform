@@ -21,19 +21,21 @@
 # caller's exported ANTHROPIC_API_KEY handed by name to the API alone, and
 # the e2e's cost limits (docs/real-claude.md). Without the key nothing is
 # touched. The project is the same, so `down` deletes it like any other.
+#
+# COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
+# compose's to resolve (94S-439): the ports checked, the /readyz waited on
+# and the worker label `down` deletes all come from the stack compose
+# renders here, not from these defaults.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-API_URL=http://127.0.0.1:3000
-PORTS="3000 5432 4566 4567 3001"
 MIN_ENGINE_MAJOR=28
 MIN_COMPOSE=2.24
 # An overlay on compose.yaml's include; 2.24.0-2.24.5 reject it as a
 # conflict with an imported resource.
 MIN_COMPOSE_OVERLAY=2.24.6
 READY_TIMEOUT_SEC=${LOCAL_READY_TIMEOUT_SEC:-180}
-LABEL=agent-platform.installation=local
 
 die() {
   echo "local.sh: $*" >&2
@@ -42,8 +44,13 @@ die() {
 
 real_model=""
 compose() {
-  docker compose --profile apps \
-    ${real_model:+-f compose.yaml -f infra/compose.real-model.yml} "$@"
+  local files=() file IFS=:
+  if [ -n "$real_model" ]; then
+    # -f replaces COMPOSE_FILE, so the overlay goes on top of its files.
+    for file in ${COMPOSE_FILE:-compose.yaml}; do files+=(-f "$file"); done
+    files+=(-f infra/compose.real-model.yml)
+  fi
+  docker compose --profile apps ${files[@]+"${files[@]}"} "$@"
 }
 
 usage() {
@@ -67,6 +74,12 @@ mode() {
   esac
 }
 
+# The stack as compose resolves it here.
+rendered() {
+  compose config --format json 2>/dev/null ||
+    die "docker compose cannot render the stack; \`docker compose --profile apps config\` says why"
+}
+
 # Is version $1 (like 28.3.2 or v2.39.1-desktop.1) at least $2 (like 2.24
 # or 2.24.6)? A missing part counts as 0.
 version_at_least() {
@@ -83,7 +96,7 @@ version_at_least() {
 }
 
 preflight() {
-  local engine compose_version ours port busy=""
+  local engine compose_version bindings binding ip bound port ours busy=""
   engine=$(docker version --format '{{.Server.Version}}' 2>/dev/null) ||
     die "cannot reach the Docker daemon"
   version_at_least "$engine" "$MIN_ENGINE_MAJOR.0" ||
@@ -94,20 +107,35 @@ preflight() {
     die "docker compose $compose_version is too old; compose.yaml needs $MIN_COMPOSE or newer (include, env_file required)"
   [ -z "$real_model" ] || version_at_least "$compose_version" "$MIN_COMPOSE_OVERLAY" ||
     die "docker compose $compose_version is too old for --real-model; an overlay on compose.yaml's include needs $MIN_COMPOSE_OVERLAY or newer"
+  command -v jq >/dev/null || die "jq is not installed"
+  bindings=$(rendered | jq -r '[.services[].ports[]? | select(.published and .protocol != "udp")
+    | "\(.host_ip // "")|\(.published)"] | unique | .[]')
   # A port this stack already publishes is its own; any other listener is not.
   ours=$(compose ps --format '{{.Ports}}' 2>/dev/null || true)
-  for port in $PORTS; do
-    case "$ours" in *":$port->"*) continue ;; esac
-    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-      busy="$busy $port"
+  for binding in $bindings; do
+    ip=${binding%|*}
+    port=${binding##*|}
+    # As `compose ps` prints it.
+    case "$ip" in "") bound=0.0.0.0 ;; *:*) bound="[$ip]" ;; *) bound=$ip ;; esac
+    case "$ours" in *"$bound:$port->"*) continue ;; esac
+    case "$ip" in "" | 0.0.0.0) ip=127.0.0.1 ;; ::) ip=::1 ;; esac
+    if (exec 3<>"/dev/tcp/$ip/$port") 2>/dev/null; then
+      busy="$busy $ip:$port"
     fi
   done
   [ -z "$busy" ] ||
-    die "127.0.0.1 port(s)$busy already in use; stop whatever holds them (another stack?) and retry"
+    die "port(s)$busy already in use; stop whatever holds them (another stack?) and retry"
   echo "Docker Engine $engine, compose $compose_version" >&2
 }
 
-readyz() { curl -sS --max-time 3 "$API_URL/readyz" 2>/dev/null || true; }
+# Empty while the api publishes nothing.
+readyz() {
+  local address
+  address=$(compose port api 3000 2>/dev/null | head -n 1) || true
+  case "$address" in 0.0.0.0:* | "[::]:"*) address=127.0.0.1:${address##*:} ;; esac
+  [ -z "$address" ] ||
+    curl -sS --noproxy '*' --max-time 3 "http://$address/readyz" 2>/dev/null || true
+}
 
 up() {
   preflight
@@ -123,19 +151,38 @@ up() {
       *'"status":"ready"'*) echo "$body"; return 0 ;;
     esac
     [ "$SECONDS" -lt "$deadline" ] ||
-      die "API not ready after ${READY_TIMEOUT_SEC}s: ${body:-no answer from $API_URL/readyz}"
+      die "API not ready after ${READY_TIMEOUT_SEC}s: ${body:-no answer from the api /readyz}"
     sleep 2
   done
 }
 
+# The installation id the stack was started with, read off its egress proxy;
+# the one compose would start it with only once no container is left.
+installation_id() {
+  local proxy
+  # A failed lookup is not an empty one.
+  proxy=$(compose ps -aq egress-proxy) || return 1
+  proxy=${proxy%%$'\n'*}
+  if [ -n "$proxy" ]; then
+    docker inspect --format '{{index .Config.Labels "agent-platform.egress-proxy"}}' "$proxy"
+  else
+    rendered | jq -r '.services.scheduler.environment.EXECUTION_INSTALLATION_ID // empty'
+  fi
+}
+
 down() {
+  local id
+  command -v jq >/dev/null || die "jq is not installed"
+  id=$(installation_id) || true
+  [ -n "$id" ] || die "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted"
   echo "local.sh: deleting the local stack and ALL its data: sessions, checkpoints, keys, Gitea repositories" >&2
   compose down -v --remove-orphans
   # What the scheduler created is not compose's: worker containers, their
   # networks and workspace volumes carry the installation label instead.
-  docker ps -aq --filter "label=$LABEL" | xargs -r docker rm -f >/dev/null
-  docker network ls -q --filter "label=$LABEL" | xargs -r docker network rm >/dev/null
-  docker volume ls -q --filter "label=$LABEL" | xargs -r docker volume rm >/dev/null
+  local label=agent-platform.installation=$id
+  docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null
+  docker network ls -q --filter "label=$label" | xargs -r docker network rm >/dev/null
+  docker volume ls -q --filter "label=$label" | xargs -r docker volume rm >/dev/null
   echo "local.sh: deleted" >&2
 }
 
@@ -153,7 +200,8 @@ case "${1:-}" in
   up) shift; mode "$@"; up ;;
   down) down ;;
   # Checked before down too, so a reset that cannot start deletes nothing.
-  reset) shift; mode "$@"; preflight; down && up ;;
+  # Not `down && up`: errexit would not hold inside down.
+  reset) shift; mode "$@"; preflight; down; up ;;
   status) status ;;
   key) shift; key "$@" ;;
   *) usage ;;
