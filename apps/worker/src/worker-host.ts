@@ -269,6 +269,11 @@ export class WorkerHost {
    * release that commits the pause ends the loop.
    */
   private pauseControl: string | undefined;
+  /**
+   * The pause whose release may have committed unseen: one is out, or one
+   * went unanswered and nothing has said since whether it landed.
+   */
+  private pauseReleasing: string | undefined;
   private turn: Turn | undefined;
   private readonly accounting = new TurnAccounting();
 
@@ -345,7 +350,7 @@ export class WorkerHost {
       retryBudgetMs: this.options.timeouts.nextInputRetryTimeoutMs,
       onFailed: (error) => {
         if (isOwnershipLost(error)) {
-          this.lose(describe(error));
+          this.lose(describe(error), error);
           return;
         }
         // Nothing the engine does from here is recorded, so nothing waiting
@@ -365,7 +370,7 @@ export class WorkerHost {
       scope: () => this.scope,
       timeoutMs: this.options.timeouts.questionTimeoutMs,
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,
-      onOwnershipLost: (error) => this.lose(describe(error)),
+      onOwnershipLost: (error) => this.lose(describe(error), error),
       onControl: (control) => this.onControl(control),
     });
     this.heartbeat = new Heartbeat({
@@ -376,7 +381,7 @@ export class WorkerHost {
       lease: { remainingMs: claim.lease_remaining_ms, sentAt: claimed.sentAt },
       safetyMarginMs:
         this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
-      onLost: (reason) => this.lose(reason),
+      onLost: (reason, error) => this.lose(reason, error),
       onControlPending: () => this.pending?.poll(true),
       transcript: () => this.transcriptReport(),
     });
@@ -421,7 +426,7 @@ export class WorkerHost {
       // A worker that failed but still owns the session gives it back, so
       // recovery does not have to wait for the lease to lapse. A loss wins
       // over a stop already under way: no durable write may follow it.
-      if (isOwnershipLost(error)) this.lose(describe(error));
+      if (isOwnershipLost(error)) this.lose(describe(error), error);
       else this.stop({ kind: "failed", reason: describe(error) });
       this.logger.error("worker.failed", { reason: describe(error) });
       await this.shutdown(run);
@@ -605,11 +610,22 @@ export class WorkerHost {
     this.logger.error("worker.failed", { reason });
   }
 
-  private lose(reason: string): void {
+  private lose(reason: string, error?: unknown): void {
     // A poll still in flight when the session was given back comes home to
     // a fence that is gone; that is the release, not a lease loss.
     if (this.released) return;
     if (this.stopping?.kind === "lost") return;
+    // Committing the pause revokes this credential and moves the epoch on,
+    // so either refusal while the release is unanswered is most likely that
+    // commit, its answer lost (94S-415): UNAUTHORIZED for a request that
+    // came after it, STALE_EPOCH for one that authenticated before it and
+    // waited on its fence. A double fault — the binding ended by a terminate
+    // as the release went out — is reported paused too; the session's state
+    // on the server is the record either way.
+    if (this.showsPauseCommit(error)) {
+      this.presumePaused(`The release went unanswered and then: ${reason}`);
+      return;
+    }
     this.stopping = undefined;
     this.stop({ kind: "lost", reason });
     // Owner loss means no further durable writes from this attempt, so the
@@ -617,6 +633,24 @@ export class WorkerHost {
     this.publisher?.abandon(reason);
     this.pending?.cancelAll("This worker no longer owns the session");
     this.pending?.stop();
+  }
+
+  private showsPauseCommit(error: unknown): boolean {
+    return (
+      this.pauseReleasing !== undefined &&
+      error instanceof WorkerGatewayRequestError &&
+      (error.code === "UNAUTHORIZED" || error.code === "STALE_EPOCH")
+    );
+  }
+
+  private presumePaused(reason: string): void {
+    this.released = true;
+    this.logger.warn("worker.pause.committed", {
+      control_id: this.pauseReleasing ?? null,
+      reason,
+    });
+    this.stopping = undefined;
+    this.stop({ kind: "paused", reason: "Paused; the execution is released" });
   }
 
   /** The claim, with the monotonic instant the request that won it went out. */
@@ -791,23 +825,54 @@ export class WorkerHost {
     let held = false;
     for (;;) {
       try {
+        this.pauseReleasing = controlId;
+        let unanswered = false;
         const response = await this.untilAbandoned(
           this.withRetry(() =>
-            this.options.gateway.release({
-              ...this.scope,
-              turn_id: null,
-              reason: "pause",
-              pause_control_id: controlId,
-            }),
+            this.options.gateway
+              .release({
+                ...this.scope,
+                turn_id: null,
+                reason: "pause",
+                pause_control_id: controlId,
+              })
+              // Judged per try, so an answer that lands after the loop has
+              // stopped waiting still settles whether the pause committed.
+              .then((response) => {
+                if (!response.released && !unanswered) {
+                  this.pauseReleasing = undefined;
+                }
+                return response;
+              })
+              .catch((error: unknown) => {
+                if (isRetryable(error)) {
+                  unanswered = true;
+                } else if (!unanswered || !isOwnershipLost(error)) {
+                  // A refusal before any try went unanswered, or one only a
+                  // live binding gets: the release did not commit.
+                  this.pauseReleasing = undefined;
+                }
+                throw error;
+              }),
           ),
         );
         if (response === undefined) return "ended";
-        this.released = response.released;
+        // Already read as committed from a refusal elsewhere; a retry that
+        // answers after that changes nothing.
+        if (this.released) return "committed";
         if (!response.released) {
-          // Only a superseded epoch answers so; the heartbeat says the same.
+          // Only a superseded epoch answers so, and after a try that went
+          // unanswered, that try is most likely what superseded it.
+          if (unanswered) {
+            this.presumePaused(
+              "The release went unanswered and its retry found the epoch moved on",
+            );
+            return "committed";
+          }
           this.lose("The pause release found the binding already superseded");
           return "ended";
         }
+        this.released = true;
         this.logger.info("worker.pause.committed", { control_id: controlId });
         this.stop({
           kind: "paused",
@@ -815,7 +880,11 @@ export class WorkerHost {
         });
         return "committed";
       } catch (error) {
-        if (this.ownerLost) return "ended";
+        if (this.ownerLost || this.released) return "ended";
+        // Given up on by a stop with its outcome unknown: the stop decides
+        // how this attempt ends, and a later refusal can still show the
+        // release committed.
+        if (isRetryable(error)) return "ended";
         const code =
           error instanceof WorkerGatewayRequestError ? error.code : null;
         if (code === "REQUEST_STALE") {
@@ -1794,12 +1863,22 @@ export class WorkerHost {
             })
         : gateway.release(request)
     )
-      .then((response) =>
-        this.logger.info("worker.released", { released: response.released }),
-      )
-      .catch((error) =>
-        this.logger.warn("worker.release.failed", { reason: describe(error) }),
-      );
+      .then((response) => {
+        this.logger.info("worker.released", { released: response.released });
+        // Superseded by the pause release a stop gave up on.
+        if (!response.released && this.pauseReleasing !== undefined) {
+          this.presumePaused("The final release found the epoch moved on");
+        }
+      })
+      .catch((error) => {
+        if (this.showsPauseCommit(error)) {
+          this.presumePaused(
+            `The final release was refused: ${describe(error)}`,
+          );
+          return;
+        }
+        this.logger.warn("worker.release.failed", { reason: describe(error) });
+      });
     // The release keeps its reserve; past the grace the SIGKILL ends it anyway.
     const releaseBudget = this.withinGrace(
       this.options.timeouts.requestTimeoutMs,
@@ -1994,7 +2073,7 @@ export class WorkerHost {
         return await call();
       } catch (error) {
         if (isOwnershipLost(error)) {
-          this.lose(describe(error));
+          this.lose(describe(error), error);
           throw error;
         }
         if (!isRetryable(error) || giveUp()) throw error;

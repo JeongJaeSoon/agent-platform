@@ -9,6 +9,7 @@ describe("exitCodeFor", () => {
   test.each([
     ["drained", 0],
     ["idle", 0],
+    ["paused", 0],
     ["unclaimed", 0],
     ["lease_lost", 1],
     ["failed", 1],

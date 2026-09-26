@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   AppendEventsRequest,
   ControlIntent,
+  ReleaseResponse,
 } from "@agent-platform/contracts";
 import {
   FakeAgentRuntime,
@@ -274,6 +275,221 @@ describe("WorkerHost pause (94S-137)", () => {
     expect(gateway.releases.map((release) => release.pause_control_id)).toEqual(
       [PAUSE.control_id],
     );
+  });
+
+  describe("a pause release whose answer is lost (94S-415)", () => {
+    const lostAnswer = () =>
+      new WorkerGatewayRequestError(0, null, "POST /release timed out", true);
+    const revoked = () =>
+      new WorkerGatewayRequestError(
+        401,
+        "UNAUTHORIZED",
+        "Worker token is missing, expired or revoked",
+        false,
+      );
+
+    // The first try commits and `answer` decides what the worker hears of
+    // it; `retry` answers every later try, by default as the credential the
+    // commit revoked does.
+    function commitsFirst(
+      gateway: FakeWorkerGateway,
+      answer: () => Promise<void>,
+      retry: () => Promise<ReleaseResponse> = async () => {
+        throw revoked();
+      },
+    ): void {
+      const release = gateway.release.bind(gateway);
+      let committed = false;
+      gateway.release = async (request) => {
+        if (committed) return retry();
+        const response = await release(request);
+        committed = true;
+        await answer();
+        return response;
+      };
+    }
+
+    test("ends paused when the retry is refused for the credential the commit revoked", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(gateway, async () => {
+        throw lostAnswer();
+      });
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).toContain("worker.pause.committed");
+      expect(log).not.toContain("worker.ownership.lost");
+      // Both tries answer the pause; nothing gives the session back again.
+      expect(
+        gateway.releases.map((release) => release.pause_control_id),
+      ).toEqual([PAUSE.control_id]);
+    });
+
+    // UNAUTHORIZED for a beat sent after the commit; STALE_EPOCH for one
+    // that authenticated before it and waited on the fence.
+    test.each(["UNAUTHORIZED", "STALE_EPOCH"] as const)(
+      "ends paused when a heartbeat is refused with %s while the release is still unanswered",
+      async (code) => {
+        const { gateway, host, log } = harness([{ type: "await-input" }], {
+          timeouts: { idleTimeoutMs: 1 },
+        });
+        commitsFirst(gateway, () => {
+          gateway.heartbeatFailure = code;
+          return new Promise<void>(() => {});
+        });
+        gateway.control = PAUSE;
+
+        const summary = await host.runLoop();
+
+        expect(summary.outcome).toBe("paused");
+        expect(log).not.toContain("worker.ownership.lost");
+        expect(gateway.releases).toHaveLength(1);
+      },
+    );
+
+    // A retry that authenticated before the first try committed waits on
+    // its fence and finds the epoch moved on.
+    test("ends paused when the retry answers the binding superseded", async () => {
+      const { gateway, host } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(
+        gateway,
+        async () => {
+          throw lostAnswer();
+        },
+        async () => ({ released: false }),
+      );
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+    });
+
+    test("stays paused when a heartbeat refusal is read first and the retry answers superseded after it", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(
+        gateway,
+        async () => {
+          throw lostAnswer();
+        },
+        async () => {
+          gateway.heartbeatFailure = "STALE_EPOCH";
+          await waitFor(
+            () => log.includes("worker.pause.committed"),
+            "the heartbeat's refusal",
+          );
+          return { released: false };
+        },
+      );
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).not.toContain("worker.ownership.lost");
+    });
+
+    // The commit's own stop intent is what brings the SIGTERM.
+    test("a drain while the release is unanswered still ends paused when a heartbeat is refused", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(gateway, async () => {
+        host.drain("received SIGTERM");
+        gateway.heartbeatFailure = "UNAUTHORIZED";
+        throw lostAnswer();
+      });
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).not.toContain("worker.failed");
+      expect(gateway.releases).toHaveLength(1);
+    });
+
+    test("a drain that gives up on the unanswered release ends paused when the final release is refused", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(gateway, async () => {
+        host.drain("received SIGTERM");
+        throw lostAnswer();
+      });
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).not.toContain("worker.failed");
+    });
+
+    test("a drain that gives up on a release that did not commit ends drained", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      const release = gateway.release.bind(gateway);
+      let tries = 0;
+      gateway.release = async (request) => {
+        tries += 1;
+        if (tries === 1) {
+          host.drain("received SIGTERM");
+          throw lostAnswer();
+        }
+        return release(request);
+      };
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("drained");
+      expect(log).not.toContain("worker.failed");
+      expect(gateway.releases.map((r) => r.pause_control_id)).toEqual([
+        undefined,
+      ]);
+    });
+
+    test("a retry of a release that did not commit goes through as before", async () => {
+      const { gateway, host } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      const release = gateway.release.bind(gateway);
+      let tries = 0;
+      gateway.release = async (request) => {
+        tries += 1;
+        if (tries === 1) throw lostAnswer();
+        return release(request);
+      };
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(tries).toBe(2);
+    });
+
+    test("a release refused before any try went unanswered is a lease loss", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      gateway.release = async () => {
+        throw revoked();
+      };
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("lease_lost");
+      expect(log).not.toContain("worker.pause.committed");
+    });
   });
 
   test("a refused pause keeps the lease and the engine, asking again, until something else stops the worker", async () => {
