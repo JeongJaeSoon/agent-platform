@@ -1,0 +1,1 @@
+ALTER TABLE "provider_usage" ADD COLUMN "inference_geo" text DEFAULT 'unknown' NOT NULL;

@@ -508,7 +508,9 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
   - fast mode는 따로 둔 fast 단가표로 센다(94S-451). 지금은 Opus 5.5($8/$40)와 Opus 5·Opus 4.8($10/$50)만 있다. cache 배수는 fast 단가 위에 그대로 곱한다. speed는 응답의 `usage.speed`를 따르고, 응답이 말하지 않으면 요청의 `speed`를 따른다. 둘 다 없으면 `standard`다.
   - 표에 없는 모델, fast 단가가 없는 모델의 fast 응답, 이름이 아닌 speed 값은 항목마다 두 표를 통틀어 최고 단가로 센다. authorizer가 `Provider usage priced at the fallback rate` 경고를 남기고, ledger에는 `priced_by=fallback`으로 적힌다.
   - 응답 `usage.server_tool_use`의 web search 한 번마다 $0.01(1,000회 $10)을 더한다. web fetch는 token 말고 요금이 없다. code execution은 더하지 않는다. web search·web fetch와 함께 쓰면 요금이 없고, 아니면 호출 수가 아니라 컨테이너 시간으로 과금되며 조직 무료 시간이 있기 때문이다. 세 횟수와 speed는 ledger(`provider_usage`)에 함께 적힌다.
-  - long-context 할증(Sonnet 4.5 이하의 200K 초과 input)과 `inference_geo: "us"`의 1.1배는 가격표에 없다. batch는 credential route가 `/v1/messages/batches`를 열지 않아서 해당이 없다.
+  - 4.6 이후 모델은 US 전용 추론(`inference_geo: "us"`)이면 token 단가 전부(fast·cache 포함)에 1.1배를 곱한다(94S-454). web search 요금에는 곱하지 않는다. geo는 응답의 `usage.inference_geo`를 따르고, 응답이 말하지 않으면 요청의 `inference_geo`를 따른다. 둘 다 없으면 `unknown`이다. workspace 기본값이 `us`일 수 있어서다. `global`과 `us`가 아닌 값은 최고 단가에 1.1배로 센다(`priced_by=fallback`). geo는 ledger에 `inference_geo`로 적힌다.
+  - 4.6 이전 모델(Opus 4.5·4, Sonnet 4.5·4, Haiku 4.5)은 `inference_geo`를 받지 않으므로 geo와 상관없이 표준 단가로 센다. 이 모델들의 창은 200K이고 공개된 long-context 단가가 없다. 그래서 input·cache write·cache read 합이 200K를 넘는 호출은 최고 단가로 센다(`priced_by=fallback`). 4.6 이후 모델은 1M 전체가 표준 단가다.
+  - batch는 credential route가 `/v1/messages/batches`를 열지 않아서 해당이 없다.
 - 비용 상한은 호출이 끝난 뒤에 판정한다. 동시에 열린 호출은 모두 인가를 통과할 수 있고, 진행 중인 turn은 상한을 넘을 수 있다.
 - 누적 비용이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다(94S-394). 새 provider 교환은 곧바로 거절되고, 이미 열린 교환은 다음 재인가(30초 주기)에서 끊긴다. repository·object store route는 거절하지 않는다.
 

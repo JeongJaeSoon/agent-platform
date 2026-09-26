@@ -929,6 +929,9 @@ export const providerUsage = pgTable(
     })
       .notNull()
       .default(0),
+    // Rows from before 94S-454 say `unknown`, as a report from a proxy that
+    // predates it does; they were priced with no geo multiplier.
+    inferenceGeo: text("inference_geo").notNull().default("unknown"),
     // The proxy estimated the call high because its answer did not say what
     // it used: a stream cut short, or a body it could not read.
     estimated: boolean().notNull(),

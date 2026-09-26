@@ -20,7 +20,9 @@
  *
  * The speed is priced too (94S-451): the answer's `usage.speed`, or the
  * request's `speed` when the answer does not say. So are the server tools
- * the answer counted in `usage.server_tool_use`.
+ * the answer counted in `usage.server_tool_use`, and where it ran (94S-454):
+ * the answer's `usage.inference_geo`, else the request's `inference_geo`,
+ * else `unknown`, since a workspace's default may be the dearer one.
  */
 
 export type MessagesUsage = {
@@ -33,6 +35,8 @@ export type MessagesUsage = {
   cache_creation_1h_input_tokens: number;
   /** `standard`, `fast`, or `unknown` for a value that is not a name. */
   speed: string;
+  /** `global`, `us`, or `unknown` when nothing said or not a name. */
+  inference_geo: string;
   web_search_requests: number;
   web_fetch_requests: number;
   code_execution_requests: number;
@@ -62,22 +66,23 @@ const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_EVENT_LINE_BYTES = 256 * 1024;
 /** What a request that names no model is priced as: the fallback rate. */
 const UNKNOWN_MODEL = "unknown";
-/** Longer than any speed's name; what the API's report schema accepts. */
-const MAX_SPEED_LENGTH = 64;
+/** Longer than any speed's or geo's name; what the API's report schema accepts. */
+const MAX_NAME_LENGTH = 64;
 
 type Counts = Partial<
   Record<(typeof COUNTS)[number] | (typeof TOOL_COUNTS)[number], number>
 > & {
   oneHour?: number;
   speed?: string;
+  inferenceGeo?: string;
 };
 
 /** Absent or null says nothing; anything but a name is priced high. */
-function speedOf(value: unknown): string | undefined {
+function nameOf(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   return typeof value === "string" &&
     value !== "" &&
-    value.length <= MAX_SPEED_LENGTH
+    value.length <= MAX_NAME_LENGTH
     ? value
     : "unknown";
 }
@@ -86,6 +91,7 @@ function requested(request: Uint8Array | null): {
   model: string;
   maxTokens: number;
   speed: string;
+  inferenceGeo: string;
 } {
   try {
     const body = JSON.parse(new TextDecoder().decode(request ?? undefined));
@@ -95,10 +101,16 @@ function requested(request: Uint8Array | null): {
           ? body.model
           : UNKNOWN_MODEL,
       maxTokens: count(body?.max_tokens) ?? 0,
-      speed: speedOf(body?.speed) ?? "standard",
+      speed: nameOf(body?.speed) ?? "standard",
+      inferenceGeo: nameOf(body?.inference_geo) ?? "unknown",
     };
   } catch {
-    return { model: UNKNOWN_MODEL, maxTokens: 0, speed: "standard" };
+    return {
+      model: UNKNOWN_MODEL,
+      maxTokens: 0,
+      speed: "standard",
+      inferenceGeo: "unknown",
+    };
   }
 }
 
@@ -129,8 +141,10 @@ function countsOf(value: unknown): Counts {
       if (found !== undefined) counts[name] = found;
     }
   }
-  const speed = speedOf((value as Record<string, unknown>).speed);
+  const speed = nameOf((value as Record<string, unknown>).speed);
   if (speed !== undefined) counts.speed = speed;
+  const inferenceGeo = nameOf((value as Record<string, unknown>).inference_geo);
+  if (inferenceGeo !== undefined) counts.inferenceGeo = inferenceGeo;
   return counts;
 }
 
@@ -151,6 +165,7 @@ function usageOf(
       counts.cache_creation_input_tokens ?? 0,
     ),
     speed: counts.speed ?? requested(request).speed,
+    inference_geo: counts.inferenceGeo ?? requested(request).inferenceGeo,
     web_search_requests: counts.web_search_requests ?? 0,
     web_fetch_requests: counts.web_fetch_requests ?? 0,
     code_execution_requests: counts.code_execution_requests ?? 0,
@@ -160,13 +175,14 @@ function usageOf(
 
 /** A call charged from its request alone: see the module comment. */
 export function requestEstimate(request: Uint8Array | null): MessagesUsage {
-  const { model, maxTokens, speed } = requested(request);
+  const { model, maxTokens, speed, inferenceGeo } = requested(request);
   return usageOf(
     model,
     {
       input_tokens: request?.byteLength ?? 0,
       output_tokens: maxTokens,
       speed,
+      inferenceGeo,
     },
     true,
     request,

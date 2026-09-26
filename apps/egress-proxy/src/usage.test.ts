@@ -20,6 +20,7 @@ function sse(events: Array<Record<string, unknown>>): string {
 
 const noTools = {
   speed: "standard",
+  inference_geo: "unknown",
   web_search_requests: 0,
   web_fetch_requests: 0,
   code_execution_requests: 0,
@@ -249,6 +250,69 @@ describe("usageMeter", () => {
           usage: { input_tokens: 1, output_tokens: 2, speed },
         });
         expect(metered("application/json", [answer]).speed).toBe("unknown");
+      }
+    });
+
+    test("an answer's usage.inference_geo is read, from a stream's message_start too (94S-454)", () => {
+      const answer = JSON.stringify({
+        model: "claude-opus-5",
+        usage: { input_tokens: 1, output_tokens: 2, inference_geo: "us" },
+      });
+      expect(metered("application/json", [answer]).inference_geo).toBe("us");
+      const stream = sse([
+        {
+          type: "message_start",
+          message: {
+            model: "claude-opus-5",
+            usage: { input_tokens: 5, inference_geo: "us" },
+          },
+        },
+        { type: "message_delta", usage: { output_tokens: 9 } },
+        { type: "message_stop" },
+      ]);
+      expect(metered("text/event-stream", [stream])).toMatchObject({
+        inference_geo: "us",
+        estimated: false,
+      });
+    });
+
+    test("an answer that names no geo takes the request's, and one that names none is unknown, not global (94S-454)", () => {
+      const answer = JSON.stringify({
+        model: "claude-opus-5",
+        usage: { input_tokens: 1, output_tokens: 2, inference_geo: null },
+      });
+      const usRequest = encoder.encode(
+        JSON.stringify({ model: "claude-opus-5", inference_geo: "us" }),
+      );
+      const meter = usageMeter("application/json");
+      meter.observe(encoder.encode(answer));
+      expect(meter.result(usRequest).inference_geo).toBe("us");
+      expect(metered("application/json", [answer]).inference_geo).toBe(
+        "unknown",
+      );
+      expect(requestEstimate(usRequest).inference_geo).toBe("us");
+      expect(requestEstimate(null).inference_geo).toBe("unknown");
+    });
+
+    test("the answer's geo wins over the request's, and a geo that is not a name is unknown (94S-454)", () => {
+      const global = JSON.stringify({
+        model: "claude-opus-5",
+        usage: { input_tokens: 1, output_tokens: 2, inference_geo: "global" },
+      });
+      const meter = usageMeter("application/json");
+      meter.observe(encoder.encode(global));
+      expect(
+        meter.result(encoder.encode(JSON.stringify({ inference_geo: "us" })))
+          .inference_geo,
+      ).toBe("global");
+      for (const inference_geo of [7, "", "x".repeat(65), { us: true }]) {
+        const answer = JSON.stringify({
+          model: "claude-opus-5",
+          usage: { input_tokens: 1, output_tokens: 2, inference_geo },
+        });
+        expect(metered("application/json", [answer]).inference_geo).toBe(
+          "unknown",
+        );
       }
     });
 
