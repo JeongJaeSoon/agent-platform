@@ -105,6 +105,8 @@ claim되지 않은 stale 컨테이너는 전처럼 곧바로 교체된다.
 - `failures`: 이어진 실패 횟수다.
 - `retry_at`: 다음 시도 시각이다. 멈춘 뒤에는 null이다.
 
+`INCOMPATIBLE_CHECKPOINT`는 재시도해도 같은 worker runtime·profile에서 성공할 수 없는 결정적 실패다. 이 경우 첫 launch 뒤 바로 `recovery_required`로 멈추며 attention과 `checkpoint_restore_failed` 이벤트의 `reason`은 `incompatible_checkpoint`, `failures`는 1, `retry_at`은 null이다. 운영자는 호환 runtime·profile로 되돌린 뒤 `retry_restore`로 같은 checkpoint를 다시 시도하거나, 이전 context를 버려도 되면 `start_fresh`를 선택하거나, 세션을 끝내려면 `close`를 선택한다.
+
 이벤트 스트림에는 실패마다 system `checkpoint_restore_failed`가 남는다. worker 로그의 `worker.checkpoint.restore_refused`, `worker.failed`에서 원인을 확인한다. 저장소 응답 checksum 불일치(전송 중 손상)도 `CHECKPOINT_UNAVAILABLE`로 분류된다.
 - 저장소나 egress-proxy `/object-store` 경로가 잠시 답하지 못한 것은 실패로 세지 않는다(94S-390). worker는 `worker.checkpoint.restore_unavailable` 경고를 남기고 시작 예산(`WORKER_STARTUP_TIMEOUT_SEC`) 안에서 복원을 다시 한다. 이 경고가 이어지면 checkpoint가 아니라 저장소와 경로를 본다. 예산을 넘겨야 실패 1회로 센다. `restore_refused`는 checkpoint 쪽 손상이다.
 - 원인이 세션 밖에 있었다면(프록시의 전송 중 손상, 저장소 경로 설정 오류) 그것을 고친 뒤 `retry_restore`로 같은 checkpoint를 다시 복원한다(94S-348). 횟수가 0으로 돌아가고 queued 입력이 다시 신호된다. 다음 worker는 실패하던 worker와 같은 pointer에서 복원 계획을 다시 받는다.

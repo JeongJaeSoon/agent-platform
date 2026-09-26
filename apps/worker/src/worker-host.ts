@@ -427,7 +427,7 @@ export class WorkerHost {
       // recovery does not have to wait for the lease to lapse. A loss wins
       // over a stop already under way: no durable write may follow it.
       if (isOwnershipLost(error)) this.lose(describe(error), error);
-      else this.stop({ kind: "failed", reason: describe(error) });
+      else this.stop({ kind: "failed", reason: releaseReason(error) });
       this.logger.error("worker.failed", { reason: describe(error) });
       await this.shutdown(run);
       return {
@@ -2212,6 +2212,18 @@ async function settledWithin(
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function releaseReason(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "INCOMPATIBLE_CHECKPOINT"
+  ) {
+    return "incompatible_checkpoint";
+  }
+  return describe(error);
 }
 
 /**

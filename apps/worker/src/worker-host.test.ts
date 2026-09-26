@@ -2637,6 +2637,32 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
     expect(gateway.releases).toHaveLength(1);
   });
 
+  test("releases an incompatible checkpoint with its stable recovery reason", async () => {
+    const gateway = new FakeWorkerGateway();
+    const incompatible = Object.assign(
+      new Error(
+        "Checkpoint restore refused (INCOMPATIBLE_CHECKPOINT): sdkVersion 1 where this worker runs 2",
+      ),
+      { code: "INCOMPATIBLE_CHECKPOINT" },
+    );
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      checkpoints: {
+        restorePlan: async () => {
+          throw incompatible;
+        },
+        capture: async () => null,
+      },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(summary.reason).toBe(incompatible.message);
+    expect(gateway.releases).toHaveLength(1);
+    expect(gateway.releases[0]?.reason).toBe("incompatible_checkpoint");
+  });
+
   test("a preparation that ignores its abort is ended by the startup budget", async () => {
     const gateway = new FakeWorkerGateway();
     let aborted = false;
