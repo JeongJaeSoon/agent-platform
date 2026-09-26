@@ -12,12 +12,16 @@ import type {
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 
 const REDACTED = "[REDACTED]";
+// Paths are not secrets: an approval has to say which file it touches.
 const SENSITIVE_KEY =
-  /authorization|cookie|credential|secret|password|api[_-]?key|auth[_-]?token|cwd|(^|_)home$|(^|_)path$/i;
+  /authorization|cookie|credential|secret|password|api[_-]?key|auth[_-]?token|(^|_)home$/i;
 const SENSITIVE_VALUE =
   /\bBearer\s+\S+|\b(?:s[k]-ant(?:-api\d+)?|csp)[_-][A-Za-z0-9_-]+/gi;
-const SENSITIVE_TEXT =
-  /\b(?:authorization|cookie|credential|secret|password|api[-_ ]?key|auth[-_ ]?token|access[-_ ]?key|private[-_ ]?key)\b\s*[:=]/i;
+const SENSITIVE_NAME =
+  /\b(?:authorization|cookie|credential|secret|password|api[-_ ]?key|auth[-_ ]?token|access[-_ ]?key|private[-_ ]?key)\b\s*([:=])[ \t]*/gi;
+// One plain word, or one quoted string with nothing to expand.
+const PLAIN_VALUE = /"[^"\\$`\n]*"|'[^'\n]*'|[^\s"'\\$`&;|<>()]+/y;
+const VALUE_END = /[\s&;|)]|$/y;
 
 export function frameFromNativeMessage(
   message: NativeSdkMessage,
@@ -162,8 +166,7 @@ function event(
 function sanitizeValue(value: unknown, key?: string): unknown {
   if (key !== undefined && SENSITIVE_KEY.test(key)) return REDACTED;
   if (typeof value === "string") {
-    if (SENSITIVE_TEXT.test(value)) return REDACTED;
-    return value.replace(SENSITIVE_VALUE, REDACTED);
+    return hideNamedValues(value.replace(SENSITIVE_VALUE, REDACTED));
   }
   if (Array.isArray(value)) return value.map((item) => sanitizeValue(item));
   if (value === null || typeof value !== "object") return value;
@@ -173,6 +176,28 @@ function sanitizeValue(value: unknown, key?: string): unknown {
       sanitizeValue(childValue, childKey),
     ]),
   );
+}
+
+// A `name=value` loses just its value when the value visibly ends. Anything
+// else — `name: value`, escapes, `$'…'`, concatenated quotes, a value on the
+// next line — hides the whole text.
+function hideNamedValues(text: string): string {
+  let shown = "";
+  let from = 0;
+  for (const name of text.matchAll(SENSITIVE_NAME)) {
+    if (name.index < from) continue;
+    if (name[1] === ":") return REDACTED;
+    const start = name.index + name[0].length;
+    PLAIN_VALUE.lastIndex = start;
+    const value = PLAIN_VALUE.exec(text);
+    if (value === null) return REDACTED;
+    const end = start + value[0].length;
+    VALUE_END.lastIndex = end;
+    if (!VALUE_END.test(text)) return REDACTED;
+    shown += text.slice(from, start) + REDACTED;
+    from = end;
+  }
+  return shown + text.slice(from);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
