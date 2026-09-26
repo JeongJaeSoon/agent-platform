@@ -15,6 +15,7 @@ import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   controlClock,
   earliestUnknownTurn,
+  expireOverdueReceipts,
   findIdempotent,
   type IdempotencyScope,
   INPUT_RECEIPT_OPERATIONS,
@@ -80,35 +81,18 @@ export function terminateReceiptResult(input: {
  */
 export async function expireOverdueTerminations(
   db: Database,
-  input: { now: Date; deadlineMs: number; dryRun?: boolean },
+  input: { now: Date; deadlineMs: number; dryRun?: boolean; limit?: number },
 ): Promise<number> {
-  const overdueWhere = and(
-    inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
-    eq(receipts.status, "accepted"),
-    // The receipt was stamped by the database clock, so the deadline is
-    // measured on it too; `now` only stamps the update.
-    lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
-  );
-  if (input.dryRun) {
-    const rows = await db
-      .select({ id: receipts.id })
-      .from(receipts)
-      .where(overdueWhere);
-    return rows.length;
-  }
-  const overdue = await db
-    .update(receipts)
-    .set({
-      status: "unknown",
-      error: {
-        code: "BACKEND_UNAVAILABLE",
-        message: `execution termination not observed within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
-      },
-      updatedAt: input.now,
-    })
-    .where(overdueWhere)
-    .returning({ id: receipts.id });
-  return overdue.length;
+  return expireOverdueReceipts(db, {
+    overdue: and(
+      inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
+      // The receipt was stamped by the database clock, so the deadline is
+      // measured on it too; `now` only stamps the update.
+      lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
+    ),
+    message: `execution termination not observed within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
+    ...input,
+  });
 }
 
 type SessionRow = typeof sessions.$inferSelect;

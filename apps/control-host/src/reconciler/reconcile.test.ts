@@ -69,6 +69,7 @@ describe("reconciler run", () => {
       expireInterrupts: async (options) => {
         expect(options).toEqual({
           dryRun: false,
+          limit: 12,
           now: new Date("2026-09-14T00:00:00Z"),
         });
         return 3;
@@ -76,6 +77,7 @@ describe("reconciler run", () => {
       expireTerminations: async (options) => {
         expect(options).toEqual({
           dryRun: false,
+          limit: 12,
           now: new Date("2026-09-14T00:00:00Z"),
         });
         return 2;
