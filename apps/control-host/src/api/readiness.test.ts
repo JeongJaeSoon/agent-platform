@@ -149,7 +149,7 @@ describe("readiness probe", () => {
       ready: false,
       check: "config",
       reason:
-        "configuration: MAX_TURN_SECONDS must be an integer from 1 to 604800, SESSION_COST_LIMIT_USD is required",
+        'configuration: MAX_TURN_SECONDS must be an integer from 1 to 604800, got "0", SESSION_COST_LIMIT_USD is required',
     });
   });
 

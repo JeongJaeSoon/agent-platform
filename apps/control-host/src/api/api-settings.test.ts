@@ -82,7 +82,7 @@ describe("apiSettingsFromEnv", () => {
     expect(apiSettingsProblems(environment)).toEqual([
       'LOG_LEVEL must be one of debug|info|warn|error, got "loud"',
       'PENDING_REQUEST_TTL_SEC must be an integer from 1 to 604800, got "0"',
-      'SSE_MAX_STREAMS must be an integer from 1 to 9007199254740991, got "25O"',
+      'SSE_MAX_STREAMS must be a positive integer, got "25O"',
     ]);
     expect(apiSettingsProblems({})).toEqual([]);
   });

@@ -516,7 +516,7 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 
 ## API 설정 (94S-389)
 
-API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control-host/src/api/api-settings.ts`)로 읽는다. 설정하지 않으면 기본값을 쓴다. 설정했는데 틀린 값이면(빈 문자열 포함) 기본값으로 돌아가지 않는다. 이때 `Refusing to start: API settings are invalid` 한 줄에 문제를 모두 남기고 기동하지 않는다. 떠 있는 API의 `/readyz`도 같은 검증을 `config` 체크로 다시 수행한다.
+API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control-host/src/api/api-settings.ts`)로 읽는다. 설정하지 않으면 기본값을 쓴다. 설정했는데 틀린 값이면(빈 문자열 포함) 기본값으로 돌아가지 않는다. 숫자 설정은 API·scheduler·reconciler·worker와 설치 상한이 모두 이 규칙을 따른다(`packages/contracts/src/shared/settings.ts`, 94S-413). 기본값이 없는 값은 설정하지 않으면 `X is required`로, 틀린 값은 `X must be a positive integer, got "0"`처럼 기대한 범위와 받은 값으로 거부한다. 이때 `Refusing to start: API settings are invalid` 한 줄에 문제를 모두 남기고 기동하지 않는다. 떠 있는 API의 `/readyz`도 같은 검증을 `config` 체크로 다시 수행한다.
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|

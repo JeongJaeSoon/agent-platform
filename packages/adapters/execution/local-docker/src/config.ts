@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { integerSetting } from "@agent-platform/contracts/settings";
 import {
   DEFAULT_DOCKER_API_VERSION,
   DEFAULT_DOCKER_HOST,
@@ -189,33 +190,30 @@ export function localDockerConfigFromEnv(
     requestTimeoutMs:
       environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC === undefined
         ? DEFAULT_DOCKER_REQUEST_TIMEOUT_MS
-        : positiveInteger(
-            environment.EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC,
-            "EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC",
-          ) * 1_000,
+        : integerSetting(environment, "EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC", {
+            min: 1,
+          }) * 1_000,
     stopTimeoutSeconds: stopGrace(
-      positiveInteger(
-        environment.EXECUTION_DOCKER_STOP_TIMEOUT_SEC ?? "120",
-        "EXECUTION_DOCKER_STOP_TIMEOUT_SEC",
-      ),
+      integerSetting(environment, "EXECUTION_DOCKER_STOP_TIMEOUT_SEC", {
+        min: 1,
+        default: 120,
+      }),
     ),
     tmpfsSizeBytes:
-      positiveInteger(
-        environment.EXECUTION_DOCKER_TMPFS_SIZE_MB ?? "256",
-        "EXECUTION_DOCKER_TMPFS_SIZE_MB",
-      ) *
+      integerSetting(environment, "EXECUTION_DOCKER_TMPFS_SIZE_MB", {
+        min: 1,
+        default: 256,
+      }) *
       1024 *
       1024,
     user: environment.EXECUTION_DOCKER_USER ?? DEFAULT_WORKER_USER,
     workspaceDir: environment.EXECUTION_DOCKER_WORKSPACE_DIR ?? "/workspace",
-    // Zero is a real setting — reclaim as soon as the session is finished —
-    // so this one is not a `positiveInteger`.
+    // Zero is a real setting: reclaim as soon as the session is finished.
     workspaceGcMinAgeMs:
-      nonNegativeInteger(
-        environment.EXECUTION_WORKSPACE_GC_MIN_AGE_SEC ??
-          String(DEFAULT_WORKSPACE_GC_MIN_AGE_SEC),
-        "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC",
-      ) * 1_000,
+      integerSetting(environment, "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC", {
+        min: 0,
+        default: DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
+      }) * 1_000,
     workspaceQuota: workspaceQuotaFromEnv(environment),
   });
 }
@@ -258,11 +256,10 @@ function workspaceQuotaFromEnv(
       "WORKER_IMAGE is required while EXECUTION_WORKSPACE_QUOTA is on: the workspace inode limit is set by a helper run from it",
     );
   }
-  const sizeMb = positiveInteger(
-    environment.EXECUTION_WORKSPACE_QUOTA_MB ??
-      String(DEFAULT_WORKSPACE_QUOTA_MB),
-    "EXECUTION_WORKSPACE_QUOTA_MB",
-  );
+  const sizeMb = integerSetting(environment, "EXECUTION_WORKSPACE_QUOTA_MB", {
+    min: 1,
+    default: DEFAULT_WORKSPACE_QUOTA_MB,
+  });
   if (sizeMb < MIN_WORKSPACE_QUOTA_MB) {
     throw new Error(
       `EXECUTION_WORKSPACE_QUOTA_MB ${sizeMb} is under the ${MIN_WORKSPACE_QUOTA_MB} a checkpoint restore needs`,
@@ -272,11 +269,10 @@ function workspaceQuotaFromEnv(
     helperImage,
     mode: "enforced",
     sizeBytes: sizeMb * 1024 * 1024,
-    inodes: positiveInteger(
-      environment.EXECUTION_WORKSPACE_QUOTA_INODES ??
-        String(DEFAULT_WORKSPACE_QUOTA_INODES),
-      "EXECUTION_WORKSPACE_QUOTA_INODES",
-    ),
+    inodes: integerSetting(environment, "EXECUTION_WORKSPACE_QUOTA_INODES", {
+      min: 1,
+      default: DEFAULT_WORKSPACE_QUOTA_INODES,
+    }),
   };
 }
 
@@ -417,22 +413,6 @@ export function validateLocalDockerConfig(
     }
   }
   return config;
-}
-
-function nonNegativeInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative integer`);
-  }
-  return parsed;
-}
-
-function positiveInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
 }
 
 /**

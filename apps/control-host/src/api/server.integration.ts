@@ -594,7 +594,8 @@ integration("API server on PostgreSQL", () => {
           MAX_TURN_SECONDS: "3600",
           PROVIDER_MAX_RETRIES: "",
           QUEUED_INPUT_LIMIT_PER_SESSION: "20",
-          // Blank counts as missing, and overrides whatever the runner has.
+          // A blank is a wrong value, not the default, and overrides whatever
+          // the runner has.
           SESSION_COST_LIMIT_USD: "",
           STORAGE_LIMIT_BYTES: "-1",
           PORT: "0",
@@ -619,8 +620,13 @@ integration("API server on PostgreSQL", () => {
       expect(logs).toContain(
         "Refusing to start: installation limits are invalid",
       );
-      expect(logs).toContain("SESSION_COST_LIMIT_USD is required");
-      expect(logs).toContain("PROVIDER_MAX_RETRIES is required");
+      // The JSON log escapes the quotes around the blank it got.
+      expect(logs).toContain(
+        "SESSION_COST_LIMIT_USD must be a positive number up to 1000000, got",
+      );
+      expect(logs).toContain(
+        "PROVIDER_MAX_RETRIES must be an integer from 0 to 10, got",
+      );
       expect(logs).toContain("STORAGE_LIMIT_BYTES must be an integer");
     },
     TEST_TIMEOUT_MS,
