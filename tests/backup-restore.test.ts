@@ -605,6 +605,17 @@ describe("backup.sh writers", () => {
     expect(await written()).toEqual([]);
   }, 30_000);
 
+  test("refuses while the reconciler runs", async () => {
+    const result = await backup({
+      FAKE_RUNNING: "postgres localstack gitea reconciler",
+    });
+    expect(result.stderr).toContain(
+      "writers are running: reconciler; stop them first",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(await written()).toEqual([]);
+  }, 30_000);
+
   test("refuses while a worker of the scheduler's installation runs", async () => {
     const result = await backup({
       FAKE_INSTALLATION: "inst-1",
