@@ -68,3 +68,123 @@ describe("Markdown relative links", () => {
     );
   });
 });
+
+// Setting names, found the way check.py found them for the feature map
+// (94S-379): read off an environment object, or handed by name to a parser.
+const NAME = "[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+";
+const CODE_READS = [
+  new RegExp(
+    String.raw`(?:process\.env|Bun\.env|\benv|\benvironment|\bsource)\s*(?:\?\.|\.|\[\s*["'])(${NAME})`,
+    "g",
+  ),
+  new RegExp(
+    String.raw`\b\w*(?:[Ee]nv|integer|setting|required|optional)\w*\(\s*(?:[a-z]\w*\s*,\s*)*["'](${NAME})["']`,
+    "g",
+  ),
+];
+// `${NAME:-default}`: compose or a script takes it from the operator's shell.
+const SHELL_DEFAULTS = new RegExp(String.raw`\$\{(${NAME}):-`, "g");
+
+/** Names the scan finds that no operator sets, each with why. */
+const NOT_SETTINGS: Record<string, string> = {
+  ALL_PROXY: "read only to see whether a proxy stands in the way (s3.ts)",
+  DOCKER_BACKEND_TEST_HELPER_IMAGE: "tests only",
+  GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
+  GIT_CONFIG_COUNT: "written into git's environment, not read",
+  NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
+  // storageConfigFromEnv, which only scripts/dev/seed-checkpoint.ts calls.
+  GIT_AUTHOR_EMAIL: "dev seed script only",
+  GIT_AUTHOR_NAME: "dev seed script only",
+  GIT_TOKEN: "dev seed script only",
+  GIT_USERNAME: "dev seed script only",
+  TRANSCRIPT_CHUNK_BYTES: "dev seed script only",
+};
+
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+function scan(pattern: string): string[] {
+  return [...new Bun.Glob(pattern).scanSync(root)];
+}
+
+/** What apps/ and packages/ read at runtime; test helpers are not settings. */
+function codeSettings(): Set<string> {
+  const names = new Set<string>();
+  for (const file of scan("{apps,packages}/**/*.ts")) {
+    if (
+      /(^|\/)(node_modules|dist|bench)\//.test(file) ||
+      file.startsWith("packages/testkit/") ||
+      /\.(test|integration)\.ts$/.test(file)
+    ) {
+      continue;
+    }
+    const source = withoutComments(readFileSync(join(root, file), "utf8"));
+    for (const pattern of CODE_READS) {
+      for (const match of source.matchAll(pattern)) names.add(match[1] ?? "");
+    }
+  }
+  // The pass loop builds each role's names from a prefix and a suffix.
+  const loop = readFileSync(
+    join(root, "apps/control-host/src/pass-loop/loop.ts"),
+    "utf8",
+  );
+  const prefixes = [...loop.matchAll(/prefix: "([A-Z]+)"/g)].map(
+    (m) => m[1] ?? "",
+  );
+  const suffixes = [
+    ...loop.matchAll(/^\s+([A-Z_]+): "\w+",$/gm),
+    ...loop.matchAll(/\$\{role\.prefix\}_([A-Z_]+)/g),
+  ].map((m) => m[1] ?? "");
+  expect(prefixes).toEqual(["RECONCILER", "SCHEDULER"]);
+  for (const suffix of suffixes) {
+    names.delete(suffix);
+    for (const prefix of prefixes) names.add(`${prefix}_${suffix}`);
+  }
+  return names;
+}
+
+function shellSettings(): Set<string> {
+  const names = new Set<string>();
+  for (const file of [...scan("infra/*.yml"), ...scan("scripts/*.sh")]) {
+    const source = readFileSync(join(root, file), "utf8");
+    for (const match of source.matchAll(SHELL_DEFAULTS)) {
+      names.add(match[1] ?? "");
+    }
+  }
+  return names;
+}
+
+describe("Operator settings", () => {
+  const documented = (text: string, name: string) =>
+    new RegExp(`(?<![A-Z0-9_])${name}(?![A-Z0-9_])`).test(text);
+
+  test("every setting the code reads is in docs/operations.md", () => {
+    const operations = readFileSync(join(root, "docs/operations.md"), "utf8");
+    const names = codeSettings();
+    // The scan still sees each of its three forms, and every exception.
+    for (const name of [
+      "HEARTBEAT_TTL_SEC",
+      "WORKER_PIDS_LIMIT",
+      "SCHEDULER_STATUS_FILE",
+      ...Object.keys(NOT_SETTINGS),
+    ]) {
+      expect(names).toContain(name);
+    }
+    const missing = [...names]
+      .filter((name) => !(name in NOT_SETTINGS))
+      .filter((name) => !documented(operations, name))
+      .sort();
+    expect(missing).toEqual([]);
+  });
+
+  test("every value compose or a script takes from the shell is in docs/", () => {
+    const docs = scan("docs/*.md")
+      .map((file) => readFileSync(join(root, file), "utf8"))
+      .join("\n");
+    const names = shellSettings();
+    expect(names).toContain("API_MEMORY_MB");
+    const missing = [...names].filter((name) => !documented(docs, name)).sort();
+    expect(missing).toEqual([]);
+  });
+});

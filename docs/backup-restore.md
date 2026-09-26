@@ -179,7 +179,7 @@ tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2
    - worker 로그의 `worker.checkpoint.restored`가 원본 revision과 commit을 가리킨다.
    - `manifest.json`의 `images.worker`가 원본 worker 컨테이너의 image와 같고, 복원본 worker의 image와도 같다.
 
-knob: `RR_PROJECT`(원본 project 이름, 복원 project는 `<이름>r`), `RR_INSTALLATION_ID`(두 쪽 공용 `EXECUTION_INSTALLATION_ID`), `RR_PORT_BASE`(복원 project의 loopback 포트 4개, 기본값 24320), `RR_KEEP=1`(스택·이미지·backup을 남김). 두 project와 installation 라벨 자원이 이미 있으면 아무것도 지우지 않고 멈춘다.
+knob: `RR_PROJECT`(원본 project 이름, 복원 project는 `<이름>r`), `RR_INSTALLATION_ID`(두 쪽 공용 `EXECUTION_INSTALLATION_ID`), `RR_PORT_BASE`(복원 project의 loopback 포트 4개, 기본값 24320), `RR_KEEP=1`(스택·이미지·backup을 남김), `RR_IMAGES_FROM=<project>`(아무것도 빌드하지 않고 그 project가 이미 가진 이미지를 두 project에 다시 tag해서 쓴다. `scripts/soak/stack.sh`나 `scripts/d2-gate/run.sh`가 띄운 스택의 이미지로 release candidate를 그대로 확인할 때 쓴다. 두 project 이름과 달라야 한다). 두 project와 installation 라벨 자원이 이미 있으면 아무것도 지우지 않고 멈춘다.
 
 engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session_id` 컬럼은 아무 코드도 쓰지 않는다.
 
