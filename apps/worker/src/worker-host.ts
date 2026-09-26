@@ -269,6 +269,8 @@ export class WorkerHost {
    * release that commits the pause ends the loop.
    */
   private pauseControl: string | undefined;
+  /** The pause whose release is out and not yet answered. */
+  private pauseReleasing: string | undefined;
   private turn: Turn | undefined;
   private readonly accounting = new TurnAccounting();
 
@@ -345,7 +347,7 @@ export class WorkerHost {
       retryBudgetMs: this.options.timeouts.nextInputRetryTimeoutMs,
       onFailed: (error) => {
         if (isOwnershipLost(error)) {
-          this.lose(describe(error));
+          this.lose(describe(error), error);
           return;
         }
         // Nothing the engine does from here is recorded, so nothing waiting
@@ -365,7 +367,7 @@ export class WorkerHost {
       scope: () => this.scope,
       timeoutMs: this.options.timeouts.questionTimeoutMs,
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,
-      onOwnershipLost: (error) => this.lose(describe(error)),
+      onOwnershipLost: (error) => this.lose(describe(error), error),
       onControl: (control) => this.onControl(control),
     });
     this.heartbeat = new Heartbeat({
@@ -376,7 +378,7 @@ export class WorkerHost {
       lease: { remainingMs: claim.lease_remaining_ms, sentAt: claimed.sentAt },
       safetyMarginMs:
         this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
-      onLost: (reason) => this.lose(reason),
+      onLost: (reason, error) => this.lose(reason, error),
       onControlPending: () => this.pending?.poll(true),
       transcript: () => this.transcriptReport(),
     });
@@ -421,7 +423,7 @@ export class WorkerHost {
       // A worker that failed but still owns the session gives it back, so
       // recovery does not have to wait for the lease to lapse. A loss wins
       // over a stop already under way: no durable write may follow it.
-      if (isOwnershipLost(error)) this.lose(describe(error));
+      if (isOwnershipLost(error)) this.lose(describe(error), error);
       else this.stop({ kind: "failed", reason: describe(error) });
       this.logger.error("worker.failed", { reason: describe(error) });
       await this.shutdown(run);
@@ -605,11 +607,33 @@ export class WorkerHost {
     this.logger.error("worker.failed", { reason });
   }
 
-  private lose(reason: string): void {
+  private lose(reason: string, error?: unknown): void {
     // A poll still in flight when the session was given back comes home to
     // a fence that is gone; that is the release, not a lease loss.
     if (this.released) return;
     if (this.stopping?.kind === "lost") return;
+    // Committing the pause revokes this credential, so a refusal of it while
+    // the release is unanswered is most likely that commit, its answer lost
+    // (94S-415). A double fault — the credential revoked by a terminate as
+    // the release went out — is reported paused too; the session's state
+    // on the server is the record either way.
+    if (
+      this.pauseReleasing !== undefined &&
+      error instanceof WorkerGatewayRequestError &&
+      error.code === "UNAUTHORIZED"
+    ) {
+      this.released = true;
+      this.logger.warn("worker.pause.committed", {
+        control_id: this.pauseReleasing,
+        reason: `The release went unanswered and then: ${reason}`,
+      });
+      this.stopping = undefined;
+      this.stop({
+        kind: "paused",
+        reason: "Paused; the execution is released",
+      });
+      return;
+    }
     this.stopping = undefined;
     this.stop({ kind: "lost", reason });
     // Owner loss means no further durable writes from this attempt, so the
@@ -791,16 +815,28 @@ export class WorkerHost {
     let held = false;
     for (;;) {
       try {
+        this.pauseReleasing = controlId;
+        let unanswered = false;
         const response = await this.untilAbandoned(
           this.withRetry(() =>
-            this.options.gateway.release({
-              ...this.scope,
-              turn_id: null,
-              reason: "pause",
-              pause_control_id: controlId,
-            }),
+            this.options.gateway
+              .release({
+                ...this.scope,
+                turn_id: null,
+                reason: "pause",
+                pause_control_id: controlId,
+              })
+              .catch((error: unknown) => {
+                // Refused before any try went unanswered, the release did
+                // not commit: its refusal is a loss like any other.
+                if (isRetryable(error)) unanswered = true;
+                else if (!unanswered) this.pauseReleasing = undefined;
+                throw error;
+              }),
           ),
-        );
+        ).finally(() => {
+          this.pauseReleasing = undefined;
+        });
         if (response === undefined) return "ended";
         this.released = response.released;
         if (!response.released) {
@@ -815,7 +851,7 @@ export class WorkerHost {
         });
         return "committed";
       } catch (error) {
-        if (this.ownerLost) return "ended";
+        if (this.ownerLost || this.released) return "ended";
         const code =
           error instanceof WorkerGatewayRequestError ? error.code : null;
         if (code === "REQUEST_STALE") {
@@ -1994,7 +2030,7 @@ export class WorkerHost {
         return await call();
       } catch (error) {
         if (isOwnershipLost(error)) {
-          this.lose(describe(error));
+          this.lose(describe(error), error);
           throw error;
         }
         if (!isRetryable(error) || giveUp()) throw error;

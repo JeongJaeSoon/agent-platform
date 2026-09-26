@@ -40,8 +40,11 @@ export type HeartbeatOptions = {
    * may be handed the session.
    */
   safetyMarginMs: number;
-  /** Called once, with why this attempt stopped owning the session. */
-  onLost: (reason: string) => void;
+  /**
+   * Called once, with why this attempt stopped owning the session and the
+   * gateway's refusal when one said so.
+   */
+  onLost: (reason: string, error?: unknown) => void;
   /** An answer or control intent is waiting to be fetched. */
   onControlPending?: () => void;
   /**
@@ -239,7 +242,7 @@ export class Heartbeat {
 
   private refused(error: unknown): void {
     if (isOwnershipLost(error) || !isRetryable(error)) {
-      this.declareLost(message(error));
+      this.declareLost(message(error), error);
       return;
     }
     // A gateway that is merely unreachable is survivable right up to the
@@ -272,10 +275,10 @@ export class Heartbeat {
     );
   }
 
-  private declareLost(reason: string): void {
+  private declareLost(reason: string, error?: unknown): void {
     if (this.lost) return;
     this.lost = true;
-    this.options.onLost(reason);
+    this.options.onLost(reason, error);
   }
 
   private pause(ms: number): Promise<void> {

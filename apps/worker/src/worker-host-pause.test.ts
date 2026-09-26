@@ -276,6 +276,106 @@ describe("WorkerHost pause (94S-137)", () => {
     );
   });
 
+  describe("a pause release whose answer is lost (94S-415)", () => {
+    const lostAnswer = () =>
+      new WorkerGatewayRequestError(0, null, "POST /release timed out", true);
+    const revoked = () =>
+      new WorkerGatewayRequestError(
+        401,
+        "UNAUTHORIZED",
+        "Worker token is missing, expired or revoked",
+        false,
+      );
+
+    // The first try commits and `answer` decides what the worker hears of
+    // it; every later try meets the credential the commit revoked.
+    function commitsFirst(
+      gateway: FakeWorkerGateway,
+      answer: () => Promise<void>,
+    ): void {
+      const release = gateway.release.bind(gateway);
+      let committed = false;
+      gateway.release = async (request) => {
+        if (committed) throw revoked();
+        const response = await release(request);
+        committed = true;
+        await answer();
+        return response;
+      };
+    }
+
+    test("ends paused when the retry is refused for the credential the commit revoked", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(gateway, async () => {
+        throw lostAnswer();
+      });
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).toContain("worker.pause.committed");
+      expect(log).not.toContain("worker.ownership.lost");
+      // Both tries answer the pause; nothing gives the session back again.
+      expect(
+        gateway.releases.map((release) => release.pause_control_id),
+      ).toEqual([PAUSE.control_id]);
+    });
+
+    test("ends paused when a heartbeat is refused while the release is still unanswered", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(gateway, () => {
+        gateway.heartbeatFailure = "UNAUTHORIZED";
+        return new Promise<void>(() => {});
+      });
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).not.toContain("worker.ownership.lost");
+      expect(gateway.releases).toHaveLength(1);
+    });
+
+    test("a retry of a release that did not commit goes through as before", async () => {
+      const { gateway, host } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      const release = gateway.release.bind(gateway);
+      let tries = 0;
+      gateway.release = async (request) => {
+        tries += 1;
+        if (tries === 1) throw lostAnswer();
+        return release(request);
+      };
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(tries).toBe(2);
+    });
+
+    test("a release refused before any try went unanswered is a lease loss", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      gateway.release = async () => {
+        throw revoked();
+      };
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("lease_lost");
+      expect(log).not.toContain("worker.pause.committed");
+    });
+  });
+
   test("a refused pause keeps the lease and the engine, asking again, until something else stops the worker", async () => {
     const { gateway, host, log } = harness([
       { type: "await-input" },
