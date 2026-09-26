@@ -52,6 +52,13 @@ export class SessionServiceError extends Error {
   }
 }
 
+export function idempotencyConflict(): never {
+  throw new SessionServiceError(
+    "IDEMPOTENCY_CONFLICT",
+    "Idempotency-Key was already used with a different payload",
+  );
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") {
@@ -210,13 +217,6 @@ export function createSessionService(deps: {
     };
   }
 
-  function idempotencyConflict(): never {
-    throw new SessionServiceError(
-      "IDEMPOTENCY_CONFLICT",
-      "Idempotency-Key was already used with a different payload",
-    );
-  }
-
   function revisionConflict(currentRevision: number): never {
     throw new SessionServiceError(
       "REVISION_CONFLICT",
@@ -266,10 +266,7 @@ export function createSessionService(deps: {
       });
       switch (result.outcome) {
         case "conflict":
-          throw new SessionServiceError(
-            "IDEMPOTENCY_CONFLICT",
-            "Idempotency-Key was already used with a different payload",
-          );
+          return idempotencyConflict();
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -299,10 +296,7 @@ export function createSessionService(deps: {
       });
       switch (result.outcome) {
         case "conflict":
-          throw new SessionServiceError(
-            "IDEMPOTENCY_CONFLICT",
-            "Idempotency-Key was already used with a different payload",
-          );
+          return idempotencyConflict();
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "rejected": {

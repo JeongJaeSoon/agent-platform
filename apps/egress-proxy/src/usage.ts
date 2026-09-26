@@ -12,10 +12,15 @@
  *
  * Whatever the answer did not say is estimated high, never left out: the
  * budget errs on counting too much. A stream cut before `message_stop`
- * charges at least a token for every character of content it delivered. A
+ * charges at least a token for every character of content it delivered,
+ * and a web search for every search result it delivered. A
  * JSON answer with no usable usage (cut short, too big, not JSON) is
  * charged from its request: a token for every byte sent, and all the
  * output `max_tokens` allowed.
+ *
+ * The speed is priced too (94S-451): the answer's `usage.speed`, or the
+ * request's `speed` when the answer does not say. So are the server tools
+ * the answer counted in `usage.server_tool_use`.
  */
 
 export type MessagesUsage = {
@@ -26,6 +31,11 @@ export type MessagesUsage = {
   cache_read_input_tokens: number;
   /** The part of the cache writes held for an hour, which costs more. */
   cache_creation_1h_input_tokens: number;
+  /** `standard`, `fast`, or `unknown` for a value that is not a name. */
+  speed: string;
+  web_search_requests: number;
+  web_fetch_requests: number;
+  code_execution_requests: number;
   /** Some of it was estimated rather than read off the answer. */
   estimated: boolean;
 };
@@ -37,6 +47,12 @@ const COUNTS = [
   "cache_read_input_tokens",
 ] as const;
 
+const TOOL_COUNTS = [
+  "web_search_requests",
+  "web_fetch_requests",
+  "code_execution_requests",
+] as const;
+
 /**
  * A JSON answer read only up to this; one with 128K output tokens is well
  * inside it. Past it the call is charged from its request instead.
@@ -46,10 +62,45 @@ const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_EVENT_LINE_BYTES = 256 * 1024;
 /** What a request that names no model is priced as: the fallback rate. */
 const UNKNOWN_MODEL = "unknown";
+/** Longer than any speed's name; what the API's report schema accepts. */
+const MAX_SPEED_LENGTH = 64;
 
-type Counts = Partial<Record<(typeof COUNTS)[number], number>> & {
+type Counts = Partial<
+  Record<(typeof COUNTS)[number] | (typeof TOOL_COUNTS)[number], number>
+> & {
   oneHour?: number;
+  speed?: string;
 };
+
+/** Absent or null says nothing; anything but a name is priced high. */
+function speedOf(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return typeof value === "string" &&
+    value !== "" &&
+    value.length <= MAX_SPEED_LENGTH
+    ? value
+    : "unknown";
+}
+
+function requested(request: Uint8Array | null): {
+  model: string;
+  maxTokens: number;
+  speed: string;
+} {
+  try {
+    const body = JSON.parse(new TextDecoder().decode(request ?? undefined));
+    return {
+      model:
+        typeof body?.model === "string" && body.model !== ""
+          ? body.model
+          : UNKNOWN_MODEL,
+      maxTokens: count(body?.max_tokens) ?? 0,
+      speed: speedOf(body?.speed) ?? "standard",
+    };
+  } catch {
+    return { model: UNKNOWN_MODEL, maxTokens: 0, speed: "standard" };
+  }
+}
 
 function count(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -71,6 +122,15 @@ function countsOf(value: unknown): Counts {
     );
     if (oneHour !== undefined) counts.oneHour = oneHour;
   }
+  const tools = (value as Record<string, unknown>).server_tool_use;
+  if (typeof tools === "object" && tools !== null) {
+    for (const name of TOOL_COUNTS) {
+      const found = count((tools as Record<string, unknown>)[name]);
+      if (found !== undefined) counts[name] = found;
+    }
+  }
+  const speed = speedOf((value as Record<string, unknown>).speed);
+  if (speed !== undefined) counts.speed = speed;
   return counts;
 }
 
@@ -78,6 +138,7 @@ function usageOf(
   model: string,
   counts: Counts,
   estimated: boolean,
+  request: Uint8Array | null,
 ): MessagesUsage {
   return {
     model,
@@ -89,24 +150,26 @@ function usageOf(
       counts.oneHour ?? 0,
       counts.cache_creation_input_tokens ?? 0,
     ),
+    speed: counts.speed ?? requested(request).speed,
+    web_search_requests: counts.web_search_requests ?? 0,
+    web_fetch_requests: counts.web_fetch_requests ?? 0,
+    code_execution_requests: counts.code_execution_requests ?? 0,
     estimated,
   };
 }
 
 /** A call charged from its request alone: see the module comment. */
 export function requestEstimate(request: Uint8Array | null): MessagesUsage {
-  let model = UNKNOWN_MODEL;
-  let maxTokens = 0;
-  try {
-    const body = JSON.parse(new TextDecoder().decode(request ?? undefined));
-    if (typeof body?.model === "string" && body.model !== "")
-      model = body.model;
-    maxTokens = count(body?.max_tokens) ?? 0;
-  } catch {}
+  const { model, maxTokens, speed } = requested(request);
   return usageOf(
     model,
-    { input_tokens: request?.byteLength ?? 0, output_tokens: maxTokens },
+    {
+      input_tokens: request?.byteLength ?? 0,
+      output_tokens: maxTokens,
+      speed,
+    },
     true,
+    request,
   );
 }
 
@@ -123,6 +186,7 @@ export function usageMeter(contentType: string | null): UsageMeter {
     let counts: Counts = {};
     let stopped = false;
     let delivered = 0;
+    let searched = 0;
     let line = "";
     let skipping = false;
     const event = (data: string) => {
@@ -142,12 +206,36 @@ export function usageMeter(contentType: string | null): UsageMeter {
         counts = { ...counts, ...countsOf(usage) };
       } else if (type === "message_stop") {
         stopped = true;
+      } else if (type === "content_block_start") {
+        // A failed search is not billed, and its content is an error object.
+        const block = (parsed as Record<string, unknown>).content_block as
+          | Record<string, unknown>
+          | undefined;
+        if (
+          block?.type === "web_search_tool_result" &&
+          Array.isArray(block.content)
+        ) {
+          searched += 1;
+        }
       } else if (type === "content_block_delta") {
         const content = delta as Record<string, unknown> | null;
         for (const field of ["text", "partial_json", "thinking"]) {
           const part = content?.[field];
           if (typeof part === "string") delivered += part.length;
         }
+      }
+    };
+    // A line too long to parse is counted from its head: a search result can
+    // outgrow the limit, and only a successful one does, an error being a
+    // few bytes. Its type fields lead the event.
+    const skipped = (head: string) => {
+      const start = head.slice(0, 512);
+      if (
+        start.startsWith("data:") &&
+        start.includes('"content_block_start"') &&
+        start.includes('"web_search_tool_result"')
+      ) {
+        searched += 1;
       }
     };
     return {
@@ -157,6 +245,7 @@ export function usageMeter(contentType: string | null): UsageMeter {
         for (const piece of lines) {
           const whole = skipping ? piece : line + piece;
           if (skipping || whole.length > MAX_EVENT_LINE_BYTES) {
+            if (!skipping) skipped(whole);
             delivered += whole.length;
           } else if (whole.startsWith("data:")) {
             event(whole.slice(5).trim());
@@ -170,6 +259,7 @@ export function usageMeter(contentType: string | null): UsageMeter {
         }
         line += last;
         if (line.length > MAX_EVENT_LINE_BYTES) {
+          skipped(line);
           delivered += line.length;
           line = "";
           skipping = true;
@@ -177,14 +267,19 @@ export function usageMeter(contentType: string | null): UsageMeter {
       },
       result(request) {
         if (model === undefined) return requestEstimate(request);
-        if (stopped) return usageOf(model, counts, false);
+        if (stopped) return usageOf(model, counts, false, request);
         return usageOf(
           model,
           {
             ...counts,
             output_tokens: Math.max(counts.output_tokens ?? 0, delivered),
+            web_search_requests: Math.max(
+              counts.web_search_requests ?? 0,
+              searched,
+            ),
           },
           true,
+          request,
         );
       },
     };
@@ -206,7 +301,7 @@ export function usageMeter(contentType: string | null): UsageMeter {
             typeof body.usage === "object" &&
             body.usage !== null
           ) {
-            return usageOf(body.model, countsOf(body.usage), false);
+            return usageOf(body.model, countsOf(body.usage), false, request);
           }
         } catch {}
       }

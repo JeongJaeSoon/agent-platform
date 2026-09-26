@@ -7,7 +7,6 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   BODY_IDLE_TIMEOUT_SECONDS,
-  createApiApp,
   jsonWithSchema,
   parseJsonBody,
 } from "./app.ts";
@@ -16,6 +15,9 @@ import {
   RESPONSE_IDLE_TIMEOUT_SECONDS,
 } from "./deadline.ts";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
+import { recordRouteErrors } from "./route-error-coverage.ts";
+
+const createApiApp = recordRouteErrors("app.test.ts");
 
 function loggerWithMemory(): {
   logger: StructuredLogger;

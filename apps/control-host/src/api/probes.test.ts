@@ -4,8 +4,10 @@ import {
   healthResponseSchema,
   readyResponseSchema,
 } from "@agent-platform/contracts";
-import { createApiApp } from "./app.ts";
 import type { ReadinessResult } from "./readiness.ts";
+import { recordRouteErrors } from "./route-error-coverage.ts";
+
+const createApiApp = recordRouteErrors("probes.test.ts");
 
 function app(result?: ReadinessResult) {
   return createApiApp({

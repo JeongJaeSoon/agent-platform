@@ -5,13 +5,7 @@ import {
 } from "@agent-platform/contracts";
 import type { SessionService } from "@agent-platform/platform";
 import { type ApiRouter, jsonWithSchema, parseJsonBody } from "../app.ts";
-import { mapped, requireIdempotencyKey, requireParams } from "./sessions.ts";
-
-// Error statuses the handler can produce; the OpenAPI parity test holds the
-// route table to this.
-export const pauseRouteErrors: Record<string, number[]> = {
-  "POST /v1/sessions/{id}/pause": [400, 401, 404, 409, 413, 422, 503],
-};
+import { mapped, requireIdempotencyKey, requireParams } from "./errors.ts";
 
 export function registerPauseRoutes(
   router: ApiRouter,

@@ -5,7 +5,7 @@
  *
  *   bun run scripts/lib/checkpoint-pins-cli.ts capture <backup>/objects
  *   bun run scripts/lib/checkpoint-pins-cli.ts repin <backup>/objects
- *   bun run scripts/lib/checkpoint-pins-cli.ts plans
+ *   bun run scripts/lib/checkpoint-pins-cli.ts plans [--runtime <image-runtime-json>]
  *
  * Environment: DATABASE_URL, S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID,
  * AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL unless the store is AWS S3
@@ -35,7 +35,11 @@ import {
   CheckpointPinError,
   type CheckpointRow,
   captureCheckpointObjects,
+  describeMismatches,
+  type ImageRuntime,
+  parseImageRuntime,
   planRepin,
+  planRuntime,
   sha256Hex,
 } from "./checkpoint-pins.ts";
 import { s3SettingsFromEnv } from "./object-store-cli.ts";
@@ -48,17 +52,27 @@ function env(name: string): string {
   return value;
 }
 
-const [command, objectsDir] = process.argv.slice(2);
+const [command, objectsDir, runtimeJson, ...extra] = process.argv.slice(2);
 if (
+  extra.length > 0 ||
   !(
     (command === "capture" && objectsDir) ||
     (command === "repin" && objectsDir) ||
-    command === "plans"
+    (command === "plans" && objectsDir === undefined) ||
+    (command === "plans" && objectsDir === "--runtime" && runtimeJson)
   )
 ) {
   console.error(
-    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans",
+    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans [--runtime <image-runtime-json>]",
   );
+  process.exit(2);
+}
+let image: ImageRuntime | undefined;
+try {
+  image =
+    runtimeJson === undefined ? undefined : parseImageRuntime(runtimeJson);
+} catch (error) {
+  console.error(`plans: ${(error as Error).message}`);
   process.exit(2);
 }
 
@@ -166,9 +180,10 @@ async function repin(dir: string) {
  * What the restored API itself would answer: the startup bucket check, then
  * `getRestorePlan` through the production wiring in `locked` mode for every
  * session pointer, and every object of every ready plan read back by the
- * version the plan names and found held.
+ * version the plan names and found held. With an image's runtime, each plan
+ * is asked for as a worker of that image would ask.
  */
-async function plans(): Promise<number> {
+async function plans(image: ImageRuntime | undefined): Promise<number> {
   const config = {
     ...s3,
     bucket,
@@ -215,9 +230,10 @@ async function plans(): Promise<number> {
       continue;
     }
     // The plan is judged on storage, not on this host's engine build: the
-    // runtime asked for is the one the manifest was sealed under. A pointer
-    // whose version is gone still gets the service's own verdict, so the
-    // runtime then comes from whatever the key holds.
+    // runtime asked for is the target image's, or with none the one the
+    // manifest was sealed under. A pointer whose version is gone still gets
+    // the service's own verdict, so the runtime then comes from whatever the
+    // key holds.
     const manifestBytes = await objects.get(
       pointer.manifest_ref,
       pointer.manifest_version,
@@ -229,9 +245,18 @@ async function plans(): Promise<number> {
       continue;
     }
     const result = await service.getRestorePlan({
-      runtime: claudeCheckpointCodec.decode(runtimeSource).runtime,
+      runtime: planRuntime(
+        claudeCheckpointCodec.decode(runtimeSource).runtime,
+        image,
+      ),
       sessionId: pointer.id,
     });
+    if (result.status === "incompatible") {
+      fail(
+        `${tag}: incompatible with the target image (checkpoint → image): ${describeMismatches(result.mismatches)}`,
+      );
+      continue;
+    }
     if (result.status !== "ready" || manifestBytes === undefined) {
       fail(`${tag}: ${JSON.stringify(result)}`);
       continue;
@@ -279,7 +304,7 @@ async function plans(): Promise<number> {
     }
     if (ok) {
       console.log(
-        `PASS ${tag}: ready under locked, ${pinned.length} versions read back and held`,
+        `PASS ${tag}: ready under locked${image === undefined ? "" : " for the target image"}, ${pinned.length} versions read back and held`,
       );
     }
   }
@@ -293,7 +318,7 @@ let exitCode = 0;
 try {
   if (command === "capture") await capture(objectsDir as string);
   else if (command === "repin") await repin(objectsDir as string);
-  else if ((await plans()) > 0) exitCode = EXIT_VERIFY_FAILED;
+  else if ((await plans(image)) > 0) exitCode = EXIT_VERIFY_FAILED;
 } catch (error) {
   if (error instanceof CheckpointPinError) {
     console.error(`${command}: ${error.message}`);

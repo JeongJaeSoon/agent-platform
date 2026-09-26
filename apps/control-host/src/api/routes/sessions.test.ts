@@ -12,8 +12,10 @@ import {
   type SessionReader,
   type SessionUnitOfWork,
 } from "@agent-platform/platform";
-import { createApiApp } from "../app.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
+
+const createApiApp = recordRouteErrors("routes/sessions.test.ts");
 
 const codingProfile: SessionCatalog["profiles"][string] = {
   runtime_kind: "claude_agent_sdk",
@@ -226,6 +228,29 @@ describe("POST /v1/sessions validation", () => {
     expect(saturated.status).toBe(503);
   });
 
+  test("maps an idempotency conflict to 409 and a full queue to 429 with Retry-After", async () => {
+    const refused = (outcome: "conflict" | "queue_full") =>
+      app({ acceptInputAtomic: async () => ({ outcome }) }).request(
+        "/v1/sessions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Owner-Id": "owner-a",
+            "Idempotency-Key": "key-1",
+          },
+          body: JSON.stringify(valid),
+        },
+      );
+    const conflict = await refused("conflict");
+    expect(conflict.status).toBe(409);
+    expect(await errorCode(conflict)).toBe("IDEMPOTENCY_CONFLICT");
+    const full = await refused("queue_full");
+    expect(full.status).toBe(429);
+    expect(full.headers.get("Retry-After")).toBe("5");
+    expect(await errorCode(full)).toBe("RATE_LIMITED");
+  });
+
   test("answers 413 for an oversized body and for an oversized message", async () => {
     const body = await post({ ...valid, message: "x".repeat(65 * 1024) });
     expect(body.status).toBe(413);
@@ -374,6 +399,13 @@ describe("POST /v1/sessions/{id}/messages validation", () => {
     );
     expect(conflict.status).toBe(409);
     expect(await errorCode(conflict)).toBe("IDEMPOTENCY_CONFLICT");
+    const full = await postMessage(
+      { message: "hi" },
+      { appendInputAtomic: async () => ({ outcome: "queue_full" }) },
+    );
+    expect(full.status).toBe(429);
+    expect(full.headers.get("Retry-After")).toBe("5");
+    expect(await errorCode(full)).toBe("RATE_LIMITED");
   });
 
   test("maps storage connection failures to a retryable 503", async () => {
@@ -489,6 +521,10 @@ describe("POST /v1/sessions/{id}/terminate validation", () => {
     expect(
       (await terminate({ expected_revision: 1, force: true })).status,
     ).toBe(400);
+    expect(
+      (await terminate({ expected_revision: 1, reason: "x".repeat(65 * 1024) }))
+        .status,
+    ).toBe(413);
   });
 
   test("maps revision conflict, closed session and unknown session", async () => {
@@ -619,6 +655,9 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
     expect((await decide(abandon, {}, { "Idempotency-Key": "" })).status).toBe(
       400,
     );
+    expect(
+      (await decide({ ...abandon, reason: "x".repeat(65 * 1024) })).status,
+    ).toBe(413);
     // start_fresh names no turn: the context it gives up is all of it.
     expect(
       (
@@ -795,6 +834,13 @@ describe("POST /v1/sessions/{id}/resume validation", () => {
       },
       body: JSON.stringify(body),
     });
+
+  test("an oversized body is 413", async () => {
+    expect(
+      (await resume({ expected_revision: 1, pad: "x".repeat(65 * 1024) }))
+        .status,
+    ).toBe(413);
+  });
 
   test("answers 202 with the receipt", async () => {
     const receiptId = crypto.randomUUID();

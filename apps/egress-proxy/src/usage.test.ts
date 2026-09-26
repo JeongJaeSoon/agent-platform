@@ -18,6 +18,13 @@ function sse(events: Array<Record<string, unknown>>): string {
     .join("");
 }
 
+const noTools = {
+  speed: "standard",
+  web_search_requests: 0,
+  web_fetch_requests: 0,
+  code_execution_requests: 0,
+};
+
 const started = {
   type: "message_start",
   message: {
@@ -53,6 +60,7 @@ describe("usageMeter", () => {
       cache_creation_input_tokens: 5,
       cache_read_input_tokens: 6,
       cache_creation_1h_input_tokens: 2,
+      ...noTools,
       estimated: false,
     });
   });
@@ -86,6 +94,7 @@ describe("usageMeter", () => {
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 40,
       cache_creation_1h_input_tokens: 0,
+      ...noTools,
       estimated: false,
     });
   });
@@ -150,5 +159,175 @@ describe("usageMeter", () => {
     ]);
     expect(result.estimated).toBe(true);
     expect(result.output_tokens).toBeGreaterThan(300 * 1024);
+  });
+
+  describe("speed and server tools (94S-451)", () => {
+    const tools = {
+      web_search_requests: 2,
+      web_fetch_requests: 1,
+      code_execution_requests: 3,
+    };
+
+    test("a JSON answer's usage.speed and server_tool_use are read", () => {
+      const body = JSON.stringify({
+        model: "claude-opus-5",
+        usage: {
+          input_tokens: 1,
+          output_tokens: 2,
+          speed: "fast",
+          server_tool_use: tools,
+        },
+      });
+      expect(metered("application/json", [body])).toMatchObject({
+        speed: "fast",
+        ...tools,
+        estimated: false,
+      });
+    });
+
+    test("a stream's last message_delta counts win, and message_start's speed stays", () => {
+      const stream = sse([
+        {
+          type: "message_start",
+          message: {
+            model: "claude-opus-5",
+            usage: {
+              input_tokens: 5,
+              speed: "fast",
+              server_tool_use: { web_search_requests: 0 },
+            },
+          },
+        },
+        {
+          type: "message_delta",
+          usage: { output_tokens: 9, server_tool_use: tools, speed: null },
+        },
+        { type: "message_stop" },
+      ]);
+      expect(metered("text/event-stream", [stream])).toMatchObject({
+        speed: "fast",
+        ...tools,
+        estimated: false,
+      });
+    });
+
+    test("an answer that names no speed takes the request's, and a request that names none is standard", () => {
+      const answer = JSON.stringify({
+        model: "claude-opus-5",
+        usage: { input_tokens: 1, output_tokens: 2 },
+      });
+      const fastRequest = encoder.encode(
+        JSON.stringify({ model: "claude-opus-5", speed: "fast" }),
+      );
+      const meter = usageMeter("application/json");
+      meter.observe(encoder.encode(answer));
+      expect(meter.result(fastRequest).speed).toBe("fast");
+      expect(metered("application/json", [answer]).speed).toBe("standard");
+      expect(requestEstimate(fastRequest)).toMatchObject({
+        speed: "fast",
+        web_search_requests: 0,
+        estimated: true,
+      });
+    });
+
+    test("the answer's speed wins over the request's", () => {
+      const answer = JSON.stringify({
+        model: "claude-opus-4-6",
+        usage: { input_tokens: 1, output_tokens: 2, speed: "standard" },
+      });
+      const meter = usageMeter("application/json");
+      meter.observe(encoder.encode(answer));
+      expect(
+        meter.result(encoder.encode(JSON.stringify({ speed: "fast" }))).speed,
+      ).toBe("standard");
+    });
+
+    test("a speed that is not a name is reported as unknown, never as standard", () => {
+      for (const speed of [7, "", "x".repeat(65), { fast: true }]) {
+        const answer = JSON.stringify({
+          model: "claude-opus-5",
+          usage: { input_tokens: 1, output_tokens: 2, speed },
+        });
+        expect(metered("application/json", [answer]).speed).toBe("unknown");
+      }
+    });
+
+    test("a stream cut before its final count charges every search result it delivered (Codex R2)", () => {
+      const result = (content: unknown) => ({
+        type: "content_block_start",
+        index: 1,
+        content_block: {
+          type: "web_search_tool_result",
+          tool_use_id: "srvtoolu_1",
+          content,
+        },
+      });
+      const stream = sse([
+        {
+          type: "message_start",
+          message: { model: "claude-opus-5", usage: { input_tokens: 5 } },
+        },
+        result([{ type: "web_search_result", url: "https://a.test" }]),
+        result([]),
+        result({
+          type: "web_search_tool_result_error",
+          error_code: "unavailable",
+        }),
+      ]);
+      expect(metered("text/event-stream", [stream])).toMatchObject({
+        web_search_requests: 2,
+        estimated: true,
+      });
+    });
+
+    test("a search result too long to parse is still counted, split or whole (Codex R3)", () => {
+      const huge = sse([
+        {
+          type: "content_block_start",
+          index: 1,
+          content_block: {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_1",
+            content: [
+              {
+                type: "web_search_result",
+                encrypted_content: "x".repeat(300 * 1024),
+              },
+            ],
+          },
+        },
+      ]);
+      const head = sse([
+        {
+          type: "message_start",
+          message: { model: "claude-opus-5", usage: { input_tokens: 5 } },
+        },
+      ]);
+      expect(
+        metered("text/event-stream", [head, huge]).web_search_requests,
+      ).toBe(1);
+      expect(
+        metered("text/event-stream", [
+          head,
+          huge.slice(0, 1000),
+          huge.slice(1000, 280 * 1024),
+          huge.slice(280 * 1024),
+        ]).web_search_requests,
+      ).toBe(1);
+    });
+
+    test("a stream cut short keeps the tool counts it saw", () => {
+      const stream = sse([
+        {
+          type: "message_start",
+          message: { model: "claude-opus-5", usage: { input_tokens: 5 } },
+        },
+        { type: "message_delta", usage: { server_tool_use: tools } },
+      ]);
+      expect(metered("text/event-stream", [stream])).toMatchObject({
+        ...tools,
+        estimated: true,
+      });
+    });
   });
 });

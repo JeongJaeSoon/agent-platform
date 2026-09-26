@@ -15,6 +15,8 @@ bun run check
 
 `check`는 workspace typecheck → Biome → 패키지·앱 Bun 테스트다(CI는 이 셋을 역할별 job으로 나눠 동시에 돈다). `QUEUE_DATABASE_URL`이 없으면 실제 PostgreSQL integration test가, `STORAGE_LOCALSTACK_TEST=1`이 없으면 LocalStack integration test가 skip된다. 이 두 opt-in 변수와 fake Messages API·격리 workspace fixture는 `packages/testkit`(`fake-anthropic`·`postgres`·`localstack`·`workspace`)이 제공하며, 각 패키지는 devDependency로만 참조한다(`tests/architecture.test.ts`가 검사). API의 실제 PostgreSQL·키 CLI·HTTP 프로세스 검증은 CI와 로컬에서 별도 명령으로 실행한다. 전체 pass 숫자만 보지 말고 실행·skip 목록을 구분한다. CI가 어느 job에서 어떤 변수를 켜는지는 [ci.md](ci.md)에 있다.
 
+`bun test`는 루트 `bunfig.toml`의 preload로 `packages/db/src/pglite-release.ts`를 먼저 읽는다. 이 preload는 닫은 PGlite가 WebAssembly memory를 놓게 한다. Linux의 Bun은 모든 ArrayBuffer를 약 60 GiB 고정 예약 안에 두는데, PGlite 하나가 그중 약 4 GiB를 쓴다. 닫고도 참조가 남은 PGlite가 쌓이면 뒤 테스트의 할당이 `RangeError: Out of memory`로 실패했다(94S-436). 저장소 루트 밖에서 `bun test`를 돌리면 preload가 빠진다.
+
 워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
 
 ```bash

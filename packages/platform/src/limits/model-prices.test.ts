@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { MODEL_PRICES, priceProviderUsage } from "./model-prices.ts";
+import {
+  FAST_MODEL_PRICES,
+  MODEL_PRICES,
+  priceProviderUsage,
+} from "./model-prices.ts";
 
 const nothing = {
   inputTokens: 0,
@@ -7,6 +11,10 @@ const nothing = {
   cacheCreationInputTokens: 0,
   cacheCreation1hInputTokens: 0,
   cacheReadInputTokens: 0,
+  speed: "standard",
+  webSearchRequests: 0,
+  webFetchRequests: 0,
+  codeExecutionRequests: 0,
   estimated: false,
 };
 
@@ -14,6 +22,7 @@ describe("priceProviderUsage (94S-409)", () => {
   test("prices every part at the model's rate, the hour-long cache writes at twice the input", () => {
     // claude-sonnet-5: $2 in, $10 out, $0.20 cache read per million.
     const { costUsd, pricedBy } = priceProviderUsage({
+      ...nothing,
       model: "claude-sonnet-5",
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
@@ -58,5 +67,59 @@ describe("priceProviderUsage (94S-409)", () => {
     expect(
       priceProviderUsage({ ...nothing, model: "constructor" }).pricedBy,
     ).toBe("fallback");
+  });
+
+  test("a fast answer pays the fast rates, cache multipliers on top (94S-451)", () => {
+    // claude-opus-5-5 fast: $8 in, $40 out, $0.40 cache read per million.
+    const { costUsd, pricedBy } = priceProviderUsage({
+      ...nothing,
+      model: "claude-opus-5-5",
+      speed: "fast",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 2_000_000,
+      cacheCreation1hInputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+    });
+    expect(pricedBy).toBe("table");
+    // 8 + 40 + 1 × 8 × 1.25 + 1 × 8 × 2 + 0.4
+    expect(costUsd).toBeCloseTo(74.4, 9);
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-opus-5-5",
+        outputTokens: 1_000_000,
+      }).costUsd,
+    ).toBe(20);
+  });
+
+  test("a fast answer from a model without fast rates, or an unknown speed, pays the highest rate of either table (94S-451)", () => {
+    const highest = Math.max(
+      ...[
+        ...Object.values(MODEL_PRICES),
+        ...Object.values(FAST_MODEL_PRICES),
+      ].map((price) => price.outputUsdPerMtok),
+    );
+    for (const usage of [
+      { model: "claude-sonnet-5", speed: "fast" },
+      { model: "claude-opus-5", speed: "turbo" },
+      { model: "claude-opus-5", speed: "unknown" },
+    ]) {
+      expect(
+        priceProviderUsage({ ...nothing, ...usage, outputTokens: 1_000_000 }),
+      ).toEqual({ costUsd: highest, pricedBy: "fallback" });
+    }
+  });
+
+  test("each web search adds $0.01; web fetch and code execution add nothing (94S-451)", () => {
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-sonnet-5",
+        webSearchRequests: 3,
+        webFetchRequests: 5,
+        codeExecutionRequests: 7,
+      }),
+    ).toEqual({ costUsd: 0.03, pricedBy: "table" });
   });
 });

@@ -471,6 +471,10 @@ describe("credential routes end to end (94S-252)", () => {
       cacheCreationInputTokens: 0,
       cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 0,
+      speed: "standard",
+      webSearchRequests: 0,
+      webFetchRequests: 0,
+      codeExecutionRequests: 0,
       estimated: false,
     });
     expect(costUsd).toBeGreaterThan(0);

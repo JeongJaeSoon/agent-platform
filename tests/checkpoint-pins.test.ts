@@ -33,7 +33,10 @@ import {
   CheckpointPinError,
   type CheckpointRow,
   captureCheckpointObjects,
+  describeMismatches,
+  parseImageRuntime,
   planRepin,
+  planRuntime,
   refsOf,
   sha256Hex,
 } from "../scripts/lib/checkpoint-pins.ts";
@@ -221,6 +224,7 @@ async function restorePlan(
   objects: MemoryCheckpointObjectStore,
   pointer: CheckpointPointer,
   seeded: Seeded,
+  runtime = seeded.manifest.runtime,
 ) {
   const service = createCheckpointService({
     codecs,
@@ -236,7 +240,7 @@ async function restorePlan(
     workspaceBundles: createGitWorkspaceBundleVerifier(),
   });
   return service.getRestorePlan({
-    runtime: seeded.manifest.runtime,
+    runtime,
     sessionId: seeded.row.sessionId,
   });
 }
@@ -675,5 +679,63 @@ describe("backup → restore re-pin", () => {
       );
       expect(result.status).toBe("ready");
     });
+  });
+});
+
+describe("plans against a target worker image (verify-restore.sh --image)", () => {
+  test("an image of another CLI build makes the plan incompatible; the image the checkpoint was sealed under does not", async () => {
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const seeded = await seed(objects);
+    const pointer = pointerOf({
+      ...seeded.row,
+      manifestVersion: seeded.row.manifestVersion as string,
+    });
+    const other = parseImageRuntime(
+      JSON.stringify({ ...CLAUDE_RUNTIME_FINGERPRINT, cliVersion: "9.9.9" }),
+    );
+
+    const result = await restorePlan(
+      objects,
+      pointer,
+      seeded,
+      planRuntime(seeded.manifest.runtime, other),
+    );
+    expect(result.status).toBe("incompatible");
+    if (result.status !== "incompatible") return;
+    expect(describeMismatches(result.mismatches)).toBe(
+      `cliVersion ${CLAUDE_RUNTIME_FINGERPRINT.cliVersion} → 9.9.9`,
+    );
+
+    const same = parseImageRuntime(JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT));
+    expect(
+      (
+        await restorePlan(
+          objects,
+          pointer,
+          seeded,
+          planRuntime(seeded.manifest.runtime, same),
+        )
+      ).status,
+    ).toBe("ready");
+  });
+
+  test("the profile digest stays the checkpoint's; no image asks with the sealed runtime", () => {
+    const sealed = {
+      ...CLAUDE_RUNTIME_FINGERPRINT,
+      profileSha256: "a".repeat(64),
+    };
+    const image = parseImageRuntime(
+      JSON.stringify({ ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: "b" }),
+    );
+    expect(planRuntime(sealed, image)).toEqual(sealed);
+    expect(planRuntime(sealed, undefined)).toBe(sealed);
+  });
+
+  test("an image runtime missing a field or not JSON is refused", () => {
+    expect(() => parseImageRuntime("not json")).toThrow("is not JSON");
+    expect(() =>
+      parseImageRuntime(JSON.stringify({ cliVersion: "1", engine: "claude" })),
+    ).toThrow("has no sdkVersion");
+    expect(() => parseImageRuntime("null")).toThrow("has no cliVersion");
   });
 });

@@ -12,9 +12,11 @@ import {
   type SessionControl,
   type SessionReader,
 } from "@agent-platform/platform";
-import { createApiApp } from "../app.ts";
 import type { SessionEventWakeup } from "../events/notifications.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerEventRoutes } from "./events.ts";
+
+const createApiApp = recordRouteErrors("routes/events.test.ts");
 
 // SSE never reaches a control transaction.
 const unusedControls: SessionControl = {
