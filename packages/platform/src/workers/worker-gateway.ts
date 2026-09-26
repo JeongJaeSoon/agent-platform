@@ -64,7 +64,7 @@ import {
   providerUpstreamOf,
   repositoryBinding,
   repositoryUpstreamOf,
-  runtimeProviderOf,
+  runtimeConfigOf,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 
@@ -478,15 +478,7 @@ export function createWorkerGateway(deps: {
         profile_id: profileId,
       },
       profile_fingerprint: profileFingerprint(profile),
-      runtime_config: {
-        model: profile.model,
-        tools: profile.tools,
-        permission_mode: profile.permission_mode,
-        provider: runtimeProviderOf(profile, providerToken),
-        ...(profile.project_settings?.claude_md === true
-          ? { project_settings: profile.project_settings }
-          : {}),
-      },
+      runtime_config: runtimeConfigOf(profile, providerToken),
     };
   }
 

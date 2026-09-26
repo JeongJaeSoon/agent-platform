@@ -184,14 +184,6 @@ checkpoint_pins() {
     with_object_store "$project" "$bucket" bun_script "${REPO_ROOT}/scripts/lib/checkpoint-pins-cli.ts" "$@"
 }
 
-# `image_runtime <image>`: the engine build a worker image runs, as the JSON
-# its own code stamps checkpoints with (CLAUDE_RUNTIME_FINGERPRINT), read by
-# running the image's bun with no network. The image has no label for it.
-image_runtime() {
-  docker run --rm --network none --entrypoint bun "$1" -e \
-    'import { CLAUDE_RUNTIME_FINGERPRINT } from "./packages/adapters/runtimes/claude-codec/src/checkpoint-codec.ts"; console.log(JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT))'
-}
-
 uri_escape() {
   jq -rn --arg value "$1" '$value | @uri'
 }

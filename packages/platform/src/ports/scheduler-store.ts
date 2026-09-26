@@ -382,7 +382,8 @@ export interface SchedulerStore {
    * Terminate receipts still `accepted` after `deadlineMs` become `unknown`:
    * the caller is told the kill was not observed in time. The execution row
    * keeps its kill intent, so reconciliation goes on and a later
-   * confirmation still settles the receipt. Returns the receipts flipped.
+   * confirmation still settles the receipt. A call flips at most one batch
+   * and leaves the rest to the next pass. Returns the receipts flipped.
    */
   markOverdueTerminations(input: {
     now: Date;

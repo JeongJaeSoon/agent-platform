@@ -3,7 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./settings": "./src/shared/settings.ts"
+  },
   "dependencies": {
     "zod": "4.6.5"
   },

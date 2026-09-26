@@ -1,3 +1,7 @@
+import {
+  integerSetting,
+  settingProblems,
+} from "@agent-platform/contracts/settings";
 import { type LogLevel, logLevelFromEnv } from "@agent-platform/observability";
 import { DEFAULT_PENDING_TTL_MS } from "@agent-platform/platform";
 import { heartbeatTtlMsFromEnv } from "./lease-config.ts";
@@ -31,34 +35,32 @@ export const MAX_PENDING_REQUEST_TTL_SEC = 7 * 24 * 60 * 60;
 export function apiSettingsFromEnv(
   environment: Record<string, string | undefined>,
 ): ApiSettings {
-  const problems: string[] = [];
-  const read = <T>(parse: () => T): T | undefined => {
-    try {
-      return parse();
-    } catch (error) {
-      problems.push(error instanceof Error ? error.message : String(error));
-      return undefined;
-    }
-  };
+  const { problems, read } = settingProblems();
+  // Unset keeps the platform default.
+  const optionalInteger = (
+    name: string,
+    rule: { min: number; max?: number },
+  ) =>
+    environment[name] === undefined
+      ? undefined
+      : integerSetting(environment, name, rule);
   const leaseTtlMs = read(() =>
     heartbeatTtlMsFromEnv(environment.HEARTBEAT_TTL_SEC),
   );
   const logLevel = read(() => logLevelFromEnv(environment.LOG_LEVEL));
   const pendingTtlSec = read(() =>
-    optionalInteger(environment, "PENDING_REQUEST_TTL_SEC", {
+    optionalInteger("PENDING_REQUEST_TTL_SEC", {
       min: 1,
       max: MAX_PENDING_REQUEST_TTL_SEC,
     }),
   );
   const sse = {
     batchMaxBytes: read(() =>
-      optionalInteger(environment, "SSE_REPLAY_MAX_BYTES", { min: 1 }),
+      optionalInteger("SSE_REPLAY_MAX_BYTES", { min: 1 }),
     ),
-    maxStreams: read(() =>
-      optionalInteger(environment, "SSE_MAX_STREAMS", { min: 1 }),
-    ),
+    maxStreams: read(() => optionalInteger("SSE_MAX_STREAMS", { min: 1 })),
     maxStreamsPerOwner: read(() =>
-      optionalInteger(environment, "SSE_MAX_STREAMS_PER_OWNER", { min: 1 }),
+      optionalInteger("SSE_MAX_STREAMS_PER_OWNER", { min: 1 }),
     ),
   };
   // In `none` mode /v1 takes any X-Owner-Id as the caller. With the
@@ -103,28 +105,4 @@ export function apiSettingsProblems(
     if (error instanceof ApiSettingsError) return [...error.problems];
     throw error;
   }
-}
-
-// Unset keeps the default; set, it must be a whole number in range, blank
-// included, since a blank is a value someone meant to fill in.
-function optionalInteger(
-  environment: Record<string, string | undefined>,
-  name: string,
-  bounds: { min: number; max?: number },
-): number | undefined {
-  const raw = environment[name];
-  if (raw === undefined) return undefined;
-  const max = bounds.max ?? Number.MAX_SAFE_INTEGER;
-  const value = Number(raw);
-  if (
-    raw.trim() === "" ||
-    !Number.isSafeInteger(value) ||
-    value < bounds.min ||
-    value > max
-  ) {
-    throw new Error(
-      `${name} must be an integer from ${bounds.min} to ${max}, got ${JSON.stringify(raw)}`,
-    );
-  }
-  return value;
 }

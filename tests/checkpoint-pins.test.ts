@@ -4,9 +4,12 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import {
+  type CatalogProfile,
   type CheckpointPointer,
   createCheckpointService,
   manifestRefFor,
+  profileFingerprint,
+  resolveSessionCatalog,
 } from "@agent-platform/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -28,6 +31,11 @@ import {
   createGitBundleChain,
   type GitBundleFixture,
 } from "@agent-platform/testkit/git-bundle";
+import { readCatalogConfig } from "../apps/control-host/src/api/catalog-config.ts";
+import {
+  imageClaimFingerprint,
+  imageRuntimeOf,
+} from "../apps/worker/src/image-runtime.ts";
 import {
   applyRepin,
   CheckpointPinError,
@@ -38,6 +46,7 @@ import {
   planRepin,
   planRuntime,
   refsOf,
+  sessionClaim,
   sha256Hex,
 } from "../scripts/lib/checkpoint-pins.ts";
 
@@ -59,6 +68,7 @@ async function seed(
   objects: MemoryCheckpointObjectStore,
   untracked: readonly { path: string; text: string }[] = [],
   workspaceBundle?: GitBundleFixture,
+  profileSha256 = "0".repeat(64),
 ): Promise<Seeded> {
   const sessionId = randomUUID();
   const attemptId = `attempt-${randomUUID().slice(0, 8)}`;
@@ -112,7 +122,7 @@ async function seed(
     engine: "claude",
     resume: engineSession,
     revision: 0,
-    runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: "0".repeat(64) },
+    runtime: { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 },
     sessionId,
     transcripts: {
       root: await pin(captured.root),
@@ -683,59 +693,180 @@ describe("backup → restore re-pin", () => {
 });
 
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
-  test("an image of another CLI build makes the plan incompatible; the image the checkpoint was sealed under does not", async () => {
+  const PROFILE_ID = "claude-coding-local";
+  const REPOSITORY_ID = "sample-app";
+  // The API's default catalog, credentials standing in as verify-restore's do.
+  const catalog = async () =>
+    resolveSessionCatalog(
+      await readCatalogConfig(join(import.meta.dir, "../config")),
+      () => "verify-restore-reads-no-credential",
+    );
+  const sessionOf = async (overrides: {
+    branch?: string;
+    profileFingerprint?: string | null;
+    profileId?: string | null;
+    repositoryId?: string | null;
+  }) => {
+    const resolved = await catalog();
+    const repository = resolved.repositories[REPOSITORY_ID];
+    if (repository === undefined) throw new Error("no sample repository");
+    return {
+      branch: repository.branch,
+      ownerId: "owner-a",
+      profileFingerprint: profileFingerprint(
+        resolved.profiles[PROFILE_ID] as CatalogProfile,
+      ),
+      profileId: PROFILE_ID,
+      repoUrl: repository.url,
+      repositoryId: REPOSITORY_ID,
+      ...overrides,
+    };
+  };
+  const changedDigestOf = (digest: string) =>
+    sha256Hex(new TextEncoder().encode(`v2:${digest}`));
+  // What an image's worker would stamp: the output of image-runtime.ts.
+  const imageOf = (
+    claims: Record<string, unknown>,
+    fingerprint?: Parameters<typeof imageRuntimeOf>[1],
+  ) => parseImageRuntime(JSON.stringify(imageRuntimeOf(claims, fingerprint)));
+
+  test("an image whose profile digest computation changed makes the plan incompatible; the sealing image stays ready", async () => {
+    const claim = sessionClaim(await sessionOf({}), await catalog());
+    const sealedDigest = imageClaimFingerprint(claim).profileSha256;
     const objects = createMemoryCheckpointObjectStore({ versioned: true });
-    const seeded = await seed(objects);
+    const seeded = await seed(objects, [], undefined, sealedDigest);
+    const { sessionId } = seeded.row;
     const pointer = pointerOf({
       ...seeded.row,
       manifestVersion: seeded.row.manifestVersion as string,
     });
-    const other = parseImageRuntime(
-      JSON.stringify({ ...CLAUDE_RUNTIME_FINGERPRINT, cliVersion: "9.9.9" }),
-    );
 
-    const result = await restorePlan(
-      objects,
-      pointer,
-      seeded,
-      planRuntime(seeded.manifest.runtime, other),
-    );
-    expect(result.status).toBe("incompatible");
-    if (result.status !== "incompatible") return;
-    expect(describeMismatches(result.mismatches)).toBe(
-      `cliVersion ${CLAUDE_RUNTIME_FINGERPRINT.cliVersion} → 9.9.9`,
-    );
-
-    const same = parseImageRuntime(JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT));
+    const same = imageOf({ [sessionId]: claim });
     expect(
       (
         await restorePlan(
           objects,
           pointer,
           seeded,
-          planRuntime(seeded.manifest.runtime, same),
+          planRuntime(seeded.manifest.runtime, same, sessionId),
         )
       ).status,
     ).toBe("ready");
+
+    // Same engine build, same claim; only how the digest is computed moved.
+    const changed = imageOf({ [sessionId]: claim }, (input) => {
+      const current = imageClaimFingerprint(input);
+      return {
+        ...current,
+        profileSha256: changedDigestOf(current.profileSha256),
+      };
+    });
+    const changedDigest = changedDigestOf(sealedDigest);
+    const result = await restorePlan(
+      objects,
+      pointer,
+      seeded,
+      planRuntime(seeded.manifest.runtime, changed, sessionId),
+    );
+    expect(result.status).toBe("incompatible");
+    if (result.status !== "incompatible") return;
+    expect(describeMismatches(result.mismatches)).toBe(
+      `profileSha256 ${sealedDigest} → ${changedDigest}`,
+    );
   });
 
-  test("the profile digest stays the checkpoint's; no image asks with the sealed runtime", () => {
+  test("an image of another CLI build makes the plan incompatible", async () => {
+    const claim = sessionClaim(await sessionOf({}), await catalog());
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const seeded = await seed(
+      objects,
+      [],
+      undefined,
+      imageClaimFingerprint(claim).profileSha256,
+    );
+    const { sessionId } = seeded.row;
+    const other = parseImageRuntime(
+      JSON.stringify({
+        ...imageRuntimeOf({ [sessionId]: claim }),
+        cliVersion: "9.9.9",
+      }),
+    );
+
+    const result = await restorePlan(
+      objects,
+      pointerOf({
+        ...seeded.row,
+        manifestVersion: seeded.row.manifestVersion as string,
+      }),
+      seeded,
+      planRuntime(seeded.manifest.runtime, other, sessionId),
+    );
+    expect(result.status).toBe("incompatible");
+    if (result.status !== "incompatible") return;
+    expect(describeMismatches(result.mismatches)).toBe(
+      `cliVersion ${CLAUDE_RUNTIME_FINGERPRINT.cliVersion} → 9.9.9`,
+    );
+  });
+
+  test("the claim is the session's owner and its catalog profile; a pair the catalog no longer allows is refused", async () => {
+    const resolved = await catalog();
+    const claim = sessionClaim(await sessionOf({}), resolved);
+    expect(claim.principal).toEqual({ owner_scope: "owner-a" });
+    expect(claim.runtime_config.model).toBe(
+      (resolved.profiles[PROFILE_ID] as CatalogProfile).model,
+    );
+    // Rows from before 94S-253 carry no fingerprint and are pinned at claim.
+    expect(
+      sessionClaim(await sessionOf({ profileFingerprint: null }), resolved),
+    ).toEqual(claim);
+    for (const overrides of [
+      { profileId: "gone" },
+      { repositoryId: "gone" },
+      { repositoryId: null },
+      { branch: "re-pointed" },
+    ]) {
+      const session = await sessionOf(overrides);
+      expect(() => sessionClaim(session, resolved)).toThrow(
+        "are not an allowed pair in the catalog",
+      );
+    }
+    const edited = await sessionOf({ profileFingerprint: "sha256:edited" });
+    expect(() => sessionClaim(edited, resolved)).toThrow(
+      `profile ${PROFILE_ID} has other settings in the catalog than the session was created with`,
+    );
+  });
+
+  test("a session the image computed no digest for is not asked; no image asks with the sealed runtime", () => {
     const sealed = {
       ...CLAUDE_RUNTIME_FINGERPRINT,
       profileSha256: "a".repeat(64),
     };
-    const image = parseImageRuntime(
-      JSON.stringify({ ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256: "b" }),
+    const image = imageOf({ refused: { principal: {} } });
+    expect("error" in (image.profiles.refused ?? {})).toBe(true);
+    expect(() => planRuntime(sealed, image, "refused")).toThrow(
+      "the target image computed no profile digest: claim refused",
     );
-    expect(planRuntime(sealed, image)).toEqual(sealed);
-    expect(planRuntime(sealed, undefined)).toBe(sealed);
+    expect(() => planRuntime(sealed, image, "absent")).toThrow(
+      "the target image was given no claim for this session",
+    );
+    expect(planRuntime(sealed, undefined, "any")).toBe(sealed);
   });
 
   test("an image runtime missing a field or not JSON is refused", () => {
     expect(() => parseImageRuntime("not json")).toThrow("is not JSON");
     expect(() =>
-      parseImageRuntime(JSON.stringify({ cliVersion: "1", engine: "claude" })),
+      parseImageRuntime(
+        JSON.stringify({ cliVersion: "1", engine: "claude", profiles: {} }),
+      ),
     ).toThrow("has no sdkVersion");
+    expect(() =>
+      parseImageRuntime(JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT)),
+    ).toThrow("has no profiles");
+    expect(() =>
+      parseImageRuntime(
+        JSON.stringify({ ...CLAUDE_RUNTIME_FINGERPRINT, profiles: { s: {} } }),
+      ),
+    ).toThrow("has no profiles");
     expect(() => parseImageRuntime("null")).toThrow("has no cliVersion");
   });
 });
