@@ -61,4 +61,5 @@ API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할
 | `tests/e2e/db-restart.sh` | Postgres가 새 주소로 재시작한 뒤 API가 따라붙는지(`/readyz`, 요청 pool, 이벤트 listener) | 없음 | 스크립트 머리 주석 |
 | `scripts/d2-gate/run.sh` | D2 gate(94S-247의 A–E, 94S-320의 R1–R2, 94S-117의 H1–H5) | `D2 gate` workflow(nightly, required 아님) | [ci.md § D2 gate](ci.md#d2-gate-nightly-94s-404) |
 | `scripts/soak/rc.sh <rc-sha>` | release candidate 판정: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | 스크립트 머리 주석 |
+| `bun scripts/soak/p2-phase.ts [out-dir]` | 실행 중인 RC soak 스택에서 P-2의 UTC 5초 위상 60개를 각 2회 보완 측정 | 없음 | [P-2 보완 측정](soak.md) |
 | `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | soak 스택을 따로 다루거나 campaign만 돌린다 | 없음 | 스크립트 머리 주석 |
