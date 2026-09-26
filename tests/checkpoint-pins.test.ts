@@ -694,6 +694,7 @@ describe("backup → restore re-pin", () => {
 
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
   const PROFILE_ID = "claude-coding-local";
+  const REPOSITORY_ID = "sample-app";
   // The API's default catalog, credentials standing in as verify-restore's do.
   const catalog = async () =>
     resolveSessionCatalog(
@@ -701,16 +702,26 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       () => "verify-restore-reads-no-credential",
     );
   const sessionOf = async (overrides: {
+    branch?: string;
     profileFingerprint?: string | null;
     profileId?: string | null;
-  }) => ({
-    ownerId: "owner-a",
-    profileFingerprint: profileFingerprint(
-      (await catalog()).profiles[PROFILE_ID] as CatalogProfile,
-    ),
-    profileId: PROFILE_ID,
-    ...overrides,
-  });
+    repositoryId?: string | null;
+  }) => {
+    const resolved = await catalog();
+    const repository = resolved.repositories[REPOSITORY_ID];
+    if (repository === undefined) throw new Error("no sample repository");
+    return {
+      branch: repository.branch,
+      ownerId: "owner-a",
+      profileFingerprint: profileFingerprint(
+        resolved.profiles[PROFILE_ID] as CatalogProfile,
+      ),
+      profileId: PROFILE_ID,
+      repoUrl: repository.url,
+      repositoryId: REPOSITORY_ID,
+      ...overrides,
+    };
+  };
   const changedDigestOf = (digest: string) =>
     sha256Hex(new TextEncoder().encode(`v2:${digest}`));
   // What an image's worker would stamp: the output of image-runtime.ts.
@@ -797,7 +808,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     );
   });
 
-  test("the claim is the session's owner and its catalog profile; a profile gone or edited is refused", async () => {
+  test("the claim is the session's owner and its catalog profile; a pair the catalog no longer allows is refused", async () => {
     const resolved = await catalog();
     const claim = sessionClaim(await sessionOf({}), resolved);
     expect(claim.principal).toEqual({ owner_scope: "owner-a" });
@@ -808,13 +819,20 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(
       sessionClaim(await sessionOf({ profileFingerprint: null }), resolved),
     ).toEqual(claim);
-    const gone = await sessionOf({ profileId: "gone" });
-    expect(() => sessionClaim(gone, resolved)).toThrow(
-      "profile gone is not in the catalog",
-    );
+    for (const overrides of [
+      { profileId: "gone" },
+      { repositoryId: "gone" },
+      { repositoryId: null },
+      { branch: "re-pointed" },
+    ]) {
+      const session = await sessionOf(overrides);
+      expect(() => sessionClaim(session, resolved)).toThrow(
+        "are not an allowed pair in the catalog",
+      );
+    }
     const edited = await sessionOf({ profileFingerprint: "sha256:edited" });
     expect(() => sessionClaim(edited, resolved)).toThrow(
-      "is not the one the session was created with",
+      `profile ${PROFILE_ID} has other settings in the catalog than the session was created with`,
     );
   });
 

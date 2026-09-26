@@ -25,6 +25,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import type { RuntimeConfig } from "@agent-platform/contracts";
 import {
+  allowedPair,
   profileFingerprint,
   runtimeConfigOf,
   type SessionCatalog,
@@ -137,40 +138,47 @@ export function planRuntime(
 /**
  * The claim fields a worker hashes into a checkpoint's profile digest, as
  * the API would hand them to this session now: its owner and its profile
- * from the catalog (worker-gateway.ts `resolveProfile`). A profile gone from
- * the catalog or edited since the session was created is refused the same
- * way a claim is (94S-253). The token is a stand-in; the digest leaves the
- * credential out.
+ * from the catalog (worker-gateway.ts `resolveProfile`). A session the
+ * catalog no longer lets run — the pair gone, the repository re-pointed, the
+ * profile edited since the session was created — is refused, as a claim
+ * would refuse it (worker-unit-of-work.ts `runnablePairOf`, 94S-253/258).
+ * The token is a stand-in; the digest leaves the credential out.
  */
 export function sessionClaim(
   session: {
+    readonly branch: string;
     readonly ownerId: string;
     readonly profileFingerprint: string | null;
     readonly profileId: string | null;
+    readonly repoUrl: string;
+    readonly repositoryId: string | null;
   },
   catalog: SessionCatalog,
 ): { principal: { owner_scope: string }; runtime_config: RuntimeConfig } {
-  const profile =
-    session.profileId !== null &&
-    Object.hasOwn(catalog.profiles, session.profileId)
-      ? catalog.profiles[session.profileId]
-      : undefined;
-  if (profile === undefined) {
+  const pair =
+    session.profileId === null || session.repositoryId === null
+      ? null
+      : allowedPair(catalog, session.profileId, session.repositoryId);
+  if (
+    pair === null ||
+    pair.repository.url !== session.repoUrl ||
+    pair.repository.branch !== session.branch
+  ) {
     throw new Error(
-      `profile ${session.profileId ?? "(none)"} is not in the catalog`,
+      `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in the catalog`,
     );
   }
   if (
     session.profileFingerprint !== null &&
-    profileFingerprint(profile) !== session.profileFingerprint
+    profileFingerprint(pair.profile) !== session.profileFingerprint
   ) {
     throw new Error(
-      `profile ${session.profileId} in the catalog is not the one the session was created with`,
+      `profile ${session.profileId} has other settings in the catalog than the session was created with`,
     );
   }
   return {
     principal: { owner_scope: session.ownerId },
-    runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
+    runtime_config: runtimeConfigOf(pair.profile, "verify-restore-stand-in"),
   };
 }
 
