@@ -195,23 +195,49 @@ describe("native SDK message mapping", () => {
       `cat <<EOF\npassword: |\n  ${value}\nEOF`,
       `echo password=\n${value}`,
       `grep -rn "api_key=" /workspace`,
+      `password: [REDACTED] ${value}`,
+      `api_key=x:${value}"`,
     ]) {
       expect(shown(command)).toBe("[REDACTED]");
     }
   });
 
-  test("never hides a path, even one that reads like a sensitive name", () => {
-    const input = { file_path: "/workspace/api_key=fixture.txt" };
+  test("hides a value in linear time when its end is unclear", () => {
+    const command = `${"api_key=x:".repeat(50_000)}"`;
     const event = pendingRequestEvent(
       {
-        input,
+        input: { command },
         kind: "permission",
-        requestId: "request-5",
-        tool: "Write",
-        toolUseId: "tool-5",
+        requestId: "request-6",
+        tool: "Bash",
+        toolUseId: "tool-6",
       },
       "question",
     );
-    expect(event.event === "question" ? event.data.input : null).toEqual(input);
+    expect(event.event === "question" ? event.data.input : null).toEqual({
+      command: "[REDACTED]",
+    });
+  });
+
+  test("shows a path but still hides a value that reads like a sensitive name", () => {
+    const shown = (input: Record<string, string>) => {
+      const event = pendingRequestEvent(
+        {
+          input,
+          kind: "permission",
+          requestId: "request-5",
+          tool: "Write",
+          toolUseId: "tool-5",
+        },
+        "question",
+      );
+      return event.event === "question" ? event.data.input : null;
+    };
+    expect(shown({ file_path: "/workspace/api_key=fixture.txt" })).toEqual({
+      file_path: "/workspace/api_key=[REDACTED]",
+    });
+    expect(shown({ request_path: "/v1/jobs?api_key=violet&page=2" })).toEqual({
+      request_path: "/v1/jobs?api_key=[REDACTED]&page=2",
+    });
   });
 });
