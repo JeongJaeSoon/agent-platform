@@ -302,6 +302,7 @@ describe("usage reports (94S-451)", () => {
     const [row] = await db
       .select({
         speed: schema.providerUsage.speed,
+        inferenceGeo: schema.providerUsage.inferenceGeo,
         webSearchRequests: schema.providerUsage.webSearchRequests,
         webFetchRequests: schema.providerUsage.webFetchRequests,
         codeExecutionRequests: schema.providerUsage.codeExecutionRequests,
@@ -326,6 +327,7 @@ describe("usage reports (94S-451)", () => {
     expect(
       await report({
         speed: "fast",
+        inference_geo: "global",
         web_search_requests: 2,
         web_fetch_requests: 4,
         code_execution_requests: 1,
@@ -335,6 +337,7 @@ describe("usage reports (94S-451)", () => {
       body: { cost_usd: 0.07, priced_by: "table" },
       row: {
         speed: "fast",
+        inferenceGeo: "global",
         webSearchRequests: 2,
         webFetchRequests: 4,
         codeExecutionRequests: 1,
@@ -344,12 +347,23 @@ describe("usage reports (94S-451)", () => {
     });
   });
 
-  test("a report from a proxy that does not send the speed is priced high", async () => {
+  test("a US-only call pays 1.1x and the ledger row says so (94S-454)", async () => {
+    // claude-opus-5: $25 out per million.
+    const { body, row } = await report({
+      speed: "standard",
+      inference_geo: "us",
+    });
+    expect(body).toEqual({ cost_usd: 0.0275, priced_by: "table" });
+    expect(row).toMatchObject({ inferenceGeo: "us", pricedBy: "table" });
+  });
+
+  test("a report from a proxy that does not send the speed or the geo is priced high", async () => {
     const { status, body, row } = await report({});
     expect(status).toBe(200);
     expect(body.priced_by).toBe("fallback");
     expect(row).toMatchObject({
       speed: "unknown",
+      inferenceGeo: "unknown",
       webSearchRequests: 0,
       pricedBy: "fallback",
     });
@@ -383,7 +397,8 @@ describe("usage reports (94S-451)", () => {
       { path: EGRESS_USAGE_PATH },
     );
     expect(retry.status).toBe(200);
-    expect(await retry.json()).toMatchObject({ cost_usd: 0.025 });
+    // Priced today it would be the fallback; the answer is what was charged.
+    expect(await retry.json()).toEqual({ cost_usd: 0.025, priced_by: "table" });
   });
 });
 

@@ -226,7 +226,12 @@ function anthropicResponse(
     content: reply.content,
     stop_reason: reply.stopReason,
     stop_sequence: null,
-    usage: reply.usage ?? { input_tokens: 1, output_tokens: 4 },
+    // The API always says where it ran; the egress proxy prices a call that
+    // does not say at the highest rate.
+    usage: {
+      inference_geo: "global",
+      ...(reply.usage ?? { input_tokens: 1, output_tokens: 4 }),
+    },
   };
   const requestId = `req_${crypto.randomUUID()}`;
   if (!stream) {

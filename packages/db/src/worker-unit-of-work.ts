@@ -1302,6 +1302,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           cacheCreation1hInputTokens: input.usage.cacheCreation1hInputTokens,
           cacheReadInputTokens: input.usage.cacheReadInputTokens,
           speed: input.usage.speed,
+          inferenceGeo: input.usage.inferenceGeo,
           webSearchRequests: input.usage.webSearchRequests,
           webFetchRequests: input.usage.webFetchRequests,
           codeExecutionRequests: input.usage.codeExecutionRequests,
@@ -1318,7 +1319,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             pricedBy: input.pricedBy,
           })
           .onConflictDoNothing({ target: providerUsage.exchangeId })
-          .returning({ costUsd: providerUsage.costUsd });
+          .returning({
+            costUsd: providerUsage.costUsd,
+            pricedBy: providerUsage.pricedBy,
+          });
         if (inserted === undefined) {
           const [stored] = await tx
             .select({
@@ -1333,18 +1337,20 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
                 providerUsage.cacheCreation1hInputTokens,
               cacheReadInputTokens: providerUsage.cacheReadInputTokens,
               speed: providerUsage.speed,
+              inferenceGeo: providerUsage.inferenceGeo,
               webSearchRequests: providerUsage.webSearchRequests,
               webFetchRequests: providerUsage.webFetchRequests,
               codeExecutionRequests: providerUsage.codeExecutionRequests,
               estimated: providerUsage.estimated,
               costUsd: providerUsage.costUsd,
+              pricedBy: providerUsage.pricedBy,
             })
             .from(providerUsage)
             .where(eq(providerUsage.exchangeId, input.exchangeId));
           if (stored === undefined) return { outcome: "conflict" };
-          const { costUsd, ...was } = stored;
+          const { costUsd, pricedBy, ...was } = stored;
           return payloadHash(was) === payloadHash(call)
-            ? { outcome: "replayed", costUsd }
+            ? { outcome: "replayed", costUsd, pricedBy }
             : { outcome: "conflict" };
         }
         await tx
@@ -1353,7 +1359,11 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
           })
           .where(eq(sessions.id, input.sessionId));
-        return { outcome: "recorded", costUsd: inserted.costUsd };
+        return {
+          outcome: "recorded",
+          costUsd: inserted.costUsd,
+          pricedBy: inserted.pricedBy,
+        };
       });
     },
 

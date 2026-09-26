@@ -185,6 +185,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 0,
       speed: "standard",
+      inferenceGeo: "global",
       webSearchRequests: 0,
       webFetchRequests: 0,
       codeExecutionRequests: 0,
@@ -543,6 +544,43 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
         },
       ]);
       expect(await sessionCost(session.session_id)).toBe(0.07);
+    });
+
+    test("a US-only call is priced at 1.1x, and a retry naming another geo is a conflict (94S-454)", async () => {
+      const { session, claimed } = await bound();
+      const exchangeId = crypto.randomUUID();
+      const report = {
+        exchangeId,
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        // claude-opus-5: $25 out per million, times 1.1.
+        usage: usage({
+          model: "claude-opus-5",
+          inferenceGeo: "us",
+          outputTokens: 1_000,
+        }),
+      };
+      expect(await gateway.recordProviderUsage(report)).toEqual({
+        costUsd: 0.0275,
+        pricedBy: "table",
+      });
+      expect(
+        await failure(
+          gateway.recordProviderUsage({
+            ...report,
+            usage: { ...report.usage, inferenceGeo: "global" },
+          }),
+        ),
+      ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+      const rows = await db
+        .select({
+          inferenceGeo: providerUsage.inferenceGeo,
+          costUsd: providerUsage.costUsd,
+        })
+        .from(providerUsage)
+        .where(eq(providerUsage.exchangeId, exchangeId));
+      expect(rows).toEqual([{ inferenceGeo: "us", costUsd: 0.0275 }]);
+      expect(await sessionCost(session.session_id)).toBe(0.0275);
     });
 
     test("a turn the engine cut on its budget says why, and the metered sum is what holds the next poll (94S-279)", async () => {

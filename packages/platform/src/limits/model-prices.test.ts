@@ -12,6 +12,7 @@ const nothing = {
   cacheCreation1hInputTokens: 0,
   cacheReadInputTokens: 0,
   speed: "standard",
+  inferenceGeo: "global",
   webSearchRequests: 0,
   webFetchRequests: 0,
   codeExecutionRequests: 0,
@@ -121,5 +122,96 @@ describe("priceProviderUsage (94S-409)", () => {
         codeExecutionRequests: 7,
       }),
     ).toEqual({ costUsd: 0.03, pricedBy: "table" });
+  });
+
+  const highest = (() => {
+    const prices = [
+      ...Object.values(MODEL_PRICES),
+      ...Object.values(FAST_MODEL_PRICES),
+    ];
+    return {
+      input: Math.max(...prices.map((price) => price.inputUsdPerMtok)),
+      output: Math.max(...prices.map((price) => price.outputUsdPerMtok)),
+    };
+  })();
+
+  test("US-only inference pays 1.1x on every token rate, fast and cache ones included, but not on search fees (94S-454)", () => {
+    const tokens = {
+      ...nothing,
+      model: "claude-opus-5-5",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 2_000_000,
+      cacheCreation1hInputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+      webSearchRequests: 100,
+    };
+    // 4 + 20 + 1 × 4 × 1.25 + 1 × 4 × 2 + 0.2 = 37.2 in tokens, $1 in searches.
+    expect(priceProviderUsage(tokens)).toEqual({
+      costUsd: 38.2,
+      pricedBy: "table",
+    });
+    const us = priceProviderUsage({ ...tokens, inferenceGeo: "us" });
+    expect(us.pricedBy).toBe("table");
+    expect(us.costUsd).toBeCloseTo(37.2 * 1.1 + 1, 9);
+    // Fast: 74.4 in tokens (see above).
+    expect(
+      priceProviderUsage({ ...tokens, speed: "fast", inferenceGeo: "us" })
+        .costUsd,
+    ).toBeCloseTo(74.4 * 1.1 + 1, 9);
+    // A whole micro-dollar figure stays whole, with nothing for the ledger's
+    // ceil to round up.
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-opus-5",
+        outputTokens: 1_000,
+        inferenceGeo: "us",
+      }).costUsd,
+    ).toBe(0.0275);
+  });
+
+  test("a geo the table does not know pays the highest rate and the highest multiplier (94S-454)", () => {
+    for (const inferenceGeo of ["unknown", "eu", "US", "constructor"]) {
+      expect(
+        priceProviderUsage({
+          ...nothing,
+          model: "claude-sonnet-5",
+          outputTokens: 1_000_000,
+          inferenceGeo,
+        }),
+      ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "fallback" });
+    }
+  });
+
+  test("a model from before 4.6 pays standard rates whatever the geo says (94S-454)", () => {
+    for (const inferenceGeo of ["us", "unknown"]) {
+      expect(
+        priceProviderUsage({
+          ...nothing,
+          model: "claude-haiku-4-5",
+          outputTokens: 1_000_000,
+          inferenceGeo,
+        }),
+      ).toEqual({ costUsd: 5, pricedBy: "table" });
+    }
+  });
+
+  test("a model from before 4.6 past 200K input, cache included, pays the highest rate; 4.6 and later keep theirs (94S-454)", () => {
+    const at = (model: string, input: number) =>
+      priceProviderUsage({
+        ...nothing,
+        model,
+        inputTokens: input - 150_000,
+        cacheCreationInputTokens: 100_000,
+        cacheReadInputTokens: 50_000,
+      });
+    expect(at("claude-sonnet-4-5", 200_000).pricedBy).toBe("table");
+    const over = at("claude-sonnet-4-5-20250929", 200_001);
+    expect(over.pricedBy).toBe("fallback");
+    // 50,001 in, 100,000 written for five minutes, 50,000 read.
+    expect(over.costUsd).toBeGreaterThan((50_001 * highest.input) / 1_000_000);
+    expect(at("claude-sonnet-4-6", 900_000).pricedBy).toBe("table");
+    expect(at("claude-opus-4-6", 900_000).pricedBy).toBe("table");
   });
 });

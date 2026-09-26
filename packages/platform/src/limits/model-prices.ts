@@ -6,8 +6,8 @@
  * on 2026-09-26.
  *
  * Fast mode has its own rates (94S-451), and each web search adds its
- * per-search fee. An estimate, not a bill: long-context premiums, the US
- * inference_geo premium and code execution container time are not priced.
+ * per-search fee. US-only inference costs 1.1x on every token rate (94S-454).
+ * An estimate, not a bill: code execution container time is not priced.
  */
 
 type ModelPrice = {
@@ -63,6 +63,36 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "claude-haiku-4-5-20251001": HAIKU_4_5,
 };
 
+/**
+ * Models from before Claude 4.6. They cannot run with `inference_geo` and
+ * always pay the standard rates. Their window is 200K tokens and the table's
+ * rates stop there: an answer that used more came from a provider charging
+ * a long-context rate the table does not know.
+ */
+const BEFORE_4_6: ReadonlySet<string> = new Set([
+  "claude-opus-4-5",
+  "claude-opus-4-5-20251101",
+  "claude-opus-4-0",
+  "claude-opus-4-20250514",
+  "claude-sonnet-4-5",
+  "claude-sonnet-4-5-20250929",
+  "claude-sonnet-4-0",
+  "claude-sonnet-4-20250514",
+  "claude-haiku-4-5",
+  "claude-haiku-4-5-20251001",
+]);
+const BEFORE_4_6_CONTEXT_TOKENS = 200_000;
+
+/**
+ * What `inference_geo` multiplies every token rate by, cache ones included,
+ * in percent: a whole micro-dollar figure stays whole, where times 1.1 it
+ * would pick up float noise that the ledger's ceil turns into a micro-dollar.
+ */
+const GEO_PERCENT: Readonly<Record<string, number>> = {
+  global: 100,
+  us: 110,
+};
+
 /** `speed: "fast"` rates, twice the standard ones for the models offering it. */
 export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "claude-opus-5-5": price(8, 40, 0.4),
@@ -77,9 +107,10 @@ export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
 const WEB_SEARCH_MICRO_USD = 10_000;
 
 /**
- * A model the table does not know, at a speed it does not know, is charged
- * every part at the highest rate either table has: a budget errs on counting
- * too much, never too little.
+ * A model the table does not know, at a speed or in a geo it does not know,
+ * is charged every part at the highest rate either table has, and an unknown
+ * geo at the highest multiplier too: a budget errs on counting too much,
+ * never too little.
  */
 const FALLBACK_PRICE: ModelPrice = (() => {
   const prices = [
@@ -92,6 +123,7 @@ const FALLBACK_PRICE: ModelPrice = (() => {
     Math.max(...prices.map((known) => known.cacheReadUsdPerMtok)),
   );
 })();
+const FALLBACK_GEO_PERCENT = Math.max(...Object.values(GEO_PERCENT));
 
 export type ProviderUsage = {
   model: string;
@@ -103,6 +135,8 @@ export type ProviderUsage = {
   cacheReadInputTokens: number;
   /** `standard`, `fast`, or whatever else the call named, which is priced high. */
   speed: string;
+  /** `global`, `us`, or whatever else, `unknown` included, which is priced high. */
+  inferenceGeo: string;
   webSearchRequests: number;
   webFetchRequests: number;
   /** Billed by container time, which the answer does not say: not priced. */
@@ -121,9 +155,22 @@ export function priceProviderUsage(usage: ProviderUsage): {
       : usage.speed === "fast"
         ? FAST_MODEL_PRICES
         : {};
-  const known = Object.hasOwn(table, usage.model)
-    ? table[usage.model]
-    : undefined;
+  const older = BEFORE_4_6.has(usage.model);
+  const geo = older
+    ? 100
+    : Object.hasOwn(GEO_PERCENT, usage.inferenceGeo)
+      ? GEO_PERCENT[usage.inferenceGeo]
+      : undefined;
+  const longContext =
+    older &&
+    usage.inputTokens +
+      usage.cacheCreationInputTokens +
+      usage.cacheReadInputTokens >
+      BEFORE_4_6_CONTEXT_TOKENS;
+  const known =
+    geo !== undefined && !longContext && Object.hasOwn(table, usage.model)
+      ? table[usage.model]
+      : undefined;
   const rates = known ?? FALLBACK_PRICE;
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
@@ -139,7 +186,9 @@ export function priceProviderUsage(usage: ProviderUsage): {
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
     costUsd:
-      (perMtok + usage.webSearchRequests * WEB_SEARCH_MICRO_USD) / 1_000_000,
+      ((perMtok * (geo ?? FALLBACK_GEO_PERCENT)) / 100 +
+        usage.webSearchRequests * WEB_SEARCH_MICRO_USD) /
+      1_000_000,
     pricedBy: known === undefined ? "fallback" : "table",
   };
 }
