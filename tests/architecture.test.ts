@@ -646,7 +646,11 @@ describe("architecture", () => {
       join(root, worker, "src", "index.ts"),
       "utf8",
     );
-    expect(workerEntry).not.toMatch(/export (type )?\* from "@/);
+    const reexported = [...workerEntry.matchAll(importPattern)].map(
+      specifierOf,
+    );
+    expect(reexported.length).toBeGreaterThan(0);
+    expect(reexported.filter((s) => !s.startsWith("./"))).toEqual([]);
   });
 
   test("operational scripts take the checkpoint codec from the SDK-free package", async () => {
@@ -673,5 +677,43 @@ describe("architecture", () => {
       }
     }
     expect(declaring).toEqual([]);
+    const fromCore =
+      /import\s*\{([^}]*)\}\s*from\s*"@agent-platform\/runtime-core"/g;
+    const consumers: Array<[string, string[]]> = [
+      [
+        join(worker, "src", "session-checkpoints.ts"),
+        [
+          "DEFAULT_MAX_MANIFEST_BYTES",
+          "DEFAULT_MAX_MANIFEST_OBJECTS",
+          "MAX_WORKSPACE_BUNDLE_CHAIN",
+        ],
+      ],
+      [
+        join(worker, "src", "workspace-capture.ts"),
+        ["DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES"],
+      ],
+      [
+        join(platform, "src", "checkpoints", "checkpoint-service.ts"),
+        [
+          "DEFAULT_MAX_MANIFEST_BYTES",
+          "DEFAULT_MAX_MANIFEST_OBJECTS",
+          "DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES",
+          "MAX_WORKSPACE_BUNDLE_CHAIN",
+        ],
+      ],
+    ];
+    for (const [file, limits] of consumers) {
+      const source = await readFile(join(root, file), "utf8");
+      const imported = [...source.matchAll(fromCore)].flatMap((match) =>
+        (match[1] ?? "").split(",").map((name) => name.trim()),
+      );
+      expect({
+        file,
+        missing: limits.filter((n) => !imported.includes(n)),
+      }).toEqual({
+        file,
+        missing: [],
+      });
+    }
   });
 });
