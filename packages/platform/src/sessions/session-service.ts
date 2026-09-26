@@ -633,8 +633,9 @@ export function createSessionService(deps: {
       return page;
     },
 
-    // Only the principal that issued the command may read its receipt;
-    // anyone else sees the same 404 as for a receipt that never existed.
+    // Any principal of the issuing owner's partition may read a receipt,
+    // not only the one that issued the command; another owner sees the same
+    // 404 as for a receipt that never existed.
     async getReceipt(actor: Principal, receiptId: string): Promise<Receipt> {
       requirePermitted(authorization, actor, "sessions:read");
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);

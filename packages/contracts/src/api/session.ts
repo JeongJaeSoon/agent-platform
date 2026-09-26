@@ -145,8 +145,9 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   // Workers claimed with the session's checkpoint kept ending before the
   // restore finished (94S-345). While retry_at is set the next launch waits
   // for it; null means the limit was reached and the session is held in
-  // recovery_required: start_fresh continues without the checkpoint, close
-  // ends the session. A restore that succeeds clears it.
+  // recovery_required: retry_restore tries the same checkpoint again once the
+  // cause outside the session is fixed (94S-348), start_fresh continues
+  // without it, close ends the session. A restore that succeeds clears it.
   z.object({
     code: z.literal("RESTORE_FAILED"),
     reason: z.string().min(1),

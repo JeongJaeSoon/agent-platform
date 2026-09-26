@@ -86,7 +86,7 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 2. **schema 검사** — manifest의 `schema.applied`가 이 checkout `packages/db/migrations`의 journal(각 SQL 파일 sha256, journal 순서)과 정확히 같아야 한다. 오래된 백업도, 이 checkout이 모르는 migration이 든 백업도 exit 3으로 거부한다. 오래된 백업을 올리려면 그 백업과 같은 commit을 checkout해 복원·검증한 뒤 migration을 별도 단계로 돌린다.
 3. `env`면 대상 bucket 검사(아래 6.1–6.2와 같은 것)를 docker를 건드리기 전에 먼저 한다. `--check-only`도 이 검사를 한다.
 4. 대상 project 이름을 label로 가진 container·volume·network가 하나라도 있으면 exit 4. 기존 설치는 절대 재사용하지 않는다. 같은 이름으로 동시에 들어오는 restore는 `<project>-restore-lock` network 생성으로 하나만 통과한다(끝나면 제거).
-5. `infra/docker-compose.restore.yml`을 겹쳐 postgres·gitea(`localstack`이면 localstack도)를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순), postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
+5. `infra/docker-compose.restore.yml`을 겹쳐 postgres·gitea(`localstack`이면 localstack도)를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순. 스크립트가 `RESTORE_POSTGRES_PORT`·`RESTORE_LOCALSTACK_PORT`·`RESTORE_GITEA_HTTP_PORT`·`RESTORE_GITEA_SSH_PORT`로 넘긴다), postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
 6. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
 7. object와 재고정. 첫 쓰기 직전에 대상 bucket을 다시 검사한다(`object-store-cli.ts check-target`).
    1. `env`에서 대상 bucket 이름이 백업의 원본 bucket(`manifest.json`의 `objects.bucket`)과 같으면 endpoint와 상관없이 exit 4로 거부한다. 같은 저장소도 여러 주소로 부를 수 있어서(AWS S3의 전역·리전 endpoint, `localhost`와 `127.0.0.1`) 주소 비교로는 원본이 아님을 증명할 수 없다. 다른 저장소로 훈련할 때도 다른 이름의 bucket을 쓴다. `localstack`이면 대상이 방금 띄운 LocalStack이라 원본일 수 없다. bucket이 없으면 Object Lock과 SSE-S3로 만든다. 기본 `claude-sessions`는 localstack init이 만든다.
@@ -179,7 +179,7 @@ tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2
    - worker 로그의 `worker.checkpoint.restored`가 원본 revision과 commit을 가리킨다.
    - `manifest.json`의 `images.worker`가 원본 worker 컨테이너의 image와 같고, 복원본 worker의 image와도 같다.
 
-knob: `RR_PROJECT`(원본 project 이름, 복원 project는 `<이름>r`), `RR_INSTALLATION_ID`(두 쪽 공용 `EXECUTION_INSTALLATION_ID`), `RR_PORT_BASE`(복원 project의 loopback 포트 4개, 기본값 24320), `RR_KEEP=1`(스택·이미지·backup을 남김). 두 project와 installation 라벨 자원이 이미 있으면 아무것도 지우지 않고 멈춘다.
+knob: `RR_PROJECT`(원본 project 이름, 복원 project는 `<이름>r`), `RR_INSTALLATION_ID`(두 쪽 공용 `EXECUTION_INSTALLATION_ID`), `RR_PORT_BASE`(복원 project의 loopback 포트 4개, 기본값 24320), `RR_KEEP=1`(스택·이미지·backup을 남김), `RR_IMAGES_FROM=<project>`(아무것도 빌드하지 않고 그 project가 이미 가진 이미지를 두 project에 다시 tag해서 쓴다. `scripts/soak/stack.sh`나 `scripts/d2-gate/run.sh`가 띄운 스택의 이미지로 release candidate를 그대로 확인할 때 쓴다. 두 project 이름과 달라야 한다). 두 project와 installation 라벨 자원이 이미 있으면 아무것도 지우지 않고 멈춘다.
 
 engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session_id` 컬럼은 아무 코드도 쓰지 않는다.
 

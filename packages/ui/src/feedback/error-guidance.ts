@@ -13,7 +13,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PAYLOAD_TOO_LARGE: "내용이 너무 큽니다 — 나눠서 보내세요.",
   REQUEST_TIMEOUT:
     "전송이 제때 끝나지 않았습니다 — 연결을 확인하고 다시 보내세요.",
-  UNSUPPORTED_CAPABILITY: "이 런타임이 지원하지 않는 기능입니다.",
+  UNSUPPORTED_CAPABILITY:
+    "허용되지 않은 프로필·저장소이거나 이 세션에서는 할 수 없는 작업입니다 — 목록에서 다시 고르거나 새 세션을 만드세요.",
   RATE_LIMITED: "요청이 몰렸습니다 — 잠시 뒤 다시 시도하세요.",
   STORAGE_LIMIT_EXCEEDED:
     "저장 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
@@ -30,7 +31,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   SESSION_CLOSED: "보관된 세션입니다 — 새 세션으로 이어가세요.",
   SESSION_STOPPED: "종료된 세션입니다 — 재개한 뒤 보내세요.",
   RECOVERY_REQUIRED: "결과를 확인해야 합니다 — 복구 결정을 내리세요.",
-  CHECKPOINT_UNAVAILABLE: "복원 지점을 읽지 못했습니다 — 담당자에게 알리세요.",
+  CHECKPOINT_UNAVAILABLE:
+    "이어갈 저장 지점이 없거나 저장이 멈춰 처리하지 못했습니다 — 세션 상세의 안내를 확인하세요.",
   PAUSE_COMMITTING: "일시정지를 마무리하는 중입니다 — 잠시 뒤 다시 시도하세요.",
   PAUSE_CANCELLED: "일시정지가 취소됐습니다 — 현재 상태를 확인하세요.",
   CONTROL_SUPERSEDED:

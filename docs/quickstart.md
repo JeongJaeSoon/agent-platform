@@ -15,13 +15,10 @@ not run as-is is ```sh or ```text.
 
 ## 대상: 신뢰된 내부 인원 한정
 
-private alpha는 **신뢰된 내부 인원만** 쓴다. 워커 안에서 실행되는 코드(에이전트의 tool 실행, prompt injection으로 들어온 명령 포함)는 다음에 접근할 수 있고, 이것은 알려진 제약이다.
+private alpha는 **신뢰된 내부 인원만** 쓴다. 다음은 알려진 제약이다.
 
-- 카탈로그가 바뀐 뒤의 재claim ([94S-253](https://linear.app/94soon/issue/94S-253))
-
-provider key, 저장소 credential, object store credential 값은 worker에 가지 않는다([94S-252](https://linear.app/94soon/issue/94S-252), [94S-251](https://linear.app/94soon/issue/94S-251)). 다만 attempt가 살아 있는 동안은 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 그리고 자기 세션 prefix 안의 object를 부를 수 있다.
-
-외부 사용자·멀티 테넌트·공유 환경에 열기 전에 위 티켓을 닫아야 한다.
+- 워커 안에서 실행되는 코드(에이전트의 tool 실행, prompt injection으로 들어온 명령 포함)는 attempt가 살아 있는 동안 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 그리고 자기 세션 prefix 안의 object를 부를 수 있다. provider key, 저장소 credential, object store credential 값 자체는 worker에 가지 않는다([94S-252](https://linear.app/94soon/issue/94S-252), [94S-251](https://linear.app/94soon/issue/94S-251)).
+- 모든 세션이 운영자의 provider key 하나를 같이 쓴다. 외부 사용자에게 열기 전에 사용자마다 자기 key를 등록하는 BYOK가 있어야 한다([94S-376](https://linear.app/94soon/issue/94S-376)).
 
 ## 0. 준비물
 
@@ -66,7 +63,7 @@ echo "${KEY:0:12}…"
 scripts/local.sh status
 ```
 
-`up`은 compose project `agent-platform`을 띄운다. 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 뜨는 서비스는 다음과 같다.
+`up`은 compose project `agent-platform`을 띄운다. 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
 - postgres(+ 한 번 도는 `migrate`), localstack(S3), secrets(API 전용 Secrets Manager), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages, egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
