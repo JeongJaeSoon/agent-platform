@@ -47,7 +47,10 @@ export const turnSummarySchema = z.object({
   }),
   message: z.string(),
   terminal_reason: z.string().min(1).nullable(),
-  checkpoint_revision: revisionSchema.nullable(),
+  checkpoint_revision: revisionSchema.nullable().meta({
+    description:
+      "The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left.",
+  }),
   created_at: timestampSchema,
   started_at: timestampSchema.nullable(),
   ended_at: timestampSchema.nullable(),

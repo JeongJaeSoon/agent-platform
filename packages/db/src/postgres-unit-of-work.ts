@@ -47,6 +47,7 @@ import {
   exists,
   gt,
   inArray,
+  isNull,
   max,
   notExists,
   sql,
@@ -476,14 +477,23 @@ export function createPostgresSessionReader(
 ): SessionReader {
   async function ownedSession(ownerId: string, sessionId: string) {
     const [row] = await db
-      .select({ id: sessions.id })
+      .select({
+        id: sessions.id,
+        retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
+      })
       .from(sessions)
       .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
       .limit(1);
     return row ?? null;
   }
 
-  async function checkpointRevisions(turnIds: number[]) {
+  // Only a revision a restore can still reach counts: one garbage
+  // collection took, or one a start_fresh decision retired (94S-288), does
+  // not.
+  async function checkpointRevisions(
+    turnIds: number[],
+    retiredCheckpointRevision: number | null,
+  ) {
     if (turnIds.length === 0) return new Map<number, number>();
     const rows = await db
       .select({
@@ -491,7 +501,15 @@ export function createPostgresSessionReader(
         revision: max(checkpoints.revision),
       })
       .from(checkpoints)
-      .where(inArray(checkpoints.turnId, turnIds))
+      .where(
+        and(
+          inArray(checkpoints.turnId, turnIds),
+          isNull(checkpoints.collectedAt),
+          retiredCheckpointRevision === null
+            ? undefined
+            : gt(checkpoints.revision, retiredCheckpointRevision),
+        ),
+      )
       .groupBy(checkpoints.turnId);
     return new Map(
       rows.flatMap((row) =>
@@ -664,6 +682,21 @@ export function createPostgresSessionReader(
             },
           ]);
           if (!summary) return null;
+          // A pool launch carries whatever generation its backend picked, so
+          // the highest generation need not be the execution that claimed
+          // last (94S-212). The session names its current one; once
+          // released, its last attempt does.
+          const [lastAttempt] =
+            row.executionId === null
+              ? await tx
+                  .select({ executionId: attempts.executionId })
+                  .from(attempts)
+                  .where(eq(attempts.sessionId, sessionId))
+                  .orderBy(desc(attempts.leaseEpoch))
+                  .limit(1)
+              : [];
+          const currentExecutionId =
+            row.executionId ?? lastAttempt?.executionId ?? null;
           const [execution] = await tx
             .select({
               backend: executions.backend,
@@ -672,7 +705,12 @@ export function createPostgresSessionReader(
             })
             .from(executions)
             .where(eq(executions.sessionId, sessionId))
-            .orderBy(desc(executions.generation))
+            .orderBy(
+              ...(currentExecutionId === null
+                ? []
+                : [desc(eq(executions.id, currentExecutionId))]),
+              desc(executions.generation),
+            )
             .limit(1);
           const [completed] = await tx
             .select({ sequence: max(turns.sequence) })
@@ -745,7 +783,8 @@ export function createPostgresSessionReader(
 
     async listTurns(ownerId: string, sessionId: string, query: ListTurnsQuery) {
       const cursor = query.cursor ? decodeTurnCursor(query.cursor) : null;
-      if (!(await ownedSession(ownerId, sessionId))) return null;
+      const session = await ownedSession(ownerId, sessionId);
+      if (!session) return null;
       const rows = await turnWithInput()
         .where(
           and(
@@ -759,6 +798,7 @@ export function createPostgresSessionReader(
       const last = page[page.length - 1];
       const revisions = await checkpointRevisions(
         page.map(({ turn }) => turn.id),
+        session.retiredCheckpointRevision,
       );
       return {
         items: page.map(({ turn, awaitingInput }) =>
@@ -787,7 +827,10 @@ export function createPostgresSessionReader(
         .limit(1);
       if (!read) return null;
       const row = read.turn;
-      const revisions = await checkpointRevisions([row.id]);
+      const revisions = await checkpointRevisions(
+        [row.id],
+        session.retiredCheckpointRevision,
+      );
       const parts = resultParts(row.resultJson);
       const attemptRows = row.attemptId
         ? await db
@@ -825,19 +868,23 @@ export function createPostgresSessionReader(
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
       if (!row) return null;
-      // Every operation this unit of work writes targets a session; the
-      // resource variant of the union belongs to the interface-track routes.
-      const target = (row.targetRef ?? {}) as Partial<ReceiptSessionTarget>;
+      // A resource target (the interface-track routes) parses as stored,
+      // strict, rather than being forced into the session shape.
+      const stored = (row.targetRef ?? {}) as Partial<ReceiptSessionTarget>;
+      const target =
+        "resource" in stored
+          ? stored
+          : {
+              session_id: stored.session_id,
+              turn_id: stored.turn_id ?? null,
+              request_id: stored.request_id ?? null,
+            };
       // operation/error are stored untyped; a row this reader cannot
       // represent is a bug in the writer, so let the parse throw.
       return receiptSchema.parse({
         id: row.id,
         operation: row.operation,
-        target_ref: {
-          session_id: target.session_id,
-          turn_id: target.turn_id ?? null,
-          request_id: target.request_id ?? null,
-        },
+        target_ref: target,
         status: row.status,
         result: row.result ?? null,
         error: row.error ?? null,
