@@ -1,7 +1,14 @@
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { distribution, soakEnv } from "./lib.ts";
 import { Api } from "./probes.ts";
+import { curlLoop, HOST_PROBE, type HostProbeSample } from "./soak.ts";
 
 const WARMUP_MS = 15 * 60_000;
 const CYCLE_MS = 5 * 60_000;
@@ -22,15 +29,6 @@ export type PhasePlanEntry = {
   bucket: number;
 };
 
-export type HostProbeSample = {
-  target: "vm-lag" | "host-echo";
-  sentAt: string;
-  ms: number;
-  status: number;
-  ok: boolean;
-  error: string | null;
-};
-
 export type PhaseSample = {
   sequence: number;
   plannedAt: string;
@@ -43,7 +41,6 @@ export type PhaseSample = {
   status: number;
   accepted: boolean;
   response: unknown;
-  hostProbe: HostProbeSample[];
 };
 
 export type PhaseJudgement = {
@@ -92,8 +89,9 @@ export function buildPhasePlan(nowMs: number): PhasePlanEntry[] {
 export function judgePhase(
   plan: readonly PhasePlanEntry[],
   samples: readonly PhaseSample[],
+  additionalReasons: readonly string[] = [],
 ): PhaseJudgement {
-  const reasons: string[] = [];
+  const reasons = [...additionalReasons];
   const sequences = new Set(samples.map((sample) => sample.sequence));
   const plannedBySequence = new Map(
     plan.map((entry) => [entry.sequence, entry] as const),
@@ -160,6 +158,91 @@ function gitSha(): string {
   return result.stdout.toString().trim();
 }
 
+type RcRecord = {
+  rc_sha?: unknown;
+  images?: Array<{ image?: unknown; id?: unknown }>;
+};
+
+function imageId(image: string): string {
+  const result = Bun.spawnSync([
+    "docker",
+    "image",
+    "inspect",
+    "--format",
+    "{{.Id}}",
+    image,
+  ]);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `could not inspect image ${image}: ${result.stderr.toString().trim()}`,
+    );
+  }
+  return result.stdout.toString().trim();
+}
+
+function verifyRcImages(
+  rcPath: string,
+  images: readonly string[],
+): { rcJson: string; productSha: string; imageIds: Record<string, string> } {
+  const rc = JSON.parse(readFileSync(rcPath, "utf8")) as RcRecord;
+  if (typeof rc.rc_sha !== "string" || !Array.isArray(rc.images)) {
+    throw new Error(`${rcPath} has no RC SHA or image records`);
+  }
+  const imageIds: Record<string, string> = {};
+  for (const image of images) {
+    const current = imageId(image);
+    const recorded = rc.images.some(
+      (entry) => entry.image === image && entry.id === current,
+    );
+    if (!recorded) {
+      throw new Error(
+        `${image} is ${current}, not an image recorded in ${rcPath}`,
+      );
+    }
+    imageIds[image] = current;
+  }
+  return { rcJson: rcPath, productSha: rc.rc_sha, imageIds };
+}
+
+async function steadySessionCount(api: Api): Promise<number> {
+  const steadyStates = new Set([
+    "active",
+    "pausing",
+    "paused",
+    "resuming",
+    "stopping",
+  ]);
+  let cursor: string | null = null;
+  let count = 0;
+  do {
+    const query = new URLSearchParams({ limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const response = await api.call("GET", `/v1/sessions?${query}`);
+    if (response.status !== 200) {
+      throw new Error(
+        `could not list steady sessions: HTTP ${response.status}`,
+      );
+    }
+    const page = response.body as {
+      items?: Array<{ admission_state?: unknown }>;
+      next_cursor?: unknown;
+    };
+    if (!Array.isArray(page.items)) {
+      throw new Error("session list response has no items");
+    }
+    count += page.items.filter(
+      (item) =>
+        typeof item.admission_state === "string" &&
+        steadyStates.has(item.admission_state),
+    ).length;
+    if (page.next_cursor !== null && typeof page.next_cursor !== "string") {
+      throw new Error("session list response has an invalid next_cursor");
+    }
+    cursor = page.next_cursor;
+  } while (cursor !== null);
+  return count;
+}
+
 function atomicJson(path: string, value: unknown): void {
   const temporary = `${path}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
@@ -213,50 +296,14 @@ async function waitUntil(atMs: number): Promise<void> {
   }
 }
 
-async function hostProbe(
-  target: HostProbeSample["target"],
-  url: string,
-): Promise<HostProbeSample> {
-  const sentAtMs = Date.now();
-  const started = performance.now();
-  try {
-    const response = await fetch(`${url}/healthz`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    await response.arrayBuffer();
-    return {
-      target,
-      sentAt: new Date(sentAtMs).toISOString(),
-      ms: Math.round(performance.now() - started),
-      status: response.status,
-      ok: response.status === 200,
-      error: null,
-    };
-  } catch (error) {
-    return {
-      target,
-      sentAt: new Date(sentAtMs).toISOString(),
-      ms: Math.round(performance.now() - started),
-      status: 0,
-      ok: false,
-      error: String(error),
-    };
-  }
-}
-
 async function main(): Promise<number> {
-  const [outArg] = process.argv.slice(2);
+  const [outArg, rcArg] = process.argv.slice(2);
   const env = soakEnv();
   if (!env.vmLagUrl || !env.hostEchoUrl) {
     throw new Error(
       "SOAK_VM_LAG_URL and SOAK_HOST_ECHO_URL are required for host probe evidence",
     );
   }
-  const productSha = process.env.SOAK_PRODUCT_SHA;
-  if (!productSha) {
-    throw new Error("SOAK_PRODUCT_SHA is required");
-  }
-
   const stamp = new Date().toISOString().replaceAll(":", "").slice(0, 15);
   const dir = resolve(
     outArg ?? join(process.env.SOAK_STATE ?? ".", `p2-phase-${stamp}`),
@@ -268,10 +315,31 @@ async function main(): Promise<number> {
     throw new Error(`refusing to replace an existing P-2 artifact in ${dir}`);
   }
 
+  const egressProxyImage = process.env.EGRESS_PROXY_IMAGE;
+  if (!egressProxyImage) {
+    throw new Error("EGRESS_PROXY_IMAGE is required");
+  }
+  const rcPath = resolve(
+    rcArg ?? process.env.P2_PHASE_RC_JSON ?? join(dir, "..", "rc.json"),
+  );
+  const provenance = verifyRcImages(rcPath, [
+    env.apiImage,
+    env.workerImage,
+    egressProxyImage,
+  ]);
+  const api = new Api(env.apiUrl, env.apiKey);
+  const initialSteadySessions = await steadySessionCount(api);
+  if (initialSteadySessions !== 10) {
+    throw new Error(
+      `expected 10 steady sessions before warmup, found ${initialSteadySessions}`,
+    );
+  }
+
   const toolsSha = gitSha();
   const createdAt = new Date().toISOString();
   const plan = buildPhasePlan(Date.now());
   const samples: PhaseSample[] = [];
+  const hostProbe: HostProbeSample[] = [];
   const writeArtifacts = (
     judgement: PhaseJudgement | null,
     observedInvalidReasons: readonly string[] = [],
@@ -282,19 +350,22 @@ async function main(): Promise<number> {
     atomicJson(jsonPath, {
       schemaVersion: 1,
       createdAt,
-      productSha,
+      productSha: provenance.productSha,
       toolsSha,
+      provenance,
+      initialSteadySessions,
       verdict,
       plan,
       samples,
       judgement,
       observedInvalidReasons,
+      hostProbe,
       hostProbeUse: "diagnostic only; never excludes a sample",
     });
     writeFileSync(
       markdownPath,
       markdown(
-        productSha,
+        provenance.productSha,
         toolsSha,
         plan,
         samples,
@@ -306,44 +377,74 @@ async function main(): Promise<number> {
   writeArtifacts(null);
   console.error(`P-2 phase plan written to ${jsonPath}`);
 
-  const api = new Api(env.apiUrl, env.apiKey);
-  for (const entry of plan) {
-    await waitUntil(entry.plannedAtMs);
-    const posted = await api.createSession(
-      `P-2 supplemental phase sample ${entry.sequence}`,
-    );
-    const windowStart = Math.floor(entry.plannedAtMs / BUCKET_MS) * BUCKET_MS;
-    const probes = await Promise.all([
-      hostProbe("vm-lag", env.vmLagUrl),
-      hostProbe("host-echo", env.hostEchoUrl),
-    ]);
-    samples.push({
-      sequence: entry.sequence,
-      plannedAt: entry.plannedAt,
-      plannedBucket: entry.bucket,
-      sentAt: new Date(posted.sentAt).toISOString(),
-      sentAtMs: posted.sentAt,
-      actualBucket: phaseBucket(posted.sentAt),
-      inPlannedWindow:
-        posted.sentAt >= windowStart && posted.sentAt < windowStart + BUCKET_MS,
-      acceptMs: posted.ms,
-      status: posted.status,
-      accepted: posted.status === 201 || posted.status === 202,
-      response: posted.body,
-      hostProbe: probes,
-    });
-    const observedInvalidReasons = [
-      ...(samples.some((sample) => !sample.inPlannedWindow)
-        ? ["one or more samples left their planned 5-second window"]
-        : []),
-      ...(samples.some((sample) => !sample.accepted)
-        ? ["one or more samples were not accepted with 201 or 202"]
-        : []),
-    ];
-    writeArtifacts(null, observedInvalidReasons);
+  const probeClock = { stopping: false };
+  const probeTasks = [
+    ["vm-lag", `${env.vmLagUrl}/healthz`],
+    ["host-echo", `${env.hostEchoUrl}/healthz`],
+  ].map(([target, url]) =>
+    curlLoop(
+      probeClock,
+      url as string,
+      HOST_PROBE.intervalMs,
+      HOST_PROBE.timeoutMs,
+      (sample) => hostProbe.push({ target: target as string, ...sample }),
+    ),
+  );
+
+  let runtimeError: string | null = null;
+  try {
+    const first = plan[0];
+    if (!first) throw new Error("phase plan is empty");
+    await waitUntil(first.plannedAtMs - 10_000);
+    const steadySessions = await steadySessionCount(api);
+    if (steadySessions !== 10) {
+      throw new Error(
+        `expected 10 steady sessions after warmup, found ${steadySessions}`,
+      );
+    }
+    for (const entry of plan) {
+      await waitUntil(entry.plannedAtMs);
+      const posted = await api.createSession(
+        `P-2 supplemental phase sample ${entry.sequence}`,
+      );
+      const windowStart = Math.floor(entry.plannedAtMs / BUCKET_MS) * BUCKET_MS;
+      samples.push({
+        sequence: entry.sequence,
+        plannedAt: entry.plannedAt,
+        plannedBucket: entry.bucket,
+        sentAt: new Date(posted.sentAt).toISOString(),
+        sentAtMs: posted.sentAt,
+        actualBucket: phaseBucket(posted.sentAt),
+        inPlannedWindow:
+          posted.sentAt >= windowStart &&
+          posted.sentAt < windowStart + BUCKET_MS,
+        acceptMs: posted.ms,
+        status: posted.status,
+        accepted: posted.status === 201 || posted.status === 202,
+        response: posted.body,
+      });
+      const observedInvalidReasons = [
+        ...(samples.some((sample) => !sample.inPlannedWindow)
+          ? ["one or more samples left their planned 5-second window"]
+          : []),
+        ...(samples.some((sample) => !sample.accepted)
+          ? ["one or more samples were not accepted with 201 or 202"]
+          : []),
+      ];
+      writeArtifacts(null, observedInvalidReasons);
+    }
+  } catch (error) {
+    runtimeError = String(error);
+  } finally {
+    probeClock.stopping = true;
+    await Promise.all(probeTasks);
   }
 
-  const judgement = judgePhase(plan, samples);
+  const judgement = judgePhase(
+    plan,
+    samples,
+    runtimeError === null ? [] : [runtimeError],
+  );
   writeArtifacts(judgement);
   console.error(`P-2 phase verdict: ${judgement.verdict}`);
   return judgement.verdict === "PASS" ? 0 : 1;

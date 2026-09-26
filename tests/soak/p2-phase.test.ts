@@ -20,7 +20,6 @@ function samples(latencies: number[]): PhaseSample[] {
     status: 202,
     accepted: true,
     response: {},
-    hostProbe: [],
   }));
 }
 

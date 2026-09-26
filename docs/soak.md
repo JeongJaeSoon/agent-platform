@@ -6,11 +6,11 @@ RC4 24시간 soak의 최종 P-2가 실패했을 때만, 기존 stack과 10-sessi
 
 ```bash
 source "${SOAK_STATE:-${TMPDIR:-/tmp}/soak135-state}/vars.sh"
-export SOAK_PRODUCT_SHA=40864efa
-bun scripts/soak/p2-phase.ts "$SOAK_STATE/rc-40864efa/p2-phase"
+run_dir="$SOAK_STATE/rc-40864ef"
+bun scripts/soak/p2-phase.ts "$run_dir/p2-phase" "$run_dir/rc.json"
 ```
 
-스크립트는 즉시 `p2-phase.json`에 전체 계획표를 기록한 뒤 15분 이상 warmup한다. 이후 UTC 5분 경계에 맞춘 연속 24개 cycle에서 매분 한 번씩 총 120개의 `POST /v1/sessions` 요청을 보낸다. 각 요청은 재시도하거나 다른 표본으로 대체하지 않으며, 실제 전송 시각이 예약된 5초 창을 벗어나거나 201/202가 아니거나 표본·bucket 수가 맞지 않거나 nearest-rank p95가 500ms를 넘으면 `INVALID`다. 최종 JSON에는 계획표, 전체 표본, 60개 bucket별 개수, p95, 판정, 진단 전용 host probe가 들어가며 `p2-phase.md`가 같은 내용을 요약한다.
+스크립트는 `rc.json`의 제품 SHA·이미지 ID와 현재 고정 tag를 대조하고 비종료 세션이 정확히 10개인지 확인한 뒤, 즉시 `p2-phase.json`에 전체 계획표를 기록하고 15분 이상 warmup한다. 첫 표본 직전에도 10-session workload를 다시 확인한다. 이후 UTC 5분 경계에 맞춘 연속 24개 cycle에서 매분 한 번씩 총 120개의 `POST /v1/sessions` 요청을 보낸다. 각 요청은 재시도하거나 다른 표본으로 대체하지 않으며, 실제 전송 시각이 예약된 5초 창을 벗어나거나 201/202가 아니거나 표본·bucket 수가 맞지 않거나 nearest-rank p95가 500ms를 넘으면 `INVALID`다. 최종 JSON에는 계획표, 전체 표본, 60개 bucket별 개수, p95, 판정, 500ms 고정 slot의 진단 전용 host probe가 들어가며 `p2-phase.md`가 같은 내용을 요약한다.
 
 **P-2 판정 및 보완 측정 규칙 — 2026-09-27 결정**
 
