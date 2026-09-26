@@ -416,7 +416,7 @@ describe("WorkerHost pause (94S-137)", () => {
       expect(gateway.releases).toHaveLength(1);
     });
 
-    test("a drain that gives up on the unanswered release is not a failure when nothing refuses", async () => {
+    test("a drain that gives up on the unanswered release ends paused when the final release is refused", async () => {
       const { gateway, host, log } = harness([{ type: "await-input" }], {
         timeouts: { idleTimeoutMs: 1 },
       });
@@ -428,8 +428,33 @@ describe("WorkerHost pause (94S-137)", () => {
 
       const summary = await host.runLoop();
 
+      expect(summary.outcome).toBe("paused");
+      expect(log).not.toContain("worker.failed");
+    });
+
+    test("a drain that gives up on a release that did not commit ends drained", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      const release = gateway.release.bind(gateway);
+      let tries = 0;
+      gateway.release = async (request) => {
+        tries += 1;
+        if (tries === 1) {
+          host.drain("received SIGTERM");
+          throw lostAnswer();
+        }
+        return release(request);
+      };
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
       expect(summary.outcome).toBe("drained");
       expect(log).not.toContain("worker.failed");
+      expect(gateway.releases.map((r) => r.pause_control_id)).toEqual([
+        undefined,
+      ]);
     });
 
     test("a retry of a release that did not commit goes through as before", async () => {

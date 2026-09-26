@@ -622,15 +622,8 @@ export class WorkerHost {
     // waited on its fence. A double fault — the binding ended by a terminate
     // as the release went out — is reported paused too; the session's state
     // on the server is the record either way.
-    if (
-      this.pauseReleasing !== undefined &&
-      error instanceof WorkerGatewayRequestError &&
-      (error.code === "UNAUTHORIZED" || error.code === "STALE_EPOCH")
-    ) {
-      this.presumePaused(
-        this.pauseReleasing,
-        `The release went unanswered and then: ${reason}`,
-      );
+    if (this.showsPauseCommit(error)) {
+      this.presumePaused(`The release went unanswered and then: ${reason}`);
       return;
     }
     this.stopping = undefined;
@@ -642,10 +635,18 @@ export class WorkerHost {
     this.pending?.stop();
   }
 
-  private presumePaused(controlId: string, reason: string): void {
+  private showsPauseCommit(error: unknown): boolean {
+    return (
+      this.pauseReleasing !== undefined &&
+      error instanceof WorkerGatewayRequestError &&
+      (error.code === "UNAUTHORIZED" || error.code === "STALE_EPOCH")
+    );
+  }
+
+  private presumePaused(reason: string): void {
     this.released = true;
     this.logger.warn("worker.pause.committed", {
-      control_id: controlId,
+      control_id: this.pauseReleasing ?? null,
       reason,
     });
     this.stopping = undefined;
@@ -835,17 +836,27 @@ export class WorkerHost {
                 reason: "pause",
                 pause_control_id: controlId,
               })
+              // Judged per try, so an answer that lands after the loop has
+              // stopped waiting still settles whether the pause committed.
+              .then((response) => {
+                if (!response.released && !unanswered) {
+                  this.pauseReleasing = undefined;
+                }
+                return response;
+              })
               .catch((error: unknown) => {
-                // Refused before any try went unanswered, the release did
-                // not commit: its refusal is a loss like any other.
-                if (isRetryable(error)) unanswered = true;
-                else if (!unanswered) this.pauseReleasing = undefined;
+                if (isRetryable(error)) {
+                  unanswered = true;
+                } else if (!unanswered || !isOwnershipLost(error)) {
+                  // A refusal before any try went unanswered, or one only a
+                  // live binding gets: the release did not commit.
+                  this.pauseReleasing = undefined;
+                }
                 throw error;
               }),
           ),
         );
         if (response === undefined) return "ended";
-        this.pauseReleasing = undefined;
         // Already read as committed from a refusal elsewhere; a retry that
         // answers after that changes nothing.
         if (this.released) return "committed";
@@ -854,7 +865,6 @@ export class WorkerHost {
           // unanswered, that try is most likely what superseded it.
           if (unanswered) {
             this.presumePaused(
-              controlId,
               "The release went unanswered and its retry found the epoch moved on",
             );
             return "committed";
@@ -875,7 +885,6 @@ export class WorkerHost {
         // how this attempt ends, and a later refusal can still show the
         // release committed.
         if (isRetryable(error)) return "ended";
-        this.pauseReleasing = undefined;
         const code =
           error instanceof WorkerGatewayRequestError ? error.code : null;
         if (code === "REQUEST_STALE") {
@@ -1854,12 +1863,22 @@ export class WorkerHost {
             })
         : gateway.release(request)
     )
-      .then((response) =>
-        this.logger.info("worker.released", { released: response.released }),
-      )
-      .catch((error) =>
-        this.logger.warn("worker.release.failed", { reason: describe(error) }),
-      );
+      .then((response) => {
+        this.logger.info("worker.released", { released: response.released });
+        // Superseded by the pause release a stop gave up on.
+        if (!response.released && this.pauseReleasing !== undefined) {
+          this.presumePaused("The final release found the epoch moved on");
+        }
+      })
+      .catch((error) => {
+        if (this.showsPauseCommit(error)) {
+          this.presumePaused(
+            `The final release was refused: ${describe(error)}`,
+          );
+          return;
+        }
+        this.logger.warn("worker.release.failed", { reason: describe(error) });
+      });
     // The release keeps its reserve; past the grace the SIGKILL ends it anyway.
     const releaseBudget = this.withinGrace(
       this.options.timeouts.requestTimeoutMs,
