@@ -139,6 +139,7 @@ export const ENV = {
   stopGrace: "WORKER_STOP_GRACE_SEC",
   maxTurnSeconds: "WORKER_MAX_TURN_SEC",
   providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
+  logLevel: "LOG_LEVEL",
 } as const;
 
 /**
@@ -2228,6 +2229,9 @@ export function workerEnvironmentFor(
           `${ENV.maxTurnSeconds}=${config.workerLimits.maxTurnSeconds}`,
           `${ENV.providerMaxRetries}=${config.workerLimits.providerMaxRetries}`,
         ]),
+    ...(config.logLevel === undefined
+      ? []
+      : [`${ENV.logLevel}=${config.logLevel}`]),
   ];
 }
 

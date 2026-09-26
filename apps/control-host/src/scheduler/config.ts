@@ -54,6 +54,7 @@ export function schedulerConfigFromEnv(
   // The same parser the API starts with, so the two processes cannot run
   // under different limits from one env file.
   const limits = installationLimitsFromEnv(environment);
+  const logLevel = logLevelFromEnv(environment.LOG_LEVEL);
   return {
     databaseUrl,
     // A claimed worker on an older isolation contract finishes its turn
@@ -66,10 +67,11 @@ export function schedulerConfigFromEnv(
         maxTurnSeconds: limits.maxTurnSeconds,
         providerMaxRetries: limits.providerMaxRetries,
       },
+      logLevel,
     },
     image,
     limits,
-    logLevel: logLevelFromEnv(environment.LOG_LEVEL),
+    logLevel,
     resources: {
       cpus: cpuShare(environment.WORKER_CPUS ?? "1"),
       memoryBytes:

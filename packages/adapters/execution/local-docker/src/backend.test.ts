@@ -879,6 +879,19 @@ test("hands the worker the installation's turn and retry limits when they are se
   ]);
 });
 
+test("hands the worker the scheduler's LOG_LEVEL without changing the isolation stamp (94S-408)", () => {
+  const intent = intentFor();
+  const base = configFor("unix:///fake.sock");
+  const without = workerEnvironmentFor(base, intent, "nonce-abc");
+  expect(without.some((entry) => entry.startsWith("LOG_LEVEL="))).toBe(false);
+  const quiet = { ...base, logLevel: "warn" };
+  expect(workerEnvironmentFor(quiet, intent, "nonce-abc")).toEqual([
+    ...without,
+    "LOG_LEVEL=warn",
+  ]);
+  expect(isolationStampFor(quiet)).toBe(isolationStampFor(base));
+});
+
 test("a container started under another inode limit, or before one, is stale (94S-224)", () => {
   // Not for the volume's sake — the limit is set in place — but because
   // only a launch sets it, and replacing the container is what launches.
