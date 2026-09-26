@@ -998,20 +998,25 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  // 94S-439: where scripts/local.sh's jq reads the ports to check and the
-  // worker label to delete.
+  // 94S-439: where scripts/local.sh reads the ports to check and the worker
+  // label to delete, also under the CI quickstart job's COMPOSE_FILE.
   test.each([
-    [{}, "local"],
-    [{ EXECUTION_INSTALLATION_ID: "ap434local" }, "ap434local"],
-  ])(
-    "the local stack rendered with %j names installation %p and its loopback ports",
-    (variables, id) => {
-      const { exitCode, stderr, model } = render(LOCAL_LAYERS, variables);
+    [LOCAL_LAYERS, {}, "local"],
+    [LOCAL_LAYERS, { EXECUTION_INSTALLATION_ID: "ap434local" }, "ap434local"],
+    [["compose.yaml", "tests/e2e/compose.ci-mirror.yml"], {}, "local"],
+  ] as const)(
+    "%p rendered with %j names installation %p and its loopback ports",
+    (files, variables, id) => {
+      const { exitCode, stderr, model } = render(files, variables);
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
       const services = model?.services ?? {};
       expect(services.scheduler?.environment?.EXECUTION_INSTALLATION_ID).toBe(
         id,
       );
+      const proxy = services["egress-proxy"] as
+        | { labels?: Record<string, string> }
+        | undefined;
+      expect(proxy?.labels?.["agent-platform.egress-proxy"]).toBe(id);
       const published = Object.values(services).flatMap(
         (service) => service.ports?.map((port) => port.published) ?? [],
       );

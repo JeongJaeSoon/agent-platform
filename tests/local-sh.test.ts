@@ -41,6 +41,9 @@ case "$*" in
   *" config --format json") cat "${config}" ;;
   *" port api 3000") [ -z "$STUB_API" ] || echo "$STUB_API" ;;
   *" ps --format "*) echo "$STUB_OURS" ;;
+  *" ps -aq egress-proxy") [ -z "$STUB_PROXY" ] || echo "$STUB_PROXY" ;;
+  "inspect --format "*) echo "$STUB_STARTED_ID" ;;
+  *" down -v --remove-orphans") exit "\${STUB_DOWN_EXIT:-0}" ;;
 esac
 `,
       { mode: 0o755 },
@@ -65,8 +68,11 @@ echo '{"status":"ready"}'
       env: {
         ...process.env,
         PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        COMPOSE_FILE: "",
         STUB_API: "",
         STUB_OURS: "",
+        STUB_PROXY: "",
+        STUB_STARTED_ID: "",
         ...env,
       },
       stderr: "pipe",
@@ -85,58 +91,106 @@ echo '{"status":"ready"}'
       .split("\n")
       .filter(Boolean);
 
+  const deletions = (id: string) => [
+    "compose --profile apps down -v --remove-orphans",
+    `ps -aq --filter label=agent-platform.installation=${id}`,
+    `network ls -q --filter label=agent-platform.installation=${id}`,
+    `volume ls -q --filter label=agent-platform.installation=${id}`,
+  ];
+
   test("parses as bash", () => {
     expect(Bun.spawnSync(["bash", "-n", script]).exitCode).toBe(0);
   });
 
+  test("down deletes the workers of the id the running stack was started with", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["down"], {
+      STUB_PROXY: "proxy-id",
+      STUB_STARTED_ID: "ap434local",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await calls("docker-calls")).toEqual([
+      "compose --profile apps ps -aq egress-proxy",
+      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      ...deletions("ap434local"),
+    ]);
+  });
+
   test.each(["local", "ap434local"])(
-    "down deletes the workers of installation %p, the one compose renders",
+    "with no container left, down deletes the workers of the id compose renders: %p",
     async (id) => {
       await writeFile(config, rendered(id));
       const result = await run(["down"]);
       expect(result.exitCode).toBe(0);
       expect(await calls("docker-calls")).toEqual([
+        "compose --profile apps ps -aq egress-proxy",
         "compose --profile apps config --format json",
-        "compose --profile apps down -v --remove-orphans",
-        `ps -aq --filter label=agent-platform.installation=${id}`,
-        `network ls -q --filter label=agent-platform.installation=${id}`,
-        `volume ls -q --filter label=agent-platform.installation=${id}`,
+        ...deletions(id),
       ]);
     },
   );
 
-  test("down deletes nothing when compose cannot say which installation", async () => {
-    for (const [text, reason] of [
-      [undefined, "cannot render the stack"],
-      [rendered(undefined), "names no EXECUTION_INSTALLATION_ID"],
+  test("down deletes nothing when it cannot tell the installation", async () => {
+    for (const [text, env] of [
+      [undefined, {}],
+      [rendered(undefined), {}],
+      [rendered("local"), { STUB_PROXY: "proxy-id" }],
     ] as const) {
       await rm(config, { force: true });
       if (text !== undefined) await writeFile(config, text);
-      const result = await run(["down"]);
+      const result = await run(["down"], env);
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(reason);
+      expect(result.stderr).toContain(
+        "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted",
+      );
     }
     expect(
-      (await calls("docker-calls")).filter(
-        (call) => !call.includes(" config "),
+      (await calls("docker-calls")).filter((call) =>
+        / (down|rm|ls) /.test(call),
       ),
     ).toEqual([]);
+  });
+
+  test("reset stops when down fails", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["reset"], {
+      STUB_API: "127.0.0.1:43123",
+      STUB_DOWN_EXIT: "1",
+    });
+    expect(result.exitCode).not.toBe(0);
+    const docker = await calls("docker-calls");
+    expect(docker).toContain("compose --profile apps down -v --remove-orphans");
+    expect(docker).not.toContain("compose --profile apps up -d --build");
+    expect(result.stderr).not.toContain("local.sh: deleted");
   });
 
   test("up and status read /readyz where compose publishes the api", async () => {
     await writeFile(config, rendered("local"));
     const up = await run(["up"], { STUB_API: "127.0.0.1:43123" });
     expect(up).toMatchObject({ exitCode: 0, stdout: '{"status":"ready"}\n' });
-    const status = await run(["status"], { STUB_API: "127.0.0.1:43123" });
+    const status = await run(["status"], { STUB_API: "0.0.0.0:43124" });
     expect(status.stdout).toContain('readyz: {"status":"ready"}');
     expect(await calls("curl-calls")).toEqual([
       "http://127.0.0.1:43123/readyz",
-      "http://127.0.0.1:43123/readyz",
+      "http://127.0.0.1:43124/readyz",
     ]);
 
     const stopped = await run(["status"]);
     expect(stopped.stdout).toContain("readyz: \n");
     expect(await calls("curl-calls")).toHaveLength(2);
+  });
+
+  test("--real-model puts its overlay on top of COMPOSE_FILE's files", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--real-model"], {
+      ANTHROPIC_API_KEY: `[REDACTED]`,
+      COMPOSE_FILE: "compose.yaml:ports.yml",
+      STUB_API: "127.0.0.1:43123",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await calls("docker-calls")).toContain(
+      "compose --profile apps -f compose.yaml -f ports.yml -f infra/compose.real-model.yml up -d --build",
+    );
   });
 
   test("up refuses a rendered port another listener holds, not one its stack does", async () => {
@@ -150,7 +204,7 @@ echo '{"status":"ready"}'
       await writeFile(config, rendered("local", [port]));
       const busy = await run(["up"], { STUB_API: `127.0.0.1:${port}` });
       expect(busy.exitCode).toBe(1);
-      expect(busy.stderr).toContain(`port(s) ${port} already in use`);
+      expect(busy.stderr).toContain(`port(s) 127.0.0.1:${port} already in use`);
       expect(await calls("docker-calls")).not.toContainEqual(
         "compose --profile apps up -d --build",
       );
