@@ -59,10 +59,10 @@
       "endpoint": "POST /v1/sessions/{id}/interrupt",
       "trigger": "interruptEveryTurns번째 turn마다 두 번째 모델 호출을 slowStepMs 동안 붙잡고, 그 호출이 Messages API에 도착한 뒤 보낸다",
       "accepted": "POST 왕복 시간",
-      "effect": "POST 송신부터 worker가 그 turn의 engine_stopped를 로그에 남긴 시점까지(94S-382, 94S-453). 워커는 engine이 interrupt를 acknowledged하고 abort terminal을 낸 뒤, checkpoint 캡처 전에 이 로그를 남기고 status{phase:\"engine_stopped\"} event를 durable하게 발행한다. 로그 시각(컨테이너 시계)은 POST 직전에 잰 /clock offset으로 host 시계에 옮기고 그 왕복의 절반을 더한다(가장 늦게 잡는다). 로그나 시계 기록이 없거나 SSE 관측보다 늦으면 SSE 관측 값을 쓴다.",
+      "effect": "POST 송신부터 worker가 그 turn의 engine_stopped를 로그에 남긴 시점까지(94S-382, 94S-453). 워커는 engine이 interrupt를 acknowledged하고 abort terminal을 낸 뒤, checkpoint 캡처 전에 이 로그를 남기고 status{phase:\"engine_stopped\"} event를 durable하게 발행한다. 로그 시각(컨테이너 시계)은 POST 직전과 SSE 관측 뒤에 잰 두 /clock 값으로 host 시계에 옮긴다. 각 값에 왕복의 절반을 더하고 둘 중 늦은 쪽을 쓴다(가장 늦게 잡는다). 그 turn의 로그 줄이 하나가 아니거나, 시계 값이 없거나, 계산한 값이 음수이거나 SSE 관측보다 늦으면 SSE 관측 값을 쓴다.",
       "sseEffect": "POST 송신부터 그 event를 러너가 SSE에서 처음 읽은 시점까지. host↔VM 포트포워딩 지연이 섞이므로 보고서에 함께 싣되 판정에는 쓰지 않는다. 다만 모든 표본에서 관찰되어야 한다.",
       "terminal": "POST 송신부터 GET turn이 종료 상태를 처음 보인 시점까지. pollMs 간격으로 폴링한다. checkpoint 캡처와 finalize를 포함하므로 effect와 따로 잰다. receipt 정산도 따로 잰다.",
-      "judgement": "host 제외가 아닌 모든 표본의 effect가 interruptEffectMs 이하이고, terminal이 interruptTerminalMs 이하이며 turn이 interrupted(checkpoint 포함)이고, 수락 뒤에 엔진이 다음 모델 호출을 하지 않는다. host 제외는 [POST, effect]가 1초 이상인 VM stall 또는 host probe stall의 [시작, 끝+20초]와 겹친 늦은 effect만이고, 전체의 1% 이하여야 한다."
+      "judgement": "host 제외가 아닌 모든 표본의 effect가 interruptEffectMs 이하이고, terminal이 interruptTerminalMs 이하이며 turn이 interrupted(checkpoint 포함)이고, 수락 뒤에 엔진이 다음 모델 호출을 하지 않는다. host 제외는 [POST, effect]가 1초 이상인 VM stall 또는 host stall(host에서 vm-lag /healthz와 Messages API /clock이 함께 1초 이상 막힌 구간)의 [시작, 끝+20초]와 겹친 늦은 effect만이고, 전체의 1% 이하여야 한다."
     },
     "terminate": {
       "endpoint": "POST /v1/sessions/{id}/terminate",

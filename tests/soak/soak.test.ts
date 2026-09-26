@@ -17,7 +17,9 @@ import {
   turnPrompt,
 } from "../../scripts/soak/probes.ts";
 import {
+  curlLoop,
   HOST_PROBE,
+  type HostProbeSample,
   INTERRUPT_EXCLUSION,
   judgeInterrupts,
   judgeReadyz,
@@ -354,11 +356,15 @@ describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
     }
   });
 
-  test("a runner slow after curl exited does not hide a stall inside curl's run", () => {
-    // curl ran from t+5ms for 2s; the runner saw it end at 3.6s.
+  test("a runner slow to see curl end leaves only what curl surely ran (94S-453)", () => {
+    // curl ran 2s and the runner saw it end at 3.6s: curl may have started
+    // as late as 1.6s, however soon its spawn returned.
     const slowRunner = { ...timeout(10), wallMs: 3600, spawnMs: 5 };
     expect(
       judge(samples({ 10: slowRunner }), [stall(50_100, 1200)]),
+    ).toMatchObject({ pass: false, hostExcluded: 0 });
+    expect(
+      judge(samples({ 10: slowRunner }), [stall(51_000, 1200)]),
     ).toMatchObject({ pass: true, hostExcluded: 1 });
   });
 
@@ -597,12 +603,14 @@ describe("P-3 host exclusions (94S-444)", () => {
 describe("host probe and the P-3 split (94S-453)", () => {
   const T0 = Date.parse("2026-09-26T07:00:00.000Z");
   const iso = (ms: number) => new Date(T0 + ms).toISOString();
-  // A host probe request sent `at` after T0 that took `ms` in curl.
+  // A host probe request to `target`, sent `at` after T0, that took `ms` in curl.
   const host = (
+    target: string,
     at: number,
     ms: number,
     extra: Partial<ReadyzSample> = {},
-  ): ReadyzSample => ({
+  ): HostProbeSample => ({
+    target,
     t: iso(at),
     error: null,
     ms,
@@ -612,36 +620,85 @@ describe("host probe and the P-3 split (94S-453)", () => {
     spawnMs: 2,
     ...extra,
   });
+  // The shared port forward held both targets over the same stretch.
+  const heldBoth = (at: number, ms: number): HostProbeSample[] => [
+    host("vm-lag", at, ms),
+    host("messages", at + 200, ms),
+  ];
   const hostTimeout = { ok: false, error: "curl exit 28", status: 0 };
 
-  test("the probe runs at least every second and lists near misses from 500ms", () => {
+  test("the probe lists near misses from 500ms and counts a stall only where both targets were held", () => {
     expect(HOST_PROBE.intervalMs).toBeLessThanOrEqual(1000);
     expect(HOST_PROBE.nearMissMs).toBe(500);
     const summary = summarizeHostProbe([
-      host(0, 3),
-      host(500, 600),
-      host(1000, 1800),
-      host(3000, 2000, hostTimeout),
-      host(5000, 0, { ok: false, error: "curl exit 7", status: 0 }),
-      host(5500, 0, {
+      host("vm-lag", 0, 3),
+      host("messages", 0, 4),
+      host("vm-lag", 500, 600),
+      ...heldBoth(1000, 1800),
+      // Only one target held: that container, not the path.
+      host("vm-lag", 10_000, 2000, hostTimeout),
+      host("messages", 20_000, 0, {
         ok: false,
-        error: "slot missed: the runner did not get to it",
+        error: "curl exit 7",
         status: 0,
       }),
     ]);
     expect(summary).toMatchObject({
-      samples: 6,
-      ok: 3,
-      timeouts: 1,
-      otherFailures: 2,
-      stalls: {
-        count: 2,
-        list: [`host ${iso(1000)} +1800ms`, `host ${iso(3000)} +2000ms`],
+      samples: 7,
+      targets: {
+        "vm-lag": { samples: 4, ok: 3, timeouts: 1, otherFailures: 0, held: 2 },
+        messages: { samples: 3, ok: 2, timeouts: 0, otherFailures: 1, held: 1 },
+      },
+      stalls: { count: 1 },
+    });
+    expect(summary.stalls.list).toEqual([
+      `host vm-lag ${iso(1000)} +1800ms & messages ${iso(1200)} +1800ms`,
+    ]);
+    expect(summary.nearMisses.map((entry) => entry.t)).toEqual(
+      [500, 1000, 1200, 10_000, 20_000].map(iso),
+    );
+  });
+
+  test("slots do not wait on a held request", async () => {
+    let first = true;
+    const server = Bun.serve({
+      port: 0,
+      async fetch() {
+        if (first) {
+          first = false;
+          await Bun.sleep(1200);
+        }
+        return new Response("ok");
       },
     });
-    expect(summary.nearMisses.map((entry) => entry.t)).toEqual(
-      [500, 1000, 3000, 5000, 5500].map(iso),
-    );
+    try {
+      const clock = { stopping: false };
+      const samples: ReadyzSample[] = [];
+      const loop = curlLoop(
+        clock,
+        `http://127.0.0.1:${server.port}/healthz`,
+        200,
+        3000,
+        (sample) => samples.push(sample),
+      );
+      await Bun.sleep(1000);
+      clock.stopping = true;
+      await loop;
+      const held = samples.find((sample) => sample.ms >= 1000);
+      expect(held?.ok).toBe(true);
+      // Slots kept going out while the first request was held.
+      const during = samples.filter(
+        (sample) =>
+          held !== undefined &&
+          Date.parse(sample.t) > Date.parse(held.t) + 150 &&
+          Date.parse(sample.t) < Date.parse(held.t) + 1000,
+      );
+      expect(
+        during.filter((sample) => sample.ok && sample.ms < 1000).length,
+      ).toBeGreaterThanOrEqual(3);
+    } finally {
+      server.stop(true);
+    }
   });
 
   describe("O-1", () => {
@@ -666,34 +723,56 @@ describe("host probe and the P-3 split (94S-453)", () => {
             wallMs: 20,
           },
     );
-    const judge = (probe: ReadyzSample[]) => judgeReadyz(readyz, [], 1, probe);
+    const judge = (probe: HostProbeSample[]) =>
+      judgeReadyz(readyz, [], 1, probe);
 
-    test("a timeout the host probe saw held is excluded though the VM ticked on", () => {
-      for (const held of [
-        host(50_300, 1800),
-        host(50_300, 2000, hostTimeout),
+    test("a timeout both host targets saw held is excluded though the VM ticked on", () => {
+      for (const probe of [
+        heldBoth(50_300, 1500),
+        [
+          host("vm-lag", 50_300, 2000, hostTimeout),
+          host("messages", 50_400, 2000, hostTimeout),
+        ],
       ]) {
-        const result = judge([host(49_500, 3), held, host(52_500, 4)]);
+        const result = judge([host("vm-lag", 49_500, 3), ...probe]);
         expect(result).toMatchObject({
           pass: true,
           hostExcluded: 1,
           productFailures: [],
         });
-        expect(result.hostExcludedSamples[0]?.stall).toBe(
-          `host ${held.t} +${held.ms}ms`,
+        expect(result.hostExcludedSamples[0]?.stall).toStartWith(
+          `host vm-lag ${iso(50_300)}`,
         );
       }
     });
 
-    test("only a held request of 1s or more excuses, and only where it surely overlapped", () => {
+    test("only both targets held for 1s, surely inside the request, excuse it", () => {
       for (const probe of [
         [],
-        [host(50_300, READYZ_EXCLUSION.stallMinMs - 1)],
+        // One target alone.
+        [host("vm-lag", 50_300, 1800)],
+        [host("messages", 50_300, 1800)],
+        // Held at different times.
+        [host("vm-lag", 50_000, 1200), host("messages", 51_000, 1000)],
+        [
+          host("vm-lag", 50_300, READYZ_EXCLUSION.stallMinMs - 1),
+          host("messages", 50_300, 1800),
+        ],
         // Refused or answered by something other than 200: not the path.
-        [host(50_300, 1800, { ok: false, error: "curl exit 7", status: 0 })],
-        [host(50_300, 1800, { ok: false, status: 503 })],
+        [
+          host("vm-lag", 50_300, 1800, {
+            ok: false,
+            error: "curl exit 7",
+            status: 0,
+          }),
+          host("messages", 50_300, 1800),
+        ],
+        [
+          host("vm-lag", 50_300, 1800, { ok: false, status: 503 }),
+          host("messages", 50_300, 1800),
+        ],
         // Sent 50ms before readyz gave up: less the slack, it ran after.
-        [host(51_950, 1500)],
+        heldBoth(51_950, 1500),
       ]) {
         expect(judge(probe)).toMatchObject({
           pass: false,
@@ -702,15 +781,40 @@ describe("host probe and the P-3 split (94S-453)", () => {
         });
       }
     });
+
+    test("curl may start after its spawn returned: only its last `ms` before the runner saw it end count", () => {
+      // curl said 1.8s, the runner saw it end 3s after sending: it surely
+      // ran only from 1.2s to 1.8s, after this readyz request ended at 1.2s.
+      const early: ReadyzSample = { ...timedOut, ms: 1200, wallMs: 1210 };
+      const late = [
+        host("vm-lag", 50_000, 1800, { wallMs: 3000 }),
+        host("messages", 50_000, 1800, { wallMs: 3000 }),
+      ];
+      expect(
+        judgeReadyz(
+          readyz.map((sample, i) => (i === 10 ? early : sample)),
+          [],
+          1,
+          late,
+        ),
+      ).toMatchObject({ pass: false, hostExcluded: 0 });
+    });
   });
 
   describe("P-3", () => {
     const targets = { interruptEffectMs: 5000, interruptTerminalMs: 50_000 };
     const sentAt = (i: number) => T0 + i * 60_000;
+    // Container 1ms behind, read over 2ms before the POST and after the read.
+    const steady = {
+      clockOffsetMs: 1,
+      clockRttMs: 2,
+      clockAfterOffsetMs: 1,
+      clockAfterRttMs: 2,
+    };
     const interrupt = (
       i: number,
       sseMs: number | null = 1500,
-      clock: Record<string, unknown> = { clockOffsetMs: 1, clockRttMs: 2 },
+      clock: Record<string, unknown> = steady,
     ): ControlSample => ({
       op: "interrupt",
       sessionId: `session-${i}`,
@@ -741,8 +845,9 @@ describe("host probe and the P-3 split (94S-453)", () => {
       Array.from({ length: 200 }, (_, i) => replace[i] ?? interrupt(i));
     const effectOf = (
       sample: ControlSample,
-      evidence: Parameters<typeof judgeInterrupts>[4],
-    ) => judgeInterrupts([sample], [], [], targets, evidence).effectMs[0];
+      engineStops: ReturnType<typeof stop>[],
+    ) =>
+      judgeInterrupts([sample], [], [], targets, { engineStops }).effectMs[0];
 
     test("RC4 07:00:48Z: stopped at 2.2s, read at 5.1s — P-3 judges the stop and reports the read", () => {
       const result = judgeInterrupts(
@@ -771,7 +876,7 @@ describe("host probe and the P-3 split (94S-453)", () => {
       expect(Math.max(...result.sseEffectMs)).toBe(5106);
     });
 
-    test("a late stop fails P-3 unless a host probe stall overlapped it", () => {
+    test("a late stop fails P-3 unless a host stall overlapped it", () => {
       const list = samples({ 10: interrupt(10, 7000) });
       const engineStops = [stop(10, 6000)];
       expect(
@@ -806,53 +911,61 @@ describe("host probe and the P-3 split (94S-453)", () => {
           contextKept: true,
         },
       ] as TurnRecord[];
-      const held = host(sentAt(10) - T0 + 100, 1500);
+      const held = heldBoth(sentAt(10) - T0 + 100, 1500);
       const result = judgeInterrupts(list, turns, [], targets, {
         engineStops,
-        host: [held],
+        host: held,
       });
       expect(result).toMatchObject({ pass: true, late: [], hostExcluded: 1 });
       expect(result.hostExcludedSamples[0]).toMatchObject({
         effectMs: 6002,
         sseEffectMs: 7000,
-        stall: `host ${held.t} +1500ms`,
         broken: [],
       });
+      // One target alone excuses nothing.
+      expect(
+        judgeInterrupts(list, turns, [], targets, {
+          engineStops,
+          host: held.slice(0, 1),
+        }),
+      ).toMatchObject({ pass: false, hostExcluded: 0 });
     });
 
-    test("the stop is placed on the host clock at its latest, and never beats the SSE read", () => {
-      // The probe's own reading: container 300ms ahead, ±20ms.
+    test("the stop is placed at the later of the two clock bounds, and never beats the SSE read", () => {
+      // The container clock stepped 400ms back between the readings: the
+      // later bound holds either way.
       expect(
-        effectOf(interrupt(10, 5106, { clockOffsetMs: -300, clockRttMs: 40 }), {
-          engineStops: [stop(10, 2500)],
-        }),
-      ).toBe(2220);
-      // A sample without one takes the run's nearest reading within a minute.
-      const clock = [
-        { t: iso(10 * 60_000 - 30_000), offsetMs: 5, rttMs: 4 },
-        { t: iso(10 * 60_000 + 50_000), offsetMs: 500, rttMs: 4 },
-      ];
-      expect(
-        effectOf(interrupt(10, 5106, {}), {
-          engineStops: [stop(10, 2500)],
-          clock,
-        }),
-      ).toBe(2507);
-      expect(
-        effectOf(interrupt(10, 5106, {}), {
-          engineStops: [stop(10, 2500)],
-          clock: [{ t: iso(10 * 60_000 - 61_000), offsetMs: 5, rttMs: 4 }],
-        }),
-      ).toBe(5106);
+        effectOf(
+          interrupt(10, 5500, {
+            clockOffsetMs: -400,
+            clockRttMs: 20,
+            clockAfterOffsetMs: 0,
+            clockAfterRttMs: 20,
+          }),
+          [stop(10, 5200)],
+        ),
+      ).toBe(5210);
+      for (const clock of [
+        // A sample with a reading missing cannot place the line.
+        { clockOffsetMs: 1, clockRttMs: 2 },
+        { ...steady, clockAfterOffsetMs: null },
+        {},
+      ]) {
+        expect(effectOf(interrupt(10, 5106, clock), [stop(10, 2500)])).toBe(
+          5106,
+        );
+      }
       for (const engineStops of [
         // Later than the runner's read, or before the POST: the clock is off.
         [stop(10, 6000)],
         [stop(10, -10)],
+        // Two lines for the turn: which one the event came from is unknown.
+        [stop(10, 2000), stop(10, 5000)],
         // Another session's turn of the same number.
         [stop(11, 2500, "session-10-other")],
         [],
       ]) {
-        expect(effectOf(interrupt(10, 5106), { engineStops })).toBe(5106);
+        expect(effectOf(interrupt(10, 5106), engineStops)).toBe(5106);
       }
     });
 
@@ -886,7 +999,7 @@ describe("host probe and the P-3 split (94S-453)", () => {
         line({ event: "worker.claimed", session_id: session });
       writeFileSync(
         join(dir, "ap-worker-a-g1.log"),
-        stopped("1", 100) + claimed("s1") + "not json\n" + stopped("7", 2000),
+        `${stopped("1", 100)}${claimed("s1")}not json\n${stopped("7", 2000)}`,
       );
       writeFileSync(
         join(dir, "ap-worker-a-g1.log.stderr"),

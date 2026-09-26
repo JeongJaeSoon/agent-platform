@@ -232,8 +232,7 @@ class Soak {
   readonly readyz: ReadyzSample[] = [];
   readonly vmStalls: VmStall[] = [];
   readonly vmPolls: VmPoll[] = [];
-  readonly hostProbe: ReadyzSample[] = [];
-  readonly clock: ClockReading[] = [];
+  readonly hostProbe: HostProbeSample[] = [];
   /** Read from the worker logs once the run is over. */
   engineStops: EngineStop[] = [];
   readonly vmCursor: { bootId: string | null; index: number } = {
@@ -571,9 +570,15 @@ export type ReadyzSample = {
   status: number;
   t: string;
   wallMs: number;
-  /** From `t` to curl's spawn returning: curl started within it (94S-443). */
+  /**
+   * From `t` to curl's spawn returning. Kept for the record only: the child
+   * may start after the spawn returned (94S-453).
+   */
   spawnMs?: number;
 };
+
+/** A host probe request: which of HOST_PROBE's targets it went to. */
+export type HostProbeSample = ReadyzSample & { target: string };
 
 /** A VM probe stall, with the host clock offset of the poll that read it. */
 export type VmStall = Stall & {
@@ -583,24 +588,25 @@ export type VmStall = Stall & {
 };
 
 /**
- * The host probe (94S-453): curl from the host to the VM probe's /healthz,
- * over the same Docker Desktop port forward readyz takes but to a target
- * that does no product work. That forward can hold requests while the VM
- * keeps ticking (RC4 06:05:52Z, 07:00:48Z), which vm-lag cannot see. A
- * request of `nearMissMs` or more is listed; one of READYZ_EXCLUSION's
- * `stallMinMs` or more is a host stall. A stalled request also spent up to
- * `slackMs` on ordinary work, on either side of the stall, so the stall
- * surely covered its run less that much at each end.
+ * The host probe (94S-453): curl from the host, each slot, to two published
+ * ports that do no product work — the VM probe's /healthz and the soak
+ * Messages API's /clock. They cross the same Docker Desktop port forward
+ * readyz takes, which can hold requests while the VM keeps ticking (RC4
+ * 06:05:52Z, 07:00:48Z) where vm-lag cannot see it. A request of
+ * `nearMissMs` or more is listed. A host stall is where both targets were
+ * surely held at once for READYZ_EXCLUSION's `stallMinMs` or more each: one
+ * slow target alone may be that container, not the shared path. A held
+ * request also spent up to `slackMs` on ordinary work, on either side of
+ * the stall, so the stall surely covered its run less that much at each
+ * end. Requests overlap, so a held one never stops the next slot's.
  */
 export const HOST_PROBE = {
   intervalMs: 500,
   timeoutMs: 2000,
   nearMissMs: 500,
   slackMs: 100,
+  targets: { "vm-lag": "/healthz", messages: "/clock" },
 };
-
-/** One /clock reading of the soak's Messages API (lib.ts clockOffset). */
-export type ClockReading = { t: string; offsetMs: number; rttMs: number };
 
 /** A worker's own engine_stopped log line, on the container clock. */
 export type EngineStop = { sessionId: string; turnId: string; at: number };
@@ -622,9 +628,8 @@ type VmPoll = {
  *   `stallMinMs` surely overlapped the request: the VM probe's (the whole
  *   VM stood still) or the host probe's (the port forward held). "Surely":
  *   the stall narrowed by its uncertainty, the request to
- *   [t + spawnMs, t + ms], where curl ran however late it started (samples
- *   from before spawnMs: all of wallMs - ms before it). Everything is on
- *   the host's clock.
+ *   [t + wallMs - ms, t + ms], what curl ran however late it started. All
+ *   on the host's clock.
  * Past either ratio of all samples the measurement itself is suspect, and
  * O-1 fails.
  */
@@ -651,9 +656,14 @@ function longStalls(stalls: VmStall[], tailMs = 0) {
     }));
 }
 
-/** When curl surely ran, after `t`: see READYZ_EXCLUSION. */
-const curlStartedBy = (sample: ReadyzSample) =>
-  sample.spawnMs ?? Math.max(0, sample.wallMs - sample.ms);
+/** Where curl surely ran: it ended by t + wallMs, so began by that less ms. */
+const curlSurely = (sample: ReadyzSample) => {
+  const sent = Date.parse(sample.t);
+  return {
+    from: sent + Math.max(0, sample.wallMs - sample.ms),
+    until: sent + sample.ms,
+  };
+};
 
 /** A request that got no answer but 200 in time: only the path held it. */
 const heldOnly = (sample: ReadyzSample) =>
@@ -661,37 +671,77 @@ const heldOnly = (sample: ReadyzSample) =>
   (sample.error === CURL_TIMEOUT &&
     (sample.status === 0 || sample.status === 200));
 
-/** The host probe's stalls, shaped as `longStalls`. */
-function hostStalls(samples: ReadyzSample[], tailMs = 0) {
+/** One target's held requests, narrowed to where the hold surely was. */
+function heldWindows(samples: HostProbeSample[], target: string) {
   return samples.flatMap((sample) => {
-    if (sample.ms < READYZ_EXCLUSION.stallMinMs || !heldOnly(sample)) return [];
-    const sent = Date.parse(sample.t);
-    const from = sent + curlStartedBy(sample) + HOST_PROBE.slackMs;
-    const to = sent + sample.ms - HOST_PROBE.slackMs;
-    if (!(from < to)) return [];
-    return [
-      { from, to: to + tailMs, label: `host ${sample.t} +${sample.ms}ms` },
-    ];
+    if (
+      sample.target !== target ||
+      sample.ms < READYZ_EXCLUSION.stallMinMs ||
+      !heldOnly(sample)
+    ) {
+      return [];
+    }
+    const ran = curlSurely(sample);
+    const from = ran.from + HOST_PROBE.slackMs;
+    const to = ran.until - HOST_PROBE.slackMs;
+    return from < to
+      ? [{ from, to, label: `${target} ${sample.t} +${sample.ms}ms` }]
+      : [];
   });
 }
 
+/** The host probe's stalls, shaped as `longStalls`. */
+function hostStalls(samples: HostProbeSample[], tailMs = 0) {
+  const [first = "", second = ""] = Object.keys(HOST_PROBE.targets);
+  const others = heldWindows(samples, second);
+  return heldWindows(samples, first).flatMap((a) =>
+    others.flatMap((b) => {
+      const from = Math.max(a.from, b.from);
+      const to = Math.min(a.to, b.to);
+      return from < to
+        ? [{ from, to: to + tailMs, label: `host ${a.label} & ${b.label}` }]
+        : [];
+    }),
+  );
+}
+
 /** The host probe's record for the report; its stalls feed the exclusions. */
-export function summarizeHostProbe(samples: ReadyzSample[]) {
+export function summarizeHostProbe(samples: HostProbeSample[]) {
   const stalls = hostStalls(samples);
+  const targets = Object.fromEntries(
+    Object.keys(HOST_PROBE.targets).map((target) => {
+      const own = samples.filter((sample) => sample.target === target);
+      return [
+        target,
+        {
+          samples: own.length,
+          ok: own.filter((sample) => sample.ok).length,
+          timeouts: own.filter((sample) => sample.error === CURL_TIMEOUT)
+            .length,
+          otherFailures: own.filter(
+            (sample) => !sample.ok && sample.error !== CURL_TIMEOUT,
+          ).length,
+          held: heldWindows(own, target).length,
+          latency: distribution(
+            own.filter((sample) => sample.ok).map((sample) => sample.ms),
+          ),
+        },
+      ];
+    }),
+  );
   return {
     samples: samples.length,
-    ok: samples.filter((sample) => sample.ok).length,
-    timeouts: samples.filter((sample) => sample.error === CURL_TIMEOUT).length,
-    otherFailures: samples.filter(
-      (sample) => !sample.ok && sample.error !== CURL_TIMEOUT,
-    ).length,
-    latency: distribution(
-      samples.filter((sample) => sample.ok).map((sample) => sample.ms),
-    ),
+    targets,
     stalls: { count: stalls.length, list: stalls.map((stall) => stall.label) },
     nearMisses: samples
       .filter((sample) => sample.ms >= HOST_PROBE.nearMissMs || !sample.ok)
-      .map(({ t, ms, status, error }) => ({ t, ms, status, error })),
+      .map(({ target, t, ms, status, error }) => ({
+        target,
+        t,
+        ms,
+        status,
+        error,
+      })),
   };
 }
 
@@ -699,7 +749,7 @@ export function judgeReadyz(
   samples: ReadyzSample[],
   stalls: VmStall[],
   target: number,
-  host: ReadyzSample[] = [],
+  host: HostProbeSample[] = [],
 ) {
   const vm = longStalls(stalls);
   const long = [...vm, ...hostStalls(host)];
@@ -720,9 +770,7 @@ export function judgeReadyz(
       runnerMissed.push(sample);
       continue;
     }
-    const sent = Date.parse(sample.t);
-    const from = sent + curlStartedBy(sample);
-    const until = sent + sample.ms;
+    const { from, until } = curlSurely(sample);
     const stall = heldOnly(sample)
       ? long.find((entry) => entry.from < until && entry.to > from)
       : undefined;
@@ -784,48 +832,45 @@ export const INTERRUPT_EXCLUSION = {
   maxHostExcludedRatio: 0.01,
 };
 
-/** How far a /clock reading may be from the POST to place its log line. */
-const CLOCK_READING_MAX_AGE_MS = 60_000;
-
 /**
  * The interrupt's effect (94S-453): POST sent → the worker logging
- * engine_stopped, moved onto the host clock by the /clock reading the
- * probe took just before the POST (else the run's nearest one within
- * CLOCK_READING_MAX_AGE_MS), at the latest it can have been: plus half
- * that reading's round trip. The runner's SSE read comes after the worker
+ * engine_stopped, moved onto the host clock at the latest it can have
+ * been. The probe reads the container clock just before the POST and again
+ * once the event was read; each reading bounds the offset by half its
+ * round trip, and taking the later of the two bounds holds even if the
+ * clock stepped in between. The runner's SSE read comes after the worker
  * published the event, so it bounds the effect from above and stands in
- * where the log line or a reading is missing or disagrees. null: the
- * runner never read the event.
+ * wherever the log cannot be tied to the event: no line, more than one line
+ * for the turn, a reading missing, or a value past the SSE read or before
+ * the POST. null: the runner never read the event.
  */
 function interruptEffect(
   sample: ControlSample,
   sentAt: number,
-  stops: Map<string, number>,
-  clock: ClockReading[],
+  stops: Map<string, number[]>,
 ): { ms: number; from: "worker log" | "sse" } | null {
   if (sample.effectMs === null) return null;
   const sse = { ms: sample.effectMs, from: "sse" as const };
-  const stoppedAt = stops.get(`${sample.sessionId} ${sample.turnId}`);
-  if (stoppedAt === undefined || !Number.isFinite(sentAt)) return sse;
+  const found = stops.get(`${sample.sessionId} ${sample.turnId}`) ?? [];
   const extra = sample.extra ?? {};
-  const reading =
-    typeof extra.clockOffsetMs === "number" &&
-    typeof extra.clockRttMs === "number"
-      ? { offsetMs: extra.clockOffsetMs, rttMs: extra.clockRttMs }
-      : clock
-          .filter(
-            (entry) =>
-              Math.abs(Date.parse(entry.t) - sentAt) <=
-              CLOCK_READING_MAX_AGE_MS,
-          )
-          .sort(
-            (a, b) =>
-              Math.abs(Date.parse(a.t) - sentAt) -
-              Math.abs(Date.parse(b.t) - sentAt),
-          )[0];
-  if (!reading) return sse;
-  const ms =
-    stoppedAt + reading.offsetMs + Math.ceil(reading.rttMs / 2) - sentAt;
+  const bounds = [
+    [extra.clockOffsetMs, extra.clockRttMs],
+    [extra.clockAfterOffsetMs, extra.clockAfterRttMs],
+  ].map(([offset, rtt]) =>
+    typeof offset === "number" && typeof rtt === "number"
+      ? offset + Math.ceil(rtt / 2)
+      : Number.NaN,
+  );
+  const [stoppedAt] = found;
+  if (
+    found.length !== 1 ||
+    stoppedAt === undefined ||
+    !Number.isFinite(sentAt) ||
+    !bounds.every(Number.isFinite)
+  ) {
+    return sse;
+  }
+  const ms = stoppedAt + Math.max(...bounds) - sentAt;
   return ms >= 0 && ms < sse.ms ? { ms, from: "worker log" } : sse;
 }
 
@@ -882,21 +927,16 @@ export function judgeInterrupts(
     SoakConfig["targets"],
     "interruptEffectMs" | "interruptTerminalMs"
   >,
-  evidence: {
-    host?: ReadyzSample[];
-    engineStops?: EngineStop[];
-    clock?: ClockReading[];
-  } = {},
+  evidence: { host?: HostProbeSample[]; engineStops?: EngineStop[] } = {},
 ) {
   const windows = [
     ...longStalls(stalls, INTERRUPT_EXCLUSION.afterStallMs),
     ...hostStalls(evidence.host ?? [], INTERRUPT_EXCLUSION.afterStallMs),
   ];
-  // A turn stopped twice (a relaunch) counts from its first stop.
-  const stops = new Map<string, number>();
+  const stops = new Map<string, number[]>();
   for (const stop of evidence.engineStops ?? []) {
     const key = `${stop.sessionId} ${stop.turnId}`;
-    stops.set(key, Math.min(stop.at, stops.get(key) ?? stop.at));
+    stops.set(key, [...(stops.get(key) ?? []), stop.at]);
   }
   const sentAtOf = (sample: ControlSample) =>
     typeof sample.extra?.sentAt === "string"
@@ -905,7 +945,7 @@ export function judgeInterrupts(
   const effects = new Map(
     samples.map((sample) => [
       sample,
-      interruptEffect(sample, sentAtOf(sample), stops, evidence.clock ?? []),
+      interruptEffect(sample, sentAtOf(sample), stops),
     ]),
   );
   const terminalMsOf = (sample: ControlSample): number | null =>
@@ -1068,9 +1108,11 @@ type ReconcilerSample = {
 /**
  * One curl per fixed slot from the loop's start. Every slot yields a
  * sample: a probe that could not run, and a slot the runner was too
- * stalled to reach, are failed intervals, never missing ones.
+ * stalled to reach, are failed intervals, never missing ones. Slots do not
+ * wait on each other, so a held request never delays the next one; curl's
+ * own timeout bounds how many run at once.
  */
-async function curlLoop(
+export async function curlLoop(
   clock: Clock,
   url: string,
   interval: number,
@@ -1087,22 +1129,30 @@ async function curlLoop(
   });
   // How late a probe may start and still stand for its slot.
   const grace = Math.min(1000, interval / 2);
+  const running = new Set<Promise<void>>();
   let slot = Date.now();
   while (!clock.stopping) {
     const t = new Date().toISOString();
-    const probe = await curlProbe(url, timeoutMs, slot + grace).catch((error) =>
-      failed(Date.now(), `probe did not run: ${String(error)}`),
-    );
-    record(
-      probe === null
-        ? failed(slot, "slot missed: the runner did not get to it")
-        : { t, ...probe },
-    );
+    const own = slot;
+    const probe = curlProbe(url, timeoutMs, own + grace)
+      .catch((error) =>
+        failed(Date.now(), `probe did not run: ${String(error)}`),
+      )
+      .then((sample) =>
+        record(
+          sample === null
+            ? failed(own, "slot missed: the runner did not get to it")
+            : { t, ...sample },
+        ),
+      );
+    running.add(probe);
+    void probe.finally(() => running.delete(probe));
     slot += interval;
     while (!clock.stopping && Date.now() < slot) {
       await Bun.sleep(Math.min(1000, slot - Date.now()));
     }
   }
+  await Promise.all(running);
 }
 
 /** null when the probe could not start by `notAfter`. */
@@ -1224,23 +1274,21 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
         out.jsonl("readyz").write(sample);
       },
     ),
-    curlLoop(
-      clock,
-      `${vmLagUrl(env)}/healthz`,
-      HOST_PROBE.intervalMs,
-      HOST_PROBE.timeoutMs,
-      (sample) => {
-        soak.hostProbe.push(sample);
-        out.jsonl("host-probe").write(sample);
-      },
+    ...Object.entries(HOST_PROBE.targets).map(([target, path]) =>
+      curlLoop(
+        clock,
+        `${target === "vm-lag" ? vmLagUrl(env) : env.messagesUrl}${path}`,
+        HOST_PROBE.intervalMs,
+        HOST_PROBE.timeoutMs,
+        (sample) => {
+          const entry = { target, ...sample };
+          soak.hostProbe.push(entry);
+          out.jsonl("host-probe").write(entry);
+        },
+      ),
     ),
     every(clock, config.sampleIntervalSec * 1000, async () => {
-      const reading = {
-        t: new Date().toISOString(),
-        ...(await clockOffset(env.messagesUrl)),
-      };
-      soak.clock.push(reading);
-      out.jsonl("clock").write(reading);
+      out.jsonl("clock").write(await clockOffset(env.messagesUrl));
       const requests = await soak.model.requests({ since: modelCursor });
       const sink = out.jsonl("model-requests");
       for (const entry of requests) sink.write({ ...entry });
@@ -1305,7 +1353,6 @@ async function invariantSample(soak: Soak): Promise<void> {
 export type JudgeInput = Pick<
   Soak,
   | "anomalies"
-  | "clock"
   | "config"
   | "controls"
   | "engineStops"
@@ -1436,7 +1483,7 @@ export function judge(
     turns,
     soak.vmStalls,
     targets,
-    { host: soak.hostProbe, engineStops: soak.engineStops, clock: soak.clock },
+    { host: soak.hostProbe, engineStops: soak.engineStops },
   );
   const validTerminates = valid(terminates);
 
@@ -1586,7 +1633,7 @@ export function judge(
       id: "P-3",
       area: "성능·종료 의미",
       input: `interrupt ${interrupts.length}건 (유효 ${interruptsJudged.valid}: 느린 호출 중·202·receipt no_op=false): accepted ${JSON.stringify(acceptedOf(interrupts))}, VM stall probe poll ${JSON.stringify(probePolls)}`,
-      expected: `유효하지 않은 표본 0, 모든 표본의 engine_stopped를 SSE에서 관찰, host 제외가 아닌 모든 표본의 제품 effect(POST → worker 로그 engine_stopped, host 시계) ≤ ${targets.interruptEffectMs}ms, 모든 표본이 ${targets.interruptTerminalMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0. host 제외는 [POST, 제품 effect]가 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall 또는 host probe stall의 [시작, 끝+${INTERRUPT_EXCLUSION.afterStallMs}ms]와 겹친 늦은 effect만이고, 그 표본도 receipt succeeded와 그 세션의 다음 turn completed가 있어야 한다. host 제외 ≤ ${INTERRUPT_EXCLUSION.maxHostExcludedRatio * 100}%(넘으면 측정 무효). SSE 관측 시각은 함께 싣되 판정하지 않는다`,
+      expected: `유효하지 않은 표본 0, 모든 표본의 engine_stopped를 SSE에서 관찰, host 제외가 아닌 모든 표본의 제품 effect(POST → worker 로그 engine_stopped, POST 앞뒤 /clock 값으로 옮긴 host 시계의 가장 늦은 시각) ≤ ${targets.interruptEffectMs}ms, 모든 표본이 ${targets.interruptTerminalMs}ms 안에 turn이 interrupted, 수락 뒤 모델 호출 0. host 제외는 [POST, 제품 effect]가 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall 또는 host stall의 [시작, 끝+${INTERRUPT_EXCLUSION.afterStallMs}ms]와 겹친 늦은 effect만이고, 그 표본도 receipt succeeded와 그 세션의 다음 turn completed가 있어야 한다. host 제외 ≤ ${INTERRUPT_EXCLUSION.maxHostExcludedRatio * 100}%(넘으면 측정 무효). SSE 관측 시각은 함께 싣되 판정하지 않는다`,
       actual: `제품 effect ${JSON.stringify(distribution(interruptsJudged.effectMs))}(worker 로그 ${interruptsJudged.effectFromWorkerLog}건, 나머지는 SSE 값), SSE 관측 ${JSON.stringify(distribution(interruptsJudged.sseEffectMs))}·${targets.interruptEffectMs}ms 초과 ${JSON.stringify(interruptsJudged.sseLate)}, terminal ${JSON.stringify(distribution(interruptsJudged.terminalMs))}, 무효 ${interrupts.length - interruptsJudged.valid}, 관찰 못 함 ${interruptsJudged.unobserved}, interrupted 아님 ${interruptsJudged.notInterrupted}, 확정 늦음 ${interruptsJudged.settledLate}, 계속 호출 ${interruptsJudged.continued}, effect 초과(제외 아님) ${JSON.stringify(interruptsJudged.late)}, host 제외 ${interruptsJudged.hostExcluded}건(${interruptsJudged.hostExcludedRatio}, 판정 표본 ${interruptsJudged.judged}) ${JSON.stringify(interruptsJudged.hostExcludedSamples)}`,
       pass: interruptsJudged.pass,
     }),
@@ -1671,9 +1718,9 @@ export function judge(
     criterion({
       id: "O-1",
       area: "관측",
-      input: `/readyz ${readyz.length}회, ${config.readyz.intervalMs}ms 간격, VM stall probe poll ${JSON.stringify(probePolls)}, host probe ${hostProbe.samples}회(${HOST_PROBE.intervalMs}ms 간격, vm-lag /healthz)`,
-      expected: `러너 결측과 host 제외를 뺀 표본의 가용률 ≥ ${targets.readyzAvailability}. host 제외는 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall 또는 host probe stall이 요청 구간과 겹친 timeout만이다. host 제외 ≤ ${READYZ_EXCLUSION.maxHostExcludedRatio * 100}%, 러너 결측 ≤ ${READYZ_EXCLUSION.maxRunnerMissedRatio * 100}%(넘으면 측정 무효)`,
-      actual: `가용률 ${readyzJudged.availability} (${readyzJudged.ok}/${readyzJudged.judged}), 제품 실패 ${JSON.stringify(readyzJudged.productFailures)}, host 제외 ${readyzJudged.hostExcluded}회(${readyzJudged.hostExcludedRatio}), 러너 결측 ${readyzJudged.runnerMissed}회(${readyzJudged.runnerMissedRatio}), VM stall ≥${READYZ_EXCLUSION.stallMinMs}ms ${readyzJudged.stalls.count}회·최대 ${readyzJudged.stalls.maxGapMs}ms(목록은 summary.json readyz.stalls), host probe stall ${hostProbe.stalls.count}회·${HOST_PROBE.nearMissMs}ms 이상 또는 실패 ${hostProbe.nearMisses.length}회·timeout ${hostProbe.timeouts}·그 밖의 실패 ${hostProbe.otherFailures}(목록은 summary.json hostProbe), 응답 시간(curl) ${JSON.stringify(distribution(readyz.map((sample) => sample.ms)))}`,
+      input: `/readyz ${readyz.length}회, ${config.readyz.intervalMs}ms 간격, VM stall probe poll ${JSON.stringify(probePolls)}, host probe ${hostProbe.samples}회(${HOST_PROBE.intervalMs}ms 간격, 대상마다 ${JSON.stringify(HOST_PROBE.targets)})`,
+      expected: `러너 결측과 host 제외를 뺀 표본의 가용률 ≥ ${targets.readyzAvailability}. host 제외는 ${READYZ_EXCLUSION.stallMinMs}ms 이상 VM stall, 또는 두 host probe 대상이 함께 ${READYZ_EXCLUSION.stallMinMs}ms 이상 막힌 host stall이 요청 구간과 확실히 겹친 timeout만이다. host 제외 ≤ ${READYZ_EXCLUSION.maxHostExcludedRatio * 100}%, 러너 결측 ≤ ${READYZ_EXCLUSION.maxRunnerMissedRatio * 100}%(넘으면 측정 무효)`,
+      actual: `가용률 ${readyzJudged.availability} (${readyzJudged.ok}/${readyzJudged.judged}), 제품 실패 ${JSON.stringify(readyzJudged.productFailures)}, host 제외 ${readyzJudged.hostExcluded}회(${readyzJudged.hostExcludedRatio}), 러너 결측 ${readyzJudged.runnerMissed}회(${readyzJudged.runnerMissedRatio}), VM stall ≥${READYZ_EXCLUSION.stallMinMs}ms ${readyzJudged.stalls.count}회·최대 ${readyzJudged.stalls.maxGapMs}ms(목록은 summary.json readyz.stalls), host stall ${hostProbe.stalls.count}회, host probe ${HOST_PROBE.nearMissMs}ms 이상 또는 실패 ${hostProbe.nearMisses.length}회, 대상별 ${JSON.stringify(Object.fromEntries(Object.entries(hostProbe.targets).map(([target, row]) => [target, { timeouts: row.timeouts, otherFailures: row.otherFailures, held: row.held }])))}(목록은 summary.json hostProbe), 응답 시간(curl) ${JSON.stringify(distribution(readyz.map((sample) => sample.ms)))}`,
       pass: readyzJudged.pass,
     }),
     criterion({
@@ -1983,7 +2030,6 @@ function rejudge(dir: string): number {
     dir,
     {
       anomalies: readJsonl(at("anomalies.jsonl")),
-      clock: readJsonl(at("clock.jsonl")),
       config,
       controls,
       engineStops: readEngineStops(at("workers")),

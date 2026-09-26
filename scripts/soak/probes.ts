@@ -468,6 +468,8 @@ export async function interruptProbe(
   const at = await stopped;
   clearTimeout(budget);
   watching.abort();
+  // With the reading before the POST, brackets the engine_stopped log line.
+  const clockAfter = await model.offset().catch(() => null);
   const effectMs = at === null ? null : at - posted.sentAt;
   const noOp = (receiptResult as { no_op?: boolean } | null)?.no_op ?? null;
   const after = (await model.requests({ spec: input.specId })).filter(
@@ -489,9 +491,11 @@ export async function interruptProbe(
     extra: {
       reachedSlowStep: reached !== null,
       sentAt: new Date(posted.sentAt).toISOString(),
-      // Places the worker's engine_stopped log line on this clock (94S-453).
+      // Place the worker's engine_stopped log line on this clock (94S-453).
       clockOffsetMs: clock.offsetMs,
       clockRttMs: clock.rttMs,
+      clockAfterOffsetMs: clockAfter?.offsetMs ?? null,
+      clockAfterRttMs: clockAfter?.rttMs ?? null,
       slowPendingUntil:
         pendingUntil === null ? null : new Date(pendingUntil).toISOString(),
       acceptedBy: new Date(acceptedBy).toISOString(),
