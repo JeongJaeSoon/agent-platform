@@ -106,93 +106,112 @@ async function putDotSegmentKey(bucket: LocalstackBucket, key: string) {
       await rm(dir, { force: true, recursive: true });
     });
 
+    // A bucket, a CLI process of its own and several S3 calls per test:
+    // Bun's 5s default is too tight for a slow LocalStack.
+    const timeout = 30_000;
     // The upload and the probe run on a restore target, which is locked.
     const locked = { objectLock: true, prefix: "object-store-cli" };
     // Without Object Lock, so emptying the bucket afterwards sends no
     // per-key legal hold request, which the `..` key could not take.
     const plain = { prefix: "object-store-cli" };
 
-    test("upload stops at a key the bucket already holds and leaves its object as it was", async () => {
-      await withLocalstackBucket(async (bucket) => {
-        await bucket.s3.send(
-          new PutObjectCommand({
-            Body: "theirs",
-            Bucket: bucket.bucket,
-            Key: "sessions/s1/object",
-          }),
-        );
-        await mkdir(join(dir, "sessions/s1"), { recursive: true });
-        await writeFile(join(dir, "sessions/s1/object"), "ours");
-
-        const result = await run(bucket, ["upload", dir]);
-
-        expect(result).toMatchObject({ exitCode: 1 });
-        expect(result.stderr).toContain(
-          "sessions/s1/object: the target already holds an object there",
-        );
-        const stored = await bucket.s3.send(
-          new GetObjectCommand({
-            Bucket: bucket.bucket,
-            Key: "sessions/s1/object",
-          }),
-        );
-        expect(await stored.Body?.transformToString()).toBe("theirs");
-        expect(await versionsUnder(bucket, "sessions/s1/object")).toEqual({
-          markers: 0,
-          versions: 1,
-        });
-      }, locked);
-    });
-
-    test("create-only-check passes and leaves no version or delete marker of its scratch key", async () => {
-      await withLocalstackBucket(async (bucket) => {
-        const result = await run(bucket, ["create-only-check"]);
-
-        expect(result).toMatchObject({ exitCode: 0 });
-        expect(await versionsUnder(bucket, "create-only-check/")).toEqual({
-          markers: 0,
-          versions: 0,
-        });
-      }, locked);
-    });
-
-    test("download refuses two keys that would be one file, writing nothing", async () => {
-      await withLocalstackBucket(async (bucket) => {
-        for (const Key of ["sessions/A", "sessions/a"]) {
+    test(
+      "upload stops at a key the bucket already holds and leaves its object as it was",
+      async () => {
+        await withLocalstackBucket(async (bucket) => {
           await bucket.s3.send(
-            new PutObjectCommand({ Body: Key, Bucket: bucket.bucket, Key }),
+            new PutObjectCommand({
+              Body: "theirs",
+              Bucket: bucket.bucket,
+              Key: "sessions/s1/object",
+            }),
           );
-        }
+          await mkdir(join(dir, "sessions/s1"), { recursive: true });
+          await writeFile(join(dir, "sessions/s1/object"), "ours");
 
-        const result = await run(bucket, ["download", join(dir, "objects")]);
+          const result = await run(bucket, ["upload", dir]);
 
-        expect(result).toMatchObject({ exitCode: 1 });
-        expect(result.stderr).toContain(
-          'keys "sessions/A" and "sessions/a" may share one file',
-        );
-        expect(await readdir(dir)).toEqual([]);
-      }, plain);
-    });
+          expect(result).toMatchObject({ exitCode: 1 });
+          expect(result.stderr).toContain(
+            "sessions/s1/object: the target already holds an object there",
+          );
+          const stored = await bucket.s3.send(
+            new GetObjectCommand({
+              Bucket: bucket.bucket,
+              Key: "sessions/s1/object",
+            }),
+          );
+          expect(await stored.Body?.transformToString()).toBe("theirs");
+          expect(await versionsUnder(bucket, "sessions/s1/object")).toEqual({
+            markers: 0,
+            versions: 1,
+          });
+        }, locked);
+      },
+      timeout,
+    );
 
-    test("download refuses a key that leaves the backup directory, writing nothing outside it", async () => {
-      await withLocalstackBucket(async (bucket) => {
-        await putDotSegmentKey(bucket, "../x");
-        // The store holds the key as sent, not a resolved `x`.
-        const listed = await bucket.s3.send(
-          new ListObjectVersionsCommand({ Bucket: bucket.bucket }),
-        );
-        expect(listed.Versions?.map((version) => version.Key)).toEqual([
-          "../x",
-        ]);
+    test(
+      "create-only-check passes and leaves no version or delete marker of its scratch key",
+      async () => {
+        await withLocalstackBucket(async (bucket) => {
+          const result = await run(bucket, ["create-only-check"]);
 
-        const result = await run(bucket, ["download", join(dir, "objects")]);
+          expect(result).toMatchObject({ exitCode: 0 });
+          expect(await versionsUnder(bucket, "create-only-check/")).toEqual({
+            markers: 0,
+            versions: 0,
+          });
+        }, locked);
+      },
+      timeout,
+    );
 
-        expect(result).toMatchObject({ exitCode: 1 });
-        expect(result.stderr).toContain(
-          'object key "../x" has no single path in a backup',
-        );
-        expect(await readdir(dir)).toEqual([]);
-      }, plain);
-    });
+    test(
+      "download refuses two keys that would be one file, writing nothing",
+      async () => {
+        await withLocalstackBucket(async (bucket) => {
+          for (const Key of ["sessions/A", "sessions/a"]) {
+            await bucket.s3.send(
+              new PutObjectCommand({ Body: Key, Bucket: bucket.bucket, Key }),
+            );
+          }
+
+          const result = await run(bucket, ["download", join(dir, "objects")]);
+
+          expect(result).toMatchObject({ exitCode: 1 });
+          expect(result.stderr).toContain(
+            'keys "sessions/A" and "sessions/a" may share one file',
+          );
+          expect(await readdir(dir)).toEqual([]);
+        }, plain);
+      },
+      timeout,
+    );
+
+    test(
+      "download refuses a key that leaves the backup directory, writing nothing outside it",
+      async () => {
+        await withLocalstackBucket(async (bucket) => {
+          await putDotSegmentKey(bucket, "../x");
+          // The store holds the key as sent, not a resolved `x`.
+          const listed = await bucket.s3.send(
+            new ListObjectVersionsCommand({ Bucket: bucket.bucket }),
+          );
+          expect(listed.Versions?.map((version) => version.Key)).toEqual([
+            "../x",
+          ]);
+
+          const result = await run(bucket, ["download", join(dir, "objects")]);
+
+          expect(result).toMatchObject({ exitCode: 1 });
+          expect(result.stderr).toContain(
+            'object key "../x" has no single path in a backup',
+          );
+          expect(await readdir(dir)).toEqual([]);
+        }, plain);
+      },
+      timeout,
+    );
   },
 );
