@@ -238,6 +238,72 @@ describe("alpha path over public HTTP (94S-134)", () => {
   );
 });
 
+describe("recovery close over public HTTP (94S-406)", () => {
+  test(
+    "terminate → confirm_completed refused without a covering checkpoint → close → resume is 409 SESSION_CLOSED",
+    async () => {
+      const created = await api.createSession(
+        scripted("x1", [], "never", 300_000),
+      );
+      const sessionId = created.body.session_id;
+      await api.sessionUntil(
+        sessionId,
+        "runs turn 1",
+        (s) => s.current_turn_id === "1" && s.status === "running",
+      );
+      await api.modelCallSeen("x1", 0);
+      const terminate = await api.control(sessionId, "terminate", {
+        expected_revision: await revision(sessionId),
+        reason: "e2e",
+      });
+      expect(terminate.status).toBe(202);
+      const stopped = await api.sessionUntil(
+        sessionId,
+        "needs a recovery decision",
+        (s) => s.admission_state === "recovery_required",
+      );
+      expect((await api.turn(sessionId, "1")).status).toBe("outcome_unknown");
+
+      // Turn 1 never finished, so no checkpoint reaches it.
+      const confirm = await api.control(sessionId, "recovery-decisions", {
+        decision: "confirm_completed",
+        expected_revision: stopped.revision,
+        reason: "e2e: claims the unfinished turn completed",
+        target_turn_id: "1",
+        evidence_ref: "e2e://none",
+      });
+      expect(confirm.status).toBe(409);
+      expect((confirm.body as ErrorBody).error.code).toBe(
+        "CHECKPOINT_UNAVAILABLE",
+      );
+      expect((await api.turn(sessionId, "1")).status).toBe("outcome_unknown");
+
+      const close = await api.control(sessionId, "recovery-decisions", {
+        decision: "close",
+        expected_revision: stopped.revision,
+        reason: "e2e: give the session up",
+      });
+      expect(close.status).toBe(202);
+      const closed = await api.receiptUntil(
+        (close.body as { receipt_id: string }).receipt_id,
+        (r) => r.status !== "accepted",
+      );
+      expect(closed).toMatchObject({
+        status: "succeeded",
+        result: { resulting_admission_state: "closed", resumable: false },
+      });
+      expect((await api.session(sessionId)).admission_state).toBe("closed");
+
+      const resume = await api.control(sessionId, "resume", {
+        expected_revision: await revision(sessionId),
+      });
+      expect(resume.status).toBe(409);
+      expect((resume.body as ErrorBody).error.code).toBe("SESSION_CLOSED");
+    },
+    TIMEOUT,
+  );
+});
+
 describe("default commit identity (94S-423)", () => {
   test(
     "Claude commits in a new session as the identity docs/operations.md names",

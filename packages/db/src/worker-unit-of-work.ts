@@ -126,7 +126,7 @@ import { settleTurnInterrupts } from "./turn-interrupts.ts";
 // Heartbeats travel over a network and can land out of order. The durable
 // state is the furthest phase the attempt has been reported to reach, so a
 // late "starting" cannot walk a running attempt backwards for readers.
-const ATTEMPT_PHASE_ORDER: Record<string, number> = {
+export const ATTEMPT_PHASE_ORDER: Record<string, number> = {
   starting: 0,
   running: 1,
   draining: 2,
@@ -594,7 +594,7 @@ function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
 
 // A row from before 94S-253 has no fingerprint; it runs on whatever the
 // pair's profile is now, and the claim that binds it pins that.
-function runnablePairOf(
+export function runnablePairOf(
   session: RunnableFields,
   runnable: readonly RunnablePair[],
 ): RunnablePair | undefined {
@@ -631,7 +631,7 @@ function replayableBinding(
 
 // A row with no repository id predates the catalog and matches nothing.
 // The same predicate as runnablePairOf.
-function runnableCondition(runnable: readonly RunnablePair[]): SQL {
+export function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   if (runnable.length === 0) return sql`false`;
   const pairs = sql.join(
     runnable.map(

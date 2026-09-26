@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as schema from "@agent-platform/db";
@@ -8,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
@@ -247,6 +250,50 @@ async function refusedStart(
   ]);
   clearTimeout(timer);
   return { exitCode, stderr: `${stdout}${stderr}` };
+}
+
+// One HTTP/1.1 connection opened before shutdown. Bun keeps serving a
+// connection it already holds after the listener stops accepting, so this is
+// the only way left to read /readyz once shutdown has started.
+async function heldConnection(port: number) {
+  const socket = connect(port, "127.0.0.1");
+  let received = "";
+  let wake = () => {};
+  socket.on("data", (chunk) => {
+    received += chunk.toString();
+    wake();
+  });
+  socket.on("close", () => wake());
+  await once(socket, "connect");
+  return {
+    async get(path: string): Promise<{ status: number; body: string }> {
+      received = "";
+      socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`);
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        const head = received.indexOf("\r\n\r\n");
+        const length = Number(
+          /^content-length: (\d+)$/im.exec(received.slice(0, head))?.[1],
+        );
+        if (head >= 0 && received.length >= head + 4 + length) {
+          return {
+            status: Number(received.slice(9, 12)),
+            body: received.slice(head + 4, head + 4 + length),
+          };
+        }
+        if (socket.destroyed || Date.now() > deadline) {
+          throw new Error(`no response to ${path}; got ${received}`);
+        }
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            wake = resolve;
+          }),
+          Bun.sleep(deadline - Date.now()),
+        ]);
+      }
+    },
+    close: () => socket.destroy(),
+  };
 }
 
 integration("API server on PostgreSQL", () => {
@@ -513,6 +560,120 @@ integration("API server on PostgreSQL", () => {
       expect(logs).not.toContain("Authorization");
       expect(logs).not.toContain(PROVIDER_KEY);
       expect(logs).toContain("Session catalog loaded");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "SIGTERM withdraws readiness at once, answers the request in flight, refuses new connections and exits 0",
+    async () => {
+      const { plaintext } = await issueKey(ownerId, "sessions:read");
+      const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
+        cwd: `${import.meta.dir}/../..`,
+        env: {
+          ...process.env,
+          AUTH_MODE: "api-key",
+          CHECKPOINT_OBJECT_STORE: "disabled",
+          DATABASE_URL: databaseUrl,
+          EXECUTION_SLOT_LIMIT: "10",
+          MAX_TURN_SECONDS: "3600",
+          PROVIDER_MAX_RETRIES: "2",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          SESSION_COST_LIMIT_USD: "25",
+          STORAGE_LIMIT_BYTES: "1073741824",
+          PORT: "0",
+          PLATFORM_CONFIG_DIR: await configDir(root, "shutdown"),
+          INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = serverStdout(server.stdout);
+      const serverStderr = new Response(server.stderr).text();
+      const blocker = await pool.connect();
+      let held: Awaited<ReturnType<typeof heldConnection>> | undefined;
+      let exitCode: number | undefined;
+      try {
+        const { port } = await waitForServer(server, stdout, serverStderr, {
+          path: "/healthz",
+          headers: {},
+        });
+        held = await heldConnection(port);
+        await held.get("/healthz");
+
+        // The key lookup waits on this lock, so the request stays in flight
+        // across the signal until the lock goes.
+        await blocker.query("BEGIN");
+        await blocker.query("LOCK TABLE api_keys IN ACCESS EXCLUSIVE MODE");
+        const inFlight = fetch(`http://127.0.0.1:${port}/v1`, {
+          headers: { Authorization: `Bearer ${plaintext}` },
+        });
+        let settled = false;
+        const settle = () => {
+          settled = true;
+        };
+        inFlight.then(settle, settle);
+        const blocked = async () =>
+          (
+            await pool.query<{ n: number }>(
+              `SELECT count(*)::int AS n FROM pg_stat_activity
+                WHERE datname = current_database() AND wait_event_type = 'Lock'
+                  AND query ILIKE '%api_keys%' AND pid <> pg_backend_pid()`,
+            )
+          ).rows[0]?.n ?? 0;
+        const blockedBy = Date.now() + SERVER_START_DEADLINE_MS;
+        while ((await blocked()) === 0) {
+          expect(settled).toBe(false);
+          expect(Date.now()).toBeLessThan(blockedBy);
+          await Bun.sleep(POLL_INTERVAL_MS);
+        }
+
+        const signalledAt = Date.now();
+        server.kill("SIGTERM");
+        let readiness = await held.get("/readyz");
+        // Until the signal is handled the probe still answers for itself.
+        while (!readiness.body.includes("shutdown")) {
+          expect(Date.now() - signalledAt).toBeLessThan(5_000);
+          await Bun.sleep(20);
+          readiness = await held.get("/readyz");
+        }
+        expect(readiness.status).toBe(503);
+        held.close();
+
+        // Readiness and the listener stop in one step, so the listener is
+        // already closed here.
+        const fresh = connect(port, "127.0.0.1");
+        const outcome = await Promise.race([
+          once(fresh, "error").then(
+            ([error]) => (error as NodeJS.ErrnoException).code,
+          ),
+          once(fresh, "connect").then(() => "connected"),
+        ]);
+        fresh.destroy();
+        expect(outcome).toBe("ECONNREFUSED");
+
+        await blocker.query("ROLLBACK");
+        const answered = await inFlight;
+        expect(answered.status).toBe(200);
+        expect(await answered.json()).toEqual({
+          status: "ok",
+          owner_id: ownerId,
+        });
+        exitCode = await server.exited;
+        expect(Date.now() - signalledAt).toBeLessThan(SHUTDOWN_DRAIN_MS);
+      } finally {
+        held?.close();
+        await blocker.query("ROLLBACK").catch(() => {});
+        blocker.release();
+        if (exitCode === undefined) {
+          server.kill("SIGKILL");
+          await server.exited;
+        }
+      }
+      const logs = `${await stdout.text}${await serverStderr}`;
+      expect(exitCode, logs).toBe(0);
+      expect(logs).toContain("In-flight requests drained");
+      expect(logs).not.toContain("Drain deadline passed");
     },
     TEST_TIMEOUT_MS,
   );
