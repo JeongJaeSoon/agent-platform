@@ -5,8 +5,9 @@
  * model is added or a price changes; checked against Anthropic's pricing
  * on 2026-09-26.
  *
- * An estimate, not a bill. Fast mode, batch, long-context premiums and
- * server tool fees (web search, code execution) are not priced.
+ * Fast mode has its own rates (94S-451), and each web search adds its
+ * per-search fee. An estimate, not a bill: long-context premiums, the US
+ * inference_geo premium and code execution container time are not priced.
  */
 
 type ModelPrice = {
@@ -62,12 +63,29 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "claude-haiku-4-5-20251001": HAIKU_4_5,
 };
 
+/** `speed: "fast"` rates, twice the standard ones for the models offering it. */
+export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
+  "claude-opus-5-5": price(8, 40, 0.4),
+  "claude-opus-5": price(10, 50, 1),
+  "claude-opus-4-8": price(10, 50, 1),
+};
+
 /**
- * A model the table does not know is charged every part at the highest rate
- * any known model has: a budget errs on counting too much, never too little.
+ * $10 per 1,000 searches, in millionths of a dollar like a token count
+ * times its per-million rate. Web fetch has no fee beyond its tokens.
+ */
+const WEB_SEARCH_MICRO_USD = 10_000;
+
+/**
+ * A model the table does not know, at a speed it does not know, is charged
+ * every part at the highest rate either table has: a budget errs on counting
+ * too much, never too little.
  */
 const FALLBACK_PRICE: ModelPrice = (() => {
-  const prices = Object.values(MODEL_PRICES);
+  const prices = [
+    ...Object.values(MODEL_PRICES),
+    ...Object.values(FAST_MODEL_PRICES),
+  ];
   return price(
     Math.max(...prices.map((known) => known.inputUsdPerMtok)),
     Math.max(...prices.map((known) => known.outputUsdPerMtok)),
@@ -83,6 +101,12 @@ export type ProviderUsage = {
   cacheCreationInputTokens: number;
   cacheCreation1hInputTokens: number;
   cacheReadInputTokens: number;
+  /** `standard`, `fast`, or whatever else the call named, which is priced high. */
+  speed: string;
+  webSearchRequests: number;
+  webFetchRequests: number;
+  /** Billed by container time, which the answer does not say: not priced. */
+  codeExecutionRequests: number;
   /** The proxy estimated some of it high; the answer did not say. */
   estimated: boolean;
 };
@@ -91,8 +115,14 @@ export function priceProviderUsage(usage: ProviderUsage): {
   costUsd: number;
   pricedBy: "table" | "fallback";
 } {
-  const known = Object.hasOwn(MODEL_PRICES, usage.model)
-    ? MODEL_PRICES[usage.model]
+  const table: Readonly<Record<string, ModelPrice>> =
+    usage.speed === "standard"
+      ? MODEL_PRICES
+      : usage.speed === "fast"
+        ? FAST_MODEL_PRICES
+        : {};
+  const known = Object.hasOwn(table, usage.model)
+    ? table[usage.model]
     : undefined;
   const rates = known ?? FALLBACK_PRICE;
   const oneHour = Math.min(
@@ -108,7 +138,8 @@ export function priceProviderUsage(usage: ProviderUsage): {
     usage.cacheReadInputTokens * rates.cacheReadUsdPerMtok +
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
-    costUsd: perMtok / 1_000_000,
+    costUsd:
+      (perMtok + usage.webSearchRequests * WEB_SEARCH_MICRO_USD) / 1_000_000,
     pricedBy: known === undefined ? "fallback" : "table",
   };
 }

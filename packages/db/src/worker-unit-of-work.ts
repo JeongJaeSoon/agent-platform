@@ -1301,6 +1301,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
           cacheCreationInputTokens: input.usage.cacheCreationInputTokens,
           cacheCreation1hInputTokens: input.usage.cacheCreation1hInputTokens,
           cacheReadInputTokens: input.usage.cacheReadInputTokens,
+          speed: input.usage.speed,
+          webSearchRequests: input.usage.webSearchRequests,
+          webFetchRequests: input.usage.webFetchRequests,
+          codeExecutionRequests: input.usage.codeExecutionRequests,
           estimated: input.usage.estimated,
         };
         // Rounded up to the column's micro-dollar, or a stream of tiny calls
@@ -1328,6 +1332,10 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               cacheCreation1hInputTokens:
                 providerUsage.cacheCreation1hInputTokens,
               cacheReadInputTokens: providerUsage.cacheReadInputTokens,
+              speed: providerUsage.speed,
+              webSearchRequests: providerUsage.webSearchRequests,
+              webFetchRequests: providerUsage.webFetchRequests,
+              codeExecutionRequests: providerUsage.codeExecutionRequests,
               estimated: providerUsage.estimated,
               costUsd: providerUsage.costUsd,
             })

@@ -658,6 +658,60 @@ describe("startCredentialProxy", () => {
       });
     });
 
+    test("reports a fast answer's speed and its server tool counts; a request that asked for fast but got no usable answer is reported fast (94S-451)", async () => {
+      const tools = {
+        web_search_requests: 3,
+        web_fetch_requests: 1,
+        code_execution_requests: 2,
+      };
+      const up = upstream((request) =>
+        request.headers.get("x-case") === "cut"
+          ? Response.json({ id: "msg_1" })
+          : new Response(
+              sseBody([
+                {
+                  type: "message_start",
+                  message: {
+                    model: "claude-opus-5",
+                    usage: { input_tokens: 50, speed: "fast" },
+                  },
+                },
+                {
+                  type: "message_delta",
+                  usage: { output_tokens: 30, server_tool_use: tools },
+                },
+                { type: "message_stop" },
+              ]),
+              { headers: { "content-type": "text/event-stream" } },
+            ),
+      );
+      const auth = authorizer(provider(up));
+      const server = proxy(auth.url, up.port);
+      await (await messages(server.port)).text();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]?.usage).toMatchObject({
+        model: "claude-opus-5",
+        speed: "fast",
+        ...tools,
+        estimated: false,
+      });
+
+      const body = '{"model":"claude-opus-5","max_tokens":8,"speed":"fast"}';
+      await (
+        await messages(server.port, {
+          body,
+          headers: { "x-api-key": WORKER_TOKEN, "x-case": "cut" },
+        })
+      ).text();
+      await until(() => auth.reported.length === 2);
+      expect(auth.reported[1]?.usage).toMatchObject({
+        model: "claude-opus-5",
+        speed: "fast",
+        web_search_requests: 0,
+        estimated: true,
+      });
+    });
+
     test("a report the authorizer could not take is sent again under the same id; a refused one is not", async () => {
       const up = upstream(() =>
         Response.json({ model: "m", usage: { input_tokens: 1 } }),

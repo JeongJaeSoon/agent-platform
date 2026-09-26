@@ -184,6 +184,10 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       cacheCreationInputTokens: 0,
       cacheCreation1hInputTokens: 0,
       cacheReadInputTokens: 0,
+      speed: "standard",
+      webSearchRequests: 0,
+      webFetchRequests: 0,
+      codeExecutionRequests: 0,
       estimated: false,
       ...counts,
     };
@@ -491,6 +495,54 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
         .from(providerUsage)
         .where(eq(providerUsage.sessionId, session.session_id));
       expect(row?.pricedBy).toBe("fallback");
+    });
+
+    test("a fast call with web searches is priced at the fast rate plus the search fee, and the row says why (94S-451)", async () => {
+      const { session, claimed } = await bound();
+      const exchangeId = crypto.randomUUID();
+      const report = {
+        exchangeId,
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        // claude-opus-5 fast: $50 out per million; two searches at $0.01.
+        usage: usage({
+          model: "claude-opus-5",
+          speed: "fast",
+          outputTokens: 1_000,
+          webSearchRequests: 2,
+          codeExecutionRequests: 1,
+        }),
+      };
+      expect(await gateway.recordProviderUsage(report)).toEqual({
+        costUsd: 0.07,
+        pricedBy: "table",
+      });
+      expect(
+        await failure(
+          gateway.recordProviderUsage({
+            ...report,
+            usage: { ...report.usage, speed: "standard" },
+          }),
+        ),
+      ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+      const rows = await db
+        .select({
+          speed: providerUsage.speed,
+          webSearchRequests: providerUsage.webSearchRequests,
+          codeExecutionRequests: providerUsage.codeExecutionRequests,
+          costUsd: providerUsage.costUsd,
+        })
+        .from(providerUsage)
+        .where(eq(providerUsage.exchangeId, exchangeId));
+      expect(rows).toEqual([
+        {
+          speed: "fast",
+          webSearchRequests: 2,
+          codeExecutionRequests: 1,
+          costUsd: 0.07,
+        },
+      ]);
+      expect(await sessionCost(session.session_id)).toBe(0.07);
     });
 
     test("a turn the engine cut on its budget says why, and the metered sum is what holds the next poll (94S-279)", async () => {

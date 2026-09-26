@@ -914,6 +914,21 @@ export const providerUsage = pgTable(
     cacheReadInputTokens: bigint("cache_read_input_tokens", {
       mode: "number",
     }).notNull(),
+    // What else the price rests on (94S-451). Rows from before it say
+    // `unknown`, as a report from a proxy that predates it does; they were
+    // priced as standard with no tool fee.
+    speed: text().notNull().default("unknown"),
+    webSearchRequests: bigint("web_search_requests", { mode: "number" })
+      .notNull()
+      .default(0),
+    webFetchRequests: bigint("web_fetch_requests", { mode: "number" })
+      .notNull()
+      .default(0),
+    codeExecutionRequests: bigint("code_execution_requests", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
     // The proxy estimated the call high because its answer did not say what
     // it used: a stream cut short, or a body it could not read.
     estimated: boolean().notNull(),
