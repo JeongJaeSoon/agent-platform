@@ -43,7 +43,7 @@
 - worker는 runtime-core·Claude adapter·contracts·storage·system·observability만 import하고, storage는 worker의 object store 모듈 하나만 import한다.
 - DNS 조회와 git 실행 도구는 `packages/system`에 있고 runtime-core에는 없다. checkpoint 상한은 worker와 platform이 따로 선언하지 않고 runtime-core에서 가져온다.
 - Claude adapter의 진입점은 export할 심볼을 이름으로 적고(`export *` 없음), worker 진입점은 다른 패키지를 재수출하지 않는다. `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
-- `/v1` route는 cursor 오류를 platform port(`InvalidCursorError`)로만 안다. db를 import하는 route는 아직 platform port가 없는 identity route(`auth.ts`) 하나다.
+- `/v1` route는 cursor 오류를 platform port(`InvalidCursorError`)로만 안다. db를 import하는 route는 아직 platform port가 없는 identity route(`auth.ts`) 하나다(94S-459).
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
 
 ## checkpoint 경로
