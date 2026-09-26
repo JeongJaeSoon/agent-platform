@@ -289,6 +289,8 @@ printf '%s\\n' "$*" >>"$STUB_ARGV"
 case "$*" in
   "version --format"*) echo 28.1.0 ;;
   "compose version --short") echo "\${STUB_COMPOSE:-2.39.1}" ;;
+  *" config --format json") echo '{"services":{"scheduler":{"environment":{"EXECUTION_INSTALLATION_ID":"local"}}}}' ;;
+  *" port api 3000") echo 127.0.0.1:3000 ;;
   *" ps --format "*)
     for p in 3000 5432 4566 4567 3001; do printf '127.0.0.1:%s->%s/tcp, ' "$p" "$p"; done; echo ;;
 esac

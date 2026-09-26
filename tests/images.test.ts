@@ -998,6 +998,45 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
+  // 94S-439: where scripts/local.sh reads the ports to check and the worker
+  // label to delete, also under the CI quickstart job's COMPOSE_FILE.
+  test.each([
+    [LOCAL_LAYERS, {}, "local"],
+    [LOCAL_LAYERS, { EXECUTION_INSTALLATION_ID: "ap434local" }, "ap434local"],
+    [["compose.yaml", "tests/e2e/compose.ci-mirror.yml"], {}, "local"],
+  ] as const)(
+    "%p rendered with %j names installation %p and its loopback ports",
+    (files, variables, id) => {
+      const { exitCode, stderr, model } = render(files, variables);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      const services = model?.services ?? {};
+      expect(services.scheduler?.environment?.EXECUTION_INSTALLATION_ID).toBe(
+        id,
+      );
+      const proxy = services["egress-proxy"] as
+        | { labels?: Record<string, string> }
+        | undefined;
+      expect(proxy?.labels?.["agent-platform.egress-proxy"]).toBe(id);
+      const published = Object.values(services).flatMap(
+        (service) => service.ports?.map((port) => port.published) ?? [],
+      );
+      expect([...new Set(published)].sort()).toEqual([
+        "3000",
+        "3001",
+        "4566",
+        "4567",
+        "5432",
+      ]);
+      expect(
+        services.api?.ports?.map(({ host_ip, target }) => ({
+          host_ip,
+          target,
+        })),
+      ).toEqual([{ host_ip: "127.0.0.1", target: 3000 }]);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
   test(
     "the test-ops layers on localstack add the local stack's LocalStack and nothing else",
     () => {

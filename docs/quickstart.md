@@ -28,7 +28,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 |---|---|---|
 | Docker Engine | **28 이상** | 워커 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다. 28보다 낮은 daemon에서는 scheduler가 기동을 거부한다([94S-274](https://linear.app/94soon/issue/94S-274)) |
 | Docker Compose | 2.24 이상(Docker Desktop의 5.x도 된다) | compose의 `include`와 `env_file`의 `required`를 쓴다. 5장의 실제 Claude와 6장의 백업·복원까지 해 보려면 2.24.6 이상(`include`로 합친 스택 위에 overlay를 겹친다) |
-| curl, jq, uuidgen | 아무 버전 | 3장의 수동 확인 |
+| curl, jq, uuidgen | 아무 버전 | `local.sh`와 3장의 수동 확인 |
 | lsof | 아무 버전 | 0장의 포트 점검. 없으면 점검 블록이 아무것도 출력하지 않는다(`local.sh up`이 다시 확인한다) |
 | git | 아무 버전 | clone |
 | Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
@@ -74,7 +74,7 @@ scripts/local.sh status
 
 `status`는 컨테이너 목록과 `/readyz` 응답을 보여 준다. api·scheduler·reconciler가 running이면 다음 장으로 넘어간다.
 
-로컬 스택은 머신마다 하나다. project 이름 `agent-platform`, 0장의 포트, worker label `agent-platform.installation=local`이 고정이다. `COMPOSE_PROJECT_NAME`으로 project만 바꿔도 포트는 그대로이고, `local.sh`는 `127.0.0.1:3000`의 `/readyz`를 기다리며, `down`은 project와 상관없이 `local` label이 붙은 worker 자원을 지운다. 다른 스택 옆에서 돌려야 하면 자기 project와 임시 포트로 뜨는 `tests/e2e/run.sh`를 쓴다(4장).
+로컬 스택은 머신마다 하나로 쓴다. project 이름 `agent-platform`, 0장의 포트, worker label `agent-platform.installation=local`이 기본값이다. `local.sh`는 이 값을 스스로 정하지 않고 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`·`EXECUTION_INSTALLATION_ID`를 compose가 해석한 그대로의 스택(`docker compose config`)을 따른다. `up`은 그 스택이 여는 포트를 점검하고 `docker compose port api 3000`이 알려 주는 주소의 `/readyz`를 기다린다. `down`은 떠 있는 스택의 egress proxy가 가진 installation id(컨테이너가 하나도 없으면 compose가 해석한 `EXECUTION_INSTALLATION_ID`)의 label이 붙은 worker 자원을 지운다. `--real-model`은 환경 변수 `COMPOSE_FILE`의 파일들(없으면 `compose.yaml`) 위에 overlay를 얹는다. 이 문서의 명령(`API=http://127.0.0.1:3000`, 3장의 `installation=local` label)은 기본값 기준이다. compose의 포트는 `infra/`에 고정돼 있어서, project만 바꾼 두 번째 스택은 `up`의 포트 점검에서 멈춘다. 다른 스택 옆에서 돌려야 하면 자기 project와 임시 포트로 뜨는 `tests/e2e/run.sh`를 쓴다(4장).
 
 코드를 새로 pull했으면 `scripts/local.sh up`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
@@ -348,7 +348,7 @@ docker compose start api scheduler reconciler
 scripts/local.sh down
 ```
 
-`down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=local` label로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset`(= `down` 뒤 `up`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
+`down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset`(= `down` 뒤 `up`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
 데이터를 남긴 채 내리는 방법은 없다. LocalStack이 S3를 메모리에만 두기 때문에 `docker compose down`으로 내리면 postgres에는 세션이 남지만 그 checkpoint 객체는 사라진다. GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)).
 
