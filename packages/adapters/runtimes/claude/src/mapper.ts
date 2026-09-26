@@ -12,28 +12,24 @@ import type {
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 
 const REDACTED = "[REDACTED]";
-// Paths are not secrets: an approval has to say which file it writes.
 const SENSITIVE_KEY =
   /authorization|cookie|credential|secret|password|api[_-]?key|auth[_-]?token|(^|_)home$/i;
+// Paths are not secrets: an approval has to say which file it touches.
+const PATH_KEY = /^cwd$|(^|_)path$/i;
 const SENSITIVE_VALUE =
   /\bBearer\s+\S+|\b(?:s[k]-ant(?:-api\d+)?|csp)[_-][A-Za-z0-9_-]+/gi;
 const SENSITIVE_NAME = String.raw`\b(?:authorization|cookie|credential|secret|password|api[-_ ]?key|auth[-_ ]?token|access[-_ ]?key|private[-_ ]?key)\b\s*`;
-const QUOTED = `"[^"]*"|'[^']*'`;
-// `name=value` ends where a shell word or query parameter does; `name: value`
-// runs to the end of the line, as a header or YAML value does.
+// Only a `name=value` whose value is one plain word or one quoted string with
+// nothing to expand loses just its value. Where the value's end is unclear
+// (escapes, `$'…'`, concatenation, `name: value`, a value on the next line),
+// the whole text goes.
 const SENSITIVE_ASSIGNMENT = new RegExp(
-  String.raw`(${SENSITIVE_NAME}=[ \t]*)(?:${QUOTED}|[^\s"'&;]+)`,
+  String.raw`(${SENSITIVE_NAME}=[ \t]*)(?:"[^"\\$\x60\n]*"|'[^'\n]*'|[^\s"'\\$\x60&;|<>()]+)(?=[\s&;|)]|$)`,
   "gi",
 );
-const SENSITIVE_FIELD = new RegExp(
-  String.raw`(${SENSITIVE_NAME}:[ \t]*)(?:${QUOTED}|[^\n"']+)`,
-  "gi",
-);
-// With nothing after the name on its line, the value may follow on the next
-// lines (a YAML block, a heredoc), so the whole text is hidden.
-const SENSITIVE_NAME_ALONE = new RegExp(
-  String.raw`${SENSITIVE_NAME}[:=][ \t]*(?:[|>][-+]?[ \t]*)?$`,
-  "im",
+const SENSITIVE_NAME_LEFT = new RegExp(
+  String.raw`${SENSITIVE_NAME}[:=](?![ \t]*\[REDACTED\])`,
+  "i",
 );
 
 export function frameFromNativeMessage(
@@ -179,11 +175,10 @@ function event(
 function sanitizeValue(value: unknown, key?: string): unknown {
   if (key !== undefined && SENSITIVE_KEY.test(key)) return REDACTED;
   if (typeof value === "string") {
-    if (SENSITIVE_NAME_ALONE.test(value)) return REDACTED;
-    return value
-      .replace(SENSITIVE_VALUE, REDACTED)
-      .replace(SENSITIVE_ASSIGNMENT, `$1${REDACTED}`)
-      .replace(SENSITIVE_FIELD, `$1${REDACTED}`);
+    const text = value.replace(SENSITIVE_VALUE, REDACTED);
+    if (key !== undefined && PATH_KEY.test(key)) return text;
+    const masked = text.replace(SENSITIVE_ASSIGNMENT, `$1${REDACTED}`);
+    return SENSITIVE_NAME_LEFT.test(masked) ? REDACTED : masked;
   }
   if (Array.isArray(value)) return value.map((item) => sanitizeValue(item));
   if (value === null || typeof value !== "object") return value;

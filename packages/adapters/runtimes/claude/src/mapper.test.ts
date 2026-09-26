@@ -150,7 +150,7 @@ describe("native SDK message mapping", () => {
     expect(JSON.stringify(frame.events)).toContain("/workspace/src/a.ts");
   });
 
-  test("hides only the value of a sensitive name in text", () => {
+  test("hides only the value of a sensitive name when its end is clear", () => {
     const shown = (command: string) => {
       const event = pendingRequestEvent(
         {
@@ -177,17 +177,41 @@ describe("native SDK message mapping", () => {
     expect(shown(`api_key="${value} two" ./run.sh`)).toBe(
       "api_key=[REDACTED] ./run.sh",
     );
-    expect(shown(`curl -H 'X-Api-Key: ${value}' https://x.test`)).toBe(
-      "curl -H 'X-Api-Key: [REDACTED]' https://x.test",
+    expect(shown(`run --api-key='${value}' --verbose`)).toBe(
+      "run --api-key=[REDACTED] --verbose",
     );
-    expect(shown(`user: me\npassword: ${value} two\nhost: db`)).toBe(
-      "user: me\npassword: [REDACTED]\nhost: db",
+
+    // Where the value's end is unclear, nothing is shown.
+    for (const command of [
+      `API_KEY=$'${value} two' ./run`,
+      `API_KEY="${value}\\"two" ./run`,
+      `API_KEY=${value}\\\ntwo ./run`,
+      `API_KEY=${value}\\&two ./run`,
+      `API_KEY=${value}"two" ./run`,
+      `API_KEY="$(cat key)${value}" ./run`,
+      `curl -H 'X-Api-Key: ${value}' https://x.test`,
+      `curl -H 'Authorization: Digest username="a", response="${value}"'`,
+      `user: me\npassword: ${value}\n  two\nhost: db`,
+      `cat <<EOF\npassword: |\n  ${value}\nEOF`,
+      `echo password=\n${value}`,
+      `grep -rn "api_key=" /workspace`,
+    ]) {
+      expect(shown(command)).toBe("[REDACTED]");
+    }
+  });
+
+  test("never hides a path, even one that reads like a sensitive name", () => {
+    const input = { file_path: "/workspace/api_key=fixture.txt" };
+    const event = pendingRequestEvent(
+      {
+        input,
+        kind: "permission",
+        requestId: "request-5",
+        tool: "Write",
+        toolUseId: "tool-5",
+      },
+      "question",
     );
-    expect(shown(`grep -rn "api_key=" /workspace`)).toBe(
-      'grep -rn "api_key=" /workspace',
-    );
-    // The value may be on the lines that follow, so nothing is shown.
-    expect(shown(`cat <<EOF\npassword: |\n  ${value}\nEOF`)).toBe("[REDACTED]");
-    expect(shown(`echo password=\n${value}`)).toBe("[REDACTED]");
+    expect(event.event === "question" ? event.data.input : null).toEqual(input);
   });
 });
