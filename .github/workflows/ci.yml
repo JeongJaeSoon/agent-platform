@@ -184,6 +184,7 @@ jobs:
               - packages/testkit/src/localstack.
               - tests/checkpoint-flow.
               - tests/checkpoint-pins.
+              - tests/object-store-cli.
               - tests/object-store-route.
               - tests/test-ops.
               - tests/worker-checkpoint-publish.
