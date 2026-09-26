@@ -108,15 +108,22 @@ integration("session reader on PostgreSQL (94S-396)", () => {
     });
   });
 
-  test("last_event_at is the newest event's time in list and detail", async () => {
+  test("last_event_at is the time of the newest event in stream order, in list and detail", async () => {
     const { sessionId } = await queuedSession();
     const reader = createPostgresSessionReader(db);
     expect((await reader.getSession(OWNER, sessionId))?.last_event_at).toBe(
       null,
     );
+    // The later row carries the earlier time, as a transaction that
+    // started first but took the session lock second would write it.
     const at = new Date("2026-09-26T01:02:03.456Z");
     await db.insert(events).values([
-      { sessionId, type: "status", payload: {}, createdAt: new Date(0) },
+      {
+        sessionId,
+        type: "status",
+        payload: {},
+        createdAt: new Date(at.getTime() + 60_000),
+      },
       { sessionId, type: "status", payload: {}, createdAt: at },
     ]);
     expect((await reader.getSession(OWNER, sessionId))?.last_event_at).toBe(
@@ -138,6 +145,7 @@ integration("session reader on PostgreSQL (94S-396)", () => {
     // The writer holds executions so the detail stops on it after its
     // first reads, then changes what the reads after it would see.
     const writer = await pool.connect();
+    let committed = false;
     try {
       await writer.query("BEGIN");
       await writer.query("LOCK TABLE executions IN ACCESS EXCLUSIVE MODE");
@@ -153,8 +161,10 @@ integration("session reader on PostgreSQL (94S-396)", () => {
         [`exec-${sessionId}`, sessionId],
       );
       await writer.query("COMMIT");
+      committed = true;
       expect(await during).toEqual(before);
     } finally {
+      if (!committed) await writer.query("ROLLBACK");
       writer.release();
     }
 

@@ -633,6 +633,8 @@ export function createPostgresSessionReader(
     ): Promise<SessionDetailRecord | null> {
       // One snapshot for every field: read one by one, a turn starting
       // between two reads showed running beside current_turn_id null.
+      // A reader built on a caller's transaction gets a savepoint here, and
+      // the caller's isolation decides instead.
       return db.transaction(
         async (tx) => {
           // The count and the status it projects come from one statement,
