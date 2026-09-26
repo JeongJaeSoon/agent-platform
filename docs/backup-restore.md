@@ -56,7 +56,7 @@ backup-20260923T101500Z/
 주의:
 
 - 로컬 compose 설치의 LocalStack S3는 휘발성이다. `docker compose down`이나 Docker 재시작 뒤에는 checkpoint 객체가 사라지고 DB 행만 남아 백업이 실패한다(API도 기동을 거부한다). 백업은 스택을 내리기 전에 받는다. 이미 잃었으면 `scripts/local.sh reset`으로 새로 시작한다. `scripts/local.sh down`은 데이터까지 지운다.
-- `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
+- `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
 - checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`, 94S-281)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - object 복사(`object-store-cli.ts download`)는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.
   - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. incremental checkpoint(94S-227)의 `workspace.baseBundles`도 ref다. base bundle은 앞 checkpoint의 디렉터리에 있지만, 그 checkpoint가 GC로 빠졌어도 이 checkpoint의 ref로서 백업된다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
@@ -109,9 +109,10 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 ```bash
 scripts/verify-restore.sh --project ap-restore-1
 scripts/verify-restore.sh --project ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints
+scripts/verify-restore.sh --project ap-restore-1 --image agent-platform-worker:dev   # 복원본을 이어 받을 worker 이미지
 ```
 
-restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력하는 verify 명령에 둘 다 들어 있다.
+restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력하는 verify 명령에 둘 다 들어 있다. `--image`에는 복원본의 scheduler가 쓸 `WORKER_IMAGE`를 준다.
 
 `checkpoints`의 모든 행을 확인한다. 단, GC가 `collected_at`을 적은 행은 뺀다. 확인하는 내용은 다음과 같다.
 
@@ -127,7 +128,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 마지막으로 `checkpoint-pins-cli.ts plans`가 복원본의 API가 할 일을 그대로 한다.
 
 - `describeBucketProtection` 결과를 출력하고 API의 `locked` 기동 검사(`assertCheckpointBucketProtection`)와 bucket 기본 암호화 검사(`assertCheckpointBucketEncryption`, SSE-S3)를 통과하는지 본다. `repin`도 객체를 쓰기 전에 같은 암호화 검사를 한다.
-- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다.
+- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다. 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)를 `docker run --rm --network none --entrypoint bun <image>`로 읽고, profile digest는 세션 설정에서 나오므로 manifest의 값을 쓴다. 복원은 이 값이 모두 같아야 하므로, 다른 버전으로 봉인된 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
 - plan의 manifest와 모든 object를 plan이 가리키는 version으로 읽고, hold가 걸려 있는지 본다.
 
 하나라도 실패하면 exit 5.

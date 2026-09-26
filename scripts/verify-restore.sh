@@ -14,6 +14,11 @@
 # are marked `pointer`. Last, the restored API's own path is asked: its
 # `locked` startup bucket check and a restore plan for every pointer.
 #
+# --image <worker image> asks each plan as a worker of that image would: a
+# pointer sealed under another engine, SDK or CLI version fails as
+# incompatible. Without it each plan is asked with the checkpoint's own
+# runtime, and the image check is printed as SKIP.
+#
 # Exit 0 when every row passes, 5 when any fails. A database with no
 # checkpoints passes with a warning: there was nothing to disagree.
 #
@@ -21,16 +26,17 @@
 # reads the store the environment names, as scripts/restore.sh does.
 #
 # Usage: scripts/verify-restore.sh --project <project> [--bucket claude-sessions]
-#                                  [--object-store localstack|env]
+#                                  [--object-store localstack|env] [--image <worker image>]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
 PROJECT=""
 BUCKET=claude-sessions
+IMAGE=""
 
 usage() {
-  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -39,12 +45,19 @@ while [ $# -gt 0 ]; do
     --project) PROJECT="$2"; shift 2 ;;
     --bucket) BUCKET="$2"; shift 2 ;;
     --object-store) set_object_store "$2"; shift 2 ;;
+    --image) IMAGE="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) log "unknown argument: $1"; usage ;;
   esac
 done
 [ -n "$PROJECT" ] || usage
 require_tools docker jq git bun
+PLANS_ARGS=()
+if [ -n "$IMAGE" ]; then
+  IMAGE_RUNTIME="$(image_runtime "$IMAGE")" || die "could not read the runtime of image $IMAGE"
+  log "verify: plans asked for image $IMAGE: $IMAGE_RUNTIME"
+  PLANS_ARGS=(--runtime "$IMAGE_RUNTIME")
+fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -198,7 +211,7 @@ fi
 # at startup, then a restore plan for every pointer, each plan's versions
 # read back and found held (scripts/lib/checkpoint-pins-cli.ts).
 PLAN_STATUS=0
-PLAN_OUTPUT="$(checkpoint_pins "$PROJECT" "$BUCKET" plans)" || PLAN_STATUS=$?
+PLAN_OUTPUT="$(checkpoint_pins "$PROJECT" "$BUCKET" plans ${PLANS_ARGS[@]+"${PLANS_ARGS[@]}"})" || PLAN_STATUS=$?
 [ -z "$PLAN_OUTPUT" ] || printf '%s\n' "$PLAN_OUTPUT"
 PLAN_FAILS="$(printf '%s\n' "$PLAN_OUTPUT" | grep -c '^FAIL' || true)"
 FAILED=$((FAILED + PLAN_FAILS))
@@ -208,6 +221,7 @@ if [ "$PLAN_STATUS" -ne 0 ] && { [ "$PLAN_STATUS" -ne "$EXIT_VERIFY_FAILED" ] ||
   fail "restore plan check exited $PLAN_STATUS before finishing"
 fi
 
+[ -n "$IMAGE" ] || echo "SKIP restore plans against the worker image that will resume them — pass --image"
 # Both need a running stack, not just the restored stores; the e2e runs them.
 echo "SKIP resume continues the same native session — tests/e2e/restore-resume.sh (94S-324)"
 echo "SKIP worker image digest matches manifest.json images.worker — tests/e2e/restore-resume.sh (94S-324)"
