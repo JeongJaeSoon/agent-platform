@@ -624,16 +624,10 @@ export class WorkerHost {
       error instanceof WorkerGatewayRequestError &&
       (error.code === "UNAUTHORIZED" || error.code === "STALE_EPOCH")
     ) {
-      this.released = true;
-      this.logger.warn("worker.pause.committed", {
-        control_id: this.pauseReleasing,
-        reason: `The release went unanswered and then: ${reason}`,
-      });
-      this.stopping = undefined;
-      this.stop({
-        kind: "paused",
-        reason: "Paused; the execution is released",
-      });
+      this.presumePaused(
+        this.pauseReleasing,
+        `The release went unanswered and then: ${reason}`,
+      );
       return;
     }
     this.stopping = undefined;
@@ -643,6 +637,16 @@ export class WorkerHost {
     this.publisher?.abandon(reason);
     this.pending?.cancelAll("This worker no longer owns the session");
     this.pending?.stop();
+  }
+
+  private presumePaused(controlId: string, reason: string): void {
+    this.released = true;
+    this.logger.warn("worker.pause.committed", {
+      control_id: controlId,
+      reason,
+    });
+    this.stopping = undefined;
+    this.stop({ kind: "paused", reason: "Paused; the execution is released" });
   }
 
   /** The claim, with the monotonic instant the request that won it went out. */
@@ -840,12 +844,23 @@ export class WorkerHost {
           this.pauseReleasing = undefined;
         });
         if (response === undefined) return "ended";
-        this.released = response.released;
+        // Already read as committed from a refusal elsewhere; a retry that
+        // answers after that changes nothing.
+        if (this.released) return "committed";
         if (!response.released) {
-          // Only a superseded epoch answers so; the heartbeat says the same.
+          // Only a superseded epoch answers so, and after a try that went
+          // unanswered, that try is most likely what superseded it.
+          if (unanswered) {
+            this.presumePaused(
+              controlId,
+              "The release went unanswered and its retry found the epoch moved on",
+            );
+            return "committed";
+          }
           this.lose("The pause release found the binding already superseded");
           return "ended";
         }
+        this.released = true;
         this.logger.info("worker.pause.committed", { control_id: controlId });
         this.stop({
           kind: "paused",

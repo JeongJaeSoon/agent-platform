@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   AppendEventsRequest,
   ControlIntent,
+  ReleaseResponse,
 } from "@agent-platform/contracts";
 import {
   FakeAgentRuntime,
@@ -288,15 +289,19 @@ describe("WorkerHost pause (94S-137)", () => {
       );
 
     // The first try commits and `answer` decides what the worker hears of
-    // it; every later try meets the credential the commit revoked.
+    // it; `retry` answers every later try, by default as the credential the
+    // commit revoked does.
     function commitsFirst(
       gateway: FakeWorkerGateway,
       answer: () => Promise<void>,
+      retry: () => Promise<ReleaseResponse> = async () => {
+        throw revoked();
+      },
     ): void {
       const release = gateway.release.bind(gateway);
       let committed = false;
       gateway.release = async (request) => {
-        if (committed) throw revoked();
+        if (committed) return retry();
         const response = await release(request);
         committed = true;
         await answer();
@@ -345,6 +350,52 @@ describe("WorkerHost pause (94S-137)", () => {
         expect(gateway.releases).toHaveLength(1);
       },
     );
+
+    // A retry that authenticated before the first try committed waits on
+    // its fence and finds the epoch moved on.
+    test("ends paused when the retry answers the binding superseded", async () => {
+      const { gateway, host } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(
+        gateway,
+        async () => {
+          throw lostAnswer();
+        },
+        async () => ({ released: false }),
+      );
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+    });
+
+    test("stays paused when a heartbeat refusal is read first and the retry answers superseded after it", async () => {
+      const { gateway, host, log } = harness([{ type: "await-input" }], {
+        timeouts: { idleTimeoutMs: 1 },
+      });
+      commitsFirst(
+        gateway,
+        async () => {
+          throw lostAnswer();
+        },
+        async () => {
+          gateway.heartbeatFailure = "STALE_EPOCH";
+          await waitFor(
+            () => log.includes("worker.pause.committed"),
+            "the heartbeat's refusal",
+          );
+          return { released: false };
+        },
+      );
+      gateway.control = PAUSE;
+
+      const summary = await host.runLoop();
+
+      expect(summary.outcome).toBe("paused");
+      expect(log).not.toContain("worker.ownership.lost");
+    });
 
     test("a retry of a release that did not commit goes through as before", async () => {
       const { gateway, host } = harness([{ type: "await-input" }], {
