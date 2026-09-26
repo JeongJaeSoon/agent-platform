@@ -96,7 +96,7 @@ version_at_least() {
 }
 
 preflight() {
-  local engine compose_version bindings binding ip port ours busy=""
+  local engine compose_version bindings binding ip bound port ours busy=""
   engine=$(docker version --format '{{.Server.Version}}' 2>/dev/null) ||
     die "cannot reach the Docker daemon"
   version_at_least "$engine" "$MIN_ENGINE_MAJOR.0" ||
@@ -115,8 +115,10 @@ preflight() {
   for binding in $bindings; do
     ip=${binding%|*}
     port=${binding##*|}
+    # As `compose ps` prints it.
+    case "$ip" in "") bound=0.0.0.0 ;; ::) bound="[::]" ;; *) bound=$ip ;; esac
+    case "$ours" in *"$bound:$port->"*) continue ;; esac
     case "$ip" in "" | 0.0.0.0) ip=127.0.0.1 ;; ::) ip=::1 ;; esac
-    case "$ours" in *":$port->"*) continue ;; esac
     if (exec 3<>"/dev/tcp/$ip/$port") 2>/dev/null; then
       busy="$busy $ip:$port"
     fi
@@ -158,7 +160,9 @@ up() {
 # the one compose would start it with only once no container is left.
 installation_id() {
   local proxy
-  proxy=$(compose ps -aq egress-proxy 2>/dev/null | head -n 1) || true
+  # A failed lookup is not an empty one.
+  proxy=$(compose ps -aq egress-proxy) || return 1
+  proxy=${proxy%%$'\n'*}
   if [ -n "$proxy" ]; then
     docker inspect --format '{{index .Config.Labels "agent-platform.egress-proxy"}}' "$proxy"
   else

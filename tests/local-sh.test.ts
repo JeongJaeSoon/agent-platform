@@ -16,7 +16,13 @@ const script = join(import.meta.dir, "..", "scripts/local.sh");
 const rendered = (id: string | undefined, ports: string[] = []) =>
   JSON.stringify({
     services: {
-      api: { ports: ports.map((published) => ({ published, target: 3000 })) },
+      api: {
+        ports: ports.map((published) => ({
+          host_ip: "127.0.0.1",
+          published,
+          target: 3000,
+        })),
+      },
       scheduler: {
         environment: id === undefined ? {} : { EXECUTION_INSTALLATION_ID: id },
       },
@@ -41,7 +47,9 @@ case "$*" in
   *" config --format json") cat "${config}" ;;
   *" port api 3000") [ -z "$STUB_API" ] || echo "$STUB_API" ;;
   *" ps --format "*) echo "$STUB_OURS" ;;
-  *" ps -aq egress-proxy") [ -z "$STUB_PROXY" ] || echo "$STUB_PROXY" ;;
+  *" ps -aq egress-proxy")
+    [ -z "$STUB_PROXY" ] || echo "$STUB_PROXY"
+    exit "\${STUB_PROXY_EXIT:-0}" ;;
   "inspect --format "*) echo "$STUB_STARTED_ID" ;;
   *" down -v --remove-orphans") exit "\${STUB_DOWN_EXIT:-0}" ;;
 esac
@@ -135,6 +143,8 @@ echo '{"status":"ready"}'
       [undefined, {}],
       [rendered(undefined), {}],
       [rendered("local"), { STUB_PROXY: "proxy-id" }],
+      // Not "no container left": the render may name another installation.
+      [rendered("local"), { STUB_PROXY_EXIT: "1" }],
     ] as const) {
       await rm(config, { force: true });
       if (text !== undefined) await writeFile(config, text);
@@ -208,6 +218,12 @@ echo '{"status":"ready"}'
       expect(await calls("docker-calls")).not.toContainEqual(
         "compose --profile apps up -d --build",
       );
+
+      const elsewhere = await run(["up"], {
+        STUB_API: `127.0.0.1:${port}`,
+        STUB_OURS: `0.0.0.0:${port}->3000/tcp`,
+      });
+      expect(elsewhere.exitCode).toBe(1);
 
       const ours = await run(["up"], {
         STUB_API: `127.0.0.1:${port}`,
