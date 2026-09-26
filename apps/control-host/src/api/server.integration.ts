@@ -620,12 +620,11 @@ integration("API server on PostgreSQL", () => {
       expect(logs).toContain(
         "Refusing to start: installation limits are invalid",
       );
-      // The JSON log escapes the quotes around the blank it got.
       expect(logs).toContain(
-        "SESSION_COST_LIMIT_USD must be a positive number up to 1000000, got",
+        "SESSION_COST_LIMIT_USD must be a positive number up to 1000000",
       );
       expect(logs).toContain(
-        "PROVIDER_MAX_RETRIES must be an integer from 0 to 10, got",
+        "PROVIDER_MAX_RETRIES must be an integer from 0 to 10",
       );
       expect(logs).toContain("STORAGE_LIMIT_BYTES must be an integer");
     },

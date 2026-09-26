@@ -98,7 +98,7 @@ describe("workerConfigFromEnv", () => {
     ).toThrow("WORKER_GATEWAY_URL not-a-url is not a URL");
     expect(() =>
       workerConfigFromEnv({ ...launched, QUESTION_TIMEOUT_SEC: "0" }),
-    ).toThrow('QUESTION_TIMEOUT_SEC must be a positive number, got "0"');
+    ).toThrow("QUESTION_TIMEOUT_SEC must be a positive number");
   });
 
   test("refuses a long poll the request timeout would always abort", () => {

@@ -15,21 +15,19 @@ describe("integerSetting", () => {
     for (const blank of ["", "  "]) {
       expect(() =>
         integerSetting({ N: blank }, "N", { min: 0, default: 5 }),
-      ).toThrow(
-        `N must be a non-negative integer, got ${JSON.stringify(blank)}`,
-      );
+      ).toThrow("N must be a non-negative integer");
     }
   });
 
-  test("names the range it wanted and the value it got", () => {
+  test("names the range it wanted, never the value", () => {
     expect(() => integerSetting({ N: "0" }, "N", { min: 1 })).toThrow(
-      'N must be a positive integer, got "0"',
+      "N must be a positive integer",
     );
     expect(() => integerSetting({ N: "1.5" }, "N", { min: 0 })).toThrow(
-      'N must be a non-negative integer, got "1.5"',
+      "N must be a non-negative integer",
     );
     expect(() => integerSetting({ N: "11" }, "N", { min: 0, max: 10 })).toThrow(
-      'N must be an integer from 0 to 10, got "11"',
+      "N must be an integer from 0 to 10",
     );
     expect(() =>
       integerSetting({ N: "9007199254740993" }, "N", { min: 1 }),
@@ -44,11 +42,11 @@ describe("positiveNumberSetting", () => {
     expect(positiveNumberSetting({}, "N", { default: 2 })).toBe(2);
     for (const value of ["0", "-1", "", "Infinity", "abc"]) {
       expect(() => positiveNumberSetting({ N: value }, "N")).toThrow(
-        `N must be a positive number, got ${JSON.stringify(value)}`,
+        "N must be a positive number",
       );
     }
     expect(() => positiveNumberSetting({ N: "11" }, "N", { max: 10 })).toThrow(
-      'N must be a positive number up to 10, got "11"',
+      "N must be a positive number up to 10",
     );
   });
 });
@@ -58,8 +56,5 @@ test("settingProblems keeps every problem in the order read", () => {
   expect(read(() => integerSetting({}, "A", { min: 1 }))).toBeUndefined();
   expect(read(() => integerSetting({ B: "2" }, "B", { min: 1 }))).toBe(2);
   expect(read(() => positiveNumberSetting({ C: "0" }, "C"))).toBeUndefined();
-  expect(problems).toEqual([
-    "A is required",
-    'C must be a positive number, got "0"',
-  ]);
+  expect(problems).toEqual(["A is required", "C must be a positive number"]);
 });

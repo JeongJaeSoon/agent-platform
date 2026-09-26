@@ -2,8 +2,10 @@
  * Numeric settings read from the environment, one rule for every process
  * (94S-413). Unset takes the caller's default, or is refused as required
  * when there is none. Set, it must parse — blank included, since a blank is
- * a value someone meant to fill in — and a wrong value is refused naming the
- * setting and what it got, never quietly replaced by the default.
+ * a value someone meant to fill in — and a wrong value is refused, never
+ * quietly replaced by the default. The message names the setting and the
+ * range, never the value: it ends up in logs, and a value set in the wrong
+ * variable may be a secret.
  */
 export type SettingsEnvironment = Readonly<Record<string, string | undefined>>;
 
@@ -20,7 +22,7 @@ export function integerSetting(
     value < rule.min ||
     (rule.max !== undefined && value > rule.max)
   ) {
-    throw invalid(name, integerExpectation(rule.min, rule.max), raw);
+    throw invalid(name, integerExpectation(rule.min, rule.max));
   }
   return value;
 }
@@ -42,7 +44,7 @@ export function positiveNumberSetting(
       rule.max === undefined
         ? "a positive number"
         : `a positive number up to ${rule.max}`;
-    throw invalid(name, expectation, raw);
+    throw invalid(name, expectation);
   }
   return value;
 }
@@ -84,8 +86,6 @@ function integerExpectation(min: number, max: number | undefined): string {
   return `an integer of at least ${min}`;
 }
 
-function invalid(name: string, expectation: string, raw: string): Error {
-  return new Error(
-    `${name} must be ${expectation}, got ${JSON.stringify(raw)}`,
-  );
+function invalid(name: string, expectation: string): Error {
+  return new Error(`${name} must be ${expectation}`);
 }
