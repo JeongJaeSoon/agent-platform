@@ -135,7 +135,7 @@ interrupt한 turn이 `interrupted`로 끝나려면 engine이 멈췄다는 응답
 - `interrupt_unanswered`: engine이 interrupt에 제때 답하지 않았다. worker 로그에 `gave no terminal within …ms of its interrupt` 또는 `ended before its interrupt was answered`가 남고, worker는 실패로 끝난다.
 
 어느 쪽이든 세션은 `status: failed`, `admission_state: recovery_required`가 되고 queued 입력은 dispatch되지 않는다. interrupt receipt는 `unknown`이고 error는 `RECOVERY_REQUIRED`다. 복구는 `sessions:recover` scope로 한다.
-1. worker가 사라졌는지 확인될 때까지 기다린다. 그 전의 결정은 409 `RECOVERY_REQUIRED`(`The previous execution has not been confirmed gone`)다. 다음 scheduler pass가 컨테이너 부재를 확인하면 받는다.
+1. `abandon`·`confirm_completed`는 worker가 사라진 것이 확인된 뒤에만 받는다. 그 전에는 409 `RECOVERY_REQUIRED`(`The previous execution has not been confirmed gone`)다. 다음 scheduler pass가 컨테이너 부재를 확인하면 받는다. `close`는 기다리지 않는다. 남은 execution에 종료를 요청하고 바로 받는다.
 2. 그 turn의 도구가 바깥에 한 일을 확인한다. 파일 쓰기, push, 외부 호출은 되돌려지지 않는다.
 3. 결정을 보낸다.
    ```sh

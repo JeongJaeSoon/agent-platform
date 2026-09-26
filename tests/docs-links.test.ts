@@ -82,12 +82,15 @@ const CODE_READS = [
     "g",
   ),
 ];
-// `${NAME:-default}`: compose or a script takes it from the operator's shell.
-const SHELL_DEFAULTS = new RegExp(String.raw`\$\{(${NAME}):-`, "g");
+// `${NAME:-default}` or `${NAME:?message}`: compose or a script takes it
+// from the operator's shell.
+const SHELL_DEFAULTS = new RegExp(String.raw`\$\{(${NAME}):[-?]`, "g");
 
 /** Names the scan finds that no operator sets, each with why. */
 const NOT_SETTINGS: Record<string, string> = {
-  ALL_PROXY: "read only to see whether a proxy stands in the way (s3.ts)",
+  // Read beside HTTP_PROXY, which is documented, only to leave DNS to Bun
+  // whenever any proxy is set (s3.ts).
+  ALL_PROXY: "a standard proxy variable, not one of ours",
   DOCKER_BACKEND_TEST_HELPER_IMAGE: "tests only",
   GIT_ALLOW_PROTOCOL: "written into git's environment, not read",
   GIT_CONFIG_COUNT: "written into git's environment, not read",

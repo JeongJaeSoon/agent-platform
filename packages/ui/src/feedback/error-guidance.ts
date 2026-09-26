@@ -32,7 +32,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   SESSION_STOPPED: "종료된 세션입니다 — 재개한 뒤 보내세요.",
   RECOVERY_REQUIRED: "결과를 확인해야 합니다 — 복구 결정을 내리세요.",
   CHECKPOINT_UNAVAILABLE:
-    "마지막 턴까지 저장된 지점이 없어 이어갈 수 없습니다 — 세션을 종료하거나 복구 결정을 내리세요.",
+    "이어갈 저장 지점이 없거나 저장이 멈춰 처리하지 못했습니다 — 세션 상세의 안내를 확인하세요.",
   PAUSE_COMMITTING: "일시정지를 마무리하는 중입니다 — 잠시 뒤 다시 시도하세요.",
   PAUSE_CANCELLED: "일시정지가 취소됐습니다 — 현재 상태를 확인하세요.",
   CONTROL_SUPERSEDED:
