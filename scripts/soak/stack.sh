@@ -69,7 +69,7 @@ up() {
     (cd "${SOAK_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$state/build.log" 2>&1
   fi
   echo "== stack (${project})" >&2
-  dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy vm-lag >"$state/up.log" 2>&1
+  dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy vm-lag host-echo >"$state/up.log" 2>&1
   dc up -d --wait api >>"$state/up.log" 2>&1
 
   port() { dc port "$1" "$2" | sed 's/.*://'; }
@@ -110,6 +110,7 @@ up() {
     echo "export SOAK_MESSAGES_URL='http://127.0.0.1:$(port gate-messages 4011)'"
     echo "export SOAK_GITEA_URL='${gitea_url}'"
     echo "export SOAK_VM_LAG_URL='http://127.0.0.1:$(port vm-lag 8098)'"
+    echo "export SOAK_HOST_ECHO_URL='http://127.0.0.1:$(port host-echo 8098)'"
     echo "export SOAK_NETWORK='${project}_default'"
     echo "export SOAK_COMPOSE_FILES='${compose_files[*]}'"
     echo "export API_IMAGE='${API_IMAGE}'"

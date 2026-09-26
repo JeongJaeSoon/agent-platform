@@ -6,7 +6,7 @@
  * the product: it runs on the gate's plain Bun image and only reads clocks.
  *
  *   GET /stalls?since=<index>   {bootId, now, stalls: [...]} after <index>
- *   GET /healthz
+ *   GET /healthz                also the runner's host probe target (94S-453)
  *
  * A stall's `from`/`to` are this container's wall clock at the tick before
  * and the tick after; `gapMs` is the monotonic time between them.
