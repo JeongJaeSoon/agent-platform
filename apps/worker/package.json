@@ -15,7 +15,8 @@
     "@agent-platform/observability": "workspace:*",
     "@agent-platform/runtime-claude": "workspace:*",
     "@agent-platform/runtime-core": "workspace:*",
-    "@agent-platform/storage": "workspace:*"
+    "@agent-platform/storage": "workspace:*",
+    "@agent-platform/system": "workspace:*"
   },
   "devDependencies": {
     "@agent-platform/testkit": "workspace:*"

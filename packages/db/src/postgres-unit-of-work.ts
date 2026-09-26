@@ -16,7 +16,6 @@ import {
   receiptSchema,
   type SessionStatus,
   SSE_SCHEMA_VERSION,
-  sessionIdSchema,
   sseEventSchema,
   type TurnDetail,
   type TurnSummary,
@@ -36,6 +35,7 @@ import type {
   SessionUnitOfWork,
 } from "@agent-platform/platform";
 import {
+  InvalidCursorError,
   projectDurability,
   storedPendingReasonHoldsWork,
 } from "@agent-platform/platform";
@@ -58,14 +58,16 @@ import {
   type IdempotencyScope,
   lockIdempotencyScope,
   parseTurnSequence,
-  SEQUENCE_MAX,
 } from "./control-shared.ts";
-import { enqueueWithin } from "./enqueue.ts";
 import {
   decodeEventCursor,
+  decodeSessionCursor,
+  decodeTurnCursor,
   encodeEventCursor,
-  InvalidCursorError,
-} from "./event-cursor.ts";
+  encodeSessionCursor,
+  encodeTurnCursor,
+} from "./cursors.ts";
+import { enqueueWithin } from "./enqueue.ts";
 import { admitInput } from "./input-limits.ts";
 import { pauseAttention } from "./pause-control.ts";
 import {
@@ -329,9 +331,6 @@ export function createPostgresSessionUnitOfWork(
   };
 }
 
-// created_at is the database's own text rendering so microsecond precision
-// survives the round trip (JS Date would truncate to milliseconds).
-type Cursor = { created_at: string; id: string };
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
 // The newest event in stream order (ids are commit order within a session),
 // one index probe where max(created_at) visited every event of every listed
@@ -342,49 +341,6 @@ const LAST_EVENT_AT = sql<Date | null>`(
   WHERE e.session_id = ${sessions}.id
   ORDER BY e.id DESC LIMIT 1
 )`.mapWith(events.createdAt);
-// Only the exact shape PostgreSQL renders; JS Date.parse is far more lenient
-// than the timestamptz cast and a forged cursor must not reach the query.
-const PG_TIMESTAMPTZ_TEXT =
-  /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/;
-
-function encodeCursor(cursor: Cursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
-}
-
-function decodeCursor(value: string): Cursor {
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString());
-    if (
-      typeof parsed.created_at === "string" &&
-      PG_TIMESTAMPTZ_TEXT.test(parsed.created_at) &&
-      sessionIdSchema.safeParse(parsed.id).success
-    ) {
-      return parsed;
-    }
-  } catch {}
-  throw new InvalidCursorError();
-}
-
-// Turns page in FIFO order; the cursor is the last sequence on the page.
-type TurnCursor = { sequence: number };
-
-function encodeTurnCursor(cursor: TurnCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
-}
-
-function decodeTurnCursor(value: string): TurnCursor {
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString());
-    if (
-      Number.isInteger(parsed.sequence) &&
-      parsed.sequence >= 1 &&
-      parsed.sequence <= SEQUENCE_MAX
-    ) {
-      return { sequence: parsed.sequence };
-    }
-  } catch {}
-  throw new InvalidCursorError();
-}
 
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;
@@ -605,7 +561,7 @@ export function createPostgresSessionReader(
 
   return {
     async listSessions(ownerId: string, query: ListSessionsQuery) {
-      const cursor = query.cursor ? decodeCursor(query.cursor) : null;
+      const cursor = query.cursor ? decodeSessionCursor(query.cursor) : null;
       const rows = await db
         .select({
           session: sessions,
@@ -640,7 +596,10 @@ export function createPostgresSessionReader(
         items: await summarize(db, page),
         next_cursor:
           rows.length > query.limit && last
-            ? encodeCursor({ created_at: last.cursorAt, id: last.session.id })
+            ? encodeSessionCursor({
+                created_at: last.cursorAt,
+                id: last.session.id,
+              })
             : null,
       };
     },

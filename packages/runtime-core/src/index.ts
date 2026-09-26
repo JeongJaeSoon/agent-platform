@@ -3,6 +3,7 @@ export type * from "./agent-runtime.ts";
 export type * from "./capabilities.ts";
 export type * from "./checkpoint.ts";
 export * from "./checkpoint-bundle.ts";
+export * from "./checkpoint-limits.ts";
 export type * from "./checkpoint-manifest.ts";
 export {
   isImmutableObjectSource,
@@ -15,9 +16,7 @@ export {
   transcriptParts,
   transcriptSizeProblem,
 } from "./checkpoint-manifest.ts";
-export * from "./fresh-lookup.ts";
 export * from "./git-bundle.ts";
-export * from "./git-process.ts";
 export * from "./worker-gateway-client.ts";
 export * from "./workspace.ts";
 export * from "./workspace-restore.ts";

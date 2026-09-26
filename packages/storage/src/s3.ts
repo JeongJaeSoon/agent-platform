@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import {
-  ObjectIntegrityError,
-  resolveEveryTime,
-} from "@agent-platform/runtime-core";
+import { ObjectIntegrityError } from "@agent-platform/runtime-core";
+import { resolveEveryTime } from "@agent-platform/system";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { HttpRequest } from "@smithy/core/protocols";
 import { NodeHttpHandler } from "@smithy/node-http-handler";

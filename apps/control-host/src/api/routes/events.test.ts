@@ -4,10 +4,10 @@ import {
   SSE_SCHEMA_VERSION,
   type SseEvent,
 } from "@agent-platform/contracts";
-import { InvalidCursorError } from "@agent-platform/db";
 import {
   allowAllPolicy,
   createSessionService,
+  InvalidCursorError,
   type ReadEventsQuery,
   type SessionControl,
   type SessionReader,

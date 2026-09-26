@@ -3,10 +3,10 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
 } from "@agent-platform/contracts";
-import { InvalidCursorError } from "@agent-platform/db";
 import {
   allowAllPolicy,
   createSessionService,
+  InvalidCursorError,
   type SessionCatalog,
   type SessionControl,
   type SessionReader,

@@ -1,8 +1,8 @@
 export * from "./catalog-authority.ts";
 export * from "./checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
+export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./enqueue.ts";
-export * from "./event-cursor.ts";
 export * from "./execution-revocation.ts";
 export * from "./identity.ts";
 export * from "./interrupt-control.ts";

@@ -18,7 +18,7 @@ import { createPostgresCheckpointStore } from "@agent-platform/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { createLogger } from "@agent-platform/observability";
 import { resolveSessionCatalog } from "@agent-platform/platform";
-import { claudeCheckpointCodec } from "@agent-platform/runtime-claude";
+import { claudeCheckpointCodec } from "@agent-platform/runtime-claude-codec";
 import type { RuntimeFingerprint } from "@agent-platform/runtime-core";
 import {
   createCheckpointObjectStore,

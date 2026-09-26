@@ -22,8 +22,11 @@ import {
   type CheckpointObjectStore,
   type CheckpointPreparation,
   type CheckpointTranscripts,
+  DEFAULT_MAX_MANIFEST_BYTES,
+  DEFAULT_MAX_MANIFEST_OBJECTS,
   type ImmutableObjectSource,
   isOwnershipLost,
+  MAX_WORKSPACE_BUNDLE_CHAIN,
   ObjectIntegrityError,
   type ObjectRef,
   type ReadyCheckpoint,
@@ -69,20 +72,6 @@ import {
   type WorkspaceCaptureResult,
 } from "./workspace-capture.ts";
 
-/**
- * The control plane's own manifest limits (`DEFAULT_MAX_MANIFEST_BYTES`,
- * `DEFAULT_MAX_MANIFEST_OBJECTS`). A manifest over either is refused at
- * finalize after everything it names was uploaded, so it is refused here
- * before the manifest itself goes up.
- */
-const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
-const MAX_MANIFEST_OBJECTS = 20_000;
-/**
- * The control plane's `MAX_WORKSPACE_BUNDLE_CHAIN`: a bundle builds on at
- * most one fewer. At the limit the next one stands alone and a chain starts
- * over.
- */
-const MAX_BUNDLE_CHAIN = 32;
 const UPLOAD_CONCURRENCY = 8;
 /** Objects a restore downloads at once, each streamed and verified to disk. */
 const DOWNLOAD_CONCURRENCY = 8;
@@ -720,7 +709,8 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (
       chain === undefined ||
       chain.revision !== revision - 1 ||
-      chain.links.length >= MAX_BUNDLE_CHAIN
+      // A bundle builds on at most one fewer; at the limit it stands alone.
+      chain.links.length >= MAX_WORKSPACE_BUNDLE_CHAIN
     ) {
       return undefined;
     }
@@ -886,6 +876,8 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (oversized !== undefined) {
       throw new PublishFailure("transcript", oversized);
     }
+    // Finalize refuses a manifest over either limit only after everything it
+    // names was uploaded, so it is refused here first.
     const referenced =
       1 +
       bases.length +
@@ -895,10 +887,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         (total, revision) => total + revision.parts.length,
         0,
       );
-    if (referenced > MAX_MANIFEST_OBJECTS) {
+    if (referenced > DEFAULT_MAX_MANIFEST_OBJECTS) {
       throw new PublishFailure(
         "manifest",
-        `the manifest would name ${referenced} objects, over the ${MAX_MANIFEST_OBJECTS} the control plane reads`,
+        `the manifest would name ${referenced} objects, over the ${DEFAULT_MAX_MANIFEST_OBJECTS} the control plane reads`,
       );
     }
     const manifest: CheckpointManifest = {
@@ -919,10 +911,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       },
     };
     const encoded = this.#codec.encode(manifest);
-    if (encoded.bytes.byteLength > MAX_MANIFEST_BYTES) {
+    if (encoded.bytes.byteLength > DEFAULT_MAX_MANIFEST_BYTES) {
       throw new PublishFailure(
         "manifest",
-        `the manifest is ${encoded.bytes.byteLength} bytes, over the ${MAX_MANIFEST_BYTES} the control plane reads`,
+        `the manifest is ${encoded.bytes.byteLength} bytes, over the ${DEFAULT_MAX_MANIFEST_BYTES} the control plane reads`,
       );
     }
     const stored = await timer.time("manifest", () =>

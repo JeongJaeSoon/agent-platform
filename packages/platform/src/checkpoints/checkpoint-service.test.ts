@@ -10,6 +10,7 @@ import {
   type CheckpointWorkspace,
   MAX_TRANSCRIPT_BYTES,
   MAX_TRANSCRIPT_PART_BYTES,
+  MAX_WORKSPACE_BUNDLE_CHAIN,
   type ObjectRef,
   type RuntimeFingerprint,
   type WorkspaceArtifact,
@@ -38,7 +39,6 @@ import {
 import {
   createCheckpointService,
   MAX_COOLING_BUNDLES,
-  MAX_WORKSPACE_BUNDLE_CHAIN,
   manifestRefFor,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";

@@ -5,13 +5,15 @@ import type {
   WorkspaceDescriptor,
 } from "@agent-platform/contracts";
 import {
-  type GitResourceLimits,
-  gitCommand,
-  killProcessGroup,
   planWorkspacePreparation,
   type WorkspaceObservation,
   type WorkspacePlan,
 } from "@agent-platform/runtime-core";
+import {
+  type GitResourceLimits,
+  gitCommand,
+  killProcessGroup,
+} from "@agent-platform/system";
 
 /** What the host needs from a workspace before it starts an engine in it. */
 export interface WorkspacePreparer {
