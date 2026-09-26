@@ -337,4 +337,21 @@ describe("Claude SDK adapter options", () => {
       "/tmp/not-the-pinned-cli",
     );
   });
+
+  test("the spawn writes the key down descriptor 3 (94S-410)", async () => {
+    const options = buildSdkOptions(config, {
+      onPermission: async () => ({ behavior: "allow" }),
+    });
+    const spawned = options.spawnClaudeCodeProcess?.({
+      command: "/bin/sh",
+      args: ["-c", 'read -r key <&3; printf "%s" "$key"'],
+      cwd: process.cwd(),
+      env: { PATH: process.env.PATH },
+      signal: new AbortController().signal,
+    });
+    if (spawned === undefined) throw new Error("no spawn");
+    let printed = "";
+    for await (const chunk of spawned.stdout) printed += chunk;
+    expect(printed).toBe("placeholder");
+  }, 10_000);
 });

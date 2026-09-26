@@ -214,6 +214,8 @@ export function buildSdkOptions(
             ? ["pipe", "pipe", "pipe"]
             : ["pipe", "pipe", "pipe", "pipe"],
       });
+      // The SDK reads stderr only from a process it spawned itself.
+      child.stderr?.resume();
       if (apiKey !== undefined) {
         const descriptor = child.stdio[ENGINE_API_KEY_DESCRIPTOR] as Writable;
         // An engine that dies before reading resets the socket; its exit
