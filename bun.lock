@@ -47,6 +47,7 @@
         "@agent-platform/runtime-claude": "workspace:*",
         "@agent-platform/runtime-core": "workspace:*",
         "@agent-platform/storage": "workspace:*",
+        "@agent-platform/system": "workspace:*",
       },
       "devDependencies": {
         "@agent-platform/testkit": "workspace:*",
@@ -101,6 +102,7 @@
         "@agent-platform/observability": "workspace:*",
         "@agent-platform/platform": "workspace:*",
         "@agent-platform/runtime-core": "workspace:*",
+        "@agent-platform/system": "workspace:*",
         "drizzle-orm": "0.45.2",
         "pg": "8.16.3",
         "pg-connection-string": "2.14.0",
@@ -141,6 +143,7 @@
       "dependencies": {
         "@agent-platform/platform": "workspace:*",
         "@agent-platform/runtime-core": "workspace:*",
+        "@agent-platform/system": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@smithy/core": "^3.34.1",
         "@smithy/node-http-handler": "^4.12.1",
@@ -150,6 +153,10 @@
       "devDependencies": {
         "@agent-platform/testkit": "workspace:*",
       },
+    },
+    "packages/system": {
+      "name": "@agent-platform/system",
+      "version": "0.0.0",
     },
     "packages/testkit": {
       "name": "@agent-platform/testkit",
@@ -203,6 +210,8 @@
     "@agent-platform/runtime-core": ["@agent-platform/runtime-core@workspace:packages/runtime-core"],
 
     "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
+
+    "@agent-platform/system": ["@agent-platform/system@workspace:packages/system"],
 
     "@agent-platform/testkit": ["@agent-platform/testkit@workspace:packages/testkit"],
 

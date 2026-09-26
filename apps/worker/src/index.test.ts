@@ -1,24 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { FakeWorkerGateway } from "./fake-gateway.ts";
 import {
-  ClaudeSdkRuntime,
   createWorkerHost,
-  FakeAgentRuntime,
   HttpWorkerGatewayClient,
   unwiredCheckpoints,
   WorkerHost,
 } from "./index.ts";
 
 describe("worker composition surface", () => {
-  test("exposes the Claude runtime and its fake through the adapter package", () => {
-    expect(typeof ClaudeSdkRuntime).toBe("function");
-    expect(new FakeAgentRuntime([]).capabilities).toEqual({
-      checkpoint: true,
-      interrupt: true,
-      resume: true,
-    });
-  });
-
   test("builds a host from the environment the launcher provides", () => {
     const host = createWorkerHost({
       bootstrapNonce: "wln_test",

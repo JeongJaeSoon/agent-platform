@@ -93,6 +93,13 @@ export type InputAcceptance = Pick<
   "acceptInputAtomic" | "appendInputAtomic"
 >;
 
+// A page cursor the reader did not issue; the routes answer it with 400.
+export class InvalidCursorError extends Error {
+  constructor() {
+    super("Invalid cursor");
+  }
+}
+
 export interface SessionReader {
   listSessions(
     ownerId: string,

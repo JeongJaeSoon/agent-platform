@@ -3,7 +3,7 @@ import {
   type GitResourceLimits,
   gitCommand,
   killProcessGroup,
-} from "@agent-platform/runtime-core";
+} from "@agent-platform/system";
 
 export type { GitResourceLimits };
 

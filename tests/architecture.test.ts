@@ -18,6 +18,8 @@ const runtimeCore = join("packages", "runtime-core");
 const claudeAdapter = join("packages", "adapters", "runtimes", "claude");
 const dockerBackend = join("packages", "adapters", "execution", "local-docker");
 const platform = join("packages", "platform");
+const system = join("packages", "system");
+const routes = join("apps", "control-host", "src", "api", "routes");
 const worker = join("apps", "worker");
 const storage = "@agent-platform/storage";
 /** The one worker file allowed to know objects live in S3 (94S-244). */
@@ -539,7 +541,7 @@ describe("architecture", () => {
     expect(missing).toEqual([]);
   });
 
-  test("the worker imports runtime-core, the Claude adapter, contracts, storage and observability only", async () => {
+  test("the worker imports runtime-core, the Claude adapter, contracts, storage, system and observability only", async () => {
     const allowed = new Set([
       "@agent-platform/contracts",
       // The log format and masking rules; it imports nothing itself (94S-386).
@@ -547,6 +549,7 @@ describe("architecture", () => {
       "@agent-platform/runtime-claude",
       "@agent-platform/runtime-core",
       storage,
+      "@agent-platform/system",
     ]);
     const directory = join(root, worker);
     const declared = [...declaredDependencies(await manifest(directory))];
@@ -606,5 +609,69 @@ describe("architecture", () => {
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }
+  });
+
+  test("DNS and git process helpers live in system, which depends on nothing, not in runtime-core", async () => {
+    const directory = join(root, system);
+    expect([...declaredDependencies(await manifest(directory))]).toEqual([]);
+    expect([...(await packageImports(directory))]).toEqual([]);
+    const core = await import("@agent-platform/runtime-core");
+    for (const name of [
+      "gitCommand",
+      "killProcessGroup",
+      "lookupEveryTime",
+      "resolveEveryTime",
+    ])
+      expect(Object.keys(core)).not.toContain(name);
+  });
+
+  test("routes know the cursor error through platform, not db", async () => {
+    const importing = (
+      await filesImporting(
+        await sourceFiles(join(root, routes)),
+        "@agent-platform/db",
+      )
+    ).map((file) => relative(join(root, routes), file));
+    // The identity routes have no platform port yet (94S-403 follow-up).
+    expect(importing).toEqual(["auth.ts"]);
+  });
+
+  test("the Claude adapter names each export and the worker re-exports no package", async () => {
+    const adapterEntry = await readFile(
+      join(root, claudeAdapter, "src", "index.ts"),
+      "utf8",
+    );
+    expect(adapterEntry).not.toMatch(/export (type )?\*/);
+    const workerEntry = await readFile(
+      join(root, worker, "src", "index.ts"),
+      "utf8",
+    );
+    expect(workerEntry).not.toMatch(/export (type )?\* from "@/);
+  });
+
+  test("operational scripts take the checkpoint codec from the SDK-free package", async () => {
+    const lib = join(root, "scripts", "lib");
+    const scripts = await sourceFiles(lib);
+    expect(
+      await filesImporting(scripts, "@agent-platform/runtime-claude"),
+    ).toEqual([]);
+    expect(
+      (await filesImporting(scripts, "@agent-platform/runtime-claude-codec"))
+        .map((file) => relative(lib, file))
+        .sort(),
+    ).toEqual(["checkpoint-pins-cli.ts", "decode-manifest.ts"]);
+  });
+
+  test("the worker and the control plane read the checkpoint limits from runtime-core", async () => {
+    const own =
+      /const (DEFAULT_)?MAX_(MANIFEST_BYTES|MANIFEST_OBJECTS|BUNDLE_CHAIN|WORKSPACE_BUNDLE_BYTES|WORKSPACE_BUNDLE_CHAIN)\b/;
+    const declaring: string[] = [];
+    for (const directory of [worker, platform]) {
+      for (const file of await sourceFiles(join(root, directory, "src"))) {
+        if (own.test(await readFile(file, "utf8")))
+          declaring.push(relative(root, file));
+      }
+    }
+    expect(declaring).toEqual([]);
   });
 });

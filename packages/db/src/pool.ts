@@ -1,7 +1,7 @@
 import { AsyncResource } from "node:async_hooks";
 import { Socket } from "node:net";
 import type { StructuredLogger } from "@agent-platform/observability";
-import { lookupEveryTime } from "@agent-platform/runtime-core";
+import { lookupEveryTime } from "@agent-platform/system";
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { parseIntoClientConfig } from "pg-connection-string";
 import {

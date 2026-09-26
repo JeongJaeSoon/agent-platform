@@ -80,8 +80,8 @@ import {
   KILL_RECEIPT_OPERATIONS,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
+import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
-import { encodeEventCursor } from "./event-cursor.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import {
   openPauseReceipt,

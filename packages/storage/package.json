@@ -7,6 +7,7 @@
   "dependencies": {
     "@agent-platform/platform": "workspace:*",
     "@agent-platform/runtime-core": "workspace:*",
+    "@agent-platform/system": "workspace:*",
     "@aws-sdk/client-s3": "^3.888.0",
     "@smithy/core": "^3.34.1",
     "@smithy/node-http-handler": "^4.12.1",

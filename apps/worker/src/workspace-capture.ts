@@ -7,10 +7,11 @@ import {
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_INSTRUCTIONS_REF,
   CHECKPOINT_WORKTREE_REF,
-  type GitResourceLimits,
+  DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   gitBundleOffersFrom,
   readWorkspaceFile,
 } from "@agent-platform/runtime-core";
+import type { GitResourceLimits } from "@agent-platform/system";
 
 import {
   check,
@@ -51,8 +52,8 @@ export type WorkspaceCaptureResult =
 
 export type WorkspaceCaptureLimits = {
   /**
-   * At most the control plane's `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`, which
-   * refuses anything larger. The bundle goes to disk and is streamed from
+   * At most `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`: the control plane refuses
+   * anything larger. The bundle goes to disk and is streamed from
    * there, so what it costs is workspace quota, not memory.
    */
   maxBundleBytes: number;
@@ -81,7 +82,7 @@ export type WorkspaceCaptureLimits = {
  * the control plane's, which it verifies within its time budgets (94S-318).
  */
 export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
-  maxBundleBytes: 256 * 1024 * 1024,
+  maxBundleBytes: DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   maxFileBytes: 512 * 1024 * 1024,
   maxIndexBytes: 256 * 1024 * 1024,
   maxStagedBytes: 512 * 1024 * 1024,

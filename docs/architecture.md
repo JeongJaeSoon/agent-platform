@@ -17,11 +17,12 @@
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
 | `packages/storage` | S3 transcript와 git 저장·복원 primitive |
 | `packages/observability` | 구조화 로깅·메트릭·트레이싱 기반 |
+| `packages/system` | 업무 의미가 없는 Bun·OS 도구: 캐시 없이 매번 묻는 DNS 조회(`lookupEveryTime`), 자원 상한을 건 git 실행(`gitCommand`)·process group 종료. db·storage·worker가 쓰고, 이 패키지는 아무것에도 의존하지 않는다(94S-403) |
 | `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog·policy |
 | `apps/control-host` | 제어 영역 배포 단위(94S-117). 실행물 하나(`src/main.ts <api\|scheduler\|reconciler>`)가 role을 인자로 받고 기본값은 없다. `src/api`는 Hono `/v1`·`/internal`(Worker Gateway)·API 키·키 발급 CLI, `src/scheduler`는 launch intent를 커밋하고 LocalDockerBackend로 worker 컨테이너를 보장하는 pass, `src/reconciler`는 만료된 lease를 회수하는 pass다. Docker backend는 scheduler role만 로드한다 |
-| `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다 |
+| `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다. worker와 control plane이 함께 지키는 checkpoint 상한(manifest 크기·object 수, bundle 크기·사슬 길이)도 여기 한 곳에서 export한다 |
 | `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
-| `packages/adapters/runtimes/claude-codec` | Claude checkpoint manifest codec(`claudeCheckpointCodec`)·transcript digest·pin된 SDK/CLI 버전 상수. SDK 의존이 없어 api 이미지가 읽을 수 있다(94S-201). `runtime-claude`는 이를 재수출한다 |
+| `packages/adapters/runtimes/claude-codec` | Claude checkpoint manifest codec(`claudeCheckpointCodec`)·transcript digest·pin된 SDK/CLI 버전 상수. SDK 의존이 없어 api 이미지와 운영 스크립트(`scripts/lib`)가 읽는다(94S-201). `runtime-claude`는 worker와 테스트가 쓰는 codec·버전 상수만 이름으로 재수출한다 |
 | `apps/worker` | worker 컨테이너의 진입점(`src/main.ts`). scheduler가 넘긴 bootstrap identity로 세션 하나를 claim하고 WorkerHost 루프(Gateway claim → Claude adapter 실행 → 이벤트 발행 → pending 등록 → checkpoint publish·restore)를 돈다(94S-122·246). SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 `apps/egress-proxy/Dockerfile`이 install 없이 자기 `src`만 복사한 이미지로 기동한다(94S-323) |
@@ -39,7 +40,10 @@
 - `packages/runtime-core`는 `packages/contracts`에만 의존한다. `packages/platform`은 contracts·runtime-core·zod에만 의존하고, driver·ORM·SDK를 import하지 않는다.
 - Claude adapter는 platform·db·storage에 닿지 않는다. Docker backend는 platform·contracts에만 의존하고 db·pg·Docker SDK에 닿지 않는다.
 - 앱끼리는 import하지 않는다. control host는 실행물 하나에 role 셋이고, Docker backend에 닿는 것은 scheduler role뿐이다. worker 컨테이너에는 Docker socket도 host bind mount도 없다.
-- worker는 runtime-core·Claude adapter·contracts·storage·observability만 import하고, storage는 worker의 object store 모듈 하나만 import한다.
+- worker는 runtime-core·Claude adapter·contracts·storage·system·observability만 import하고, storage는 worker의 object store 모듈 하나만 import한다.
+- DNS 조회와 git 실행 도구는 `packages/system`에 있고 runtime-core에는 없다. checkpoint 상한은 worker와 platform이 따로 선언하지 않고 runtime-core에서 가져온다.
+- Claude adapter의 진입점은 export할 심볼을 이름으로 적고(`export *` 없음), worker 진입점은 다른 패키지를 재수출하지 않는다. `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
+- `/v1` route는 cursor 오류를 platform port(`InvalidCursorError`)로만 안다. db를 import하는 route는 아직 platform port가 없는 identity route(`auth.ts`) 하나다.
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
 
 ## checkpoint 경로
