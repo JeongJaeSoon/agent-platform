@@ -59,7 +59,7 @@ describe("native SDK message mapping", () => {
     );
   });
 
-  test("redacts credentials and host paths without losing request IDs", () => {
+  test("redacts credentials without losing request IDs or the working directory", () => {
     const credentialMarker = ["s", "k", "-ant-api03-marker-value"].join("");
     const frame = frameFromNativeMessage(
       {
@@ -75,7 +75,7 @@ describe("native SDK message mapping", () => {
       "init",
     );
     const serialized = JSON.stringify(frame);
-    expect(serialized).not.toContain("/private/tenant");
+    expect(serialized).toContain("/private/tenant");
     expect(serialized).not.toContain("private-token");
     expect(serialized).not.toContain(credentialMarker);
     expect(serialized).toContain("request-1");
@@ -99,5 +99,95 @@ describe("native SDK message mapping", () => {
         tool_use_id: "tool-2",
       }),
     );
+  });
+
+  test("shows which file a tool request touches", () => {
+    const inputs: Record<string, Record<string, string>> = {
+      Write: { file_path: "/workspace/src/a.ts", content: "x" },
+      Edit: {
+        file_path: "/workspace/src/a.ts",
+        old_string: "a",
+        new_string: "b",
+      },
+      Read: { file_path: "/home/agent/.claude/settings.json" },
+      Glob: { pattern: "**/*.ts", path: "/workspace/src" },
+      Grep: { pattern: "TODO", path: "/workspace" },
+      NotebookEdit: { notebook_path: "/workspace/n.ipynb", new_source: "x" },
+    };
+    for (const [tool, input] of Object.entries(inputs)) {
+      const event = pendingRequestEvent(
+        {
+          input,
+          kind: "permission",
+          requestId: `request-${tool}`,
+          tool,
+          toolUseId: `tool-${tool}`,
+        },
+        "question",
+      );
+      expect(event.event === "question" ? event.data.input : null).toEqual(
+        input,
+      );
+    }
+
+    const frame = frameFromNativeMessage(
+      {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "tool-3",
+              name: "Write",
+              input: { file_path: "/workspace/src/a.ts", content: "x" },
+            },
+          ],
+        },
+      },
+      "correlation-5",
+      "tool",
+    );
+    expect(JSON.stringify(frame.events)).toContain("/workspace/src/a.ts");
+  });
+
+  test("hides only the value of a sensitive name in text", () => {
+    const shown = (command: string) => {
+      const event = pendingRequestEvent(
+        {
+          input: { command },
+          kind: "permission",
+          requestId: "request-4",
+          tool: "Bash",
+          toolUseId: "tool-4",
+        },
+        "question",
+      );
+      return event.event === "question"
+        ? (event.data.input as { command: string }).command
+        : "";
+    };
+    const value = ["v4lue", "0f", "api"].join("-");
+
+    expect(shown(`curl "https://x.test/v1?api_key=${value}&q=1"`)).toBe(
+      'curl "https://x.test/v1?api_key=[REDACTED]&q=1"',
+    );
+    expect(shown(`export API_KEY=${value} && ls /workspace`)).toBe(
+      "export API_KEY=[REDACTED] && ls /workspace",
+    );
+    expect(shown(`api_key="${value} two" ./run.sh`)).toBe(
+      "api_key=[REDACTED] ./run.sh",
+    );
+    expect(shown(`curl -H 'X-Api-Key: ${value}' https://x.test`)).toBe(
+      "curl -H 'X-Api-Key: [REDACTED]' https://x.test",
+    );
+    expect(shown(`user: me\npassword: ${value} two\nhost: db`)).toBe(
+      "user: me\npassword: [REDACTED]\nhost: db",
+    );
+    expect(shown(`grep -rn "api_key=" /workspace`)).toBe(
+      'grep -rn "api_key=" /workspace',
+    );
+    // The value may be on the lines that follow, so nothing is shown.
+    expect(shown(`cat <<EOF\npassword: |\n  ${value}\nEOF`)).toBe("[REDACTED]");
+    expect(shown(`echo password=\n${value}`)).toBe("[REDACTED]");
   });
 });
