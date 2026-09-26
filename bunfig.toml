@@ -1,2 +1,5 @@
 [install]
 linker = "hoisted"
+
+[test]
+preload = ["./packages/db/src/pglite-release.ts"]
