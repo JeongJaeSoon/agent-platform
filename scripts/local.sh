@@ -116,7 +116,7 @@ preflight() {
     ip=${binding%|*}
     port=${binding##*|}
     # As `compose ps` prints it.
-    case "$ip" in "") bound=0.0.0.0 ;; ::) bound="[::]" ;; *) bound=$ip ;; esac
+    case "$ip" in "") bound=0.0.0.0 ;; *:*) bound="[$ip]" ;; *) bound=$ip ;; esac
     case "$ours" in *"$bound:$port->"*) continue ;; esac
     case "$ip" in "" | 0.0.0.0) ip=127.0.0.1 ;; ::) ip=::1 ;; esac
     if (exec 3<>"/dev/tcp/$ip/$port") 2>/dev/null; then
