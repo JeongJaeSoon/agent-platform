@@ -11,12 +11,14 @@ import {
 } from "@agent-platform/platform";
 import { createObjectRouteSigner } from "@agent-platform/storage";
 import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { createApiApp } from "./app.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
+  EGRESS_USAGE_PATH,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
@@ -272,6 +274,85 @@ describe("egress authorizer (94S-252)", () => {
       expect(response.status).not.toBe(200);
       expect(await response.text()).not.toContain("catalog-provider-key");
     }
+  });
+});
+
+describe("usage reports (94S-451)", () => {
+  const counts = {
+    input_tokens: 0,
+    output_tokens: 1_000,
+    cache_creation_input_tokens: 0,
+    cache_creation_1h_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    estimated: false,
+  };
+
+  async function report(usage: Record<string, unknown>) {
+    const claim = await claimed();
+    const exchangeId = crypto.randomUUID();
+    const response = await ask(
+      {
+        exchange_id: exchangeId,
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        usage: { model: "claude-opus-5", ...counts, ...usage },
+      },
+      { path: EGRESS_USAGE_PATH },
+    );
+    const [row] = await db
+      .select({
+        speed: schema.providerUsage.speed,
+        webSearchRequests: schema.providerUsage.webSearchRequests,
+        webFetchRequests: schema.providerUsage.webFetchRequests,
+        codeExecutionRequests: schema.providerUsage.codeExecutionRequests,
+        pricedBy: schema.providerUsage.pricedBy,
+      })
+      .from(schema.providerUsage)
+      .where(eq(schema.providerUsage.exchangeId, exchangeId));
+    const [session] = await db
+      .select({ costUsd: schema.sessions.costUsd })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, claim.session_id));
+    return {
+      status: response.status,
+      body: await response.json(),
+      row,
+      sessionCost: session?.costUsd,
+    };
+  }
+
+  test("a fast call's searches are charged on top of its fast rate, and the ledger row keeps both", async () => {
+    // claude-opus-5 fast: $50 out per million; two searches at $0.01.
+    expect(
+      await report({
+        speed: "fast",
+        web_search_requests: 2,
+        web_fetch_requests: 4,
+        code_execution_requests: 1,
+      }),
+    ).toEqual({
+      status: 200,
+      body: { cost_usd: 0.07, priced_by: "table" },
+      row: {
+        speed: "fast",
+        webSearchRequests: 2,
+        webFetchRequests: 4,
+        codeExecutionRequests: 1,
+        pricedBy: "table",
+      },
+      sessionCost: 0.07,
+    });
+  });
+
+  test("a report from a proxy that does not send the speed is priced high", async () => {
+    const { status, body, row } = await report({});
+    expect(status).toBe(200);
+    expect(body.priced_by).toBe("fallback");
+    expect(row).toMatchObject({
+      speed: "unknown",
+      webSearchRequests: 0,
+      pricedBy: "fallback",
+    });
   });
 });
 

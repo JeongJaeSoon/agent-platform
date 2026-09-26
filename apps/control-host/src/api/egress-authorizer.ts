@@ -114,6 +114,12 @@ const usageReportSchema = z
         cache_creation_input_tokens: tokenCount,
         cache_creation_1h_input_tokens: tokenCount,
         cache_read_input_tokens: tokenCount,
+        // Optional so a proxy from before 94S-451 still reports; its calls
+        // may have been fast, so a missing speed is priced high.
+        speed: z.string().min(1).max(64).default("unknown"),
+        web_search_requests: tokenCount.default(0),
+        web_fetch_requests: tokenCount.default(0),
+        code_execution_requests: tokenCount.default(0),
         estimated: z.boolean(),
       })
       .strict(),
@@ -277,6 +283,10 @@ export function createEgressAuthorizer(deps: {
         cacheCreationInputTokens: usage.cache_creation_input_tokens,
         cacheCreation1hInputTokens: usage.cache_creation_1h_input_tokens,
         cacheReadInputTokens: usage.cache_read_input_tokens,
+        speed: usage.speed,
+        webSearchRequests: usage.web_search_requests,
+        webFetchRequests: usage.web_fetch_requests,
+        codeExecutionRequests: usage.code_execution_requests,
         estimated: usage.estimated,
       },
     });
@@ -284,6 +294,7 @@ export function createEgressAuthorizer(deps: {
       deps.logger.warn("Provider usage priced at the fallback rate", {
         session_id: report.session_id,
         model: usage.model,
+        speed: usage.speed,
         cost_usd: priced.costUsd,
       });
     }
