@@ -12,11 +12,11 @@
 #                   object and repository inventory
 #   SHA256SUMS      over all of the above
 #
-# The source installation is only read. The writers — api, scheduler, the
-# worker service and every worker container the scheduler launched — must be
-# stopped: a checkpoint committed between pg_dump and the object copy has a
-# pointer without its objects. The backup refuses to start while one runs;
-# --allow-running-writers only warns instead.
+# The source installation is only read. The writers — api, scheduler,
+# reconciler, the worker service and every worker container the scheduler
+# launched — must be stopped: a checkpoint committed between pg_dump and the
+# object copy has a pointer without its objects. The backup refuses to start
+# while one runs; --allow-running-writers only warns instead.
 #
 # It is written to backup-<ts>.partial and renamed to backup-<ts> only once
 # complete; a run that fails leaves backup-<ts>.failed.
@@ -63,11 +63,11 @@ for service in "${STORES[@]}"; do
 done
 # pg_dump is consistent on its own; the objects and repositories are copied
 # afterwards, so a checkpoint committed in between has a pointer without its
-# object. api, scheduler and worker are found by compose's own labels, so
-# a container outside the active profiles still counts. The scheduler's
-# workers carry its installation label. With no scheduler container left,
-# the installation cannot be named, so a running container of any
-# installation counts.
+# object. api, scheduler, reconciler and worker are found by compose's own
+# labels, so a container outside the active profiles still counts. The
+# scheduler's workers carry its installation label. With no scheduler
+# container left, the installation cannot be named, so a running container
+# of any installation counts.
 service_containers() {
   local service="$1"
   shift
@@ -75,7 +75,7 @@ service_containers() {
     --filter "label=com.docker.compose.service=${service}"
 }
 WRITERS=""
-for service in api scheduler worker; do
+for service in api scheduler reconciler worker; do
   running="$(service_containers "$service")" \
     || die "docker ps failed; cannot tell whether '$service' of project '$PROJECT' runs"
   [ -z "$running" ] || WRITERS="$WRITERS $service"

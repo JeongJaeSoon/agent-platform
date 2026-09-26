@@ -397,6 +397,17 @@ checkpoint 객체는 기본적으로 **version으로 고정되고 legal hold로 
 
 **checkpoint GC**(94S-281)는 `bun run apps/control-host/src/api/checkpoint-gc.ts`로 도는 one-shot이다. reconciler처럼 한 pass만 돌고 끝나며, api 이미지와 API의 object store 환경 변수에 `DATABASE_URL`을 더해 실행한다. `CHECKPOINT_GC_DRY_RUN=true`를 주면 지울 개수만 세고 아무것도 지우지 않는다.
 
+GC를 주기적으로 도는 서비스는 없다. 운영자가 **주 1회**, 사용이 적은 시간에 돌린다. compose 설치에서는 떠 있는 api 컨테이너 안에서 실행한다. 이 컨테이너에는 필요한 환경 변수가 이미 들어 있다.
+
+```bash
+docker compose exec -T -e CHECKPOINT_GC_DRY_RUN=true api bun run apps/control-host/src/api/checkpoint-gc.ts   # 지울 개수만 본다
+docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts                                 # exit 0이면 끝
+```
+
+cron에 걸려면 `0 4 * * 0 cd <checkout> && docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts`처럼 저장소 루트에서 부른다. 세션 하나라도 실패하면 exit 1이고, 로그에 `Checkpoint GC failed for a session`이 남는다. 백업과 겹치면 안 된다(아래). 백업은 api가 멈춰 있어야 시작하므로, api 컨테이너에서 도는 GC는 백업 중에 시작될 수 없다. 다만 GC가 도는 도중에 api를 멈추고 백업을 시작하면 겹칠 수 있다. 백업은 GC가 끝난 뒤에 받는다. test-ops 설치의 명령은 [test-ops.md](test-ops.md)의 점검표에 있다.
+
+**알파 한계: checkpoint 바이트는 저장량에 세지 않는다.** `STORAGE_LIMIT_BYTES`는 보관한 입력 메시지 바이트만 센다(아래 "설치 상한"). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 알파 동안 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
+
 회수 범위는 세션마다 두 곳이다. `sessions/<id>/checkpoints/<rev>/<attempt>/` 아래의 version(manifest·bundle·untracked 파일), 그리고 `sessions/<id>/transcripts/generation-<n>/` 아래의 transcript part version이다(94S-326). 그 밖의 key는 건드리지 않는다. version 하나를 지우는 조건은 아래 두 가지가 모두 맞을 때다.
 
 - 어떤 restore도 그 version을 읽지 않는다. pointer, pointer 아래 parent 체인의 `maxRestoreFallbacks`(3)개 revision, 세션이 마지막으로 폴백 복원한 base 가운데 어느 manifest도 그 version을 가리키지 않는다.
