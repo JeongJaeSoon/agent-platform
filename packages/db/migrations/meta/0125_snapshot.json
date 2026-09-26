@@ -1,5 +1,5 @@
 {
-  "id": "59d47e60-47c4-4971-84ef-13c5f945a5d3",
+  "id": "e8d93dc4-f1c2-45af-b59f-7a92783352f3",
   "prevId": "554cf86d-578e-4e42-be7f-06285e96d142",
   "version": "7",
   "dialect": "postgresql",
@@ -1610,7 +1610,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'standard'"
+          "default": "'unknown'"
         },
         "web_search_requests": {
           "name": "web_search_requests",

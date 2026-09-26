@@ -354,6 +354,37 @@ describe("usage reports (94S-451)", () => {
       pricedBy: "fallback",
     });
   });
+
+  test("a row from before the migration still matches its old proxy's retry", async () => {
+    const claim = await claimed();
+    const exchangeId = crypto.randomUUID();
+    // Written as 94S-409 wrote it: no speed, no tool counts.
+    await db.insert(schema.providerUsage).values({
+      exchangeId,
+      sessionId: claim.session_id,
+      attemptId: claim.attempt_id,
+      model: "claude-opus-5",
+      inputTokens: 0,
+      outputTokens: 1_000,
+      cacheCreationInputTokens: 0,
+      cacheCreation1hInputTokens: 0,
+      cacheReadInputTokens: 0,
+      estimated: false,
+      costUsd: 0.025,
+      pricedBy: "table",
+    });
+    const retry = await ask(
+      {
+        exchange_id: exchangeId,
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        usage: { model: "claude-opus-5", ...counts },
+      },
+      { path: EGRESS_USAGE_PATH },
+    );
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ cost_usd: 0.025 });
+  });
 });
 
 describe("egressAuthorizerConfigFromEnv", () => {

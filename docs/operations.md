@@ -496,7 +496,7 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 - 가격표는 플랫폼 코드(`packages/platform/src/limits/model-prices.ts`)가 소유한다. 모델 id별로 input, output, cache write(5분 1.25배, 1시간 2배), cache read 단가를 둔다. 모델이 추가되거나 가격이 바뀌면 릴리스와 함께 고친다.
   - fast mode는 따로 둔 fast 단가표로 센다(94S-451). 지금은 Opus 5.5($8/$40)와 Opus 5·Opus 4.8($10/$50)만 있다. cache 배수는 fast 단가 위에 그대로 곱한다. speed는 응답의 `usage.speed`를 따르고, 응답이 말하지 않으면 요청의 `speed`를 따른다. 둘 다 없으면 `standard`다.
   - 표에 없는 모델, fast 단가가 없는 모델의 fast 응답, 이름이 아닌 speed 값은 항목마다 두 표를 통틀어 최고 단가로 센다. authorizer가 `Provider usage priced at the fallback rate` 경고를 남기고, ledger에는 `priced_by=fallback`으로 적힌다.
-  - 응답 `usage.server_tool_use`의 web search 한 번마다 $0.01(1,000회 $10)을 더한다. web fetch는 token 말고 요금이 없다. code execution은 호출 수가 아니라 컨테이너 시간으로 과금되고 조직 무료 시간이 있어서 더하지 않는다. 세 횟수와 speed는 ledger(`provider_usage`)에 함께 적힌다.
+  - 응답 `usage.server_tool_use`의 web search 한 번마다 $0.01(1,000회 $10)을 더한다. web fetch는 token 말고 요금이 없다. code execution은 더하지 않는다. web search·web fetch와 함께 쓰면 요금이 없고, 아니면 호출 수가 아니라 컨테이너 시간으로 과금되며 조직 무료 시간이 있기 때문이다. 세 횟수와 speed는 ledger(`provider_usage`)에 함께 적힌다.
   - long-context 할증(Sonnet 4.5 이하의 200K 초과 input)과 `inference_geo: "us"`의 1.1배는 가격표에 없다. batch는 credential route가 `/v1/messages/batches`를 열지 않아서 해당이 없다.
 - 비용 상한은 호출이 끝난 뒤에 판정한다. 동시에 열린 호출은 모두 인가를 통과할 수 있고, 진행 중인 turn은 상한을 넘을 수 있다.
 - 누적 비용이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다(94S-394). 새 provider 교환은 곧바로 거절되고, 이미 열린 교환은 다음 재인가(30초 주기)에서 끊긴다. repository·object store route는 거절하지 않는다.
