@@ -72,7 +72,7 @@ export async function runReconciler(input: {
   reconcileLeases(options: LeaseReconcileOptions): Promise<ReconciledLease[]>;
   // Terminate receipts past their deadline become unknown. The scheduler
   // sweeps too, but it may not run at all while Docker is down.
-  expireTerminations(options: { now: Date; dryRun: boolean }): Promise<number>;
+  expireTerminations(options: LeaseReconcileOptions): Promise<number>;
   // Interrupts left unsettled past their deadline by a worker that keeps its
   // lease: its execution goes down the terminate path. Runs after the lease
   // pass so an attempt that pass already fenced is not fenced twice.
@@ -81,7 +81,7 @@ export async function runReconciler(input: {
   ): Promise<ReconciledInterrupt[]>;
   // Interrupt receipts still open past their later deadline become unknown,
   // for when nothing confirms the kill above.
-  expireInterrupts(options: { now: Date; dryRun: boolean }): Promise<number>;
+  expireInterrupts(options: LeaseReconcileOptions): Promise<number>;
   // Waits for input the stream still reports after they ended with nothing
   // written (expiry, a lost attempt). Last, so the lease pass above has
   // already fenced what it fences and this reports the result in one go.
@@ -128,12 +128,20 @@ export async function runReconciler(input: {
     fenced_count: interrupts.length,
     session_ids: interrupts.map(({ sessionId }) => sessionId),
   });
-  const interruptsOverdue = await input.expireInterrupts({ dryRun, now });
+  const interruptsOverdue = await input.expireInterrupts({
+    dryRun,
+    limit,
+    now,
+  });
   input.logger.info("Overdue interrupt receipts marked unknown", {
     dry_run: dryRun,
     overdue_count: interruptsOverdue,
   });
-  const terminationsOverdue = await input.expireTerminations({ dryRun, now });
+  const terminationsOverdue = await input.expireTerminations({
+    dryRun,
+    limit,
+    now,
+  });
   input.logger.info("Overdue terminate receipts marked unknown", {
     dry_run: dryRun,
     overdue_count: terminationsOverdue,

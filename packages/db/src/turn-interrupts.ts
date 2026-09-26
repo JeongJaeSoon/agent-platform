@@ -100,7 +100,7 @@ export async function settleTurnInterrupts(
  */
 export async function expireOverdueInterrupts(
   db: Database,
-  input: { now: Date; deadlineMs: number; dryRun?: boolean },
+  input: { now: Date; deadlineMs: number; dryRun?: boolean; limit: number },
 ): Promise<number> {
   const overdue = and(
     eq(receipts.status, "accepted"),
@@ -118,13 +118,15 @@ export async function expireOverdueInterrupts(
         ),
     ),
   );
-  if (input.dryRun) {
-    const rows = await db
-      .select({ id: receipts.id })
-      .from(receipts)
-      .where(overdue);
-    return rows.length;
-  }
+  const batch = db
+    .select({ id: receipts.id })
+    .from(receipts)
+    .where(overdue)
+    .orderBy(asc(receipts.createdAt), asc(receipts.id))
+    .limit(input.limit);
+  if (input.dryRun) return (await batch).length;
+  // The batch is only a candidate list: a row another pass flipped since is
+  // left alone by the repeated `overdue`.
   const expired = await db
     .update(receipts)
     .set({
@@ -135,7 +137,7 @@ export async function expireOverdueInterrupts(
       },
       updatedAt: input.now,
     })
-    .where(overdue)
+    .where(and(overdue, inArray(receipts.id, batch)))
     .returning({ id: receipts.id });
   return expired.length;
 }

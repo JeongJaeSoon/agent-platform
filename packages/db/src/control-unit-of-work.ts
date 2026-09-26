@@ -11,7 +11,7 @@ import type {
   TerminateSessionInput,
   TerminateSessionResult,
 } from "@agent-platform/platform";
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   controlClock,
   earliestUnknownTurn,
@@ -80,7 +80,7 @@ export function terminateReceiptResult(input: {
  */
 export async function expireOverdueTerminations(
   db: Database,
-  input: { now: Date; deadlineMs: number; dryRun?: boolean },
+  input: { now: Date; deadlineMs: number; dryRun?: boolean; limit?: number },
 ): Promise<number> {
   const overdueWhere = and(
     inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
@@ -89,13 +89,18 @@ export async function expireOverdueTerminations(
     // measured on it too; `now` only stamps the update.
     lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
   );
-  if (input.dryRun) {
-    const rows = await db
-      .select({ id: receipts.id })
-      .from(receipts)
-      .where(overdueWhere);
-    return rows.length;
-  }
+  const candidates = db
+    .select({ id: receipts.id })
+    .from(receipts)
+    .where(overdueWhere)
+    .orderBy(asc(receipts.createdAt), asc(receipts.id))
+    .$dynamic();
+  // The scheduler sweeps everything; the reconciler takes RECONCILER_BATCH_SIZE.
+  const batch =
+    input.limit === undefined ? candidates : candidates.limit(input.limit);
+  if (input.dryRun) return (await batch).length;
+  // The batch is only a candidate list: a row another pass flipped since is
+  // left alone by the repeated `overdueWhere`.
   const overdue = await db
     .update(receipts)
     .set({
@@ -106,7 +111,7 @@ export async function expireOverdueTerminations(
       },
       updatedAt: input.now,
     })
-    .where(overdueWhere)
+    .where(and(overdueWhere, inArray(receipts.id, batch)))
     .returning({ id: receipts.id });
   return overdue.length;
 }

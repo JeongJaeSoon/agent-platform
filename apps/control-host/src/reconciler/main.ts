@@ -76,17 +76,15 @@ export function reconcileOnce(
         ...options,
         deadlineMs: INTERRUPT_SETTLE_DEADLINE_MS,
       }),
-    expireInterrupts: ({ dryRun, now }) =>
+    expireInterrupts: (options) =>
       expireOverdueInterrupts(db, {
+        ...options,
         deadlineMs: INTERRUPT_RECEIPT_DEADLINE_MS,
-        dryRun,
-        now,
       }),
-    expireTerminations: ({ dryRun, now }) =>
+    expireTerminations: (options) =>
       expireOverdueTerminations(db, {
+        ...options,
         deadlineMs: TERMINATE_DEADLINE_MS,
-        dryRun,
-        now,
       }),
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
   });

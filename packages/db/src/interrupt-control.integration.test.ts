@@ -639,6 +639,7 @@ integration("turn interrupts on PostgreSQL", () => {
       // Before the receipt's own deadline it stays accepted.
       await expireOverdueInterrupts(db, {
         deadlineMs: RECEIPT_DEADLINE_MS,
+        limit: 100,
         now: new Date(),
       });
       expect((await receiptOf(accepted.receipt_id))?.status).toBe("accepted");
@@ -647,6 +648,7 @@ integration("turn interrupts on PostgreSQL", () => {
       expect(
         await expireOverdueInterrupts(db, {
           deadlineMs: RECEIPT_DEADLINE_MS,
+          limit: 100,
           now: new Date(),
           dryRun: true,
         }),
@@ -656,6 +658,7 @@ integration("turn interrupts on PostgreSQL", () => {
       expect(
         await expireOverdueInterrupts(db, {
           deadlineMs: RECEIPT_DEADLINE_MS,
+          limit: 100,
           now: new Date(),
         }),
       ).toBeGreaterThanOrEqual(1);
@@ -679,6 +682,7 @@ integration("turn interrupts on PostgreSQL", () => {
       await overdue(accepted.receipt_id, RECEIPT_DEADLINE_MS * 2);
       await expireOverdueInterrupts(db, {
         deadlineMs: RECEIPT_DEADLINE_MS,
+        limit: 100,
         now: new Date(),
       });
       expect((await receiptOf(accepted.receipt_id))?.status).toBe("unknown");
