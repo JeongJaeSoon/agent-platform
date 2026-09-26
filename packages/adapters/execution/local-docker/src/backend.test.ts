@@ -3537,6 +3537,16 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     expect(probesLeft()).toEqual([`${probePrefix}young000`]);
   });
 
+  test("nothing but the helper's create stands between the probe and its helper (94S-418)", async () => {
+    // The stray-probe age is bounded by this: until a container references
+    // the probe, another preflight's sweep could take it.
+    await backend.verifyWorkspaceQuota();
+    const paths = docker.requests.map((r) => r.path);
+    expect(paths[paths.indexOf("/volumes/create") + 1]).toBe(
+      "/containers/create",
+    );
+  });
+
   test("a long request timeout keeps a probe young for longer (94S-418)", async () => {
     // Twenty one-minute requests: a 15-minute-old probe may still be live.
     const patient = new LocalDockerBackend({

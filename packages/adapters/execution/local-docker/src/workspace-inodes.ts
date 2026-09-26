@@ -67,6 +67,26 @@ const HELPER_EXIT: Record<number, string> = {
 };
 
 /**
+ * A helper removes itself on the way out; one is left behind only when its
+ * process died first. Only old ones are taken: a young one may be another
+ * process's, mid-run — the preflight runs outside the pass lock — and
+ * removing it would fail that run's wait.
+ */
+export async function removeStrayInodeHelpers(
+  client: DockerClient,
+  installationId: string,
+): Promise<void> {
+  const cutoff = Date.now() / 1000 - STRAY_HELPER_AGE_SEC;
+  for (const stray of await client.listContainers([
+    `${INODE_HELPER_LABEL}=${installationId}`,
+  ])) {
+    if (stray.Created !== undefined && stray.Created < cutoff) {
+      await client.stopAndRemoveContainer(stray.Id, 1).catch(() => undefined);
+    }
+  }
+}
+
+/**
  * Runs the helper against `volume` and answers what went wrong, or null once
  * the limit is read back in force. The caller has already checked the
  * volume is the one it means; the helper checks it is a project of its own.
@@ -89,18 +109,6 @@ export async function applyInodeLimit(
 ): Promise<string | null> {
   const { image, inodes, installationId, timeoutMs, volume, workspaceDir } =
     options;
-  // A helper removes itself on the way out; one is left behind only when
-  // its process died first. Only old ones are taken: a young one may be
-  // another process's, mid-run — the preflight runs outside the pass lock —
-  // and removing it would fail that run's wait.
-  const cutoff = Date.now() / 1000 - STRAY_HELPER_AGE_SEC;
-  for (const stray of await client.listContainers([
-    `${INODE_HELPER_LABEL}=${installationId}`,
-  ])) {
-    if (stray.Created !== undefined && stray.Created < cutoff) {
-      await client.stopAndRemoveContainer(stray.Id, 1).catch(() => undefined);
-    }
-  }
   const name = `ap-inodes-${installationId}-${crypto.randomUUID().slice(0, 8)}`;
   const { Id } = await client.createContainer(name, {
     Cmd: [],

@@ -35,7 +35,10 @@ import {
   type NetworkInspect,
   type VolumeInspect,
 } from "./docker-client.ts";
-import { applyInodeLimit } from "./workspace-inodes.ts";
+import {
+  applyInodeLimit,
+  removeStrayInodeHelpers,
+} from "./workspace-inodes.ts";
 
 export const LABELS = {
   /**
@@ -271,9 +274,10 @@ const VOLUME_PREFIX = "ap-ws-";
 const QUOTA_PROBE_PREFIX = "ap-quota-probe-";
 /**
  * How old a probe must be before another preflight takes it for a leftover.
- * A probe lives a handful of Docker requests, each bounded by the request
- * timeout; the multiple leaves room for the stray helpers the inode helper
- * clears first.
+ * Until its helper container references it — after which Docker refuses the
+ * removal — a live probe has waited on two Docker requests at most, its own
+ * create and the helper's, each bounded by the request timeout; twenty of
+ * them is a wide margin.
  */
 const STRAY_PROBE_MIN_AGE_MS = 10 * 60_000;
 const STRAY_PROBE_REQUEST_TIMEOUTS = 20;
@@ -556,6 +560,10 @@ export class LocalDockerBackend implements ExecutionBackend {
   async verifyWorkspaceQuota(): Promise<void> {
     const quota = this.config.workspaceQuota;
     if (quota.mode === "off") return;
+    // Before the probe exists, so nothing but the helper's own create stands
+    // between the probe and the helper that holds it; see
+    // `STRAY_PROBE_MIN_AGE_MS`.
+    const helperImage = await this.inodeHelperImage(quota);
     const name = `${QUOTA_PROBE_PREFIX}${this.config.installationId}-${crypto.randomUUID().slice(0, 8)}`;
     const labels = {
       [LABELS.installation]: this.config.installationId,
@@ -614,7 +622,7 @@ export class LocalDockerBackend implements ExecutionBackend {
       // The inode half has no create-time answer; the helper that sets it on
       // every workspace is run here once, on the probe, so a daemon that
       // refuses it fails now rather than one launch at a time.
-      const problem = await this.applyInodeLimit(name, quota);
+      const problem = await this.applyInodeLimit(name, quota, helperImage);
       if (problem !== null) {
         throw new WorkspaceQuotaUnsupportedError(`inode limit: ${problem}`);
       }
@@ -1552,18 +1560,32 @@ export class LocalDockerBackend implements ExecutionBackend {
   async requireInodeLimit(volume: string): Promise<void> {
     const quota = this.config.workspaceQuota;
     if (quota.mode === "off") return;
-    const problem = await this.applyInodeLimit(volume, quota);
+    const problem = await this.applyInodeLimit(
+      volume,
+      quota,
+      await this.inodeHelperImage(quota),
+    );
     if (problem !== null) {
       throw new WorkspaceQuotaError(volume, `has no inode limit: ${problem}`);
     }
   }
 
-  private async applyInodeLimit(
+  /** The helper's vetted image id, with old helpers cleared off the daemon. */
+  private async inodeHelperImage(
+    quota: Extract<WorkspaceQuota, { mode: "enforced" }>,
+  ): Promise<string> {
+    const image = await this.inspectedImage(quota.helperImage);
+    await removeStrayInodeHelpers(this.client, this.config.installationId);
+    return image;
+  }
+
+  private applyInodeLimit(
     volume: string,
     quota: Extract<WorkspaceQuota, { mode: "enforced" }>,
+    image: string,
   ): Promise<string | null> {
     return applyInodeLimit(this.client, {
-      image: await this.inspectedImage(quota.helperImage),
+      image,
       inodes: quota.inodes,
       installationId: this.config.installationId,
       timeoutMs: this.config.requestTimeoutMs,
