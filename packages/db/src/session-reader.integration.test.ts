@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { ReceiptResourceTarget } from "@agent-platform/contracts";
 import { createLogger, MemoryLogSink } from "@agent-platform/observability";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -13,7 +14,15 @@ import {
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
-import { events, executions, sessions, turns } from "./schema.ts";
+import {
+  attempts,
+  checkpoints,
+  events,
+  executions,
+  receipts,
+  sessions,
+  turns,
+} from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -142,6 +151,123 @@ integration("session reader on PostgreSQL (94S-396)", () => {
         createPostgresSessionReader(tx).getSession(OWNER, sessionId),
       ).rejects.toThrow("Session detail needs a snapshot transaction");
     });
+  });
+
+  test("detail shows the execution that claimed last, not the highest generation", async () => {
+    const { sessionId } = await queuedSession();
+    // Pool launches: the later claim carries the lower generation.
+    const earlier = `exec-early-${sessionId}`;
+    const later = `exec-late-${sessionId}`;
+    await db.insert(executions).values([
+      {
+        id: earlier,
+        sessionId,
+        backend: "local_docker",
+        generation: 5,
+        desiredState: "terminated",
+        observedState: "terminated",
+      },
+      {
+        id: later,
+        sessionId,
+        backend: "local_docker",
+        generation: 2,
+        desiredState: "running",
+        observedState: "running",
+      },
+    ]);
+    const attempt = (id: string, executionId: string, leaseEpoch: number) => ({
+      id: `${id}-${sessionId}`,
+      sessionId,
+      executionId,
+      leaseEpoch,
+      executionGeneration: executionId === earlier ? 5 : 2,
+      authRevision: 0,
+      state: "exited",
+      leaseExpiresAt: new Date(),
+    });
+    await db
+      .insert(attempts)
+      .values([attempt("first", earlier, 1), attempt("second", later, 3)]);
+    await db
+      .update(sessions)
+      .set({ executionId: later, leaseEpoch: 3, executionGeneration: 2 })
+      .where(eq(sessions.id, sessionId));
+    const reader = createPostgresSessionReader(db);
+    expect((await reader.getSession(OWNER, sessionId))?.execution?.state).toBe(
+      "running",
+    );
+
+    // Released: the session no longer names one, its last attempt does.
+    await db
+      .update(sessions)
+      .set({ executionId: null, leaseEpoch: 4 })
+      .where(eq(sessions.id, sessionId));
+    await db
+      .update(executions)
+      .set({ observedState: "suspended" })
+      .where(eq(executions.id, later));
+    expect((await reader.getSession(OWNER, sessionId))?.execution?.state).toBe(
+      "suspended",
+    );
+  });
+
+  test("a turn does not report a checkpoint revision a restore can no longer reach", async () => {
+    const { sessionId, turnId } = await queuedSession();
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.id, turnId));
+    const checkpoint = (revision: number) => ({
+      sessionId,
+      revision,
+      manifestRef: `manifests/${sessionId}/${revision}.json`,
+      manifestSha256: "0".repeat(64),
+      turnId,
+    });
+    await db.insert(checkpoints).values([checkpoint(1), checkpoint(2)]);
+    const reader = createPostgresSessionReader(db);
+    const revisionOfTurn = async () => {
+      const listed = await reader.listTurns(OWNER, sessionId, { limit: 10 });
+      const detail = await reader.getTurn(OWNER, sessionId, "1");
+      expect(listed?.items[0]?.checkpoint_revision).toBe(
+        detail?.checkpoint_revision ?? null,
+      );
+      return detail?.checkpoint_revision;
+    };
+    expect(await revisionOfTurn()).toBe(2);
+
+    await db
+      .update(checkpoints)
+      .set({ collectedAt: new Date() })
+      .where(
+        and(eq(checkpoints.sessionId, sessionId), eq(checkpoints.revision, 2)),
+      );
+    expect(await revisionOfTurn()).toBe(1);
+
+    // start_fresh retired everything up to revision 1.
+    await db
+      .update(sessions)
+      .set({ contextResetCheckpointRevision: 1 })
+      .where(eq(sessions.id, sessionId));
+    expect(await revisionOfTurn()).toBeNull();
+  });
+
+  test("a receipt with a resource target reads back as stored", async () => {
+    const id = crypto.randomUUID();
+    const target: ReceiptResourceTarget = {
+      resource: { kind: "agent", id: "agent-1" },
+      workspace_id: null,
+    };
+    await db.insert(receipts).values({
+      id,
+      ownerId: OWNER,
+      operation: "revoke_execution",
+      targetRef: target,
+      status: "succeeded",
+    });
+    const receipt = await createPostgresSessionReader(db).getReceipt(OWNER, id);
+    expect(receipt?.target_ref).toEqual(target);
   });
 
   test("every detail field comes from one snapshot", async () => {
