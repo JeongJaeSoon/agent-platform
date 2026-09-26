@@ -14,9 +14,10 @@
 # are marked `pointer`. Last, the restored API's own path is asked: its
 # `locked` startup bucket check and a restore plan for every pointer.
 #
-# --image <worker image> asks each plan as a worker of that image would: a
-# pointer sealed under another engine, SDK or CLI version fails as
-# incompatible. Without it each plan is asked with the checkpoint's own
+# --image <worker image> asks each plan with that image's engine, SDK and CLI
+# versions: a pointer sealed under others fails as incompatible. The profile
+# digest stays the checkpoint's, so an image that computes it differently is
+# not caught. Without --image each plan is asked with the checkpoint's own
 # runtime, and the image check is printed as SKIP.
 #
 # Exit 0 when every row passes, 5 when any fails. A database with no
@@ -36,7 +37,7 @@ BUCKET=claude-sessions
 IMAGE=""
 
 usage() {
-  sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -45,7 +46,7 @@ while [ $# -gt 0 ]; do
     --project) PROJECT="$2"; shift 2 ;;
     --bucket) BUCKET="$2"; shift 2 ;;
     --object-store) set_object_store "$2"; shift 2 ;;
-    --image) IMAGE="$2"; shift 2 ;;
+    --image) [ -n "${2:-}" ] || usage; IMAGE="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) log "unknown argument: $1"; usage ;;
   esac

@@ -261,7 +261,10 @@ unbundle_chain() {
       echo "bundle $index of $count: git bundle verify rejected it after the $((index - 1)) before it"
       return 1
     fi
-    if ! git -C "$repository" -c fetch.fsckObjects=true fetch --quiet --no-write-fetch-head \
+    # No auto maintenance: it runs detached after the fetch and can still be
+    # writing into the repository when the caller removes it.
+    if ! git -C "$repository" -c fetch.fsckObjects=true -c maintenance.auto=false -c gc.auto=0 \
+      fetch --quiet --no-write-fetch-head \
       "$bundle" "refs/*:refs/chain/$index/*" >/dev/null 2>&1; then
       echo "bundle $index of $count: git fetch refused it"
       return 1

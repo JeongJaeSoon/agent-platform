@@ -52,8 +52,9 @@ function env(name: string): string {
   return value;
 }
 
-const [command, objectsDir, runtimeJson] = process.argv.slice(2);
+const [command, objectsDir, runtimeJson, ...extra] = process.argv.slice(2);
 if (
+  extra.length > 0 ||
   !(
     (command === "capture" && objectsDir) ||
     (command === "repin" && objectsDir) ||
