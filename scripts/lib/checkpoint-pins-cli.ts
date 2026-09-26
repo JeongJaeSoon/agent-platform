@@ -5,7 +5,7 @@
  *
  *   bun run scripts/lib/checkpoint-pins-cli.ts capture <backup>/objects
  *   bun run scripts/lib/checkpoint-pins-cli.ts repin <backup>/objects
- *   bun run scripts/lib/checkpoint-pins-cli.ts plans [--runtime <image-runtime-json>]
+ *   bun run scripts/lib/checkpoint-pins-cli.ts plans [--image <worker image> <config dir>]
  *
  * Environment: DATABASE_URL, S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID,
  * AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL unless the store is AWS S3
@@ -17,13 +17,16 @@ import * as schema from "@agent-platform/db";
 import { createPostgresCheckpointStore } from "@agent-platform/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { createLogger } from "@agent-platform/observability";
+import { resolveSessionCatalog } from "@agent-platform/platform";
 import { claudeCheckpointCodec } from "@agent-platform/runtime-claude";
+import type { RuntimeFingerprint } from "@agent-platform/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
   describeBucketProtection,
 } from "@agent-platform/storage";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { readCatalogConfig } from "../../apps/control-host/src/api/catalog-config.ts";
 import {
   API_CHECKPOINT_CODECS,
   assertCheckpointBucketEncryption,
@@ -40,6 +43,7 @@ import {
   parseImageRuntime,
   planRepin,
   planRuntime,
+  sessionClaim,
   sha256Hex,
 } from "./checkpoint-pins.ts";
 import { s3SettingsFromEnv } from "./object-store-cli.ts";
@@ -52,29 +56,26 @@ function env(name: string): string {
   return value;
 }
 
-const [command, objectsDir, runtimeJson, ...extra] = process.argv.slice(2);
+const [command, objectsDir, imageName, configDir, ...extra] =
+  process.argv.slice(2);
 if (
   extra.length > 0 ||
   !(
-    (command === "capture" && objectsDir) ||
-    (command === "repin" && objectsDir) ||
+    (command === "capture" && objectsDir && imageName === undefined) ||
+    (command === "repin" && objectsDir && imageName === undefined) ||
     (command === "plans" && objectsDir === undefined) ||
-    (command === "plans" && objectsDir === "--runtime" && runtimeJson)
+    (command === "plans" && objectsDir === "--image" && imageName && configDir)
   )
 ) {
   console.error(
-    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans [--runtime <image-runtime-json>]",
+    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans [--image <worker image> <config dir>]",
   );
   process.exit(2);
 }
-let image: ImageRuntime | undefined;
-try {
-  image =
-    runtimeJson === undefined ? undefined : parseImageRuntime(runtimeJson);
-} catch (error) {
-  console.error(`plans: ${(error as Error).message}`);
-  process.exit(2);
-}
+const image =
+  imageName === undefined
+    ? undefined
+    : { name: imageName, configDir: configDir as string };
 
 const s3 = s3SettingsFromEnv();
 const bucket = env("S3_BUCKET");
@@ -180,10 +181,13 @@ async function repin(dir: string) {
  * What the restored API itself would answer: the startup bucket check, then
  * `getRestorePlan` through the production wiring in `locked` mode for every
  * session pointer, and every object of every ready plan read back by the
- * version the plan names and found held. With an image's runtime, each plan
- * is asked for as a worker of that image would ask.
+ * version the plan names and found held. With an image, each plan is asked
+ * for as a worker of that image would ask: its engine build, and the profile
+ * digest its code computes from the claim the catalog in `configDir` gives.
  */
-async function plans(image: ImageRuntime | undefined): Promise<number> {
+async function plans(
+  image: { name: string; configDir: string } | undefined,
+): Promise<number> {
   const config = {
     ...s3,
     bucket,
@@ -216,13 +220,43 @@ async function plans(image: ImageRuntime | undefined): Promise<number> {
     id: string;
     manifest_ref: string | null;
     manifest_version: string | null;
+    owner_id: string;
+    profile_fingerprint: string | null;
+    profile_id: string | null;
     revision: number;
   }>(
-    `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version
+    `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
+            s.owner_id, s.profile_id, s.profile_fingerprint
      FROM sessions s LEFT JOIN checkpoints c
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
   );
+  const claimErrors = new Map<string, string>();
+  let imageRuntime: ImageRuntime | undefined;
+  if (image !== undefined) {
+    // Credentials are resolved to a stand-in: the claim carries a token in
+    // their place and the digest reads neither.
+    const catalog = resolveSessionCatalog(
+      await readCatalogConfig(image.configDir),
+      () => "verify-restore-reads-no-credential",
+    );
+    const claims: Record<string, unknown> = {};
+    for (const pointer of pointers) {
+      try {
+        claims[pointer.id] = sessionClaim(
+          {
+            ownerId: pointer.owner_id,
+            profileFingerprint: pointer.profile_fingerprint,
+            profileId: pointer.profile_id,
+          },
+          catalog,
+        );
+      } catch (error) {
+        claimErrors.set(pointer.id, (error as Error).message);
+      }
+    }
+    imageRuntime = await readImageRuntime(image.name, claims);
+  }
   for (const pointer of pointers) {
     const tag = `${pointer.id}@${pointer.revision} plan`;
     if (pointer.manifest_ref === null || pointer.manifest_version === null) {
@@ -244,11 +278,24 @@ async function plans(image: ImageRuntime | undefined): Promise<number> {
       fail(`${tag}: no manifest at ${pointer.manifest_ref} at all`);
       continue;
     }
-    const result = await service.getRestorePlan({
-      runtime: planRuntime(
+    const claimError = claimErrors.get(pointer.id);
+    if (claimError !== undefined) {
+      fail(`${tag}: no claim for the target image: ${claimError}`);
+      continue;
+    }
+    let runtime: RuntimeFingerprint;
+    try {
+      runtime = planRuntime(
         claudeCheckpointCodec.decode(runtimeSource).runtime,
-        image,
-      ),
+        imageRuntime,
+        pointer.id,
+      );
+    } catch (error) {
+      fail(`${tag}: ${(error as Error).message}`);
+      continue;
+    }
+    const result = await service.getRestorePlan({
+      runtime,
       sessionId: pointer.id,
     });
     if (result.status === "incompatible") {
@@ -304,7 +351,7 @@ async function plans(image: ImageRuntime | undefined): Promise<number> {
     }
     if (ok) {
       console.log(
-        `PASS ${tag}: ready under locked${image === undefined ? "" : " for the target image"}, ${pinned.length} versions read back and held`,
+        `PASS ${tag}: ready under locked${image === undefined ? "" : ` for image ${image.name}`}, ${pinned.length} versions read back and held`,
       );
     }
   }
@@ -312,6 +359,47 @@ async function plans(image: ImageRuntime | undefined): Promise<number> {
     console.error("plans: warning — no session has a checkpoint pointer");
   }
   return failed;
+}
+
+/**
+ * Runs the image's own bun with no network on the claims
+ * (apps/worker/src/image-runtime.ts). The image has no label for any of it.
+ */
+async function readImageRuntime(
+  name: string,
+  claims: Record<string, unknown>,
+): Promise<ImageRuntime> {
+  const child = Bun.spawn(
+    [
+      "docker",
+      "run",
+      "--rm",
+      "-i",
+      "--network",
+      "none",
+      "--entrypoint",
+      "bun",
+      name,
+      "run",
+      "apps/worker/src/image-runtime.ts",
+    ],
+    {
+      stdin: new Blob([JSON.stringify(claims)]),
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  if (code !== 0) {
+    throw new Error(
+      `could not read the runtime of image ${name} (exit ${code}): ${stderr.trim()}`,
+    );
+  }
+  return parseImageRuntime(stdout.trim());
 }
 
 let exitCode = 0;

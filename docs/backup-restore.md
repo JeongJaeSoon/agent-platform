@@ -110,9 +110,10 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 scripts/verify-restore.sh --project ap-restore-1
 scripts/verify-restore.sh --project ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints
 scripts/verify-restore.sh --project ap-restore-1 --image agent-platform-worker:dev   # 복원본을 이어 받을 worker 이미지
+scripts/verify-restore.sh --project ap-restore-1 --image agent-platform-worker:dev --config-dir config/real-model
 ```
 
-restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력하는 verify 명령에 둘 다 들어 있다. `--image`에는 복원본의 scheduler가 쓸 `WORKER_IMAGE`를 준다.
+restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력하는 verify 명령에 둘 다 들어 있다. `--image`에는 복원본의 scheduler가 쓸 `WORKER_IMAGE`를 준다. `--config-dir`에는 복원본 API의 `PLATFORM_CONFIG_DIR`에 해당하는 checkout 안 catalog 디렉터리를 준다. 기본값은 API 기본값과 같은 `config/`이고, real-model 스택이면 `config/real-model`이다.
 
 `checkpoints`의 모든 행을 확인한다. 단, GC가 `collected_at`을 적은 행은 뺀다. 확인하는 내용은 다음과 같다.
 
@@ -128,7 +129,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 마지막으로 `checkpoint-pins-cli.ts plans`가 복원본의 API가 할 일을 그대로 한다.
 
 - `describeBucketProtection` 결과를 출력하고 API의 `locked` 기동 검사(`assertCheckpointBucketProtection`)와 bucket 기본 암호화 검사(`assertCheckpointBucketEncryption`, SSE-S3)를 통과하는지 본다. `repin`도 객체를 쓰기 전에 같은 암호화 검사를 한다.
-- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다. 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)를 `docker run --rm --network none --entrypoint bun <image>`로 읽고, profile digest는 세션 설정에서 나오므로 manifest의 값을 쓴다. 복원은 이 값이 모두 같아야 하므로, 다른 버전으로 봉인된 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. profile digest를 계산하는 방식이 이미지 사이에서 바뀌면 이 검사로는 잡지 못한다. 그 경우 worker의 복원 요청이 `INCOMPATIBLE_CHECKPOINT`가 된다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
+- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다(94S-452). 먼저 pointer마다 API가 줄 claim의 digest 입력(`principal`=`sessions.owner_id`, `runtime_config`=`--config-dir` catalog의 `sessions.profile_id` profile)을 다시 만든다. catalog에 그 profile이 없거나 `sessions.profile_fingerprint`와 다르면 claim이 `CATALOG_MISMATCH`가 되므로 `FAIL <session>@<rev> plan: no claim for the target image: …`다. 그다음 `docker run --rm -i --network none --entrypoint bun <image> run apps/worker/src/image-runtime.ts`에 claim을 stdin으로 넣어, 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)와 그 이미지가 claim으로 계산한 profile digest를 받는다. 복원은 manifest의 값과 이 값이 모두 같아야 하므로, 다른 버전으로 봉인되었거나 digest 계산 방식이 바뀐 이미지 앞의 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`(또는 `profileSha256 … → …`)가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. `image-runtime.ts`가 없는 이미지(94S-452 이전)는 읽지 못하므로 검사 전체가 멈춘다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
 - plan의 manifest와 모든 object를 plan이 가리키는 version으로 읽고, hold가 걸려 있는지 본다.
 
 하나라도 실패하면 exit 5.
@@ -213,4 +214,4 @@ docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v --rmi local
 docker compose start api scheduler reconciler   # 원본을 다시 연다
 ```
 
-`tests/backup-restore.test.ts`는 docker 없이 다음을 검사한다: schema 게이트와 SHA256SUMS 게이트, verify-restore의 bundle 사슬 적용(`unbundle_chain`), 가짜 S3 HTTP 서버에 대한 `--object-store env` 복원 대상 거부(원본 bucket 이름, version·delete marker가 있는 bucket, Object Lock이 없는 bucket, 쓰기 요청 0건), `objects/` 밖을 가리키는 key 거부, 가짜 `docker`에 대한 writer 가동 중 백업 거부와 실패한 백업의 `.failed` 이름. `tests/checkpoint-pins.test.ts`는 in-memory versioned store로 capture·재고정과 그 거부 경로(base bundle 사슬 포함), 재고정한 checkpoint의 locked `getRestorePlan`을 검사하며 `bun run test`에 포함된다.
+`tests/backup-restore.test.ts`는 docker 없이 다음을 검사한다: schema 게이트와 SHA256SUMS 게이트, verify-restore의 bundle 사슬 적용(`unbundle_chain`), 가짜 S3 HTTP 서버에 대한 `--object-store env` 복원 대상 거부(원본 bucket 이름, version·delete marker가 있는 bucket, Object Lock이 없는 bucket, 쓰기 요청 0건), `objects/` 밖을 가리키는 key 거부, 가짜 `docker`에 대한 writer 가동 중 백업 거부와 실패한 백업의 `.failed` 이름. `tests/checkpoint-pins.test.ts`는 in-memory versioned store로 capture·재고정과 그 거부 경로(base bundle 사슬 포함), 재고정한 checkpoint의 locked `getRestorePlan`, `--image`가 엔진 build나 profile digest 계산만 바뀐 이미지를 incompatible로, 봉인한 이미지를 ready로 판정하는지를 검사하며 `bun run test`에 포함된다.

@@ -23,6 +23,12 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
+import type { RuntimeConfig } from "@agent-platform/contracts";
+import {
+  profileFingerprint,
+  runtimeConfigOf,
+  type SessionCatalog,
+} from "@agent-platform/platform";
 import type {
   CheckpointCodec,
   CheckpointManifest,
@@ -54,10 +60,15 @@ export class CheckpointPinError extends Error {
 }
 
 /**
- * The engine build a worker image runs (verify-restore.sh --image). The
- * profile digest is not the image's: the session's configuration decides it.
+ * What a worker image stamps a checkpoint with (verify-restore.sh --image):
+ * its engine build, and the profile digest its own code computes from each
+ * session's claim (apps/worker/src/image-runtime.ts, 94S-452).
  */
-export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256">;
+export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256"> & {
+  readonly profiles: Readonly<
+    Record<string, { profileSha256: string } | { error: string }>
+  >;
+};
 
 export function parseImageRuntime(text: string): ImageRuntime {
   let parsed: unknown;
@@ -69,32 +80,98 @@ export function parseImageRuntime(text: string): ImageRuntime {
   const record = (
     typeof parsed === "object" && parsed !== null ? parsed : {}
   ) as Record<string, unknown>;
-  const field = (name: keyof ImageRuntime) => {
+  const field = (name: keyof Omit<ImageRuntime, "profiles">) => {
     const value = record[name];
     if (typeof value !== "string" || value === "") {
       throw new Error(`image runtime has no ${name}: ${text}`);
     }
     return value;
   };
-  return {
+  const build = {
     cliVersion: field("cliVersion"),
     engine: field("engine"),
     sdkVersion: field("sdkVersion"),
   };
+  const { profiles } = record;
+  if (
+    typeof profiles !== "object" ||
+    profiles === null ||
+    Array.isArray(profiles) ||
+    !Object.values(profiles).every(
+      (profile) =>
+        typeof profile?.profileSha256 === "string" ||
+        typeof profile?.error === "string",
+    )
+  ) {
+    throw new Error(`image runtime has no profiles: ${text}`);
+  }
+  return { ...build, profiles: profiles as ImageRuntime["profiles"] };
 }
 
 /**
- * The runtime a restore plan is asked for: the target image's build with the
- * checkpoint's own profile, or, with no image named, exactly the runtime the
- * checkpoint was sealed under.
+ * The runtime a restore plan is asked for: what the target image computes
+ * for the session, or, with no image named, exactly the runtime the
+ * checkpoint was sealed under. Throws when the image computed no digest.
  */
 export function planRuntime(
   sealed: RuntimeFingerprint,
   image: ImageRuntime | undefined,
+  sessionId: string,
 ): RuntimeFingerprint {
-  return image === undefined
-    ? sealed
-    : { ...image, profileSha256: sealed.profileSha256 };
+  if (image === undefined) return sealed;
+  const profile = Object.hasOwn(image.profiles, sessionId)
+    ? image.profiles[sessionId]
+    : undefined;
+  if (profile === undefined) {
+    throw new Error("the target image was given no claim for this session");
+  }
+  if ("error" in profile) {
+    throw new Error(
+      `the target image computed no profile digest: ${profile.error}`,
+    );
+  }
+  const { profiles: _profiles, ...build } = image;
+  return { ...build, profileSha256: profile.profileSha256 };
+}
+
+/**
+ * The claim fields a worker hashes into a checkpoint's profile digest, as
+ * the API would hand them to this session now: its owner and its profile
+ * from the catalog (worker-gateway.ts `resolveProfile`). A profile gone from
+ * the catalog or edited since the session was created is refused the same
+ * way a claim is (94S-253). The token is a stand-in; the digest leaves the
+ * credential out.
+ */
+export function sessionClaim(
+  session: {
+    readonly ownerId: string;
+    readonly profileFingerprint: string | null;
+    readonly profileId: string | null;
+  },
+  catalog: SessionCatalog,
+): { principal: { owner_scope: string }; runtime_config: RuntimeConfig } {
+  const profile =
+    session.profileId !== null &&
+    Object.hasOwn(catalog.profiles, session.profileId)
+      ? catalog.profiles[session.profileId]
+      : undefined;
+  if (profile === undefined) {
+    throw new Error(
+      `profile ${session.profileId ?? "(none)"} is not in the catalog`,
+    );
+  }
+  if (
+    session.profileFingerprint !== null &&
+    profileFingerprint(profile) !== session.profileFingerprint
+  ) {
+    throw new Error(
+      `profile ${session.profileId} in the catalog is not the one the session was created with`,
+    );
+  }
+  return {
+    principal: { owner_scope: session.ownerId },
+    runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
+  };
 }
 
 export function describeMismatches(
