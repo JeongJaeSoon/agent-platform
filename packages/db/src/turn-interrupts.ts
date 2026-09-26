@@ -3,7 +3,7 @@ import type {
   TerminalTurnStatus,
 } from "@agent-platform/contracts";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
-import { OPEN_TURN_STATUSES } from "./control-shared.ts";
+import { expireOverdueReceipts, OPEN_TURN_STATUSES } from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { controlIntents, receipts, turns } from "./schema.ts";
@@ -102,9 +102,8 @@ export async function expireOverdueInterrupts(
   db: Database,
   input: { now: Date; deadlineMs: number; dryRun?: boolean; limit: number },
 ): Promise<number> {
-  const overdue = and(
-    eq(receipts.status, "accepted"),
-    inArray(
+  return expireOverdueReceipts(db, {
+    overdue: inArray(
       receipts.id,
       db
         .select({ id: controlIntents.receiptId })
@@ -117,27 +116,9 @@ export async function expireOverdueInterrupts(
           ),
         ),
     ),
-  );
-  const batch = db
-    .select({ id: receipts.id })
-    .from(receipts)
-    .where(overdue)
-    .limit(input.limit);
-  if (input.dryRun) return (await batch).length;
-  const expired = await db
-    .update(receipts)
-    .set({
-      status: "unknown",
-      error: {
-        code: "BACKEND_UNAVAILABLE",
-        message: `the interrupted turn did not end within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
-      },
-      updatedAt: input.now,
-    })
-    // A row another transaction holds is left to the next pass, not waited on.
-    .where(inArray(receipts.id, batch.for("update", { skipLocked: true })))
-    .returning({ id: receipts.id });
-  return expired.length;
+    message: `the interrupted turn did not end within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
+    ...input,
+  });
 }
 
 /**

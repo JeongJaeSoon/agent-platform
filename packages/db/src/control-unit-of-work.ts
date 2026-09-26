@@ -15,6 +15,7 @@ import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   controlClock,
   earliestUnknownTurn,
+  expireOverdueReceipts,
   findIdempotent,
   type IdempotencyScope,
   INPUT_RECEIPT_OPERATIONS,
@@ -82,36 +83,16 @@ export async function expireOverdueTerminations(
   db: Database,
   input: { now: Date; deadlineMs: number; dryRun?: boolean; limit?: number },
 ): Promise<number> {
-  const overdueWhere = and(
-    inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
-    eq(receipts.status, "accepted"),
-    // The receipt was stamped by the database clock, so the deadline is
-    // measured on it too; `now` only stamps the update.
-    lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
-  );
-  const candidates = db
-    .select({ id: receipts.id })
-    .from(receipts)
-    .where(overdueWhere)
-    .$dynamic();
-  // The scheduler sweeps everything; the reconciler takes RECONCILER_BATCH_SIZE.
-  const batch =
-    input.limit === undefined ? candidates : candidates.limit(input.limit);
-  if (input.dryRun) return (await batch).length;
-  const overdue = await db
-    .update(receipts)
-    .set({
-      status: "unknown",
-      error: {
-        code: "BACKEND_UNAVAILABLE",
-        message: `execution termination not observed within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
-      },
-      updatedAt: input.now,
-    })
-    // A row another transaction holds is left to the next pass, not waited on.
-    .where(inArray(receipts.id, batch.for("update", { skipLocked: true })))
-    .returning({ id: receipts.id });
-  return overdue.length;
+  return expireOverdueReceipts(db, {
+    overdue: and(
+      inArray(receipts.operation, KILL_RECEIPT_OPERATIONS),
+      // The receipt was stamped by the database clock, so the deadline is
+      // measured on it too; `now` only stamps the update.
+      lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
+    ),
+    message: `execution termination not observed within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
+    ...input,
+  });
 }
 
 type SessionRow = typeof sessions.$inferSelect;

@@ -1,5 +1,5 @@
 import { storedPendingReasonHoldsWork } from "@agent-platform/platform";
-import { and, eq, min, sql } from "drizzle-orm";
+import { and, eq, inArray, min, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   idempotencyKeys,
@@ -223,4 +223,51 @@ export function restoreBaseRevision(session: {
   checkpointFallbackRevision: number | null;
 }): number | null {
   return session.checkpointFallbackRevision ?? session.checkpointRevision;
+}
+
+/**
+ * Reports accepted receipts matching `overdue` as unknown, at most `limit`
+ * of them (94S-399): a backlog is worked off over several passes rather than
+ * in one statement that can outlast the pass. The batch is read and locked
+ * first, in its own statement, because a `LIMIT … FOR UPDATE` subquery inside
+ * the UPDATE may be rescanned and flip more than `limit`. A row another
+ * transaction holds is left to the next pass, not waited on.
+ */
+export async function expireOverdueReceipts(
+  db: Database,
+  input: {
+    overdue: SQL | undefined;
+    message: string;
+    now: Date;
+    dryRun?: boolean;
+    limit?: number;
+  },
+): Promise<number> {
+  const candidates = (from: Database) => {
+    const query = from
+      .select({ id: receipts.id })
+      .from(receipts)
+      .where(and(eq(receipts.status, "accepted"), input.overdue))
+      .$dynamic();
+    return input.limit === undefined ? query : query.limit(input.limit);
+  };
+  if (input.dryRun) return (await candidates(db)).length;
+  return db.transaction(async (tx) => {
+    const batch = await candidates(tx).for("update", { skipLocked: true });
+    if (batch.length === 0) return 0;
+    await tx
+      .update(receipts)
+      .set({
+        status: "unknown",
+        error: { code: "BACKEND_UNAVAILABLE", message: input.message },
+        updatedAt: input.now,
+      })
+      .where(
+        inArray(
+          receipts.id,
+          batch.map(({ id }) => id),
+        ),
+      );
+    return batch.length;
+  });
 }
