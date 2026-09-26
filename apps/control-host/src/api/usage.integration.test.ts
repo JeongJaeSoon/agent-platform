@@ -158,7 +158,7 @@ integration("usage API on PostgreSQL (94S-275)", () => {
       cost: {
         amount_usd: "0.750000",
         kind: "estimated",
-        source: "sdk_total_cost_usd",
+        source: "provider_usage",
         completeness_scope: "turn_reports",
         complete: true,
         reported_turn_count: 2,

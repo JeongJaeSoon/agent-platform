@@ -34,6 +34,8 @@ import {
   type NextInputResult,
   nextPendingReason,
   type PeekFinalizeResult,
+  type ProviderUsageInput,
+  type ProviderUsageResult,
   payloadHash,
   type ReadyInput,
   type ReadyResult,
@@ -108,6 +110,7 @@ import {
   executions,
   MAX_SESSION_COST_USD,
   pendingRequests,
+  providerUsage,
   queueMessages,
   receipts,
   sessions,
@@ -1266,6 +1269,86 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       });
     },
 
+    recordProviderUsageAtomic(
+      input: ProviderUsageInput,
+    ): Promise<ProviderUsageResult> {
+      return db.transaction(async (tx) => {
+        // Session and attempt locked in the order every fenced write takes
+        // them. No fence beyond the pair: an attempt that has lost its
+        // session since the call still made it.
+        const [pair] = await tx
+          .select({ sessionId: sessions.id })
+          .from(sessions)
+          .innerJoin(attempts, eq(attempts.sessionId, sessions.id))
+          .where(
+            and(
+              eq(sessions.id, input.sessionId),
+              eq(attempts.id, input.attemptId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!pair) return { outcome: "unknown_attempt" };
+        // What makes two reports the same call. The price is left out: it
+        // may have moved between them.
+        const call = {
+          exchangeId: input.exchangeId,
+          sessionId: input.sessionId,
+          attemptId: input.attemptId,
+          model: input.usage.model,
+          inputTokens: input.usage.inputTokens,
+          outputTokens: input.usage.outputTokens,
+          cacheCreationInputTokens: input.usage.cacheCreationInputTokens,
+          cacheCreation1hInputTokens: input.usage.cacheCreation1hInputTokens,
+          cacheReadInputTokens: input.usage.cacheReadInputTokens,
+          estimated: input.usage.estimated,
+        };
+        // Rounded up to the column's micro-dollar, or a stream of tiny calls
+        // would each round away to nothing; clamped to the column, so a
+        // runaway figure saturates the budget instead of failing the report.
+        const [inserted] = await tx
+          .insert(providerUsage)
+          .values({
+            ...call,
+            costUsd: sql`LEAST(ceil(${input.costUsd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
+            pricedBy: input.pricedBy,
+          })
+          .onConflictDoNothing({ target: providerUsage.exchangeId })
+          .returning({ costUsd: providerUsage.costUsd });
+        if (inserted === undefined) {
+          const [stored] = await tx
+            .select({
+              exchangeId: providerUsage.exchangeId,
+              sessionId: providerUsage.sessionId,
+              attemptId: providerUsage.attemptId,
+              model: providerUsage.model,
+              inputTokens: providerUsage.inputTokens,
+              outputTokens: providerUsage.outputTokens,
+              cacheCreationInputTokens: providerUsage.cacheCreationInputTokens,
+              cacheCreation1hInputTokens:
+                providerUsage.cacheCreation1hInputTokens,
+              cacheReadInputTokens: providerUsage.cacheReadInputTokens,
+              estimated: providerUsage.estimated,
+              costUsd: providerUsage.costUsd,
+            })
+            .from(providerUsage)
+            .where(eq(providerUsage.exchangeId, input.exchangeId));
+          if (stored === undefined) return { outcome: "conflict" };
+          const { costUsd, ...was } = stored;
+          return payloadHash(was) === payloadHash(call)
+            ? { outcome: "replayed", costUsd }
+            : { outcome: "conflict" };
+        }
+        await tx
+          .update(sessions)
+          .set({
+            costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
+          })
+          .where(eq(sessions.id, input.sessionId));
+        return { outcome: "recorded", costUsd: inserted.costUsd };
+      });
+    },
+
     nextInputAtomic(input: NextInputInput): Promise<NextInputResult> {
       const { fence, now } = input;
       return db.transaction(async (tx) => {
@@ -1816,17 +1899,6 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               updatedAt: now,
               ...(unknownOutcome
                 ? { admissionState: "recovery_required" as const }
-                : {}),
-              // Added with the terminal it came with, after every refusal
-              // above: a finalize that is turned away charges nothing, and a
-              // replay never reaches this far. Rounded up to the column's
-              // micro-dollar, or a stream of tiny costs would each round
-              // away to nothing; clamped to the column, so a runaway total
-              // saturates the budget instead of failing the finalize.
-              ...(input.terminal.cost_usd
-                ? {
-                    costUsd: sql`LEAST(${sessions.costUsd} + ceil(${input.terminal.cost_usd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
-                  }
                 : {}),
             })
             .where(fencedSession(fence))

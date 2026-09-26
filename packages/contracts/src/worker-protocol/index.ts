@@ -247,9 +247,8 @@ export const nextInputRequestSchema = workerScopeSchema
   .extend({ wait_ms: z.number().int().nonnegative().optional() })
   .strict();
 /**
- * The most one finalize may report a turn cost. Far above any real turn, so a
- * runaway report cannot overflow the session's stored sum; the worker clamps
- * to it rather than send a terminal the gateway would refuse.
+ * The most one finalize may report a turn cost. Far above any real turn; the
+ * worker clamps to it rather than send a terminal the gateway would refuse.
  */
 export const MAX_TURN_COST_USD = 1_000_000;
 
@@ -588,9 +587,10 @@ export const finalizeRequestSchema = workerScopeSchema
       result: z.unknown().nullable(),
       usage: z.unknown().nullable(),
       // What the engine says this turn cost, in USD; an estimate, not a bill.
-      // Absent or null when it gave no usable figure: nothing is added to
-      // the session's spend and the turn reads as unreported (94S-275). A
-      // turn known to have cost nothing sends 0.
+      // Kept on the turn; the session's spend is what the egress proxy
+      // metered (94S-409). Absent or null when it gave no usable figure: the
+      // turn reads as unreported (94S-275). A turn known to have cost
+      // nothing sends 0.
       cost_usd: z
         .number()
         .nonnegative()

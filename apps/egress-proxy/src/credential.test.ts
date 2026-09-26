@@ -292,6 +292,27 @@ describe("secretsOf", () => {
   });
 });
 
+type UsageReport = {
+  exchange_id: string;
+  session_id: string;
+  attempt_id: string;
+  usage: Record<string, unknown>;
+};
+
+async function until(done: () => boolean, ms = 3_000): Promise<void> {
+  const by = performance.now() + ms;
+  while (!done()) {
+    if (performance.now() > by) throw new Error("timed out waiting");
+    await Bun.sleep(10);
+  }
+}
+
+function sseBody(events: Array<Record<string, unknown>>): string {
+  return events
+    .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+    .join("");
+}
+
 type Seen = { url: string; headers: Record<string, string>; body: string };
 
 describe("startCredentialProxy", () => {
@@ -337,8 +358,14 @@ describe("startCredentialProxy", () => {
 
   function authorizer(
     answer: (body: { token: string; purpose: string }) => Response,
-  ): { url: string; asked: Array<{ token: string; purpose: string }> } {
+    usageAnswer: () => Response = () => Response.json({}),
+  ): {
+    url: string;
+    asked: Array<{ token: string; purpose: string }>;
+    reported: UsageReport[];
+  } {
     const asked: Array<{ token: string; purpose: string }> = [];
+    const reported: UsageReport[] = [];
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -347,6 +374,10 @@ describe("startCredentialProxy", () => {
           request.headers.get("authorization") !== `Bearer ${AUTHORIZER_TOKEN}`
         ) {
           return new Response("no", { status: 401 });
+        }
+        if (new URL(request.url).pathname === "/usage") {
+          reported.push((await request.json()) as UsageReport);
+          return usageAnswer();
         }
         const body = (await request.json()) as {
           token: string;
@@ -357,7 +388,7 @@ describe("startCredentialProxy", () => {
       },
     });
     servers.push(server);
-    return { url: `http://127.0.0.1:${server.port}`, asked };
+    return { url: `http://127.0.0.1:${server.port}`, asked, reported };
   }
 
   function granting(url: string, headers: Array<[string, string]>) {
@@ -477,6 +508,177 @@ describe("startCredentialProxy", () => {
       rest += new TextDecoder().decode(next.value);
     }
     expect(rest).toBe("event: two\n\n");
+  });
+
+  describe("usage metering (94S-409)", () => {
+    const provider = (up: { port: number }) =>
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]);
+
+    test("reports a JSON answer's usage with the grant's ids", async () => {
+      const up = upstream(() =>
+        Response.json({
+          type: "message",
+          model: "claude-sonnet-4-5",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_creation_input_tokens: 3,
+            cache_read_input_tokens: 4,
+            cache_creation: {
+              ephemeral_5m_input_tokens: 1,
+              ephemeral_1h_input_tokens: 2,
+            },
+          },
+        }),
+      );
+      const auth = authorizer(provider(up));
+      const server = proxy(auth.url, up.port);
+      const response = await messages(server.port);
+      expect(response.status).toBe(200);
+      await response.json();
+      await until(() => auth.reported.length === 1);
+      const [report] = auth.reported;
+      expect(report?.exchange_id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(report).toMatchObject({
+        session_id: "sess-1",
+        attempt_id: "att-1",
+        usage: {
+          model: "claude-sonnet-4-5",
+          input_tokens: 10,
+          output_tokens: 20,
+          cache_creation_input_tokens: 3,
+          cache_creation_1h_input_tokens: 2,
+          cache_read_input_tokens: 4,
+        },
+      });
+    });
+
+    test("reports a streamed answer's message_start input and last message_delta output", async () => {
+      const up = upstream(
+        () =>
+          new Response(
+            sseBody([
+              {
+                type: "message_start",
+                message: {
+                  model: "claude-sonnet-4-5",
+                  usage: { input_tokens: 50, output_tokens: 1 },
+                },
+              },
+              { type: "message_delta", usage: { output_tokens: 7 } },
+              { type: "message_delta", usage: { output_tokens: 30 } },
+              { type: "message_stop" },
+            ]),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const auth = authorizer(provider(up));
+      const server = proxy(auth.url, up.port);
+      await (await messages(server.port)).text();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]?.usage).toMatchObject({
+        model: "claude-sonnet-4-5",
+        input_tokens: 50,
+        output_tokens: 30,
+      });
+    });
+
+    test("a worker that hangs up mid-stream is still charged for what was started", async () => {
+      const up = upstream(
+        () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    sseBody([
+                      {
+                        type: "message_start",
+                        message: { model: "m", usage: { input_tokens: 9 } },
+                      },
+                    ]),
+                  ),
+                );
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const auth = authorizer(provider(up));
+      const server = proxy(auth.url, up.port);
+      const held = await rawRequest(
+        server.port,
+        `POST /provider/v1/messages HTTP/1.1\r\nhost: proxy\r\nx-api-key: ${WORKER_TOKEN}\r\ncontent-length: 2`,
+        "{}",
+      );
+      expect(await held.answered()).toContain("message_start");
+      held.socket.end();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]?.usage).toMatchObject({
+        model: "m",
+        input_tokens: 9,
+      });
+    });
+
+    test("count_tokens and an error answer report nothing; a success without usage is charged from its request (Codex R1)", async () => {
+      const up = upstream((request) =>
+        new URL(request.url).pathname.endsWith("/count_tokens")
+          ? Response.json({ input_tokens: 12 })
+          : request.headers.get("x-case") === "error"
+            ? Response.json(
+                { type: "error", usage: { input_tokens: 1 } },
+                { status: 400 },
+              )
+            : Response.json({ id: "msg_1" }),
+      );
+      const auth = authorizer(provider(up));
+      const server = proxy(auth.url, up.port);
+      await (
+        await messages(server.port, {
+          path: "/provider/v1/messages/count_tokens",
+        })
+      ).text();
+      await (
+        await messages(server.port, {
+          headers: { "x-api-key": WORKER_TOKEN, "x-case": "error" },
+        })
+      ).text();
+      await Bun.sleep(100);
+      expect(auth.reported).toEqual([]);
+      const body = '{"model":"claude-sonnet-4-5","max_tokens":64}';
+      await (await messages(server.port, { body })).text();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]?.usage).toMatchObject({
+        model: "claude-sonnet-4-5",
+        input_tokens: body.length,
+        output_tokens: 64,
+        estimated: true,
+      });
+    });
+
+    test("a report the authorizer could not take is sent again under the same id; a refused one is not", async () => {
+      const up = upstream(() =>
+        Response.json({ model: "m", usage: { input_tokens: 1 } }),
+      );
+      const answers = [503, 200];
+      const auth = authorizer(
+        provider(up),
+        () => new Response(null, { status: answers.shift() ?? 400 }),
+      );
+      const server = proxy(auth.url, up.port, {
+        usageReportBackoffMs: [10, 10],
+      });
+      await (await messages(server.port)).text();
+      await until(() => auth.reported.length === 2);
+      expect(auth.reported[1]?.exchange_id).toBe(auth.reported[0]?.exchange_id);
+
+      await (await messages(server.port)).text();
+      await until(() => auth.reported.length === 3);
+      await Bun.sleep(100);
+      expect(auth.reported).toHaveLength(3);
+    });
   });
 
   test("the authorizer's refusal reaches the worker, and nothing is sent upstream", async () => {

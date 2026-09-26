@@ -7,6 +7,7 @@ import {
 import {
   createWorkerGateway,
   type InputLimits,
+  type ProviderUsage,
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
@@ -16,7 +17,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
@@ -26,6 +27,7 @@ import * as schema from "./schema.ts";
 import {
   executions,
   MAX_SESSION_COST_USD,
+  providerUsage,
   receipts,
   sessions,
   storageUsage,
@@ -172,6 +174,19 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       .update(sessions)
       .set({ costUsd })
       .where(eq(sessions.id, sessionId));
+  }
+
+  function usage(counts: Partial<ProviderUsage>): ProviderUsage {
+    return {
+      model: "claude-sonnet-4-5",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheCreation1hInputTokens: 0,
+      cacheReadInputTokens: 0,
+      estimated: false,
+      ...counts,
+    };
   }
 
   async function sessionCost(sessionId: string): Promise<number> {
@@ -384,21 +399,14 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
   });
 
   describe("session cost budget", () => {
-    test("finalize adds the turn's cost once; a replay and a refused finalize add nothing", async () => {
+    test("finalize keeps the engine's figure on the turn and adds nothing to the session (94S-409)", async () => {
       const { session, claimed } = await bound();
       await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
 
-      // Claims events the gateway never received: refused after the fence.
-      expect(
-        await failure(finalize(claimed, "1", { final_source_sequence: 3 })),
-      ).toEqual({ status: 409, code: "REVISION_CONFLICT" });
+      await finalize(claimed, "1");
+      await finalize(claimed, "1");
+
       expect(await sessionCost(session.session_id)).toBe(0);
-
-      await finalize(claimed, "1");
-      expect(await sessionCost(session.session_id)).toBe(1.5);
-      await finalize(claimed, "1");
-      expect(await sessionCost(session.session_id)).toBe(1.5);
-
       const [turn] = await db
         .select({ result: turns.resultJson })
         .from(turns)
@@ -406,8 +414,88 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(turn?.result).toMatchObject({ cost_usd: 1.5 });
     });
 
-    test("a turn the engine cut on its budget adds its cost once, and its receipt says why (94S-279)", async () => {
+    test("a metered call is priced and added once; a replay adds nothing and a changed one is refused (94S-409)", async () => {
       const { session, claimed } = await bound();
+      const exchangeId = crypto.randomUUID();
+      const report = {
+        exchangeId,
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ inputTokens: 1_000, outputTokens: 100 }),
+      };
+
+      // claude-sonnet-4-5: $3 in and $15 out per million tokens.
+      expect(await gateway.recordProviderUsage(report)).toEqual({
+        costUsd: 0.0045,
+        pricedBy: "table",
+      });
+      await gateway.recordProviderUsage(report);
+      expect(await sessionCost(session.session_id)).toBe(0.0045);
+      expect(
+        await failure(
+          gateway.recordProviderUsage({
+            ...report,
+            usage: usage({ inputTokens: 1_000, outputTokens: 101 }),
+          }),
+        ),
+      ).toEqual({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+      const rows = await db
+        .select({ costUsd: providerUsage.costUsd })
+        .from(providerUsage)
+        .where(eq(providerUsage.exchangeId, exchangeId));
+      expect(rows).toEqual([{ costUsd: 0.0045 }]);
+    });
+
+    test("a call is charged to its session after its attempt ended, and never to another session's attempt (94S-409)", async () => {
+      const { session, claimed, launched } = await bound();
+      const other = await bound();
+      await gateway.release(principalOf(claimed), {
+        ...scopeOf(claimed),
+        reason: "drained",
+      });
+      await gateway.confirmExecutionGone(launched.executionId);
+
+      await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ outputTokens: 1_000_000 }),
+      });
+      expect(await sessionCost(session.session_id)).toBe(15);
+
+      expect(
+        await failure(
+          gateway.recordProviderUsage({
+            exchangeId: crypto.randomUUID(),
+            sessionId: session.session_id,
+            attemptId: other.claimed.attempt_id,
+            usage: usage({ outputTokens: 1 }),
+          }),
+        ),
+      ).toEqual({ status: 404, code: "NOT_FOUND" });
+      expect(await sessionCost(other.session.session_id)).toBe(0);
+    });
+
+    test("a model the table does not know is charged at the highest known rates (94S-409)", async () => {
+      const { session, claimed } = await bound();
+      const priced = await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ model: "some-alias", outputTokens: 1_000_000 }),
+      });
+      expect(priced.pricedBy).toBe("fallback");
+      expect(priced.costUsd).toBeGreaterThanOrEqual(50);
+      const [row] = await db
+        .select({ pricedBy: providerUsage.pricedBy })
+        .from(providerUsage)
+        .where(eq(providerUsage.sessionId, session.session_id));
+      expect(row?.pricedBy).toBe("fallback");
+    });
+
+    test("a turn the engine cut on its budget says why, and the metered sum is what holds the next poll (94S-279)", async () => {
+      const { session, claimed } = await bound();
+      await append(session, "second");
       await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
       const cut: Partial<FinalizeRequest> = {
         terminal: {
@@ -422,24 +510,33 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       await finalize(claimed, "1", cut);
       await finalize(claimed, "1", cut);
 
-      // Past the limit by what the last request cost, and counted once.
-      expect(await sessionCost(session.session_id)).toBe(10.25);
       const [turn] = await db
         .select({ status: turns.status, reason: turns.terminalReason })
         .from(turns)
-        .where(eq(turns.sessionId, session.session_id));
+        .where(
+          and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 1)),
+        );
       expect(turn).toEqual({ status: "failed", reason: "budget_exceeded" });
       const [receipt] = await db
         .select({ status: receipts.status, error: receipts.error })
         .from(receipts)
         .where(
-          sql`${receipts.targetRef}->>'session_id' = ${session.session_id}`,
+          and(
+            sql`${receipts.targetRef}->>'session_id' = ${session.session_id}`,
+            eq(receipts.status, "failed"),
+          ),
         );
       expect(receipt).toMatchObject({
         status: "failed",
         error: { code: "BUDGET_EXCEEDED", message: "budget_exceeded" },
       });
-      // The next poll is where the stored sum, not the engine, holds it.
+      // The calls that spent it, as the proxy metered them: $10.5.
+      await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ outputTokens: 700_000 }),
+      });
       expect(
         await gateway.nextInput(principalOf(claimed), scopeOf(claimed)),
       ).toMatchObject({ input: null, reason: "BUDGET_EXCEEDED" });
@@ -471,19 +568,41 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
 
     test("a cost below a micro-dollar still counts, rounded up", async () => {
       const { session, claimed } = await bound();
-      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
 
-      await finalize(claimed, "1", { costUsd: 0.0000004 });
+      // One cache-read token at $0.30 per million.
+      await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ cacheReadInputTokens: 1 }),
+      });
 
+      // The ledger holds what the session was charged, so the two add up.
       expect(await sessionCost(session.session_id)).toBe(0.000001);
+      const [row] = await db
+        .select({ costUsd: providerUsage.costUsd })
+        .from(providerUsage)
+        .where(eq(providerUsage.sessionId, session.session_id));
+      expect(row?.costUsd).toBe(0.000001);
     });
 
-    test("a sum past what the column holds saturates instead of failing the finalize", async () => {
+    test("a sum or a call past what the column holds saturates instead of failing the report (Codex R1)", async () => {
       const { session, claimed } = await bound();
-      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+      await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ outputTokens: Number.MAX_SAFE_INTEGER }),
+      });
+      expect(await sessionCost(session.session_id)).toBe(MAX_SESSION_COST_USD);
       await spend(session.session_id, MAX_SESSION_COST_USD - 1);
 
-      await finalize(claimed, "1", { costUsd: 1_000_000 });
+      await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ outputTokens: 1_000_000 }),
+      });
 
       expect(await sessionCost(session.session_id)).toBe(MAX_SESSION_COST_USD);
     });

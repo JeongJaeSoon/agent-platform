@@ -61,6 +61,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     claimAtomic: unimplemented,
     resolveCredential: unimplemented,
     authorizeEgressAtomic: unimplemented,
+    recordProviderUsageAtomic: unimplemented,
     nextInputAtomic: unimplemented,
     heartbeatAtomic: unimplemented,
     commitEventsAtomic: unimplemented,

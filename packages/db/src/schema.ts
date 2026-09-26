@@ -447,9 +447,11 @@ export const sessions = pgTable(
     // agent_releases lands with I0-5b (94S-154); the FK is added there. Not
     // a uuid: release ids are derived hashes (94S-148 agentReleaseIdSchema).
     agentReleaseId: text("agent_release_id"),
-    // What the engine reported this session's turns cost, summed at each
-    // finalize (94S-131). An estimate: turns whose cost was never reported
-    // add nothing. Compared against SESSION_COST_LIMIT_USD at dispatch.
+    // What this session's Messages calls cost, as the egress proxy metered
+    // them: each is priced and added once (provider_usage, 94S-409), the
+    // engine's calls and a tool's alike. An estimate. Sessions from before
+    // it carry the engine's own turn totals (94S-131) up to that point.
+    // Compared against SESSION_COST_LIMIT_USD at dispatch.
     costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
       .notNull()
       .default(0),
@@ -882,6 +884,60 @@ export const attempts = pgTable(
     index("attempts_open_lease_idx")
       .on(table.leaseExpiresAt, table.id)
       .where(sql`${table.state} NOT IN ('exited', 'lost')`),
+  ],
+);
+
+// One Messages call the egress proxy metered (94S-409), priced when it was
+// recorded. Its cost is added to the session's in the same transaction, and
+// the proxy's own id for the exchange keys it, so a report sent again after
+// a lost answer is not counted twice. The attempt is the one the proxy's
+// grant named, which may have ended since: the call was still made.
+export const providerUsage = pgTable(
+  "provider_usage",
+  {
+    exchangeId: text("exchange_id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    model: text().notNull(),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull(),
+    outputTokens: bigint("output_tokens", { mode: "number" }).notNull(),
+    cacheCreationInputTokens: bigint("cache_creation_input_tokens", {
+      mode: "number",
+    }).notNull(),
+    cacheCreation1hInputTokens: bigint("cache_creation_1h_input_tokens", {
+      mode: "number",
+    }).notNull(),
+    cacheReadInputTokens: bigint("cache_read_input_tokens", {
+      mode: "number",
+    }).notNull(),
+    // The proxy estimated the call high because its answer did not say what
+    // it used: a stream cut short, or a body it could not read.
+    estimated: boolean().notNull(),
+    // What was charged: the priced amount rounded up to the micro-dollar,
+    // clamped to what the column holds. Exactly what the session got.
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    // `fallback`: the model was not in the price table and every part was
+    // charged at the highest known rate.
+    pricedBy: text("priced_by").notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("provider_usage_session_idx").on(table.sessionId),
+    check(
+      "provider_usage_priced_by_check",
+      sql`${table.pricedBy} IN ('table', 'fallback')`,
+    ),
+    check("provider_usage_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
   ],
 );
 

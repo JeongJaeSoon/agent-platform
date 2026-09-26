@@ -63,6 +63,7 @@ describe("database schema", () => {
       "memberships",
       "owner_workspace_map",
       "pending_requests",
+      "provider_usage",
       "pull_requests",
       "queue_messages",
       "receipts",

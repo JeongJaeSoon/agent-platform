@@ -23,6 +23,9 @@ import { isStorageUnavailable } from "./app.ts";
  */
 
 export const EGRESS_AUTHORIZER_PATH = "/authorize";
+// Where the proxy reports what a Messages call used (94S-409), on the same
+// listener for the same reason: only the proxy may say what a session spent.
+export const EGRESS_USAGE_PATH = "/usage";
 // A token, a purpose and, for the object store, one S3 request line and its
 // headers; anything bigger is not a request from the proxy.
 const MAX_BODY_BYTES = 16 * 1024;
@@ -96,6 +99,27 @@ const authorizeRequestSchema = z.union([
     .strict(),
 ]);
 
+const tokenCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+const usageReportSchema = z
+  .object({
+    exchange_id: z.string().uuid(),
+    session_id: z.string().uuid(),
+    attempt_id: z.string().min(1).max(256),
+    usage: z
+      .object({
+        model: z.string().min(1).max(256),
+        input_tokens: tokenCount,
+        output_tokens: tokenCount,
+        cache_creation_input_tokens: tokenCount,
+        cache_creation_1h_input_tokens: tokenCount,
+        cache_read_input_tokens: tokenCount,
+        estimated: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
 /** The body, or null the moment it passes `max`: the rest is never read. */
 async function readAtMost(
   request: Request,
@@ -127,7 +151,10 @@ function problem(status: number, code: string, message: string): Response {
 }
 
 export function createEgressAuthorizer(deps: {
-  gateway: Pick<WorkerGateway, "authorizeEgress" | "authorizeObjectAccess">;
+  gateway: Pick<
+    WorkerGateway,
+    "authorizeEgress" | "authorizeObjectAccess" | "recordProviderUsage"
+  >;
   logger: StructuredLogger;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
@@ -169,7 +196,11 @@ export function createEgressAuthorizer(deps: {
   const deadlineMs = deps.deadlineMs ?? AUTHORIZE_DEADLINE_MS;
   return async (request) => {
     const url = new URL(request.url);
-    if (request.method !== "POST" || url.pathname !== EGRESS_AUTHORIZER_PATH) {
+    if (
+      request.method !== "POST" ||
+      (url.pathname !== EGRESS_AUTHORIZER_PATH &&
+        url.pathname !== EGRESS_USAGE_PATH)
+    ) {
       return problem(404, "NOT_FOUND", "Not found");
     }
     // Compared as digests so neither the length nor a prefix of the secret
@@ -191,6 +222,19 @@ export function createEgressAuthorizer(deps: {
       return problem(413, "PAYLOAD_TOO_LARGE", "Request body is too large");
     }
     const text = new TextDecoder().decode(bytes);
+    if (url.pathname === EGRESS_USAGE_PATH) {
+      let report: z.infer<typeof usageReportSchema>;
+      try {
+        report = usageReportSchema.parse(JSON.parse(text));
+      } catch {
+        return problem(
+          400,
+          "BAD_REQUEST",
+          "Expected {exchange_id, session_id, attempt_id, usage}",
+        );
+      }
+      return answerWithin(() => recordUsage(report), { purpose: "usage" });
+    }
     let body: z.infer<typeof authorizeRequestSchema>;
     try {
       body = authorizeRequestSchema.parse(JSON.parse(text));
@@ -201,23 +245,68 @@ export function createEgressAuthorizer(deps: {
         "Expected {token, purpose} and, for the object store, {request}",
       );
     }
+    return answerWithin(
+      () =>
+        body.purpose === "object_store"
+          ? authorizeObjectStore(body.token, body)
+          : deps.gateway.authorizeEgress(body),
+      {
+        purpose: body.purpose,
+        // Which object store request was refused and why; a key is not a
+        // secret, and the worker is told only that it was refused.
+        ...(body.purpose === "object_store"
+          ? {
+              method: body.request.method,
+              target: body.request.target.split("?")[0],
+            }
+          : {}),
+      },
+    );
+  };
+
+  async function recordUsage(report: z.infer<typeof usageReportSchema>) {
+    const { usage } = report;
+    const priced = await deps.gateway.recordProviderUsage({
+      exchangeId: report.exchange_id,
+      sessionId: report.session_id,
+      attemptId: report.attempt_id,
+      usage: {
+        model: usage.model,
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheCreationInputTokens: usage.cache_creation_input_tokens,
+        cacheCreation1hInputTokens: usage.cache_creation_1h_input_tokens,
+        cacheReadInputTokens: usage.cache_read_input_tokens,
+        estimated: usage.estimated,
+      },
+    });
+    if (priced.pricedBy === "fallback") {
+      deps.logger.warn("Provider usage priced at the fallback rate", {
+        session_id: report.session_id,
+        model: usage.model,
+        cost_usd: priced.costUsd,
+      });
+    }
+    return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
+  }
+
+  async function answerWithin(
+    work: () => Promise<unknown>,
+    fields: Record<string, string | undefined>,
+  ): Promise<Response> {
     const deadline = new RequestDeadline(performance.now() + deadlineMs);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<"expired">((resolve) => {
       timer = setTimeout(() => resolve("expired"), deadlineMs);
     });
-    const answered = runWithDeadline(deadline, () =>
-      body.purpose === "object_store"
-        ? authorizeObjectStore(body.token, body)
-        : deps.gateway.authorizeEgress(body),
-    );
+    const answered = runWithDeadline(deadline, work);
     try {
       const outcome = await Promise.race([answered, expired]);
       if (outcome === "expired") {
         deadline.expire();
         answered.catch(() => {});
         deps.logger.warn("Egress authorization deadline exceeded", {
-          purpose: body.purpose,
+          purpose: fields.purpose,
           deadline_ms: deadlineMs,
         });
         return problem(503, "BACKEND_UNAVAILABLE", "Authorization timed out");
@@ -229,24 +318,18 @@ export function createEgressAuthorizer(deps: {
         // The reason, never the token: a refused token is still a secret
         // that may belong to a live attempt.
         deps.logger.info("Egress authorization refused", {
-          purpose: body.purpose,
+          ...fields,
           status: error.status,
           code: error.code,
-          // Which object store request was refused and why; a key is not a
-          // secret, and the worker is told only that it was refused.
-          ...(body.purpose === "object_store"
-            ? {
-                method: body.request.method,
-                target: body.request.target.split("?")[0],
-                reason: error.message,
-              }
+          ...(fields.purpose === "object_store"
+            ? { reason: error.message }
             : {}),
         });
         return problem(error.status, error.code, error.message);
       }
       if (!isStorageUnavailable(error)) {
         deps.logger.error("Egress authorization failed", {
-          purpose: body.purpose,
+          purpose: fields.purpose,
           error: error instanceof Error ? error.name : "error",
         });
       }
@@ -254,5 +337,5 @@ export function createEgressAuthorizer(deps: {
     } finally {
       clearTimeout(timer);
     }
-  };
+  }
 }
