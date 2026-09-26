@@ -466,7 +466,7 @@ DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 - 현재 generation의 kill intent를 terminate와 같은 방식으로 남긴다.
 - dispatch를 막는다. owner의 resume과 start_fresh도 403이다.
 
-receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남고, terminate 기한을 넘기면 `unknown`이 된다.
+receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남고, terminate 기한을 넘기면 `unknown`이 된다. 기한을 넘긴 receipt가 밀려 있으면 scheduler와 reconciler pass가 오래된 것부터 한 batch씩 마감하므로 몇 pass 늦어질 수 있다.
 
 **restore**는 차단만 푼다. 올라간 auth_revision, 폐기된 token, 세션이 도달한 admission 상태(stopped 또는 recovery_required)는 그대로다. 이어서 하려면 terminate 뒤처럼 owner가 resume하거나 운영자가 recovery를 결정한다. 회수한 execution이 아직 살아 있을 수 있으면 restore는 거부된다. scheduler가 kill을 끝내고 execution이 사라진 것이 관측된 뒤 다시 실행한다.
 

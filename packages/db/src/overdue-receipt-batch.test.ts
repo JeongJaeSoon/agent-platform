@@ -126,7 +126,7 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
 
   test("the scheduler sweep takes one batch per pass too (94S-450)", async () => {
     await db.insert(receipts).values(
-      Array.from({ length: OVERDUE_TERMINATION_SWEEP_LIMIT + 1 }, () => ({
+      Array.from({ length: OVERDUE_TERMINATION_SWEEP_LIMIT }, () => ({
         id: crypto.randomUUID(),
         ownerId: "owner-a",
         operation: "terminate",
@@ -134,6 +134,17 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
         createdAt: LONG_AGO,
       })),
     );
+    const oldest = crypto.randomUUID();
+    await db.insert(receipts).values({
+      id: oldest,
+      ownerId: "owner-a",
+      operation: "terminate",
+      targetRef: {},
+      createdAt: new Date(LONG_AGO.getTime() - 60_000),
+    });
+    // The open-terminate index happens to yield created_at order; without it
+    // the scan returns heap order, where the oldest comes last.
+    await client.exec("DROP INDEX receipts_open_terminate_idx");
     const store = createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
       connectForLock: () => Promise.reject(new Error("not used")),
@@ -146,6 +157,11 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
 
     expect(await sweep()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
     expect(await unknownCount()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
+    const [first] = await db
+      .select({ status: receipts.status })
+      .from(receipts)
+      .where(eq(receipts.id, oldest));
+    expect(first?.status).toBe("unknown");
     expect(await sweep()).toBe(1);
     expect(await sweep()).toBe(0);
   });
