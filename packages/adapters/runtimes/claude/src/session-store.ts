@@ -137,6 +137,18 @@ export class ClaudeSessionStore implements TranscriptMirror {
    */
   readonly #tallies = new Map<string, Tally>();
   /**
+   * The keys this generation holds as far as this store knows: what it
+   * wrote and what its listings saw. A capture reads this instead of listing
+   * the generation, whose keys grow with every append the session made — a
+   * merge replaces parts without deleting them — at a request per thousand
+   * (94S-420). It lists again once `#doubts` has moved past what the last
+   * listing covered: a write whose answer was lost, or a slot another writer
+   * took, may have landed a key this store never saw.
+   */
+  readonly #known = new Set<string>();
+  #doubts = 0;
+  #listedThrough = 0;
+  /**
    * One append at a time per transcript. Two appends racing for the same
    * slot would be ordered by whichever PUT landed first, which is not the
    * order they were called in — and replay order is conversation order.
@@ -255,9 +267,11 @@ export class ClaudeSessionStore implements TranscriptMirror {
         written = await this.#objects.putImmutable(key, bytes);
       } catch (error) {
         this.#appendFailures += 1;
+        this.#doubts += 1;
         throw error;
       }
       if (written.outcome !== "created") {
+        this.#doubts += 1;
         // Taken — and "duplicate" counts as taken. A slot holding these exact
         // bytes is not proof that *this* call put them there: two workers
         // appending an identical uuid-less batch, say a `{"type":"title"}`
@@ -269,6 +283,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
         this.#sequence.delete(prefix);
         continue;
       }
+      this.#known.add(key);
       this.#parts.set(key, Promise.resolve(bytes));
       this.#digests.set(key, sha256(bytes));
       if (written.version !== undefined)
@@ -377,7 +392,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
     await Promise.all(this.#writes.values());
     const own = new Map<string, string[]>();
     const projectKeys = new Set<string>();
-    for (const objectKey of await this.#objects.list(`${this.#prefix}/`)) {
+    for (const objectKey of await this.#generationKeys()) {
       const location = locate(objectKey.slice(this.#namespace.length));
       if (location?.sessionId !== sessionId || location.merged) continue;
       projectKeys.add(location.projectKey);
@@ -446,6 +461,17 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const { "": root, ...subagents } = Object.fromEntries(revisions);
     if (root === undefined) return null;
     return { root, subagents };
+  }
+
+  async #generationKeys(): Promise<string[]> {
+    if (this.#listedThrough !== this.#doubts) {
+      const doubts = this.#doubts;
+      for (const key of await this.#objects.list(`${this.#prefix}/`)) {
+        this.#known.add(key);
+      }
+      this.#listedThrough = doubts;
+    }
+    return [...this.#known];
   }
 
   /**
@@ -722,6 +748,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
     }
     let last = 0;
     for (const key of await this.#objects.list(prefix)) {
+      this.#known.add(key);
       if (key.slice(prefix.length).includes("/")) continue;
       const index = partIndex(key);
       if (index !== undefined) last = Math.max(last, index + 1);

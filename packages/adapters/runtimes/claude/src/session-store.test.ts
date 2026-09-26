@@ -336,6 +336,103 @@ describe("Claude session store", () => {
     expect(objects.reads()).toEqual([]);
   });
 
+  test("captures from the keys it wrote rather than listing the generation", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const { mirror } = store(objects);
+    await mirror.append(root, [entry("a", "first")]);
+    await mirror.append({ ...root, subpath: "agents/a" }, [entry("s", "sub")]);
+    const lists = spyOn(objects, "list");
+
+    await mirror.captureTranscripts(sessionId);
+    await mirror.append(root, [entry("b", "second")]);
+    const captured = await mirror.captureTranscripts(sessionId);
+
+    expect(lists).not.toHaveBeenCalled();
+    expect(captured?.root.parts).toHaveLength(2);
+    expect(Object.keys(captured?.subagents ?? {})).toEqual(["agents/a"]);
+  });
+
+  test("lists the generation once after a write whose answer was lost", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const putImmutable = objects.putImmutable.bind(objects);
+    let lost = 1;
+    objects.putImmutable = async (key, bytes) => {
+      const written = await putImmutable(key, bytes);
+      if (lost-- > 0) throw new Error("connection reset");
+      return written;
+    };
+    const { mirror } = store(objects);
+    await expect(mirror.append(root, [entry("a", "first")])).rejects.toThrow(
+      "connection reset",
+    );
+    await mirror.append(root, [entry("b", "second")]);
+    const lists = spyOn(objects, "list");
+
+    const captured = await mirror.captureTranscripts(sessionId);
+    await mirror.captureTranscripts(sessionId);
+
+    expect(captured?.root.parts).toHaveLength(2);
+    expect(lists).toHaveBeenCalledTimes(1);
+  });
+
+  test("lists again after a write whose answer was lost while a listing ran", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const putImmutable = objects.putImmutable.bind(objects);
+    let lose = true;
+    objects.putImmutable = async (key, bytes) => {
+      const written = await putImmutable(key, bytes);
+      if (lose) throw new Error("connection reset");
+      return written;
+    };
+    const { mirror } = store(objects);
+    await expect(mirror.append(root, [entry("a", "first")])).rejects.toThrow(
+      "connection reset",
+    );
+    const list = objects.list.bind(objects);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lists = spyOn(objects, "list").mockImplementationOnce(
+      async (listed) => {
+        await held;
+        return list(listed);
+      },
+    );
+
+    const first = mirror.captureTranscripts(sessionId);
+    await Promise.resolve();
+    await expect(
+      mirror.append(root, [entry("b", "during the listing")]),
+    ).rejects.toThrow("connection reset");
+    release();
+    await first;
+    lose = false;
+    const captured = await mirror.captureTranscripts(sessionId);
+    await mirror.captureTranscripts(sessionId);
+
+    expect(captured?.root.parts).toHaveLength(2);
+    expect(lists).toHaveBeenCalledTimes(2);
+  });
+
+  test("lists the generation once after another writer took its slot", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const options = { generation: 1, objects, prefix };
+    const left = new ClaudeSessionStore(options);
+    const right = new ClaudeSessionStore(options);
+    await left.append(root, [entry("a", "left")]);
+    await right.append(root, [entry("b", "right")]);
+    // Left still expects slot 1, which right took.
+    await left.append(root, [entry("c", "left again")]);
+    const lists = spyOn(objects, "list");
+
+    const captured = await left.captureTranscripts(sessionId);
+    await left.captureTranscripts(sessionId);
+
+    expect(captured?.root.parts).toHaveLength(3);
+    expect(lists).toHaveBeenCalledTimes(1);
+  });
+
   test("a restore still confronts the bytes the store holds now", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const { mirror } = store(objects);
