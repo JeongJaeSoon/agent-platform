@@ -12,12 +12,29 @@ import type {
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 
 const REDACTED = "[REDACTED]";
+// Paths are not secrets: an approval has to say which file it writes.
 const SENSITIVE_KEY =
-  /authorization|cookie|credential|secret|password|api[_-]?key|auth[_-]?token|cwd|(^|_)home$|(^|_)path$/i;
+  /authorization|cookie|credential|secret|password|api[_-]?key|auth[_-]?token|(^|_)home$/i;
 const SENSITIVE_VALUE =
   /\bBearer\s+\S+|\b(?:s[k]-ant(?:-api\d+)?|csp)[_-][A-Za-z0-9_-]+/gi;
-const SENSITIVE_TEXT =
-  /\b(?:authorization|cookie|credential|secret|password|api[-_ ]?key|auth[-_ ]?token|access[-_ ]?key|private[-_ ]?key)\b\s*[:=]/i;
+const SENSITIVE_NAME = String.raw`\b(?:authorization|cookie|credential|secret|password|api[-_ ]?key|auth[-_ ]?token|access[-_ ]?key|private[-_ ]?key)\b\s*`;
+const QUOTED = `"[^"]*"|'[^']*'`;
+// `name=value` ends where a shell word or query parameter does; `name: value`
+// runs to the end of the line, as a header or YAML value does.
+const SENSITIVE_ASSIGNMENT = new RegExp(
+  String.raw`(${SENSITIVE_NAME}=[ \t]*)(?:${QUOTED}|[^\s"'&;]+)`,
+  "gi",
+);
+const SENSITIVE_FIELD = new RegExp(
+  String.raw`(${SENSITIVE_NAME}:[ \t]*)(?:${QUOTED}|[^\n"']+)`,
+  "gi",
+);
+// With nothing after the name on its line, the value may follow on the next
+// lines (a YAML block, a heredoc), so the whole text is hidden.
+const SENSITIVE_NAME_ALONE = new RegExp(
+  String.raw`${SENSITIVE_NAME}[:=][ \t]*(?:[|>][-+]?[ \t]*)?$`,
+  "im",
+);
 
 export function frameFromNativeMessage(
   message: NativeSdkMessage,
@@ -162,8 +179,11 @@ function event(
 function sanitizeValue(value: unknown, key?: string): unknown {
   if (key !== undefined && SENSITIVE_KEY.test(key)) return REDACTED;
   if (typeof value === "string") {
-    if (SENSITIVE_TEXT.test(value)) return REDACTED;
-    return value.replace(SENSITIVE_VALUE, REDACTED);
+    if (SENSITIVE_NAME_ALONE.test(value)) return REDACTED;
+    return value
+      .replace(SENSITIVE_VALUE, REDACTED)
+      .replace(SENSITIVE_ASSIGNMENT, `$1${REDACTED}`)
+      .replace(SENSITIVE_FIELD, `$1${REDACTED}`);
   }
   if (Array.isArray(value)) return value.map((item) => sanitizeValue(item));
   if (value === null || typeof value !== "object") return value;
