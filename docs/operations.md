@@ -25,7 +25,7 @@ compose의 `apps` profile에서는 `reconciler` 서비스가 이 pass를 기본�
 | `RECONCILER_MAX_CONSECUTIVE_FAILURES` | 3 | 실패 pass가 이만큼 이어지면 루프가 exit 1 하고 `restart: unless-stopped`가 재시작한다. 그보다 적으면 다음 pass가 곧 재시도다 |
 | `RECONCILER_HEALTH_STALE_SEC` | 90 | healthcheck는 마지막으로 끝난 pass가 실패했거나, 진행 중인 pass가 제한 시간을 넘겼거나, 이 시간 동안 성공한 pass가 없으면 unhealthy다. 성공 직후 멈춘 pass도 제한 시간에서 바로 unhealthy가 된다. `RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC`보다 커야 기동한다 |
 | `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | 루프가 pass마다 갱신하는 상태(`lastSuccessAt`·`lastDegradedAt`·`lastFailureAt`·`lastFailureReason`·`consecutiveFailures`·`lastPassDurationMs`, 진행 중인 pass의 `passDeadlineAt`). healthcheck가 읽는다 |
-| `RECONCILER_BATCH_SIZE` | 100 | pass의 각 단계(orphan·lease·interrupt 회수, 기한을 넘긴 interrupt·terminate receipt의 `unknown` 마감, 입력 대기 알림)가 한 번에 처리하는 row 수 상한. 남은 row는 다음 pass가 처리한다(94S-399). scheduler의 terminate 기한 sweep은 이 값을 읽지 않고 한 번에 전부 처리한다 |
+| `RECONCILER_BATCH_SIZE` | 100 | pass의 각 단계(orphan·lease·interrupt 회수, 기한을 넘긴 interrupt·terminate receipt의 `unknown` 마감, 입력 대기 알림)가 한 번에 처리하는 row 수 상한. 남은 row는 다음 pass가 처리한다(94S-399). scheduler의 terminate 기한 sweep은 이 값을 읽지 않고 pass마다 고정 상한 100개씩 처리한다(94S-450) |
 
 최근 성공·실패는 `docker compose -f infra/docker-compose.yml exec reconciler cat /tmp/reconciler-status.json`과 로그의 `Reconciler pass completed`/`Reconciler pass failed`로 본다. reconciler 서비스는 환경 파일을 읽지 않는다 — 환경 파일에 흔히 있는 `HEARTBEAT_TTL_SEC`를 받으면 기동을 거부하기 때문이다. 위 값은 `docker compose`를 실행하는 셸에서 준다. 단 compose는 `RECONCILER_STATUS_FILE`과 `RECONCILER_DRY_RUN`을 넘기지 않는다. 그래서 compose의 reconciler는 셸 값과 상관없이 기본 경로에 상태를 쓰고, 언제나 실제로 고친다. dry-run은 위 예시처럼 pass를 직접 한 번 돌려서 확인한다. reconciler 컨테이너에는 Docker socket이 없다. reconciler는 epoch fence와 `desired_state = terminated`만 DB에 적고, 컨테이너 제거와 부재 확인은 scheduler가 한다. 두 reconciler가 겹쳐 돌거나 pass 도중 재시작돼도 각 쓰기가 row lock 아래에서 다시 판정되므로 같은 lease·interrupt·orphan을 두 번 처리하지 않는다(`apps/control-host/src/reconciler/overlap.integration.test.ts`).
 
@@ -466,7 +466,7 @@ DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 - 현재 generation의 kill intent를 terminate와 같은 방식으로 남긴다.
 - dispatch를 막는다. owner의 resume과 start_fresh도 403이다.
 
-receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남고, terminate 기한을 넘기면 `unknown`이 된다.
+receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남고, terminate 기한을 넘기면 `unknown`이 된다. 기한을 넘긴 receipt가 밀려 있으면 scheduler와 reconciler pass가 오래된 것부터 한 batch씩 마감하므로 몇 pass 늦어질 수 있다.
 
 **restore**는 차단만 푼다. 올라간 auth_revision, 폐기된 token, 세션이 도달한 admission 상태(stopped 또는 recovery_required)는 그대로다. 이어서 하려면 terminate 뒤처럼 owner가 resume하거나 운영자가 recovery를 결정한다. 회수한 execution이 아직 살아 있을 수 있으면 restore는 거부된다. scheduler가 kill을 끝내고 execution이 사라진 것이 관측된 뒤 다시 실행한다.
 

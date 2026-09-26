@@ -230,8 +230,9 @@ export function restoreBaseRevision(session: {
  * of them (94S-399): a backlog is worked off over several passes rather than
  * in one statement that can outlast the pass. The batch is read and locked
  * first, in its own statement, because a `LIMIT … FOR UPDATE` subquery inside
- * the UPDATE may be rescanned and flip more than `limit`. A row another
- * transaction holds is left to the next pass, not waited on.
+ * the UPDATE may be rescanned and flip more than `limit`. The oldest go first
+ * (94S-450), so a receipt cannot wait behind a backlog that keeps growing. A
+ * row another transaction holds is left to the next pass, not waited on.
  */
 export async function expireOverdueReceipts(
   db: Database,
@@ -249,7 +250,9 @@ export async function expireOverdueReceipts(
       .from(receipts)
       .where(and(eq(receipts.status, "accepted"), input.overdue))
       .$dynamic();
-    return input.limit === undefined ? query : query.limit(input.limit);
+    return input.limit === undefined
+      ? query
+      : query.orderBy(receipts.createdAt, receipts.id).limit(input.limit);
   };
   if (input.dryRun) return (await candidates(db)).length;
   return db.transaction(async (tx) => {
