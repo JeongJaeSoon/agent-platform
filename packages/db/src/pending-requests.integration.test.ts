@@ -6,9 +6,9 @@ import type {
   WorkerScope,
 } from "@agent-platform/contracts";
 import {
+  allowAllPolicy,
   createPendingRequestService,
   createWorkerGateway,
-  ownerScopedPolicy,
   payloadHash,
   type SessionCatalog,
   SessionServiceError,
@@ -133,7 +133,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = gatewayWith();
     service = createPendingRequestService({
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       store: createPostgresPendingRequests(db),
     });
   }, 60_000);

@@ -13,6 +13,7 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
+  allowAllPolicy,
   catalogRevision,
   createInterruptService,
   createPendingRequestService,
@@ -22,7 +23,6 @@ import {
   InstallationConfigError,
   installationLimitProblems,
   installationLimitsFromEnv,
-  ownerScopedPolicy,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -148,7 +148,7 @@ const checkpoints = createApiCheckpoints(
   checkpointGitMemoryBytes,
 );
 const sessions = createSessionService({
-  authorization: ownerScopedPolicy,
+  authorization: allowAllPolicy,
   inputs: createPostgresSessionUnitOfWork(db),
   controls: createPostgresSessionControl(db),
   reader: createPostgresSessionReader(db, { logger }),
@@ -158,16 +158,16 @@ const sessions = createSessionService({
 // The same parsed limits admission and dispatch run under, so what this
 // reports is what the gates enforce.
 const usage = createUsageService({
-  authorization: ownerScopedPolicy,
+  authorization: allowAllPolicy,
   reader: createPostgresUsageReader(db),
   limits,
 });
 const pendingRequests = createPendingRequestService({
-  authorization: ownerScopedPolicy,
+  authorization: allowAllPolicy,
   store: createPostgresPendingRequests(db),
 });
 const interrupts = createInterruptService({
-  authorization: ownerScopedPolicy,
+  authorization: allowAllPolicy,
   store: createPostgresTurnInterrupts(db),
 });
 const workers = createWorkerGateway({

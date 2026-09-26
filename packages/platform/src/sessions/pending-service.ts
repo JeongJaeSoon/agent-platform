@@ -8,7 +8,11 @@ import type {
   Principal,
 } from "../authorization/policy.ts";
 import type { PendingRequestStore } from "../ports/pending-requests.ts";
-import { payloadHash, SessionServiceError } from "./session-service.ts";
+import {
+  payloadHash,
+  requirePermitted,
+  SessionServiceError,
+} from "./session-service.ts";
 
 // api.md § 승인·중단·강제 종료. Kept apart from the session service so the
 // answer path owns its own error vocabulary: REQUEST_EXPIRED and
@@ -19,21 +23,12 @@ export function createPendingRequestService(deps: {
 }) {
   const { authorization, store } = deps;
 
-  function requireAuthorized(
-    actor: Principal,
-    action: "sessions:read" | "sessions:approve",
-  ) {
-    if (!authorization.authorize(actor, action, { ownerId: actor.ownerId })) {
-      throw new SessionServiceError("NOT_FOUND", "Resource not found");
-    }
-  }
-
   return {
     async listPendingRequests(
       actor: Principal,
       sessionId: string,
     ): Promise<ListPendingRequestsResponse> {
-      requireAuthorized(actor, "sessions:read");
+      requirePermitted(authorization, actor, "sessions:read");
       const items = await store.listOpen(actor.ownerId, sessionId);
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -46,7 +41,7 @@ export function createPendingRequestService(deps: {
       sessionId: string,
       input: { idempotencyKey: string; body: PostSessionAnswerRequest },
     ): Promise<PostSessionAnswerResponse> {
-      requireAuthorized(actor, "sessions:approve");
+      requirePermitted(authorization, actor, "sessions:approve");
       const result = await store.answerAtomic({
         principal: actor,
         sessionId,

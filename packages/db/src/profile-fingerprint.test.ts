@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  allowAllPolicy,
   type CatalogProfile,
   createSessionService,
   createWorkerGateway,
-  ownerScopedPolicy,
   profileFingerprint,
   type SessionCatalog,
   type WorkerGateway,
@@ -93,7 +93,7 @@ afterEach(async () => {
 
 function serviceOf(catalog: SessionCatalog) {
   return createSessionService({
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),

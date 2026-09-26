@@ -4,8 +4,8 @@ import {
   apiErrorResponseSchema,
 } from "@agent-platform/contracts";
 import {
+  allowAllPolicy,
   createSessionService,
-  ownerScopedPolicy,
   type PauseSessionResult,
   type SessionControl,
 } from "@agent-platform/platform";
@@ -31,7 +31,7 @@ function pause(
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
     },
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     catalog: { profiles: {}, repositories: {} },
     inputs: { acceptInputAtomic: notReached, appendInputAtomic: notReached },
     controls: {

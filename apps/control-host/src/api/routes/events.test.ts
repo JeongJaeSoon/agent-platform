@@ -6,8 +6,8 @@ import {
 } from "@agent-platform/contracts";
 import { InvalidCursorError } from "@agent-platform/db";
 import {
+  allowAllPolicy,
   createSessionService,
-  ownerScopedPolicy,
   type ReadEventsQuery,
   type SessionControl,
   type SessionReader,
@@ -151,7 +151,7 @@ function harness(
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
     },
-    authorization: ownerScopedPolicy,
+    authorization: allowAllPolicy,
     controls: unusedControls,
     catalog: { profiles: {}, repositories: {} },
     inputs: {
@@ -389,7 +389,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -490,7 +490,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -543,7 +543,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -598,7 +598,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -660,7 +660,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -728,7 +728,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -805,7 +805,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -896,7 +896,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
       },
-      authorization: ownerScopedPolicy,
+      authorization: allowAllPolicy,
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
