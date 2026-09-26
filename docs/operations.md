@@ -488,7 +488,7 @@ API와 scheduler는 아래 여섯 값이 없거나 형식이 틀리면 문제를
 | `PROVIDER_MAX_RETRIES` | 실패한 Messages 요청을 다시 보내는 횟수. worker env `WORKER_PROVIDER_MAX_RETRIES`를 거쳐 SDK `CLAUDE_CODE_MAX_RETRIES`로 전달된다. 0이면 첫 실패에서 turn이 끝난다 | turn `failed(api_error)`. turn 상세 `result`에 `api_error_status`·`provider_error`·`last_retry_status`가 남는다 |
 
 - 세션 비용은 credential route가 센다(94S-409). proxy는 2xx `/v1/messages` 응답(JSON과 SSE 모두)에서 usage를 읽는다. 응답이 끝나거나 끊기면 authorizer listener의 `POST /usage`로 보고한다. `count_tokens`와 오류 응답은 세지 않는다.
-  - 응답이 usage를 다 말하지 않으면 많게 추정한다. `message_stop` 전에 끊긴 stream은 전달한 content 한 글자를 token 하나로 쳐서 output에 넣는다. usage를 읽지 못한 JSON 응답(끊김, 8 MiB 초과, JSON 아님)은 요청으로 센다. 요청 1 byte를 input token 하나로, `max_tokens`를 output 전부로 본다. 이런 호출은 proxy가 `Provider usage estimated` 경고를 남기고 ledger에 `estimated=true`로 적힌다.
+  - 응답이 usage를 다 말하지 않으면 많게 추정한다. `message_stop` 전에 끊긴 stream은 전달한 content 한 글자를 token 하나로 쳐서 output에 넣고, 전달한 web search 결과 블록 하나를 검색 한 번으로 친다. usage를 읽지 못한 JSON 응답(끊김, 8 MiB 초과, JSON 아님)은 요청으로 센다. 요청 1 byte를 input token 하나로, `max_tokens`를 output 전부로 본다. 이런 호출은 proxy가 `Provider usage estimated` 경고를 남기고 ledger에 `estimated=true`로 적힌다.
   - API는 가격표로 USD를 구해 micro-dollar 단위로 올림한다. 그 금액을 `provider_usage`에 교환 하나당 한 줄로 쓰고, 같은 트랜잭션에서 세션 비용에 더한다. 그래서 ledger 합과 세션 비용이 맞는다.
   - engine의 호출과 도구가 engine의 token으로 직접 부른 호출을 똑같이 센다.
   - 보고에는 proxy가 교환마다 만든 id가 붙는다. authorizer가 답하지 못하면 1·5·15초 뒤에 다시 보내고, 같은 id는 한 번만 센다. 끝내 보고하지 못하면 proxy가 `Provider usage went unreported` 오류 로그를 남기고 그 교환은 세지 않는다.

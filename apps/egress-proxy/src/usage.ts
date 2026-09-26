@@ -12,7 +12,8 @@
  *
  * Whatever the answer did not say is estimated high, never left out: the
  * budget errs on counting too much. A stream cut before `message_stop`
- * charges at least a token for every character of content it delivered. A
+ * charges at least a token for every character of content it delivered,
+ * and a web search for every search result it delivered. A
  * JSON answer with no usable usage (cut short, too big, not JSON) is
  * charged from its request: a token for every byte sent, and all the
  * output `max_tokens` allowed.
@@ -185,6 +186,7 @@ export function usageMeter(contentType: string | null): UsageMeter {
     let counts: Counts = {};
     let stopped = false;
     let delivered = 0;
+    let searched = 0;
     let line = "";
     let skipping = false;
     const event = (data: string) => {
@@ -204,6 +206,17 @@ export function usageMeter(contentType: string | null): UsageMeter {
         counts = { ...counts, ...countsOf(usage) };
       } else if (type === "message_stop") {
         stopped = true;
+      } else if (type === "content_block_start") {
+        // A failed search is not billed, and its content is an error object.
+        const block = (parsed as Record<string, unknown>).content_block as
+          | Record<string, unknown>
+          | undefined;
+        if (
+          block?.type === "web_search_tool_result" &&
+          Array.isArray(block.content)
+        ) {
+          searched += 1;
+        }
       } else if (type === "content_block_delta") {
         const content = delta as Record<string, unknown> | null;
         for (const field of ["text", "partial_json", "thinking"]) {
@@ -245,6 +258,10 @@ export function usageMeter(contentType: string | null): UsageMeter {
           {
             ...counts,
             output_tokens: Math.max(counts.output_tokens ?? 0, delivered),
+            web_search_requests: Math.max(
+              counts.web_search_requests ?? 0,
+              searched,
+            ),
           },
           true,
           request,

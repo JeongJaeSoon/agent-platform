@@ -252,6 +252,34 @@ describe("usageMeter", () => {
       }
     });
 
+    test("a stream cut before its final count charges every search result it delivered (Codex R2)", () => {
+      const result = (content: unknown) => ({
+        type: "content_block_start",
+        index: 1,
+        content_block: {
+          type: "web_search_tool_result",
+          tool_use_id: "srvtoolu_1",
+          content,
+        },
+      });
+      const stream = sse([
+        {
+          type: "message_start",
+          message: { model: "claude-opus-5", usage: { input_tokens: 5 } },
+        },
+        result([{ type: "web_search_result", url: "https://a.test" }]),
+        result([]),
+        result({
+          type: "web_search_tool_result_error",
+          error_code: "unavailable",
+        }),
+      ]);
+      expect(metered("text/event-stream", [stream])).toMatchObject({
+        web_search_requests: 2,
+        estimated: true,
+      });
+    });
+
     test("a stream cut short keeps the tool counts it saw", () => {
       const stream = sse([
         {
