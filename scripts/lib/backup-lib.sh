@@ -184,6 +184,14 @@ checkpoint_pins() {
     with_object_store "$project" "$bucket" bun_script "${REPO_ROOT}/scripts/lib/checkpoint-pins-cli.ts" "$@"
 }
 
+# `image_runtime <image>`: the engine build a worker image runs, as the JSON
+# its own code stamps checkpoints with (CLAUDE_RUNTIME_FINGERPRINT), read by
+# running the image's bun with no network. The image has no label for it.
+image_runtime() {
+  docker run --rm --network none --entrypoint bun "$1" -e \
+    'import { CLAUDE_RUNTIME_FINGERPRINT } from "./packages/adapters/runtimes/claude-codec/src/checkpoint-codec.ts"; console.log(JSON.stringify(CLAUDE_RUNTIME_FINGERPRINT))'
+}
+
 uri_escape() {
   jq -rn --arg value "$1" '$value | @uri'
 }
@@ -253,7 +261,10 @@ unbundle_chain() {
       echo "bundle $index of $count: git bundle verify rejected it after the $((index - 1)) before it"
       return 1
     fi
-    if ! git -C "$repository" -c fetch.fsckObjects=true fetch --quiet --no-write-fetch-head \
+    # No auto maintenance: it runs detached after the fetch and can still be
+    # writing into the repository when the caller removes it.
+    if ! git -C "$repository" -c fetch.fsckObjects=true -c maintenance.auto=false -c gc.auto=0 \
+      fetch --quiet --no-write-fetch-head \
       "$bundle" "refs/*:refs/chain/$index/*" >/dev/null 2>&1; then
       echo "bundle $index of $count: git fetch refused it"
       return 1

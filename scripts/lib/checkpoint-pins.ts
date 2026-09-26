@@ -27,7 +27,9 @@ import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
+  CompatibilityMismatch,
   ObjectRef,
+  RuntimeFingerprint,
   TranscriptRevision,
 } from "@agent-platform/runtime-core";
 
@@ -49,6 +51,58 @@ export class CheckpointPinError extends Error {
     );
     this.name = "CheckpointPinError";
   }
+}
+
+/**
+ * The engine build a worker image runs (verify-restore.sh --image). The
+ * profile digest is not the image's: the session's configuration decides it.
+ */
+export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256">;
+
+export function parseImageRuntime(text: string): ImageRuntime {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`image runtime is not JSON: ${text}`);
+  }
+  const record = (
+    typeof parsed === "object" && parsed !== null ? parsed : {}
+  ) as Record<string, unknown>;
+  const field = (name: keyof ImageRuntime) => {
+    const value = record[name];
+    if (typeof value !== "string" || value === "") {
+      throw new Error(`image runtime has no ${name}: ${text}`);
+    }
+    return value;
+  };
+  return {
+    cliVersion: field("cliVersion"),
+    engine: field("engine"),
+    sdkVersion: field("sdkVersion"),
+  };
+}
+
+/**
+ * The runtime a restore plan is asked for: the target image's build with the
+ * checkpoint's own profile, or, with no image named, exactly the runtime the
+ * checkpoint was sealed under.
+ */
+export function planRuntime(
+  sealed: RuntimeFingerprint,
+  image: ImageRuntime | undefined,
+): RuntimeFingerprint {
+  return image === undefined
+    ? sealed
+    : { ...image, profileSha256: sealed.profileSha256 };
+}
+
+export function describeMismatches(
+  mismatches: readonly CompatibilityMismatch[],
+): string {
+  return mismatches
+    .map(({ expected, field, found }) => `${field} ${found} → ${expected}`)
+    .join(", ");
 }
 
 export function sha256Hex(bytes: Uint8Array): string {
