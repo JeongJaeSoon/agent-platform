@@ -108,9 +108,9 @@ describe("schedulerConfigFromEnv", () => {
 
   test("a LOG_LEVEL that names no level stops the scheduler", () => {
     expect(schedulerConfigFromEnv(base).logLevel).toBe("info");
-    expect(
-      schedulerConfigFromEnv({ ...base, LOG_LEVEL: "warn" }).logLevel,
-    ).toBe("warn");
+    const quiet = schedulerConfigFromEnv({ ...base, LOG_LEVEL: "warn" });
+    expect(quiet.logLevel).toBe("warn");
+    expect(quiet.docker.logLevel).toBe("warn");
     expect(() =>
       schedulerConfigFromEnv({ ...base, LOG_LEVEL: "verbose" }),
     ).toThrow("LOG_LEVEL must be one of debug|info|warn|error");

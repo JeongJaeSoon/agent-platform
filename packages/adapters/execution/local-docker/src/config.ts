@@ -97,6 +97,12 @@ export type LocalDockerBackendConfig = {
    * running a stand-in image leave this out.
    */
   workerLimits?: { maxTurnSeconds: number; providerMaxRetries: number };
+  /**
+   * The scheduler's own `LOG_LEVEL`, handed to the worker as is (94S-408).
+   * Not part of the isolation stamp: an adopted container keeps the level it
+   * was launched with rather than being replaced for it.
+   */
+  logLevel?: string;
 };
 
 export type WorkerObjectStoreAccess = {
