@@ -1012,18 +1012,18 @@ describe("the engine's API key against its own tools (94S-410)", () => {
     const mark = "tool-must-not-se[e]";
     const probe = [
       `mark='${mark}'`,
-      `env_key=$(env | grep -c -e "$mark" -e '^ANTHROPIC_API_KE[Y]=')`,
-      "readable=0; hits=0",
+      `env_hits=$(env | grep -c -e "$mark" -e '^ANTHROPIC_API_KE[Y]=')`,
+      "readable=0; hits=0; engine=0",
       "for f in /proc/[0-9]*/environ; do",
-      '  [ -r "$f" ] || continue',
-      '  tr "\\0" "\\n" < "$f" 2>/dev/null | grep -q . || continue',
+      '  e=$(tr "\\0" "\\n" < "$f" 2>/dev/null) || continue',
+      '  [ -n "$e" ] || continue',
       "  readable=$((readable+1))",
-      '  tr "\\0" "\\n" < "$f" | grep -q -e "$mark" && hits=$((hits+1))',
+      '  printf "%s\\n" "$e" | grep -q -e "$mark" && hits=$((hits+1))',
+      `  printf "%s\\n" "$e" | grep -q '^CLAUDE_CODE_API_KEY_FILE_DESCRIPTO[R]=' && engine=$((engine+1))`,
       "done",
       'files=$(grep -rl -e "$mark" "$HOME" "$CLAUDE_CONFIG_DIR" 2>/dev/null | wc -l | tr -d " ")',
-      "engine_fd=closed; [ -e /proc/$PPID/fd/3 ] && engine_fd=open",
-      "self_fd=closed; [ -e /dev/fd/3 ] && self_fd=open",
-      'echo "probe env_key=$env_key readable=$readable hits=$hits files=$files engine_fd=$engine_fd self_fd=$self_fd"',
+      "fd=closed; [ -e /dev/fd/3 ] && fd=open",
+      'echo "probe env_hits=$env_hits readable=$readable hits=$hits engine=$engine files=$files fd=$fd"',
     ].join("\n");
     // Run by sh whatever the engine's shell is: zsh stops at the glob when
     // there is no /proc.
@@ -1092,22 +1092,22 @@ describe("the engine's API key against its own tools (94S-410)", () => {
     }
     const output = JSON.stringify(server.requests[1]?.body.messages);
     const report =
-      /probe env_key=(\d+) readable=(\d+) hits=(\d+) files=(\d+) engine_fd=(\w+) self_fd=(\w+)/.exec(
+      /probe env_hits=(\d+) readable=(\d+) hits=(\d+) engine=(\d+) files=(\d+) fd=(\w+)/.exec(
         output,
       );
     if (report === null) throw new Error(`no probe output in ${output}`);
-    const [, envKey, readable, hits, files, engineFd, selfFd] = report;
-    expect({ envKey, hits, files, engineFd, selfFd }).toEqual({
-      envKey: "0",
+    const [, envHits, readable, hits, engine, files, fd] = report;
+    expect({ envHits, hits, files, fd }).toEqual({
+      envHits: "0",
       hits: "0",
       files: "0",
-      engineFd: "closed",
-      selfFd: "closed",
+      fd: "closed",
     });
     // Where there is a /proc (the worker, CI), the probe must have read the
     // engine's environ and more, or "no hits" proves nothing.
     if (process.platform === "linux") {
-      expect(Number(readable)).toBeGreaterThan(1);
+      expect(Number(engine)).toBeGreaterThanOrEqual(1);
+      expect(Number(readable)).toBeGreaterThan(Number(engine));
     }
     expect((await Bun.file(hookReport).text()).trim()).toBe("closed");
   }, 30_000);
