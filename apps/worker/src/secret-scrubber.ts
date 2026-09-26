@@ -11,19 +11,6 @@ import type { WorkerLogger } from "./worker-host.ts";
 const MIN_SUBSTRING_LENGTH = 8;
 export const SCRUBBED = "<redacted>";
 
-/**
- * Removes the values of the secrets this worker holds from what it sends
- * out (94S-252). The engine's tools run with the engine's environment and
- * can read this process's too, so a Bash call that prints them hands them to
- * the model, and from there to a tool result or a reply. The event stream is
- * what other people read; it gets the text with each known value replaced.
- *
- * By value, not by pattern: the adapter's mapper already catches key-shaped
- * strings, and these tokens are shaped like nothing in particular.
- * Deliberately not attempted: a value the engine re-encodes (base64, split
- * across lines) passes through. The tokens are attempt-scoped and worthless
- * off the worker's network, which is what bounds that.
- */
 /** Everything a claim hands this process that the engine's tools could print. */
 export function claimSecrets(
   claim: BootstrapClaimResponse,
@@ -38,6 +25,19 @@ export function claimSecrets(
   ];
 }
 
+/**
+ * Removes the values of the secrets this worker holds from what it sends
+ * out (94S-252). The engine's tools run with the engine's environment and
+ * can read this process's too, so a Bash call that prints them hands them to
+ * the model, and from there to a tool result or a reply. The event stream is
+ * what other people read; it gets the text with each known value replaced.
+ *
+ * By value, not by pattern: the adapter's mapper already catches key-shaped
+ * strings, and these tokens are shaped like nothing in particular.
+ * Deliberately not attempted: a value the engine re-encodes (base64, split
+ * across lines) passes through. The tokens are attempt-scoped and worthless
+ * off the worker's network, which is what bounds that.
+ */
 export class SecretScrubber {
   private readonly secrets: string[];
   private readonly shortSecrets: RegExp | null;
