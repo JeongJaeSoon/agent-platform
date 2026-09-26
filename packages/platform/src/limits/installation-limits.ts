@@ -1,4 +1,9 @@
 import { STORAGE_ACCOUNTED_CONTENT_VALUES } from "@agent-platform/contracts";
+import {
+  integerSetting,
+  positiveNumberSetting,
+  settingProblems,
+} from "@agent-platform/contracts/settings";
 
 /**
  * The limits an installation runs under (94S-131). Every control process
@@ -56,110 +61,68 @@ export class InstallationConfigError extends Error {
   }
 }
 
-type Parsed = { value: number } | { problem: string };
-
-function integer(
-  environment: InstallationLimitsEnvironment,
-  name: keyof InstallationLimitsEnvironment,
-  bounds: { min: number; max: number },
-): Parsed {
-  const raw = environment[name];
-  if (raw === undefined || raw.trim() === "") {
-    return { problem: `${name} is required` };
-  }
-  const value = Number(raw);
-  if (
-    !Number.isSafeInteger(value) ||
-    value < bounds.min ||
-    value > bounds.max
-  ) {
-    return {
-      problem: `${name} must be an integer from ${bounds.min} to ${bounds.max}`,
-    };
-  }
-  return { value };
-}
-
-function positiveAmount(
-  environment: InstallationLimitsEnvironment,
-  name: keyof InstallationLimitsEnvironment,
-  max: number,
-): Parsed {
-  const raw = environment[name];
-  if (raw === undefined || raw.trim() === "") {
-    return { problem: `${name} is required` };
-  }
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0 || value > max) {
-    return { problem: `${name} must be a positive number up to ${max}` };
-  }
-  return { value };
-}
-
 /** Every problem at once, so an operator fixes the file in one pass. */
 export function installationLimitProblems(
   environment: InstallationLimitsEnvironment,
 ): string[] {
-  return Object.values(parseAll(environment)).flatMap((parsed) =>
-    "problem" in parsed ? [parsed.problem] : [],
-  );
+  return parseAll(environment).problems;
 }
 
 export function installationLimitsFromEnv(
   environment: InstallationLimitsEnvironment,
 ): InstallationLimits {
-  const parsed = parseAll(environment);
-  const problems = Object.values(parsed).flatMap((entry) =>
-    "problem" in entry ? [entry.problem] : [],
-  );
+  const { limits, problems } = parseAll(environment);
   if (problems.length > 0) throw new InstallationConfigError(problems);
-  const value = (key: keyof InstallationLimits) =>
-    (parsed[key] as { value: number }).value;
-  return {
-    executionSlotLimit: value("executionSlotLimit"),
-    queuedInputLimitPerSession: value("queuedInputLimitPerSession"),
-    storageLimitBytes: value("storageLimitBytes"),
-    maxTurnSeconds: value("maxTurnSeconds"),
-    sessionCostLimitUsd: value("sessionCostLimitUsd"),
-    providerMaxRetries: value("providerMaxRetries"),
-  };
+  return limits as InstallationLimits;
 }
 
-function parseAll(
-  environment: InstallationLimitsEnvironment,
-): Record<keyof InstallationLimits, Parsed> {
-  return {
+function parseAll(environment: InstallationLimitsEnvironment): {
+  limits: Record<keyof InstallationLimits, number | undefined>;
+  problems: string[];
+} {
+  const { problems, read } = settingProblems();
+  const limits = {
     // Zero is a real setting: admit and queue everything, launch nothing.
-    executionSlotLimit: integer(environment, "EXECUTION_SLOT_LIMIT", {
-      min: 0,
-      max: 10_000,
-    }),
+    executionSlotLimit: read(() =>
+      integerSetting(environment, "EXECUTION_SLOT_LIMIT", {
+        min: 0,
+        max: 10_000,
+      }),
+    ),
     // Creating a session queues its first turn, so fewer than one would
     // refuse every session.
-    queuedInputLimitPerSession: integer(
-      environment,
-      "QUEUED_INPUT_LIMIT_PER_SESSION",
-      { min: 1, max: 100_000 },
+    queuedInputLimitPerSession: read(() =>
+      integerSetting(environment, "QUEUED_INPUT_LIMIT_PER_SESSION", {
+        min: 1,
+        max: 100_000,
+      }),
     ),
-    storageLimitBytes: integer(environment, "STORAGE_LIMIT_BYTES", {
-      min: 1,
-      max: Number.MAX_SAFE_INTEGER,
-    }),
-    maxTurnSeconds: integer(environment, "MAX_TURN_SECONDS", {
-      min: 1,
-      max: MAX_TURN_SECONDS_CEILING,
-    }),
-    sessionCostLimitUsd: positiveAmount(
-      environment,
-      "SESSION_COST_LIMIT_USD",
-      MAX_SESSION_COST_LIMIT_USD,
+    storageLimitBytes: read(() =>
+      integerSetting(environment, "STORAGE_LIMIT_BYTES", {
+        min: 1,
+        max: Number.MAX_SAFE_INTEGER,
+      }),
+    ),
+    maxTurnSeconds: read(() =>
+      integerSetting(environment, "MAX_TURN_SECONDS", {
+        min: 1,
+        max: MAX_TURN_SECONDS_CEILING,
+      }),
+    ),
+    sessionCostLimitUsd: read(() =>
+      positiveNumberSetting(environment, "SESSION_COST_LIMIT_USD", {
+        max: MAX_SESSION_COST_LIMIT_USD,
+      }),
     ),
     // Zero is a real setting: the first failed request fails the turn.
-    providerMaxRetries: integer(environment, "PROVIDER_MAX_RETRIES", {
-      min: 0,
-      max: MAX_PROVIDER_RETRIES,
-    }),
+    providerMaxRetries: read(() =>
+      integerSetting(environment, "PROVIDER_MAX_RETRIES", {
+        min: 0,
+        max: MAX_PROVIDER_RETRIES,
+      }),
+    ),
   };
+  return { limits, problems };
 }
 
 /** The one budget predicate every gate uses: spent is over once it reaches the limit. */

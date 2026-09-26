@@ -1,4 +1,8 @@
 import {
+  integerSetting,
+  positiveNumberSetting,
+} from "@agent-platform/contracts/settings";
+import {
   type LocalDockerBackendConfig,
   type LocalDockerBackendEnvironment,
   localDockerConfigFromEnv,
@@ -73,28 +77,27 @@ export function schedulerConfigFromEnv(
     limits,
     logLevel,
     resources: {
-      cpus: cpuShare(environment.WORKER_CPUS ?? "1"),
+      cpus: cpuShare(environment),
       memoryBytes:
-        positiveInteger(
-          environment.WORKER_MEMORY_MB ?? "2048",
-          "WORKER_MEMORY_MB",
-        ) *
+        integerSetting(environment, "WORKER_MEMORY_MB", {
+          min: 1,
+          default: 2048,
+        }) *
         1024 *
         1024,
-      pidsLimit: positiveInteger(
-        environment.WORKER_PIDS_LIMIT ?? "512",
-        "WORKER_PIDS_LIMIT",
-      ),
+      pidsLimit: integerSetting(environment, "WORKER_PIDS_LIMIT", {
+        min: 1,
+        default: 512,
+      }),
     },
     slotLimit: limits.executionSlotLimit,
     // Zero is a real setting: a stopped session's workspace goes on the
     // next pass, and a resume restores from the checkpoint.
     stoppedWorkspaceTtlMs:
-      nonNegativeInteger(
-        environment.EXECUTION_WORKSPACE_STOPPED_TTL_SEC ??
-          String(DEFAULT_STOPPED_WORKSPACE_TTL_MS / 1_000),
-        "EXECUTION_WORKSPACE_STOPPED_TTL_SEC",
-      ) * 1_000,
+      integerSetting(environment, "EXECUTION_WORKSPACE_STOPPED_TTL_SEC", {
+        min: 0,
+        default: DEFAULT_STOPPED_WORKSPACE_TTL_MS / 1_000,
+      }) * 1_000,
   };
 }
 
@@ -126,34 +129,12 @@ const DRAIN_FINALIZE_GRACE_MS = 5 * 60_000;
 /** Docker's smallest CPU quota is 0.01 CPU; below that NanoCpus rounds to "no limit". */
 const MIN_CPUS = 0.01;
 
-function cpuShare(value: string): number {
-  const parsed = positiveNumber(value, "WORKER_CPUS");
+function cpuShare(environment: SchedulerEnvironment): number {
+  const parsed = positiveNumberSetting(environment, "WORKER_CPUS", {
+    default: 1,
+  });
   if (parsed < MIN_CPUS) {
     throw new Error(`WORKER_CPUS must be at least ${MIN_CPUS}`);
-  }
-  return parsed;
-}
-
-function positiveNumber(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive number`);
-  }
-  return parsed;
-}
-
-function nonNegativeInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative integer`);
-  }
-  return parsed;
-}
-
-function positiveInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
   }
   return parsed;
 }

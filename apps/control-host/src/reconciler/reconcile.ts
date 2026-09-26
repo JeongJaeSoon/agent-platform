@@ -1,3 +1,4 @@
+import { integerSetting } from "@agent-platform/contracts/settings";
 import type {
   AnnouncedInputReturn,
   ReconciledInterrupt,
@@ -51,10 +52,10 @@ export function reconcilerSettings(
     );
   }
   return {
-    limit: positiveInteger(
-      environment.RECONCILER_BATCH_SIZE ?? "100",
-      "RECONCILER_BATCH_SIZE",
-    ),
+    limit: integerSetting(environment, "RECONCILER_BATCH_SIZE", {
+      min: 1,
+      default: 100,
+    }),
     dryRun: booleanFlag(
       environment.RECONCILER_DRY_RUN ?? "false",
       "RECONCILER_DRY_RUN",
@@ -160,14 +161,6 @@ export async function runReconciler(input: {
     terminationsOverdue,
     inputReturns,
   };
-}
-
-function positiveInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
 }
 
 function booleanFlag(value: string, name: string): boolean {

@@ -1,4 +1,5 @@
 import { rename, writeFile } from "node:fs/promises";
+import { integerSetting } from "@agent-platform/contracts/settings";
 
 /**
  * Runs a role one pass per child process, forever (94S-320, 94S-117). The
@@ -141,10 +142,10 @@ function setting(
   suffix: keyof typeof DEFAULTS,
 ): number {
   const name = `${role.prefix}_${suffix}`;
-  return positiveInteger(
-    environment[name] ?? String(role[DEFAULTS[suffix]]),
-    name,
-  );
+  return integerSetting(environment, name, {
+    min: 1,
+    default: role[DEFAULTS[suffix]],
+  });
 }
 
 /** What the last passes did; the healthcheck and an operator read it. */
@@ -337,12 +338,4 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
       resolve();
     }
   });
-}
-
-function positiveInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
 }

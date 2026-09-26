@@ -2,6 +2,10 @@ import {
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
 } from "@agent-platform/contracts";
+import {
+  integerSetting,
+  positiveNumberSetting,
+} from "@agent-platform/contracts/settings";
 
 import {
   objectStoreConfigFromEnv,
@@ -155,16 +159,16 @@ export function workerConfigFromEnv(
   const stopGraceMs =
     environment.WORKER_STOP_GRACE_SEC === undefined
       ? undefined
-      : seconds(environment.WORKER_STOP_GRACE_SEC, 0, "WORKER_STOP_GRACE_SEC");
+      : seconds(environment, "WORKER_STOP_GRACE_SEC", 0);
   const nextInputWaitMs = seconds(
-    environment.WORKER_NEXT_INPUT_WAIT_SEC,
-    20,
+    environment,
     "WORKER_NEXT_INPUT_WAIT_SEC",
+    20,
   );
   const requestTimeoutMs = seconds(
-    environment.WORKER_REQUEST_TIMEOUT_SEC,
-    30,
+    environment,
     "WORKER_REQUEST_TIMEOUT_SEC",
+    30,
   );
   // A long poll the request timeout cuts short is aborted every time, and
   // the worker never receives its next input.
@@ -185,12 +189,10 @@ export function workerConfigFromEnv(
       environment.WORKER_BOOTSTRAP_NONCE,
       "WORKER_BOOTSTRAP_NONCE",
     ),
-    executionGeneration: nonNegativeInteger(
-      required(
-        environment.WORKER_EXECUTION_GENERATION,
-        "WORKER_EXECUTION_GENERATION",
-      ),
+    executionGeneration: integerSetting(
+      environment,
       "WORKER_EXECUTION_GENERATION",
+      { min: 0 },
     ),
     executionId: required(
       environment.WORKER_EXECUTION_ID,
@@ -209,69 +211,43 @@ export function workerConfigFromEnv(
       home,
       // An installation limit, so no code default (94S-292): the scheduler
       // always passes the installation's PROVIDER_MAX_RETRIES.
-      providerMaxRetries: nonNegativeInteger(
-        required(
-          environment.WORKER_PROVIDER_MAX_RETRIES,
-          "WORKER_PROVIDER_MAX_RETRIES",
-        ),
+      providerMaxRetries: integerSetting(
+        environment,
         "WORKER_PROVIDER_MAX_RETRIES",
+        { min: 0 },
       ),
     },
     timeouts: {
-      answerPollIntervalMs: seconds(
-        environment.WORKER_ANSWER_POLL_SEC,
-        1,
-        "WORKER_ANSWER_POLL_SEC",
-      ),
-      claimTimeoutMs: seconds(
-        environment.WORKER_CLAIM_TIMEOUT_SEC,
-        60,
-        "WORKER_CLAIM_TIMEOUT_SEC",
-      ),
+      answerPollIntervalMs: seconds(environment, "WORKER_ANSWER_POLL_SEC", 1),
+      claimTimeoutMs: seconds(environment, "WORKER_CLAIM_TIMEOUT_SEC", 60),
       drainTimeoutMs: drainBudget(
-        seconds(
-          environment.WORKER_DRAIN_TIMEOUT_SEC,
-          100,
-          "WORKER_DRAIN_TIMEOUT_SEC",
-        ),
+        seconds(environment, "WORKER_DRAIN_TIMEOUT_SEC", 100),
         stopGraceMs,
       ),
       heartbeatIntervalMs: seconds(
-        environment.WORKER_HEARTBEAT_INTERVAL_SEC,
-        WORKER_HEARTBEAT_INTERVAL_MS / 1000,
+        environment,
         "WORKER_HEARTBEAT_INTERVAL_SEC",
+        WORKER_HEARTBEAT_INTERVAL_MS / 1000,
       ),
-      idleTimeoutMs: seconds(
-        environment.WORKER_IDLE_TIMEOUT_SEC,
-        1800,
-        "WORKER_IDLE_TIMEOUT_SEC",
-      ),
+      idleTimeoutMs: seconds(environment, "WORKER_IDLE_TIMEOUT_SEC", 1800),
       leaseSafetyMarginMs: seconds(
-        environment.WORKER_LEASE_SAFETY_MARGIN_SEC,
-        LEASE_SAFETY_MARGIN_MS / 1000,
+        environment,
         "WORKER_LEASE_SAFETY_MARGIN_SEC",
+        LEASE_SAFETY_MARGIN_MS / 1000,
       ),
-      maxTurnMs: seconds(
-        environment.WORKER_MAX_TURN_SEC,
-        3600,
-        "WORKER_MAX_TURN_SEC",
-      ),
+      maxTurnMs: seconds(environment, "WORKER_MAX_TURN_SEC", 3600),
       nextInputRetryTimeoutMs: seconds(
-        environment.WORKER_NEXT_INPUT_RETRY_SEC,
-        60,
+        environment,
         "WORKER_NEXT_INPUT_RETRY_SEC",
+        60,
       ),
       nextInputWaitMs,
-      questionTimeoutMs: seconds(
-        environment.QUESTION_TIMEOUT_SEC,
-        1800,
-        "QUESTION_TIMEOUT_SEC",
-      ),
+      questionTimeoutMs: seconds(environment, "QUESTION_TIMEOUT_SEC", 1800),
       requestTimeoutMs,
       startupTimeoutMs: seconds(
-        environment.WORKER_STARTUP_TIMEOUT_SEC,
-        3600,
+        environment,
         "WORKER_STARTUP_TIMEOUT_SEC",
+        3600,
       ),
       ...(stopGraceMs === undefined ? {} : { stopGraceMs }),
     },
@@ -312,21 +288,11 @@ function drainBudget(configured: number, stopGraceMs: number | undefined) {
 }
 
 function seconds(
-  value: string | undefined,
-  fallback: number,
+  environment: WorkerEnvironment,
   name: string,
+  fallback: number,
 ): number {
-  const parsed = Number(value ?? fallback);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive number of seconds`);
-  }
-  return Math.round(parsed * 1000);
-}
-
-function nonNegativeInteger(value: string, name: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${name} must be a non-negative integer`);
-  }
-  return parsed;
+  return Math.round(
+    positiveNumberSetting(environment, name, { default: fallback }) * 1000,
+  );
 }
