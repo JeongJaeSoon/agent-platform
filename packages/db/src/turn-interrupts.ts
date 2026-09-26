@@ -122,11 +122,8 @@ export async function expireOverdueInterrupts(
     .select({ id: receipts.id })
     .from(receipts)
     .where(overdue)
-    .orderBy(asc(receipts.createdAt), asc(receipts.id))
     .limit(input.limit);
   if (input.dryRun) return (await batch).length;
-  // The batch is only a candidate list: a row another pass flipped since is
-  // left alone by the repeated `overdue`.
   const expired = await db
     .update(receipts)
     .set({
@@ -137,7 +134,8 @@ export async function expireOverdueInterrupts(
       },
       updatedAt: input.now,
     })
-    .where(and(overdue, inArray(receipts.id, batch)))
+    // A row another transaction holds is left to the next pass, not waited on.
+    .where(inArray(receipts.id, batch.for("update", { skipLocked: true })))
     .returning({ id: receipts.id });
   return expired.length;
 }
