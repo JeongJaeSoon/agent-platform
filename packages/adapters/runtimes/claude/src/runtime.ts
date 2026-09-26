@@ -1,4 +1,7 @@
-import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { writeSync } from "node:fs";
+import { Readable, Writable } from "node:stream";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import type {
   AgentRun,
   AgentRuntime,
@@ -9,6 +12,8 @@ import {
   type HookCallback,
   type Options,
   query,
+  type SpawnedProcess,
+  type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 
 import {
@@ -16,6 +21,8 @@ import {
   type ClaudeRuntimeConfig,
 } from "./config.ts";
 import {
+  ENGINE_API_KEY_DESCRIPTOR,
+  engineApiKey,
   type RuntimePolicy,
   runtimeEnvironment,
   validateRuntimeConfig,
@@ -198,27 +205,103 @@ export function buildSdkOptions(
       snapshot: true,
     },
     tools: config.tools,
-    ...(processObserver === undefined
-      ? {}
-      : {
-          spawnClaudeCodeProcess: (options) => {
-            const child = spawn(options.command, options.args, {
-              cwd: options.cwd,
-              env: options.env as NodeJS.ProcessEnv,
-              signal: options.signal,
-              stdio: ["pipe", "pipe", "pipe"],
-            });
-            const pid = child.pid;
-            if (pid !== undefined) {
-              processObserver.onSpawn(pid);
-              child.once("exit", (code, signal) =>
-                processObserver.onExit?.(pid, code, signal),
-              );
-            }
-            return child;
-          },
-        }),
+    spawnClaudeCodeProcess: (options) =>
+      spawnEngine(options, engineApiKey(config.profile), processObserver),
   };
+}
+
+/**
+ * The engine under Bun.spawn, not node:child_process: Bun's node wrapper
+ * closes an extra stdio socket a second time when it is collected, by then
+ * on whatever descriptor reused the number (94S-410). Bun.spawn hands the
+ * extra socket over as a bare descriptor it closes once; we only write the
+ * key down it, and the engine reads up to the newline.
+ */
+function spawnEngine(
+  options: SpawnOptions,
+  apiKey: string | undefined,
+  processObserver: RuntimeProcessObserver | undefined,
+): SpawnedProcess {
+  const events = new EventEmitter();
+  const child = Bun.spawn([options.command, ...options.args], {
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    env: options.env,
+    signal: options.signal,
+    // The SDK reads stderr only from a process it spawned itself.
+    stdio:
+      apiKey === undefined
+        ? ["pipe", "pipe", "ignore"]
+        : ["pipe", "pipe", "ignore", "pipe"],
+  });
+  processObserver?.onSpawn(child.pid);
+  // Not Bun's onExit, which may fire before spawn returns and so before the
+  // SDK listens: `exited` settles no earlier than the next microtask.
+  child.exited.then(
+    () => {
+      processObserver?.onExit?.(child.pid, child.exitCode, child.signalCode);
+      events.emit("exit", child.exitCode, child.signalCode);
+    },
+    (error: unknown) => {
+      if (events.listenerCount("error") > 0) events.emit("error", error);
+    },
+  );
+  const descriptor = child.stdio[ENGINE_API_KEY_DESCRIPTOR];
+  if (apiKey !== undefined && typeof descriptor === "number") {
+    const line = Buffer.from(`${apiKey}\n`);
+    try {
+      let written = 0;
+      while (written < line.length) {
+        const count = writeSync(descriptor, line, written);
+        if (count === 0) throw new Error("key descriptor accepted nothing");
+        written += count;
+      }
+    } catch {
+      // An engine without its key line waits for it forever, or has
+      // already gone; either way, stopping it is what reports the failure.
+      child.kill();
+    }
+  }
+  const input = child.stdin;
+  const stdin = new Writable({
+    write(chunk, _encoding, callback) {
+      try {
+        input.write(chunk);
+        Promise.resolve(input.flush()).then(() => callback(), callback);
+      } catch (error) {
+        callback(error as Error);
+      }
+    },
+    final(callback) {
+      try {
+        Promise.resolve(input.end()).then(() => callback(), callback);
+      } catch (error) {
+        callback(error as Error);
+      }
+    },
+  });
+  return {
+    stdin,
+    stdout: Readable.fromWeb(child.stdout as unknown as WebReadableStream),
+    get killed() {
+      return child.killed;
+    },
+    get exitCode() {
+      return child.exitCode;
+    },
+    get signalCode() {
+      return child.signalCode;
+    },
+    kill: (signal) => {
+      child.kill(signal);
+      return true;
+    },
+    on: (event: string, listener: (...args: unknown[]) => void) =>
+      void events.on(event, listener),
+    once: (event: string, listener: (...args: unknown[]) => void) =>
+      void events.once(event, listener),
+    off: (event: string, listener: (...args: unknown[]) => void) =>
+      void events.off(event, listener),
+  } as SpawnedProcess;
 }
 
 export type RuntimeProcessObserver = {

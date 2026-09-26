@@ -438,4 +438,66 @@ describe("concurrency regressions (94S-134)", () => {
     },
     TIMEOUT,
   );
+
+  test(
+    "a Bash tool in the worker finds no provider token anywhere, and the route refuses it without one (94S-410)",
+    async () => {
+      // Brackets keep each pattern from matching the probe's own command.
+      const probe = [
+        "tok='we[p]_[A-Za-z0-9_-]\\{20,\\}'",
+        "var='^ANTHROPIC_API_KE[Y]='",
+        'env_hits=$(env | grep -c -e "$tok" -e "$var")',
+        "readable=0; hits=0; engine=0",
+        "for f in /proc/[0-9]*/environ; do",
+        '  e=$(tr "\\0" "\\n" < "$f" 2>/dev/null) || continue',
+        '  [ -n "$e" ] || continue',
+        "  readable=$((readable+1))",
+        '  printf "%s\\n" "$e" | grep -q -e "$tok" -e "$var" && hits=$((hits+1))',
+        '  printf "%s\\n" "$e" | grep -q \'^CLAUDE_CODE_API_KEY_FILE_DESCRIPTO[R]=\' && engine=$((engine+1))',
+        "done",
+        `direct=$(bun -e 'const r = await fetch(process.env.ANTHROPIC_BASE_URL + "/v1/messages", { method: "POST", headers: { "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: "{}" }); console.log(r.status)' 2>&1)`,
+        'echo "probe env_hits=$env_hits readable=$readable hits=$hits engine=$engine direct_status=$direct"',
+      ].join("\n");
+      const created = await api.createSession(
+        scripted("k1", [bash(probe)], "probed"),
+      );
+      const sessionId = created.body.session_id;
+      const turn = await poll("the probe turn", 180_000, async () => {
+        for (const request of await api.pending(sessionId)) {
+          await api.allow(sessionId, request.request_id);
+        }
+        const current = await api.turn(sessionId, "1");
+        return ["queued", "running", "needs_input"].includes(current.status)
+          ? null
+          : current;
+      });
+      expect(turn.status).toBe("completed");
+      const result = (
+        await api.events(
+          sessionId,
+          (event) =>
+            event.event === "tool_result" && event.data.turn_id === "1",
+        )
+      ).at(-1);
+      const printed = JSON.stringify(result?.data.data);
+      const report =
+        /probe env_hits=(\d+) readable=(\d+) hits=(\d+) engine=(\d+) direct_status=(\S+?)\b/.exec(
+          printed,
+        );
+      if (report === null) throw new Error(`no probe output in ${printed}`);
+      // The ticket's acceptance evidence, kept in the CI log.
+      console.log(report[0]);
+      const [, envHits, readable, hits, engine, direct] = report;
+      expect({ envHits, hits, direct }).toEqual({
+        envHits: "0",
+        hits: "0",
+        direct: "401",
+      });
+      // The probe read the engine's environ among others, so no hit is a
+      // finding and not a blind spot.
+      expect(Number(engine)).toBeGreaterThanOrEqual(1);
+      expect(Number(readable)).toBeGreaterThan(Number(engine));
+    },
+    TIMEOUT,
+  );
 });

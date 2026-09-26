@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import {
+  engineApiKey,
   publicProfile,
   runtimeEnvironment,
   validateRuntimeConfig,
@@ -146,8 +147,8 @@ describe("runtime profiles", () => {
       HOST_PRIVATE_VALUE: "must-not-pass",
     });
     expect(environment).toEqual({
-      ANTHROPIC_API_KEY: "placeholder-direct",
       ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: "3",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       CLAUDE_CONFIG_DIR: "/tenant/config",
       HOME: "/tenant/home",
@@ -178,8 +179,8 @@ describe("runtime profiles", () => {
       no_proxy: "localhost,127.0.0.1,::1",
     });
     expect(environment).toEqual({
-      ANTHROPIC_API_KEY: "placeholder-direct",
       ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: "3",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       CLAUDE_CONFIG_DIR: "/tenant/config",
       HOME: "/tenant/home",
@@ -235,6 +236,7 @@ describe("runtime profiles", () => {
     });
     expect(bearer.ANTHROPIC_AUTH_TOKEN).toBe("placeholder-bearer");
     expect(bearer.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(bearer.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR).toBeUndefined();
     expect(publicProfile(baseConfig.profile)).toEqual({
       kind: "anthropic",
       endpoint: "https://api.anthropic.com",
@@ -267,7 +269,10 @@ describe("runtime profiles", () => {
     expect(environment.ANTHROPIC_BASE_URL).toBe(
       "http://egress-proxy:3129/provider",
     );
-    expect(environment.ANTHROPIC_API_KEY).toBe("wep_attempt-token");
+    // The token goes down the engine's key descriptor, never its environment.
+    expect(environment.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(environment.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR).toBe("3");
+    expect(engineApiKey(egress.profile)).toBe("wep_attempt-token");
     expect(environment.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(environment.NO_PROXY).toBe("localhost,egress-proxy");
     expect("no_proxy" in environment).toBe(false);
