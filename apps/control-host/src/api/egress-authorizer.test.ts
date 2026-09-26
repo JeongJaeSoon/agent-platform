@@ -397,7 +397,8 @@ describe("usage reports (94S-451)", () => {
       { path: EGRESS_USAGE_PATH },
     );
     expect(retry.status).toBe(200);
-    expect(await retry.json()).toMatchObject({ cost_usd: 0.025 });
+    // Priced today it would be the fallback; the answer is what was charged.
+    expect(await retry.json()).toEqual({ cost_usd: 0.025, priced_by: "table" });
   });
 });
 

@@ -893,7 +893,7 @@ export function createWorkerGateway(deps: {
           "That exchange was reported with other usage",
         );
       }
-      return { costUsd: result.costUsd, pricedBy: priced.pricedBy };
+      return { costUsd: result.costUsd, pricedBy: result.pricedBy };
     },
 
     async nextInput(

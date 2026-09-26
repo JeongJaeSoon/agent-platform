@@ -944,7 +944,7 @@ export const providerUsage = pgTable(
     }).notNull(),
     // `fallback`: the model was not in the price table and every part was
     // charged at the highest known rate.
-    pricedBy: text("priced_by").notNull(),
+    pricedBy: text("priced_by").$type<"table" | "fallback">().notNull(),
     recordedAt: timestamp("recorded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
