@@ -42,7 +42,7 @@ import { s3SettingsFromEnv } from "../lib/object-store-cli.ts";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 
-const bucket = process.env.S3_BUCKET;
+const bucket = process.env.S3_BUCKET?.trim();
 if (!bucket) throw new Error("S3_BUCKET is required");
 const objects = createCheckpointObjectStore({
   bucket,

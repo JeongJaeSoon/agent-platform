@@ -149,8 +149,8 @@ export const principalSchema = z
     if (principal.kind !== "user") return;
     // The role is the ceiling, not a label beside it: a membership may hand a
     // user fewer scopes than the role allows, never more. Without this a
-    // `member` row carrying `sessions:recover` would walk straight through
-    // `authorizationContextFor` into owner-only recovery.
+    // `member` row carrying `sessions:recover` would walk straight into
+    // owner-only recovery.
     for (const scope of scopesExceeding(
       principal.scopes,
       scopesForRole(principal.role),
@@ -188,14 +188,13 @@ export const authorizationContextSchema = z
   })
   .strict()
   .superRefine((ctx_, ctx) => {
-    // Middleware may assemble a context by hand instead of through
-    // `authorizationContextFor`, so the relationships that function
-    // establishes are stated here rather than left to it. What a schema
-    // cannot check is whether the user really belongs to that workspace or
-    // whether the scopes match their role — the context carries no role, and
-    // membership is a row (94S-150, 94S-152). It can check that the parts
-    // agree with each other, which is what stops a hand-built context from
-    // authorizing against another tenant's partition.
+    // Middleware assembles a context by hand, so the relationships between
+    // its parts are stated here. What a schema cannot check is whether the
+    // user really belongs to that workspace or whether the scopes match their
+    // role — the context carries no role, and membership is a row (94S-150,
+    // 94S-152). It can check that the parts agree with each other, which is
+    // what stops a hand-built context from authorizing against another
+    // tenant's partition.
     if (ctx_.principal.kind === "installation") {
       // What this cannot reach: whether `owner_scope` and `workspace_id` are
       // the ones the authenticated installation actually belongs to. Unlike a
