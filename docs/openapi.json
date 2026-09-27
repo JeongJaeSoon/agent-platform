@@ -5,6 +5,44 @@
     "version": "0.1.0-alpha",
     "description": "Private alpha session control plane. Generated from the Zod contracts in packages/contracts; do not edit by hand."
   },
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Check process health, readiness and API metadata."
+    },
+    {
+      "name": "Auth",
+      "description": "Discover the API and manage authenticated browser sessions."
+    },
+    {
+      "name": "Sessions",
+      "description": "Create sessions and inspect their state and usage."
+    },
+    {
+      "name": "Messages & turns",
+      "description": "Send session input and inspect turn history and results."
+    },
+    {
+      "name": "Events",
+      "description": "Stream durable session events."
+    },
+    {
+      "name": "Pending requests",
+      "description": "List and answer pending permission and question requests."
+    },
+    {
+      "name": "Session control",
+      "description": "Stop, pause, resume or interrupt a session's execution."
+    },
+    {
+      "name": "Recovery",
+      "description": "Resolve sessions that require an operator recovery decision."
+    },
+    {
+      "name": "Limits & receipts",
+      "description": "Inspect installation limits and asynchronous command receipts."
+    }
+  ],
   "components": {
     "securitySchemes": {
       "bearerApiKey": {
@@ -3563,6 +3601,9 @@
     "/healthz": {
       "get": {
         "operationId": "getHealth",
+        "tags": [
+          "Health"
+        ],
         "summary": "Process liveness",
         "security": [],
         "parameters": [],
@@ -3586,6 +3627,9 @@
     "/readyz": {
       "get": {
         "operationId": "getReady",
+        "tags": [
+          "Health"
+        ],
         "summary": "DB, schema and config readiness",
         "security": [],
         "parameters": [],
@@ -3639,6 +3683,9 @@
     "/v1/openapi.json": {
       "get": {
         "operationId": "getOpenApiDocument",
+        "tags": [
+          "Health"
+        ],
         "summary": "Generated OpenAPI document",
         "security": [],
         "parameters": [],
@@ -3662,6 +3709,9 @@
     "/v1": {
       "get": {
         "operationId": "getApiRoot",
+        "tags": [
+          "Auth"
+        ],
         "summary": "Authenticated principal",
         "x-scope": "sessions:read",
         "security": [
@@ -3783,6 +3833,9 @@
     "/v1/auth/bootstrap": {
       "post": {
         "operationId": "bootstrap",
+        "tags": [
+          "Auth"
+        ],
         "summary": "Create the first owner and default workspace (once)",
         "security": [],
         "parameters": [],
@@ -3996,6 +4049,9 @@
     "/v1/auth/login": {
       "post": {
         "operationId": "login",
+        "tags": [
+          "Auth"
+        ],
         "summary": "Email/password login; sets the session cookie",
         "security": [],
         "parameters": [
@@ -4252,6 +4308,9 @@
     "/v1/auth/logout": {
       "post": {
         "operationId": "logout",
+        "tags": [
+          "Auth"
+        ],
         "summary": "Revoke the session cookie",
         "security": [
           {
@@ -4405,6 +4464,9 @@
     "/v1/auth/me": {
       "get": {
         "operationId": "getAuthMe",
+        "tags": [
+          "Auth"
+        ],
         "summary": "The authenticated principal, user and workspace",
         "x-scope": "sessions:read",
         "security": [
@@ -4526,6 +4588,9 @@
     "/v1/sessions": {
       "post": {
         "operationId": "createSession",
+        "tags": [
+          "Sessions"
+        ],
         "summary": "Durably accept a session and its first input",
         "x-scope": "sessions:write",
         "security": [
@@ -4859,6 +4924,9 @@
       },
       "get": {
         "operationId": "listSessions",
+        "tags": [
+          "Sessions"
+        ],
         "summary": "List sessions visible to the principal",
         "x-scope": "sessions:read",
         "security": [
@@ -5048,6 +5116,9 @@
     "/v1/sessions/{id}": {
       "get": {
         "operationId": "getSession",
+        "tags": [
+          "Sessions"
+        ],
         "summary": "Session detail with projection, execution and durability",
         "x-scope": "sessions:read",
         "security": [
@@ -5210,6 +5281,9 @@
     "/v1/sessions/{id}/usage": {
       "get": {
         "operationId": "getSessionUsage",
+        "tags": [
+          "Sessions"
+        ],
         "summary": "Estimated cost of a session and whether every turn reported it",
         "x-scope": "sessions:read",
         "security": [
@@ -5372,6 +5446,9 @@
     "/v1/sessions/{id}/messages": {
       "post": {
         "operationId": "appendSessionMessage",
+        "tags": [
+          "Messages & turns"
+        ],
         "summary": "Enqueue the next input after the current turn",
         "x-scope": "sessions:write",
         "security": [
@@ -5723,6 +5800,9 @@
     "/v1/sessions/{id}/turns": {
       "get": {
         "operationId": "listSessionTurns",
+        "tags": [
+          "Messages & turns"
+        ],
         "summary": "Queued and finished turns",
         "x-scope": "sessions:read",
         "security": [
@@ -5935,6 +6015,9 @@
     "/v1/sessions/{id}/turns/{turn_id}": {
       "get": {
         "operationId": "getSessionTurn",
+        "tags": [
+          "Messages & turns"
+        ],
         "summary": "Committed result of one turn",
         "x-scope": "sessions:read",
         "security": [
@@ -6106,6 +6189,9 @@
     "/v1/sessions/{id}/events": {
       "get": {
         "operationId": "streamSessionEvents",
+        "tags": [
+          "Events"
+        ],
         "summary": "Durable event replay and live stream (SSE)",
         "description": "Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds and normally remains open. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
         "x-scope": "sessions:read",
@@ -6368,6 +6454,9 @@
     "/v1/sessions/{id}/pending-requests": {
       "get": {
         "operationId": "listPendingRequests",
+        "tags": [
+          "Pending requests"
+        ],
         "summary": "Open permission and question requests",
         "x-scope": "sessions:read",
         "security": [
@@ -6530,6 +6619,9 @@
     "/v1/sessions/{id}/answers": {
       "post": {
         "operationId": "answerPendingRequest",
+        "tags": [
+          "Pending requests"
+        ],
         "summary": "Answer a pending permission or question request",
         "x-scope": "sessions:approve",
         "security": [
@@ -6846,6 +6938,9 @@
     "/v1/sessions/{id}/interrupt": {
       "post": {
         "operationId": "interruptSession",
+        "tags": [
+          "Session control"
+        ],
         "summary": "Interrupt the targeted turn only",
         "description": "Accepted while the turn runs: the receipt settles when the turn ends, with a result of `{turn_id, terminal, no_op}`. A new request for a turn that has already ended answers `receipt_status: succeeded` at once, and its receipt says `no_op: true` with the terminal the turn reached on its own: the interrupt did nothing. An interrupt accepted while the turn ran is `no_op: true` too when the turn got to another terminal first; when the turn's outcome is unknown, so is the receipt (`status: unknown`, `no_op: false`). A replayed Idempotency-Key answers the receipt's current status instead.",
         "x-scope": "sessions:control",
@@ -7192,6 +7287,9 @@
     "/v1/sessions/{id}/pause": {
       "post": {
         "operationId": "pauseSession",
+        "tags": [
+          "Session control"
+        ],
         "summary": "Drain the current turn, checkpoint, stop the execution",
         "x-scope": "sessions:control",
         "security": [
@@ -7543,6 +7641,9 @@
     "/v1/sessions/{id}/terminate": {
       "post": {
         "operationId": "terminateSession",
+        "tags": [
+          "Session control"
+        ],
         "summary": "Block dispatch and force the execution down",
         "x-scope": "sessions:control",
         "security": [
@@ -7893,6 +7994,9 @@
     "/v1/sessions/{id}/resume": {
       "post": {
         "operationId": "resumeSession",
+        "tags": [
+          "Session control"
+        ],
         "summary": "Restore from the last committed checkpoint or cancel a pause",
         "x-scope": "sessions:control",
         "security": [
@@ -8244,6 +8348,9 @@
     "/v1/sessions/{id}/recovery-decisions": {
       "post": {
         "operationId": "decideSessionRecovery",
+        "tags": [
+          "Recovery"
+        ],
         "summary": "Operator decision for an unknown outcome or a context no checkpoint covers",
         "x-scope": "sessions:recover",
         "security": [
@@ -8596,6 +8703,9 @@
     "/v1/limits": {
       "get": {
         "operationId": "getInstallationLimits",
+        "tags": [
+          "Limits & receipts"
+        ],
         "summary": "Installation limits and installation-wide usage",
         "x-scope": "sessions:read",
         "security": [
@@ -8717,6 +8827,9 @@
     "/v1/receipts/{id}": {
       "get": {
         "operationId": "getReceipt",
+        "tags": [
+          "Limits & receipts"
+        ],
         "summary": "Current outcome of an accepted command",
         "x-scope": "sessions:read",
         "security": [

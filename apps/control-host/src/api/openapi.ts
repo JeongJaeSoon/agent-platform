@@ -92,14 +92,57 @@ const responseComponents = {
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
+export const OPENAPI_TAGS = [
+  {
+    name: "Health",
+    description: "Check process health, readiness and API metadata.",
+  },
+  {
+    name: "Auth",
+    description: "Discover the API and manage authenticated browser sessions.",
+  },
+  {
+    name: "Sessions",
+    description: "Create sessions and inspect their state and usage.",
+  },
+  {
+    name: "Messages & turns",
+    description: "Send session input and inspect turn history and results.",
+  },
+  {
+    name: "Events",
+    description: "Stream durable session events.",
+  },
+  {
+    name: "Pending requests",
+    description: "List and answer pending permission and question requests.",
+  },
+  {
+    name: "Session control",
+    description: "Stop, pause, resume or interrupt a session's execution.",
+  },
+  {
+    name: "Recovery",
+    description: "Resolve sessions that require an operator recovery decision.",
+  },
+  {
+    name: "Limits & receipts",
+    description:
+      "Inspect installation limits and asynchronous command receipts.",
+  },
+] as const;
+
 type ComponentName =
   | keyof typeof requestComponents
   | keyof typeof responseComponents;
+
+type ApiTagName = (typeof OPENAPI_TAGS)[number]["name"];
 
 type RouteDeclaration = {
   method: "get" | "post";
   path: string;
   operationId: string;
+  tag: ApiTagName;
   summary: string;
   description?: string;
   scope?: "read" | "write" | "approve" | "control" | "recover";
@@ -144,6 +187,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/healthz",
     operationId: "getHealth",
+    tag: "Health",
     summary: "Process liveness",
     success: { status: 200, schema: "HealthResponse" },
     errors: [],
@@ -152,6 +196,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/readyz",
     operationId: "getReady",
+    tag: "Health",
     summary: "DB, schema and config readiness",
     success: { status: 200, schema: "ReadyResponse" },
     errors: [503],
@@ -161,6 +206,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/openapi.json",
     operationId: "getOpenApiDocument",
+    tag: "Health",
     summary: "Generated OpenAPI document",
     auth: "public",
     success: { status: 200, schema: "OpenApiDocument" },
@@ -170,6 +216,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1",
     operationId: "getApiRoot",
+    tag: "Auth",
     summary: "Authenticated principal",
     scope: "read",
     success: { status: 200, schema: "ApiRootResponse" },
@@ -179,6 +226,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/auth/bootstrap",
     operationId: "bootstrap",
+    tag: "Auth",
     summary: "Create the first owner and default workspace (once)",
     auth: "public",
     body: "BootstrapRequest",
@@ -191,6 +239,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/auth/login",
     operationId: "login",
+    tag: "Auth",
     summary: "Email/password login; sets the session cookie",
     auth: "public",
     csrf: "always",
@@ -203,6 +252,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/auth/logout",
     operationId: "logout",
+    tag: "Auth",
     summary: "Revoke the session cookie",
     auth: "session",
     success: { status: 204 },
@@ -213,6 +263,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/auth/me",
     operationId: "getAuthMe",
+    tag: "Auth",
     summary: "The authenticated principal, user and workspace",
     scope: "read",
     success: { status: 200, schema: "AuthMeResponse" },
@@ -222,6 +273,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions",
     operationId: "createSession",
+    tag: "Sessions",
     summary: "Durably accept a session and its first input",
     scope: "write",
     body: "CreateSessionRequest",
@@ -236,6 +288,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/sessions",
     operationId: "listSessions",
+    tag: "Sessions",
     summary: "List sessions visible to the principal",
     scope: "read",
     query: "ListSessionsQuery",
@@ -246,6 +299,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/sessions/{id}",
     operationId: "getSession",
+    tag: "Sessions",
     summary: "Session detail with projection, execution and durability",
     scope: "read",
     success: { status: 200, schema: "SessionDetail" },
@@ -255,6 +309,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/sessions/{id}/usage",
     operationId: "getSessionUsage",
+    tag: "Sessions",
     summary: "Estimated cost of a session and whether every turn reported it",
     scope: "read",
     success: { status: 200, schema: "SessionUsageResponse" },
@@ -264,6 +319,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/messages",
     operationId: "appendSessionMessage",
+    tag: "Messages & turns",
     summary: "Enqueue the next input after the current turn",
     scope: "write",
     body: "PostSessionMessageRequest",
@@ -286,6 +342,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/sessions/{id}/turns",
     operationId: "listSessionTurns",
+    tag: "Messages & turns",
     summary: "Queued and finished turns",
     scope: "read",
     query: "ListTurnsQuery",
@@ -296,6 +353,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/sessions/{id}/turns/{turn_id}",
     operationId: "getSessionTurn",
+    tag: "Messages & turns",
     summary: "Committed result of one turn",
     scope: "read",
     success: { status: 200, schema: "TurnDetail" },
@@ -305,6 +363,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/sessions/{id}/events",
     operationId: "streamSessionEvents",
+    tag: "Events",
     summary: "Durable event replay and live stream (SSE)",
     description:
       "Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds and normally remains open. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
@@ -319,6 +378,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/sessions/{id}/pending-requests",
     operationId: "listPendingRequests",
+    tag: "Pending requests",
     summary: "Open permission and question requests",
     scope: "read",
     success: { status: 200, schema: "ListPendingRequestsResponse" },
@@ -328,6 +388,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/answers",
     operationId: "answerPendingRequest",
+    tag: "Pending requests",
     summary: "Answer a pending permission or question request",
     scope: "approve",
     body: "PostSessionAnswerRequest",
@@ -341,6 +402,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/interrupt",
     operationId: "interruptSession",
+    tag: "Session control",
     summary: "Interrupt the targeted turn only",
     description:
       "Accepted while the turn runs: the receipt settles when the turn ends, with a result of `{turn_id, terminal, no_op}`. A new request for a turn that has already ended answers `receipt_status: succeeded` at once, and its receipt says `no_op: true` with the terminal the turn reached on its own: the interrupt did nothing. An interrupt accepted while the turn ran is `no_op: true` too when the turn got to another terminal first; when the turn's outcome is unknown, so is the receipt (`status: unknown`, `no_op: false`). A replayed Idempotency-Key answers the receipt's current status instead.",
@@ -358,6 +420,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/pause",
     operationId: "pauseSession",
+    tag: "Session control",
     summary: "Drain the current turn, checkpoint, stop the execution",
     scope: "control",
     body: "PauseSessionRequest",
@@ -381,6 +444,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/terminate",
     operationId: "terminateSession",
+    tag: "Session control",
     summary: "Block dispatch and force the execution down",
     scope: "control",
     body: "TerminateSessionRequest",
@@ -404,6 +468,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/resume",
     operationId: "resumeSession",
+    tag: "Session control",
     summary: "Restore from the last committed checkpoint or cancel a pause",
     scope: "control",
     body: "ResumeSessionRequest",
@@ -429,6 +494,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "post",
     path: "/v1/sessions/{id}/recovery-decisions",
     operationId: "decideSessionRecovery",
+    tag: "Recovery",
     summary:
       "Operator decision for an unknown outcome or a context no checkpoint covers",
     scope: "recover",
@@ -454,6 +520,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/limits",
     operationId: "getInstallationLimits",
+    tag: "Limits & receipts",
     summary: "Installation limits and installation-wide usage",
     scope: "read",
     success: { status: 200, schema: "InstallationLimitsResponse" },
@@ -463,6 +530,7 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/receipts/{id}",
     operationId: "getReceipt",
+    tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     scope: "read",
     success: { status: 200, schema: "Receipt" },
@@ -684,6 +752,7 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
     method: route.method,
     path: route.path,
     operationId: route.operationId,
+    tags: [route.tag],
     summary: route.summary,
     ...(route.description ? { description: route.description } : {}),
     ...(route.scope ? { "x-scope": `sessions:${route.scope}` } : {}),
@@ -745,6 +814,7 @@ export function buildOpenApiDocument() {
   return {
     openapi: generated.openapi,
     info: generated.info,
+    tags: OPENAPI_TAGS,
     components: {
       securitySchemes: {
         bearerApiKey: { type: "http", scheme: "bearer" },

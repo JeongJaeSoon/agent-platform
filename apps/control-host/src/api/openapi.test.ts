@@ -12,7 +12,11 @@ import {
   renderScalarAsset,
   SCALAR_ASSET_OUTPUT_PATH,
 } from "../../scripts/generate-openapi.ts";
-import { buildOpenApiDocument, renderOpenApiDocument } from "./openapi.ts";
+import {
+  buildOpenApiDocument,
+  OPENAPI_TAGS,
+  renderOpenApiDocument,
+} from "./openapi.ts";
 
 describe("OpenAPI document", () => {
   test("is committed and matches the generator output", () => {
@@ -81,6 +85,24 @@ describe("OpenAPI document", () => {
     expect(html).not.toMatch(/(?:src|href)="https?:\/\//);
     expect(html).not.toContain("Authorization");
     expect(scalarAsset).not.toContain("./chunks/");
+  });
+
+  test("groups every operation under exactly one declared tag", () => {
+    const document = buildOpenApiDocument();
+    expect(document.tags).toEqual(OPENAPI_TAGS);
+    const declared = new Set<string>(document.tags.map((tag) => tag.name));
+    const used = new Set<string>();
+
+    for (const [path, operations] of Object.entries(document.paths)) {
+      for (const [method, raw] of Object.entries(operations)) {
+        const { tags } = raw as { tags?: string[] };
+        expect(tags, `${method} ${path}`).toHaveLength(1);
+        expect(declared.has(tags?.[0] ?? ""), `${method} ${path}`).toBe(true);
+        if (tags?.[0]) used.add(tags[0]);
+      }
+    }
+
+    expect([...used].sort()).toEqual([...declared].sort());
   });
 
   test("every cookie-authenticated mutation documents the CSRF header and 403", () => {
