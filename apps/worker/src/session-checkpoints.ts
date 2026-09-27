@@ -76,11 +76,11 @@ const UPLOAD_CONCURRENCY = 8;
 /** Objects a restore downloads at once, each streamed and verified to disk. */
 const DOWNLOAD_CONCURRENCY = 8;
 /**
- * A restore the object store failed is redone after 1s, doubling to 30s,
- * until the startup budget (`WORKER_STARTUP_TIMEOUT_SEC`) stops it (94S-390).
+ * An object-store operation needed at startup is redone after 1s, doubling to
+ * 30s, until the startup budget (`WORKER_STARTUP_TIMEOUT_SEC`) stops it.
  */
-const RESTORE_RETRY_FIRST_MS = 1_000;
-const RESTORE_RETRY_MAX_MS = 30_000;
+const STORE_RETRY_FIRST_MS = 1_000;
+const STORE_RETRY_MAX_MS = 30_000;
 const UNSETTLED =
   "a transcript batch failed to mirror and has not been written since";
 
@@ -236,8 +236,8 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         } catch (caught) {
           if (!signal.aborted && isRestoreOutage(caught)) {
             const retryInMs = Math.min(
-              RESTORE_RETRY_FIRST_MS * 2 ** retries,
-              RESTORE_RETRY_MAX_MS,
+              STORE_RETRY_FIRST_MS * 2 ** retries,
+              STORE_RETRY_MAX_MS,
             );
             this.#options.logger.warn("worker.checkpoint.restore_unavailable", {
               reason: describe(caught),
@@ -273,14 +273,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         }
       }
     }
-    const store = new ClaudeSessionStore({
-      generation: claim.execution_generation,
-      objects: this.#options.objects,
-      prefix: this.#transcriptPrefix(),
-    });
-    // Before the engine starts: a generation another launch already wrote
-    // to would otherwise surface as the first append failing mid-turn.
-    await store.ready();
+    const store = await this.#openFreshStore(claim, signal);
     signal.throwIfAborted();
     const commit = this.#options.instructionsCommit?.() ?? null;
     this.#bound = {
@@ -290,6 +283,40 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       store,
     };
     return { mode: "new", sessionStore: store };
+  }
+
+  /** Opens a fresh transcript generation once the object store answers. */
+  async #openFreshStore(
+    claim: BootstrapClaimResponse,
+    signal: AbortSignal,
+  ): Promise<ClaudeSessionStore> {
+    for (let retries = 0; ; retries += 1) {
+      const store = new ClaudeSessionStore({
+        generation: claim.execution_generation,
+        objects: this.#options.objects,
+        prefix: this.#transcriptPrefix(),
+      });
+      try {
+        // Before the engine starts: a generation another launch already wrote
+        // to would otherwise surface as the first append failing mid-turn.
+        await store.ready();
+        return store;
+      } catch (caught) {
+        if (signal.aborted || !isObjectStoreOutage(caught)) throw caught;
+        const retryInMs = Math.min(
+          STORE_RETRY_FIRST_MS * 2 ** retries,
+          STORE_RETRY_MAX_MS,
+        );
+        this.#options.logger.warn("worker.checkpoint.store_unavailable", {
+          reason: describe(caught),
+          retries,
+          retry_in_ms: retryInMs,
+          execution_generation: claim.execution_generation,
+        });
+        await (this.#options.sleep ?? sleepUnlessAborted)(retryInMs, signal);
+        signal.throwIfAborted();
+      }
+    }
   }
 
   /**

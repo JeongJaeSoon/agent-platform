@@ -190,6 +190,40 @@ function sha256(bytes: Uint8Array): string {
 }
 
 describe("SessionCheckpoints", () => {
+  test("waits out an object store outage before opening a fresh transcript generation (94S-477)", async () => {
+    let elapsed = 0;
+    const h = harness({
+      sleep: async (ms) => {
+        elapsed += ms;
+      },
+    });
+    const list = h.objects.list.bind(h.objects);
+    h.objects.list = async (prefix) => {
+      if (elapsed < 7_000) throw answered(503);
+      return list(prefix);
+    };
+
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+
+    expect(plan.mode).toBe("new");
+    expect(elapsed).toBe(7_000);
+    expect(h.errors).toEqual([]);
+    expect(h.warnings).toEqual(
+      [1, 2, 4].map((seconds, retries) => ({
+        event: "worker.checkpoint.store_unavailable",
+        fields: {
+          reason: "status 503",
+          retries,
+          retry_in_ms: seconds * 1_000,
+          execution_generation: 1,
+        },
+      })),
+    );
+  });
+
   test("publishes the workspace, the pinned transcript and a manifest under the key it was handed", async () => {
     const h = harness();
     const { claim, mirror } = await opened(h);

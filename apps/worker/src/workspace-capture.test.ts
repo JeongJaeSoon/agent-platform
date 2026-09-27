@@ -184,6 +184,65 @@ async function unbundle(capture: WorkspaceCapture): Promise<string> {
 }
 
 describe("captureWorkspace", () => {
+  test("retries once when the workspace changes during capture", async () => {
+    await commitFiles({ "changing.txt": "before\n" });
+    const changed = join(scratch, "changed-once");
+    const restoreGit = await fakeGit(`
+for arg; do
+  if [ "$arg" = bundle ] && [ ! -e ${JSON.stringify(changed)} ]; then
+    : > ${JSON.stringify(changed)}
+    printf 'after\\n' > ${JSON.stringify(join(root, "changing.txt"))}
+  fi
+done
+exec "$REAL_GIT" "$@"`);
+    try {
+      const restored = await unbundle(await captured());
+
+      expect(await readFile(join(restored, "changing.txt"), "utf8")).toBe(
+        "after\n",
+      );
+    } finally {
+      restoreGit();
+    }
+  });
+
+  test("refuses when the workspace changes during both capture attempts", async () => {
+    await commitFiles({ "changing.txt": "before\n" });
+    const restoreGit = await fakeGit(`
+for arg; do
+  if [ "$arg" = bundle ]; then
+    printf x >> ${JSON.stringify(join(root, "changing.txt"))}
+  fi
+done
+exec "$REAL_GIT" "$@"`);
+    try {
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason: "the workspace changed during both checkpoint capture attempts",
+      });
+    } finally {
+      restoreGit();
+    }
+  });
+
+  test("does not retry for changes to files the checkpoint ignores", async () => {
+    await commitFiles({ ".gitignore": "ignored.log\n", "tracked.txt": "a\n" });
+    const ignored = join(root, "ignored.log");
+    await writeFile(ignored, "before\n");
+    const restoreGit = await fakeGit(`
+for arg; do
+  if [ "$arg" = bundle ]; then
+    printf x >> ${JSON.stringify(ignored)}
+  fi
+done
+exec "$REAL_GIT" "$@"`);
+    try {
+      expect((await capture()).status).toBe("captured");
+    } finally {
+      restoreGit();
+    }
+  });
+
   test("pins HEAD itself when the working tree matches it, and bundles the branch", async () => {
     const head = await commitFiles({ "a.txt": "a\n", "src/b.txt": "b\n" });
     const before = await fingerprint();
@@ -639,13 +698,23 @@ describe("captureWorkspace", () => {
 
     test("an index over the limit, before any git command reads it", async () => {
       await commitFiles({ "a.txt": "a\n" });
-
-      expect(await capture({ limits: { maxIndexBytes: 10 } })).toMatchObject({
-        status: "refused",
-        reason: expect.stringMatching(
-          /^the workspace index is \d+ bytes, over the 10 a checkpoint reads$/,
-        ),
-      });
+      const restoreGit = await fakeGit(`
+for arg; do
+  if [ "$arg" = rev-parse ]; then
+    exec "$REAL_GIT" "$@"
+  fi
+done
+exit 91`);
+      try {
+        expect(await capture({ limits: { maxIndexBytes: 10 } })).toMatchObject({
+          status: "refused",
+          reason: expect.stringMatching(
+            /^the workspace index is \d+ bytes, over the 10 a checkpoint reads$/,
+          ),
+        });
+      } finally {
+        restoreGit();
+      }
     });
 
     test("tracked changes over the staging limit, before they are written as objects", async () => {

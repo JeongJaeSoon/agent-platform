@@ -615,18 +615,46 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       steps: [read("/workspace/gate.txt"), read("/workspace/sub.txt")],
       final: "A3 DONE",
     };
-    const turnId3 = await api.message(sessionId, prompt("Turn three.", spec3));
-    const second = await waitFor(
-      "a new generation",
-      async () =>
-        (await workers.of(sessionId)).find(
-          (c) => c.generation > first.generation && c.state === "running",
-        ),
-      180_000,
-      500,
-    );
-    workers.follow(second.name);
+    const outage = await chaos.arm({
+      action: "fail",
+      upstream: "s3",
+      path: `sessions/${sessionId}/`,
+      times: -1,
+    });
+    let second!: WorkerContainer;
+    let unavailable!: WorkerEvent[];
+    let turnId3!: string;
+    try {
+      turnId3 = await api.message(sessionId, prompt("Turn three.", spec3));
+      second = await waitFor(
+        "a new generation",
+        async () =>
+          (await workers.of(sessionId)).find(
+            (c) => c.generation > first.generation && c.state === "running",
+          ),
+        180_000,
+        500,
+      );
+      workers.follow(second.name);
+      unavailable = await waitFor(
+        "the restoring worker to wait out the object store outage",
+        async () => {
+          const found = (await workers.events(second.name)).filter(
+            (line) => line.event === "worker.checkpoint.restore_unavailable",
+          );
+          return found.length >= 2 ? found : null;
+        },
+        120_000,
+        250,
+      );
+    } finally {
+      await chaos.disarm(outage);
+    }
     const turn3 = await api.settle(sessionId, turnId3, TURN_MS);
+    const recovered = await workers.running(sessionId, 10_000);
+    const outageRequests = (await chaos.log(sessionId)).filter(
+      (entry) => entry.rule === outage,
+    );
     const claimed = await logged(second, "worker.claimed");
     const restored = await logged(second, "worker.checkpoint.restored");
     const after = await workers.workspace(second.name, tracked);
@@ -637,10 +665,11 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
       id: "A-08",
       criterion: "새 worker·clean HOME/workspace에서 복원",
       title:
-        "the drained worker releases and a new generation restores revision 1 onto a new volume and tmpfs HOME",
-      input: "docker stop -t 120; docker volume rm; POST message",
+        "one new generation waits out a transient object-store outage, then restores revision 1",
+      input:
+        "docker stop -t 120; docker volume rm; fail worker S3 requests; POST message; restore S3",
       expected:
-        "old worker exits 0 after worker.released; new generation claims with restore 1 and logs worker.checkpoint.restored 1",
+        "old worker exits 0 after worker.released; one new generation retries with exponential backoff, stays up, then restores revision 1",
       actual: {
         old_exit: exitCode,
         old_released: drained.some((line) => line.event === "worker.released"),
@@ -653,6 +682,9 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
           revision: restored.revision,
           git_commit: restored.git_commit,
         },
+        outage_requests: outageRequests.length,
+        retry_in_ms: unavailable.map((line) => line.retry_in_ms),
+        recovered_container: recovered.name,
         home_tmpfs: Object.keys(inspected.HostConfig?.Tmpfs ?? {}),
       },
       pass:
@@ -661,6 +693,11 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         claimed.restore_revision === 1 &&
         restored.revision === 1 &&
         restored.git_commit === verified.manifest.workspace.gitCommit &&
+        outageRequests.length >= 2 &&
+        unavailable.length >= 2 &&
+        unavailable[0]?.retry_in_ms === 1_000 &&
+        unavailable[1]?.retry_in_ms === 2_000 &&
+        recovered.id === second.id &&
         oldVolumes.length > 0 &&
         newVolumes.length > 0 &&
         newVolumes.every((v) => !oldVolumes.includes(v)) &&
@@ -1067,6 +1104,59 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
         session.admission_state === "recovery_required" &&
         session.checkpoint_revision === null &&
         checkpoints.length === 0,
+    });
+
+    const decision = await api.call(
+      "POST",
+      `/v1/sessions/${sessionId}/recovery-decisions`,
+      {
+        decision: "abandon",
+        expected_revision: (await api.session(sessionId)).revision,
+        reason: "d2 gate: the lost attempt has no confirmed effect",
+        target_turn_id: "1",
+      },
+    );
+    const receiptId = (decision.body as { receipt_id?: string }).receipt_id;
+    const receipt =
+      decision.status === 202 && receiptId !== undefined
+        ? await waitFor(
+            `recovery receipt ${receiptId} to settle`,
+            async () => {
+              const found = (await api.call("GET", `/v1/receipts/${receiptId}`))
+                .body as { status?: string; result?: unknown };
+              return found.status === "accepted" ? null : found;
+            },
+            120_000,
+            250,
+          )
+        : null;
+    const [cleaned] = await turnRows(sessionId);
+    const cleanedSession = await sessionRow(sessionId);
+    report.check({
+      id: "D-03",
+      criterion: "outcome_unknown 복구 결정",
+      title:
+        "an operator decision, not a worker restart, settles the unknown turn",
+      input: "abandon turn 1 after the lost execution is confirmed gone",
+      expected:
+        "202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped",
+      actual: {
+        response_status: decision.status,
+        receipt,
+        turn: {
+          status: cleaned?.status,
+          reason: cleaned?.terminal_reason,
+          unknown: cleaned?.outcome_unknown,
+        },
+        admission: cleanedSession.admission_state,
+      },
+      pass:
+        decision.status === 202 &&
+        receipt?.status === "succeeded" &&
+        cleaned?.status === "cancelled" &&
+        cleaned?.terminal_reason === "operator_abandoned" &&
+        cleaned?.outcome_unknown === true &&
+        cleanedSession.admission_state === "stopped",
     });
     expect(report.failed().filter((c) => c.id.startsWith("D-"))).toEqual([]);
   }, 900_000);
