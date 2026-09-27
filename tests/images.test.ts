@@ -459,11 +459,13 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 type ComposeService = {
   image?: string;
   build?: { dockerfile?: string };
+  cgroup?: string;
   command?: string[];
   env_file?: string[];
   environment?: Record<string, string>;
   healthcheck?: { test?: string[] };
   labels?: Record<string, string>;
+  pid?: string;
   ports?: (string | { host_ip?: string })[];
   restart?: string;
   stop_grace_period?: string;
@@ -685,6 +687,8 @@ describe("compose layers", () => {
     expect(localStack()["datadog-agent"]).toBeUndefined();
     expect(agent).toBeDefined();
     expect(agent?.image).toBe("gcr.io/datadoghq/agent:7.83.3");
+    expect(agent?.pid).toBe("host");
+    expect(agent?.cgroup).toBe("host");
     expect(agent?.env_file).toEqual(["/etc/agent-platform/datadog.env"]);
     expect(agent?.environment?.DD_API_KEY).toBeUndefined();
     expect(read(DATADOG_OVERLAY)).not.toContain("${DD_API_KEY");

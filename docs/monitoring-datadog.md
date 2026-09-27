@@ -49,7 +49,7 @@ docker compose \
   --profile apps up -d
 ```
 
-Agent는 Docker socket과 container log directory를 read-only로 mount한다. `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`로 동적 worker도 수집한다. compose service는 `service`·`env`·`version` label을 받는다. 동적 worker의 `service`는 container short-image에서 유도되고, `env`는 Agent의 전역 `DD_ENV`, `version`은 전역 `DD_TAGS`에서 받는다. `session_id`·`turn_id`는 조사할 로그 attribute로만 남기며 metric tag나 facet으로 만들지 않는다.
+Agent는 Docker socket과 container log directory를 read-only로 mount하고 host PID·cgroup namespace를 읽는다. `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`로 동적 worker도 수집한다. compose service는 `service`·`env`·`version` label을 받는다. 동적 worker의 `service`는 container short-image에서 유도되고, `env`는 Agent의 전역 `DD_ENV`, `version`은 전역 `DD_TAGS`에서 받는다. `session_id`·`turn_id`는 조사할 로그 attribute로만 남기며 metric tag나 facet으로 만들지 않는다.
 
 ## 신호와 초기 monitor
 
