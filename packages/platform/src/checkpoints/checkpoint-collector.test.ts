@@ -270,6 +270,7 @@ async function publish(
       manifest_version: stored.version as string,
       revision,
     },
+    manifest,
     versions: [
       { key: manifestRef, version: stored.version as string },
       ...[bundle, notes].map(({ key, version }) => ({
@@ -573,23 +574,60 @@ describe("against a finalize in flight", () => {
     for (const entry of next.versions) expect(await present(entry)).toBe(true);
   });
 
-  test("finalize refuses a manifest that names another publish's untracked file", async () => {
+  test("a live checkpoint keeps the exact untracked version it reuses from the collected revision before it", async () => {
     const part = await transcriptPart(0);
     const revision0 = await commit(0, "attempt-a", [part]);
-    const foreign = revision0.versions[2] as { key: string; version: string };
+    const inherited = revision0.manifest.workspace.untracked[0];
+    if (inherited === undefined) throw new Error("untracked file missing");
+    const revision1 = await publish(1, "attempt-a", [part], (manifest) => ({
+      ...manifest,
+      workspace: {
+        ...manifest.workspace,
+        untracked: [inherited],
+      },
+    }));
+
+    expect(
+      await service().verifyAttemptManifest({
+        checkpoint: revision1.checkpoint,
+        fence: fenceOf("attempt-a"),
+      }),
+    ).toMatchObject({ status: "verified", versionsHeld: true });
+    expect(
+      await service().finalize({
+        checkpoint: revision1.checkpoint,
+        fence: fenceOf("attempt-a"),
+        now: new Date(),
+        sessionId,
+        turnId: null,
+      }),
+    ).toEqual({ outcome: "committed", revision: 1 });
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(
+      await present({
+        key: inherited.key,
+        version: inherited.version as string,
+      }),
+    ).toBe(true);
+    expect(
+      await present(revision0.versions[0] as { key: string; version: string }),
+    ).toBe(false);
+  });
+
+  test("finalize refuses another publish's untracked file when its executable bit differs", async () => {
+    const part = await transcriptPart(0);
+    const revision0 = await commit(0, "attempt-a", [part]);
+    const inherited = revision0.manifest.workspace.untracked[0];
+    if (inherited === undefined) throw new Error("untracked file missing");
     const stray = await publish(1, "attempt-a", [part], (manifest) => ({
       ...manifest,
       workspace: {
         ...manifest.workspace,
-        untracked: [
-          {
-            bytes: encode("notes 0\n").byteLength,
-            key: foreign.key,
-            path: "notes.md",
-            sha256: sha256(encode("notes 0\n")),
-            version: foreign.version,
-          },
-        ],
+        untracked: [{ ...inherited, executable: true }],
       },
     }));
 
