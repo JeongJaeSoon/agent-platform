@@ -21,7 +21,7 @@ const SCALAR_ENTRY_PATH = fileURLToPath(
 );
 export const SCALAR_ASSET_SOURCE_PATH = join(
   dirname(SCALAR_ENTRY_PATH),
-  "browser/standalone.esm.js",
+  "browser/standalone.js",
 );
 
 function htmlAttribute(value: unknown): string {
@@ -33,8 +33,13 @@ function htmlAttribute(value: unknown): string {
 
 export function renderApiReferenceDocument(): string {
   const configuration = htmlAttribute({
+    agent: { disabled: true },
     hideClientButton: true,
+    hideTestRequestButton: true,
     isEditable: false,
+    showDeveloperTools: "never",
+    showToolbar: "never",
+    telemetry: false,
     withDefaultFonts: false,
   });
   const specification = JSON.stringify(
@@ -54,7 +59,7 @@ export function renderApiReferenceDocument(): string {
     <script id="api-reference" type="application/json" data-configuration="${configuration}">
 ${specification}
     </script>
-    <script type="module" src="./scalar.js"></script>
+    <script src="./scalar.js"></script>
   </body>
 </html>
 `;

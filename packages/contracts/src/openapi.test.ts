@@ -26,11 +26,18 @@ describe("OpenAPI document", () => {
       renderScalarAsset(),
     );
     const html = renderApiReferenceDocument();
+    const scalarAsset = renderScalarAsset();
     expect(html).toContain('src="./scalar.js"');
+    expect(html).toContain("&quot;disabled&quot;:true");
     expect(html).toContain("&quot;hideClientButton&quot;:true");
+    expect(html).toContain("&quot;hideTestRequestButton&quot;:true");
+    expect(html).toContain("&quot;showDeveloperTools&quot;:&quot;never&quot;");
+    expect(html).toContain("&quot;showToolbar&quot;:&quot;never&quot;");
+    expect(html).toContain("&quot;telemetry&quot;:false");
     expect(html).toContain("&quot;withDefaultFonts&quot;:false");
     expect(html).not.toMatch(/(?:src|href)="https?:\/\//);
     expect(html).not.toContain("Authorization");
+    expect(scalarAsset).not.toContain("./chunks/");
   });
 
   test("every cookie-authenticated mutation documents the CSRF header and 403", () => {
