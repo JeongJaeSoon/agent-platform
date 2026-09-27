@@ -769,6 +769,7 @@ describe("compose layers", () => {
               aggregation_type: string;
               include_percentiles?: boolean;
             };
+            filter: { query: string };
             group_by?: { path: string; tag_name?: string }[];
           };
         };
@@ -787,12 +788,20 @@ describe("compose layers", () => {
         "agent_platform.checkpoint.untracked_bytes",
         "agent_platform.checkpoint.untracked_uploads",
         "agent_platform.checkpoint.manifest_bytes",
+        "agent_platform.checkpoint.put_count",
+        "agent_platform.checkpoint.uploaded_bytes",
+        "agent_platform.checkpoint.reused_count",
+        "agent_platform.checkpoint.conflict_count",
         "agent_platform.terminate.acceptance.duration_ms",
+        "agent_platform.session.create.duration_ms",
+        "agent_platform.control.effect.duration_ms",
       ]),
     );
     for (const id of [
       "agent_platform.checkpoint.capture.duration_ms",
       "agent_platform.terminate.acceptance.duration_ms",
+      "agent_platform.session.create.duration_ms",
+      "agent_platform.control.effect.duration_ms",
     ]) {
       expect(
         metricDefinitions.requests.find(({ data }) => data.id === id)?.data
@@ -802,6 +811,20 @@ describe("compose layers", () => {
         include_percentiles: true,
       });
     }
+    expect(
+      metricDefinitions.requests.find(
+        ({ data }) =>
+          data.id === "agent_platform.terminate.acceptance.duration_ms",
+      )?.data.attributes.filter.query,
+    ).toContain("@event:api.request.completed");
+    expect(
+      metricDefinitions.requests.find(
+        ({ data }) => data.id === "agent_platform.control.effect.duration_ms",
+      )?.data.attributes.group_by,
+    ).toContainEqual({
+      path: "@fields.operation",
+      tag_name: "operation",
+    });
     const facets = definitions[1] as {
       excluded_high_cardinality_attributes: string[];
     };

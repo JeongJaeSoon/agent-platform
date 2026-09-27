@@ -78,6 +78,7 @@ export async function migrateWorkspaces(
     // Only the pass lock is used from it.
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
+      logger,
       sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
     });
     // The copy lands under the ceiling this host enforces; a daemon that

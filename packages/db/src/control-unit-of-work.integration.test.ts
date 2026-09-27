@@ -674,10 +674,28 @@ integration("session terminate on PostgreSQL", () => {
       "stopping",
     );
 
-    await gateway.confirmExecutionGone(l.executionId);
+    const sink = new MemoryLogSink();
+    await createPostgresWorkerUnitOfWork(db, {
+      logger: new StructuredLogger({ sinks: [sink] }),
+    }).confirmExecutionGoneAtomic({ executionId: l.executionId, now: clock });
     receipt = await receiptRow(result.response.receipt_id);
     expect(receipt.status).toBe("succeeded");
     expect(receipt.error).toBeNull();
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        event: "control.result",
+        message: "Control result recorded",
+        fields: expect.objectContaining({
+          operation: "terminate",
+          outcome: "succeeded",
+          reason_code: "execution_gone",
+          control_id: result.response.receipt_id,
+          session_id: session.session_id,
+          duration_ms: expect.any(Number),
+          effect_ms: expect.any(Number),
+        }),
+      }),
+    );
   });
 
   test("the slot returns exactly once however often the exit is observed", async () => {
@@ -698,7 +716,18 @@ integration("session terminate on PostgreSQL", () => {
   test("a session with no execution is stopped and its receipt succeeds at once", async () => {
     const session = await queuedSession(`idle-${crypto.randomUUID()}`);
     const before = await sessionRow(session.session_id);
-    const result = await terminate(session, before.revision);
+    const sink = new MemoryLogSink();
+    const result = await createPostgresSessionControl(db, {
+      logger: new StructuredLogger({ sinks: [sink] }),
+    }).terminateAtomic({
+      principal: { ownerId: session.ownerId },
+      sessionId: session.session_id,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: "immediate-result",
+      expectedRevision: before.revision,
+      reason: "operator",
+      now: clock,
+    });
     if (result.outcome !== "accepted") throw new Error(result.outcome);
     expect(result.response.receipt_status).toBe("succeeded");
     const after = await sessionRow(session.session_id);
@@ -715,6 +744,19 @@ integration("session terminate on PostgreSQL", () => {
       unconfirmed_turn_id: null,
       external_effects_reverted: false,
     });
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        event: "control.result",
+        fields: expect.objectContaining({
+          operation: "terminate",
+          outcome: "succeeded",
+          reason_code: "already_absent",
+          control_id: result.response.receipt_id,
+          duration_ms: 0,
+          effect_ms: 0,
+        }),
+      }),
+    );
   });
 
   test("a legacy pod-bound session is refused, not accepted on a kill nobody can deliver", async () => {

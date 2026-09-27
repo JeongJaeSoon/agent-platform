@@ -24,6 +24,7 @@ export interface ObservabilityContext {
 export interface LogRecord extends ObservabilityContext {
   readonly timestamp: string;
   readonly level: LogLevel;
+  readonly event?: string;
   readonly message: string;
   readonly fields?: LogFields;
 }
@@ -137,13 +138,26 @@ export class StructuredLogger {
       const sanitizedFields = fields
         ? sanitizeFields(fields, this.includeMessageBodies)
         : undefined;
+      const event =
+        typeof sanitizedFields?.event === "string"
+          ? sanitizedFields.event
+          : undefined;
+      const recordFields =
+        event === undefined
+          ? sanitizedFields
+          : Object.fromEntries(
+              Object.entries(sanitizedFields ?? {}).filter(
+                ([key]) => key !== "event",
+              ),
+            );
       record = {
         timestamp: this.now().toISOString(),
         level,
+        ...(event === undefined ? {} : { event }),
         message: sanitizeText(message),
         ...this.getContext(),
-        ...(sanitizedFields && Object.keys(sanitizedFields).length > 0
-          ? { fields: sanitizedFields }
+        ...(recordFields && Object.keys(recordFields).length > 0
+          ? { fields: recordFields }
           : {}),
       };
     } catch {

@@ -2,6 +2,27 @@
   "facets": [
     { "path": "@event", "type": "string", "display_name": "Event" },
     {
+      "path": "@fields.operation",
+      "type": "string",
+      "display_name": "Operation"
+    },
+    {
+      "path": "@fields.outcome",
+      "type": "string",
+      "display_name": "Outcome"
+    },
+    {
+      "path": "@fields.reason_code",
+      "type": "string",
+      "display_name": "Reason code"
+    },
+    {
+      "path": "@fields.route_template",
+      "type": "string",
+      "display_name": "Route template"
+    },
+    { "path": "@fields.method", "type": "string", "display_name": "Method" },
+    {
       "path": "@fields.stage",
       "type": "string",
       "display_name": "Checkpoint stage"
@@ -33,6 +54,11 @@
       "display_name": "Duration ms"
     },
     {
+      "path": "@fields.effect_ms",
+      "type": "number",
+      "display_name": "Control effect ms"
+    },
+    {
       "path": "@fields.total_ms",
       "type": "number",
       "display_name": "Checkpoint total ms"
@@ -56,12 +82,33 @@
       "path": "@fields.manifest_bytes",
       "type": "number",
       "display_name": "Checkpoint manifest bytes"
+    },
+    {
+      "path": "@fields.put_count",
+      "type": "number",
+      "display_name": "Checkpoint PUT count"
+    },
+    {
+      "path": "@fields.uploaded_bytes",
+      "type": "number",
+      "display_name": "Checkpoint uploaded bytes"
+    },
+    {
+      "path": "@fields.reused_count",
+      "type": "number",
+      "display_name": "Checkpoint reused count"
+    },
+    {
+      "path": "@fields.conflict_count",
+      "type": "number",
+      "display_name": "Checkpoint conflict count"
     }
   ],
   "excluded_high_cardinality_attributes": [
     "@session_id",
     "@turn_id",
     "@request_id",
+    "@fields.control_id",
     "@fields.session_id",
     "@fields.session_ids",
     "@fields.execution_id",

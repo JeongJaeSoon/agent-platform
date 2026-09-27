@@ -15,6 +15,7 @@ import type {
 import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";
+import { logControlResult } from "./control-observability.ts";
 import {
   BindingMoved,
   type ControlStageMeasure,
@@ -86,7 +87,13 @@ export function terminateReceiptResult(input: {
  */
 export async function expireOverdueTerminations(
   db: Database,
-  input: { now: Date; deadlineMs: number; dryRun?: boolean; limit?: number },
+  input: {
+    now: Date;
+    deadlineMs: number;
+    dryRun?: boolean;
+    limit?: number;
+    logger?: Pick<StructuredLogger, "info">;
+  },
 ): Promise<number> {
   return expireOverdueReceipts(db, {
     overdue: and(
@@ -96,8 +103,30 @@ export async function expireOverdueTerminations(
       lte(receipts.createdAt, fromDbNow(-input.deadlineMs)),
     ),
     message: `execution termination not observed within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
+    onExpired: (expired) => {
+      for (const receipt of expired) {
+        if (receipt.operation !== TERMINATE) continue;
+        const sessionId = sessionIdFromTarget(receipt.targetRef);
+        if (sessionId === undefined) continue;
+        logControlResult(input.logger, {
+          acceptedAt: receipt.createdAt,
+          controlId: receipt.id,
+          effectiveAt: input.now,
+          operation: "terminate",
+          outcome: "unknown",
+          reasonCode: "deadline_exceeded",
+          sessionId,
+        });
+      }
+    },
     ...input,
   });
+}
+
+function sessionIdFromTarget(target: unknown): string | undefined {
+  if (target === null || typeof target !== "object") return undefined;
+  const sessionId = (target as { session_id?: unknown }).session_id;
+  return typeof sessionId === "string" ? sessionId : undefined;
 }
 
 type SessionRow = typeof sessions.$inferSelect;
@@ -411,6 +440,21 @@ export function createPostgresSessionControl(
               );
             }
             outcome = result.outcome;
+            if (
+              result.outcome === "accepted" &&
+              result.response.receipt_status === "succeeded"
+            ) {
+              const effectiveAt = new Date();
+              logControlResult(options.logger, {
+                acceptedAt: effectiveAt,
+                controlId: result.response.receipt_id,
+                effectiveAt,
+                operation: "terminate",
+                outcome: "succeeded",
+                reasonCode: "already_absent",
+                sessionId,
+              });
+            }
             return result;
           } catch (error) {
             if (workFinished !== undefined) {

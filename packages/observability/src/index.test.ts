@@ -8,6 +8,23 @@ import {
 } from "./index.ts";
 
 describe("structured logging", () => {
+  test("keeps a stable event separate from the human-readable message", () => {
+    const sink = new MemoryLogSink();
+    const logger = createLogger({ sinks: [sink] });
+
+    logger.info("API request completed", {
+      event: "api.request.completed",
+      operation: "api_request",
+    });
+
+    expect(sink.records[0]).toMatchObject({
+      event: "api.request.completed",
+      message: "API request completed",
+      fields: { operation: "api_request" },
+    });
+    expect(sink.records[0]?.fields).not.toHaveProperty("event");
+  });
+
   test.each([false, true])(
     "redacts sensitive text in log messages with includeMessageBodies=%s",
     (includeMessageBodies) => {

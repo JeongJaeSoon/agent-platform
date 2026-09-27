@@ -38,9 +38,79 @@
           "compute": {
             "aggregation_type": "distribution",
             "include_percentiles": true,
-            "path": "@fields.total_ms"
+            "path": "@fields.duration_ms"
           },
-          "filter": { "query": "@event:worker.checkpoint.published" },
+          "filter": { "query": "@event:worker.checkpoint.result" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.put_count",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.put_count"
+          },
+          "filter": { "query": "@event:worker.checkpoint.result" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" },
+            { "path": "@fields.outcome", "tag_name": "outcome" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.uploaded_bytes",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.uploaded_bytes"
+          },
+          "filter": { "query": "@event:worker.checkpoint.result" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" },
+            { "path": "@fields.outcome", "tag_name": "outcome" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.reused_count",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.reused_count"
+          },
+          "filter": { "query": "@event:worker.checkpoint.result" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.conflict_count",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.conflict_count"
+          },
+          "filter": { "query": "@event:worker.checkpoint.result" },
           "group_by": [
             { "path": "service", "tag_name": "service" },
             { "path": "env", "tag_name": "env" }
@@ -127,11 +197,52 @@
             "path": "@fields.duration_ms"
           },
           "filter": {
-            "query": "@event:\"Terminate API request completed\" @fields.status:202"
+            "query": "@event:api.request.completed @fields.route_template:\"/v1/sessions/:id/terminate\" @fields.method:POST @fields.status:202"
           },
           "group_by": [
             { "path": "service", "tag_name": "service" },
             { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.session.create.duration_ms",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "include_percentiles": true,
+            "path": "@fields.duration_ms"
+          },
+          "filter": {
+            "query": "@event:api.request.completed @fields.route_template:\"/v1/sessions\" @fields.method:POST"
+          },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" },
+            { "path": "@fields.outcome", "tag_name": "outcome" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.control.effect.duration_ms",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "include_percentiles": true,
+            "path": "@fields.effect_ms"
+          },
+          "filter": { "query": "@event:control.result" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" },
+            { "path": "@fields.operation", "tag_name": "operation" },
+            { "path": "@fields.outcome", "tag_name": "outcome" }
           ]
         }
       }

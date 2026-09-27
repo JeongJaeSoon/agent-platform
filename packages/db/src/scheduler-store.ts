@@ -3,6 +3,7 @@ import {
   type ExecutionBackend as ExecutionBackendKind,
   executionBackendSchema,
 } from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
 import type {
   ActiveExecution,
   DrainState,
@@ -85,6 +86,7 @@ export type PostgresSchedulerStoreOptions = {
    * would launch another, round and round.
    */
   sessionCostLimitUsd: number;
+  logger?: StructuredLogger;
 };
 
 const PASS_LOCK_KEY = "scheduler:pass";
@@ -134,7 +136,9 @@ export function createPostgresSchedulerStore(
   options: PostgresSchedulerStoreOptions,
 ): SchedulerStore {
   const nonceTtlMs = options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
-  const work = createPostgresWorkerUnitOfWork(db);
+  const work = createPostgresWorkerUnitOfWork(db, {
+    ...(options.logger ? { logger: options.logger } : {}),
+  });
   return {
     async acquirePassLock(): Promise<PassLock | null> {
       const client = await options.connectForLock();
@@ -1049,6 +1053,7 @@ export function createPostgresSchedulerStore(
       return expireOverdueTerminations(db, {
         ...input,
         limit: OVERDUE_TERMINATION_SWEEP_LIMIT,
+        ...(options.logger ? { logger: options.logger } : {}),
       });
     },
   };

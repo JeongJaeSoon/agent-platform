@@ -394,6 +394,51 @@ describe("API authentication", () => {
 });
 
 describe("API validation and errors", () => {
+  test("logs every /v1 completion without request bodies or credentials", async () => {
+    const { logger, sink } = loggerWithMemory();
+    const app = createApiApp({
+      authMode: "none",
+      logger,
+      registerRoutes(router) {
+        router.post("/sessions/:id/echo", async (context) => {
+          await context.req.json();
+          return context.json({ ok: true });
+        });
+      },
+    });
+    const secret = "sk-example-secret-value";
+    const response = await app.request("/v1/sessions/session-actual-id/echo", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/json",
+        "X-Owner-Id": "local-owner",
+      },
+      body: JSON.stringify({ message: secret }),
+    });
+
+    expect(response.status).toBe(200);
+    const record = sink.records.find(
+      ({ event }) => event === "api.request.completed",
+    );
+    expect(record).toMatchObject({
+      message: "API request completed",
+      request_id: response.headers.get("X-Request-Id"),
+      fields: {
+        operation: "api_request",
+        outcome: "succeeded",
+        reason_code: "none",
+        route_template: "/v1/sessions/:id/echo",
+        method: "POST",
+        status: 200,
+        duration_ms: expect.any(Number),
+      },
+    });
+    const logged = JSON.stringify(record);
+    expect(logged).not.toContain("session-actual-id");
+    expect(logged).not.toContain(secret);
+  });
+
   test("rejects unknown request fields through the contracts schema", async () => {
     const app = createApiApp({
       authMode: "none",

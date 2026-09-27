@@ -3,12 +3,17 @@ import {
   type ControlAcceptedResponse,
   terminalTurnStatusSchema,
 } from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
 import type {
   InterruptTurnInput,
   InterruptTurnResult,
   TurnInterrupts,
 } from "@agent-platform/platform";
 import { and, eq, isNull } from "drizzle-orm";
+import {
+  type ControlResultEvent,
+  logControlResult,
+} from "./control-observability.ts";
 import {
   findIdempotent,
   type IdempotencyScope,
@@ -31,17 +36,23 @@ import { interruptReceiptResult } from "./turn-interrupts.ts";
 
 const INTERRUPT = "interrupt";
 
-export function createPostgresTurnInterrupts(db: Database): TurnInterrupts {
+export function createPostgresTurnInterrupts(
+  db: Database,
+  options: { logger?: StructuredLogger } = {},
+): TurnInterrupts {
   return {
-    interruptAtomic(input: InterruptTurnInput): Promise<InterruptTurnResult> {
+    async interruptAtomic(
+      input: InterruptTurnInput,
+    ): Promise<InterruptTurnResult> {
       const sessionId = input.sessionId.toLowerCase();
+      let completed: ControlResultEvent | undefined;
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
         operation: INTERRUPT,
         resource: sessionId,
         key: input.idempotencyKey,
       };
-      return db.transaction(async (tx) => {
+      const result: InterruptTurnResult = await db.transaction(async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {
@@ -166,8 +177,23 @@ export function createPostgresTurnInterrupts(db: Database): TurnInterrupts {
           payloadHash: input.payloadHash,
           receiptId,
         });
+        if (!open) {
+          completed = {
+            acceptedAt: at,
+            controlId: receiptId,
+            effectiveAt: at,
+            operation: "interrupt",
+            outcome: turn.status,
+            reasonCode: "no_op",
+            sessionId,
+          };
+        }
         return { outcome: "accepted", response };
       });
+      if (completed !== undefined) {
+        logControlResult(options.logger, completed);
+      }
+      return result;
     },
   };
 }

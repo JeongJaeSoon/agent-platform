@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -10,7 +11,10 @@ import {
 } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { controlIntents, receipts, sessions, turns } from "./schema.ts";
-import { expireOverdueInterrupts } from "./turn-interrupts.ts";
+import {
+  expireOverdueInterrupts,
+  settleTurnInterrupts,
+} from "./turn-interrupts.ts";
 
 /**
  * 94S-399: a reconciler back from a long stop finds a backlog of overdue
@@ -42,7 +46,7 @@ async function acceptedReceipt(operation: string): Promise<string> {
     id,
     ownerId: "owner-a",
     operation,
-    targetRef: {},
+    targetRef: { session_id: "session-a" },
     createdAt: LONG_AGO,
   });
   return id;
@@ -124,13 +128,110 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
     expect(await expire(false)).toBe(0);
   });
 
+  test("expired interrupt and terminate receipts log their final unknown result", async () => {
+    await overdueInterrupts(1);
+    const [interrupt] = await db
+      .select({ id: controlIntents.id })
+      .from(controlIntents);
+    if (!interrupt) throw new Error("no interrupt intent");
+    await acceptedReceipt("terminate");
+    const sink = new MemoryLogSink();
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const now = new Date();
+
+    await expireOverdueInterrupts(db, {
+      now,
+      deadlineMs: DEADLINE_MS,
+      limit: LIMIT,
+      logger,
+    });
+    await expireOverdueTerminations(db, {
+      now,
+      deadlineMs: DEADLINE_MS,
+      limit: LIMIT,
+      logger,
+    });
+
+    expect(sink.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "control.result",
+          fields: expect.objectContaining({
+            control_id: interrupt.id,
+            operation: "interrupt",
+            outcome: "unknown",
+            reason_code: "deadline_exceeded",
+          }),
+        }),
+        expect.objectContaining({
+          event: "control.result",
+          fields: expect.objectContaining({
+            operation: "terminate",
+            outcome: "unknown",
+            reason_code: "deadline_exceeded",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test("a control accepted after the worker terminal is still returned by receipt settlement", async () => {
+    const sessionId = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id: sessionId,
+      ownerId: "owner-a",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${sessionId}`,
+    });
+    const [turn] = await db
+      .insert(turns)
+      .values({ sessionId, sequence: 1, message: "m1", status: "running" })
+      .returning({ id: turns.id });
+    if (!turn) throw new Error("no turn");
+    const receiptId = await acceptedReceipt("interrupt");
+    const controlId = crypto.randomUUID();
+    await db.insert(controlIntents).values({
+      id: controlId,
+      sessionId,
+      kind: "interrupt",
+      targetTurnId: turn.id,
+      attemptId: "attempt-a",
+      receiptId,
+      issuedAt: LONG_AGO,
+    });
+    const effectiveAt = new Date();
+
+    const results = await db.transaction((tx) =>
+      settleTurnInterrupts(tx, {
+        sessionId,
+        turnRowId: turn.id,
+        turnSequence: 1,
+        terminal: "completed",
+        terminalReason: null,
+        at: effectiveAt,
+      }),
+    );
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        controlId,
+        effectiveAt,
+        operation: "interrupt",
+        outcome: "completed",
+        reasonCode: "no_op",
+        sessionId,
+      }),
+    ]);
+  });
+
   test("the scheduler sweep takes one batch per pass too (94S-450)", async () => {
+    const sessionId = crypto.randomUUID();
     await db.insert(receipts).values(
       Array.from({ length: OVERDUE_TERMINATION_SWEEP_LIMIT }, () => ({
         id: crypto.randomUUID(),
         ownerId: "owner-a",
         operation: "terminate",
-        targetRef: {},
+        targetRef: { session_id: sessionId },
         createdAt: LONG_AGO,
       })),
     );
@@ -139,15 +240,17 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
       id: oldest,
       ownerId: "owner-a",
       operation: "terminate",
-      targetRef: {},
+      targetRef: { session_id: sessionId },
       createdAt: new Date(LONG_AGO.getTime() - 60_000),
     });
     // The open-terminate index happens to yield created_at order; without it
     // the scan returns heap order, where the oldest comes last.
     await client.exec("DROP INDEX receipts_open_terminate_idx");
+    const sink = new MemoryLogSink();
     const store = createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
       connectForLock: () => Promise.reject(new Error("not used")),
+      logger: new StructuredLogger({ sinks: [sink] }),
     });
     const sweep = () =>
       store.markOverdueTerminations({
@@ -157,12 +260,18 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
 
     expect(await sweep()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
     expect(await unknownCount()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
+    expect(
+      sink.records.filter(({ event }) => event === "control.result"),
+    ).toHaveLength(OVERDUE_TERMINATION_SWEEP_LIMIT);
     const [first] = await db
       .select({ status: receipts.status })
       .from(receipts)
       .where(eq(receipts.id, oldest));
     expect(first?.status).toBe("unknown");
     expect(await sweep()).toBe(1);
+    expect(
+      sink.records.filter(({ event }) => event === "control.result"),
+    ).toHaveLength(OVERDUE_TERMINATION_SWEEP_LIMIT + 1);
     expect(await sweep()).toBe(0);
   });
 });

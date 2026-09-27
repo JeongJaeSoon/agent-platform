@@ -3,7 +3,7 @@
   "requests": [
     {
       "name": "Agent Platform structured stdout",
-      "description": "Parse the JSON record emitted by @agent-platform/observability and promote message to the searchable event attribute.",
+      "description": "Parse the JSON record emitted by @agent-platform/observability; keep message as the event fallback for records predating the top-level event field.",
       "is_enabled": true,
       "filter": {
         "query": "source:agent-platform OR service:agent-platform-worker"
@@ -15,7 +15,7 @@
           "is_enabled": true,
           "source": "message",
           "samples": [
-            "{\"timestamp\":\"2026-09-27T00:00:00.000Z\",\"level\":\"warn\",\"message\":\"worker.checkpoint.failed\",\"fields\":{\"stage\":\"finalize\"}}"
+            "{\"timestamp\":\"2026-09-27T00:00:00.000Z\",\"level\":\"warn\",\"event\":\"worker.checkpoint.result\",\"message\":\"Checkpoint capture finished\",\"fields\":{\"outcome\":\"failed\",\"reason_code\":\"finalize\"}}"
           ],
           "grok": {
             "support_rules": "",
@@ -36,7 +36,7 @@
         },
         {
           "type": "attribute-remapper",
-          "name": "Promote message to event",
+          "name": "Use message as the legacy event fallback",
           "is_enabled": true,
           "sources": ["message"],
           "source_type": "attribute",
