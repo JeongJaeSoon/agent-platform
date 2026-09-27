@@ -93,6 +93,7 @@ function harness(
   overrides: {
     checkpoints?: WorkerCheckpointPort;
     gateway?: FakeWorkerGateway;
+    logger?: WorkerLogger;
     timeouts?: Partial<WorkerTimeouts>;
     wrap?: (run: AgentRun) => AgentRun;
   } = {},
@@ -128,7 +129,7 @@ function harness(
     checkpoints: overrides.checkpoints ?? capturing(),
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
-    logger: silent,
+    logger: overrides.logger ?? silent,
     runtimes,
     timeouts: { ...timeouts, ...overrides.timeouts },
     workspace: noWorkspace,
@@ -173,6 +174,48 @@ const TWO_TURNS: FakeStep[] = [
 ];
 
 describe("WorkerHost interrupt", () => {
+  test("records a correlated timeline from control receipt through finalize", async () => {
+    const records: Array<{ event: string; fields: Record<string, unknown> }> =
+      [];
+    const record = (event: string, fields: Record<string, unknown> = {}) => {
+      records.push({ event, fields });
+    };
+    const logger: WorkerLogger = {
+      info: record,
+      warn: record,
+      error: record,
+    };
+    const { gateway, host, runtime } = harness(TWO_TURNS, { logger });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    await loop;
+
+    const stages = records
+      .filter(({ event }) => event === "worker.turn.interrupt.stage")
+      .map(({ fields }) => fields);
+    expect(stages.map(({ stage }) => stage)).toEqual([
+      "control_received",
+      "sdk_interrupt_called",
+      "sdk_interrupt_answered",
+      "engine_terminal",
+      "capture_started",
+      "capture_finished",
+      "finalize_started",
+      "finalize_finished",
+    ]);
+    for (const stage of stages) {
+      expect(stage).toMatchObject({
+        session_id: SESSION_ID,
+        turn_id: "1",
+        control_id: "ctl-1",
+      });
+      expect(stage.elapsed_ms).toBeNumber();
+    }
+  });
+
   test("stops only the targeted turn within 5s, with a checkpoint, and runs the next input on the same engine", async () => {
     const checkpoints = capturing();
     // Production cadences: the heartbeat alone would take 10s to say anything.
@@ -385,6 +428,11 @@ describe("WorkerHost interrupt", () => {
     "a turn that ended before the interrupt landed: $name",
     async ({ message, status }) => {
       let interrupted = false;
+      const records: Array<{ event: string; fields: Record<string, unknown> }> =
+        [];
+      const record = (event: string, fields: Record<string, unknown> = {}) => {
+        records.push({ event, fields });
+      };
       const { gateway, host, runtime } = harness(
         [
           { type: "await-input" },
@@ -393,6 +441,7 @@ describe("WorkerHost interrupt", () => {
           { type: "await-input" },
         ],
         {
+          logger: { info: record, warn: record, error: record },
           // The engine had already finished: the interrupt reaches nothing.
           wrap: withInterrupt(async () => {
             interrupted = true;
@@ -409,6 +458,20 @@ describe("WorkerHost interrupt", () => {
 
       expect(interrupted).toBe(true);
       expect(summary.turns[0]?.status).toBe(status);
+      const stages = records
+        .filter(({ event }) => event === "worker.turn.interrupt.stage")
+        .map(({ fields }) => fields);
+      expect(stages.map(({ stage }) => stage)).toEqual([
+        "control_received",
+        "sdk_interrupt_called",
+        "sdk_interrupt_answered",
+        "engine_terminal",
+        "capture_started",
+        "capture_finished",
+        "finalize_started",
+        "finalize_finished",
+      ]);
+      expect(stages[3]).toMatchObject({ terminal_status: status });
     },
   );
 
@@ -518,6 +581,46 @@ describe("WorkerHost interrupt", () => {
       },
     ]);
     expect(runtime.inputs).toHaveLength(1);
+  });
+
+  test("an SDK answer after the grace is recorded as late", async () => {
+    const records: Array<{ event: string; fields: Record<string, unknown> }> =
+      [];
+    const record = (event: string, fields: Record<string, unknown> = {}) => {
+      records.push({ event, fields });
+    };
+    const { gateway, host, runtime } = harness(TWO_TURNS, {
+      logger: { info: record, warn: record, error: record },
+      timeouts: { interruptGraceMs: 20 },
+      wrap: withInterrupt(async () => {
+        await Bun.sleep(60);
+        return { stillQueued: [] };
+      }),
+    });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    await loop;
+    await Bun.sleep(60);
+
+    const stages = records
+      .filter(({ event }) => event === "worker.turn.interrupt.stage")
+      .map(({ fields }) => fields);
+    expect(stages.map(({ stage }) => stage)).toEqual([
+      "control_received",
+      "sdk_interrupt_called",
+      "engine_terminal",
+      "finalize_started",
+      "finalize_finished",
+      "late_sdk_interrupt_answered",
+    ]);
+    expect(stages[2]).toMatchObject({
+      outcome: "timeout",
+      sdk_response: "pending",
+    });
+    expect(stages[5]).toMatchObject({ outcome: "acknowledged" });
   });
 
   test("an intent handed out on every poll interrupts the turn once", async () => {
@@ -835,6 +938,47 @@ describe("WorkerHost interrupt", () => {
       },
     ]);
     expect(runtime.inputs).toHaveLength(1);
+  });
+
+  test("an abandoned interrupt capture records one terminal stage even when it later finishes", async () => {
+    const records: Array<{ event: string; fields: Record<string, unknown> }> =
+      [];
+    const record = (event: string, fields: Record<string, unknown> = {}) => {
+      records.push({ event, fields });
+    };
+    let captureStarted = false;
+    let finishCapture: () => void = () => {};
+    const { gateway, host, runtime } = harness(TWO_TURNS, {
+      logger: { info: record, warn: record, error: record },
+      timeouts: { drainTimeoutMs: 20, interruptCaptureMs: 2_000 },
+      checkpoints: {
+        restorePlan: async () => ({ mode: "new" }),
+        capture: () => {
+          captureStarted = true;
+          return new Promise((resolve) => {
+            finishCapture = () => resolve(null);
+          });
+        },
+      },
+    });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+    await waitFor(() => captureStarted, "checkpoint capture started");
+    host.drain("received SIGTERM");
+
+    await loop;
+    finishCapture();
+    await Bun.sleep(1);
+
+    const captureFinishes = records
+      .filter(({ event }) => event === "worker.turn.interrupt.stage")
+      .map(({ fields }) => fields)
+      .filter(({ stage }) => stage === "capture_finished");
+    expect(captureFinishes).toEqual([
+      expect.objectContaining({ outcome: "abandoned" }),
+    ]);
   });
 
   test("a turn deadline passing mid-interrupt leaves the interrupt its outcome", async () => {
