@@ -97,6 +97,7 @@ permission_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
     '{request_id:$request_id, kind:"permission", decision:"allow"}')")
 echo "$permission_answer" | jq -e '.receipt_status == "accepted"'
 wait_for "/v1/sessions/$SID/turns/1" .status completed
+wait_for "/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" .status succeeded
 curl -sS "$API/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" \
   "${AUTH[@]}" | jq -e '.operation == "answer" and .status == "succeeded"'
 
