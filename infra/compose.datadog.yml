@@ -5,7 +5,7 @@ services:
     pid: host
     cgroup: host
     env_file:
-      - /etc/agent-platform/datadog.env
+      - ${DATADOG_ENV_FILE:-/etc/agent-platform/datadog.env}
     environment:
       DD_APM_ENABLED: "false"
       DD_LOGS_ENABLED: "true"

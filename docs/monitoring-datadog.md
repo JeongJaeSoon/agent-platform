@@ -8,7 +8,7 @@
 
 Agent는 선택형 [`infra/compose.datadog.yml`](../infra/compose.datadog.yml)에서만 생긴다. 이 파일을 지정하지 않는 로컬·test-ops 기본 stack에는 Agent, mount, label, 필수 환경 변수가 하나도 추가되지 않는다. Agent image는 `gcr.io/datadoghq/agent:7.83.3`으로 고정한다.
 
-`DD_API_KEY`와 Datadog용 PostgreSQL password는 저장소나 shell history에 넣지 않는다. 서버에서 운영자가 `/etc/agent-platform/datadog.env`를 만들고 mode 600을 확인한다. 값은 예시 자리표시자이며 실제 값을 문서·티켓·로그에 복사하지 않는다.
+`DD_API_KEY`와 Datadog용 PostgreSQL password는 저장소나 shell history에 넣지 않는다. 서버에서 운영자가 `/etc/agent-platform/datadog.env`를 만들고 mode 600을 확인한다. 다른 절대 경로를 써야 할 때만 `DATADOG_ENV_FILE`로 바꾸며, 값은 예시 자리표시자이므로 실제 값을 문서·티켓·로그에 복사하지 않는다.
 
 ```dotenv
 DD_API_KEY=<operator-supplied>

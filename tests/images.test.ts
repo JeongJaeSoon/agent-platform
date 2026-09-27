@@ -689,7 +689,9 @@ describe("compose layers", () => {
     expect(agent?.image).toBe("gcr.io/datadoghq/agent:7.83.3");
     expect(agent?.pid).toBe("host");
     expect(agent?.cgroup).toBe("host");
-    expect(agent?.env_file).toEqual(["/etc/agent-platform/datadog.env"]);
+    expect(agent?.env_file).toEqual([
+      `\${DATADOG_ENV_FILE:-/etc/agent-platform/datadog.env}`,
+    ]);
     expect(agent?.environment?.DD_API_KEY).toBeUndefined();
     expect(read(DATADOG_OVERLAY)).not.toContain("${DD_API_KEY");
     expect(agent?.volumes).toContain(
@@ -727,6 +729,7 @@ describe("compose layers", () => {
         [...LOCAL_LAYERS, DATADOG_OVERLAY],
         {
           DD_ENV: "alpha",
+          DATADOG_ENV_FILE: "/dev/null",
           DD_VERSION: "test-sha",
         },
         { noEnvResolution: true },
