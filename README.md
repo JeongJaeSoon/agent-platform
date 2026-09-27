@@ -6,7 +6,7 @@
 
 **신뢰된 내부 인원만 쓰는 private alpha다.** 24시간 soak는 LocalStack OOM으로 무효였고 재실행하지 않기로 결정했다. 실제 AWS S3, HTTPS, provider 호출, 장시간 부하를 포함한 남은 검증은 [실서버 배포 절차](docs/alpha-deployment.md)에 따라 서버에서 수행한다. 이 상태는 24시간 soak 통과나 외부 공개 준비 완료를 뜻하지 않는다.
 
-provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다. BYOK와 외부 공개 경계를 다루는 [94S-253](https://linear.app/94soon/issue/94S-253)을 닫기 전에는 외부에 공개하지 않는다.
+provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다. provider key 소유 모델과 외부 공개 경계를 결정하는 [94S-376](https://linear.app/94soon/issue/94S-376)을 닫기 전에는 외부에 공개하지 않는다.
 
 ## 문서 지도
 
