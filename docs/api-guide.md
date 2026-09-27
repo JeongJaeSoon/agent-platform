@@ -88,9 +88,9 @@ permission_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
     '{request_id:$request_id, kind:"permission", decision:"allow"}')")
 echo "$permission_answer" | jq -e '.receipt_status == "accepted"'
 wait_for "/v1/sessions/$SID/turns/1" .status completed
-PERMISSION_RECEIPT_ID=$(echo "$permission_answer" | jq -r .receipt_id)
-wait_for "/v1/receipts/$PERMISSION_RECEIPT_ID" .status succeeded
-curl -sS "$API/v1/receipts/$PERMISSION_RECEIPT_ID" "${AUTH[@]}" | jq -e '.operation == "answer"'
+wait_for "/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" .status succeeded
+curl -sS "$API/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" \
+  "${AUTH[@]}" | jq -e '.operation == "answer" and .status == "succeeded"'
 
 question_message=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-question","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}' \
   '{message:$message}')
