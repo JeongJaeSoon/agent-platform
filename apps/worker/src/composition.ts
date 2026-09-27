@@ -55,7 +55,8 @@ export function createWorkerHost(
   config: WorkerConfig,
   overrides: WorkerComposition = {},
 ): WorkerHost {
-  const engines = overrides.engines ?? new EngineProcesses();
+  const engines =
+    overrides.engines ?? new EngineProcesses("/proc", config.runtime.cwd);
   const logger = overrides.logger ?? consoleLogger;
   const gateway =
     overrides.gateway ??

@@ -1,8 +1,40 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { EngineProcesses } from "./engine-processes.ts";
 
 describe("EngineProcesses", () => {
+  test("finds the descendants left under a live engine process", async () => {
+    const procRoot = await mkdtemp(join(tmpdir(), "94s-481-proc-"));
+    const workspace = await mkdtemp(join(tmpdir(), "94s-481-workspace-"));
+    const children = async (pid: number, body: string) => {
+      const task = join(procRoot, String(pid), "task", String(pid));
+      await mkdir(task, { recursive: true });
+      await writeFile(join(task, "children"), body);
+    };
+    try {
+      await children(101, "103 102\n");
+      await children(102, "104\n");
+      await children(103, "");
+      await children(104, "");
+      const otherThread = join(procRoot, "101", "task", "201");
+      await mkdir(otherThread, { recursive: true });
+      await writeFile(join(otherThread, "children"), "105\n");
+      await children(105, "");
+      await mkdir(join(procRoot, "106"), { recursive: true });
+      await symlink(workspace, join(procRoot, "106", "cwd"));
+      const engines = new EngineProcesses(procRoot, workspace);
+      engines.onSpawn(101);
+
+      expect(await engines.descendants()).toEqual([102, 103, 104, 105, 106]);
+    } finally {
+      await rm(procRoot, { force: true, recursive: true });
+      await rm(workspace, { force: true, recursive: true });
+    }
+  });
+
   test("reports exit only once every spawned engine is gone", async () => {
     const engines = new EngineProcesses();
     engines.onSpawn(101);

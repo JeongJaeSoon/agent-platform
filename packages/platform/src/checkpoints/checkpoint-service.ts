@@ -334,6 +334,11 @@ type CommittedReads = {
   ): Promise<CheckpointManifest | undefined>;
 };
 
+type VerifiedRefs = {
+  objects: ReadonlySet<string>;
+  untracked: ReadonlySet<string>;
+};
+
 /**
  * Turns an uploaded manifest into the session's durable restore point, and
  * reads it back as a restore plan.
@@ -416,11 +421,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     pinned?: PinnedVersions;
     sessionId: string;
     /**
-     * Tokens (`refToken`) of versions a previous commit already read and
-     * hashed. A version never changes, so re-hashing it would only
-     * re-download a transcript that grows with the session.
+     * Versions a previous commit already read and hashed, plus the exact
+     * path and executable bit of its untracked artifacts. A version never
+     * changes, so re-hashing it would only re-download inherited data; the
+     * artifact metadata is what permits that prior publish's ref here.
      */
-    verified?: ReadonlySet<string>;
+    verified?: VerifiedRefs;
     /**
      * Finalize only: `verified` also speaks for those versions still being
      * stored and held (`verifiedRefs`), so they are skipped without a
@@ -541,18 +547,19 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     manifest: CheckpointManifest,
     sessionId: string,
     manifestRef: string,
-    verified: ReadonlySet<string> = new Set(),
+    verified: VerifiedRefs = { objects: new Set(), untracked: new Set() },
     pinned?: PinnedVersions,
     confined = false,
     held = false,
   ): Promise<Problem | undefined> {
-    const refs = [
+    const transcriptRefs = [
       ...manifest.transcripts.root.parts,
       ...Object.values(manifest.transcripts.subagents).flatMap(
         (revision) => revision.parts,
       ),
-      ...manifest.workspace.untracked,
     ];
+    const untracked = manifest.workspace.untracked;
+    const refs: readonly ObjectRef[] = [...transcriptRefs, ...untracked];
     const chain = chainOf(manifest.workspace);
     // Counted before any request goes out: the bundles are the rest.
     if (refs.length + chain.length > maxManifestObjects) {
@@ -585,11 +592,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // the pointer names.
     const publish = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
     const directories = `${prefix}checkpoints/`;
+    const outsidePublish = (ref: ObjectRef) =>
+      ref.key.startsWith(directories) && !ref.key.startsWith(publish);
     const stray = confined
-      ? refs.find(
-          (ref) =>
-            ref.key.startsWith(directories) && !ref.key.startsWith(publish),
-        )
+      ? (transcriptRefs.find(outsidePublish) ??
+        untracked.find((ref) => {
+          const artifact = workspaceArtifactToken(ref);
+          return (
+            outsidePublish(ref) &&
+            (artifact === undefined || !verified.untracked.has(artifact))
+          );
+        }))
       : undefined;
     if (stray !== undefined) {
       return refused(
@@ -627,7 +640,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // checkpoint into a throttled one.
     const problems = await inBatches(refs, 32, async (ref) => {
       const token = refToken(ref);
-      const known = token !== undefined && verified.has(token);
+      const known = token !== undefined && verified.objects.has(token);
       if (known && held) return undefined;
       const head = await objects.head(ref.key, ref.version);
       if (head === undefined) {
@@ -879,6 +892,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * for the record: any later candidate may name an old manifest as one of
    * its own objects and get it held without ever committing.
    *
+   * For an untracked artifact, the pointer vouches for its restore path and
+   * executable bit as well as its object ref. Only that exact tuple may be
+   * inherited by the next manifest; a renamed or chmodded file is a new
+   * artifact under the new publish.
+   *
    * Such a pointer also vouches that those versions are still stored and
    * held, which is what lets finalize skip them without a request
    * (`held`). Its finalize held every one before it committed (`holdAll`),
@@ -897,31 +915,39 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     sessionId: string,
     parent?: number,
     reads = committedReads(sessionId),
-  ): Promise<Set<string>> {
-    const tokens = new Set<string>();
+  ): Promise<VerifiedRefs> {
+    const objects = new Set<string>();
+    const untracked = new Set<string>();
     try {
       const pointer = await reads.pointer();
-      if (pointer === null) return tokens;
-      if (parent !== undefined && pointer.revision !== parent) return tokens;
+      if (pointer === null) return { objects, untracked };
+      if (parent !== undefined && pointer.revision !== parent) {
+        return { objects, untracked };
+      }
       if (protection === "locked" && pointer.versionsHeld !== true) {
-        return tokens;
+        return { objects, untracked };
       }
       const manifest = await reads.manifest(pointer);
-      if (manifest === undefined) return tokens;
+      if (manifest === undefined) return { objects, untracked };
       for (const ref of [
         ...manifest.transcripts.root.parts,
         ...Object.values(manifest.transcripts.subagents).flatMap(
           (revision) => revision.parts,
         ),
-        ...manifest.workspace.untracked,
       ]) {
         const token = refToken(ref);
-        if (token !== undefined) tokens.add(token);
+        if (token !== undefined) objects.add(token);
+      }
+      for (const ref of manifest.workspace.untracked) {
+        const token = refToken(ref);
+        if (token !== undefined) objects.add(token);
+        const artifact = workspaceArtifactToken(ref);
+        if (artifact !== undefined) untracked.add(artifact);
       }
     } catch {
-      return new Set();
+      return { objects: new Set(), untracked: new Set() };
     }
-    return tokens;
+    return { objects, untracked };
   }
 
   /**
@@ -1663,6 +1689,13 @@ function refToken(ref: ObjectRef): string | undefined {
   return ref.version === undefined
     ? undefined
     : JSON.stringify([ref.key, ref.sha256, ref.version, ref.bytes]);
+}
+
+function workspaceArtifactToken(ref: WorkspaceArtifact): string | undefined {
+  const object = refToken(ref);
+  return object === undefined
+    ? undefined
+    : JSON.stringify([object, ref.path, ref.executable === true]);
 }
 
 function versionSuffix(version: string | undefined): string {

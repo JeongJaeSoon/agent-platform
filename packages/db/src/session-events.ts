@@ -4,6 +4,7 @@ import {
   sessionEventPayloadSchema,
 } from "@agent-platform/contracts";
 import { and, eq, notExists, sql } from "drizzle-orm";
+import type { ControlStageMeasure } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import {
   actionableOfSession,
@@ -28,23 +29,29 @@ export async function recordEvent(
     payload: Record<string, unknown>;
     turnRowId: number | null;
     attemptId?: string;
+    measure?: ControlStageMeasure;
     now: Date;
   },
 ) {
+  const measure = input.measure ?? (async (_stage, work) => work());
   const checked = sessionEventPayloadSchema.parse({
     event: input.type,
     data: input.payload,
   });
-  await tx.insert(events).values({
-    sessionId: input.sessionId,
-    type: checked.event,
-    payload: checked.data,
-    turnId: input.turnRowId,
-    // No source_sequence: that numbering is the worker's own stream.
-    attemptId: input.attemptId ?? null,
-    occurredAt: input.now,
-  });
-  await tx.execute(sql`SELECT pg_notify('session_events', ${input.sessionId})`);
+  await measure("insert_status_event_ms", () =>
+    tx.insert(events).values({
+      sessionId: input.sessionId,
+      type: checked.event,
+      payload: checked.data,
+      turnId: input.turnRowId,
+      // No source_sequence: that numbering is the worker's own stream.
+      attemptId: input.attemptId ?? null,
+      occurredAt: input.now,
+    }),
+  );
+  await measure("notify_status_event_ms", () =>
+    tx.execute(sql`SELECT pg_notify('session_events', ${input.sessionId})`),
+  );
 }
 
 /**
@@ -58,6 +65,7 @@ export async function recordStatus(
     sessionId: string;
     phase: StatusEventPhase;
     extra?: Record<string, unknown>;
+    measure?: ControlStageMeasure;
     turnRowId: number | null;
     now: Date;
   },
@@ -67,12 +75,16 @@ export async function recordStatus(
     type: "status",
     payload: { phase: input.phase, ...input.extra },
     turnRowId: input.turnRowId,
+    ...(input.measure ? { measure: input.measure } : {}),
     now: input.now,
   });
-  await tx
-    .update(sessions)
-    .set({ inputAnnounced: input.phase === "needs_input" })
-    .where(eq(sessions.id, input.sessionId));
+  const measure = input.measure ?? (async (_stage, work) => work());
+  await measure("update_wait_announcement_ms", () =>
+    tx
+      .update(sessions)
+      .set({ inputAnnounced: input.phase === "needs_input" })
+      .where(eq(sessions.id, input.sessionId)),
+  );
 }
 
 /**
@@ -100,20 +112,31 @@ export async function announceInputWaitEnded(
     waitingBefore: boolean;
     turnRowId: number | null;
     at: Date;
+    measure?: ControlStageMeasure;
   },
 ) {
   if (!input.waitingBefore) return;
-  if (await awaitingInputAt(tx, input.sessionId, input.at)) return;
-  const [session] = await tx
-    .select({ status: sessions.status })
-    .from(sessions)
-    .where(eq(sessions.id, input.sessionId))
-    .limit(1);
+  const measure = input.measure ?? (async (_stage, work) => work());
+  if (
+    await measure("wait_after_stop_ms", () =>
+      awaitingInputAt(tx, input.sessionId, input.at),
+    )
+  ) {
+    return;
+  }
+  const [session] = await measure("read_stopped_session_ms", () =>
+    tx
+      .select({ status: sessions.status })
+      .from(sessions)
+      .where(eq(sessions.id, input.sessionId))
+      .limit(1),
+  );
   if (!session) return;
   await recordStatus(tx, {
     sessionId: input.sessionId,
     phase: publicStatus(session.status, false),
     turnRowId: input.turnRowId,
+    measure,
     now: input.at,
   });
 }

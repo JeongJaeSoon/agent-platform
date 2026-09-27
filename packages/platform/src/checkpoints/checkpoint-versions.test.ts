@@ -7,6 +7,7 @@ import type {
   CheckpointObjectStore,
   ObjectRef,
   RuntimeFingerprint,
+  WorkspaceArtifact,
 } from "@agent-platform/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
@@ -497,6 +498,58 @@ describe("finalize trusts what a held pointer already proved", () => {
     expect(sorted(calls.hold)).toEqual(
       sorted([...fresh, checkpoint.manifest_ref]),
     );
+  });
+
+  test("accepts an exact untracked artifact from the held pointer without reading or holding it again", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const first = await publish(0, [part]);
+    await finalize(first.checkpoint);
+    const inherited = first.manifest.workspace
+      .untracked[0] as WorkspaceArtifact;
+    const next = await publish(1, [part], (candidate) => ({
+      ...candidate,
+      workspace: { ...candidate.workspace, untracked: [inherited] },
+    }));
+    const { calls, service: watched } = counting();
+
+    expect(await finalizeWith(watched, next.checkpoint)).toEqual({
+      outcome: "committed",
+      revision: 1,
+    });
+    expect(calls.head).not.toContain(inherited.key);
+    expect(calls.stream).not.toContain(inherited.key);
+    expect(calls.hold).not.toContain(inherited.key);
+    const plan = await watched.getRestorePlan({ runtime, sessionId });
+    if (plan.status !== "ready") throw new Error(plan.status);
+    expect(
+      plan.plan.artifacts.find(({ kind }) => kind === "workspace_untracked")
+        ?.objects,
+    ).toEqual([inherited]);
+  });
+
+  test("refuses a previous untracked version under a different restore path", async () => {
+    const part = await upload(`${prefix}mirror/part-0.jsonl`, encode("a\n"));
+    const first = await publish(0, [part]);
+    await finalize(first.checkpoint);
+    const inherited = first.manifest.workspace
+      .untracked[0] as WorkspaceArtifact;
+    const next = await publish(1, [part], (candidate) => ({
+      ...candidate,
+      workspace: {
+        ...candidate.workspace,
+        untracked: [{ ...inherited, path: "renamed.md" }],
+      },
+    }));
+
+    expect(
+      await service.verifyAttemptManifest({
+        checkpoint: next.checkpoint,
+        fence,
+      }),
+    ).toEqual({
+      status: "rejected",
+      reason: expect.stringMatching(/not under this publish's/),
+    });
   });
 
   test("a pointer that is not the candidate's parent vouches for nothing", async () => {
