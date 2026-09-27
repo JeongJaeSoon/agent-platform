@@ -2,6 +2,7 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
+  buildOpenApiDocument,
   healthResponseSchema,
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
@@ -372,6 +373,9 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         ? {}
         : { deadlineMs: options.requestDeadlineMs }),
     }),
+  );
+  app.get("/v1/openapi.json", (context) =>
+    context.json(buildOpenApiDocument()),
   );
   v1.use("*", async (context, next) => {
     // Authenticate before touching the body, so an unauthenticated sender

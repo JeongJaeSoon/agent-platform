@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  buildOpenApiDocument,
   healthResponseSchema,
   postSessionMessageRequestSchema,
 } from "@agent-platform/contracts";
@@ -18,6 +19,14 @@ import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
 
 const createApiApp = recordRouteErrors("app.test.ts");
+
+test("serves the generated OpenAPI document without authentication", async () => {
+  const response = await createApiApp({ authMode: "api-key" }).request(
+    "/v1/openapi.json",
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(buildOpenApiDocument());
+});
 
 function loggerWithMemory(): {
   logger: StructuredLogger;

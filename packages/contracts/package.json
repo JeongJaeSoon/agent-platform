@@ -13,5 +13,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "openapi:generate": "bun run scripts/generate-openapi.ts"
+  },
+  "devDependencies": {
+    "@scalar/api-reference": "1.72.1"
   }
 }

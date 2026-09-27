@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { buildOpenApiDocument } from "@agent-platform/contracts";
+import {
+  API_ROUTE_SCOPES,
+  buildOpenApiDocument,
+} from "@agent-platform/contracts";
 import type {
   InterruptService,
   PendingRequestService,
@@ -94,4 +97,15 @@ test("OpenAPI routes without a handler are exactly the pending list", () => {
   const served = honoRoutes();
   const pending = [...openApiRoutes()].filter((route) => !served.has(route));
   expect(pending.sort()).toEqual([...NOT_YET_IMPLEMENTED].sort());
+});
+
+test("every OpenAPI x-scope matches the enforced scope map", () => {
+  const documented = Object.entries(buildOpenApiDocument().paths).flatMap(
+    ([path, operations]) =>
+      Object.entries(operations).flatMap(([method, raw]) => {
+        const scope = (raw as { "x-scope"?: string })["x-scope"];
+        return scope ? [{ method: method.toUpperCase(), path, scope }] : [];
+      }),
+  );
+  expect(documented).toEqual([...API_ROUTE_SCOPES]);
 });

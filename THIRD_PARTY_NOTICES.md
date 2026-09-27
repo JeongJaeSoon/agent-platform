@@ -84,6 +84,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @electric-sql/pglite | 0.3.10 | Apache-2.0 | control-host, worker |
 | @hono/node-server | 2.1.1 | MIT | worker |
 | @modelcontextprotocol/sdk | 1.30.0 | MIT | worker |
+| @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT | worker |
 | @radix-ui/react-context | 1.2.2 | MIT | worker |

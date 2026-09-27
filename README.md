@@ -28,7 +28,9 @@ scripts/local.sh key quickstart \
 | 개발자 | [docs/development.md](docs/development.md) | `bun run check`, integration opt-in 변수, 의존 서비스만 띄우기, e2e·gate·soak 진입점 |
 | 개발자 | [docs/ci.md](docs/ci.md) | CI job별 실행 내용, required check, 수동 실행 |
 | 설계를 읽는 사람 | [docs/architecture.md](docs/architecture.md) | 구성요소와 경계, checkpoint 경로, SDK·LiteLLM 방향 |
-| API 사용자 | [docs/openapi.json](docs/openapi.json) | 공개 `/v1` API 계약(`packages/contracts`에서 생성) |
+| API 사용자 | [docs/api/index.html](docs/api/index.html) | 읽기 전용 API 참조. 정본 JSON은 같은 생성기가 만들며 배포 API의 public `GET /v1/openapi.json`에서도 제공 |
+
+`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd packages/contracts openapi:generate`로 함께 다시 만든다.
 
 ## 라이선스
 

@@ -41,6 +41,7 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "./domain/index.ts";
 import {
+  type ApiErrorCode,
   apiErrorResponseSchema,
   receiptIdParamsSchema,
   sessionIdParamsSchema,
@@ -48,6 +49,10 @@ import {
 } from "./shared/index.ts";
 
 export const OPENAPI_VERSION = "0.1.0-alpha";
+
+const openApiDocumentResponseSchema = z.looseObject({
+  openapi: z.literal("3.1.0"),
+});
 
 // Request schemas are rendered as input (defaults optional); responses as output.
 const requestComponents = {
@@ -88,6 +93,7 @@ const responseComponents = {
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
+  OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
 type ComponentName =
@@ -115,12 +121,27 @@ type Route = {
     | { status: 200 | 201 | 202; schema: ComponentName; sse?: boolean }
     | { status: 204 };
   errors: number[];
+  errorCodes?: Partial<Record<number, readonly ApiErrorCode[]>>;
   lastEventId?: boolean;
   // Most POSTs are commands and take Idempotency-Key; auth endpoints do not.
   idempotent?: false;
 };
 
 const CONFLICTS = [400, 401, 404, 409];
+
+const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
+  400: ["BAD_REQUEST"],
+  401: ["UNAUTHORIZED"],
+  403: ["FORBIDDEN"],
+  404: ["NOT_FOUND"],
+  408: ["REQUEST_TIMEOUT"],
+  410: ["CURSOR_EXPIRED"],
+  413: ["PAYLOAD_TOO_LARGE"],
+  422: ["UNSUPPORTED_CAPABILITY"],
+  429: ["RATE_LIMITED"],
+  500: ["INTERNAL_ERROR"],
+  503: ["BACKEND_UNAVAILABLE"],
+};
 
 const routes: Route[] = [
   {
@@ -138,6 +159,16 @@ const routes: Route[] = [
     summary: "DB, schema and config readiness",
     success: { status: 200, schema: "ReadyResponse" },
     errors: [503],
+    errorCodes: { 503: ["NOT_READY"] },
+  },
+  {
+    method: "get",
+    path: "/v1/openapi.json",
+    operationId: "getOpenApiDocument",
+    summary: "Generated OpenAPI document",
+    auth: "public",
+    success: { status: 200, schema: "OpenApiDocument" },
+    errors: [],
   },
   {
     method: "get",
@@ -157,6 +188,7 @@ const routes: Route[] = [
     body: "BootstrapRequest",
     success: { status: 201, schema: "BootstrapResponse" },
     errors: [400, 401, 409, 413, 503],
+    errorCodes: { 409: ["BOOTSTRAP_DONE"] },
     idempotent: false,
   },
   {
@@ -199,6 +231,10 @@ const routes: Route[] = [
     body: "CreateSessionRequest",
     success: { status: 201, schema: "CreateSessionResponse" },
     errors: [400, 401, 409, 413, 422, 429, 503],
+    errorCodes: {
+      409: ["IDEMPOTENCY_CONFLICT"],
+      413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
+    },
   },
   {
     method: "get",
@@ -237,6 +273,18 @@ const routes: Route[] = [
     body: "PostSessionMessageRequest",
     success: { status: 202, schema: "PostSessionMessageResponse" },
     errors: [400, 401, 404, 409, 413, 429, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+      413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
+    },
   },
   {
     method: "get",
@@ -262,6 +310,8 @@ const routes: Route[] = [
     path: "/v1/sessions/{id}/events",
     operationId: "streamSessionEvents",
     summary: "Durable event replay and live stream (SSE)",
+    description:
+      "Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds and normally remains open. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
     scope: "read",
     lastEventId: true,
     success: { status: 200, schema: "SseEvent", sse: true },
@@ -287,6 +337,9 @@ const routes: Route[] = [
     body: "PostSessionAnswerRequest",
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
     errors: [...CONFLICTS, 413, 503],
+    errorCodes: {
+      409: ["IDEMPOTENCY_CONFLICT", "REQUEST_EXPIRED", "REQUEST_STALE"],
+    },
   },
   {
     method: "post",
@@ -301,6 +354,9 @@ const routes: Route[] = [
     // 422: a turn running on the legacy pod binding, which no worker polls
     // control for.
     errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: ["IDEMPOTENCY_CONFLICT", "TURN_NOT_STARTED"],
+    },
   },
   {
     method: "post",
@@ -312,6 +368,18 @@ const routes: Route[] = [
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
     // 422: a legacy pod binding, as for terminate.
     errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+    },
   },
   {
     method: "post",
@@ -324,6 +392,17 @@ const routes: Route[] = [
     // Served: an oversized body, a legacy binding with no kill path, and a
     // database outage are real answers.
     errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+      ],
+    },
   },
   {
     method: "post",
@@ -337,6 +416,18 @@ const routes: Route[] = [
     // SESSION_RESUMING while a resume is restoring; 422: a legacy pod
     // binding; 413/503 as for every mutation.
     errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "REQUEST_STALE",
+        "SESSION_RESUMING",
+        "SESSION_CLOSED",
+        "RECOVERY_REQUIRED",
+        "CHECKPOINT_UNAVAILABLE",
+        "PAUSE_COMMITTING",
+      ],
+    },
   },
   {
     method: "post",
@@ -349,6 +440,19 @@ const routes: Route[] = [
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
     // 422: a legacy pod binding, as for terminate.
     errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "REQUEST_STALE",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+    },
   },
   {
     method: "get",
@@ -415,6 +519,39 @@ function ref(name: ComponentName) {
 
 function jsonContent(name: ComponentName) {
   return { "application/json": { schema: ref(name) } };
+}
+
+function errorCodesFor(route: Route, status: number): readonly ApiErrorCode[] {
+  const codes = route.errorCodes?.[status] ?? COMMON_ERROR_CODES[status];
+  if (!codes || codes.length === 0) {
+    throw new Error(
+      `No ApiErrorResponse.code values registered for ${route.method.toUpperCase()} ${route.path} ${status}`,
+    );
+  }
+  return codes;
+}
+
+function errorContent(codes: readonly ApiErrorCode[]) {
+  return {
+    "application/json": {
+      schema: {
+        allOf: [
+          ref("ApiErrorResponse"),
+          {
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string", enum: codes },
+                },
+              },
+            },
+          },
+        ],
+      },
+    },
+  };
 }
 
 function queryParameters(schema: JsonSchema) {
@@ -526,9 +663,10 @@ export function buildOpenApiDocument() {
     // The API reads every non-GET body under a deadline before the handler.
     if (route.method !== "get") errors.add(408);
     for (const status of [...errors].sort((a, b) => a - b)) {
+      const codes = errorCodesFor(route, status);
       responses[status] = {
-        description: "Error",
-        content: jsonContent("ApiErrorResponse"),
+        description: `Error: ${codes.join(", ")}`,
+        content: errorContent(codes),
       };
     }
     // Any handler can fail in a way nothing mapped; the app's error hook
@@ -540,7 +678,7 @@ export function buildOpenApiDocument() {
       operationId: route.operationId,
       summary: route.summary,
       ...(route.description ? { description: route.description } : {}),
-      ...(route.scope ? { "x-scope": route.scope } : {}),
+      ...(route.scope ? { "x-scope": `sessions:${route.scope}` } : {}),
       security: securityFor(route),
       parameters,
       ...(route.body
@@ -576,7 +714,7 @@ export function buildOpenApiDocument() {
       responses: {
         InternalError: {
           description: "Unexpected server error (INTERNAL_ERROR)",
-          content: jsonContent("ApiErrorResponse"),
+          content: errorContent(["INTERNAL_ERROR"]),
         },
       },
     },

@@ -16,7 +16,7 @@ import { scopedRouteErrors } from "./scope-policy.ts";
 // error status a route's handler declares. The OpenAPI parity test holds the keys' union to the
 // routes Hono serves.
 export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
-  "app.test.ts": ["GET /v1"],
+  "app.test.ts": ["GET /v1", "GET /v1/openapi.json"],
   "probes.test.ts": ["GET /healthz", "GET /readyz"],
   "auth.test.ts": [
     "POST /v1/auth/bootstrap",
