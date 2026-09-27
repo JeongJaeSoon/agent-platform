@@ -1,0 +1,186 @@
+{
+  "endpoint": "/api/v2/logs/config/metrics",
+  "requests": [
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.failed",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": { "aggregation_type": "count" },
+          "filter": { "query": "@event:worker.checkpoint.failed" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" },
+            { "path": "@fields.stage", "tag_name": "stage" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.late",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": { "aggregation_type": "count" },
+          "filter": { "query": "@event:worker.checkpoint.late" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.capture.duration_ms",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "include_percentiles": true,
+            "path": "@fields.total_ms"
+          },
+          "filter": { "query": "@event:worker.checkpoint.published" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.bundle_bytes",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.bundle_bytes"
+          },
+          "filter": { "query": "@event:worker.checkpoint.published" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.untracked_bytes",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.untracked_bytes"
+          },
+          "filter": { "query": "@event:worker.checkpoint.published" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.untracked_uploads",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.untracked_uploads"
+          },
+          "filter": { "query": "@event:worker.checkpoint.published" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.checkpoint.manifest_bytes",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "path": "@fields.manifest_bytes"
+          },
+          "filter": { "query": "@event:worker.checkpoint.published" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.terminate.acceptance.duration_ms",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": {
+            "aggregation_type": "distribution",
+            "include_percentiles": true,
+            "path": "@fields.duration_ms"
+          },
+          "filter": {
+            "query": "@event:\"Terminate API request completed\" @fields.status:202"
+          },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.launch.failed",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": { "aggregation_type": "count" },
+          "filter": {
+            "query": "@event:(\"Launching execution failed; intent kept for retry\" OR \"Execution resource exited right after launch\" OR \"Launch attempt failed; retrying after a backoff\")"
+          },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.execution.exited",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": { "aggregation_type": "count" },
+          "filter": {
+            "query": "@event:(\"Execution exited; resource reclaimed\" OR \"Claimed execution resource vanished; binding released\")"
+          },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "agent_platform.scheduler.pass_failed",
+        "type": "logs_metrics",
+        "attributes": {
+          "compute": { "aggregation_type": "count" },
+          "filter": { "query": "@event:\"Scheduler pass failed\"" },
+          "group_by": [
+            { "path": "service", "tag_name": "service" },
+            { "path": "env", "tag_name": "env" }
+          ]
+        }
+      }
+    }
+  ]
+}

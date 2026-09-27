@@ -12,6 +12,7 @@ export const LOCAL_LAYERS = [CORE, "infra/compose.local.yml"] as const;
 export const TEST_OPS_LAYERS = [CORE, "infra/compose.test-ops.yml"] as const;
 /** Over the local stack, for `--real-model` (94S-431). */
 export const REAL_MODEL = "infra/compose.real-model.yml";
+export const DATADOG_OVERLAY = "infra/compose.datadog.yml";
 export const TEST_OPS_STORE_LAYERS = {
   localstack: "infra/compose.test-ops.localstack.yml",
   s3: "infra/compose.test-ops.s3.yml",
