@@ -52,6 +52,7 @@ export async function main(
     const latch = latchOnConnectionLoss(
       createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
+        logger,
         sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
       }),
       (error) => {

@@ -262,7 +262,7 @@ export async function expireOverdueReceipts(
         operation: string;
         targetRef: unknown;
       }[],
-    ) => void;
+    ) => void | Promise<void>;
   },
 ): Promise<number> {
   const candidates = (from: Database) => {
@@ -299,6 +299,6 @@ export async function expireOverdueReceipts(
       );
     return batch;
   });
-  input.onExpired?.(expired);
+  await input.onExpired?.(expired);
   return expired.length;
 }

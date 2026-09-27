@@ -155,29 +155,41 @@ export async function expireOverdueInterrupts(
         ),
     ),
     message: `the interrupted turn did not end within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
-    onExpired: (expired) => {
-      for (const receipt of expired) {
-        const sessionId = sessionIdFromTarget(receipt.targetRef);
-        if (sessionId === undefined) continue;
+    onExpired: async (expired) => {
+      if (expired.length === 0) return;
+      const intents = await db
+        .select({
+          acceptedAt: controlIntents.issuedAt,
+          controlId: controlIntents.id,
+          receiptId: controlIntents.receiptId,
+          sessionId: controlIntents.sessionId,
+        })
+        .from(controlIntents)
+        .where(
+          and(
+            eq(controlIntents.kind, INTERRUPT),
+            inArray(
+              controlIntents.receiptId,
+              expired.map(({ id }) => id),
+            ),
+          ),
+        );
+      const expiredIds = new Set(expired.map(({ id }) => id));
+      for (const intent of intents) {
+        if (!expiredIds.has(intent.receiptId)) continue;
         logControlResult(input.logger, {
-          acceptedAt: receipt.createdAt,
-          controlId: receipt.id,
+          acceptedAt: intent.acceptedAt,
+          controlId: intent.controlId,
           effectiveAt: input.now,
           operation: "interrupt",
           outcome: "unknown",
           reasonCode: "deadline_exceeded",
-          sessionId,
+          sessionId: intent.sessionId,
         });
       }
     },
     ...input,
   });
-}
-
-function sessionIdFromTarget(target: unknown): string | undefined {
-  if (target === null || typeof target !== "object") return undefined;
-  const sessionId = (target as { session_id?: unknown }).session_id;
-  return typeof sessionId === "string" ? sessionId : undefined;
 }
 
 /**

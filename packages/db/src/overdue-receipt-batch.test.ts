@@ -130,6 +130,10 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
 
   test("expired interrupt and terminate receipts log their final unknown result", async () => {
     await overdueInterrupts(1);
+    const [interrupt] = await db
+      .select({ id: controlIntents.id })
+      .from(controlIntents);
+    if (!interrupt) throw new Error("no interrupt intent");
     await acceptedReceipt("terminate");
     const sink = new MemoryLogSink();
     const logger = new StructuredLogger({ sinks: [sink] });
@@ -153,6 +157,7 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
         expect.objectContaining({
           event: "control.result",
           fields: expect.objectContaining({
+            control_id: interrupt.id,
             operation: "interrupt",
             outcome: "unknown",
             reason_code: "deadline_exceeded",
@@ -220,12 +225,13 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
   });
 
   test("the scheduler sweep takes one batch per pass too (94S-450)", async () => {
+    const sessionId = crypto.randomUUID();
     await db.insert(receipts).values(
       Array.from({ length: OVERDUE_TERMINATION_SWEEP_LIMIT }, () => ({
         id: crypto.randomUUID(),
         ownerId: "owner-a",
         operation: "terminate",
-        targetRef: {},
+        targetRef: { session_id: sessionId },
         createdAt: LONG_AGO,
       })),
     );
@@ -234,15 +240,17 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
       id: oldest,
       ownerId: "owner-a",
       operation: "terminate",
-      targetRef: {},
+      targetRef: { session_id: sessionId },
       createdAt: new Date(LONG_AGO.getTime() - 60_000),
     });
     // The open-terminate index happens to yield created_at order; without it
     // the scan returns heap order, where the oldest comes last.
     await client.exec("DROP INDEX receipts_open_terminate_idx");
+    const sink = new MemoryLogSink();
     const store = createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
       connectForLock: () => Promise.reject(new Error("not used")),
+      logger: new StructuredLogger({ sinks: [sink] }),
     });
     const sweep = () =>
       store.markOverdueTerminations({
@@ -252,12 +260,18 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
 
     expect(await sweep()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
     expect(await unknownCount()).toBe(OVERDUE_TERMINATION_SWEEP_LIMIT);
+    expect(
+      sink.records.filter(({ event }) => event === "control.result"),
+    ).toHaveLength(OVERDUE_TERMINATION_SWEEP_LIMIT);
     const [first] = await db
       .select({ status: receipts.status })
       .from(receipts)
       .where(eq(receipts.id, oldest));
     expect(first?.status).toBe("unknown");
     expect(await sweep()).toBe(1);
+    expect(
+      sink.records.filter(({ event }) => event === "control.result"),
+    ).toHaveLength(OVERDUE_TERMINATION_SWEEP_LIMIT + 1);
     expect(await sweep()).toBe(0);
   });
 });

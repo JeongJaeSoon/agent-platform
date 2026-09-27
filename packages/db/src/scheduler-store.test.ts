@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { launchNonceFingerprint } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
@@ -23,6 +24,7 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 let store: ReturnType<typeof createPostgresSchedulerStore>;
+let logSink: MemoryLogSink;
 const NOW = new Date("2026-09-22T00:00:00Z");
 /** What the scheduler pins a launch to; the store only keeps it. */
 const SPEC = {
@@ -73,6 +75,7 @@ beforeEach(async () => {
   client = new PGlite();
   db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
+  logSink = new MemoryLogSink();
   store = createPostgresSchedulerStore(db, {
     sessionCostLimitUsd: 1_000,
     connectForLock: async () => ({
@@ -85,6 +88,7 @@ beforeEach(async () => {
       on: () => undefined,
       off: () => undefined,
     }),
+    logger: new StructuredLogger({ sinks: [logSink] }),
   });
 });
 
@@ -259,6 +263,49 @@ describe("PostgresSchedulerStore", () => {
     const after = await store.inspectDemand({ limit: 10 });
     expect(after.activeExecutionCount).toBe(0);
     expect(after.eligibleSessionIds).toContain(ids[0] ?? "");
+  });
+
+  test("confirmExecutionGone emits the terminate result through the scheduler store logger", async () => {
+    const sessionId = await insertUnassigned();
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    const controlId = crypto.randomUUID();
+    await db
+      .update(sessions)
+      .set({ admissionState: "stopping" })
+      .where(eq(sessions.id, sessionId));
+    await db
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, intent.executionId));
+    await db.insert(receipts).values({
+      id: controlId,
+      ownerId: "owner-a",
+      operation: "terminate",
+      targetRef: { session_id: sessionId },
+      createdAt: new Date(NOW.getTime() - 1_000),
+    });
+
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
+
+    expect(logSink.records).toContainEqual(
+      expect.objectContaining({
+        event: "control.result",
+        fields: expect.objectContaining({
+          control_id: controlId,
+          operation: "terminate",
+          outcome: "succeeded",
+          reason_code: "execution_gone",
+          session_id: sessionId,
+        }),
+      }),
+    );
   });
 
   test("listActiveExecutions returns open launches and, for this backend, ones without an intent", async () => {
