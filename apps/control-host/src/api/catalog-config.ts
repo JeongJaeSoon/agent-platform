@@ -29,7 +29,7 @@ export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
 // One bounded read per secret at startup; the API does not start without
 // them, so a hung endpoint must fail the boot rather than hold it.
-export const SECRET_READ_TIMEOUT_MS = 10_000;
+const SECRET_READ_TIMEOUT_MS = 10_000;
 
 export type SecretReader = (secretId: string) => Promise<string | undefined>;
 

@@ -1388,7 +1388,7 @@ async function invariantSample(soak: Soak): Promise<void> {
 
 // ---------------------------------------------------------------- report
 
-export type JudgeInput = Pick<
+type JudgeInput = Pick<
   Soak,
   | "anomalies"
   | "config"
@@ -1416,7 +1416,7 @@ function longestGap(times: number[], from: number, to: number): number {
   return longest;
 }
 
-export function judge(
+function judge(
   soak: JudgeInput,
   meta: Record<string, unknown>,
 ): {

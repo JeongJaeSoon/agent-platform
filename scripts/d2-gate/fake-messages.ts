@@ -4,20 +4,16 @@ import {
   replyFor,
 } from "../../packages/testkit/src/scripted-messages.ts";
 
+export {
+  planOf,
+  SPEC_MARKER,
+} from "../../packages/testkit/src/scripted-messages.ts";
+
 /**
  * The D2 gate's Messages API: the scripted fake of
  * packages/testkit/src/scripted-messages.ts, which the compose stack's
  * fake-messages also plays, served with the gate's control port.
  */
-
-export {
-  type GateRequest,
-  type GateSpec,
-  type GateStep,
-  planOf,
-  replyFor,
-  SPEC_MARKER,
-} from "../../packages/testkit/src/scripted-messages.ts";
 
 if (import.meta.main) {
   const recorded: GateRequest[] = [];

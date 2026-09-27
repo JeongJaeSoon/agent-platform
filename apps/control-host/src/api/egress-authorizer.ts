@@ -31,7 +31,7 @@ export const EGRESS_USAGE_PATH = "/usage";
 const MAX_BODY_BYTES = 16 * 1024;
 // The proxy waits for this before the worker's request goes anywhere, so a
 // slow database answers 503 rather than holding the engine's call open.
-export const AUTHORIZE_DEADLINE_MS = 10_000;
+const AUTHORIZE_DEADLINE_MS = 10_000;
 // A bearer an operator could type from memory is not a lock.
 const MIN_TOKEN_LENGTH = 32;
 

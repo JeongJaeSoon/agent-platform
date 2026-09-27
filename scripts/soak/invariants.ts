@@ -53,7 +53,7 @@ type Query = {
   params: (options: InvariantOptions) => unknown[];
 };
 
-export const QUERIES: Query[] = [
+const QUERIES: Query[] = [
   {
     id: "context.reset_without_decision",
     invariant: "context",
@@ -180,7 +180,7 @@ export const QUERIES: Query[] = [
 ];
 
 /** Observations the criteria table reports next to the invariants. */
-export const OBSERVATIONS = {
+const OBSERVATIONS = {
   queue_oldest_age_sec: `SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0)::float AS v
                            FROM queue_messages WHERE claimed_by IS NULL`,
   outcome_unknown_turns:

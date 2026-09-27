@@ -290,7 +290,7 @@ export async function reproMeta(
 
 // ---------------------------------------------------------------- report
 
-export type Verdict = "pass" | "fail" | "skip";
+type Verdict = "pass" | "fail" | "skip";
 
 /** One row of the criteria table: 입력·기대·실제·결과. */
 export type Criterion = {
@@ -350,12 +350,6 @@ export function markdownReport(
 }
 
 // ---------------------------------------------------------------- misc
-
-export function pick<T>(items: readonly T[], random = Math.random): T {
-  const item = items[Math.floor(random() * items.length)];
-  if (item === undefined) throw new Error("pick from an empty list");
-  return item;
-}
 
 export function between(
   [min, max]: readonly [number, number],

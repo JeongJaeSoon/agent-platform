@@ -30,7 +30,7 @@ export class ApiSettingsError extends Error {
 }
 
 /** A week, as MAX_TURN_SECONDS allows at most; no turn waits longer. */
-export const MAX_PENDING_REQUEST_TTL_SEC = 7 * 24 * 60 * 60;
+const MAX_PENDING_REQUEST_TTL_SEC = 7 * 24 * 60 * 60;
 
 export function apiSettingsFromEnv(
   environment: Record<string, string | undefined>,

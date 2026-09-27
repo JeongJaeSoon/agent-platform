@@ -35,7 +35,7 @@ export type EgressProxyConfig = {
   port: number;
 };
 
-export type EgressCredentialConfig = {
+type EgressCredentialConfig = {
   /** Added to the forward allowlists for the credential routes' upstreams. */
   allow: EgressDestination[];
   allowPrivate: EgressDestination[];

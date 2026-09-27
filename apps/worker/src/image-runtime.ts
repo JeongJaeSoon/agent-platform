@@ -25,7 +25,7 @@ const claimSchema = bootstrapClaimResponseSchema.pick({
   runtime_config: true,
 });
 
-export type ImageProfile = { profileSha256: string } | { error: string };
+type ImageProfile = { profileSha256: string } | { error: string };
 
 // Where the engine runs is the launcher's per host, not the claim's; these
 // stand in for it.

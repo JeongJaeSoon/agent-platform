@@ -354,7 +354,7 @@ export function sha256(bytes: Uint8Array | string): string {
 
 type Ref = { bytes: number; key: string; sha256: string; version?: string };
 
-export type Manifest = {
+type Manifest = {
   revision: number;
   sessionId: string;
   transcripts: {

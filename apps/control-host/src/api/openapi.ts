@@ -44,7 +44,7 @@ import {
 import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
 import { z } from "zod";
 
-export const OPENAPI_VERSION = "0.1.0-alpha";
+const OPENAPI_VERSION = "0.1.0-alpha";
 
 const openApiDocumentResponseSchema = z.looseObject({
   openapi: z.literal("3.1.0"),
@@ -182,7 +182,7 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
   503: ["BACKEND_UNAVAILABLE"],
 };
 
-export const API_ROUTE_DECLARATIONS = [
+const API_ROUTE_DECLARATIONS = [
   {
     method: "get",
     path: "/healthz",

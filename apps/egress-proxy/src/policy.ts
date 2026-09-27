@@ -150,7 +150,7 @@ export function classifyAddress(address: string): AddressClass | null {
 /** Rejects leading zeros, which some resolvers read as octal. */
 const IPV4_OCTET = /^(?:0|[1-9]\d{0,2})$/;
 
-export function parseIpv4(value: string): number[] | null {
+function parseIpv4(value: string): number[] | null {
   const parts = value.split(".");
   if (parts.length !== 4) return null;
   const octets: number[] = [];
@@ -163,7 +163,7 @@ export function parseIpv4(value: string): number[] | null {
   return octets;
 }
 
-export function parseIpv6(value: string): number[] | null {
+function parseIpv6(value: string): number[] | null {
   const zone = value.indexOf("%");
   const text = zone < 0 ? value : value.slice(0, zone);
   const halves = text.split("::");

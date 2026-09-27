@@ -13,8 +13,8 @@ import type { MessagesFaults, RequestSummary } from "./messages.ts";
  * a recorded sample, not a dead run.
  */
 
-export const PROFILE_ID = "d2-gate";
-export const REPOSITORY_ID = "gate-app";
+const PROFILE_ID = "d2-gate";
+const REPOSITORY_ID = "gate-app";
 const TERMINAL_TURN = new Set([
   "completed",
   "failed",

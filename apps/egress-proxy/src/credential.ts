@@ -288,13 +288,13 @@ const SIGNATURE_HEADERS = new Set([
   "x-amz-user-agent",
 ]);
 
-export type ObjectRequest = {
+type ObjectRequest = {
   method: string;
   target: string;
   headers: Array<[string, string]>;
 };
 
-export function objectRequestOf(
+function objectRequestOf(
   method: string,
   target: string,
   incoming: Headers,
@@ -496,7 +496,7 @@ export function secretsOf(grant: EgressGrant): string[] {
   return [...found].filter((secret) => secret.length >= 4);
 }
 
-export type AuthorizerClient = {
+type AuthorizerClient = {
   url: string;
   token: string;
   timeoutMs?: number;

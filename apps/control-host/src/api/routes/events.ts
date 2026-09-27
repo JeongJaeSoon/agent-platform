@@ -15,19 +15,19 @@ import { mapped, requireParams } from "./errors.ts";
 // api.md § 이벤트: 15 s keepalive, and a revoked key ends the stream within
 // the same window: a credential check is re-run every half interval and a
 // stream never outlives its last successful check by more than one.
-export const SSE_KEEPALIVE_MS = 15_000;
+const SSE_KEEPALIVE_MS = 15_000;
 // Per-connection replay page: at most this many rows and, past the first
 // row, at most this many payload bytes are held in memory between writes.
 // With the admission caps below that bounds replay memory to
 // SSE_MAX_STREAMS × SSE_REPLAY_MAX_BYTES (256 MiB) whatever the history.
-export const SSE_REPLAY_BATCH = 100;
-export const SSE_REPLAY_MAX_BYTES = 1024 * 1024;
+const SSE_REPLAY_BATCH = 100;
+const SSE_REPLAY_MAX_BYTES = 1024 * 1024;
 
 // Admission caps: a stream is a resident handle plus a query every
 // keepalive, so a runaway client must not be able to open them without
 // bound. Sized for the alpha's single API process; raise via server env.
-export const SSE_MAX_STREAMS = 256;
-export const SSE_MAX_STREAMS_PER_OWNER = 8;
+const SSE_MAX_STREAMS = 256;
+const SSE_MAX_STREAMS_PER_OWNER = 8;
 
 export interface EventStreamOptions {
   wakeup: SessionEventWakeup;
