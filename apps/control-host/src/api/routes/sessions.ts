@@ -18,7 +18,12 @@ import {
   turnIdParamsSchema,
 } from "@agent-platform/contracts";
 import type { SessionService } from "@agent-platform/platform";
-import { type ApiRouter, jsonWithSchema, parseJsonBody } from "../app.ts";
+import {
+  type ApiRouter,
+  apiRoute,
+  jsonWithSchema,
+  parseJsonBody,
+} from "../app.ts";
 import {
   mapped,
   requireIdempotencyKey,
@@ -30,7 +35,7 @@ export function registerSessionRoutes(
   router: ApiRouter,
   service: SessionService,
 ) {
-  router.post("/sessions", async (context) => {
+  apiRoute(router, "createSession", async (context) => {
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, createSessionRequestSchema);
     const created = await mapped(() =>
@@ -42,7 +47,7 @@ export function registerSessionRoutes(
     return jsonWithSchema(context, createSessionResponseSchema, created, 201);
   });
 
-  router.get("/sessions", async (context) => {
+  apiRoute(router, "listSessions", async (context) => {
     const query = requireQuery(context, listSessionsQuerySchema);
     const page = await mapped(() =>
       service.listSessions({ ownerId: context.get("ownerId") }, query),
@@ -50,7 +55,7 @@ export function registerSessionRoutes(
     return jsonWithSchema(context, listSessionsResponseSchema, page);
   });
 
-  router.get("/sessions/:id", async (context) => {
+  apiRoute(router, "getSession", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const detail = await mapped(() =>
       service.getSession({ ownerId: context.get("ownerId") }, params.id),
@@ -58,7 +63,7 @@ export function registerSessionRoutes(
     return jsonWithSchema(context, getSessionResponseSchema, detail);
   });
 
-  router.post("/sessions/:id/messages", async (context) => {
+  apiRoute(router, "appendSessionMessage", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, postSessionMessageRequestSchema);
@@ -76,7 +81,7 @@ export function registerSessionRoutes(
     );
   });
 
-  router.post("/sessions/:id/terminate", async (context) => {
+  apiRoute(router, "terminateSession", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, terminateSessionRequestSchema);
@@ -94,7 +99,7 @@ export function registerSessionRoutes(
     );
   });
 
-  router.post("/sessions/:id/resume", async (context) => {
+  apiRoute(router, "resumeSession", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, resumeSessionRequestSchema);
@@ -112,7 +117,7 @@ export function registerSessionRoutes(
     );
   });
 
-  router.post("/sessions/:id/recovery-decisions", async (context) => {
+  apiRoute(router, "decideSessionRecovery", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, recoveryDecisionRequestSchema);
@@ -130,7 +135,7 @@ export function registerSessionRoutes(
     );
   });
 
-  router.get("/sessions/:id/turns", async (context) => {
+  apiRoute(router, "listSessionTurns", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const query = requireQuery(context, listTurnsQuerySchema);
     const page = await mapped(() =>
@@ -139,7 +144,7 @@ export function registerSessionRoutes(
     return jsonWithSchema(context, listTurnsResponseSchema, page);
   });
 
-  router.get("/sessions/:id/turns/:turn_id", async (context) => {
+  apiRoute(router, "getSessionTurn", async (context) => {
     const params = requireParams(context, turnIdParamsSchema);
     const turn = await mapped(() =>
       service.getTurn(

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
-  buildOpenApiDocument,
   healthResponseSchema,
   postSessionMessageRequestSchema,
 } from "@agent-platform/contracts";
@@ -16,6 +15,7 @@ import {
   RESPONSE_IDLE_TIMEOUT_SECONDS,
 } from "./deadline.ts";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
+import { buildOpenApiDocument } from "./openapi.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
 
 const createApiApp = recordRouteErrors("app.test.ts");

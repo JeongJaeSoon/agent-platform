@@ -16,6 +16,6 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 | 운영자 | [내부 알파 실서버 배포](docs/alpha-deployment.md) | [운영 참고](docs/operations.md), [Datadog 감시 기준](docs/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/test-ops.md), [백업과 복원](docs/backup-restore.md) |
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/development.md), [구성요소와 경계](docs/architecture.md), [CI](docs/ci.md), [실제 Claude 확인](docs/real-claude.md), [과거 soak 결과](docs/soak.md) |
 
-`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd packages/contracts openapi:generate`로 함께 다시 만든다.
+`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
 
 라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다.

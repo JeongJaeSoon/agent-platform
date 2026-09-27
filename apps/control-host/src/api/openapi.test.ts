@@ -1,21 +1,64 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { API_ERROR_CODE_VALUES } from "@agent-platform/contracts";
 import {
   API_REFERENCE_OUTPUT_PATH,
   OPENAPI_OUTPUT_PATH,
   renderApiReferenceDocument,
   renderScalarAsset,
   SCALAR_ASSET_OUTPUT_PATH,
-} from "../scripts/generate-openapi.ts";
+} from "../../scripts/generate-openapi.ts";
 import { buildOpenApiDocument, renderOpenApiDocument } from "./openapi.ts";
-import { API_ERROR_CODE_VALUES } from "./shared/error.ts";
 
 describe("OpenAPI document", () => {
   test("is committed and matches the generator output", () => {
     expect(readFileSync(OPENAPI_OUTPUT_PATH, "utf8")).toBe(
       renderOpenApiDocument(),
     );
+  });
+
+  test("keeps OpenAPIHono route metadata in a Bun production bundle", async () => {
+    const outdir = await mkdtemp(join(tmpdir(), "openapi-bundle-"));
+    try {
+      const result = await Bun.build({
+        entrypoints: [join(import.meta.dir, "app.ts")],
+        outdir,
+        target: "bun",
+        format: "esm",
+        minify: true,
+        splitting: true,
+        naming: "[name]-[hash].[ext]",
+      });
+      expect(result.success).toBe(true);
+      const entry = result.outputs.find(
+        (output) => output.kind === "entry-point",
+      );
+      expect(entry).toBeDefined();
+      const bundled = (await import(
+        `${pathToFileURL(entry?.path ?? "").href}?${crypto.randomUUID()}`
+      )) as typeof import("./app.ts");
+      const app = bundled.createApiApp({
+        authMode: "none",
+        registerRoutes(router) {
+          bundled.apiRoute(router, "getInstallationLimits", () =>
+            Promise.resolve(new Response()),
+          );
+        },
+      });
+      const document = app.getOpenAPI31Document({
+        openapi: "3.1.0",
+        info: { title: "test", version: "test" },
+      });
+      expect(Object.keys(document.paths ?? {}).sort()).toEqual(
+        ["/healthz", "/readyz", "/v1", "/v1/limits", "/v1/openapi.json"].sort(),
+      );
+    } finally {
+      await rm(outdir, { recursive: true, force: true });
+    }
   });
 
   test("commits an offline read-only Scalar reference from the same document", () => {

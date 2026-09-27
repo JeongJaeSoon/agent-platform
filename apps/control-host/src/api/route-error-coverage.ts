@@ -1,15 +1,12 @@
 import { afterAll, expect } from "bun:test";
 import {
-  API_ROUTE_SCOPES,
-  buildOpenApiDocument,
-} from "@agent-platform/contracts";
-import {
   bodyRouteErrors,
   createApiApp,
   globalRouteErrors,
   mutationRouteErrors,
   rootRouteErrors,
 } from "./app.ts";
+import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
 import { scopedRouteErrors } from "./scope-policy.ts";
 
 // The test file (from this directory) whose requests must produce every

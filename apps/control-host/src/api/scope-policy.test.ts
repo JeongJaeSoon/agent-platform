@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  API_ROUTE_SCOPES,
   SESSION_SCOPE_VALUES,
   type SessionScope,
 } from "@agent-platform/contracts";
@@ -12,6 +11,7 @@ import type {
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate, IdentityStore } from "./auth.ts";
 import { hashApiKey } from "./keys.ts";
+import { API_ROUTE_SCOPES } from "./openapi.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";

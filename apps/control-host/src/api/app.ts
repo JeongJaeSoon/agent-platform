@@ -2,7 +2,6 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
-  buildOpenApiDocument,
   healthResponseSchema,
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
@@ -18,7 +17,8 @@ import {
   createLogger,
   type StructuredLogger,
 } from "@agent-platform/observability";
-import { type Context, Hono } from "hono";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import {
@@ -34,6 +34,11 @@ import {
   requestDeadline,
 } from "./deadline.ts";
 import type { ApiKeyStore } from "./keys.ts";
+import {
+  type ApiOperationId,
+  apiRouteConfig,
+  buildOpenApiDocument,
+} from "./openapi.ts";
 import type { ReadinessProbe } from "./readiness.ts";
 import { missingScope } from "./scope-policy.ts";
 
@@ -73,7 +78,53 @@ const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 // than a reset.
 export const BODY_IDLE_TIMEOUT_SECONDS = 20;
 
-export type ApiRouter = Hono<ApiEnvironment>;
+export type ApiRouter = OpenAPIHono<ApiEnvironment>;
+
+export function registerOpenApiRoute(
+  router: ApiRouter,
+  operationId: ApiOperationId,
+  handler: Handler<ApiEnvironment>,
+  options: {
+    basePath?: string;
+    middleware?: MiddlewareHandler<ApiEnvironment>;
+  } = {},
+): void {
+  const route = apiRouteConfig(operationId, options.basePath);
+  const registered = options.middleware
+    ? { ...route, middleware: options.middleware }
+    : route;
+  router.openapi(registered as never, handler as never);
+}
+
+export function apiRoute(
+  router: ApiRouter,
+  operationId: ApiOperationId,
+  handler: Handler<ApiEnvironment>,
+): void;
+export function apiRoute(
+  router: ApiRouter,
+  operationId: ApiOperationId,
+  middleware: MiddlewareHandler<ApiEnvironment>,
+  handler: Handler<ApiEnvironment>,
+): void;
+export function apiRoute(
+  router: ApiRouter,
+  operationId: ApiOperationId,
+  middlewareOrHandler:
+    | MiddlewareHandler<ApiEnvironment>
+    | Handler<ApiEnvironment>,
+  handler?: Handler<ApiEnvironment>,
+): void {
+  registerOpenApiRoute(
+    router,
+    operationId,
+    handler ?? (middlewareOrHandler as Handler<ApiEnvironment>),
+    {
+      basePath: "/v1",
+      ...(handler ? { middleware: middlewareOrHandler } : {}),
+    },
+  );
+}
 
 export interface CreateApiAppOptions {
   authMode?: string;
@@ -313,8 +364,8 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const authMode = options.authMode ?? process.env.AUTH_MODE;
   const keyStore = options.keyStore ?? missingKeyStore;
   const logger = options.logger ?? createLogger();
-  const app = new Hono<ApiEnvironment>({ strict: false });
-  const v1 = new Hono<ApiEnvironment>({ strict: false });
+  const app = new OpenAPIHono<ApiEnvironment>({ strict: false });
+  const v1 = new OpenAPIHono<ApiEnvironment>({ strict: false });
   app.use("*", async (context, next) => {
     const requestId = crypto.randomUUID();
     const startedAt = performance.now();
@@ -351,10 +402,10 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   }
 
   // Probes sit outside /v1 so an orchestrator needs no API key to call them.
-  app.get("/healthz", (context) =>
+  registerOpenApiRoute(app, "getHealth", (context) =>
     jsonWithSchema(context, healthResponseSchema, { status: "ok" }),
   );
-  app.get("/readyz", async (context) => {
+  registerOpenApiRoute(app, "getReady", async (context) => {
     const result = options.readiness
       ? await options.readiness()
       : ({
@@ -398,7 +449,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         : { deadlineMs: options.requestDeadlineMs }),
     }),
   );
-  app.get("/v1/openapi.json", (context) =>
+  registerOpenApiRoute(app, "getOpenApiDocument", (context) =>
     context.json(buildOpenApiDocument()),
   );
   v1.use("*", async (context, next) => {
@@ -469,18 +520,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       status: "ok",
       owner_id: context.get("ownerId"),
     });
-  v1.get("", rootHandler);
-  v1.get("/", rootHandler);
+  apiRoute(v1, "getApiRoot", rootHandler);
   options.registerRoutes?.(v1);
   if (options.registerPublicRoutes) {
     // No middleware here: see ingestThenStopClock.
-    const publicV1 = new Hono<ApiEnvironment>({ strict: false });
+    const publicV1 = new OpenAPIHono<ApiEnvironment>({ strict: false });
     options.registerPublicRoutes(publicV1);
     app.route("/v1", publicV1);
   }
   app.route("/v1", v1);
   if (options.registerInternalRoutes) {
-    const internal = new Hono<ApiEnvironment>({ strict: false });
+    const internal = new OpenAPIHono<ApiEnvironment>({ strict: false });
     // These routes are outside the /v1 middleware but need the same clock
     // management, and more of it: the gateway's long poll holds a connection
     // open for longer than the server's idle default, so a poll that finds

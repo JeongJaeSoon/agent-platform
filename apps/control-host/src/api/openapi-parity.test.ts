@@ -1,8 +1,4 @@
 import { expect, test } from "bun:test";
-import {
-  API_ROUTE_SCOPES,
-  buildOpenApiDocument,
-} from "@agent-platform/contracts";
 import type {
   InterruptService,
   PendingRequestService,
@@ -11,6 +7,7 @@ import type {
 } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate, IdentityStore } from "./auth.ts";
+import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
@@ -25,12 +22,12 @@ import { registerUsageRoutes } from "./routes/usage.ts";
 // this list as sibling tickets land; a route removed from here must exist.
 const NOT_YET_IMPLEMENTED: string[] = [];
 
-function honoRoutes(): Set<string> {
+function apiApp() {
   const auth = {
     identity: {} as IdentityStore,
     bootstrap: {} as BootstrapGate,
   };
-  const app = createApiApp({
+  return createApiApp({
     authMode: "none",
     registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
     registerRoutes: (router) => {
@@ -46,6 +43,10 @@ function honoRoutes(): Set<string> {
       });
     },
   });
+}
+
+function honoRoutes(): Set<string> {
+  const app = apiApp();
   // /internal/* is the worker protocol, not part of the public document.
   return new Set(
     app.routes
@@ -60,9 +61,9 @@ function honoRoutes(): Set<string> {
   );
 }
 
-function openApiRoutes(): Set<string> {
+function routesFromDocument(paths: Record<string, object>): Set<string> {
   return new Set(
-    Object.entries(buildOpenApiDocument().paths).flatMap(([path, operations]) =>
+    Object.entries(paths).flatMap(([path, operations]) =>
       Object.keys(operations).map(
         (method) => `${method.toUpperCase()} ${path}`,
       ),
@@ -70,11 +71,23 @@ function openApiRoutes(): Set<string> {
   );
 }
 
+function openApiRoutes(): Set<string> {
+  return routesFromDocument(buildOpenApiDocument().paths);
+}
+
 test("every Hono handler is declared in the OpenAPI route table", () => {
   const declared = openApiRoutes();
   for (const route of honoRoutes()) {
     expect(declared, `${route} is served but not in OpenAPI`).toContain(route);
   }
+});
+
+test("the production OpenAPIHono registry contains every declared route", () => {
+  const document = apiApp().getOpenAPI31Document({
+    openapi: "3.1.0",
+    info: { title: "test", version: "test" },
+  });
+  expect(routesFromDocument(document.paths ?? {})).toEqual(openApiRoutes());
 });
 
 // The statuses themselves are compared where the handlers answer them: each
