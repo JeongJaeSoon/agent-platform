@@ -310,7 +310,7 @@ export async function assertCheckpointBucketProtection(
  * narrows, and a worker without it fails its first write rather than this
  * check (docs/operations.md).
  */
-export const CHECKPOINT_BUCKET_ENCRYPTION = "AES256";
+const CHECKPOINT_BUCKET_ENCRYPTION = "AES256";
 
 /**
  * Refuses to start on a checkpoint bucket whose default encryption is not

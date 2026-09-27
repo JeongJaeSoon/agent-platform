@@ -12,13 +12,13 @@ import { DEFAULT_LEASE_TTL_MS } from "@agent-platform/platform";
 // silently different TTL is exactly the divergence this file closes.
 // A day: far past any sane lease, and small enough that every deadline
 // computed from it stays a finite timestamp.
-export const MAX_HEARTBEAT_TTL_SEC = 86_400;
+const MAX_HEARTBEAT_TTL_SEC = 86_400;
 
 // A worker gives its lease up this long before it runs out, and beats this
 // often; a lease no longer than both is lost at or near the first beat
 // . No launcher sets the worker's own values, so its defaults are
 // the ones every worker runs with.
-export const MIN_HEARTBEAT_TTL_SEC =
+const MIN_HEARTBEAT_TTL_SEC =
   (WORKER_LEASE_SAFETY_MARGIN_MS + WORKER_HEARTBEAT_INTERVAL_MS) / 1000;
 
 export function heartbeatTtlMsFromEnv(value: string | undefined): number {

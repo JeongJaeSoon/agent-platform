@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test";
 import type {
+  IdentityStore,
   InterruptService,
   PendingRequestService,
   SessionService,
   UsageService,
 } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
-import type { BootstrapGate, IdentityStore } from "./auth.ts";
+import type { BootstrapGate } from "./auth.ts";
 import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";

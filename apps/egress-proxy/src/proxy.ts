@@ -120,7 +120,7 @@ function reader(socket: Socket<never> | Socket<unknown>): SocketReader {
 }
 
 /** The one thing a test needs to hold open: how an upstream is dialled. */
-export type UpstreamDialer = (options: {
+type UpstreamDialer = (options: {
   hostname: string;
   port: number;
   socket: NonNullable<Parameters<typeof Bun.connect<undefined>>[0]>["socket"];

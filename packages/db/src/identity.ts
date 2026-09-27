@@ -1,4 +1,13 @@
 import {
+  BootstrapDoneError,
+  type BootstrapInput,
+  type IdentityUser,
+  type IdentityWorkspace,
+  type LiveMembership,
+  type MembershipRole,
+  type ResolvedWebSession,
+} from "@agent-platform/platform";
+import {
   and,
   asc,
   desc,
@@ -20,33 +29,12 @@ import { memberships, users, webSessions, workspaces } from "./schema.ts";
 // Identity queries for the cookie-session path. API keys keep
 // their own helpers in queries.ts so that path is untouched.
 
-export type WorkspaceRow = typeof workspaces.$inferSelect;
-export type UserRow = typeof users.$inferSelect;
-export type MembershipRole = "owner" | "member";
-
 export async function countUsers(db: Database): Promise<number> {
   const [row] = await db
     .select({ count: sql<string>`count(*)::text` })
     .from(users);
   return Number(row?.count ?? 0);
 }
-
-export class BootstrapDoneError extends Error {
-  constructor() {
-    super("Bootstrap has already been completed");
-    this.name = "BootstrapDoneError";
-  }
-}
-
-export type BootstrapInput = {
-  userId: string;
-  email: string;
-  passwordHash: string;
-  displayName: string;
-  workspaceId: string;
-  workspaceSlug: string;
-  workspaceName: string;
-};
 
 /**
  * First owner + default workspace, only while `users` is empty. The advisory
@@ -57,7 +45,7 @@ export type BootstrapInput = {
 export async function bootstrapFirstOwner(
   db: Database,
   input: BootstrapInput,
-): Promise<{ user: UserRow; workspace: WorkspaceRow }> {
+): Promise<{ user: IdentityUser; workspace: IdentityWorkspace }> {
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))`,
@@ -98,7 +86,7 @@ export async function bootstrapFirstOwner(
 export async function findUserForLogin(
   db: Database,
   email: string,
-): Promise<UserRow | null> {
+): Promise<IdentityUser | null> {
   const [row] = await db
     .select()
     .from(users)
@@ -106,11 +94,6 @@ export async function findUserForLogin(
     .limit(1);
   return row ?? null;
 }
-
-export type LiveMembership = {
-  workspaceId: string;
-  role: MembershipRole;
-};
 
 // One workspace per installation for now (03 §3.1); with several the oldest
 // membership wins so the choice is stable across logins.
@@ -130,7 +113,7 @@ export async function findLiveMembership(
 export async function findWorkspace(
   db: Database,
   workspaceId: string,
-): Promise<WorkspaceRow | null> {
+): Promise<IdentityWorkspace | null> {
   const [row] = await db
     .select()
     .from(workspaces)
@@ -210,16 +193,6 @@ export async function createWebSession(
     return row;
   });
 }
-
-export type ResolvedWebSession = {
-  sessionId: string;
-  userId: string;
-  email: string;
-  displayName: string;
-  workspaceId: string;
-  role: MembershipRole;
-  expiresAt: Date;
-};
 
 /**
  * The cookie's session, its user and the user's live membership in one

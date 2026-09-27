@@ -28,7 +28,7 @@ const HOP_BY_HOP: ReadonlySet<string> = new Set([
   "upgrade",
 ]);
 
-export const HEALTH_PATH = "/healthz";
+const HEALTH_PATH = "/healthz";
 
 export function parseRequestHead(head: string): ProxyRequest {
   const lines = head.split("\r\n");
@@ -145,9 +145,7 @@ function rewrite(
 }
 
 /** `host:port` or `[::1]:port`; null when either half is missing. */
-export function splitAuthority(
-  target: string,
-): { host: string; port: number } | null {
+function splitAuthority(target: string): { host: string; port: number } | null {
   const separator = target.startsWith("[")
     ? target.indexOf("]:") + 1
     : target.lastIndexOf(":");

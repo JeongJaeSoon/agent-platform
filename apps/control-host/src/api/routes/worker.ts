@@ -35,7 +35,7 @@ import {
   parseJsonBody,
 } from "../app.ts";
 
-export const WORKER_ROUTE_PREFIX = "/worker";
+const WORKER_ROUTE_PREFIX = "/worker";
 
 function bearerToken(value: string | undefined): string | null {
   const match = value ? /^Bearer ([^\s]+)$/.exec(value) : null;

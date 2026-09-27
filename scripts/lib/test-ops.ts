@@ -32,10 +32,10 @@ import {
 } from "../../apps/control-host/src/api/checkpoints.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
-export const EXIT_REFUSED = 3;
+const EXIT_REFUSED = 3;
 
 /** A reference compose and the daemon resolve to one set of bytes. */
-export const PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
+const PINNED_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 
 /** What compose.local.yml runs and a test-ops installation must not. */
 const LOCAL_ONLY = ["localstack", "secrets", "fake-messages", "gitea-init"];
@@ -45,10 +45,7 @@ const LOCAL_ONLY = ["localstack", "secrets", "fake-messages", "gitea-init"];
  * memory, while no AWS account is in use (2026-09-25), or AWS S3 itself.
  */
 export type ObjectStoreMode = "localstack" | "s3";
-export const OBJECT_STORE_MODES: readonly ObjectStoreMode[] = [
-  "localstack",
-  "s3",
-];
+const OBJECT_STORE_MODES: readonly ObjectStoreMode[] = ["localstack", "s3"];
 
 /** The bucket infra/localstack/init creates, and the endpoint the API uses. */
 const LOCALSTACK_BUCKET = "claude-sessions";

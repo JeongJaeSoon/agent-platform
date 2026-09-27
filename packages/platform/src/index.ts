@@ -8,6 +8,7 @@ export * from "./ports/checkpoint-collection.ts";
 export * from "./ports/checkpoint-store.ts";
 export * from "./ports/checkpoint-verifier.ts";
 export * from "./ports/execution-backend.ts";
+export * from "./ports/identity-store.ts";
 export * from "./ports/pending-requests.ts";
 export * from "./ports/scheduler-store.ts";
 export * from "./ports/session-control.ts";

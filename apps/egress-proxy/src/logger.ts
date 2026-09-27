@@ -8,11 +8,11 @@ import { sanitizeFields, sanitizeText } from "./redaction.ts";
  * record shape matches the platform logger's so the lines parse the same way.
  */
 
-export const PROXY_LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+const PROXY_LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 
 export type ProxyLogLevel = (typeof PROXY_LOG_LEVELS)[number];
 
-export type ProxyLogFields = Readonly<Record<string, unknown>>;
+type ProxyLogFields = Readonly<Record<string, unknown>>;
 
 export type ProxyLogger = {
   debug(message: string, fields?: ProxyLogFields): void;

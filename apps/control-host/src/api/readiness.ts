@@ -22,7 +22,7 @@ export interface QueryRunner {
 
 // A bare name must be set and non-empty; with `allowed`, its trimmed value
 // must also be one of those.
-export type RequiredEnv =
+type RequiredEnv =
   | string
   | { readonly name: string; readonly allowed: readonly string[] };
 

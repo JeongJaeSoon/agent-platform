@@ -31,7 +31,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 
 const PROFILE_ID = "claude-coding-v1";
 
-export type ObjectRouteSession = {
+type ObjectRouteSession = {
   sessionId: string;
   claim(): Promise<string>;
 };

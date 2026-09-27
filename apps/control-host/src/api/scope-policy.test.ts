@@ -4,12 +4,13 @@ import {
   type SessionScope,
 } from "@agent-platform/contracts";
 import type {
+  IdentityStore,
   InterruptService,
   PendingRequestService,
   SessionService,
 } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
-import type { BootstrapGate, IdentityStore } from "./auth.ts";
+import type { BootstrapGate } from "./auth.ts";
 import { hashApiKey } from "./keys.ts";
 import { API_ROUTE_SCOPES } from "./openapi.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";

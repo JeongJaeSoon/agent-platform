@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readJobs, readJunit } from "./integration-jobs.ts";
 
-export type Result = "PASS" | "FAIL" | "SKIP" | "MISSING";
+type Result = "PASS" | "FAIL" | "SKIP" | "MISSING";
 export type Verdict = { file: string; test: string; result: Result };
 
 /** Every d2-gate test ci.yml declares skipped, with its result in the reports. */

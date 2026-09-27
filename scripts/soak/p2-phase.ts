@@ -58,7 +58,7 @@ export type PhaseJudgement = {
 const modulo = (value: number, divisor: number) =>
   ((value % divisor) + divisor) % divisor;
 
-export function phaseBucket(atMs: number): number {
+function phaseBucket(atMs: number): number {
   return Math.floor(modulo(atMs, CYCLE_MS) / BUCKET_MS);
 }
 

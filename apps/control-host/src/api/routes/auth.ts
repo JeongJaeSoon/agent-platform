@@ -10,8 +10,12 @@ import {
   type Workspace,
   workspaceSettingsSchema,
 } from "@agent-platform/contracts";
-import { BootstrapDoneError, type WorkspaceRow } from "@agent-platform/db";
 import type { StructuredLogger } from "@agent-platform/observability";
+import {
+  BootstrapDoneError,
+  type IdentityStore,
+  type IdentityWorkspace,
+} from "@agent-platform/platform";
 import type { Context } from "hono";
 import { z } from "zod";
 import {
@@ -31,7 +35,6 @@ import {
   generateWebSessionToken,
   hashPassword,
   hashWebSessionToken,
-  type IdentityStore,
   LoginLockout,
   setWebSessionCookie,
   verifyPassword,
@@ -84,7 +87,7 @@ async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-export function workspaceView(row: WorkspaceRow): Workspace {
+function workspaceView(row: IdentityWorkspace): Workspace {
   return {
     id: row.id,
     slug: row.slug,

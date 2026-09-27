@@ -8,13 +8,15 @@ import {
   loginResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@agent-platform/contracts";
-import type {
-  BootstrapInput,
-  ResolvedWebSession,
-  UserRow,
-  WorkspaceRow,
-} from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import {
+  BootstrapDoneError,
+  type BootstrapInput,
+  type IdentityStore,
+  type IdentityUser,
+  type IdentityWorkspace,
+  type ResolvedWebSession,
+} from "@agent-platform/platform";
 import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
 import {
   apiKeyPrincipal,
@@ -23,7 +25,6 @@ import {
   csrfViolation,
   hashPassword,
   hashWebSessionToken,
-  type IdentityStore,
   LoginLockout,
   unauthenticatedPrincipal,
   WEB_SESSION_TTL_MS,
@@ -43,8 +44,8 @@ const createApiApp = recordRouteErrors("auth.test.ts");
 // In-memory identity store with the same null/row semantics as the SQL
 // helpers; the integration test covers the real queries.
 class MemoryIdentityStore implements IdentityStore {
-  users: UserRow[] = [];
-  workspaces: WorkspaceRow[] = [];
+  users: IdentityUser[] = [];
+  workspaces: IdentityWorkspace[] = [];
   memberships: Array<{
     workspaceId: string;
     userId: string;
@@ -67,10 +68,9 @@ class MemoryIdentityStore implements IdentityStore {
   }
   async bootstrap(input: BootstrapInput) {
     if (this.users.length > 0) {
-      const { BootstrapDoneError } = await import("@agent-platform/db");
       throw new BootstrapDoneError();
     }
-    const user: UserRow = {
+    const user: IdentityUser = {
       id: input.userId,
       email: input.email,
       passwordHash: input.passwordHash,
@@ -78,7 +78,7 @@ class MemoryIdentityStore implements IdentityStore {
       createdAt: new Date(this.now()),
       disabledAt: null,
     };
-    const workspace: WorkspaceRow = {
+    const workspace: IdentityWorkspace = {
       id: input.workspaceId,
       slug: input.workspaceSlug,
       name: input.workspaceName,
@@ -394,7 +394,7 @@ describe("bootstrap", () => {
     expect(gate.consume(token)).toBe(true);
     expect(gate.consume(token)).toBe(false);
 
-    identity.users.push({} as UserRow);
+    identity.users.push({} as IdentityUser);
     printed.length = 0;
     await bootstrapGateFromEnv(undefined, identity, logger, print);
     expect(printed).toHaveLength(0);
