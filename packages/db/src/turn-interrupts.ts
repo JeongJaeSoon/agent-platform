@@ -124,7 +124,7 @@ function stableReasonCode(reason: string | null, outcome: string): string {
 }
 
 /**
- * 94S-273: an interrupt its turn has not settled by `deadlineMs` is reported
+ * an interrupt its turn has not settled by `deadlineMs` is reported
  * unknown rather than left accepted, as a terminate is past its deadline. By
  * then the reconciler has asked for the execution to go; if nothing confirms
  * that, nothing else would ever answer. The intent stays open, so the turn's

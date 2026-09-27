@@ -35,7 +35,7 @@ export const agentRuleSchema = z
 
 export const agentCapabilitiesSchema = z
   .object({
-    /** `null` = every tool the runtime profile allows, `[]` = none (Codex B07). */
+    /** `null` = every tool the runtime profile allows, `[]` = none. */
     tools: z.array(toolNameSchema).nullable(),
     /** Names resolved against the runtime profile's MCP allowlist. */
     mcp: z.array(toolNameSchema).nullable(),
@@ -72,7 +72,7 @@ export const agentSchema = z
     workspace_id: workspaceIdSchema,
     slug: agentSlugSchema,
     name: z.string().min(1).max(120),
-    /** A card grouping string, never an authorization subject (Codex E09). */
+    /** A card grouping string, never an authorization subject. */
     team: z.string().min(1).max(120).nullable(),
     status: agentStatusSchema,
     active_release_id: agentReleaseIdSchema.nullable(),
@@ -223,7 +223,7 @@ export const runtimeConfigSnapshotSchema = z
  *
  * The resolved config travels with the release so a profile edit cannot
  * change an in-flight session; a fingerprint mismatch at start is refused and
- * asks for a re-release instead (Codex B06).
+ * asks for a re-release instead.
  */
 export const agentReleaseSchema = z
   .object({
@@ -292,7 +292,7 @@ export const activateAgentResponseSchema = z
   })
   .strict();
 
-/** 94S-132 config, read-only, so a card can pick a model it is allowed to use. */
+/** config, read-only, so a card can pick a model it is allowed to use. */
 export const runtimeProfileSummarySchema = z
   .object({
     id: z.string().min(1).max(128),

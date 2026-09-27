@@ -47,9 +47,7 @@ export type S3RequestBounds = {
  *
  * `socketTimeout` is deliberately absent. It would be the better bound — plain
  * inactivity — but it is installed through `ClientRequest.setTimeout`, which
- * bun's `node:http` does not honour: measured against a peer that accepts and
- * never answers, a 500ms `socketTimeout` was still pending after 4s while the
- * same case under `requestTimeout` failed in 509ms.
+ * bun's `node:http` does not honour. `requestTimeout` is the enforceable bound.
  */
 export const S3_REQUEST_BOUNDS: S3RequestBounds = {
   bodyIdleMs: 10_000,
@@ -61,8 +59,8 @@ export const S3_REQUEST_BOUNDS: S3RequestBounds = {
 /**
  * The slowest link a checkpoint transfer is allowed: 256 MiB in five
  * minutes, ~0.85 MiB/s, the rate the fixed 300 s budgets were sized against
- * when 256 MiB was the largest bundle (94S-230). Scaling by it keeps every
- * size on the same terms.
+ * at the reference bundle size. Scaling by it keeps every size on the same
+ * terms.
  */
 export const MIN_TRANSFER_BYTES_PER_SECOND = (256 * 1024 * 1024) / 300;
 
@@ -97,10 +95,8 @@ export function readBudgetMs(bytes: number, floorMs: number): number {
  * Both request timeouts are cleared the moment the response *headers* arrive,
  * and the SDK then reads some bodies itself — an error document on any status
  * >= 300, a ListObjectsV2 page — inside `send()`, before `bodyBytes()` could
- * ever bound them. Measured: a peer that answers `503` with ten bytes of XML
- * and stops leaves `send()` pending forever, and an `abortSignal` passed to
- * `send` does not end it either. Destroying the stream does, and this is the
- * last place that still holds it.
+ * ever bound them. An `abortSignal` passed to `send` does not reach that body;
+ * destroying the stream does, and this is the last place that still holds it.
  *
  * The bound is idle time, not total: it is armed from the socket's own data
  * events, so a 128 MiB GetObject that keeps arriving keeps resetting it.
@@ -124,7 +120,7 @@ export class BoundedNodeHttpHandler extends NodeHttpHandler {
 
 /**
  * {@link BoundedNodeHttpHandler} that looks a plain-http endpoint's name up
- * again for every request (94S-344), for the control plane's long-lived
+ * again for every request, for the control plane's long-lived
  * processes.
  *
  * Under Bun, `node:http` hands a hostname to `fetch`, whose resolver keeps
@@ -314,9 +310,8 @@ export type BodyReadBounds = {
  * A GetObject settles when the response *headers* arrive; the body is a stream
  * consumed afterwards, and nothing in the AWS SDK bounds that read — neither
  * `requestTimeout` nor an `abortSignal` passed to `send` reaches a stream the
- * handler has already handed over. 94S-217 measured both still hanging after
- * 20s against a peer that stopped mid-body. Destroying the stream is the only
- * thing that ends the wait, so the bound lives here rather than in the client.
+ * handler has already handed over. Destroying the stream is the only thing
+ * that ends the wait, so the bound lives here rather than in the client.
  *
  * Three bounds, because one cannot do the job:
  *
@@ -351,7 +346,7 @@ export class BodyStallError extends Error {
 
 /**
  * A body that ended cleanly before the length its response declared: a
- * failed read, not damage, and worth another request (94S-390).
+ * failed read, not damage, and worth another request.
  */
 export class BodyTruncatedError extends Error {
   constructor(message: string) {

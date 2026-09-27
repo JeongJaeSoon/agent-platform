@@ -24,7 +24,7 @@ import {
 } from "./d2-gate/harness.ts";
 
 /**
- * The D2 completion gate (94S-247): the product stack built from this
+ * The D2 completion gate: the product stack built from this
  * checkout — public API, scheduler, the worker image with the real Claude
  * Agent SDK — driven only from outside, with a scripted Messages API and a
  * fault injector in the worker's path. scripts/d2-gate/run.sh builds the
@@ -311,7 +311,7 @@ async function collectMeta(): Promise<void> {
   });
 }
 
-describe.skipIf(env === null)("D2 gate (94S-247)", () => {
+describe.skipIf(env === null)("D2 gate", () => {
   beforeAll(async () => {
     if (!env) return;
     api = new PublicApi(env.apiUrl, env.apiKey);
@@ -824,7 +824,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     const afterFailure = {
       pointer: failedRow.checkpoint_revision,
       checkpoints: (await checkpointRows(sessionId)).length,
-      // 94S-312: the session shows the turn went without its checkpoint.
+      // the session shows the turn went without its checkpoint.
       pending_reason: failedRow.checkpoint_pending_reason,
     };
     report.check({
@@ -997,7 +997,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     // With the scheduler stopped nothing replaces or reaps the worker, so
     // what follows is the worker's own reaction to finding its lease gone.
     // The reconciler service keeps running and is expected to fence the
-    // attempt during the pause (94S-320); the pass run by hand below then
+    // attempt during the pause; the pass run by hand below then
     // finds it done, and the checks do not ask which pass it was.
     await scheduler("stop");
     try {
@@ -1161,7 +1161,7 @@ describe.skipIf(env === null)("D2 gate (94S-247)", () => {
     expect(report.failed().filter((c) => c.id.startsWith("D-"))).toEqual([]);
   }, 900_000);
 
-  test("E: an accepted interrupt stops its turn, however early it lands (94S-351)", async () => {
+  test("E: an accepted interrupt stops its turn, however early it lands", async () => {
     const rounds = Number(process.env.D2_GATE_INTERRUPT_REPEAT ?? "6");
     const outcomes: Array<Record<string, unknown>> = [];
     for (let round = 0; round < rounds; round++) {

@@ -5,7 +5,7 @@ import { checkpointBundleRefs, peeledCommits } from "./checkpoint-bundle.ts";
 const head = "1".repeat(40);
 const worktree = "2".repeat(40);
 
-describe("checkpoint bundle refs (94S-391)", () => {
+describe("checkpoint bundle refs", () => {
   test("reads what a capture writes, the branch as a tag included", () => {
     expect(
       checkpointBundleRefs(

@@ -1,9 +1,9 @@
 name: D2 gate
 
-# The D2 gate (94S-247: A–E, R1–R2, H1–H5) needs the whole compose stack on
+# The D2 gate (A–E, R1–R2, H1–H5) needs the whole compose stack on
 # images built from the checkout, so ci.yml declares its tests skipped and
 # only scripts/d2-gate/run.sh runs them. Run by hand alone, the harness went
-# stale without anyone noticing (94S-404: gate A broke on 94S-227's
+# stale without anyone noticing (: gate A broke on
 # incremental bundles). This workflow runs it every night on main, and on the
 # pull requests that change the gate itself.
 #
@@ -40,15 +40,15 @@ jobs:
   d2-gate:
     runs-on: ubuntu-24.04
     # Image builds as in ci.yml's e2e, then the three suites one after
-    # another on one stack: about 10 minutes (94S-404's first runs).
+    # another on one stack: about 10 minutes ('s first runs).
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
       # The runner's own daemon, as in ci.yml's e2e: the scheduler refuses one
-      # older than Docker 28 (94S-274). Both overlays point every third-party
-      # image and the Dockerfiles' base at the CI mirror (94S-365).
+      # older than Docker 28. Both overlays point every third-party
+      # image and the Dockerfiles' base at the CI mirror.
       - name: scripts/d2-gate/run.sh
         env:
           D2_GATE_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml:scripts/d2-gate/compose.ci-mirror.yml

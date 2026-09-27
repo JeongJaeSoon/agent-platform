@@ -15,7 +15,7 @@ import {
 } from "@aws-sdk/client-secrets-manager";
 import { parse as parseYaml } from "yaml";
 
-// The operator's catalog (94S-132): two YAML files in one directory, read
+// The operator's catalog: two YAML files in one directory, read
 // once at startup. Anything wrong — a missing file, a schema error, a
 // credential that does not resolve — stops the API with a message naming
 // the file and path, never a value.
@@ -94,7 +94,7 @@ export function secretsManagerReader(
     client ??= new SecretsManagerClient({
       ...(env.AWS_REGION === undefined ? {} : { region: env.AWS_REGION }),
       // Its own endpoint, never AWS_ENDPOINT_URL: locally that one is the
-      // object store workers can reach, and secrets must not be (94S-132).
+      // object store workers can reach, and secrets must not be.
       // The SDK would fall back to it on its own, so configured endpoints
       // are ignored and only this variable (or AWS itself) is used.
       ignoreConfiguredEndpointUrls: true,

@@ -78,7 +78,7 @@ export type ApiRouter = Hono<ApiEnvironment>;
 export interface CreateApiAppOptions {
   authMode?: string;
   keyStore?: ApiKeyStore;
-  // Enables the cookie-session path of the /v1 middleware (94S-151).
+  // Enables the cookie-session path of the /v1 middleware.
   identity?: IdentityStore;
   logger?: StructuredLogger;
   registerRoutes?: (router: ApiRouter) => void;

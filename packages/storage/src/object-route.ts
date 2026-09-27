@@ -16,7 +16,7 @@ import {
 import { listPrefixWithin, objectKeyWithin } from "./scoped-objects.ts";
 
 /**
- * The control plane's half of the object store route (94S-251). A worker
+ * The control plane's half of the object store route. A worker
  * holds no object store credential: its S3 requests go to the egress proxy,
  * which asks the API whether the attempt behind the token still owns its
  * session, and then whether this one request is one the session may make.
@@ -29,8 +29,8 @@ import { listPrefixWithin, objectKeyWithin } from "./scoped-objects.ts";
  * store confined to the session prefix: get and head an object, create one
  * that does not exist yet (`putImmutable`; never an overwrite), and list
  * under the prefix. Nothing else is signed — no delete, no copy (its
- * source is a header), no legal hold or retention (the control plane's
- * alone, per 94S-229), no multipart, no ACL.
+ * source is a header), no legal hold or retention (the control plane owns
+ * those), no multipart, no ACL.
  */
 
 /** The worker's request as the proxy saw it, below the route's prefix. */

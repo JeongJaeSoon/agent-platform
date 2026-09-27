@@ -241,7 +241,7 @@ describe("claim lifecycle", () => {
 
     // The spent launch is closed and never re-created under its own
     // identity. It died before asking for input, so the session it gave back
-    // waits out a startup backoff (94S-347) and is then launched again one
+    // waits out a startup backoff and is then launched again one
     // generation on.
     expect(second.terminatedObserved).toEqual([gen1]);
     expect(second.reensured).toEqual([]);
@@ -285,7 +285,7 @@ describe("claim lifecycle", () => {
     expect(first.failedLaunches).toHaveLength(1);
     const [ref] = first.failedLaunches;
     if (!ref) throw new Error("nothing attempted");
-    // The failure holds the next attempt back (94S-207); spent here on the
+    // The failure holds the next attempt back; spent here on the
     // database clock rather than waited out.
     await db
       .update(workerLaunches)
@@ -378,7 +378,7 @@ describe("claim lifecycle", () => {
     ).toEqual([{ partition: first, podId: null }]);
   });
 
-  test("a claimed container an isolation contract bump made stale stays up while its turn runs, and is replaced once the turn has ended (94S-250)", async () => {
+  test("a claimed container an isolation contract bump made stale stays up while its turn runs, and is replaced once the turn has ended", async () => {
     const backend = new NonceHoldingBackend();
     const sessionId = await queuedSession();
     const [gen1] = (await pass(backend)).launched;

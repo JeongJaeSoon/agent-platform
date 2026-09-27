@@ -66,7 +66,7 @@ const catalog: SessionCatalog = {
 
 const PASSES = 4;
 
-// 94S-320: the loop never overlaps its own passes, but two reconcilers (a
+// the loop never overlaps its own passes, but two reconcilers (a
 // second replica, a restart racing a pass still being killed) can. Every
 // sweep reads its candidates without locks and re-judges each under the row
 // locks, so whichever pass gets there first acts and the rest find nothing.

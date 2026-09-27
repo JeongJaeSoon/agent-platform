@@ -255,7 +255,7 @@ describe("secretGuard", () => {
 });
 
 describe("responseHeaders", () => {
-  test("drops a header whose value or name echoes a value (Codex R3)", () => {
+  test("drops a header whose value or name echoes a value", () => {
     const out = responseHeaders(
       new Headers({
         "content-type": "application/json",
@@ -510,7 +510,7 @@ describe("startCredentialProxy", () => {
     expect(rest).toBe("event: two\n\n");
   });
 
-  describe("usage metering (94S-409)", () => {
+  describe("usage metering", () => {
     const provider = (up: { port: number }) =>
       granting(`http://upstream.test:${up.port}`, [
         ["x-api-key", PROVIDER_KEY],
@@ -622,7 +622,7 @@ describe("startCredentialProxy", () => {
       });
     });
 
-    test("count_tokens and an error answer report nothing; a success without usage is charged from its request (Codex R1)", async () => {
+    test("count_tokens and an error answer report nothing; a success without usage is charged from its request", async () => {
       const up = upstream((request) =>
         new URL(request.url).pathname.endsWith("/count_tokens")
           ? Response.json({ input_tokens: 12 })
@@ -658,7 +658,7 @@ describe("startCredentialProxy", () => {
       });
     });
 
-    test("reports a fast answer's speed and its server tool counts; a request that asked for fast but got no usable answer is reported fast (94S-451)", async () => {
+    test("reports a fast answer's speed and its server tool counts; a request that asked for fast but got no usable answer is reported fast", async () => {
       const tools = {
         web_search_requests: 3,
         web_fetch_requests: 1,
@@ -979,7 +979,7 @@ describe("startCredentialProxy", () => {
     expect(up.seen[0]?.headers.authorization).toBe(basic);
   });
 
-  test("a success that echoes the credential is cut off before the value (Codex R1)", async () => {
+  test("a success that echoes the credential is cut off before the value", async () => {
     let mode: "header" | "body" | "split" | "encoded" = "header";
     const up = upstream((request) => {
       const echoed = request.headers.get("x-api-key") ?? "";
@@ -1037,7 +1037,7 @@ describe("startCredentialProxy", () => {
     expect((await messages(server.port)).status).toBe(502);
   });
 
-  test("a request body trickled past the deadline ends the exchange and frees its slot (Codex R5)", async () => {
+  test("a request body trickled past the deadline ends the exchange and frees its slot", async () => {
     const up = upstream(() => Response.json({ ok: true }));
     const auth = authorizer(
       granting(`http://upstream.test:${up.port}`, [
@@ -1131,7 +1131,7 @@ describe("startCredentialProxy", () => {
     };
   }
 
-  test("a body over the route's cap is refused before the authorizer hears of it (94S-388)", async () => {
+  test("a body over the route's cap is refused before the authorizer hears of it", async () => {
     const up = upstream(() => Response.json({ ok: true }));
     const auth = authorizer(
       granting(`http://upstream.test:${up.port}`, [
@@ -1195,7 +1195,7 @@ describe("startCredentialProxy", () => {
     expect(up.seen[0]?.headers["content-length"]).toBe("13");
   });
 
-  test("holds request bodies to one budget across exchanges, and frees it as each goes upstream (94S-388)", async () => {
+  test("holds request bodies to one budget across exchanges, and frees it as each goes upstream", async () => {
     const up = upstream(() => Response.json({ ok: true }));
     const auth = authorizer(
       granting(`http://upstream.test:${up.port}`, [
@@ -1231,7 +1231,7 @@ describe("startCredentialProxy", () => {
     expect(up.seen.map((seen) => seen.body.length)).toEqual([80, 30]);
   });
 
-  test("an upstream that answers before the body is out keeps the reservation until the exchange ends (94S-388, Codex R1)", async () => {
+  test("an upstream that answers before the body is out keeps the reservation until the exchange ends", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -1273,7 +1273,7 @@ describe("startCredentialProxy", () => {
     await next.text();
   });
 
-  describe("an exchange that never finishes still frees its slot (94S-366)", () => {
+  describe("an exchange that never finishes still frees its slot", () => {
     // An upstream that sends one event and then holds the stream open, the
     // way a slow model call does while the worker is interrupted; or, once
     // `hold()` is called, holds its next call without even a head, the way
@@ -1433,7 +1433,7 @@ describe("startCredentialProxy", () => {
       await admitted(h, server.port);
     });
 
-    test("a worker hanging up while the upstream name is resolving frees the slot (Codex R2)", async () => {
+    test("a worker hanging up while the upstream name is resolving frees the slot", async () => {
       const h = holding();
       let lookups = 0;
       const server = proxy(h.auth.url, h.up.port, {
@@ -1489,7 +1489,7 @@ describe("startCredentialProxy", () => {
     });
   });
 
-  test("an open exchange is cut once its grant ends, not when the authorizer blips (Codex R2)", async () => {
+  test("an open exchange is cut once its grant ends, not when the authorizer blips", async () => {
     // The first exchange's gate opens; the later ones' never do.
     let release: () => void = () => {};
     const gates = [
@@ -1566,7 +1566,7 @@ describe("startCredentialProxy", () => {
     await Bun.sleep(20);
     expect(upstreamAborted).toBe(true);
 
-    // An authorizer that stays down past the grace ends it too (Codex R3).
+    // An authorizer that stays down past the grace ends it too.
     upstreamAborted = false;
     answer = "grant";
     const strict = proxy(auth.url, up.port, {
@@ -1590,7 +1590,7 @@ describe("startCredentialProxy", () => {
     expect(upstreamAborted).toBe(true);
   });
 
-  test("a privately listed upstream that resolves publicly gets no login (Codex R3)", async () => {
+  test("a privately listed upstream that resolves publicly gets no login", async () => {
     const up = upstream(() => Response.json({ id: "msg_1" }));
     const auth = authorizer(
       granting(`http://upstream.test:${up.port}`, [

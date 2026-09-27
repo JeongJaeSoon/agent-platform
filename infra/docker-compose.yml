@@ -1,5 +1,5 @@
 # The local stack: the product services of compose.core.yml with the local
-# layer, compose.local.yml, merged over them as `-f` would (94S-430). The
+# layer, compose.local.yml, merged over them as `-f` would. The
 # root compose.yaml, scripts/local.sh and every e2e, gate and restore run
 # start from this file; their overlays merge onto the result.
 name: agent-platform

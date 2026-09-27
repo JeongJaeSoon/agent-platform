@@ -16,7 +16,7 @@ import {
 } from "./harness.ts";
 
 /**
- * 94S-320: the compose stack's reconciler service recovers on its own, with
+ * the compose stack's reconciler service recovers on its own, with
  * nobody running a pass by hand. On the D2 gate stack (the product topology
  * with the gate's scripted Messages API and fault injector):
  *
@@ -87,7 +87,7 @@ function fencedBy(lines: string[], message: string, sessionId: string) {
   });
 }
 
-describe.skipIf(env === null)("periodic reconciler sweep (94S-320)", () => {
+describe.skipIf(env === null)("periodic reconciler sweep", () => {
   beforeAll(async () => {
     if (!env) return;
     api = new PublicApi(env.apiUrl, env.apiKey);

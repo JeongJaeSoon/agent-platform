@@ -73,7 +73,7 @@ export function createApiCheckpointService(
  * need. What git needs follows the largest file, a little over its size
  * (one incompressible 120 MiB file: refused at 96 MiB, verified at 128 MiB),
  * and workers now write bundles up to the service's 256 MiB ceiling
- * (94S-318), so a single 250 MiB file needs ~256 MiB. A cap below what
+ * so a single 250 MiB file needs ~256 MiB. A cap below what
  * ordinary bundles need fails every verification, so no checkpoint would
  * ever commit; refusing to start says that once instead of on every turn.
  */
@@ -261,7 +261,7 @@ function checkpointS3Client(config: CheckpointStorageConfig) {
 }
 
 /**
- * What signs the workers' object store requests (94S-251): the same bucket
+ * What signs the workers' object store requests: the same bucket
  * and key the API itself uses, which is why the key stays in this process.
  */
 export function checkpointObjectRouteSigner(
@@ -306,9 +306,9 @@ export async function assertCheckpointBucketProtection(
  * The default encryption a checkpoint bucket must have: SSE-S3. Checkpoint
  * writes name no encryption, so the bucket default is what every object
  * gets. SSE-KMS is not accepted in its place: every worker would need
- * GenerateDataKey on the key, which is exactly the credential 94S-251
+ * GenerateDataKey on the key, which is exactly the credential
  * narrows, and a worker without it fails its first write rather than this
- * check (docs/operations.md, 94S-337).
+ * check (docs/operations.md).
  */
 export const CHECKPOINT_BUCKET_ENCRYPTION = "AES256";
 

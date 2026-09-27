@@ -23,7 +23,7 @@ import { main } from "./main.ts";
 import { migrateWorkspaces } from "./migrate-workspace.ts";
 
 /**
- * 94S-225 AC5 end to end: a session whose workspace predates the quota
+ * Quota backfill end to end: a session whose workspace predates the quota
  * cannot be brought back, `migrate-workspace` moves it, and the very next
  * scheduler pass relaunches it on the copy. Needs a real daemon
  * (`DOCKER_BACKEND_TEST=1`) and PostgreSQL (`QUEUE_DATABASE_URL`).
@@ -190,7 +190,7 @@ integration("a legacy session relaunched after migrate-workspace", () => {
     ]);
     expect(copy?.Labels?.[LABELS.migratedFrom]).toBe(legacy);
 
-    // The refused launch is in its retry backoff (94S-207); spend it on the
+    // The refused launch is in its retry backoff; spend it on the
     // DB clock rather than waiting it out.
     await db
       .update(workerLaunches)

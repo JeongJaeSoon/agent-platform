@@ -36,7 +36,7 @@ export type RuntimePlugin = { path: string; type: "local" };
 export type RuntimePrincipal = { ownerScope: string };
 
 /**
- * What a worker holds in place of a provider credential (94S-252): a token
+ * What a worker holds in place of a provider credential: a token
  * the egress proxy at `transport` exchanges for the real one. `endpoint`
  * stays the upstream the proxy forwards to, which is what policy approves
  * and the checkpoint fingerprint names.

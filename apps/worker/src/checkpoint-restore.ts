@@ -58,7 +58,7 @@ export class CheckpointBundleRefused extends Error {
 
 /**
  * Fetches `bundle` into a new bare repository at `repository` and reads its
- * refs back, after the `bases` it builds on, oldest first (94S-227). Throws
+ * refs back, after the `bases` it builds on, oldest first. Throws
  * `CheckpointBundleRefused` for a bundle that is not the one
  * `captureWorkspace` writes, by the rule
  * finalize applies too (`checkpointBundleRefs`). The fetch checks every
@@ -256,7 +256,7 @@ export async function restoreCheckpointTree(input: {
 
 /**
  * Replaces the staged repository with one holding only what the
- * instructions commit reaches (94S-370). Captures need nothing else from
+ * instructions commit reaches. Captures need nothing else from
  * it; the rest is in the workspace's own `.git`, which just fetched it, and
  * keeping it twice for the whole session would charge the workspace quota
  * for the bundle twice. The staged repository goes first, so the restore

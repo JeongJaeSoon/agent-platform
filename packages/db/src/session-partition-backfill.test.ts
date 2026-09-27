@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 
 /**
- * The 94S-367 backfill, run against the schema as it stood just before it:
+ * The partition backfill, run against the legacy schema:
  * the rows it has to read are launch history the current code no longer
  * consults, so they are written in the old shape and the migration is applied
  * by hand. Found by name so a renumbering restack does not break it.

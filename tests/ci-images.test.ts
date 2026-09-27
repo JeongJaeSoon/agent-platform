@@ -6,7 +6,7 @@ import { suiteFiles } from "../.github/scripts/test-files.ts";
 import { LOCAL_LAYERS, layeredServices } from "./compose-layers.ts";
 
 // CI pulls third-party images from its ghcr.io mirror only, by digests the
-// mirror workflow copies there (94S-308). What ci.yml names must be on that
+// mirror workflow copies there. What ci.yml names must be on that
 // list, and every image a suite pulls on its own must be pointed at it.
 
 const root = join(import.meta.dir, "..");
@@ -94,7 +94,7 @@ describe("the mirror list", () => {
 });
 
 describe("images.yml", () => {
-  // 94S-317: the app builds pull their base and BuildKit from the mirror too.
+  // the app builds pull their base and BuildKit from the mirror too.
   type Step = { uses?: string; with?: Record<string, unknown> };
   const imagesText = read(".github/workflows/images.yml");
   const images = Bun.YAML.parse(imagesText) as {
@@ -308,7 +308,7 @@ describe("ci.yml", () => {
 });
 
 describe("the e2e compose overlay", () => {
-  // 94S-365: `e2e` and `quickstart` start the product compose stack, whose
+  // `e2e` and `quickstart` start the product compose stack, whose
   // images stay on Docker Hub for local users; CI lays this over it.
   const OVERLAY = "tests/e2e/compose.ci-mirror.yml";
   type Service = {
@@ -389,7 +389,7 @@ describe("the e2e compose overlay", () => {
 });
 
 describe("the D2 gate workflow", () => {
-  // 94S-404: d2-gate.yml runs scripts/d2-gate/run.sh on the product stack
+  // d2-gate.yml runs scripts/d2-gate/run.sh on the product stack
   // with the e2e overlay, and the gate's own services with one of its own.
   const OVERLAY = "scripts/d2-gate/compose.ci-mirror.yml";
   type Step = { env?: Record<string, string>; run?: string };

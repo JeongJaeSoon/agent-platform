@@ -51,7 +51,7 @@ import {
 } from "../scripts/lib/checkpoint-pins.ts";
 
 /**
- * The checkpoint half of scripts/backup.sh → restore.sh (94S-282), against
+ * The checkpoint half of scripts/backup.sh → restore.sh, against
  * in-memory versioned stores standing in for the source and the restored
  * bucket, and a directory standing in for the backup's objects/. The compose
  * round trip itself is the E2E recorded on the PR.
@@ -596,7 +596,7 @@ describe("backup → restore re-pin", () => {
     });
   });
 
-  test("an incremental checkpoint's base bundles are captured, re-pinned and held (94S-372)", async () => {
+  test("an incremental checkpoint's base bundles are captured, re-pinned and held", async () => {
     await withDir(async (dir) => {
       const source = createMemoryCheckpointObjectStore({ versioned: true });
       const chain = await createGitBundleChain();
@@ -815,7 +815,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(claim.runtime_config.model).toBe(
       (resolved.profiles[PROFILE_ID] as CatalogProfile).model,
     );
-    // Rows from before 94S-253 carry no fingerprint and are pinned at claim.
+    // Rows without a fingerprint are pinned to the catalog at claim time.
     expect(
       sessionClaim(await sessionOf({ profileFingerprint: null }), resolved),
     ).toEqual(claim);

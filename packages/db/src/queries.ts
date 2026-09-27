@@ -20,7 +20,7 @@ export async function createApiKey(
     id: string;
     ownerId: string;
     keyHash: Uint8Array;
-    // Null issues the pre-94S-132 all-scope key; only tests still do.
+    // Null issues the legacy all-scope key; only tests still do.
     scopes: readonly SessionScope[] | null;
   },
 ) {
@@ -148,7 +148,7 @@ export async function reconcileOrphanedSessions(
     throw new Error("limit must be a positive integer");
   }
   // The heartbeat writer stored each deadline from its own TTL; nothing
-  // here knows one (94S-132). Judged on the database clock, like
+  // here knows one. Judged on the database clock, like
   // reconcileExpiredLeases, unless a caller pins `now`.
   const pinned = options.now;
   const dryRun = options.dryRun ?? false;

@@ -12,7 +12,7 @@ export type StoredObjectVersion = {
  * version under a prefix, and the one operation that ends a version for
  * good. Kept apart from `CheckpointObjectStore` because the worker is handed
  * that one, and whoever can release a hold can undo every hold a checkpoint
- * relies on (94S-251).
+ * relies on.
  */
 export interface CheckpointObjectCollector {
   listVersions(prefix: string): Promise<StoredObjectVersion[]>;

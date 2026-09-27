@@ -1,6 +1,6 @@
 /**
  * What the session list page and the session detail cost when one owner has
- * many sessions and the listed ones have long event histories (94S-396).
+ * many sessions and the listed ones have long event histories.
  * Only the sessions a page lists get events, since the reads touch no other
  * session's; the rest of the table is other owners' sessions.
  *

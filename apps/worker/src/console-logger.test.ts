@@ -16,7 +16,7 @@ function recorded() {
   return { lines, logger };
 }
 
-describe("the worker's console log (94S-386)", () => {
+describe("the worker's console log", () => {
   test("masks sensitive keys, bearer values and the login in a URL", () => {
     const { lines, logger } = recorded();
 

@@ -378,7 +378,7 @@ describe("API checkpoint composition", () => {
   });
 });
 
-describe("checkpoint bucket encryption at startup (94S-337)", () => {
+describe("checkpoint bucket encryption at startup", () => {
   const config: CheckpointStorageConfig = {
     accessKeyId: "id",
     bucket: "claude-sessions",
@@ -444,7 +444,7 @@ describe("checkpoint bucket encryption at startup (94S-337)", () => {
   });
 });
 
-describe("checkpoint objects present at startup (94S-422)", () => {
+describe("checkpoint objects present at startup", () => {
   const config: CheckpointStorageConfig = {
     accessKeyId: "id",
     bucket: "claude-sessions",

@@ -1,6 +1,6 @@
 /**
- * npm advisories against bun.lock, split by whether a fix exists (94S-338,
- * release policy of 94S-363): `bun .github/scripts/npm-audit.ts <result dir>`.
+ * npm advisories against bun.lock, split by whether a fix exists (
+ * release policy of ): `bun.github/scripts/npm-audit.ts <result dir>`.
  *
  * `bun audit` names the advisories but not whether a patched version exists.
  * That comes from the GitHub advisory database, the source Grype uses for

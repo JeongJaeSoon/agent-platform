@@ -213,7 +213,7 @@ export function buildSdkOptions(
 /**
  * The engine under Bun.spawn, not node:child_process: Bun's node wrapper
  * closes an extra stdio socket a second time when it is collected, by then
- * on whatever descriptor reused the number (94S-410). Bun.spawn hands the
+ * on whatever descriptor reused the number. Bun.spawn hands the
  * extra socket over as a bare descriptor it closes once; we only write the
  * key down it, and the engine reads up to the newline.
  */

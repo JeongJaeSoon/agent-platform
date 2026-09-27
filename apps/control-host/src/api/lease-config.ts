@@ -4,7 +4,7 @@ import {
 } from "@agent-platform/contracts";
 import { DEFAULT_LEASE_TTL_MS } from "@agent-platform/platform";
 
-// HEARTBEAT_TTL_SEC is read here and nowhere else (94S-132). Every lease the
+// HEARTBEAT_TTL_SEC is read here and nowhere else. Every lease the
 // gateway grants carries its own deadline into the database — the attempt's
 // and the `workers` row's — and the reconciler judges those deadlines, so a
 // second process never needs its own copy of the value. That is why a
@@ -16,7 +16,7 @@ export const MAX_HEARTBEAT_TTL_SEC = 86_400;
 
 // A worker gives its lease up this long before it runs out, and beats this
 // often; a lease no longer than both is lost at or near the first beat
-// (94S-389). No launcher sets the worker's own values, so its defaults are
+// . No launcher sets the worker's own values, so its defaults are
 // the ones every worker runs with.
 export const MIN_HEARTBEAT_TTL_SEC =
   (WORKER_LEASE_SAFETY_MARGIN_MS + WORKER_HEARTBEAT_INTERVAL_MS) / 1000;

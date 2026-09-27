@@ -25,7 +25,7 @@ export type ProviderFailure = {
  *
  * A turn whose own result carried no usable total settles with no cost at
  * all, not zero, so the API can tell an unknown cost from a zero one
- * (94S-275). Zero is a figure only while nothing has been spent, when it
+ * . Zero is a figure only while nothing has been spent, when it
  * agrees with the baseline. What was carried from other results then waits
  * for the next turn that does report, rather than lending this one a figure.
  */
@@ -42,7 +42,7 @@ export class TurnAccounting {
   /**
    * Whether the engine has started its count over since the run began. The
    * run's spending budget is measured against that count, so from then on
-   * it no longer bounds what the session spends (94S-279).
+   * it no longer bounds what the session spends.
    */
   get restarted(): boolean {
     return this.countRestarted;

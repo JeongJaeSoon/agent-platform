@@ -48,11 +48,11 @@ export type WorkerBinding = {
   authRevision: number;
   leaseExpiresAt: Date;
   // The lease left on the database clock at an instant read after the claim
-  // arrived; what the worker tracks, on its own monotonic clock (94S-322).
+  // arrived; what the worker tracks, on its own monotonic clock.
   leaseRemainingMs: number;
   profileId: string | null;
   // The session's owner partition, straight from the row; the claim hands
-  // it to the worker as the checkpoint principal (94S-209).
+  // it to the worker as the checkpoint principal.
   ownerScope: string;
   // As fixed when the session was accepted; the catalog is not consulted.
   repository: WorkspaceRepository;
@@ -65,10 +65,10 @@ export type WorkerBinding = {
 // branch the repository is registered under now. A session binds only when
 // its row matches one exactly: a host that does not know the profile cannot
 // pick the runtime, a pair the repository no longer allows must not carry
-// the profile's trust to it (94S-258), a repository id re-pointed at
+// the profile's trust to it, a repository id re-pointed at
 // another URL must not carry the old grant to the new one, and a profile id
 // whose settings changed must not run a session created under the old ones
-// (94S-253): its fingerprint here must equal the one the session was
+// its fingerprint here must equal the one the session was
 // accepted with.
 export type RunnablePair = {
   profileId: string;
@@ -82,17 +82,17 @@ export type ClaimInput = {
   runnable: RunnablePair[];
   // `catalogRevision` of the catalog `runnable` came from. A pinned launch is
   // given up on for a pair missing from it only while it is the revision an
-  // operator activated, or none is (94S-295).
+  // operator activated, or none is.
   catalogRevision: string;
   // A session that has spent this much is not bound: it would only be told
-  // to release again at its first nextInput (94S-131).
+  // to release again at its first nextInput.
   costLimitUsd: number;
   nonceHash: Uint8Array;
   executionId: string;
   executionGeneration: number;
   attemptId: string;
   credentialHash: Uint8Array;
-  // The attempt's egress tokens (94S-252), issued, extended and revoked with
+  // The attempt's egress tokens, issued, extended and revoked with
   // the session credential. `bindingsOf` names what the claimed session runs
   // at this moment, which each token is then held to.
   egress: EgressIssue;
@@ -135,7 +135,7 @@ export type EgressAuthorization =
   | { outcome: "invalid_token" }
   | FenceRejection;
 
-// One Messages call the egress proxy metered, priced (94S-409). The ids are
+// One Messages call the egress proxy metered, priced. The ids are
 // the ones the proxy's grant carried, so the attempt may have ended since.
 export type ProviderUsageInput = {
   exchangeId: string;
@@ -169,14 +169,14 @@ export type ClaimResult =
   // anything.
   | { outcome: "profile_unavailable" }
   // The session's last ran turn has no trusted checkpoint covering it
-  // (94S-288). Nothing was bound: the session went to recovery_required in
+  // Nothing was bound: the session went to recovery_required in
   // the same transaction and the launch was asked to go.
   | { outcome: "context_gap" }
   // The launch was reserved for a session whose (profile, repository, url,
   // branch) this host's catalog no longer allows, or whose profile id this
-  // catalog defines with other settings (94S-253). The launch was given up on
+  // catalog defines with other settings. The launch was given up on
   // in the same transaction: the session is `failed` with CATALOG_MISMATCH
-  // and the launch is asked to go (94S-280).
+  // and the launch is asked to go.
   | { outcome: "catalog_mismatch" }
   | { outcome: "no_session" };
 
@@ -192,7 +192,7 @@ export type ResolvedCredential =
 export type NextInputInput = {
   fence: WorkerFence;
   now: Date;
-  // A session that has spent this much is handed no new turn (94S-131).
+  // A session that has spent this much is handed no new turn.
   costLimitUsd: number;
 };
 export type DeliveredInput = {
@@ -311,14 +311,14 @@ export type CheckpointStateResult =
       pointer: CheckpointPointer | null;
       // Whether that pointer may be restored from (hasRestorePoint): not
       // under a blocking reason, and not retired by a start_fresh decision
-      // (94S-288). The next revision still counts from `pointer` either way.
+      // . The next revision still counts from `pointer` either way.
       restorable: boolean;
       pendingReason: CheckpointBlockReason | null;
     }
   | FenceRejection;
 
 /**
- * What a served restore plan was built on (94S-204). `fallback` is set when
+ * What a served restore plan was built on. `fallback` is set when
  * the plan restores an earlier revision because the pointer's checkpoint was
  * damaged, and null when it restores the pointer itself.
  */
@@ -351,7 +351,7 @@ export type ReleaseInput = {
    * its lease and engine, unless the pause can be committed now.
    */
   pauseControlId?: string;
-  /** The worker was asked to stop rather than failing (94S-302). */
+  /** The worker was asked to stop rather than failing. */
   drained?: boolean;
 };
 export type ReleaseResult =

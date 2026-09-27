@@ -16,8 +16,8 @@ import {
 } from "../compose-layers.ts";
 
 /**
- * The plumbing of `tests/e2e/run.sh --real-model` (94S-373) and
- * `scripts/local.sh up --real-model` (94S-431), without Docker or a key: the
+ * The plumbing of `tests/e2e/run.sh --real-model` and
+ * `scripts/local.sh up --real-model`, without Docker or a key: the
  * catalog the API reads, the overlay that hands the key to the API alone,
  * and both scripts run against stand-ins for docker, bun and curl. The paid
  * run is the user's (docs/real-claude.md).
@@ -122,7 +122,7 @@ describe("real-model compose overlay", () => {
     const overlay = (await compose(OVERLAY)).services;
     const endpoint = new URL("https://api.anthropic.com");
     const proxy = egressProxyConfigFromEnv(defaults(base["egress-proxy"]));
-    // The provider route's upstream, never the forward proxy's (94S-383).
+    // The provider route's upstream, never the forward proxy's.
     const destination = { host: endpoint.hostname, port: 443 };
     expect(proxy.credential?.allow).toContainEqual(destination);
     expect(proxy.allow).not.toContainEqual(destination);

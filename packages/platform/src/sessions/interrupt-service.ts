@@ -17,7 +17,7 @@ import {
 
 /**
  * How long an accepted interrupt may stay unsettled before the reconciler
- * kills its execution (94S-273). A worker takes it on its next control poll
+ * kills its execution. A worker takes it on its next control poll
  * (1s by default), gives the engine a 5s grace, then finalizes; this leaves
  * room for that finalize to retry through two heartbeat TTLs of trouble.
  */

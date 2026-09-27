@@ -79,7 +79,7 @@ describe("egressProxyConfigFromEnv", () => {
         EGRESS_CREDENTIAL_PORT: "4000",
       }).credential?.port,
     ).toBe(4000);
-    // The object store is reached by the credential routes only (94S-251).
+    // The object store is reached by the credential routes only.
     const routed = egressProxyConfigFromEnv({
       ...base,
       EGRESS_AUTHORIZER_URL: "http://api:3100",
@@ -123,7 +123,7 @@ describe("forward and credential allowlists", () => {
   };
 
   // An installation upgraded with its old allowlists kept them on the
-  // forward proxy, where a worker reaches them without the route (94S-383).
+  // forward proxy, where a worker reaches them without the route.
   test("refuse to start when a credential route's upstream is also forwarded", () => {
     expect(() =>
       egressProxyConfigFromEnv({

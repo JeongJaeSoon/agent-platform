@@ -9,7 +9,7 @@ import {
 } from "@agent-platform/contracts";
 import { z } from "zod";
 
-// Operator-registered profiles and repositories (94S-132). The operator
+// Operator-registered profiles and repositories. The operator
 // writes `config/profiles.yaml` and `config/repositories.yaml`; the API reads
 // them once at startup (`apps/control-host/src/api/catalog-config.ts`) and refuses to
 // start on anything this file rejects. A provider credential is never in the
@@ -67,7 +67,7 @@ const credentialFreeUrl = z
     message: "must not carry a credential (userinfo or query string)",
   });
 
-// A worker's only way out is the HTTP(S) egress proxy (94S-216), so an ssh,
+// A worker's only way out is the HTTP(S) egress proxy, so an ssh
 // git or file remote, or a non-web endpoint, would pass here and fail only
 // after a session took a slot. Other transports need a route first.
 function isWebUrl(value: string): boolean {
@@ -78,7 +78,7 @@ function isWebUrl(value: string): boolean {
     return false;
   }
 }
-// The egress proxy refuses an upstream with a fragment (94S-252), so one
+// The egress proxy refuses an upstream with a fragment, so one
 // here would pass startup and fail every call through the route.
 const webUrl = credentialFreeUrl
   .refine(isWebUrl, { message: "must be an http:// or https:// URL" })
@@ -126,7 +126,7 @@ export const catalogProfileConfigSchema = z
   .strict();
 
 // How the egress proxy logs in to the repository host for this
-// repository's read-only route (94S-252). `basic` carries a login (Gitea
+// repository's read-only route. `basic` carries a login (Gitea
 // takes a token as the password); `bearer` carries none. The value is
 // never handed to a worker: what a worker holds is an attempt-scoped token
 // for the proxy's route. Give it a read-only, non-admin account.
@@ -154,7 +154,7 @@ const catalogRepositoryAuthSchema = z
   });
 
 // A repository lists the profiles allowed to run against it. The pair is
-// the unit of trust (94S-258): a profile that lets the repository's
+// the unit of trust: a profile that lets the repository's
 // CLAUDE.md into the system prompt must not carry that trust to a
 // repository whose authors it was never granted for. Checked at create and
 // again at claim.
@@ -244,7 +244,7 @@ export type SessionCatalog = {
 };
 
 /**
- * The provider as the worker protocol carries it (94S-252): where the proxy
+ * The provider as the worker protocol carries it: where the proxy
  * will send the engine's requests, and the attempt's token for that route.
  * The credential stays here; `providerUpstreamOf` is what the proxy gets.
  */
@@ -262,7 +262,7 @@ export function runtimeProviderOf(
 /**
  * The profile as a claim hands it to the worker, which hashes it into the
  * checkpoint fingerprint; `scripts/lib/checkpoint-pins.ts` rebuilds it to ask
- * a target image for that digest (94S-452).
+ * a target image for that digest.
  */
 export function runtimeConfigOf(
   profile: CatalogProfile,
@@ -341,7 +341,7 @@ const FINGERPRINT_VERSION = 1;
  * Identifies what a profile runs: every setting and where its credential
  * comes from, never the credential. Two ids with the same settings share
  * one. This is not the checkpoint fingerprint (which also covers the owner
- * and the engine's components); 94S-253 snapshots and compares this one.
+ * and the engine's components); snapshots and compares this one.
  */
 export function profileFingerprint(profile: CatalogProfile): string {
   return sha256({

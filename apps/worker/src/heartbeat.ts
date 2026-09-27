@@ -16,7 +16,7 @@ import {
  * clock, and the monotonic instant the request that won it was sent. The
  * gateway measured the remainder after that request arrived, so counting it
  * from the send can only end the lease early, never late — and no wall
- * clock, the worker's or the database's, enters the sum (94S-322).
+ * clock, the worker's or the database's, enters the sum.
  */
 export type LeaseGrant = { remainingMs: number; sentAt: number };
 
@@ -170,7 +170,7 @@ export class Heartbeat {
    * counts when it lands, but the loop sends the next one meanwhile. A beat
    * sent while the gateway was down can sit in the network — a connect
    * retrying against an address with nobody behind it — well after the
-   * gateway is back, and must not take the lease down with it (94S-346).
+   * gateway is back, and must not take the lease down with it.
    */
   private async beat(patienceMs = Number.POSITIVE_INFINITY): Promise<boolean> {
     const scope = this.options.scope();

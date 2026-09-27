@@ -42,7 +42,7 @@ import {
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 // The worker's own numbered stream, without the status events the control
-// plane writes beside it at each turn boundary (94S-294).
+// plane writes beside it at each turn boundary.
 function workerStream(sessionId: string) {
   return and(eq(events.sessionId, sessionId), isNotNull(events.sourceSequence));
 }
@@ -377,7 +377,7 @@ integration("worker gateway on PostgreSQL", () => {
         access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
       },
     });
-    // The provider key stays on the server (94S-252); the worker gets the
+    // The provider key stays on the server; the worker gets the
     // upstream's name and a token for the egress proxy's route.
     expect(first.runtime_config).toEqual({
       model: "claude-sonnet-5",
@@ -430,7 +430,7 @@ integration("worker gateway on PostgreSQL", () => {
     });
   });
 
-  test("egress tokens live and die with the attempt, each for its own route only (94S-252)", async () => {
+  test("egress tokens live and die with the attempt, each for its own route only", async () => {
     const partition = partitionFor("egress");
     const session = await queuedSession(partition);
     const l = await launch(partition);
@@ -1066,7 +1066,7 @@ integration("worker gateway on PostgreSQL", () => {
       .from(turns)
       .where(eq(turns.sessionId, unknown.session.session_id));
     expect(turn).toEqual({ status: "outcome_unknown", outcomeUnknown: true });
-    // The input stays on the queue until an operator decides (94S-140), and
+    // The input stays on the queue until an operator decides, and
     // no attempt is handed it again.
     expect(
       await db
@@ -1143,7 +1143,7 @@ integration("worker gateway on PostgreSQL", () => {
     ).not.toBeNull();
   });
 
-  test("finalize cannot close a turn short of its event tail (94S-218)", async () => {
+  test("finalize cannot close a turn short of its event tail", async () => {
     const { session, claimed } = await claimAndDeliver();
     const scope = scopeOf(claimed, "1");
     await gateway.appendEvents(principalOf(claimed), {
@@ -1207,7 +1207,7 @@ integration("worker gateway on PostgreSQL", () => {
     }
   });
 
-  test("append and finalize racing in either order never lose the tail (94S-218)", async () => {
+  test("append and finalize racing in either order never lose the tail", async () => {
     for (const round of [0, 1, 2, 3, 4, 5]) {
       const { session, claimed } = await claimAndDeliver();
       const scope = scopeOf(claimed, "1");
@@ -2155,7 +2155,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(attempt?.leaseExpiresAt.getTime()).toBe(lapsed);
   });
 
-  test("claim and heartbeat hand the lease out as time left on the database clock, never more than the worker has (94S-322)", async () => {
+  test("claim and heartbeat hand the lease out as time left on the database clock, never more than the worker has", async () => {
     // Long enough that a loaded runner does not see it lapse mid-test.
     const TTL = 5_000;
     const partition = partitionFor("remaining");
@@ -2492,7 +2492,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(empty.input).toBeNull();
   });
 
-  test("a settled input replays its acceptance response for the same idempotency key (94S-265)", async () => {
+  test("a settled input replays its acceptance response for the same idempotency key", async () => {
     const partition = partitionFor("replay");
     const inputs = createPostgresSessionUnitOfWork(db);
     const ownerId = `owner-${crypto.randomUUID()}`;
@@ -2697,7 +2697,7 @@ integration("worker gateway on PostgreSQL", () => {
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, session.session_id));
     // A pre-catalog row has no repository id, so no catalog pair can vouch
-    // for it (94S-258): it waits instead of running under a profile's trust
+    // for it: it waits instead of running under a profile's trust
     // that nothing granted it.
     await db
       .update(sessions)
@@ -2724,7 +2724,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(again.runtime_config.model).toBe("claude-sonnet-5");
   });
 
-  test("claim binds only a pair the catalog allows, at the URL and branch it registers now (94S-258)", async () => {
+  test("claim binds only a pair the catalog allows, at the URL and branch it registers now", async () => {
     const profile = {
       runtime_kind: "claude_agent_sdk" as const,
       runtime_version: "0.3.270",
@@ -2884,7 +2884,7 @@ integration("worker gateway on PostgreSQL", () => {
         usage: null,
       },
       // Covered, so the next claim restores it rather than meeting the
-      // context gate (94S-288).
+      // context gate.
       checkpoint: {
         revision: 0,
         manifest_ref: "s3://bucket/release-0.json",
@@ -3004,7 +3004,7 @@ integration("worker gateway on PostgreSQL", () => {
       .from(receipts)
       .where(eq(receipts.id, session.receipt_id));
     expect(receipt?.status).toBe("unknown");
-    // The input stays on the queue for the operator decision (94S-140).
+    // The input stays on the queue for the operator decision.
     expect(
       await db
         .select()
@@ -3070,7 +3070,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(await work.countReservedSlots(partition)).toBe(0);
   });
 
-  // 94S-309: every worker with a mirror beats this way until its first batch
+  // every worker with a mirror beats this way until its first batch
   // lands, and the empty update it used to run failed the beat with a 500.
   test("a transcript report with nothing mirrored yet extends the lease and records nothing", async () => {
     const partition = partitionFor("mirrorempty");
@@ -3222,7 +3222,7 @@ integration("worker gateway on PostgreSQL", () => {
     // The pointer the failing run committed is not trusted, so no worker
     // can take the session on from it: once the execution is gone the
     // session waits on an operator instead of being restored from a
-    // transcript that may be missing entries (94S-288).
+    // transcript that may be missing entries.
     await gateway.release(principalOf(claimed), {
       ...scopeOf(claimed),
       reason: "mirror_error",
@@ -3266,7 +3266,7 @@ integration("worker gateway on PostgreSQL", () => {
           result: null,
           usage: null,
         },
-        // 94S-128: an interrupt is only ever recorded with its checkpoint.
+        // an interrupt is only ever recorded with its checkpoint.
         checkpoint: {
           revision: 0,
           manifest_ref: "manifests/interrupted.json",
@@ -3286,7 +3286,7 @@ integration("worker gateway on PostgreSQL", () => {
 
   test.each([
     "background_writer",
-    // 94S-312: a ready run whose checkpoint could not be written.
+    // a ready run whose checkpoint could not be written.
     "publish_failed",
   ] as const)(
     "%s is recorded for display, holds nothing back, and yields to a mirror failure",
@@ -3545,7 +3545,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(await commit(2, "d")).toEqual({ outcome: "stale_epoch" });
   });
 
-  test("the pointer keeps the manifest version it was committed with, and a replay must name the same one (94S-229)", async () => {
+  test("the pointer keeps the manifest version it was committed with, and a replay must name the same one", async () => {
     const { session, claimed } = await claimAndDeliver();
     const store = createPostgresCheckpointStore(db);
     const commit = (revision: number, version?: string, versionsHeld = true) =>
@@ -3597,7 +3597,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(row?.version).toBe("v1");
   });
 
-  test("listCheckpoints returns the revisions below the one asked, newest first, bounded (94S-204)", async () => {
+  test("listCheckpoints returns the revisions below the one asked, newest first, bounded", async () => {
     const { session, claimed } = await claimAndDeliver();
     const store = createPostgresCheckpointStore(db);
     for (const revision of [0, 1, 2, 3]) {
@@ -3672,7 +3672,7 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual([]);
   });
 
-  test("a restore that falls back is recorded on the session and its event stream, and the next commit clears it (94S-204)", async () => {
+  test("a restore that falls back is recorded on the session and its event stream, and the next commit clears it", async () => {
     const { session, claimed } = await claimAndDeliver();
     const sessionId = session.session_id;
     const fence = fenceOf(claimed);

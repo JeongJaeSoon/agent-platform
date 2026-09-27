@@ -1,5 +1,5 @@
 // Only what the worker and the repository's tests use: the SDK's own types
-// stay behind this adapter (94S-403).
+// stay behind this adapter.
 export {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,

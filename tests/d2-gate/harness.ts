@@ -87,7 +87,7 @@ export type CheckStatus = "pass" | "fail" | "skip";
 
 export type Check = {
   actual: string;
-  /** Which acceptance criterion of 94S-247 this is evidence for. */
+  /** Which acceptance criterion of this is evidence for. */
   criterion: string;
   expected: string;
   id: string;
@@ -484,7 +484,7 @@ export async function verifyCheckpoint(
  * What the bundle names and carries: its heads as `git bundle list-heads`
  * prints them, and every file of the manifest's commit. `bundles` is the
  * manifest's chain, base bundles oldest first and its own bundle last: an
- * incremental bundle (94S-227) needs commits only an earlier one carries, so
+ * incremental bundle needs commits only an earlier one carries, so
  * they are fetched in that order into one repository, the way a restore
  * stacks them (scripts/lib/backup-lib.sh `unbundle_chain`).
  */
@@ -522,8 +522,8 @@ async function unbundle(
       ]);
     }
     // The rule finalize and a restore apply to the last bundle's refs
-    // (94S-391), peeled: a capture that changed nothing tags a commit an
-    // earlier bundle carries (94S-374).
+    // peeled: a capture that changed nothing tags a commit an
+    // earlier bundle carries.
     const last = `refs/chain/${bundles.length - 1}/`;
     const peeled = peeledCommits(
       (await git(["for-each-ref", `--format=${PEELED_REF_FORMAT}`, last]))
@@ -755,7 +755,7 @@ export class Workers {
    * HEAD, branch, status, file digests and executable bits of the mounted
    * workspace. Only the executable bit: that is the one mode bit a checkpoint
    * carries, and restore writes the rest owner-only (runtime-core
-   * workspace-restore.ts, 94S-214).
+   * workspace-restore.ts, ).
    */
   async workspace(name: string, files: string[]): Promise<string> {
     const script = [

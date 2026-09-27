@@ -27,7 +27,7 @@ const BATCH_SIZE = 100;
 
 /**
  * One checkpoint garbage collection pass over every session, then exit
- * (94S-281): the same one-shot shape as apps/reconciler, run on the API
+ * the same one-shot shape as apps/reconciler, run on the API
  * image with the API's object store settings, since releasing a hold needs
  * the control plane's credentials.
  *

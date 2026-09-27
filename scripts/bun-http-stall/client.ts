@@ -1,13 +1,9 @@
 /**
- * Reproduces the response body stall of Bun's `node:http` client (94S-441):
+ * Reproduces a response body stall in Bun's `node:http` client:
  * under concurrent keep-alive requests, a body stops partway and never
  * resumes. The worker's and the API's S3 clients (the AWS SDK's
- * NodeHttpHandler) read every response this way; in the RC3 soak it was a
- * transcript ListObjectsV2 that stalled, 5 in 7,071.
- *
- * Measured on macOS arm64 with the defaults (6,000 list bodies of 90–390 KB):
- * Bun 1.3.10 and 1.3.11 stall 2–16 of them, 1.3.12 and later none. The
- * server runs under Node, so the stall is the client's.
+ * NodeHttpHandler) read every response this way. The server runs under Node,
+ * so any stalled body is attributable to the client.
  *
  *   bun scripts/bun-http-stall/client.ts [--sessions 4] [--parallel 4] [--rounds 1500]
  *

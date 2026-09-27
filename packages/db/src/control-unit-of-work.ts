@@ -146,7 +146,7 @@ function rowsOf<T>(result: unknown): T[] {
 /**
  * What stopping a session's execution writes, apart from the session row:
  * the terminate transaction (api.md § 승인·중단·강제 종료) and the operator's
- * execution revocation (94S-321) make the same writes. Queued input is
+ * execution revocation make the same writes. Queued input is
  * cancelled, open questions are closed, the bound generation's kill intent
  * is recorded and a pause or resume still in flight is superseded. The
  * caller holds the launch and session row locks (lockSessionForControl),
@@ -266,7 +266,7 @@ export async function stopExecution(
         `Session ${sessionId} points at execution ${session.executionId} which has no row`,
       );
     }
-    // 94S-220: a launch the scheduler meant to rebuild would otherwise be
+    // A launch the scheduler meant to rebuild would otherwise be
     // rebuilt after the kill, and confirmExecutionGone would refuse the exit
     // as "the rebuild in progress". The intent is cancelled under the launch
     // row lock the caller took; replacement_count is the scheduler's CAS and
@@ -328,7 +328,7 @@ export function stoppedAdmission(
 /**
  * After the session row says where stoppedAdmission moved it: a status event
  * with the new admission, so a client following the stream does not stay at
- * the state the stop left (94S-293). The stop closed every open question, so
+ * the state the stop left. The stop closed every open question, so
  * the event also ends any wait for input. A stop that moved no admission
  * only reports that end, if there was one.
  */
@@ -535,7 +535,7 @@ export function createPostgresSessionControl(
           measure,
         });
         const into = stoppedAdmission(session, pendingKill);
-        // 94S-310: a stopped session with nothing to kill is already where
+        // a stopped session with nothing to kill is already where
         // this leads. Moving its revision would only turn away the next
         // control of a client that read it, over a change that never was.
         if (session.admissionState !== "stopped" || pendingKill) {

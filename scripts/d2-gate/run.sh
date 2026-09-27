@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The D2 completion gate (94S-247), as one command:
+# The D2 completion gate, as one command
 #
 #   scripts/d2-gate/run.sh
 #
@@ -97,7 +97,7 @@ curl -fsS -u "agent:${gitea_password}" -X POST "${gitea_url}/api/v1/user/repos" 
 api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create gate-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-# The reconciler runs as the product runs it, on its own loop (94S-320).
+# The reconciler runs as the product runs it, on its own loop.
 dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
 
 echo "== gate" >&2
@@ -122,7 +122,7 @@ if [ "${D2_GATE_UP_ONLY:-0}" = 1 ]; then
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi
-# The gate, then 94S-320's recovery sweep on the same stack: nothing in
+# The gate, then the recovery sweep on the same stack: nothing in
 # the gate proves the reconciler service acts without a pass run by hand.
 status=0
 # Fresh, so a reused D2_GATE_OUT cannot pass on an older run's reports.
@@ -130,7 +130,7 @@ rm -f "$out/gate.junit.xml" "$out/roles.junit.xml"
 bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
   --reporter=junit --reporter-outfile="$out/gate.junit.xml" \
   --timeout 1800000 2>&1 | tee "$out/test.log" || status=$?
-# Last, 94S-117's role checks, which restart the services and stop
+# Last, the role checks, which restart the services and stop
 # PostgreSQL, so nothing may run after them on this stack. A run of its own:
 # bun orders the files of one run by path, not as given.
 bun test tests/d2-gate/control-host-roles.e2e.test.ts \

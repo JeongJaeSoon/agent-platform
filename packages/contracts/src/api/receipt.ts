@@ -30,7 +30,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "terminate",
   "resume",
   "recovery_decision",
-  // The operator's execution revocation (94S-321); written on the session
+  // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
 ] as const;
@@ -51,7 +51,7 @@ export const receiptSessionTargetSchema = z
   })
   .strict();
 // Mutations outside a session — invites, agents, releases, dispatches, memory,
-// routines — name their resource instead (Codex B03). Each route adds its own
+// routines — name their resource instead. Each route adds its own
 // `operation` value in its own ticket; the vocabulary here stays session-only
 // until one does.
 export const receiptResourceTargetSchema = z
@@ -72,8 +72,7 @@ export const receiptSchema = z.object({
   id: receiptIdSchema,
   operation: receiptOperationSchema,
   target_ref: receiptTargetSchema,
-  // Who asked for this. Optional until 94S-150 adds the column; alpha rows
-  // written before it have no actor to report (Codex B19).
+  // Who asked for this. Legacy alpha rows have no actor to report.
   actor: receiptActorSchema.optional(),
   status: receiptStatusSchema,
   // Input receipts keep the acceptance response for good, because a retry

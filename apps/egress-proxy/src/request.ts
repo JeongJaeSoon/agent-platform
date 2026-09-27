@@ -207,7 +207,7 @@ const MAX_TRAILER_BYTES = 16 * 1024;
 /**
  * Counts the one request's body as it is piped, so that nothing a client
  * sends past it — a pipelined request, or one written on a connection it was
- * told to close — reaches the upstream judged for this one (94S-299). Such a
+ * told to close — reaches the upstream judged for this one. Such a
  * request could carry another destination's credentials. The bytes are
  * dropped rather than answered: the proxy ends the connection once the
  * answer is complete (response.ts), and a client that had reused it sends

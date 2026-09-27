@@ -5,9 +5,9 @@ import {
 } from "../../packages/testkit/src/scripted-messages.ts";
 
 /**
- * The D2 gate's Messages API (94S-247): the scripted fake of
+ * The D2 gate's Messages API: the scripted fake of
  * packages/testkit/src/scripted-messages.ts, which the compose stack's
- * fake-messages also plays (94S-134), served with the gate's control port.
+ * fake-messages also plays, served with the gate's control port.
  */
 
 export {

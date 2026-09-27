@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fails when a Docker daemon holds an image from Docker Hub: CI pulls those
-# from its ghcr.io mirror (ci-image-mirror.yml, 94S-308). It looks at what
+# from its ghcr.io mirror (ci-image-mirror.yml). It looks at what
 # was actually pulled, so it catches a Docker Hub pull however it was made —
 # a service, a `docker run` in a step, or a suite calling the Engine API with
 # a name no static check recognizes.

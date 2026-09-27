@@ -49,14 +49,14 @@ export const DEFAULT_STOPPED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
 
 /**
  * How long a claimed resource on an older isolation contract is left to
- * finish its turn before it is replaced anyway (94S-250). The control host
+ * finish its turn before it is replaced anyway. The control host
  * derives it from the installation's turn limit; this covers callers that
  * do not.
  */
 export const DEFAULT_DRAIN_DEADLINE_MS = 30 * 60_000;
 
 /**
- * Failed attempts before a launch is given up on (94S-207). With the backoff
+ * Failed attempts before a launch is given up on. With the backoff
  * below, four retries wait 30s, 1m, 2m and 4m: a daemon restart or a slow
  * image pull gets through, while an image that does not exist hands its slot
  * back in under ten minutes instead of holding it for good.
@@ -124,7 +124,7 @@ export type SchedulerRunSummary = {
   failedLaunches: ExecutionRef[];
   /**
    * Claimed resources on an older isolation contract left running this pass
-   * because their turn has not ended (94S-250). Their worker is handed no
+   * because their turn has not ended. Their worker is handed no
    * new turn; each is replaced once its turn ends or the deadline passes.
    */
   draining: ExecutionRef[];
@@ -156,7 +156,7 @@ export type SchedulerRunSummary = {
   orphansUnresolved: ExecutionRef[];
   /**
    * Orphans asked to stop and still winding down. Not a failure, but each
-   * still holds a slot until a later pass finds it gone (94S-385).
+   * still holds a slot until a later pass finds it gone.
    */
   orphansStopping: ExecutionRef[];
   /** Exited resources whose reclaim failed; each row stays `terminating`. */
@@ -184,7 +184,7 @@ export type SchedulerRunSummary = {
   /**
    * Kill intents whose resource was asked to stop and is still draining its
    * turn. Not a failure: each keeps its slot, and a later pass confirms it
-   * gone without having waited on it (94S-385).
+   * gone without having waited on it.
    */
   killsStopping: ExecutionRef[];
   /**
@@ -818,7 +818,7 @@ async function pass(
     ) {
       // The resource holds a credential the registry rotated past — a
       // create that landed after a later pass had already issued anew, and
-      // whose pass never got to judge it (94S-231). `ensureExecution` catches
+      // whose pass never got to judge it. `ensureExecution` catches
       // this when it is the one adopting; this catches what it did not get
       // to. A launch that accepts no credential at all (a replacement
       // recorded by a pass that died before its teardown, a revoke whose
@@ -925,7 +925,7 @@ async function pass(
       storedIntentOf(execution) !== null
     ) {
       // An ensure the provider never answered kept its credential for this
-      // look (94S-393). Nothing landed, so the launch did fail after all,
+      // look. Nothing landed, so the launch did fail after all
       // and it is counted now — a create that never takes cannot hold its
       // slot forever. Fenced on that credential, which the record revokes:
       // a create landing later is torn down as a failed attempt.
@@ -1072,7 +1072,7 @@ async function pass(
   /**
    * A claimed resource cannot be rebuilt, only torn down and its session
    * handed to a new launch, so tearing it down mid-turn would leave that
-   * turn unknown for an operator (94S-250). Its worker is asked to take no
+   * turn unknown for an operator. Its worker is asked to take no
    * new turn instead, and it goes once the one it runs has ended. True when
    * the teardown may go ahead now: nothing is left open, or the deadline
    * passed first.
@@ -1215,7 +1215,7 @@ async function pass(
     // The credential the launch accepted when this was judged. The record
     // is fenced on it: `ensureExecution` on another pass issues anew without
     // counting a replacement, so the count alone would let a stale
-    // judgement shut the door on that fresh credential (94S-231).
+    // judgement shut the door on that fresh credential.
     acceptedFingerprint: string | null = execution.nonceFingerprint,
   ): Promise<void> {
     const ref = refOf(execution);
@@ -1881,7 +1881,7 @@ function unknownObservation(observedAt: Date): ExecutionObservation {
  * another spec was found, not a launch that failed: the next pass replaces
  * it as a spec mismatch. A provider that did not answer may have created or
  * started the resource: the credential is kept and the next pass's inspect
- * adopts what landed or creates what did not (94S-393).
+ * adopts what landed or creates what did not.
  */
 function countsAsLaunchFailure(error: unknown): boolean {
   return !(

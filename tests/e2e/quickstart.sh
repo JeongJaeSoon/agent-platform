@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs an executable guide as written (94S-134, 94S-484): every ```bash block,
+# Runs an executable guide as written: every ```bash block
 # in order, in one bash, from the repository root. Each block is printed before it runs,
 # so the log reads as the terminal record of following the page. The bash
 # runs with -euo pipefail, which the page leaves out because a reader's
 # interactive shell would close on the first failure; here it turns each
-# `jq -e` line into an assertion (94S-428).
+# `jq -e` line into an assertion.
 #
 # Meant for a fresh machine (the CI `quickstart` job): it starts the stack
 # the page starts, `agent-platform` on 127.0.0.1:3000 and friends, and the

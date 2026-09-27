@@ -7,7 +7,7 @@
 // its last instance in module-level variables for the rest of the process.
 // Eight such files left half the room taken for the whole run, and a later
 // allocation that did not fit failed with "RangeError: Out of memory", as did
-// every pipe read after it (94S-436). Dropping the Emscripten module on close
+// every pipe read after it. Dropping the Emscripten module on close
 // lets the memory go even while the closed instance stays referenced.
 import { PGlite } from "@electric-sql/pglite";
 

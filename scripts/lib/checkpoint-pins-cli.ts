@@ -1,6 +1,6 @@
 /**
  * The checkpoint-object steps of scripts/backup.sh, restore.sh and
- * verify-restore.sh (94S-282), run on the host against an installation's
+ * verify-restore.sh, run on the host against an installation's
  * published ports. See scripts/lib/checkpoint-pins.ts for what each checks.
  *
  *   bun run scripts/lib/checkpoint-pins-cli.ts capture <backup>/objects
@@ -90,7 +90,7 @@ const pool = createEnforcedPool(
 const codecs = API_CHECKPOINT_CODECS;
 
 // A row garbage collection marked is no longer restorable and its objects
-// are gone or going (94S-281): neither backed up nor re-pinned.
+// are gone or going: neither backed up nor re-pinned.
 async function readRows(): Promise<CheckpointRow[]> {
   const { rows } = await pool.query<{
     manifest_ref: string;

@@ -74,7 +74,7 @@ export async function pauseBlocker(
   >,
 ): Promise<PauseBlockedReason | null> {
   // A dropped mirror batch outranks everything: no amount of waiting makes
-  // this run's transcript restorable (94S-201).
+  // this run's transcript restorable.
   if (session.checkpointPendingReason === "mirror_error") {
     return "mirror_error";
   }
@@ -104,7 +104,7 @@ export async function pauseBlocker(
   }
   // Every pause stands on a committed checkpoint, a session that never ran
   // a turn included: a paused receipt promises a restore point. An advisory
-  // pending reason does not block by itself (94S-284): a refused drain
+  // pending reason does not block by itself: a refused drain
   // checkpoint leaves the pointer short of the last turn and the coverage
   // check below refuses it; a pointer that covers every turn is enough.
   // checkpoint_pending_reason already tells the owner which one it was, so
@@ -113,7 +113,7 @@ export async function pauseBlocker(
   // to resume from, not a gap an operator already accepted.
   if (!hasRestorePoint(session)) return "checkpoint_unavailable";
   // After a fallback restore it is the earlier revision the session runs
-  // on that has to cover the last turn (94S-204), not the damaged pointer.
+  // on that has to cover the last turn, not the damaged pointer.
   const { lastRanTurn, checkpointedTurn } = await contextCoverage(
     tx,
     session,
@@ -287,7 +287,7 @@ export function pauseAtomic(
       if (session.executionId !== null) {
         // The stop intent right away, as terminate writes it: the launch
         // row is locked (lockSessionForControl), so a rebuild the scheduler
-        // intended is cancelled with it (94S-220).
+        // intended is cancelled with it.
         await tx
           .update(executions)
           .set({ desiredState: "terminated" })

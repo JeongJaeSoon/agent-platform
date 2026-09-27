@@ -1,4 +1,4 @@
-# Overlay on infra/docker-compose.yml for the e2e run (94S-134); run.sh is
+# Overlay on infra/docker-compose.yml for the e2e run; run.sh is
 # the only intended caller. Paths are relative to infra/, the project
 # directory of the base file.
 #

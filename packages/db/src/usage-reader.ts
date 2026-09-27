@@ -16,7 +16,7 @@ const OPEN: TurnStatus[] = ["running", "needs_input"];
 
 // Whether a turn reported a cost is read from the one field finalize writes
 // only when the worker had a figure, whatever status the turn ended in, so a
-// reclassified ending (94S-287 interrupted, 94S-288 context lost) keeps its
+// reclassified ending (interrupted, context lost) keeps its
 // meaning. `->>` is NULL for a missing key, a JSON null and a NULL row alike;
 // a reported zero stays reported.
 const costReported = sql`(${turns.resultJson} ->> 'cost_usd') IS NOT NULL`;

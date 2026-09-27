@@ -36,7 +36,7 @@ import {
 } from "./checkpoint-objects.ts";
 
 /**
- * 94S-281 against a real Object Lock bucket: what garbage collection
+ * Garbage collection against a real Object Lock bucket: what it
  * releases and deletes is gone by version, and what the pointer's restore
  * plan names still reads back held.
  */
@@ -349,7 +349,7 @@ localstack("checkpoint garbage collection on an Object Lock bucket", () => {
     );
   }, 60_000);
 
-  test("transcript parts of a generation that can no longer commit go by version unless a kept revision names them (94S-326)", async () => {
+  test("transcript parts of a generation that can no longer commit go by version unless a kept revision names them", async () => {
     await withLocalstackBucket(
       async (bucket) => {
         const { collector, generation, objects, service } = setup(bucket);

@@ -40,7 +40,7 @@ jobs:
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
   #
-  # Split by role across runners (94S-305): `bun run check` ran typecheck, lint
+  # Split by role across runners: `bun run check` ran typecheck, lint
   # and the suite one after another in 5m10s (1m, 1s and 4m10s), which made it
   # the longest path of every PR run. Each part is now its own job, and the
   # suite is cut once more along the repo layout — packages/ in one part,
@@ -65,7 +65,7 @@ jobs:
         include:
           - part: typecheck
           - part: lint
-          # THIRD_PARTY_NOTICES.md against bun.lock (94S-338): a dependency
+          # THIRD_PARTY_NOTICES.md against bun.lock: a dependency
           # added without regenerating the notices, or one under a license
           # nobody reviewed, fails the required check. Offline by design.
           - part: licenses
@@ -124,7 +124,7 @@ jobs:
   # *.integration.test.ts convention, so every file of `bun run test` runs in
   # exactly one of these jobs.
   #
-  # One job per domain (94S-307), each on its own VM with only the services its
+  # One job per domain, each on its own VM with only the services its
   # files need: a job that needs no LocalStack does not wait ~40s for one. The
   # `paths` below are prefixes of repo-relative paths and the only record of
   # which job runs which file; .github/scripts/integration-jobs.ts reads them
@@ -254,7 +254,7 @@ jobs:
               - tests/third-party-notices.
               - tests/unit-part.
             skips:
-              # The D2 gate (94S-247) needs the whole compose stack and the
+              # The D2 gate needs the whole compose stack and the
               # images built from the checkout; scripts/d2-gate/run.sh runs it.
               # (unnamed) is its beforeAll/afterAll.
               - file: tests/d2-gate.e2e.test.ts
@@ -268,8 +268,8 @@ jobs:
               - file: tests/d2-gate.e2e.test.ts
                 test: "D: a worker that loses its lease mid-turn promotes nothing"
               - file: tests/d2-gate.e2e.test.ts
-                test: "E: an accepted interrupt stops its turn, however early it lands (94S-351)"
-              # 94S-320's sweep on the same stack; run against a stack kept by
+                test: "E: an accepted interrupt stops its turn, however early it lands"
+              # sweep on the same stack; run against a stack kept by
               # D2_GATE_UP_ONLY=1 scripts/d2-gate/run.sh.
               - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
                 test: "(unnamed)"
@@ -277,7 +277,7 @@ jobs:
                 test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"
               - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
                 test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"
-              # 94S-117's control host roles, on the same kept stack.
+              # control host roles, on the same kept stack.
               - file: tests/d2-gate/control-host-roles.e2e.test.ts
                 test: "(unnamed)"
               - file: tests/d2-gate/control-host-roles.e2e.test.ts
@@ -292,7 +292,7 @@ jobs:
                 test: "H5: a scheduler without Docker reserves nothing, and the real one launches the waiting session once"
     # Every third-party image in this workflow comes from ghcr.io, not Docker
     # Hub, pinned by its upstream digest: ci-image-mirror.yml copies it there
-    # (94S-308). These point the suites that pull their own images at it,
+    # . These point the suites that pull their own images at it
     # instead of their Docker Hub defaults; unused where no daemon runs.
     env:
       BUN_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
@@ -308,7 +308,7 @@ jobs:
       # step and polls on a 2·4·8s backoff (46s for api). From here the pulls
       # overlap each other and the install below; `wait` then probes every
       # second, and fails with the container's log if one never gets ready
-      # (94S-316).
+      # .
       - if: matrix.postgres || matrix.localstack
         env:
           POSTGRES: ${{ matrix.postgres }}
@@ -345,7 +345,7 @@ jobs:
             fi
           } >>"$GITHUB_ENV"
       # A Docker call that stalls on the runner leaves nothing behind once the
-      # VM is gone, and the client only sees its own timeout (94S-304). The
+      # VM is gone, and the client only sees its own timeout. The
       # daemon's events say whether the container got as far as starting; the
       # step after the tests keeps them, with the daemon's log, when it fails.
       - if: matrix.docker
@@ -471,7 +471,7 @@ jobs:
           # Prove the capability before any test claims to have used it.
           docker exec apq docker volume create --driver local --opt size=64m apq-probe
           docker exec apq docker volume rm apq-probe
-      # The scheduler runs the inode helper (94S-224) from the worker image.
+      # The scheduler runs the inode helper from the worker image.
       # Building all of that here would spend minutes on the SDK closure for
       # one apt package, so this is the worker's own pinned base (from the
       # mirror; tests/ci-images.test.ts holds it to the Dockerfile's digest)
@@ -510,7 +510,7 @@ jobs:
           docker logs apq 2>&1 | tail -40 || true
           docker rm -f apq || true
 
-  # The alpha path end to end (94S-134): the api, scheduler and worker images
+  # The alpha path end to end: the api, scheduler and worker images
   # this commit builds, started as the compose `apps` profile a quickstart
   # user starts, driven only through the public HTTP API — create, events,
   # pending request, answer, follow-up, interrupt, pause, resume, terminate,
@@ -521,9 +521,9 @@ jobs:
   # SDK and Claude Code versions, and the skip list.
   #
   # The runner's own daemon is used; the scheduler refuses one older than
-  # Docker 28 (94S-274), and the record's first line shows which it got.
+  # Docker 28, and the record's first line shows which it got.
   # tests/e2e/compose.ci-mirror.yml points the stack's third-party images
-  # and the Dockerfiles' base at the CI mirror (94S-365).
+  # and the Dockerfiles' base at the CI mirror.
   e2e:
     if: contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
@@ -553,10 +553,10 @@ jobs:
           retention-days: 14
 
   # docs/quickstart.md and docs/api-guide.md run as written on this fresh clone
-  # (94S-134, 94S-484): every `bash` block, in order, on the default project and ports —
+  # every `bash` block, in order, on the default project and ports —
   # the terminal record a new user would get, printed block by block. A page
   # edit that breaks a command fails here instead of in someone's terminal.
-  # COMPOSE_FILE adds the mirror overlay `e2e` uses (94S-365) under the
+  # COMPOSE_FILE adds the mirror overlay `e2e` uses under the
   # page's own `docker compose` commands, so the page needs no CI-only line.
   quickstart:
     if: contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
@@ -591,10 +591,10 @@ jobs:
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see docs/ci.md.
   #
-  # Deliberately NOT a required status check (94S-238), for three reasons:
+  # Deliberately NOT a required status check, for three reasons
   #   1. It does not run on pull_request, so a required `spikes` context would
   #      leave every PR waiting for a status that never arrives.
-  #   2. Running it on every PR commit would bring back the cost 94S-232
+  # 2. Running it on every PR commit would bring back the cost
   #      removed: this is the most expensive job (LocalStack, python, uv,
   #      litellm[proxy], real CLI runs), right after a month's minutes ran out.
   #   3. It already runs on every main push, so a regression is caught within
@@ -658,7 +658,7 @@ jobs:
       - run: bun run --cwd spikes/94s-91 probe:version
       # No retry wrapper. This job is `continue-on-error`, so a failure never
       # blocks a merge and a retry buys no safety — it only squares the odds of
-      # a flake being seen at all, which is how 94S-217's cause stayed hidden
+      # a flake being seen at all, which is how cause stayed hidden
       # for 233 runs. The suites now name the step they hang on; let them say so
       # on the first occurrence.
       - id: spike-91

@@ -474,8 +474,8 @@ describe("WorkerGateway", () => {
     // The worker tracks the remainder the store measured, not the deadline.
     expect(claimed.lease_remaining_ms).toBe(29_950);
     // The claim may bind only what the catalog pairs, at the URL and branch
-    // it registers now (94S-258), with the profile's settings as hashed now
-    // (94S-253): one entry per allowed pair, nothing else.
+    // it registers now, with the profile's settings as hashed now
+    // one entry per allowed pair, nothing else.
     const fingerprint = profileFingerprint(profile);
     expect(runnable).toEqual([
       [
@@ -503,7 +503,7 @@ describe("WorkerGateway", () => {
       ],
     ]);
     // The row's owner partition, not anything from the shared catalog: it is
-    // the checkpoint principal the worker hashes (94S-209 / 94S-261).
+    // the checkpoint principal the worker hashes.
     expect(claimed.principal).toEqual({ owner_scope: "owner-a" });
     expect(claimed.runtime).toEqual({
       kind: "claude_agent_sdk",
@@ -511,7 +511,7 @@ describe("WorkerGateway", () => {
       profile_id: "claude-coding-v1",
     });
     // Neither the provider key nor where the catalog found it rides
-    // (94S-252): the worker gets the upstream to name and a token for the
+    // the worker gets the upstream to name and a token for the
     // proxy, whose hash is what the claim stored.
     expect(claimed.runtime_config).toEqual({
       model: "claude-sonnet-5",
@@ -554,7 +554,7 @@ describe("WorkerGateway", () => {
     });
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
     expect(claimed.profile_fingerprint).not.toContain("provider-key");
-    // The engine's own budget is what the session has left (94S-279).
+    // The engine's own budget is what the session has left.
     expect(claimed.remaining_budget_usd).toBe(749.5);
     // Off leaves the field out, so the answer is one a worker built before it
     // still reads: its schema was this one without the field, and strict.
@@ -620,7 +620,7 @@ describe("WorkerGateway", () => {
     );
   });
 
-  test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409 (94S-280)", async () => {
+  test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {
     const { instance } = gateway({
       claimAtomic: async () => ({ outcome: "catalog_mismatch" }),
     });
@@ -800,7 +800,7 @@ describe("WorkerGateway", () => {
     }
   });
 
-  test("restorePlan never plans a restore from a pointer that is not a restore point (94S-288)", async () => {
+  test("restorePlan never plans a restore from a pointer that is not a restore point", async () => {
     // A start_fresh decision retired this pointer: the claim handed out no
     // restore, and a worker asking anyway must not be given the old engine
     // session's transcript either.
@@ -963,7 +963,7 @@ describe("WorkerGateway", () => {
     });
 
     // An earlier revision restored in the pointer's place says so on the
-    // wire too (94S-204).
+    // wire too.
     if (answer.status !== "ready") throw new Error("expected a plan");
     answer = {
       status: "ready",
@@ -1016,7 +1016,7 @@ describe("WorkerGateway", () => {
 
     // A resume from `paused` promised the pointer's state: a fallback ends
     // it for an operator instead of quietly resuming older state, and is not
-    // recorded as the session's base (94S-138 with 94S-204).
+    // recorded as the session's base (with).
     resuming = true;
     const before = recorded.length;
     await expect(
@@ -1076,7 +1076,7 @@ describe("WorkerGateway", () => {
       reason: "manifest object is missing",
     });
     // Every refusal and every fallback is offered to a resume from `paused`
-    // standing on that pointer (94S-138); a plain plan is not.
+    // standing on that pointer; a plain plan is not.
     const fellBack = [
       1,
       "CHECKPOINT_UNAVAILABLE",
@@ -1331,7 +1331,7 @@ describe("WorkerGateway", () => {
   });
 });
 
-describe("heartbeat control_pending (94S-392)", () => {
+describe("heartbeat control_pending", () => {
   test("a hint that cannot be read does not fail a beat whose lease already renewed", async () => {
     const instance = createWorkerGateway({
       work: work({
@@ -1364,7 +1364,7 @@ describe("heartbeat control_pending (94S-392)", () => {
   });
 });
 
-describe("authorizeEgress (94S-252)", () => {
+describe("authorizeEgress", () => {
   const profile: CatalogProfile = {
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
@@ -1519,7 +1519,7 @@ describe("authorizeEgress (94S-252)", () => {
     }
   });
 
-  test("a session at its cost limit gets no provider grant, and still its repository (94S-394)", async () => {
+  test("a session at its cost limit gets no provider grant, and still its repository", async () => {
     const binding = profileFingerprint(profile);
     const under = await authorizer(
       granted(binding, 999.99),

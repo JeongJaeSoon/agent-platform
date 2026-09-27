@@ -160,7 +160,7 @@ describe("EventPublisher", () => {
     expect(batches[1]?.events[0]?.source_sequence).toBe(1);
   });
 
-  test("stops retrying a batch once its retry budget is spent, and fails the stream (94S-392)", async () => {
+  test("stops retrying a batch once its retry budget is spent, and fails the stream", async () => {
     const failed: unknown[] = [];
     let attempts = 0;
     const events = new EventPublisher({

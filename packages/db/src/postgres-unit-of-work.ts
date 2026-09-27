@@ -291,7 +291,7 @@ export function createPostgresSessionUnitOfWork(
         await tx
           .update(sessions)
           .set({
-            // A session the scheduler gave up launching (94S-207) is left
+            // A session the scheduler gave up launching is left
             // `failed` with nothing queued; this input is what launches it
             // again, so it reads as queued from here.
             status: sql`CASE WHEN ${sessions.status} = 'failed' THEN 'queued'::session_status ELSE ${sessions.status} END`,
@@ -299,7 +299,7 @@ export function createPostgresSessionUnitOfWork(
           })
           .where(eq(sessions.id, sessionId));
         // The stream said failed; without this it would until the turn
-        // starts, while reads already say queued (94S-294).
+        // starts, while reads already say queued.
         if (session.status === "failed") {
           await recordStatus(tx, {
             sessionId,
@@ -334,7 +334,7 @@ export function createPostgresSessionUnitOfWork(
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
 // The newest event in stream order (ids are commit order within a session),
 // one index probe where max(created_at) visited every event of every listed
-// session (94S-396). Qualified by hand: drizzle renders a single-table
+// session. Qualified by hand: drizzle renders a single-table
 // select's columns bare, and a bare "id" here would be the event's.
 const LAST_EVENT_AT = sql<Date | null>`(
   SELECT e.created_at FROM ${events} e
@@ -444,7 +444,7 @@ export function createPostgresSessionReader(
   }
 
   // Only a revision a restore can still reach counts: one garbage
-  // collection took, or one a start_fresh decision retired (94S-288), does
+  // collection took, or one a start_fresh decision retired, does
   // not.
   async function checkpointRevisions(
     turnIds: number[],
@@ -643,7 +643,7 @@ export function createPostgresSessionReader(
           if (!summary) return null;
           // A pool launch carries whatever generation its backend picked, so
           // the highest generation need not be the execution that claimed
-          // last (94S-212). The session names its current one; once
+          // last. The session names its current one; once
           // released, its last attempt does.
           const [lastAttempt] =
             row.executionId === null

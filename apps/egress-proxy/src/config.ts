@@ -11,7 +11,7 @@ export type EgressProxyEnvironment = {
   /**
    * Upstreams only the credential routes may reach, never a worker directly:
    * the object store above all, which the object store route signs for and
-   * which (LocalStack) may take any signature at all (94S-251).
+   * which (LocalStack) may take any signature at all.
    */
   EGRESS_CREDENTIAL_ALLOWLIST?: string | undefined;
   EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST?: string | undefined;
@@ -28,7 +28,7 @@ export type EgressProxyEnvironment = {
 export type EgressProxyConfig = {
   allow: EgressDestination[];
   allowPrivate: EgressDestination[];
-  /** The credential routes (94S-252), or null when this proxy has none. */
+  /** The credential routes, or null when this proxy has none. */
   credential: EgressCredentialConfig | null;
   hostname: string;
   logLevel: ProxyLogLevel;
@@ -64,7 +64,7 @@ export function egressProxyConfigFromEnv(
   }
   const credential = credentialConfig(environment);
   // A credential route's upstream on a forward list is a way round the
-  // route: an installation still carrying the pre-94S-383 allowlists must
+  // route: an installation still carrying the legacy allowlists must
   // stop here rather than keep that bypass open after an upgrade. Compared
   // by name as written; one upstream under two names is not caught.
   const forward = new Set(

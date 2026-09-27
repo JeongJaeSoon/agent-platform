@@ -5,18 +5,13 @@ import { connect as tlsConnect } from "node:tls";
  * One HTTP/1.1 exchange with a credential route's upstream, over a socket
  * this code opened to the address the policy judged.
  *
- * Why not `fetch`: dialled by address, the certificate has to be checked
- * against the catalog's name, and neither Bun 1.3.10's `fetch` (its
- * `tls.serverName`) nor its `node:https` (`servername`, a `lookup`) does
- * that — both verify against the address and refuse every named upstream
- * (measured; 1.3.11 fixed `fetch`, and a `checkServerIdentity` callback runs
- * only after the request is written). `node:tls` does verify `servername`
- * during the handshake on both, so the request is written only once the
- * certificate holds.
+ * Dialled by address, the certificate still has to be checked against the
+ * catalog's name before request bytes are written. `node:tls` verifies the
+ * explicit `servername` during the handshake and provides that ordering.
  *
  * Deliberately minimal: one request per connection (`connection: close`),
  * the request body sent with a length — whole, or streamed at a length
- * known up front (the object store route's uploads, 94S-251) — no
+ * known up front (the object store route's uploads) — no
  * `Expect: 100-continue`, no pooling.
  */
 

@@ -1,6 +1,6 @@
 /**
  * The runtime this image stamps a checkpoint with, per claim, for
- * `scripts/verify-restore.sh --image` (94S-452). The engine build is the
+ * `scripts/verify-restore.sh --image`. The engine build is the
  * image's constant; the profile digest is computed here by this image's own
  * code, so an image that hashes a profile differently from the one that
  * sealed a checkpoint shows as incompatible before a worker is asked to

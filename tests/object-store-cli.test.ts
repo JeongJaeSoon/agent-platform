@@ -14,7 +14,7 @@ import {
 } from "@aws-sdk/client-s3";
 
 /**
- * The write paths of scripts/lib/object-store-cli.ts (94S-435) against
+ * The write paths of scripts/lib/object-store-cli.ts against
  * LocalStack: a create-only upload, the create-only probe that must leave
  * nothing behind, and a download that refuses keys no backup directory can
  * hold one file each for. The restore target refusals are
@@ -92,7 +92,7 @@ async function putDotSegmentKey(bucket: LocalstackBucket, key: string) {
 }
 
 // Off rather than skipped where LocalStack is not configured: an
-// undeclared skip fails the integration job (94S-307).
+// undeclared skip fails the integration job.
 (localstackEnabled() ? describe : describe.skip)(
   "object-store-cli on LocalStack",
   () => {

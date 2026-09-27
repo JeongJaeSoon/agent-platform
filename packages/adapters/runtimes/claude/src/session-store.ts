@@ -18,7 +18,7 @@ import {
 const SLOT_ATTEMPTS = 64;
 
 /**
- * When a capture merges a transcript's parts (94S-314): once one transcript
+ * When a capture merges a transcript's parts: once one transcript
  * pins more than `LANE_COMPACT_AT` of them, or the session more than
  * `SESSION_COMPACT_AT` across all of its transcripts. Parts are merged into
  * runs of at most `MERGED_PART_BYTES`, so what a capture pins is bounded by
@@ -64,7 +64,7 @@ export type ClaudeSessionStoreOptions = {
  * Mirrors the engine's root and subagent transcripts to the object store, and
  * pins them as exact revisions.
  *
- * Three properties carry the design (see spikes/94s-92 and 94S-203):
+ * Three properties carry the design (see spikes/94s-92 and)
  *
  * - Parts are write-once under unique keys, so an append that times out and is
  *   retried stores both copies. Reads deduplicate by entry `uuid`: an entry
@@ -124,7 +124,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
   readonly #parts = new Map<string, Promise<Uint8Array>>();
   /**
    * The store's version of each part this store wrote, as `putImmutable`
-   * answered it; a checkpoint names parts by version (94S-229). Absent on a
+   * answered it; a checkpoint names parts by version. Absent on a
    * store without versions.
    */
   readonly #versions = new Map<string, string>();
@@ -133,7 +133,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
   /**
    * Per transcript, the entries counted so far over a prefix of its pinned
    * part list, so a capture parses only the parts appended since the last
-   * one rather than the whole history (94S-380).
+   * one rather than the whole history.
    */
   readonly #tallies = new Map<string, Tally>();
   /**
@@ -141,7 +141,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * wrote and what its listings saw. A capture reads this instead of listing
    * the generation, whose keys grow with every append the session made — a
    * merge replaces parts without deleting them — at a request per thousand
-   * (94S-420). It lists again once `#doubts` has moved past what the last
+   * . It lists again once `#doubts` has moved past what the last
    * listing covered: a write whose answer was lost, or a slot another writer
    * took, may have landed a key this store never saw.
    */
@@ -829,7 +829,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * the same generation, and a resume would replay the other one's
    * uncommitted suffix as if the checkpoint held it. This detects the misuse;
    * it does not fence it — two launches that open at the same moment both see
-   * an empty prefix. Keeping generations unique is the scheduler's (94S-202).
+   * an empty prefix. Keeping generations unique is the scheduler's.
    */
   async #assertFresh(): Promise<void> {
     const held = await this.#objects.list(`${this.#prefix}/`);

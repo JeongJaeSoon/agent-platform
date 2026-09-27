@@ -47,13 +47,13 @@ export type SessionCollection =
 
 /**
  * Releases and deletes the checkpoint objects no restore can reach and no
- * finalize can still commit (94S-281).
+ * finalize can still commit.
  *
  * Two kinds of version are collected. Under
  * `<session>/checkpoints/<revision>/<attempt>/`: manifests, workspace bundles
  * and untracked files, which each belong to the one attempt that wrote them.
  * Under `<session>/transcripts/generation-<n>/`: transcript parts, which every
- * revision that inherits them shares (94S-326). Nothing else is touched.
+ * revision that inherits them shares. Nothing else is touched.
  *
  * A version goes only when both hold:
  *

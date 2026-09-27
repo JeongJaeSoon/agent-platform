@@ -38,7 +38,7 @@ export type WorkspaceObservation =
 
 export type WorkspacePlan =
   /**
-   * A committed checkpoint pins the exact tree; the restorer (94S-246) owns
+   * A committed checkpoint pins the exact tree; the restorer owns
    * it. There is no fallback to a branch clone: the branch head is not the
    * state the transcript was written against.
    */

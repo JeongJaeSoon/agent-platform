@@ -49,8 +49,8 @@ describe("checkHealth", () => {
   });
 
   test("a checkout moved under a running proxy makes it unhealthy", async () => {
-    // qa-main in 94S-319: the proxy started, then the checkout moved to the
-    // commit carrying the fix; the process kept the old modules.
+    // The proxy starts before the checkout moves; the process keeps its
+    // already-loaded modules.
     const dir = checkout();
     const server = await proxy(sourceDigest(dir));
     writeFileSync(join(dir, "proxy.ts"), "// frames the answer, then closes\n");

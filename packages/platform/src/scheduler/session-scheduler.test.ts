@@ -1011,7 +1011,7 @@ describe("runScheduler", () => {
     expect(after.reensured).toHaveLength(0);
   });
 
-  describe("a claimed resource on an older isolation contract (94S-250)", () => {
+  describe("a claimed resource on an older isolation contract", () => {
     function claimedStale(
       store: MemoryStore,
       backend: FakeBackend,
@@ -1101,7 +1101,7 @@ describe("runScheduler", () => {
       ).toHaveLength(1);
     });
 
-    test("past the drain deadline is not waited on while it winds down (94S-385)", async () => {
+    test("past the drain deadline is not waited on while it winds down", async () => {
       const { backend, records, run, store } = harness(10, {
         drainDeadlineMs: 60_000,
       });
@@ -1128,7 +1128,7 @@ describe("runScheduler", () => {
   test("a stale-isolation replacement does not revoke a credential issued since it was judged", async () => {
     // Every reason is fenced on the credential, not only a mismatch: another
     // pass's `ensureExecution` issues anew without counting a replacement,
-    // so a matching count says nothing about the credential (94S-231).
+    // so a matching count says nothing about the credential.
     const { backend, records, run, store } = harness();
     store.addUnassigned(1);
     await run();
@@ -2351,7 +2351,7 @@ describe("runScheduler", () => {
     expect(next.launched).toHaveLength(1);
   });
 
-  test("a busy orphan is not waited on, and holds its slot until it is gone (94S-385)", async () => {
+  test("a busy orphan is not waited on, and holds its slot until it is gone", async () => {
     const { backend, records, run, store } = harness(1);
     backend.containers.set("stray#1", {
       exited: false,
@@ -2505,7 +2505,7 @@ describe("runScheduler", () => {
     expect(backend.containers.size).toBe(1);
   });
 
-  test("a create the daemon never answered is adopted by the next pass, not counted (94S-393)", async () => {
+  test("a create the daemon never answered is adopted by the next pass, not counted", async () => {
     const { backend, run, store } = harness();
     const [sessionId] = store.addUnassigned(1);
     if (!sessionId) throw new Error("no session");
@@ -2773,7 +2773,7 @@ describe("runScheduler", () => {
     ).toBe(true);
   });
 
-  test("a kill does not wait on a worker draining its turn, and a later pass confirms it gone (94S-385)", async () => {
+  test("a kill does not wait on a worker draining its turn, and a later pass confirms it gone", async () => {
     const { backend, records, run, store } = harness();
     store.addUnassigned(1);
     await run();
@@ -2971,7 +2971,7 @@ describe("runScheduler", () => {
   });
 });
 
-describe("runScheduler launch failures (94S-207)", () => {
+describe("runScheduler launch failures", () => {
   /** Past any backoff the default schedule can hand out. */
   const PAST_ANY_BACKOFF = 11 * 60_000;
 
@@ -3905,7 +3905,7 @@ describe("runScheduler workspace GC", () => {
   });
 });
 
-describe("launch spec (94S-202)", () => {
+describe("launch spec", () => {
   test("a new launch is pinned to what the image names when it is reserved, once per pass", async () => {
     const { backend, run, store } = harness();
     backend.imageIds.set("worker:test", "sha256:first");

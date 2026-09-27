@@ -7,7 +7,7 @@ import { canonicalJson, canonicalJsonOfJson } from "./canonical-json.ts";
 const KEYS = { a_b: 1, aB: 2, ab: 3, Ab: 4 };
 const CODE_UNIT_ORDER = '{"Ab":4,"aB":2,"a_b":1,"ab":3}';
 
-describe("canonical JSON (94S-400)", () => {
+describe("canonical JSON", () => {
   test("sorts keys by code unit, not by collation", () => {
     expect(canonicalJson(KEYS)).toBe(CODE_UNIT_ORDER);
     expect(canonicalJsonOfJson({ outer: KEYS })).toBe(

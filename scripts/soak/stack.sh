@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The 94S-135 soak/campaign stack: the compose product stack built from this
+# The soak/campaign stack: the compose product stack built from this
 # checkout, with the D2 gate overlay (scripts/d2-gate/compose.yml) and the
 # soak overlay (scripts/soak/compose.yml), under a project and installation
 # of its own so it never touches another card's stack.
@@ -91,7 +91,7 @@ up() {
   key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create soak-owner \
     --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-  # The reconciler runs as the product runs it, on its own loop (94S-320).
+  # The reconciler runs as the product runs it, on its own loop.
   dc up -d --wait scheduler reconciler >>"$state/up.log" 2>&1
 
   rm -f "$state/vars.sh"

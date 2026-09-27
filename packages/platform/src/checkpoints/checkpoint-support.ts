@@ -11,7 +11,7 @@ import {
 
 /**
  * The revision a checkpoint's state was built on. Rows from before the
- * parent was recorded (94S-204) come from a history with no fallback in it,
+ * parent was recorded come from a history with no fallback in it
  * where that is always the revision before.
  */
 export function parentOf(checkpoint: CheckpointPointer): number | null {

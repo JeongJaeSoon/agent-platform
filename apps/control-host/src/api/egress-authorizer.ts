@@ -10,20 +10,20 @@ import { z } from "zod";
 import { isStorageUnavailable } from "./app.ts";
 
 /**
- * The egress proxy's line to the gateway (94S-252). Every request a worker
+ * The egress proxy's line to the gateway. Every request a worker
  * sends to one of the proxy's credential routes is authorized here, and the
  * answer carries the upstream credential the proxy injects. That is why
  * this is a listener of its own rather than a route on the API's port: the
  * API's port is on the workers' egress allowlist, and this one must never
  * be. The shared bearer is the second lock, not the first.
  *
- * The object store route (94S-251) asks the same question and one more:
+ * The object store route asks the same question and one more
  * whether this one S3 request is one the session may make. Its answer is a
  * signature for that request, made here with the API's own key.
  */
 
 export const EGRESS_AUTHORIZER_PATH = "/authorize";
-// Where the proxy reports what a Messages call used (94S-409), on the same
+// Where the proxy reports what a Messages call used, on the same
 // listener for the same reason: only the proxy may say what a session spent.
 export const EGRESS_USAGE_PATH = "/usage";
 // A token, a purpose and, for the object store, one S3 request line and its
@@ -114,10 +114,10 @@ const usageReportSchema = z
         cache_creation_input_tokens: tokenCount,
         cache_creation_1h_input_tokens: tokenCount,
         cache_read_input_tokens: tokenCount,
-        // Optional so a proxy from before 94S-451 still reports; its calls
+        // Optional so a proxy from before still reports; its calls
         // may have been fast, so a missing speed is priced high.
         speed: z.string().min(1).max(64).default("unknown"),
-        // Before 94S-454 as well; the call may have run in the US.
+        // Before as well; the call may have run in the US.
         inference_geo: z.string().min(1).max(64).default("unknown"),
         web_search_requests: tokenCount.default(0),
         web_fetch_requests: tokenCount.default(0),

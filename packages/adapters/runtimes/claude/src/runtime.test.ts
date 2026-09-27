@@ -65,7 +65,7 @@ describe("Claude SDK run", () => {
   });
 });
 
-describe("Claude SDK input flush (94S-351)", () => {
+describe("Claude SDK input flush", () => {
   const settledNow = async (promise: Promise<void>) => {
     let settled = false;
     promise.then(() => {
@@ -120,7 +120,7 @@ describe("Claude SDK input flush (94S-351)", () => {
   });
 });
 
-describe("Claude SDK run readiness (94S-138)", () => {
+describe("Claude SDK run readiness", () => {
   test("ready waits for the resumed transcript and the engine's initialization, and rejects when the transcript is unreadable", async () => {
     let initialized: () => void = () => {};
     const initialization = new Promise<void>((resolve) => {
@@ -339,7 +339,7 @@ describe("Claude SDK adapter options", () => {
     );
   });
 
-  test("the spawn writes the key down descriptor 3 (94S-410)", async () => {
+  test("the spawn writes the key down descriptor 3", async () => {
     const options = buildSdkOptions(config, {
       onPermission: async () => ({ behavior: "allow" }),
     });
@@ -377,7 +377,7 @@ describe("Claude SDK adapter options", () => {
     }
   }, 10_000);
 
-  test("a spawned engine's key socket is closed once, never again on a reused descriptor (94S-410)", async () => {
+  test("a spawned engine's key socket is closed once, never again on a reused descriptor", async () => {
     // node:child_process under Bun closed the extra stdio socket again when
     // it was collected; a later Bun.spawn then failed with EBADF on the
     // pipe that had taken the number.

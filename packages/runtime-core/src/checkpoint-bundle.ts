@@ -9,7 +9,7 @@ export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
  */
 export const CHECKPOINT_BRANCH_PREFIX = "refs/checkpoint/branch/";
 /**
- * The commit the session's repository CLAUDE.md is read from (94S-258): the
+ * The commit the session's repository CLAUDE.md is read from: the
  * branch commit the first worker fetched, carried unchanged from checkpoint
  * to checkpoint so a resumed engine gets the instructions it started with.
  */
@@ -24,8 +24,8 @@ export const PEELED_REF_FORMAT =
 
 /**
  * Reads `PEELED_REF_FORMAT` output: every ref with the commit it is, or the
- * commit the annotated tag it is points at directly (a capture that changed
- * nothing tags commits its base carries, 94S-374); null for anything else.
+ * commit the annotated tag points at directly. A capture that changed nothing
+ * may tag a commit its base carries. Returns null for anything else.
  */
 export function peeledCommits(output: string): Map<string, string | null> {
   const commits = new Map<string, string | null>();
@@ -55,7 +55,7 @@ export type CheckpointBundleRefs = {
 };
 
 /**
- * The one rule for a checkpoint bundle's refs (94S-391): finalize applies it
+ * The one rule for a checkpoint bundle's refs: finalize applies it
  * before the pointer moves, and a restore before it touches the workspace,
  * so a checkpoint that commits is one a restore checks out. `refs` are the
  * refs the chain's last bundle lists, each with the commit it peels to

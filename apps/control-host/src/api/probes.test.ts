@@ -37,7 +37,7 @@ describe("GET /readyz", () => {
   });
 
   test("answers 503 NOT_READY naming the failed check", async () => {
-    // A request id holding the digits a leak check once looked for (94S-362).
+    // A request id holding the digits a leak check once looked for.
     const uuid = spyOn(crypto, "randomUUID").mockReturnValue(
       "aa243477-8602-4291-a70e-2270003cb766",
     );

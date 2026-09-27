@@ -84,7 +84,7 @@ describe("workerConfigFromEnv", () => {
     ["WORKER_WORKSPACE_DIR", { WORKER_WORKSPACE_DIR: undefined }],
     ["S3_BUCKET", { S3_BUCKET: undefined }],
     ["WORKER_OBJECT_PREFIX", { WORKER_OBJECT_PREFIX: undefined }],
-    // An installation limit with no code default (94S-292).
+    // An installation limit with no code default.
     ["WORKER_PROVIDER_MAX_RETRIES", { WORKER_PROVIDER_MAX_RETRIES: undefined }],
   ])("refuses to start without %s", (name, missing) => {
     expect(() => workerConfigFromEnv({ ...launched, ...missing })).toThrow(

@@ -229,14 +229,14 @@ schema_check() {
 
 # `unbundle_chain <bare-repository> <commit> <bundle>...`: a checkpoint's
 # bundles, oldest first, fetched into one empty repository the way a restore
-# stacks them. An incremental bundle (94S-227) needs commits only an earlier
+# stacks them. An incremental bundle needs commits only an earlier
 # one carries, so none after the first verifies on its own. The last bundle's
 # refs/checkpoint/worktree, peeled, must be <commit>: that is what a restore
 # checks out. It may be an annotated tag over a commit an earlier bundle
-# carries, when the capture changed nothing (94S-374), so the bundle's header
+# carries, when the capture changed nothing, so the bundle's header
 # never lists <commit> itself. That is the worktree part of the rule finalize
 # and a worker restore apply to the last bundle's refs, `checkpointBundleRefs`
-# in packages/runtime-core/src/checkpoint-bundle.ts (94S-391); a bundle that
+# in packages/runtime-core/src/checkpoint-bundle.ts; a bundle that
 # rule refuses never commits. Paths must be absolute. Says on stdout which
 # bundle git refused and fails.
 unbundle_chain() {

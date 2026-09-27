@@ -26,7 +26,7 @@ import type {
  *   could not be written — a workspace the capture refused, a manifest over
  *   the limits, a store that failed. The ones that persist (a workspace too
  *   large to capture) are not fixed by holding turns back, and a replaced
- *   worker still refuses to go on past turns no checkpoint covers (94S-288).
+ * worker still refuses to go on past turns no checkpoint covers.
  */
 export type CheckpointReasonKind = "advisory" | "blocking" | "ordinary";
 

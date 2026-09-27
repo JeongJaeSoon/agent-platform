@@ -12,7 +12,7 @@ export type ActivateCatalogResult =
 
 const AUTHORITY_ID = 1;
 
-/** The revision an operator activated, or null while none is (94S-295). */
+/** The revision an operator activated, or null while none is. */
 export async function activeCatalogRevision(
   db: Database,
 ): Promise<CatalogAuthority | null> {

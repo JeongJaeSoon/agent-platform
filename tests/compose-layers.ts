@@ -1,16 +1,16 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The compose files each installation merges (94S-430): the product services
+// The compose files each installation merges: the product services
 // of compose.core.yml under the local layer (infra/docker-compose.yml) or
-// the test-ops layer and its object store's (94S-432).
+// the test-ops layer and its object store's.
 
 const root = join(import.meta.dir, "..");
 
 export const CORE = "infra/compose.core.yml";
 export const LOCAL_LAYERS = [CORE, "infra/compose.local.yml"] as const;
 export const TEST_OPS_LAYERS = [CORE, "infra/compose.test-ops.yml"] as const;
-/** Over the local stack, for `--real-model` (94S-431). */
+/** Over the local stack, for `--real-model`. */
 export const REAL_MODEL = "infra/compose.real-model.yml";
 export const DATADOG_OVERLAY = "infra/compose.datadog.yml";
 export const TEST_OPS_STORE_LAYERS = {
@@ -20,7 +20,7 @@ export const TEST_OPS_STORE_LAYERS = {
 
 /**
  * For a test that runs `docker compose config`: a cold runner's first call
- * has taken 12.8s against bun's 5s default (94S-438).
+ * has taken 12.8s against bun's 5s default.
  */
 export const COMPOSE_RENDER_TIMEOUT_MS = 30_000;
 

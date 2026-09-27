@@ -148,7 +148,7 @@ function messageOf(error: unknown): string {
  * Non-zero when the pass left work undone, so the pass loop notices. A pass
  * that found the lock held did nothing and says so (PASS_SKIPPED_EXIT). One
  * that did everything it could but left a session it cannot help this pass
- * says that instead (PASS_DEGRADED_EXIT, 94S-368), unless something else
+ * says that instead (PASS_DEGRADED_EXIT), unless something else
  * failed too.
  */
 export function exitCodeFor(summary: SchedulerRunSummary): number {

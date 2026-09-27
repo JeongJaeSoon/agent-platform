@@ -125,7 +125,7 @@ describe("readiness probe", () => {
     ).toMatchObject({ ready: false, check: "schema" });
   }, 30_000);
 
-  test("fails the config check on invalid installation limits (94S-131)", async () => {
+  test("fails the config check on invalid installation limits", async () => {
     const db = await database(true);
     const limits = {
       EXECUTION_SLOT_LIMIT: "10",

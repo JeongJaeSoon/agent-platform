@@ -476,7 +476,7 @@ const routes: Route[] = [
 
 /**
  * The session scope each operation demands, as the API enforces it before
- * reading a body or a resource (94S-132). Routes without a scope are the
+ * reading a body or a resource. Routes without a scope are the
  * probes, the public auth routes and cookie-only logout.
  */
 export const API_ROUTE_SCOPES: ReadonlyArray<{

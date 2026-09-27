@@ -14,7 +14,7 @@ import { attempts, checkpoints, sessions } from "./schema.ts";
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 /**
- * 94S-281: what checkpoint garbage collection reads from and writes to
+ * what checkpoint garbage collection reads from and writes to
  * PostgreSQL — which attempts can never commit again, and which rows it
  * retires before deleting their objects.
  */

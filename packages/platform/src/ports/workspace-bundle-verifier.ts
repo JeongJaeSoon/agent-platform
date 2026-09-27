@@ -32,7 +32,7 @@ export interface WorkspaceBundleVerifier {
   readonly policy?: string;
   verify(input: {
     /**
-     * The bundles this one builds on, oldest first (94S-227), each spooled
+     * The bundles this one builds on, oldest first, each spooled
      * and checked like it. `commit` must then be restorable from all of
      * them fetched in order: the first on its own, each later one needing
      * only commits an earlier one offers as a ref tip.
@@ -59,8 +59,8 @@ export type WorkspaceBundleFile = {
  * The alternative default would be to promote pointers on a check that git
  * does not have to agree with, and the damage only surfaces at the next
  * restore — when the execution that wrote the checkpoint is gone and the last
- * healthy revision has already been superseded. 94S-228 supplies the
- * git-backed implementation a composition root wires here.
+ * healthy revision has already been superseded. A composition root wires the
+ * git-backed implementation here.
  */
 export const rejectUnverifiedWorkspaceBundles: WorkspaceBundleVerifier = {
   async verify() {

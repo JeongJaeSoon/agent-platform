@@ -45,12 +45,12 @@ import {
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
- * 94S-322 end to end in one process: a WorkerHost holding a lease from the
+ * Lease-clock behavior end to end in one process: a WorkerHost holding a lease from the
  * Worker Gateway's own HTTP routes on PostgreSQL. The wall clock jumps both
  * ways without the worker's lease judgement moving, and once the gateway
  * becomes unreachable the worker gives the lease up — and its engine — a
- * safety margin before the database would end it. This is the clock
- * skew/jump row of 94S-135's fault table, at test scale.
+ * safety margin before the database would end it. This is the clock skew and
+ * jump fault scenario at test scale.
  */
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
@@ -381,7 +381,7 @@ integration("worker lease on the monotonic clock end to end", () => {
     );
   }, 90_000);
 
-  test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401 (94S-346)", async () => {
+  test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401", async () => {
     const { executionId, nonce } = await launchSession();
     const runtime = new FakeAgentRuntime([
       { type: "await-input" },
@@ -463,7 +463,7 @@ integration("worker lease on the monotonic clock end to end", () => {
 
     // The scheduler observes the execution gone and ends the attempt, which
     // revokes its token; a beat the network only now lets through is
-    // answered 401 — the response 94S-135's control-kill campaign logged.
+    // answered 401, proving the late beat cannot revive the attempt.
     await gateway.confirmExecutionGone(executionId);
     const late = await last.deliver();
     expect(late.status).toBe(401);

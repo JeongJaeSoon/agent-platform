@@ -19,7 +19,7 @@ const nothing = {
   estimated: false,
 };
 
-describe("priceProviderUsage (94S-409)", () => {
+describe("priceProviderUsage", () => {
   test("prices every part at the model's rate, the hour-long cache writes at twice the input", () => {
     // claude-sonnet-5: $2 in, $10 out, $0.20 cache read per million.
     const { costUsd, pricedBy } = priceProviderUsage({
@@ -70,7 +70,7 @@ describe("priceProviderUsage (94S-409)", () => {
     ).toBe("fallback");
   });
 
-  test("a fast answer pays the fast rates, cache multipliers on top (94S-451)", () => {
+  test("a fast answer pays the fast rates, cache multipliers on top", () => {
     // claude-opus-5-5 fast: $8 in, $40 out, $0.40 cache read per million.
     const { costUsd, pricedBy } = priceProviderUsage({
       ...nothing,
@@ -94,7 +94,7 @@ describe("priceProviderUsage (94S-409)", () => {
     ).toBe(20);
   });
 
-  test("a fast answer from a model without fast rates, or an unknown speed, pays the highest rate of either table (94S-451)", () => {
+  test("a fast answer from a model without fast rates, or an unknown speed, pays the highest rate of either table", () => {
     const highest = Math.max(
       ...[
         ...Object.values(MODEL_PRICES),
@@ -112,7 +112,7 @@ describe("priceProviderUsage (94S-409)", () => {
     }
   });
 
-  test("each web search adds $0.01; web fetch and code execution add nothing (94S-451)", () => {
+  test("each web search adds $0.01; web fetch and code execution add nothing", () => {
     expect(
       priceProviderUsage({
         ...nothing,
@@ -135,7 +135,7 @@ describe("priceProviderUsage (94S-409)", () => {
     };
   })();
 
-  test("US-only inference pays 1.1x on every token rate, fast and cache ones included, but not on search fees (94S-454)", () => {
+  test("US-only inference pays 1.1x on every token rate, fast and cache ones included, but not on search fees", () => {
     const tokens = {
       ...nothing,
       model: "claude-opus-5-5",
@@ -171,7 +171,7 @@ describe("priceProviderUsage (94S-409)", () => {
     ).toBe(0.0275);
   });
 
-  test("a geo the table does not know pays the highest rate and the highest multiplier (94S-454)", () => {
+  test("a geo the table does not know pays the highest rate and the highest multiplier", () => {
     for (const inferenceGeo of ["unknown", "eu", "US", "constructor"]) {
       expect(
         priceProviderUsage({
@@ -184,7 +184,7 @@ describe("priceProviderUsage (94S-409)", () => {
     }
   });
 
-  test("a model from before 4.6 pays standard rates whatever the geo says (94S-454)", () => {
+  test("a model from before 4.6 pays standard rates whatever the geo says", () => {
     for (const inferenceGeo of ["us", "unknown"]) {
       expect(
         priceProviderUsage({
@@ -197,7 +197,7 @@ describe("priceProviderUsage (94S-409)", () => {
     }
   });
 
-  test("a model from before 4.6 past 200K input, cache included, pays the highest rate; 4.6 and later keep theirs (94S-454)", () => {
+  test("a model from before 4.6 past 200K input, cache included, pays the highest rate; 4.6 and later keep theirs", () => {
     const at = (model: string, input: number) =>
       priceProviderUsage({
         ...nothing,

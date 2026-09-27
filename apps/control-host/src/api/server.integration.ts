@@ -15,12 +15,10 @@ import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
-// Idle this whole test runs in ~0.4s (bun 1.3.11, 14-core M-series), but a
-// loaded 4-core GitHub runner has pushed server startup past the old 5s wall
-// (94S-256). 30s is the ratio 94S-241 chose: far above any observed startup,
-// well below "hung". The test timeout is a separate total budget: key CLI
-// spawn + DB insert before the wait, the full 30s allowance, then the
-// remaining requests and teardown, each of which the same load slows.
+// Thirty seconds leaves room for server startup under CI load while still
+// classifying a hang promptly. The test timeout is a separate total budget:
+// key CLI spawn + DB insert before the wait, the full startup allowance, then
+// the remaining requests and teardown.
 const SERVER_START_DEADLINE_MS = 30_000;
 const TEST_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 100;
@@ -28,7 +26,7 @@ const POLL_INTERVAL_MS = 100;
 // Drains the server's stdout and resolves `port` from its "API listening"
 // line. The server binds PORT=0 so the OS hands it a free port: a port picked
 // here (it was pid-derived) can already be held on a shared runner, and the
-// bind then fails (94S-328). `port` resolves undefined if stdout ends first.
+// bind then fails. `port` resolves undefined if stdout ends first.
 function serverStdout(stream: ReadableStream<Uint8Array>): {
   text: Promise<string>;
   port: Promise<number | undefined>;
@@ -444,7 +442,7 @@ integration("API server on PostgreSQL", () => {
         };
 
         // A key without the scope is refused before anything is read or
-        // changed (94S-140): sessions:recover is its own scope, which
+        // changed: sessions:recover is its own scope, which
         // sessions:write does not include.
         const before = await (
           await call(readOnly, "GET", `/sessions/${sessionId}`)
@@ -485,7 +483,7 @@ integration("API server on PostgreSQL", () => {
         expect(admitted.status).not.toBe(403);
         expect(admitted.status).toBeLessThan(500);
 
-        // 94S-321: the operator command revokes one key; the server has no
+        // the operator command revokes one key; the server has no
         // key cache, so the very next request with it is 401 and the other
         // keys of the same owner keep working.
         const revoked = await keysCli("revoke", readOnlyId);
@@ -713,7 +711,7 @@ integration("API server on PostgreSQL", () => {
   );
 
   test(
-    "refuses to start on API settings that used to become defaults, naming each (94S-389)",
+    "refuses to start on API settings that used to become defaults, naming each",
     async () => {
       const refused = await refusedStart({
         PLATFORM_CONFIG_DIR: await configDir(root, "settings"),
@@ -743,7 +741,7 @@ integration("API server on PostgreSQL", () => {
   );
 
   test(
-    "refuses to start on missing or malformed installation limits, naming each (94S-131)",
+    "refuses to start on missing or malformed installation limits, naming each",
     async () => {
       const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
         cwd: `${import.meta.dir}/../..`,

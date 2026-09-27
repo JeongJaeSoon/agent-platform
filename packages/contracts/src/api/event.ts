@@ -25,7 +25,7 @@ export const SSE_SCHEMA_VERSION = 1;
 // A status event reports the session's projected status, or a control step
 // that no stored status names: an interrupt the worker has taken and is
 // waiting on the engine's terminal for (`interrupting`), and the engine
-// having stopped the turn on that interrupt (`engine_stopped`, 94S-382). The
+// having stopped the turn on that interrupt (`engine_stopped`). The
 // latter is the interrupt's effect; the turn is `interrupted` only once its
 // checkpoint is committed, which may come later or not at all.
 export const STATUS_EVENT_PHASE_VALUES = [
@@ -155,7 +155,7 @@ export const sseEventSchema = z.discriminatedUnion("event", [
 ]);
 
 // A stored row the contract does not read (written before every writer was
-// held to it, 94S-283) would otherwise stop each read at that row for good:
+// held to it) would otherwise stop each read at that row for good:
 // no page past it could be served and the cursor could never move on. It
 // reads instead as an `error` event under its own cursor. This code is not
 // terminal; the session's state is read from the session, not from here.

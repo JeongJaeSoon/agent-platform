@@ -24,7 +24,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 // session whose worker is stale or missing: rows left by an interrupted run
 // or seeded by another checkout running this suite at the same time. The
 // test then fails once and passes on the next run, because the failing sweep
-// cleared the leftovers (94S-210). A database of its own is the only state
+// cleared the leftovers. A database of its own is the only state
 // these assertions can speak for.
 integration("reconciler process on PostgreSQL", () => {
   let database: TempDatabase;

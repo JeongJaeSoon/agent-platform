@@ -9,13 +9,13 @@ import {
 
 /**
  * Healthy only while the last finished pass did not fail, no pass is running
- * past its deadline, and a pass has completed within `staleMs` (94S-320).
+ * past its deadline, and a pass has completed within `staleMs`.
  * The first two catch a pass that hangs or fails right after a success; the
  * last catches a loop that stops finishing passes at all, however it stalls.
  * One failed pass is enough: Docker only calls the service unhealthy after
  * the healthcheck's retries, by which time the next pass has run. A skipped
  * pass refreshes nothing, so a loop that only skips goes stale. A degraded
- * pass completed (94S-368): it keeps the loop healthy, and the reason says
+ * pass completed: it keeps the loop healthy, and the reason says
  * it was degraded.
  */
 export function judgeHealth(

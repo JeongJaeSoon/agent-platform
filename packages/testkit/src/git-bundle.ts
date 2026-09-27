@@ -63,7 +63,7 @@ export async function createGitBundle(
 }
 
 /**
- * Two bundles git wrote as a chain (94S-227): `base` stands alone with the
+ * Two bundles git wrote as a chain: `base` stands alone with the
  * first commit, and `tip` carries only the second, needing the first as its
  * prerequisite.
  */

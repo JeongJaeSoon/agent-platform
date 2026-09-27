@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Backup → restore into a new compose project → resume on a new worker, on
-# the product stack (94S-324):
+# the product stack
 #
 #   tests/e2e/restore-resume.sh
 #

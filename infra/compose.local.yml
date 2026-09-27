@@ -1,4 +1,4 @@
-# The local layer over compose.core.yml (94S-430): what a machine without
+# The local layer over compose.core.yml: what a machine without
 # test-ops' AWS account needs to run the product. docker-compose.yml merges
 # the two. It adds
 # - the local dependencies: LocalStack for S3 and, apart, for the API's
@@ -11,7 +11,7 @@
 # directory.
 services:
   # Workers reach this only through the egress proxy's object store route
-  # (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST in compose.core.yml, 94S-251), which
+  # (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST in compose.core.yml), which
   # the API signs for one session's prefix. It runs S3 alone all the same: nothing here
   # uses Secrets Manager.
   localstack:
@@ -24,21 +24,21 @@ services:
     ports:
       - "127.0.0.1:4566:4566"
     # No data volume: LocalStack keeps S3 in memory, so the bucket is gone
-    # with the container whatever is mounted (94S-422). The API refuses to
+    # with the container whatever is mounted. The API refuses to
     # start on an empty bucket the database still holds checkpoints for.
     volumes:
       - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
     healthcheck:
       # Healthy once the init script has also set the bucket's default
-      # encryption: the API refuses to start on anything but AES256
-      # (94S-337). Three CLI calls do not fit the old 3s.
+      # encryption: the API refuses to start on anything but AES256. The
+      # timeout covers the three sequential CLI calls.
       test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null && awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null && [ \"$$(awslocal s3api get-bucket-encryption --bucket claude-sessions --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)\" = AES256 ]"]
       interval: 5s
       timeout: 10s
       retries: 12
       start_period: 5s
 
-  # The API's Secrets Manager (94S-132), apart from `localstack` on purpose:
+  # The API's Secrets Manager, apart from `localstack` on purpose
   # workers reach that one through the egress proxy, and nothing on the
   # allowlist may answer for the provider keys the catalog references. Only
   # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER).

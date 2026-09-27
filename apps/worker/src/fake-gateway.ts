@@ -449,7 +449,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       throw this.finalizeFailure;
     }
     if (replay === undefined) {
-      // The same gate finalizeAtomic applies (94S-218); a replay is answered
+      // The same gate finalizeAtomic applies; a replay is answered
       // from what was stored, like the real one.
       if (request.final_source_sequence !== this.acceptedThrough) {
         throw new WorkerGatewayRequestError(

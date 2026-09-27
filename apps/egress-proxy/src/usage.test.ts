@@ -100,7 +100,7 @@ describe("usageMeter", () => {
     });
   });
 
-  test("a stream cut before message_stop charges a token per content character it delivered (Codex R1)", () => {
+  test("a stream cut before message_stop charges a token per content character it delivered", () => {
     const text = "x".repeat(300);
     const stream = sse([
       started,
@@ -118,7 +118,7 @@ describe("usageMeter", () => {
     });
   });
 
-  test("a JSON answer that says nothing usable is charged from its request (Codex R1)", () => {
+  test("a JSON answer that says nothing usable is charged from its request", () => {
     const fromRequest = {
       model: "claude-sonnet-4-5",
       input_tokens: request.byteLength,
@@ -162,7 +162,7 @@ describe("usageMeter", () => {
     expect(result.output_tokens).toBeGreaterThan(300 * 1024);
   });
 
-  describe("speed and server tools (94S-451)", () => {
+  describe("speed and server tools", () => {
     const tools = {
       web_search_requests: 2,
       web_fetch_requests: 1,
@@ -253,7 +253,7 @@ describe("usageMeter", () => {
       }
     });
 
-    test("an answer's usage.inference_geo is read, from a stream's message_start too (94S-454)", () => {
+    test("an answer's usage.inference_geo is read, from a stream's message_start too", () => {
       const answer = JSON.stringify({
         model: "claude-opus-5",
         usage: { input_tokens: 1, output_tokens: 2, inference_geo: "us" },
@@ -276,7 +276,7 @@ describe("usageMeter", () => {
       });
     });
 
-    test("an answer that names no geo takes the request's, and one that names none is unknown, not global (94S-454)", () => {
+    test("an answer that names no geo takes the request's, and one that names none is unknown, not global", () => {
       const answer = JSON.stringify({
         model: "claude-opus-5",
         usage: { input_tokens: 1, output_tokens: 2, inference_geo: null },
@@ -294,7 +294,7 @@ describe("usageMeter", () => {
       expect(requestEstimate(null).inference_geo).toBe("unknown");
     });
 
-    test("the answer's geo wins over the request's, and a geo that is not a name is unknown (94S-454)", () => {
+    test("the answer's geo wins over the request's, and a geo that is not a name is unknown", () => {
       const global = JSON.stringify({
         model: "claude-opus-5",
         usage: { input_tokens: 1, output_tokens: 2, inference_geo: "global" },
@@ -316,7 +316,7 @@ describe("usageMeter", () => {
       }
     });
 
-    test("a stream cut before its final count charges every search result it delivered (Codex R2)", () => {
+    test("a stream cut before its final count charges every search result it delivered", () => {
       const result = (content: unknown) => ({
         type: "content_block_start",
         index: 1,
@@ -344,7 +344,7 @@ describe("usageMeter", () => {
       });
     });
 
-    test("a search result too long to parse is still counted, split or whole (Codex R3)", () => {
+    test("a search result too long to parse is still counted, split or whole", () => {
       const huge = sse([
         {
           type: "content_block_start",

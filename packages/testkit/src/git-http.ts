@@ -29,7 +29,7 @@ export type GitHttpServerOptions = {
 
 /**
  * git's smart HTTP, served by `git http-backend` as a CGI behind Bun.serve,
- * for tests that clone over http the way a worker does (94S-252). Read-only:
+ * for tests that clone over http the way a worker does. Read-only
  * receive-pack is off, as http-backend leaves it for unauthenticated users.
  */
 export async function startGitHttpServer(

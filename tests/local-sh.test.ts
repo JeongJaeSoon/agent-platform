@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * scripts/local.sh against stand-ins for docker and curl (94S-439): the
+ * scripts/local.sh against stand-ins for docker and curl: the
  * ports it checks, the /readyz it waits on and the worker label `down`
  * deletes all come from the stack compose renders, whatever
  * COMPOSE_PROJECT_NAME, COMPOSE_FILE or EXECUTION_INSTALLATION_ID made it.

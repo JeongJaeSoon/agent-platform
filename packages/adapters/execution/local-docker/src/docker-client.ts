@@ -352,8 +352,7 @@ export class DockerClient {
   /**
    * Every container attached to the network, stopped and never-started ones
    * included — what `NetworkInspect.Containers` leaves out. Asked by name
-   * and by id: a created container records the network by name only, and
-   * the id catches one that joined by id (Docker 29, measured).
+   * and by id because Docker may record either form when the container joins.
    */
   async listContainersOn(network: {
     Id: string;

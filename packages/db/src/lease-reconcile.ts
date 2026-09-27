@@ -184,7 +184,7 @@ export type ReconciledInterrupt = {
 };
 
 /**
- * 94S-273: an interrupt is settled only by the transaction that gives its
+ * an interrupt is settled only by the transaction that gives its
  * turn a terminal. A worker whose finalize retries forever, whose event flush
  * hangs, or whose exit is never confirmed keeps heartbeating, so the lease
  * sweep above never takes it and the receipt would stay `accepted` for good.

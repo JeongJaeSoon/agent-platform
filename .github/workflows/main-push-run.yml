@@ -10,7 +10,7 @@ name: main push run
 # For the push runs that do exist it then reads the `spikes` job's conclusion.
 # The issue step inside that job misses exactly the failures that stop it: a
 # timeout or a cancellation, and a failed `gh` call hidden behind
-# continue-on-error (94S-257).
+# continue-on-error.
 on:
   schedule:
     # Twice a day, judging a 36-hour window each time (see the script), so a

@@ -66,10 +66,10 @@ export type RecoveryDecisionResult =
   // claimed and not yet settled, as for resume.
   | { outcome: "workspace_reclaiming" }
   // start_fresh or retry_restore on a session whose execution authority an
-  // operator revoked (94S-321); only the operator's restore lifts it.
+  // operator revoked; only the operator's restore lifts it.
   | { outcome: "execution_revoked" }
   // retry_restore on a session its failed restores did not stop: restoring
-  // the same checkpoint again answers nothing else (94S-348).
+  // the same checkpoint again answers nothing else.
   | { outcome: "not_restore_failed"; admissionState: AdmissionState };
 
 export type PauseSessionInput = TerminateSessionInput;
@@ -122,7 +122,7 @@ export type ResumeSessionResult =
   // GC has claimed the stopped session's workspace and not yet settled the
   // removal; the same request succeeds once it has.
   | { outcome: "workspace_reclaiming" }
-  // An operator revoked the session's execution authority (94S-321).
+  // An operator revoked the session's execution authority.
   | { outcome: "execution_revoked" };
 
 /**
@@ -156,7 +156,7 @@ export interface SessionControl {
    * queued, is signalled for a new worker that restores the committed
    * checkpoint. Input cancelled by terminate stays cancelled.
    *
-   * From `paused` (94S-138): the session goes `resuming` and the receipt
+   * From `paused`: the session goes `resuming` and the receipt
    * stays accepted until the new worker reports it restored the checkpoint
    * (WorkerUnitOfWork.readyAtomic). From `pausing`, while the drainer still
    * holds the session and no stop intent is written, the pause is cancelled

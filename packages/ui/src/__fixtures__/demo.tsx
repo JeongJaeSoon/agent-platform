@@ -1,7 +1,7 @@
 // Preview harness: `bun run --cwd packages/ui demo`. Not part of the published
-// surface — it exists so the package can be looked at in a real browser before
-// apps/web (94S-158) does, which is where the CSS facts that jsdom cannot see
-// (overflow at 360px, dark theme, motion) actually get checked.
+// surface — it exists so the package can be looked at in a real browser, where
+// the CSS facts that jsdom cannot see (overflow at 360px, dark theme, motion)
+// can be checked. TODO(94S-158): Move that browser coverage into apps/web.
 import { createRoot } from "react-dom/client";
 
 import "../styles.css";

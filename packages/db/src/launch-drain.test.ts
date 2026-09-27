@@ -22,7 +22,7 @@ import { executions, sessions, workerLaunches } from "./schema.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
- * 94S-250: a claimed worker whose resource an isolation contract bump made
+ * a claimed worker whose resource an isolation contract bump made
  * stale is drained, not torn down mid-turn. The store's half: the request
  * stops new turns from being handed out, and says whether one is still open.
  */
@@ -181,7 +181,7 @@ async function drainRequestedAt(executionId: string) {
   return row?.at ?? null;
 }
 
-describe("launch drain (94S-250)", () => {
+describe("launch drain", () => {
   test("the turn running when the drain is asked for is the worker's last: open until it ends, and no new one is handed out", async () => {
     const { sessionId, ref, principal, scope } = await claimedSession();
     const first = await gateway.nextInput(principal, scope);
@@ -228,7 +228,7 @@ describe("launch drain (94S-250)", () => {
     const { ref, principal, scope } = await claimedSession();
     const store = schedulerStore();
     // Claimed and restoring: torn down now, it would count as a failed
-    // startup (94S-302).
+    // startup.
     expect(await store.requestDrain(ref, 60_000)).toEqual({
       busy: true,
       overdue: false,

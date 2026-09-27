@@ -130,7 +130,7 @@ describe("request deadline", () => {
     );
   });
   // Bun keeps a socket whose request bytes are unread open for the whole idle
-  // clock, `Connection: close` or not (94S-311).
+  // clock, `Connection: close` or not.
   test("a response that closes the connection gets the short idle clock", async () => {
     const { app } = appWith({
       registerRoutes: (router) => {

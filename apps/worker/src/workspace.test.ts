@@ -303,7 +303,7 @@ describe("GitWorkspace", () => {
     expect(await Bun.file(join(root, "WORK.md")).text()).toBe("only here\n");
   });
 
-  test("fetches a reuse through a mirror inside .git that git status never shows and nothing outlives (94S-377)", async () => {
+  test("fetches a reuse through a mirror inside.git that git status never shows and nothing outlives", async () => {
     const gitDirectory = join(root, ".git");
     const worker = (names: string[]) =>
       names.filter((name) => name.startsWith("agent-platform-"));
@@ -340,7 +340,7 @@ describe("GitWorkspace", () => {
     }
   });
 
-  test("a reuse clears the scratch a killed worker left in .git and keeps the restored checkpoint (94S-377)", async () => {
+  test("a reuse clears the scratch a killed worker left in.git and keeps the restored checkpoint", async () => {
     await prepare(descriptor());
     const gitDirectory = join(root, ".git");
     const mirror = join(gitDirectory, "agent-platform-fetch-Ab3xYz", "o.git");
@@ -358,7 +358,7 @@ describe("GitWorkspace", () => {
   });
 
   test.each(["alternates", "a linked object store"])(
-    "keeps worker-named scratch in a checkout that borrows objects through %s, which may be from it (94S-377)",
+    "keeps worker-named scratch in a checkout that borrows objects through %s, which may be from it",
     async (how) => {
       await prepare(descriptor());
       const gitDirectory = join(root, ".git");
@@ -381,7 +381,7 @@ describe("GitWorkspace", () => {
     },
   );
 
-  test("refuses a reuse whose .git is not a directory of its own rather than put the mirror elsewhere (94S-377)", async () => {
+  test("refuses a reuse whose.git is not a directory of its own rather than put the mirror elsewhere", async () => {
     await prepare(descriptor());
     const elsewhere = join(scratch, "elsewhere.git");
     await rename(join(root, ".git"), elsewhere);

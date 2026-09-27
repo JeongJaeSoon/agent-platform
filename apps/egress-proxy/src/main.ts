@@ -9,7 +9,7 @@ import { sourceDigest } from "./source.ts";
  * reach it through `HTTP_PROXY`/`HTTPS_PROXY`; everything it will not
  * forward is unreachable from a worker, because nothing else is. The
  * credential routes, when configured, are where a worker's provider and
- * repository calls pick up the credentials it never holds (94S-252).
+ * repository calls pick up the credentials it never holds.
  */
 export async function main(
   environment: NodeJS.ProcessEnv = process.env,

@@ -1,5 +1,5 @@
-# The catalog infra/compose.real-model.yml points the API at (94S-373,
-# 94S-431): the example profile on the real Messages API, for
+# The catalog infra/compose.real-model.yml points the API at: the example
+# profile on the real Messages API, for
 # `scripts/local.sh up --real-model` and `tests/e2e/run.sh --real-model`.
 # Paid calls, so no CI job runs it (docs/real-claude.md).
 #
@@ -7,7 +7,7 @@
 # run against api.anthropic.com: nothing in this catalog names the compose
 # fake. The key is read from the API process's environment; the API refuses
 # to start without it, and workers only ever hold an egress token for it
-# (94S-252).
+# .
 profiles:
   claude-coding-real:
     runtime_kind: claude_agent_sdk

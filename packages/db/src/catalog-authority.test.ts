@@ -33,7 +33,7 @@ import {
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
- * 94S-295: two API replicas mid-rollout share one database, each with the
+ * two API replicas mid-rollout share one database, each with the
  * catalog it started with. A session whose pair only the newer catalog knows
  * — or that the newer one dropped — must not be failed by whichever replica
  * happens to answer its launch's claim: only the catalog an operator
@@ -218,7 +218,7 @@ async function stateOf(sessionId: string, executionId: string) {
   return { session, launch, execution, signalled: signals.length === 1 };
 }
 
-describe("catalog authority (94S-295)", () => {
+describe("catalog authority", () => {
   test("the catalogs under test are distinct revisions", () => {
     expect(catalogRevision(A)).not.toBe(catalogRevision(B));
   });

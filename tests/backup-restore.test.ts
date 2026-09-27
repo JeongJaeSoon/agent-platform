@@ -729,7 +729,7 @@ describe("verify-restore bundle chain", () => {
     );
   }
 
-  test("an incremental bundle alone does not verify in an empty repository (94S-372)", async () => {
+  test("an incremental bundle alone does not verify in an empty repository", async () => {
     await commit("a.txt", "a\n");
     const first = await capture();
     await commit("a.txt", "a, then b\n");
@@ -756,12 +756,12 @@ describe("verify-restore bundle chain", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  // 94S-135's fault-backup-restore-resume: both turns wrote only an
+  // Both turns wrote only an
   // untracked file, which travels outside the bundle. So the second capture
   // changed nothing git tracks, and carries its refs as annotated tags over
   // commits the base has: the last bundle lists the tag, never the commit. A
   // restore peels refs/checkpoint/worktree; the verifier has to as well.
-  test("verifies a capture that changed nothing tracked, whose worktree ref is a tag over a commit of its base (94S-374)", async () => {
+  test("verifies a capture that changed nothing tracked, whose worktree ref is a tag over a commit of its base", async () => {
     await commit("a.txt", "a\n");
     const first = await capture();
     const second = await capture(first);

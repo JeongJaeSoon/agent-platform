@@ -161,7 +161,7 @@ describe("runtime profiles", () => {
 
   test("forwards the host's egress proxy variables and nothing else", () => {
     // On the worker network the proxy is the only route to the Messages
-    // endpoint (94S-199); the engine only learns it through these.
+    // endpoint; the engine only learns it through these.
     const environment = runtimeEnvironment(baseConfig, {
       ALL_PROXY: "socks5://must-not-pass",
       ANTHROPIC_API_KEY: "host-key-must-not-pass",
@@ -245,7 +245,7 @@ describe("runtime profiles", () => {
     });
   });
 
-  test("an egress token talks to the proxy's route and holds only the token (94S-252)", () => {
+  test("an egress token talks to the proxy's route and holds only the token", () => {
     const egress = {
       ...baseConfig,
       profile: {

@@ -35,7 +35,7 @@ export type FakeStep =
 export type FakeRuntimeOptions = {
   /**
    * Input uuids already in the transcript a resumed run continues. The fake
-   * treats a send of one the way the pinned SDK does (94S-242): it answers
+   * treats a send of one the way the pinned SDK does: it answers
    * nothing — no frame, no result — and an interrupt afterwards has nothing
    * to end, so it produces no terminal either.
    */

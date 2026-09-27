@@ -26,7 +26,7 @@ import { executions, pendingRequests, sessions } from "./schema.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
- * 94S-425: an answer that comes after the request expired is late, whatever
+ * an answer that comes after the request expired is late, whatever
  * became of the attempt that asked since. Only an asker gone before the
  * expiry makes it stale.
  */
@@ -187,7 +187,7 @@ async function answerCode(sessionId: string, requestId: string) {
   throw new Error("expected the answer to be refused");
 }
 
-describe("answering a request whose asker is gone (94S-425)", () => {
+describe("answering a request whose asker is gone", () => {
   test("past its expiry it is REQUEST_EXPIRED, though the asker left too", async () => {
     const { sessionId, requestId, askerLeaves } = await askingSession();
     await db

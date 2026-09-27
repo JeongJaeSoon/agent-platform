@@ -18,7 +18,7 @@ export type ObjectRef = {
    * delete marker, a lifecycle rule or a privileged overwrite can change that
    * after the pointer has moved, and verifying the key again at restore only
    * finds the damage. A version cannot change, so a checkpoint that names one
-   * is verified and restored from the same bytes (94S-229).
+   * is verified and restored from the same bytes.
    *
    * Absent only on a store without versions (the in-memory testkit, or a
    * bucket without versioning). A control plane with `objectProtection:
@@ -83,7 +83,7 @@ export type CheckpointWorkspace = {
    */
   readonly bundle: ObjectRef;
   /**
-   * The bundles `bundle` builds on, oldest first (94S-227): the first stands
+   * The bundles `bundle` builds on, oldest first: the first stands
    * alone, and each later one — `bundle` included — needs only commits an
    * earlier one offers as a ref tip. Absent for a bundle that stands alone.
    * They are the previous checkpoint's bundles, in the directories that
@@ -104,7 +104,7 @@ export type CheckpointTranscripts = {
 
 /**
  * The most transcript one checkpoint may carry, per part and in total across
- * the root and every subagent (94S-296). The engine reads the whole
+ * the root and every subagent. The engine reads the whole
  * transcript when it resumes, and the worker verifies and holds it before
  * that, so this is a session-lifetime ceiling sized against the worker's
  * memory (`WORKER_MEMORY_MB`, 2048 by default), not a storage policy. The
@@ -160,7 +160,7 @@ export type CheckpointManifest = {
    * manifest that pinned a commit nothing could be asked to produce, so the two
    * shapes cannot both be called 1 — a reader would have to guess which it has.
    * No version 1 manifest is decoded: nothing outside tests has ever written
-   * one, since the capture path lands in 94S-201/94S-122.
+   * one, since the capture path lands in.
    */
   readonly version: 2;
   readonly workspace: CheckpointWorkspace;
@@ -214,7 +214,7 @@ export type PutImmutableOptions = {
    * The store then skips the read it otherwise makes before writing, which
    * only guards against an endpoint that ignores the create-only
    * precondition; the precondition itself still decides `created`,
-   * `duplicate` and `conflict` (94S-380).
+   * `duplicate` and `conflict`.
    */
   readonly contentAddressed?: boolean;
 };
@@ -305,7 +305,7 @@ export interface CheckpointObjectStore {
    * on everything a checkpoint it commits names. Whoever holds the permission
    * to place a hold can also release one, so workers must not have it: they
    * reach the store only through the object store route, which never signs
-   * a hold (94S-251).
+   * a hold.
    */
   hold?(key: string, version: string): Promise<void>;
 }
@@ -354,10 +354,10 @@ export interface TranscriptMirror {
 
 /**
  * The layout every transcript mirror shares under a session's object prefix
- * (94S-203): `<session prefix>transcripts/generation-<n>/…`, one directory per
+ * `<session prefix>transcripts/generation-<n>/…`, one directory per
  * execution generation, which writes nowhere else. The control plane reads a
  * part's generation back from its key to reclaim what a generation left once
- * it can no longer commit (94S-326), so the layout is a contract between the
+ * it can no longer commit, so the layout is a contract between the
  * mirror and the control plane rather than an adapter's detail.
  */
 export const TRANSCRIPT_MIRROR_DIRECTORY = "transcripts";

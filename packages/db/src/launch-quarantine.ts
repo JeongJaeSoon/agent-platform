@@ -82,7 +82,7 @@ export async function quarantineLaunch(
   // Read after the locks, so the failure's timestamps are no earlier than
   // anything the input they fail was accepted at.
   const now = await dbNow(tx);
-  // A resume that cannot get a worker at all fails as a resume (94S-138):
+  // A resume that cannot get a worker at all fails as a resume
   // its receipt closes and an operator decides, with the queued input kept
   // for whatever that decision resumes.
   if (session?.admissionState === "resuming") {

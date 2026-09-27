@@ -91,7 +91,7 @@ class PartlyBrokenBackend implements ExecutionBackend {
   }
 }
 
-integration("scheduler launch failures on PostgreSQL (94S-207)", () => {
+integration("scheduler launch failures on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;

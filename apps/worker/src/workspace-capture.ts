@@ -82,8 +82,8 @@ export type WorkspaceCaptureLimits = {
 /**
  * Deliberately minimal: the whole history rides every checkpoint and the
  * untracked files are held in memory to be uploaded. Revisit when sessions
- * approach these (94S-227 makes bundles incremental). The bundle limit is
- * the control plane's, which it verifies within its time budgets (94S-318).
+ * approach these (makes bundles incremental). The bundle limit is
+ * the control plane's, which it verifies within its time budgets.
  */
 export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
   maxBundleBytes: DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
@@ -95,7 +95,7 @@ export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
 };
 
 /**
- * The bundles a capture may build on (94S-227): the chain of the checkpoint
+ * The bundles a capture may build on: the chain of the checkpoint
  * before it, as the control plane will check the new one against it.
  */
 export type BundleBase = {
@@ -154,13 +154,11 @@ export const CHECKPOINT_GIT_CONFIG: Array<[string, string]> = [
 ];
 
 /**
- * Address space for each capture or restore git: resolving a delta of a file
- * near `maxFileBytes` holds base and result at once (a 480 MiB file with one
- * edit peaked at 964 MiB resident; see the control plane's
- * `DEFAULT_MAX_GIT_MEMORY_BYTES`, which this matches), and so does staging
- * one that needs converting. Deliberately fixed rather than sized from the
- * container's memory; make it configurable once a deployment changes
- * `WORKER_MEMORY_MB` enough that the two disagree.
+ * Address space for each capture or restore git: resolving a delta near
+ * `maxFileBytes` holds base and result at once, and staging a file that needs
+ * converting has the same shape. This matches the control plane's
+ * `DEFAULT_MAX_GIT_MEMORY_BYTES` and is deliberately independent of the
+ * container memory setting.
  */
 const CHECKPOINT_GIT_MEMORY_BYTES = 1536 * 1024 * 1024;
 /** Compression's worst case on top of the largest file: zlib adds ~0.03%. */
@@ -391,7 +389,7 @@ async function captureWorkspaceOnce(
     // `--renormalize` re-reads every tracked file rather than trusting the
     // index's stat data, which an edit that kept size and mtime slips past.
     // Deliberately simple: every capture hashes the whole tree; revisit with
-    // 94S-227 if that shows in turn latency.
+    // if that shows in turn latency.
     const staging: GitExtras["env"] = {
       GIT_DIR: repository,
       GIT_INDEX_FILE: index,

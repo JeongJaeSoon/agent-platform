@@ -42,13 +42,13 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 
 /**
- * 94S-288: a worker that replaces another must not silently start a new
+ * a worker that replaces another must not silently start a new
  * engine session over turns no checkpoint covers. These drive the real
  * gateway, controls and reader over PostgreSQL through every place the
  * verdict is taken: the exit observation, the claim, resume from stopped,
  * and the start_fresh decision that lets a session go on without them.
  */
-integration("context gap on PostgreSQL (94S-288)", () => {
+integration("context gap on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -240,7 +240,7 @@ integration("context gap on PostgreSQL (94S-288)", () => {
     const l = await launch(session);
     const claimed = await claim(l);
     // As a worker does before its first input: a restore it never reports
-    // ready counts as a failed one (94S-345).
+    // ready counts as a failed one.
     if (claimed.restore !== null) {
       await gateway.ready(principalOf(claimed), {
         ...scopeOf(claimed),
@@ -432,7 +432,7 @@ integration("context gap on PostgreSQL (94S-288)", () => {
     ).toBe("rejected");
 
     // Restoring the same checkpoint again would lose the same turn
-    // (94S-348): only start_fresh or close answers a gap.
+    // only start_fresh or close answers a gap.
     expect(
       await decide(session, {
         decision: "retry_restore",
@@ -445,7 +445,7 @@ integration("context gap on PostgreSQL (94S-288)", () => {
     });
   });
 
-  test("a turn whose publish failed is shown as it ran and is a gap when the worker goes (94S-312)", async () => {
+  test("a turn whose publish failed is shown as it ran and is a gap when the worker goes", async () => {
     const session = await queuedSession("publish-failed-gap");
     await runOneTurn(session, {
       checkpoint: checkpointAt(0),
@@ -553,7 +553,7 @@ integration("context gap on PostgreSQL (94S-288)", () => {
         return;
       }
       // An advisory reason says only that a later capture was refused
-      // (94S-284); revision 0 still covers every turn that ran.
+      // revision 0 still covers every turn that ran.
       const claimed = await claim(l);
       expect(claimed.restore).toEqual(checkpointAt(0));
       await gateway.release(principalOf(claimed), {
@@ -568,7 +568,7 @@ integration("context gap on PostgreSQL (94S-288)", () => {
     },
   );
 
-  test("turns a fallback restore dropped are not a gap: that loss was reported by the fallback (94S-204)", async () => {
+  test("turns a fallback restore dropped are not a gap: that loss was reported by the fallback", async () => {
     const session = await queuedSession("fallback");
     await runOneTurn(session, {
       checkpoint: checkpointAt(0),
@@ -905,7 +905,7 @@ integration("context gap on PostgreSQL (94S-288)", () => {
       last_ran_turn_id: "2",
       checkpointed_turn_id: "1",
     });
-    // GC has claimed the stopped workspace (94S-225): the reset waits for the
+    // GC has claimed the stopped workspace: the reset waits for the
     // removal to settle, and takes the session off the reclaimed list after.
     await db
       .update(sessions)

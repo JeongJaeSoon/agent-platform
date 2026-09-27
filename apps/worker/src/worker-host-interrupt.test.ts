@@ -242,7 +242,7 @@ describe("WorkerHost interrupt", () => {
     expect(gateway.finalized[0]?.checkpoint).toEqual(checkpoints.refs[0]);
     // Both status events are in turn 1's stream: interrupting ahead of its
     // terminal, engine_stopped right behind it and inside the cut finalize
-    // closes the turn at (94S-382).
+    // closes the turn at.
     const turnOne = gateway.batches
       .filter((batch) => batch.turn_id === "1")
       .flatMap((batch) => batch.events);
@@ -1020,7 +1020,7 @@ describe("WorkerHost interrupt", () => {
       checkpoints: {
         ...checkpoints,
         capture: async (preparation, context) => {
-          // The effect is durable before the capture starts (94S-382).
+          // The effect is durable before the capture starts.
           stoppedBeforeCapture = gateway.events.some(
             (event) =>
               event.event === "status" &&

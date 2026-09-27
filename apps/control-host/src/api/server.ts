@@ -188,11 +188,11 @@ const workers = createWorkerGateway({
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits
-    // exactly this long once the request is registered (94S-389).
+    // exactly this long once the request is registered.
     pendingTtlMs: settings.pendingTtlMs,
   },
 });
-// The egress proxy's authorizer (94S-252), on a port of its own that no
+// The egress proxy's authorizer, on a port of its own that no
 // worker allowlist names. Read before anything listens, so a half-set pair
 // stops the process instead of starting an API whose workers cannot reach
 // their provider.

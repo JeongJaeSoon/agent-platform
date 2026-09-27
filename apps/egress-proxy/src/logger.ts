@@ -4,7 +4,7 @@ import { sanitizeFields, sanitizeText } from "./redaction.ts";
  * A small logger instead of `@agent-platform/observability`: the proxy's
  * image copies only its own directory and installs nothing
  * (tests/images.test.ts), so it carries no workspace dependency. It masks by
- * the platform's rules all the same (`./redaction.ts`, 94S-386), and the
+ * the platform's rules all the same (`./redaction.ts`), and the
  * record shape matches the platform logger's so the lines parse the same way.
  */
 
@@ -29,7 +29,7 @@ const rank: Readonly<Record<ProxyLogLevel, number>> = {
 };
 
 // Unset or empty is `info`; a value naming no level stops the proxy rather
-// than quietly logging at `info` (94S-389).
+// than quietly logging at `info`.
 export function resolveProxyLogLevel(value: string | undefined): ProxyLogLevel {
   if (value === undefined || value.trim() === "") return "info";
   const normalized = value.trim().toLowerCase();

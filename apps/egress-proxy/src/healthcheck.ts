@@ -11,7 +11,7 @@ export type HealthVerdict =
  * on disk now. The second half catches a checkout that moved under a running
  * proxy (see `sourceDigest`). With credential routes configured, their
  * listener has to answer too: workers reach their provider and repository
- * only through it (94S-252).
+ * only through it.
  */
 export async function checkHealth(options: {
   dir: string;

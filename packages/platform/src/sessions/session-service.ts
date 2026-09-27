@@ -157,7 +157,7 @@ export function payloadHash(payload: unknown): string {
 }
 
 // A missing scope is refused at the API edge before a service is called
-// (94S-132); this answers the same 403 for a policy that refuses the action.
+// this answers the same 403 for a policy that refuses the action.
 export function requirePermitted(
   authorization: AuthorizationPolicy,
   actor: Principal,
@@ -240,7 +240,7 @@ export function createSessionService(deps: {
     ): Promise<CreateSessionResponse> {
       requirePermitted(authorization, actor, "sessions:write");
       // A pair the catalog does not allow is as unknown as a missing id: the
-      // repository did not grant this profile its trust (94S-258).
+      // repository did not grant this profile its trust.
       const pair = allowedPair(
         catalog,
         input.body.profile_id,

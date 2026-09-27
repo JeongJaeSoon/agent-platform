@@ -33,7 +33,7 @@ async function harness() {
   };
 }
 
-describe("verifyWorkspaceQuotaOnce (94S-393)", () => {
+describe("verifyWorkspaceQuotaOnce", () => {
   test("probes once, then not again while the settings stay the same", async () => {
     const { probes, run } = await harness();
     const settings = { quota: { mode: "enforced", sizeBytes: 1 } };

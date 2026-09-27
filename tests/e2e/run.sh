@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The alpha e2e (94S-134), as one command:
+# The alpha e2e, as one command
 #
 #   tests/e2e/run.sh
 #
@@ -25,7 +25,7 @@
 #
 #   tests/e2e/run.sh --real-model
 #
-# The same stack against the real Messages API (94S-373): the API reads the
+# The same stack against the real Messages API: the API reads the
 # catalog in config/real-model and, alone, the key from ANTHROPIC_API_KEY
 # (infra/compose.real-model.yml, which also caps what the run can spend;
 # `scripts/local.sh up --real-model` starts the same overlay), and
@@ -66,7 +66,7 @@ export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
-# tests/e2e/compose.ci-mirror.yml to pull from its image mirror (94S-365).
+# tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
 dc() {
   docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
     ${real_model:+-f infra/compose.real-model.yml} \

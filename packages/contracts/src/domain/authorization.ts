@@ -16,7 +16,7 @@ import {
 // Scopes and roles
 // ---------------------------------------------------------------------------
 
-// 94S-132's API key scopes. Users get the same vocabulary derived from a role
+// API keys and users share this scope vocabulary; users derive it from a role
 // so one ceiling check covers both authentication paths (03 §3.2).
 export const SESSION_SCOPE_VALUES = [
   "sessions:read",
@@ -114,7 +114,7 @@ export const principalSchema = z
         id: opaqueIdSchema,
         owner_id: ownerScopeSchema,
         // Legacy keys predate workspaces and stay unmapped until an explicit
-        // owner_workspace_map row exists (94S-150, Codex B18).
+        // owner_workspace_map row exists.
         workspace_id: workspaceIdSchema.nullable(),
         scopes: z.array(sessionScopeSchema),
       })
@@ -168,7 +168,7 @@ export const principalSchema = z
  *
  * `owner_scope` is alpha's partition key: every legacy consumer authorizes on
  * it alone, so an API key request keeps behaving exactly as it did before
- * workspaces existed (Codex B01).
+ * workspaces existed.
  */
 export const authorizationContextSchema = z
   .object({
@@ -183,7 +183,7 @@ export const authorizationContextSchema = z
     service_principal: serviceActorSchema.optional(),
     owner_scope: ownerScopeSchema,
     workspace_id: workspaceIdSchema.optional(),
-    /** The 94S-132 ceiling carried with the context, never re-derived downstream. */
+    /** The ceiling carried with the context, never re-derived downstream. */
     scopes: z.array(sessionScopeSchema),
   })
   .strict()
@@ -191,8 +191,8 @@ export const authorizationContextSchema = z
     // Middleware assembles a context by hand, so the relationships between
     // its parts are stated here. What a schema cannot check is whether the
     // user really belongs to that workspace or whether the scopes match their
-    // role — the context carries no role, and membership is a row (94S-150,
-    // 94S-152). It can check that the parts agree with each other, which is
+    // role — the context carries no role, and membership is a row. It can
+    // check that the parts agree with each other, which is
     // what stops a hand-built context from authorizing against another
     // tenant's partition.
     if (ctx_.principal.kind === "installation") {
@@ -202,7 +202,8 @@ export const authorizationContextSchema = z
       // installation's owner is a separate service owner, and no relation
       // between the three is checkable from the context alone. Closing it
       // means carrying the whole principal here instead of a ref, which is a
-      // different contract from the one this card fixed; 94S-152 owns it.
+      // different contract from this schema.
+      // TODO(94S-152): Carry the authenticated principal needed to check it.
       //
       // What authenticated is also what acts for the human, so a context
       // claiming installation A must not match grants naming service B.
@@ -363,7 +364,7 @@ export const grantSchema = z
     actions: z.array(authorizationActionSchema).min(1),
     resource: resourceRefSchema,
     audience: audienceRefSchema,
-    /** Never widens the 94S-132 key scope; it can only narrow it. */
+    /** Never widens the key scope; it can only narrow it. */
     scopes: z.array(sessionScopeSchema),
     revision: revisionSchema,
     revoked_at: timestampSchema.nullable(),
@@ -399,7 +400,7 @@ export const grantSchema = z
 export type Grant = z.infer<typeof grantSchema>;
 
 // ---------------------------------------------------------------------------
-// Actor provenance (Codex B19)
+// Actor provenance
 // ---------------------------------------------------------------------------
 
 /** What `receipts.actor` stores: the principal plus the human behind it. */

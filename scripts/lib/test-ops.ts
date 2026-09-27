@@ -1,5 +1,5 @@
 /**
- * The checks behind scripts/test-ops.sh (94S-432):
+ * The checks behind scripts/test-ops.sh
  *
  *   bun run scripts/lib/test-ops.ts manifest <release.json>
  *   bun run scripts/lib/test-ops.ts catalog-revision <dir>

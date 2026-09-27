@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The local stack's lifecycle in one place (94S-422): the compose project
+# The local stack's lifecycle in one place: the compose project
 # `agent-platform` from compose.yaml, on the loopback ports docs/quickstart.md
 # lists.
 #
@@ -16,14 +16,14 @@
 # the rows that point at them. `down` therefore deletes the volumes too, and
 # the API refuses to start on a bucket emptied behind the database's back.
 #
-# --real-model (94S-431) adds infra/compose.real-model.yml, the overlay
+# --real-model adds infra/compose.real-model.yml, the overlay
 # `tests/e2e/run.sh --real-model` runs: the catalog in config/real-model, the
 # caller's exported ANTHROPIC_API_KEY handed by name to the API alone, and
 # the e2e's cost limits (docs/real-claude.md). Without the key nothing is
 # touched. The project is the same, so `down` deletes it like any other.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
-# compose's to resolve (94S-439): the ports checked, the /readyz waited on
+# compose's to resolve: the ports checked, the /readyz waited on
 # and the worker label `down` deletes all come from the stack compose
 # renders here, not from these defaults.
 set -euo pipefail

@@ -73,7 +73,7 @@ const catalog: SessionCatalog = {
   },
 };
 
-integration("startup failures before ready on PostgreSQL (94S-347)", () => {
+integration("startup failures before ready on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -349,7 +349,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect(backingOff.restoreFailureCount).toBe(1);
     expect(backingOff.restoreFailureReason).toBe(REFUSED);
     expect(backingOff.restoreAttemptId).toBeNull();
-    // 94S-207's first backoff, on the database clock.
+    // The first startup backoff, on the database clock.
     const [clock] = await db
       .execute<{ now: string }>(sql`SELECT clock_timestamp()::text AS now`)
       .then((result) => result.rows);
@@ -459,7 +459,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect(await launchable(session)).toBe(true);
     const { claimed } = await claimReserved(session);
     expect(claimed.restore).toBeNull();
-    // Nothing to restore, but still a startup on trial (94S-347).
+    // Nothing to restore, but still a startup on trial.
     expect((await sessionRow(session.sessionId)).restoreAttemptId).toBe(
       claimed.attempt_id,
     );
@@ -528,7 +528,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect(await launchable(session)).toBe(true);
   });
 
-  test("retry_restore restores the same checkpoint again, with the count started over (94S-348)", async () => {
+  test("retry_restore restores the same checkpoint again, with the count started over", async () => {
     const session = await checkpointedSession("retry");
     await failRestore(session);
     // Backing off is not stopped: the scheduler is still retrying on its own.
@@ -559,7 +559,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     const statusBefore = (await statusEvents()).length;
     const decided = await decide(session, "retry_restore", "proxy fixed");
     expect(decided.outcome).toBe("accepted");
-    // One status event says where it went (94S-360).
+    // One status event says where it went.
     expect((await statusEvents()).slice(statusBefore)).toEqual([
       {
         phase: "queued",
@@ -692,7 +692,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     return claimed;
   }
 
-  test("a claim with nothing to restore that never asks for input is counted the same, and held as STARTUP_FAILED at the limit (94S-347)", async () => {
+  test("a claim with nothing to restore that never asks for input is counted the same, and held as STARTUP_FAILED at the limit", async () => {
     const session = await newSession("fresh-limit");
     const start = (await sessionRow(session.sessionId)).executionGeneration;
 
@@ -751,7 +751,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
       reason: "startup_failed",
     });
 
-    // Nothing to restore: retry_restore is not the way on (94S-348).
+    // Nothing to restore: retry_restore is not the way on.
     expect(await decide(session, "retry_restore")).toEqual(NOT_RESTORE_FAILED);
 
     // Once the cause is fixed, start_fresh launches again.
@@ -772,7 +772,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect(await launchable(session)).toBe(true);
   });
 
-  test("a worker that asked for input once is not a failed startup, whatever it did before — an older worker sends no ready (94S-347)", async () => {
+  test("a worker that asked for input once is not a failed startup, whatever it did before — an older worker sends no ready", async () => {
     const session = await newSession("fresh-ready");
     await failStartup(session);
     await spendBackoff(session);
@@ -821,7 +821,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     ).toHaveLength(1);
   });
 
-  test("a startup a signal drained is not counted, and the failures before it still are (94S-302)", async () => {
+  test("a startup a signal drained is not counted, and the failures before it still are", async () => {
     const session = await newSession("drained");
     await failStartup(session);
     await spendBackoff(session);
@@ -843,7 +843,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     ).toHaveLength(1);
   });
 
-  test("an exit after the first turn started stays with the unknown-turn recovery, not the startup count (94S-302)", async () => {
+  test("an exit after the first turn started stays with the unknown-turn recovery, not the startup count", async () => {
     const session = await newSession("after-turn");
     const { worker } = await claimReserved(session);
     const next = await gateway.nextInput(worker.principal, worker.scope);
@@ -858,11 +858,11 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect(row.restoreFailureCount).toBe(0);
     expect(row.restoreRetryAt).toBeNull();
     expect(await systemEvents(session.sessionId, "startup_failed")).toEqual([]);
-    // An unknown turn is abandon's or confirm_completed's (94S-348).
+    // An unknown turn is abandon's or confirm_completed's.
     expect(await decide(session, "retry_restore")).toEqual(NOT_RESTORE_FAILED);
   });
 
-  test("a startup the session asked to stop is not a failed one (94S-302)", async () => {
+  test("a startup the session asked to stop is not a failed one", async () => {
     const session = await newSession("terminated");
     const { worker } = await claimReserved(session);
     const row = await sessionRow(session.sessionId);

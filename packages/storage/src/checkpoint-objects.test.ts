@@ -197,7 +197,7 @@ describe("checkpoint object store", () => {
     expect(await store.get("m.json")).toEqual(encode("first"));
   });
 
-  test("writes a content-addressed key with one request, no read before it (94S-380)", async () => {
+  test("writes a content-addressed key with one request, no read before it", async () => {
     const s3 = fakeS3();
     const store = createCheckpointObjectStore({
       bucket: "b",

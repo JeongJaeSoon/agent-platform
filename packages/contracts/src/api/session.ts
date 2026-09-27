@@ -117,13 +117,13 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     reason: pauseBlockedReasonSchema,
   }),
   // The session has spent SESSION_COST_LIMIT_USD, so no further turn is
-  // dispatched; input is still queued (94S-131).
+  // dispatched; input is still queued.
   z.object({
     code: z.literal("BUDGET_EXCEEDED"),
     reason: z.string().min(1),
   }),
   // A turn ran that no trusted checkpoint covers, so the next worker could
-  // only start a new engine session without it (94S-288). The session is
+  // only start a new engine session without it. The session is
   // held in recovery_required (or cannot be resumed from stopped) until an
   // operator decides: start_fresh continues without that context, close
   // ends the session.
@@ -134,19 +134,19 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   }),
   // The catalog does not allow the session's profile and repository pair as
   // it stands now, or defines the profile with other settings than the
-  // session was created with (94S-253), so no worker will run it; a launch
+  // session was created with, so no worker will run it; a launch
   // reserved for it fails the session with CATALOG_MISMATCH. Judged on every
   // read: restoring the pair or the settings clears it, and the next message
-  // runs again (94S-280).
+  // runs again.
   z.object({
     code: z.literal("CATALOG_MISMATCH"),
     reason: z.string().min(1),
   }),
   // Workers claimed with the session's checkpoint kept ending before the
-  // restore finished (94S-345). While retry_at is set the next launch waits
+  // restore finished. While retry_at is set the next launch waits
   // for it; null means the limit was reached and the session is held in
   // recovery_required. A deterministic runtime/profile mismatch stops after
-  // the first launch with reason incompatible_checkpoint (94S-466). After the
+  // the first launch with reason incompatible_checkpoint. After the
   // cause is fixed, retry_restore tries the same checkpoint again; start_fresh
   // continues without it, close ends the session. A restore that succeeds
   // clears it.
@@ -156,7 +156,7 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     failures: z.number().int().positive(),
     retry_at: timestampSchema.nullable(),
   }),
-  // The same for a session with no checkpoint to restore (94S-302, 94S-347):
+  // The same for a session with no checkpoint to restore
   // workers kept ending before they were ready for input, while preparing
   // the workspace or starting the engine. At the limit start_fresh launches
   // again once the cause is fixed; close ends the session.
@@ -175,7 +175,7 @@ export const sessionDurabilitySchema = z.object({
   last_checkpointed_turn_id: turnIdSchema.nullable(),
   checkpoint_pending_reason: z.string().min(1).nullable(),
   // The earlier revision the session was last restored from because the
-  // checkpoint at checkpoint_revision was damaged (94S-204). While set, the
+  // checkpoint at checkpoint_revision was damaged. While set, the
   // session holds that revision's state and has lost what the newer ones
   // recorded; the next committed checkpoint clears it.
   checkpoint_fallback_revision: revisionSchema.nullable(),
@@ -195,11 +195,11 @@ export const sessionSummarySchema = z.object({
   status: sessionStatusSchema.meta({ description: NEEDS_INPUT_PROJECTION }),
   // What the catalog says the session's profile runs, or null when it cannot
   // say: a legacy row with no profile key, or a key the catalog no longer
-  // has (detail reports CATALOG_MISMATCH). Never an estimate (94S-197).
+  // has (detail reports CATALOG_MISMATCH). Never an estimate.
   runtime: sessionRuntimeSchema.nullable(),
   // Catalog key only. Sessions created before the catalog existed (M0
   // legacy rows) carry no key and surface null; the stored repo URL is
-  // never exposed because it may embed credentials (94S-147).
+  // never exposed because it may embed credentials.
   repository_id: z.string().min(1).nullable(),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),

@@ -62,7 +62,7 @@ export function schedulerConfigFromEnv(
   return {
     databaseUrl,
     // A claimed worker on an older isolation contract finishes its turn
-    // before it is replaced (94S-250). No turn outlasts MAX_TURN_SECONDS;
+    // before it is replaced. No turn outlasts MAX_TURN_SECONDS
     // the grace covers the finalize and checkpoint that end it.
     drainDeadlineMs: limits.maxTurnSeconds * 1_000 + DRAIN_FINALIZE_GRACE_MS,
     docker: {
@@ -102,7 +102,7 @@ export function schedulerConfigFromEnv(
 }
 
 /**
- * A kill does not wait for a busy worker to drain (94S-385), but a pass can
+ * A kill does not wait for a busy worker to drain, but a pass can
  * still wait out one whole stop: ensure removes a container it cannot adopt,
  * and the teardown of an unclaimed one, before building again. A pass killed
  * there counts as failed, and three in a row restart the scheduler.

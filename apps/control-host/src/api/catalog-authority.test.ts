@@ -7,7 +7,7 @@ import {
 const A = `sha256:${"a".repeat(64)}`;
 const B = `sha256:${"b".repeat(64)}`;
 
-describe("catalog authority CLI arguments (94S-295)", () => {
+describe("catalog authority CLI arguments", () => {
   test("show takes nothing; activate takes a revision and what it replaces", () => {
     expect(parseCatalogAuthorityCommand(["show"])).toEqual({ command: "show" });
     expect(

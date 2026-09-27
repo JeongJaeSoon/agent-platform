@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { createProxyLogger } from "./logger.ts";
 
-describe("the proxy's log (94S-386)", () => {
+describe("the proxy's log", () => {
   test("runs the platform's masking rules, copied byte for byte", () => {
     const copy = readFileSync(join(import.meta.dir, "redaction.ts"), "utf8");
     const platform = readFileSync(

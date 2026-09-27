@@ -45,7 +45,7 @@ const roomy: InputLimits = {
 };
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 
-integration("installation limits on PostgreSQL (94S-131)", () => {
+integration("installation limits on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -404,7 +404,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
   });
 
   describe("session cost budget", () => {
-    test("finalize keeps the engine's figure on the turn and adds nothing to the session (94S-409)", async () => {
+    test("finalize keeps the engine's figure on the turn and adds nothing to the session", async () => {
       const { session, claimed } = await bound();
       await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
 
@@ -419,7 +419,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(turn?.result).toMatchObject({ cost_usd: 1.5 });
     });
 
-    test("a metered call is priced and added once; a replay adds nothing and a changed one is refused (94S-409)", async () => {
+    test("a metered call is priced and added once; a replay adds nothing and a changed one is refused", async () => {
       const { session, claimed } = await bound();
       const exchangeId = crypto.randomUUID();
       const report = {
@@ -451,7 +451,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(rows).toEqual([{ costUsd: 0.0045 }]);
     });
 
-    test("a call is charged to its session after its attempt ended, and never to another session's attempt (94S-409)", async () => {
+    test("a call is charged to its session after its attempt ended, and never to another session's attempt", async () => {
       const { session, claimed, launched } = await bound();
       const other = await bound();
       await gateway.release(principalOf(claimed), {
@@ -481,7 +481,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(await sessionCost(other.session.session_id)).toBe(0);
     });
 
-    test("a model the table does not know is charged at the highest known rates (94S-409)", async () => {
+    test("a model the table does not know is charged at the highest known rates", async () => {
       const { session, claimed } = await bound();
       const priced = await gateway.recordProviderUsage({
         exchangeId: crypto.randomUUID(),
@@ -498,7 +498,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(row?.pricedBy).toBe("fallback");
     });
 
-    test("a fast call with web searches is priced at the fast rate plus the search fee, and the row says why (94S-451)", async () => {
+    test("a fast call with web searches is priced at the fast rate plus the search fee, and the row says why", async () => {
       const { session, claimed } = await bound();
       const exchangeId = crypto.randomUUID();
       const report = {
@@ -546,7 +546,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(await sessionCost(session.session_id)).toBe(0.07);
     });
 
-    test("a US-only call is priced at 1.1x, and a retry naming another geo is a conflict (94S-454)", async () => {
+    test("a US-only call is priced at 1.1x, and a retry naming another geo is a conflict", async () => {
       const { session, claimed } = await bound();
       const exchangeId = crypto.randomUUID();
       const report = {
@@ -583,7 +583,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(await sessionCost(session.session_id)).toBe(0.0275);
     });
 
-    test("a turn the engine cut on its budget says why, and the metered sum is what holds the next poll (94S-279)", async () => {
+    test("a turn the engine cut on its budget says why, and the metered sum is what holds the next poll", async () => {
       const { session, claimed } = await bound();
       await append(session, "second");
       await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
@@ -632,17 +632,17 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       ).toMatchObject({ input: null, reason: "BUDGET_EXCEEDED" });
     });
 
-    test("every claim hands the engine what is left, so a resumed attempt gets less (94S-279)", async () => {
+    test("every claim hands the engine what is left, so a resumed attempt gets less", async () => {
       const { session, claimed, launched } = await bound();
       expect(claimed.remaining_budget_usd).toBe(COST_LIMIT_USD);
-      // Spent without delivering a turn: a delivered turn no checkpoint covers would hold the session back from the next claim (94S-288).
+      // Spent without delivering a turn: a delivered turn no checkpoint covers would hold the session back from the next claim.
       await spend(session.session_id, 4.25);
       await gateway.release(principalOf(claimed), {
         ...scopeOf(claimed),
         reason: "drained",
       });
       await gateway.confirmExecutionGone(launched.executionId);
-      // It never asked for input, so it counts as a failed startup (94S-347).
+      // It never asked for input, so it counts as a failed startup.
       await db
         .update(sessions)
         .set({ restoreRetryAt: sql`clock_timestamp() - interval '1 second'` })
@@ -676,7 +676,7 @@ integration("installation limits on PostgreSQL (94S-131)", () => {
       expect(row?.costUsd).toBe(0.000001);
     });
 
-    test("a sum or a call past what the column holds saturates instead of failing the report (Codex R1)", async () => {
+    test("a sum or a call past what the column holds saturates instead of failing the report", async () => {
       const { session, claimed } = await bound();
       await gateway.recordProviderUsage({
         exchangeId: crypto.randomUUID(),

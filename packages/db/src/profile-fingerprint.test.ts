@@ -29,7 +29,7 @@ import {
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /**
- * 94S-253: a session is held to the profile settings it was accepted with.
+ * a session is held to the profile settings it was accepted with.
  * Two gateways share one database, as two API replicas mid-rollout would,
  * each with its own catalog: one that defines the same profile id with other
  * settings binds nothing, while one that differs only in the credential
@@ -200,7 +200,7 @@ async function refusal(promise: Promise<unknown>) {
   throw new Error("expected a refusal");
 }
 
-describe("profile fingerprint pinned at create (94S-253)", () => {
+describe("profile fingerprint pinned at create", () => {
   test("create stores the fingerprint of the profile as the catalog defined it, never the credential", async () => {
     const sessionId = await createSession(ORIGINAL);
     const stored = await storedFingerprint(sessionId);

@@ -1,7 +1,7 @@
 /**
- * Checkpoint object versions across a backup and a restore (94S-282).
+ * Checkpoint object versions across a backup and a restore.
  *
- * A checkpoint names every object by S3 version (94S-229), and a version id
+ * A checkpoint names every object by S3 version, and a version id
  * is the store's to assign: no PUT can ask for one, so a restored bucket
  * holds the same bytes under new ids. Replication would keep them, but only
  * between two live buckets; a backup is a directory. The restore therefore
@@ -63,7 +63,7 @@ export class CheckpointPinError extends Error {
 /**
  * What a worker image stamps a checkpoint with (verify-restore.sh --image):
  * its engine build, and the profile digest its own code computes from each
- * session's claim (apps/worker/src/image-runtime.ts, 94S-452).
+ * session's claim (apps/worker/src/image-runtime.ts).
  */
 export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256"> & {
   readonly profiles: Readonly<
@@ -141,7 +141,7 @@ export function planRuntime(
  * from the catalog (worker-gateway.ts `resolveProfile`). A session the
  * catalog no longer lets run — the pair gone, the repository re-pointed, the
  * profile edited since the session was created — is refused, as a claim
- * would refuse it (worker-unit-of-work.ts `runnablePairOf`, 94S-253/258).
+ * would refuse it (worker-unit-of-work.ts `runnablePairOf`, 258).
  * The token is a stand-in; the digest leaves the credential out.
  */
 export function sessionClaim(
@@ -204,7 +204,7 @@ export function refsOf(manifest: CheckpointManifest): ObjectRef[] {
         (subpath) => manifest.transcripts.subagents[subpath]?.parts ?? [],
       ),
     // Bases live in the directories of the checkpoints that wrote them, and
-    // this one restores only if every one of them does (94S-227).
+    // this one restores only if every one of them does.
     ...(manifest.workspace.baseBundles ?? []),
     manifest.workspace.bundle,
     ...manifest.workspace.untracked,

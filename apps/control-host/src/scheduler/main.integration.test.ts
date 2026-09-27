@@ -434,7 +434,7 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
 });
 
 integration(
-  "scheduler launch failures against Docker and PostgreSQL (94S-207)",
+  "scheduler launch failures exhaust the startup budget against Docker and PostgreSQL",
   () => {
     let database: TempDatabase;
     let pool: Pool;
@@ -591,7 +591,7 @@ integration(
 );
 
 integration(
-  "the scheduler loop over a crash-looping session against Docker and PostgreSQL (94S-368)",
+  "the scheduler loop over a crash-looping session against Docker and PostgreSQL",
   () => {
     let database: TempDatabase;
     let pool: Pool;
@@ -752,7 +752,7 @@ integration(
         await Bun.sleep(250);
       }
       controller.abort();
-      // Before 94S-368 every one of these passes exited 1 and the loop
+      // Before every one of these passes exited 1 and the loop
       // returned 1 on the third: the restart policy's cue.
       expect(await loop).toBe(0);
       const status = await readStatus(statusFile);

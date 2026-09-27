@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { run } from "../../tests/d2-gate/harness.ts";
 
 /**
- * What the 94S-135 soak runner and the campaigns share: the stack they are
+ * What the soak runner and the campaigns share: the stack they are
  * pointed at (scripts/soak/stack.sh writes it), raw JSONL output, the
  * statistics the criteria are judged with, clock alignment, and the
  * reproducibility record every result carries.
@@ -29,9 +29,9 @@ export type SoakEnv = {
   network: string;
   project: string;
   s3Url: string;
-  /** The VM stall probe (94S-443); only the soak runner needs it. */
+  /** The VM stall probe; only the soak runner needs it. */
   vmLagUrl: string | null;
-  /** The host probe's second target (94S-453); only the soak runner needs it. */
+  /** The host probe's second target; only the soak runner needs it. */
   hostEchoUrl: string | null;
   workerImage: string;
 };
@@ -209,7 +209,7 @@ export function sha256File(path: string): string {
 }
 
 /**
- * The record every result carries (94S-135 재현성): commit, config, the SDK
+ * The record every result carries (재현성): commit, config, the SDK
  * and Claude Code versions inside the worker image, Bun on both sides, the
  * image identifiers, the bun.lock hash, and the exact command.
  */
@@ -292,7 +292,7 @@ export async function reproMeta(
 
 export type Verdict = "pass" | "fail" | "skip";
 
-/** One row of the 94S-135 criteria table: 입력·기대·실제·결과. */
+/** One row of the criteria table: 입력·기대·실제·결과. */
 export type Criterion = {
   actual: string;
   area: string;

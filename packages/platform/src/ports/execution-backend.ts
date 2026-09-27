@@ -49,7 +49,7 @@ export type LaunchIntent = {
    * Which credential the registry accepts for this launch right now. A
    * backend asks before adopting a resource it did not create in this call:
    * one that holds any other credential can never bind, so it is replaced
-   * instead of adopted (94S-231). Reading never issues anything, and rejects
+   * instead of adopted. Reading never issues anything, and rejects
    * a launch the registry no longer holds, so nothing is torn down for a
    * launch that could not be created again.
    */
@@ -135,7 +135,7 @@ export type TerminateOptions = {
    * False returns `stopping` instead of waiting out a resource that is still
    * winding down. A busy worker spends up to its whole stop grace draining
    * its turn, and a scheduling pass that waited on it would admit nothing
-   * meanwhile and outlast its own deadline (94S-385). Default true.
+   * meanwhile and outlast its own deadline. Default true.
    */
   waitForExit?: boolean;
 };

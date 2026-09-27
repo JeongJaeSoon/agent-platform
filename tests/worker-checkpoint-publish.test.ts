@@ -323,7 +323,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
     };
 
     // Versioned, and the service in its default `locked` mode: every object
-    // the worker names must carry the version it wrote (94S-229).
+    // the worker names must carry the version it wrote.
     const bucket = createMemoryCheckpointObjectStore({ versioned: true });
     const pointers = memoryPointerStore();
     const service = createCheckpointService({
@@ -371,7 +371,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
     expect(git(["rev-list", "--count", "HEAD"], workspace).trim()).toBe("1");
     const modelRequests = server.requests.length;
 
-    // Another partition on the same endpoint (94S-261): refused before the
+    // Another partition on the same endpoint: refused before the
     // engine starts, the workspace as it was.
     await writeFile(join(workspace, "sentinel.txt"), "left behind\n");
     const stranger = new ApprovingGateway({
@@ -401,7 +401,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
     expect(server.requests.length).toBe(modelRequests);
 
     // The owner again, on a volume that kept nothing and a home that never
-    // saw the transcript, redelivered the input turn 1 already took (94S-242).
+    // saw the transcript, redelivered the input turn 1 already took.
     await rm(workspace, { force: true, recursive: true });
     await mkdir(workspace);
     const ownerHome = join(root, "home-3");
@@ -451,7 +451,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
     }
   }, 180_000);
 
-  test("a workspace the capture refuses leaves the turn without a checkpoint, and the session is told (94S-312)", async () => {
+  test("a workspace the capture refuses leaves the turn without a checkpoint, and the session is told", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-312-" });
     const { home, root, workspace } = isolated;
     await rm(workspace, { force: true, recursive: true });

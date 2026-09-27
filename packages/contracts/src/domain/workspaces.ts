@@ -30,7 +30,7 @@ export const workspaceSettingsSchema = z
     /** Workspace-wide stop: new dispatches become needs_confirm only (03 §7). */
     kill_switch: z.boolean().default(false),
     daily_cost_limit_usd: z.number().nonnegative().nullable().default(null),
-    /** Minutes of silence before the reconciler pauses a session (Codex E05). */
+    /** Minutes of silence before the reconciler pauses a session. */
     idle_pause_minutes: z.number().int().positive().default(30),
   })
   .strict();

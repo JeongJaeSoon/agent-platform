@@ -10,7 +10,7 @@ import {
 } from "./client.ts";
 
 /**
- * The two pause branches alpha-path.e2e.ts does not reach (94S-349), on the
+ * The two pause branches alpha-path.e2e.ts does not reach, on the
  * stack tests/e2e/run.sh started. What leaves a turn without its checkpoint
  * is the workspace itself: capture refuses an untracked symlink, the
  * publish is reported as the advisory `publish_failed` and the turn is
@@ -106,7 +106,7 @@ function receiptId(response: { body: unknown }): string {
   return (response.body as { receipt_id: string }).receipt_id;
 }
 
-describe("pause coverage branches (94S-349)", () => {
+describe("pause coverage branches", () => {
   test(
     "a turn skipped its checkpoint, a later one covered it: the pause completes",
     async () => {

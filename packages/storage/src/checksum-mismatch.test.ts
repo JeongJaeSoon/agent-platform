@@ -9,7 +9,7 @@ import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
  * What this pins down: bytes damaged on the way in fail the SDK's own
  * response checksum before any digest of ours sees them, and the SDK says so
  * with a plain Error. The store turns that into `ObjectIntegrityError`, so a
- * restore can call it damage (94S-345). An SDK that changes how it reports
+ * restore can call it damage. An SDK that changes how it reports
  * the mismatch fails here rather than in a restore loop.
  */
 const BUCKET = "bucket";

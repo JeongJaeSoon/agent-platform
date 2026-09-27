@@ -16,7 +16,7 @@ import {
 } from "./harness.ts";
 
 /**
- * 94S-117: the control host's three roles, as the compose stack runs them,
+ * the control host's three roles, as the compose stack runs them
  * on the D2 gate stack (the product topology with the gate's scripted
  * Messages API):
  *
@@ -140,7 +140,7 @@ async function executions(sessionId: string) {
   ).rows as { desired_state: string; generation: number; id: string }[];
 }
 
-describe.skipIf(env === null)("control host roles (94S-117)", () => {
+describe.skipIf(env === null)("control host roles", () => {
   beforeAll(async () => {
     if (!env) return;
     api = new PublicApi(env.apiUrl, env.apiKey);

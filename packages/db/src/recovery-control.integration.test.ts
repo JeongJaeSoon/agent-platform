@@ -508,7 +508,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     },
     { decision: "close", reason: "give up", admission: "closed" },
   ] as const)(
-    "$decision puts the admission it reaches on the stream, in step with GET (94S-360)",
+    "$decision puts the admission it reaches on the stream, in step with GET",
     async ({ decision, reason, admission }) => {
       const { session, row } = await unknownSession(`stream-${decision}`, {
         checkpointRevision: 3,
@@ -684,7 +684,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(abandoned.outcome).toBe("accepted");
   });
 
-  test("confirm_completed is judged on the revision a fallback restored, not on the damaged pointer (94S-204)", async () => {
+  test("confirm_completed is judged on the revision a fallback restored, not on the damaged pointer", async () => {
     const { session, row } = await unknownSession("fallback-cp", {
       checkpointRevision: 5,
       checkpointCoversTurn1: true,
@@ -725,7 +725,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       checkpointCoversTurn1: true,
     });
     // The run that took that checkpoint also dropped a transcript mirror
-    // batch (94S-201), so the pointer may be missing entries.
+    // batch, so the pointer may be missing entries.
     await db
       .update(sessions)
       .set({
@@ -774,7 +774,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     );
   });
 
-  test("an advisory refusal keeps the pointer trusted, but a turn it left uncovered is a context gap: resume is refused and start_fresh continues (94S-284, 94S-288)", async () => {
+  test("an advisory refusal keeps the pointer trusted, but a turn it left uncovered is a context gap: resume is refused and start_fresh continues", async () => {
     const partition = `advisory-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
     const l = await launch(partition, session.session_id);
@@ -834,8 +834,8 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       checkpointPendingReason: "background_writer",
     });
 
-    // The pointer is still trusted (94S-284) but covers turn 1 only:
-    // resuming from it would drop turn 2 without a word (94S-288).
+    // The pointer is still trusted but covers turn 1 only
+    // resuming from it would drop turn 2 without a word.
     expect(await resume(session, stopped.revision)).toEqual({
       outcome: "checkpoint_unavailable",
     });
@@ -857,7 +857,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     await append(session, "carry on");
   });
 
-  test("a stopped session whose uncaptured turn left no gap still resumes over an advisory reason (94S-284)", async () => {
+  test("a stopped session whose uncaptured turn left no gap still resumes over an advisory reason", async () => {
     const partition = `advisory-covered-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
     const l = await launch(partition, session.session_id);
@@ -1066,7 +1066,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(after.admissionState).toBe("closed");
     expect(after.revision).toBe(stopping.revision + 1);
     expect(after.leaseEpoch).toBe(stopping.leaseEpoch + 1);
-    // The stream leaves stopping for closed with the row (94S-360).
+    // The stream leaves stopping for closed with the row.
     const closedFrames = await statusFrames(session);
     expect(closedFrames.at(-1)).toEqual({
       phase: "stopped",
@@ -1233,7 +1233,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     });
   });
 
-  test("after a fallback restore the decision and resume receipts name the revision restored, not the damaged pointer (94S-204)", async () => {
+  test("after a fallback restore the decision and resume receipts name the revision restored, not the damaged pointer", async () => {
     const { session, row } = await unknownSession("resume-fallback", {
       queuedBehind: true,
       checkpointRevision: 3,
@@ -1348,7 +1348,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       .update(sessions)
       .set({ admissionState: "paused" })
       .where(eq(sessions.id, active.session_id));
-    // A paused session resumes through 94S-138, which still needs a
+    // A paused session resumes through, which still needs a
     // restore point this one never had.
     expect(await resume(active, activeRow.revision)).toEqual({
       outcome: "checkpoint_unavailable",
