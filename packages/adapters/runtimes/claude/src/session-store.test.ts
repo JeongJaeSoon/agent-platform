@@ -954,7 +954,7 @@ describe("Claude session store across execution generations", () => {
   });
 });
 
-describe("Claude session store merging parts (94S-314)", () => {
+describe("Claude session store merging parts", () => {
   const subagent = { ...root, subpath: "agents/reviewer" };
 
   function launch(
@@ -1159,7 +1159,7 @@ describe("Claude session store merging parts (94S-314)", () => {
   });
 });
 
-describe("Claude session store merging parts, the edges (94S-314, 94S-296)", () => {
+describe("Claude session store merging parts, the edges", () => {
   function launch(objects: MemoryCheckpointObjectStore, generation = 1) {
     return new ClaudeSessionStore({ generation, objects, prefix });
   }
@@ -1218,7 +1218,7 @@ describe("Claude session store merging parts, the edges (94S-314, 94S-296)", () 
   });
 });
 
-describe("Claude session store counting entries across captures (94S-380)", () => {
+describe("Claude session store counting entries across captures", () => {
   function launch(
     objects: MemoryCheckpointObjectStore,
     generation = 1,

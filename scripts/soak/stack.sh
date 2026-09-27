@@ -91,7 +91,7 @@ up() {
   key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create soak-owner \
     --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-  # The reconciler runs as the product runs it, on its own loop (94S-320).
+  # The reconciler runs as the product runs it, on its own loop.
   dc up -d --wait scheduler reconciler >>"$state/up.log" 2>&1
 
   rm -f "$state/vars.sh"

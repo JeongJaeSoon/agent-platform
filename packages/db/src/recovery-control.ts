@@ -100,7 +100,7 @@ async function closableByRecovery(
 /**
  * Whether a stopped session can simply be resumed: a trusted checkpoint to
  * restore, no turn whose outcome is unknown, and no turn that ran after that
- * checkpoint (94S-288) — a resume would bring the session back without it
+ * checkpoint — a resume would bring the session back without it
  * and nobody would be told. start_fresh is the way on for one that cannot.
  */
 async function resumableFromStopped(
@@ -239,7 +239,7 @@ async function cancelQueuedInput(
 // The input receipt an unknown turn left behind. Only `unknown` rows are
 // touched: an `accepted` one belongs to input that never ran, and a decision
 // never rewrites `result`, which the idempotent retry of the original request
-// replays (see 94S-265 for the same defect in finalize).
+// replays (see for the same defect in finalize).
 function unknownInputReceiptOf(sessionId: string, turnSequence: number) {
   return and(
     inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
@@ -387,7 +387,7 @@ export function decideRecoveryAtomic(
     if (!after) throw new Error(`Session ${sessionId} vanished mid-decision`);
     // start_fresh announced its own; the others, retry_restore included,
     // put the admission they reached on the stream, as announceStopped does
-    // for a stop (94S-360).
+    // for a stop.
     if (
       reset === null &&
       (after.admissionState !== session.admissionState ||
@@ -415,7 +415,7 @@ export function decideRecoveryAtomic(
         (await resumableFromStopped(tx, after)),
     };
     // Every control decision leaves its audit record on the session's event
-    // stream, where the operator and the SSE reader (94S-126) both find it.
+    // stream, where the operator and the SSE reader both find it.
     await recordEvent(tx, {
       sessionId,
       type: "system",
@@ -468,7 +468,7 @@ type ContextReset = {
 };
 
 /**
- * start_fresh (94S-288): the operator accepts that the turns so far will not
+ * start_fresh: the operator accepts that the turns so far will not
  * be in the engine's context and lets the session go on without them. Every
  * checkpoint up to the current pointer is retired — the next worker starts a
  * new engine session and restores nothing, not even an older checkpoint,
@@ -508,7 +508,7 @@ async function startFresh(
   if (unknown !== null) {
     return { outcome: "unknown_turn_left", turnId: unknown };
   }
-  // Same as resume (94S-225): an active session must not have its workspace
+  // Same as resume: an active session must not have its workspace
   // removed underneath the worker the reset launches.
   if (session.workspaceReclaimId !== null) {
     return { outcome: "workspace_reclaiming" };
@@ -532,7 +532,7 @@ async function startFresh(
       contextResetCheckpointRevision: reset.retiredCheckpointRevision,
       checkpointPendingReason: null,
       checkpointPendingAttemptId: null,
-      // A fallback base (94S-204) is at or below the retired pointer, so it
+      // A fallback base is at or below the retired pointer, so it
       // goes with it.
       checkpointFallbackRevision: null,
       checkpointRestoreAttemptId: null,
@@ -558,13 +558,13 @@ async function startFresh(
 }
 
 /**
- * retry_restore (94S-348): the restores that stopped the session failed on
+ * retry_restore: the restores that stopped the session failed on
  * something outside it — a proxy damaging the read in transit, a wrong store
  * path — which the operator has since fixed. The count starts over and the
  * next claim restores what the failing ones did: the pointer is not touched.
  * Queued input is dispatched as on a resume.
  *
- * Only for a session its failed restores stopped (94S-345). Any other hold
+ * Only for a session its failed restores stopped. Any other hold
  * — an unknown turn, a context gap, a startup with nothing to restore — is
  * not answered by restoring the same checkpoint again.
  */
@@ -763,7 +763,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
         `Session ${session.id} points at execution ${session.executionId} which has no row`,
       );
     }
-    // As in terminate (94S-220): a rebuild the scheduler still intends
+    // As in terminate: a rebuild the scheduler still intends
     // would otherwise follow the kill.
     await tx
       .update(workerLaunches)
@@ -807,7 +807,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
  * are the operator's to settle first, and a session with no checkpoint has
  * nothing to restore. Cancelled input stays cancelled; what is still
  * queued is signalled for a new worker. `paused` and `pausing` are handed
- * to resumePauseFamily (94S-138).
+ * to resumePauseFamily.
  */
 export function resumeAtomic(
   db: Database,
@@ -853,7 +853,7 @@ export function resumeAtomic(
         currentRevision: session.revision,
       };
     }
-    // 94S-321: whatever state the revocation left, the owner cannot bring
+    // whatever state the revocation left, the owner cannot bring
     // the execution back; only the operator's restore lifts it.
     if (session.executionRevokedAt !== null) {
       return { outcome: "execution_revoked" };
@@ -890,7 +890,7 @@ export function resumeAtomic(
     // Resuming onto an untrusted pointer would also wedge an idle session:
     // appends stay refused while the blocker stands, and only a new run's
     // checkpoint clears it. Resuming onto one that predates a turn that ran
-    // would bring the session back without that turn (94S-288). start_fresh
+    // would bring the session back without that turn. start_fresh
     // or close is the way out instead.
     if (
       !hasRestorePoint(session) ||
@@ -918,7 +918,7 @@ export function resumeAtomic(
       .where(eq(sessions.id, sessionId));
     await signalQueuedInput(tx, session, queued, now);
     // The revision the next worker restores: after a fallback, not the
-    // damaged pointer (94S-204).
+    // damaged pointer.
     const restoredFrom =
       session.checkpointFallbackRevision ?? session.checkpointRevision;
     const result: ResumeReceiptResult = {

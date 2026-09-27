@@ -32,7 +32,7 @@ export interface WorkspaceBundleVerifier {
   readonly policy?: string;
   verify(input: {
     /**
-     * The bundles this one builds on, oldest first (94S-227), each spooled
+     * The bundles this one builds on, oldest first, each spooled
      * and checked like it. `commit` must then be restorable from all of
      * them fetched in order: the first on its own, each later one needing
      * only commits an earlier one offers as a ref tip.

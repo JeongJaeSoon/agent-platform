@@ -169,7 +169,7 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       payload = await response.json();
     } catch (error) {
       // A 2xx whose body broke off says the write may have landed, not that
-      // it was refused: the caller replays the idempotent key (94S-392).
+      // it was refused: the caller replays the idempotent key.
       if (response.ok) {
         throw new WorkerGatewayRequestError(
           response.status,

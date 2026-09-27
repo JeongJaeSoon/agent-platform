@@ -88,36 +88,36 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "workspace_id",
     "created_by_user_id",
     "agent_release_id",
-    // 0104 (94S-201)
+    // 0104
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",
     "last_transcript_persisted_at",
-    // 0107 (94S-131); arrives as 0, not null
+    // 0107; arrives as 0, not null
     "cost_usd",
-    // 0110 (94S-225)
+    // 0110
     "workspace_reclaim_id",
     "workspace_reclaim_workspace_id",
     "workspace_reclaim_claimed_at",
     "workspace_reclaimed_at",
-    // 94S-204
+    //
     "checkpoint_fallback_revision",
     "checkpoint_restore_attempt_id",
-    // 94S-288
+    //
     "context_reset_turn_sequence",
     "context_reset_checkpoint_revision",
-    // 94S-278; arrives as false
+    // arrives as false
     "input_announced",
-    // 94S-321
+    //
     "execution_revoked_at",
     "execution_revoked_reason",
-    // 94S-345; the count arrives as 0
+    // the count arrives as 0
     "restore_attempt_id",
     "restore_failure_count",
     "restore_retry_at",
     "restore_failure_reason",
-    // 94S-253
+    //
     "profile_fingerprint",
-    // 94S-367; arrives as 'default'
+    // arrives as 'default'
     "partition",
   ],
   turns: ["actor_id"],
@@ -448,7 +448,7 @@ integration("0100 identity migration on PostgreSQL", () => {
              VALUES ($1, $2, 'user', $3, ARRAY['session.read'], 'session', 'x', 'workspace', $4, ARRAY[['sessions:read']])`,
             [randomUUID(), workspaceId, userId, workspaceId],
           ],
-          // empty and oversized ids (94S-148 opaqueId 1..128, refs 1..512)
+          // empty and oversized ids (opaqueId 1..128, refs 1..512)
           [
             "23514",
             `INSERT INTO grants (id, workspace_id, actor_kind, actor_id, actions, resource_kind, resource_id, audience_kind, audience_id)
@@ -483,7 +483,7 @@ integration("0100 identity migration on PostgreSQL", () => {
           [randomUUID(), workspaceId, userId, workspaceId],
         );
         expect(ok.rows).toHaveLength(1);
-        // A derived release id is opaque text, not a uuid (94S-148).
+        // A derived release id is opaque text, not a uuid.
         await pool.query(
           `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, agent_release_id)
            VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, 'rel_' || encode(sha256('r'::bytea), 'hex'))`,

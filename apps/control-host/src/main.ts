@@ -1,4 +1,4 @@
-// The control host's one executable (94S-117):
+// The control host's one executable
 //
 //   bun run src/main.ts api
 //   bun run src/main.ts <scheduler|reconciler> [--once|--health]

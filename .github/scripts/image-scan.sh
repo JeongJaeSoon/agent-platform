@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Known vulnerabilities in one app image (94S-338):
+# Known vulnerabilities in one app image
 # `image-scan.sh <app> <image ref> <result dir>`.
 #
 # Grype over the whole image: Debian packages and the npm packages under

@@ -121,7 +121,7 @@ afterEach(async () => {
   server = undefined;
 });
 
-describe("session budget inside a turn, through the composed runtime (94S-279)", () => {
+describe("session budget inside a turn, through the composed runtime", () => {
   test("the claim's remaining budget ends a tool loop mid-turn, and a resume gets its own", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-279-" });
     const { home, workspace } = isolated;

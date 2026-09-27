@@ -10,7 +10,7 @@ import {
 } from "./client.ts";
 
 /**
- * The alpha path (94S-134) against a stack tests/e2e/run.sh started: the
+ * The alpha path against a stack tests/e2e/run.sh started: the
  * images this checkout builds, a real Claude Code inside each worker, the
  * compose fake Messages API playing each prompt's script. docs/quickstart.md
  * walks the same steps by hand with curl.
@@ -47,7 +47,7 @@ async function revision(sessionId: string): Promise<number> {
   return (await api.session(sessionId)).revision;
 }
 
-describe("alpha path over public HTTP (94S-134)", () => {
+describe("alpha path over public HTTP", () => {
   test(
     "create → events → pending → answer → message → interrupt → pause → resume → terminate → recovery → resume",
     async () => {
@@ -238,7 +238,7 @@ describe("alpha path over public HTTP (94S-134)", () => {
   );
 });
 
-describe("recovery close over public HTTP (94S-406)", () => {
+describe("recovery close over public HTTP", () => {
   test(
     "terminate → confirm_completed refused without a covering checkpoint → close → resume is 409 SESSION_CLOSED",
     async () => {
@@ -304,7 +304,7 @@ describe("recovery close over public HTTP (94S-406)", () => {
   );
 });
 
-describe("default commit identity (94S-423)", () => {
+describe("default commit identity", () => {
   test(
     "Claude commits in a new session as the identity docs/operations.md names",
     async () => {
@@ -339,7 +339,7 @@ describe("default commit identity (94S-423)", () => {
   );
 });
 
-describe("concurrency regressions (94S-134)", () => {
+describe("concurrency regressions", () => {
   test(
     "a retried create is one session; the same key with another body is refused",
     async () => {
@@ -506,7 +506,7 @@ describe("concurrency regressions (94S-134)", () => {
   );
 
   test(
-    "a Bash tool in the worker finds no provider token anywhere, and the route refuses it without one (94S-410)",
+    "a Bash tool in the worker finds no provider token anywhere, and the route refuses it without one",
     async () => {
       // Brackets keep each pattern from matching the probe's own command.
       const probe = [

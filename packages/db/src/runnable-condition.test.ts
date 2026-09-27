@@ -39,7 +39,7 @@ type Row = Pick<
 >;
 
 // Each pair as it is, then with one field changed at a time, crossed with
-// every fingerprint a row can carry: none (before 94S-253), either pair's,
+// every fingerprint a row can carry: none (before), either pair's
 // and one the catalog never had.
 function rows(): Row[] {
   const out: Row[] = [];

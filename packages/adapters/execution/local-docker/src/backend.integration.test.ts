@@ -259,7 +259,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(JSON.stringify(inspected)).not.toContain("docker.sock");
   }, 60_000);
 
-  test("a container holding a credential the registry rotated past is replaced, not adopted (94S-231)", async () => {
+  test("a container holding a credential the registry rotated past is replaced, not adopted", async () => {
     // The registry as the scheduler sees it: whatever was issued last is
     // what bootstrapClaim would accept.
     const suffix = crypto.randomUUID();
@@ -366,7 +366,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(await backend.terminate(gen2)).toEqual({ outcome: "absent" });
   }, 60_000);
 
-  test("a stop not waited for still ends in SIGKILL at the stop timeout (94S-385)", async () => {
+  test("a stop not waited for still ends in SIGKILL at the stop timeout", async () => {
     // busybox's `sleep` ignores SIGTERM, like a worker draining its turn.
     const draining = new LocalDockerBackend(
       { ...backendConfig(), requestTimeoutMs: 1_000, stopTimeoutSeconds: 6 },

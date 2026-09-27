@@ -6,7 +6,7 @@ import {
 } from "./fake-anthropic.ts";
 
 /**
- * A Messages API whose script rides in the prompt (94S-247, 94S-134), so a
+ * A Messages API whose script rides in the prompt, so a
  * long-running fake can serve any scenario without knowing it: a user text
  * block reading `GATE-SPEC {"id":…,"steps":[…],"final":…}` is the plan, and
  * the number of tool results after it says which step comes next. The Agent

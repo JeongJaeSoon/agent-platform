@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// The integration suite runs as one CI job per domain (94S-307), each with
+// The integration suite runs as one CI job per domain, each with
 // only the services its tests need. Which files a job owns is declared once,
 // in the `integration-domain` matrix of .github/workflows/ci.yml; this script
 // reads it from there.

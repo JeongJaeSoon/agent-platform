@@ -43,7 +43,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 const LEASE_TTL_MS = 5_000;
 const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 
-integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
+integration("execution Grant revocation on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -327,7 +327,7 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
       authRevision: before.authRevision + 1,
       executionId: l.executionId,
       // The attempt's gateway credential and its three egress tokens
-      // (94S-252, 94S-251).
+      // .
       revokedCredentials: 4,
     });
 
@@ -402,7 +402,7 @@ integration("execution Grant revocation on PostgreSQL (94S-321)", () => {
       },
     });
     // Like a terminate, it puts the admission it moved to on the stream
-    // (94S-293).
+    // .
     expect(audits).toContainEqual({
       type: "status",
       payload: {

@@ -291,7 +291,7 @@ async function meteredCost(sessionId: string, rows: number) {
   }
 }
 
-describe("credential routes end to end (94S-252)", () => {
+describe("credential routes end to end", () => {
   test("AC1: the engine's Messages call gets the provider key only at the proxy", async () => {
     const { claim, credentialUrl, providerValue } = await topology();
     if (messages === undefined) throw new Error("no Messages server");
@@ -352,7 +352,7 @@ describe("credential routes end to end (94S-252)", () => {
     }
   }, 60_000);
 
-  test("AC3: a real shell dumping the engine's environment and the remote shows no catalog value, and the scrubber takes the rest (Codex R2)", async () => {
+  test("AC3: a real shell dumping the engine's environment and the remote shows no catalog value, and the scrubber takes the rest", async () => {
     const {
       claim,
       bootstrapNonce,
@@ -401,7 +401,7 @@ describe("credential routes end to end (94S-252)", () => {
     expect(printed).not.toContain(providerValue);
     expect(printed).not.toContain(repositoryPassword);
     // Nor is the engine's own token: it goes down a descriptor the engine
-    // closes (94S-410). Whatever else of the attempt's a tool finds, the
+    // closes. Whatever else of the attempt's a tool finds, the
     // scrubber the worker puts in front of its events removes.
     const held = claimSecrets(claim, bootstrapNonce);
     expect(printed).not.toContain(claim.runtime_config.provider.auth.token);
@@ -411,7 +411,7 @@ describe("credential routes end to end (94S-252)", () => {
     }
   }, 60_000);
 
-  test("94S-394: a direct call on the engine's token stops once the session has spent its limit", async () => {
+  test("a direct call on the engine's token stops once the session has spent its limit", async () => {
     const { claim, credentialUrl } = await topology();
     if (client === undefined || messages === undefined) {
       throw new Error("no topology");
@@ -444,7 +444,7 @@ describe("credential routes end to end (94S-252)", () => {
     expect(messages.requests).toHaveLength(served);
   }, 60_000);
 
-  test("94S-409: a tool's direct call on the engine's token is metered into the session's cost", async () => {
+  test("a tool's direct call on the engine's token is metered into the session's cost", async () => {
     const { claim, credentialUrl } = await topology();
     const direct = await fetch(`${credentialUrl}/provider/v1/messages`, {
       method: "POST",
@@ -485,7 +485,7 @@ describe("credential routes end to end (94S-252)", () => {
     });
   }, 60_000);
 
-  test("94S-409: an engine turn is counted once: the session's cost is what the proxy metered, and finalize adds nothing", async () => {
+  test("an engine turn is counted once: the session's cost is what the proxy metered, and finalize adds nothing", async () => {
     const { claim, gateway, credentialUrl } = await topology();
     if (messages === undefined) throw new Error("no Messages server");
     const principal = {

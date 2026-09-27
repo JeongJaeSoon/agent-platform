@@ -1,7 +1,7 @@
 import { Api, e2eEnv, poll, scripted, type Turn } from "./client.ts";
 
 /**
- * The public-API half of tests/e2e/restore-resume.sh (94S-324): each step
+ * The public-API half of tests/e2e/restore-resume.sh: each step
  * the script runs against a stack, one subcommand per step, printing what
  * it saw as one JSON line for the run record and throwing when the stack
  * disagrees. The script does the rest — backup, restore, and reading the

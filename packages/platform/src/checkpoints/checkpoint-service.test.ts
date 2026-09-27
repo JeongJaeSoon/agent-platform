@@ -773,7 +773,7 @@ describe("validateManifest", () => {
     expect(heads).toEqual([checkpoint.manifest_ref]);
   });
 
-  test("refuses a transcript over the size limit before reading any part (94S-296)", async () => {
+  test("refuses a transcript over the size limit before reading any part", async () => {
     const requests: string[] = [];
     const watched = {
       ...objects,
@@ -1139,7 +1139,7 @@ describe("validateManifest", () => {
   });
 });
 
-describe("a bundle whose verification threw cools down (94S-271)", () => {
+describe("a bundle whose verification threw cools down", () => {
   /** A verifier that throws until told otherwise, counting every call. */
   function flakyVerifier(policy = "limits-1") {
     const verifier = {
@@ -1392,7 +1392,7 @@ describe("a bundle whose verification threw cools down (94S-271)", () => {
 
 const chain = await createGitBundleChain();
 
-describe("a bundle that builds on the previous checkpoint's (94S-227)", () => {
+describe("a bundle that builds on the previous checkpoint's", () => {
   const baseRef: ObjectRef = {
     bytes: chain.base.bytes.byteLength,
     key: bundleKeyFor(0, attemptId),
@@ -2149,7 +2149,7 @@ describe("getRestorePlan", () => {
   });
 });
 
-describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
+describe("getRestorePlan falls back to an earlier revision", () => {
   const LATER_PART = `${sessionObjectPrefix(sessionId)}mirror/root-1.jsonl`;
 
   /** Commits revisions 0..last, each adding one transcript part. */
@@ -2289,7 +2289,7 @@ describe("getRestorePlan falls back to an earlier revision (94S-204)", () => {
     });
   });
 
-  test("never walks past a checkpoint that starts a history (94S-288 start_fresh)", async () => {
+  test("never walks past a checkpoint that starts a history (start_fresh)", async () => {
     const [, second] = await commitRevisions(1);
     // Revision 1 was the first checkpoint after an operator retired
     // revision 0 and started a new engine session.

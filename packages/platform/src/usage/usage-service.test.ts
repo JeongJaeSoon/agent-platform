@@ -55,7 +55,7 @@ describe("decimalUsd", () => {
   });
 });
 
-describe("usage service (94S-275)", () => {
+describe("usage service", () => {
   test("a limit finer than the column survives into the contract", async () => {
     const body = await service().getInstallationLimits();
     expect(installationLimitsResponseSchema.parse(body).limits).toMatchObject({

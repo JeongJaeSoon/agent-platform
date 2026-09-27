@@ -1,4 +1,4 @@
-# Overlay on infra/docker-compose.yml for the D2 gate (94S-247); run.sh is
+# Overlay on infra/docker-compose.yml for the D2 gate; run.sh is
 # the only intended caller. Paths are relative to infra/, the project
 # directory of the base file.
 #
@@ -8,7 +8,7 @@
 # - the API reads the gate's catalog (scripts/d2-gate/config);
 # - gate-chaos stands in (as gate-gateway and gate-s3) for the workers'
 #   gateway and object store: the scheduler hands workers gate-gateway, the
-#   API signs their object store requests for gate-s3 (94S-251), and the
+# API signs their object store requests for gate-s3, and the
 #   egress proxy allows nothing else of ours, so every write a worker makes
 #   passes the fault injector — and cannot go around it;
 # - the scheduler loops faster, which only shortens waits.
@@ -26,7 +26,7 @@ services:
       - "127.0.0.1::3000"
   egress-proxy:
     environment:
-      # As compose's defaults (94S-383): the gateway alone on the forward
+      # As compose's defaults: the gateway alone on the forward
       # proxy, the provider and repository on the credential routes only.
       EGRESS_ALLOWLIST: ""
       EGRESS_PRIVATE_ALLOWLIST: "gate-gateway:3000"

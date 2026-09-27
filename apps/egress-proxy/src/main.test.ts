@@ -21,7 +21,7 @@ function freePort(): number {
 }
 
 // An upstream on the credential lists alone, as compose's defaults put the
-// provider, Gitea and LocalStack (94S-383): the credential route reaches it,
+// provider, Gitea and LocalStack: the credential route reaches it
 // the forward proxy refuses it.
 test("an upstream on the credential lists alone is reached by its route and refused by the forward proxy", async () => {
   const upstream = Bun.serve({

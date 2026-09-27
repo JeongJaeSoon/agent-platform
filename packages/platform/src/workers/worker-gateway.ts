@@ -423,8 +423,8 @@ export function createWorkerGateway(deps: {
   // session whose profile left the catalog start anyway would hand it a
   // guessed runtime, and the worker would run the wrong agent or crash-loop
   // through a queue slot. It waits for a host that knows the profile — as
-  // the session was created with it (94S-253) — and that still lets it run
-  // against the session's repository (94S-258).
+  // the session was created with it — and that still lets it run
+  // against the session's repository.
   const runnable: RunnablePair[] = Object.entries(catalog.repositories).flatMap(
     ([repositoryId, repository]) =>
       repository.profiles.flatMap((profileId) => {
@@ -451,7 +451,7 @@ export function createWorkerGateway(deps: {
   // a profile id stays put — a session's checkpoint fingerprint and
   // transcript were made with that model and those tools — and the claim
   // enforces it: only a profile that still hashes to the session's stored
-  // fingerprint is runnable (94S-253), so what is read here is what the
+  // fingerprint is runnable, so what is read here is what the
   // session was created with. What the session was created against — its
   // repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(
@@ -779,7 +779,7 @@ export function createWorkerGateway(deps: {
       }
     },
 
-    // The object store route's question (94S-251), asked on every request
+    // The object store route's question, asked on every request
     // like the others: which session prefix does this token still reach?
     // Only the prefix comes back; which requests under it are signed is the
     // API's object store signer's to decide, since only it holds the key.
@@ -807,7 +807,7 @@ export function createWorkerGateway(deps: {
     },
 
     // The egress proxy's question, asked on every request to a credential
-    // route (94S-252): what does this token stand for right now? The answer
+    // route: what does this token stand for right now? The answer
     // carries the upstream credential, so only the authorizer listener —
     // unreachable from any worker — may put it on the wire.
     async authorizeEgress(request: {
@@ -822,9 +822,9 @@ export function createWorkerGateway(deps: {
       });
       if (request.purpose === "provider") {
         // What a session has spent is metered here, a tool's direct calls
-        // with the engine's token included (94S-409); a session past its
+        // with the engine's token included; a session past its
         // limit gets no new provider exchange, and the proxy's regrant cuts
-        // an open one (94S-394).
+        // an open one.
         if (budgetExceeded(result.costUsd, deps.options.sessionCostLimitUsd)) {
           throw new WorkerGatewayError(
             403,
@@ -858,7 +858,7 @@ export function createWorkerGateway(deps: {
     },
 
     // What one Messages call through the provider route used, as the proxy
-    // read it off the answer (94S-409). This is the session's spend: the
+    // read it off the answer. This is the session's spend: the
     // engine's calls and any a tool made with the engine's token alike.
     async recordProviderUsage(report: {
       exchangeId: string;
@@ -972,7 +972,7 @@ export function createWorkerGateway(deps: {
         // A hint, read after the fenced write: the worker's pendingControl
         // poll is what actually hands anything over. A failed read must not
         // turn the lease already renewed into an error the worker reads as
-        // lost; the next beat reads it again (94S-392).
+        // lost; the next beat reads it again.
         control_pending:
           (await pending?.hasUndelivered(fence).catch(() => false)) ?? false,
       };
@@ -1264,7 +1264,7 @@ export function createWorkerGateway(deps: {
       const fallback = result.plan.fallback;
       if (fallback !== undefined) {
         // A resume from `paused` promised the pointer's state; an older one
-        // is not that resume, so the owner decides (94S-138 with 94S-204).
+        // is not that resume, so the owner decides (with).
         // A session that is not resuming takes the fallback as before.
         const failed = await work.failResumeAtomic({
           fence,

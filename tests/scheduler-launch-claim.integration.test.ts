@@ -335,7 +335,7 @@ integration(
       const log = await waitForLog(containerName, "INPUT ");
       expect(log).toContain(`CLAIMED ${sessionId} `);
       expect(log).toContain(`"message":"${MESSAGE}"`);
-      // The claim handed the worker a route token, not the key (94S-252),
+      // The claim handed the worker a route token, not the key
       // and a Messages call through the route reached the upstream with the
       // catalog's key on it.
       expect(log).toMatch(/PROVIDER egress_token sha256:[0-9a-f]{64}/);
@@ -376,7 +376,7 @@ integration(
 
       // The one thing that must never be readable anywhere: the plaintext.
       const container = await inspect(containerName);
-      // Nor is the provider key in what `docker inspect` shows (94S-132).
+      // Nor is the provider key in what `docker inspect` shows.
       expect((container.Config.Env ?? []).join("\n")).not.toContain(
         PROVIDER_KEY_VALUE,
       );
@@ -387,7 +387,7 @@ integration(
       );
       expect(String(dump.rows[0]?.rows ?? "")).not.toContain(nonce);
       // The container's fingerprint label is what the registry's own column
-      // computes to (94S-231), and carries neither the plaintext nor the
+      // computes to, and carries neither the plaintext nor the
       // column itself.
       const labels = container.Config.Labels ?? {};
       if (!launch?.nonceHash) throw new Error("launch row lost its hash");

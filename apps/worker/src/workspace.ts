@@ -20,7 +20,7 @@ export interface WorkspacePreparer {
   /**
    * Leaves the session's repository checked out at the root, or throws.
    * `restore` wins over the descriptor; restoring is the checkpoint port's
-   * job (94S-246), so that plan comes back untouched.
+   * job, so that plan comes back untouched.
    */
   prepare(input: {
     descriptor: WorkspaceDescriptor;
@@ -117,7 +117,7 @@ export type Git = (
  * Failures are reported with the URL and the credential replaced.
  *
  * Deliberately minimal: a clone takes whatever history the remote serves,
- * with no depth or size limit beyond the workspace volume's own (94S-215).
+ * with no depth or size limit beyond the workspace volume's own.
  * Revisit when clone time starts eating the claim's lease budget.
  */
 export class GitWorkspace implements WorkspacePreparer {
@@ -126,7 +126,7 @@ export class GitWorkspace implements WorkspacePreparer {
   constructor(
     private readonly root: string,
     /**
-     * The egress proxy's credential routes (94S-252). A claim that gives the
+     * The egress proxy's credential routes. A claim that gives the
      * repository a token is fetched through them and nowhere else.
      */
     private readonly egressTransport: string | null = null,
@@ -623,7 +623,7 @@ type Route = { token: string; url: string };
 type Remote = {
   /**
    * Where the network calls go instead of `url` when the claim gave this
-   * attempt a repository token (94S-252): the proxy puts the repository's
+   * attempt a repository token: the proxy puts the repository's
    * own credential on each request, so none reaches this process.
    */
   route?: Route;

@@ -993,7 +993,7 @@ function describe(destination: { host: string; port: number }): string {
 // libc, not node:dns: Bun's node:dns answers from c-ares, which keeps a
 // record for its TTL, and Docker's embedded DNS gives 600s, so an api, gitea
 // or LocalStack that restarts on a new address would be dialed at its old one
-// for up to ten minutes. libc keeps no cache and asks every time (94S-344,
+// for up to ten minutes. libc keeps no cache and asks every time (
 // packages/system/src/fresh-lookup.ts, which this image cannot import).
 export const systemResolver: EgressResolver = async (host) => {
   const entries = await Bun.dns.lookup(host, { backend: "libc" });

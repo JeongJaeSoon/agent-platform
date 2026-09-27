@@ -2,7 +2,7 @@ import { rename, writeFile } from "node:fs/promises";
 import { integerSetting } from "@agent-platform/contracts/settings";
 
 /**
- * Runs a role one pass per child process, forever (94S-320, 94S-117). The
+ * Runs a role one pass per child process, forever. The
  * pass (`main.ts <role> --once`) keeps its one-shot contract; this loop is
  * what turns it into a service: a pass that hangs is stopped and counted as a
  * failure, a run of failures ends the process so the restart policy engages,
@@ -77,7 +77,7 @@ export const PASS_SKIPPED_EXIT = 75;
 /**
  * A pass that did all it could, but left a session it cannot help this pass:
  * a launch waiting out its backoff, one just given up on, a replacement
- * budget spent (94S-368). Not a success, so health says so; not a failure,
+ * budget spent. Not a success, so health says so; not a failure
  * because a restart fixes none of it — the state is in the database — and
  * would stop scheduling for every other session while one crash-loops.
  * Next to PASS_SKIPPED_EXIT; sysexits.h has nothing that means this.

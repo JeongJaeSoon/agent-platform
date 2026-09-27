@@ -208,7 +208,7 @@ describe("localDockerConfigFromEnv", () => {
     }
     // The scheduler shares the control host's environment, key included;
     // none of it reaches the backend config a worker is launched from
-    // (94S-251).
+    // .
     const config = localDockerConfigFromEnv({
       ...base,
       AWS_ACCESS_KEY_ID: "control-host-key-id",
@@ -351,7 +351,7 @@ describe("localDockerConfigFromEnv", () => {
   });
 });
 
-describe("the egress credential port (94S-252)", () => {
+describe("the egress credential port", () => {
   test("defaults to 3129 on the proxy's host and refuses the proxy's own port", () => {
     expect(
       localDockerConfigFromEnv({

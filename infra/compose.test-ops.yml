@@ -1,4 +1,4 @@
-# The test-ops layer over compose.core.yml (94S-430), merged after it and
+# The test-ops layer over compose.core.yml, merged after it and
 # before the object store's layer:
 #
 #   docker compose -f infra/compose.core.yml -f infra/compose.test-ops.yml \

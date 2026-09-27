@@ -105,14 +105,14 @@ export const ENV = {
   executionGeneration: "WORKER_EXECUTION_GENERATION",
   executionId: "WORKER_EXECUTION_ID",
   gatewayUrl: "WORKER_GATEWAY_URL",
-  /** The egress proxy's credential routes (94S-252). */
+  /** The egress proxy's credential routes. */
   egressCredentialUrl: "WORKER_EGRESS_CREDENTIAL_URL",
   /** Points at the tmpfs HOME, whatever the image's /etc/passwd says. */
   home: "HOME",
   /**
    * Where the session volume is mounted. Placement is this backend's
    * knowledge, not the session's, so it travels with the launch rather than
-   * in the claim response that names the repository (94S-206).
+   * in the claim response that names the repository.
    */
   workspaceDir: "WORKER_WORKSPACE_DIR",
   /**
@@ -127,10 +127,10 @@ export const ENV = {
   noProxy: "NO_PROXY",
   noProxyLower: "no_proxy",
   /**
-   * Which objects are the session's (94S-244): the bucket and region under
+   * Which objects are the session's: the bucket and region under
    * the names the control host reads, plus the prefix this session owns.
    * No credential and no endpoint: the worker reaches them through the
-   * proxy's object store route, signed for that prefix only (94S-251).
+   * proxy's object store route, signed for that prefix only.
    */
   objectBucket: "S3_BUCKET",
   objectPrefix: "WORKER_OBJECT_PREFIX",
@@ -165,7 +165,7 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
 
 /**
  * Plus the proxy's own name: its credential routes are reached directly,
- * and through the forward proxy they would be refused (94S-252). The worker
+ * and through the forward proxy they would be refused. The worker
  * could reach that name on any port anyway; it is the only other member of
  * its network.
  */
@@ -186,11 +186,11 @@ export function noProxyValueFor(
  * 3: object store access and the session prefix are part of the boundary.
  * 4: the workspace volume is created explicitly, under a byte quota.
  * 5: each worker on an internal network of its own, shared only with the
- *    egress proxy, so workers no longer reach one another (94S-216).
+ * egress proxy, so workers no longer reach one another.
  * 6: that network gives the host no address on it, so a host process
- *    listening on a wildcard address is out of reach too (94S-274).
+ * listening on a wildcard address is out of reach too.
  * 7: the workspace volume carries an inode ceiling beside its byte one
- *    (94S-224). A version, not only the fingerprint, so a host rolled back
+ * . A version, not only the fingerprint, so a host rolled back
  *    past it reads these workers as newer and leaves them be.
  */
 export const ISOLATION_CONTRACT = 7;
@@ -236,7 +236,7 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // Where the worker's objects go is part of its boundary: a container
     // still pointed at the old bucket would keep writing there. The
     // endpoint and key are the API's now, behind the object store route
-    // (94S-251), so moving them retires no worker; a container from before
+    // so moving them retires no worker; a container from before
     // the route, which still holds the key, reads as stale because this
     // shape changed.
     config.objectStore.bucket,
@@ -255,7 +255,7 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
     // The worker plans its drain from the grace it was started with; stopped
     // with a shorter one, the SIGKILL lands mid-finalize.
     config.stopTimeoutSeconds,
-    // Same for the turn deadline and provider retries (94S-131). It also
+    // Same for the turn deadline and provider retries. It also
     // retires containers from before the limits existed, whose workers
     // report no turn cost and so would never reach the budget.
     config.workerLimits ?? null,
@@ -264,7 +264,7 @@ export function isolationStampFor(config: LocalDockerBackendConfig): string {
   return `${ISOLATION_CONTRACT}:${digest}`;
 }
 
-/** How long `terminate` without `waitForExit` waits on a stop (94S-385). */
+/** How long `terminate` without `waitForExit` waits on a stop. */
 const STOP_WAIT_MS = 5_000;
 
 const CONTAINER_NAME_PREFIX = "ap-worker-";
@@ -550,7 +550,7 @@ export class LocalDockerBackend implements ExecutionBackend {
    * it can carry a project quota, and it says so at create time — so the
    * cheapest honest check is to create one and throw it away. The scheduler
    * runs it before a pass, and only when its loop has not already seen it
-   * pass on the same settings (94S-393).
+   * pass on the same settings.
    */
   async verifyWorkspaceQuota(): Promise<void> {
     const quota = this.config.workspaceQuota;
@@ -568,7 +568,7 @@ export class LocalDockerBackend implements ExecutionBackend {
     // see `workspaceVolumePrefixFor` — so each one takes a fresh name, and
     // what an interrupted probe left behind is cleaned up by its labels
     // instead. Only old ones are taken: the preflight runs outside the pass
-    // lock, so a young one may be another preflight's, mid-run (94S-418).
+    // lock, so a young one may be another preflight's, mid-run.
     // Failing to remove one is not worth refusing the launch over: the
     // volume is empty, and the probe below still has to pass.
     const cutoff =
@@ -1850,10 +1850,10 @@ export class LocalDockerBackend implements ExecutionBackend {
    * with a refusal — an OCI runtime error, a mount it cannot make — leaves a
    * `created` container that every retry would adopt and be refused on the
    * same way, so it is removed, by id, and the next attempt creates afresh
-   * (94S-207). A start whose answer never came may have taken: that
+   * . A start whose answer never came may have taken: that
    * container is left in place, and the caller's timeout surfaces as
    * `LaunchOutcomeUnknownError`, which the scheduler does not count as a
-   * failure — the next pass inspects it and adopts or starts it (94S-393).
+   * failure — the next pass inspects it and adopts or starts it.
    * A dropped connection is still a counted failure.
    */
   private async startOrDiscard(containerId: string): Promise<void> {
@@ -2186,7 +2186,7 @@ function soleRunningProxy(
 
 /**
  * A Docker call that may have created or started the container and got no
- * answer: whether it took is for the next pass's inspect to say (94S-393).
+ * answer: whether it took is for the next pass's inspect to say.
  */
 async function outcomeUnknownOnTimeout<T>(
   ref: ExecutionRef,
@@ -2253,7 +2253,7 @@ export function workerEnvironmentFor(
     `${ENV.noProxy}=${noProxyValueFor(config)}`,
     `${ENV.noProxyLower}=${noProxyValueFor(config)}`,
     // No object store credential or endpoint: the worker reaches its
-    // objects through the proxy's object store route (94S-251).
+    // objects through the proxy's object store route.
     `${ENV.objectBucket}=${objectStore.bucket}`,
     `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     `${ENV.objectRegion}=${objectStore.region}`,

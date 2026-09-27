@@ -11,10 +11,10 @@ export const API_ERROR_CODE_VALUES = [
   "UNSUPPORTED_CAPABILITY",
   "RATE_LIMITED",
   // The installation's retained-content budget is spent; retrying does not
-  // free any of it (94S-131).
+  // free any of it.
   "STORAGE_LIMIT_EXCEEDED",
   // A turn the engine ended because the session's cost budget ran out while
-  // it was running (94S-279).
+  // it was running.
   "BUDGET_EXCEEDED",
   "INTERNAL_ERROR",
   "REVISION_CONFLICT",
@@ -34,7 +34,7 @@ export const API_ERROR_CODE_VALUES = [
   "BACKEND_UNAVAILABLE",
   "LAUNCH_FAILED",
   // The catalog no longer allows the session's (profile, repository) pair,
-  // so no worker may run it until an operator restores the pair (94S-280).
+  // so no worker may run it until an operator restores the pair.
   "CATALOG_MISMATCH",
   "NOT_READY",
   "CURSOR_EXPIRED",

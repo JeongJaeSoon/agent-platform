@@ -614,7 +614,7 @@ integration("sessions API on PostgreSQL", () => {
     expect(foreign.status).toBe(404);
   }, 60_000);
 
-  test("a pending reason a newer build recorded still gives the detail, and holds input back (94S-396)", async () => {
+  test("a pending reason a newer build recorded still gives the detail, and holds input back", async () => {
     const sessionId = await createdSession("future-reason");
     await db
       .update(sessions)
@@ -636,7 +636,7 @@ integration("sessions API on PostgreSQL", () => {
     expect((await refused.json()).error.code).toBe("CHECKPOINT_UNAVAILABLE");
   }, 60_000);
 
-  test("a stopped session resumes with 202 over an advisory pending reason, and is refused over a mirror failure (94S-284)", async () => {
+  test("a stopped session resumes with 202 over an advisory pending reason, and is refused over a mirror failure", async () => {
     const resumeWith = async (key: string, pendingReason: string) => {
       const sessionId = await createdSession(key);
       await db.insert(checkpoints).values({
@@ -679,7 +679,7 @@ integration("sessions API on PostgreSQL", () => {
 
   test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
     // An M0 row: the client sent the URL directly, so it may embed
-    // credentials. It has no profile/repository catalog keys (94S-147).
+    // credentials. It has no profile/repository catalog keys.
     const legacyOwner = `owner-${crypto.randomUUID()}`;
     const legacyId = crypto.randomUUID();
     const secret = "legacy-basic-auth-password";
@@ -705,7 +705,7 @@ integration("sessions API on PostgreSQL", () => {
         runtime: null,
         current_turn_id: null,
         queued_turn_count: 0,
-        // No catalog key, so no worker of this host will take it (94S-280).
+        // No catalog key, so no worker of this host will take it.
         attention: { code: "CATALOG_MISMATCH" },
       });
       expect(detailText).not.toContain(secret);
@@ -727,7 +727,7 @@ integration("sessions API on PostgreSQL", () => {
     }
   }, 60_000);
 
-  test("a profile key the catalog no longer has surfaces runtime null, not a guess (94S-197)", async () => {
+  test("a profile key the catalog no longer has surfaces runtime null, not a guess", async () => {
     const retiredOwner = `owner-${crypto.randomUUID()}`;
     const retiredId = crypto.randomUUID();
     await db.insert(sessions).values({
@@ -1129,7 +1129,7 @@ integration("sessions API on PostgreSQL", () => {
     }
   }, 60_000);
 
-  test("answers 429 with Retry-After once the session holds its limit of queued input (94S-131)", async () => {
+  test("answers 429 with Retry-After once the session holds its limit of queued input", async () => {
     const sessionId = await createdSession("limit-queue-1");
     const response = await tight.request(`/v1/sessions/${sessionId}/messages`, {
       method: "POST",
@@ -1149,7 +1149,7 @@ integration("sessions API on PostgreSQL", () => {
     expect((await rowsFor(sessionId)).turns).toBe(1);
   }, 60_000);
 
-  test("answers 413 STORAGE_LIMIT_EXCEEDED past the installation's storage, and writes nothing (94S-131)", async () => {
+  test("answers 413 STORAGE_LIMIT_EXCEEDED past the installation's storage, and writes nothing", async () => {
     const response = await tight.request("/v1/sessions", {
       method: "POST",
       headers: {
@@ -1172,7 +1172,7 @@ integration("sessions API on PostgreSQL", () => {
     expect(keys?.n).toBe(0);
   }, 60_000);
 
-  test("detail raises BUDGET_EXCEEDED once the session's cost reaches the limit (94S-131)", async () => {
+  test("detail raises BUDGET_EXCEEDED once the session's cost reaches the limit", async () => {
     const sessionId = await createdSession("limit-budget-1");
     const detail = async () => {
       const response = await tight.request(`/v1/sessions/${sessionId}`, {
@@ -1196,7 +1196,7 @@ integration("sessions API on PostgreSQL", () => {
     expect(JSON.stringify(spent)).not.toContain("cost_usd");
   }, 60_000);
 
-  test("detail raises CATALOG_MISMATCH while the catalog does not allow the session's pair, and drops it once restored (94S-280)", async () => {
+  test("detail raises CATALOG_MISMATCH while the catalog does not allow the session's pair, and drops it once restored", async () => {
     const sessionId = await createdSession("catalog-mismatch-1");
     const detail = async () => {
       const read = await app.request(`/v1/sessions/${sessionId}`, {

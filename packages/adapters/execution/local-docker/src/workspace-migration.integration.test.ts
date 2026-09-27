@@ -24,7 +24,7 @@ import {
 
 /**
  * Moving a legacy workspace onto the quota contract against a real daemon
- * (94S-225). Opt in with `DOCKER_BACKEND_TEST=1`. Where the daemon can carry
+ * . Opt in with `DOCKER_BACKEND_TEST=1`. Where the daemon can carry
  * a quota (the `workspace-quota` CI job) the copy lands under one; elsewhere
  * under `off`, which is the same procedure with a different stamp.
  */
@@ -354,7 +354,7 @@ integration("workspace migration against a real daemon", () => {
     expect((await migrate(sessionId)).outcome).toBe("migrated");
   }, 180_000);
 
-  test("a tree with more files than the inode limit fails the copy and keeps the source (94S-224)", async () => {
+  test("a tree with more files than the inode limit fails the copy and keeps the source", async () => {
     if (!supportsQuota) {
       // No quota here, so no limit for the copy to meet.
       expect(supportsQuota).toBe(false);

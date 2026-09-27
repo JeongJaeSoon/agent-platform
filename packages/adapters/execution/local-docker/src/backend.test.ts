@@ -873,7 +873,7 @@ function workspaceNameOf(
   return [...docker.volumes.keys()].find((name) => name.startsWith(prefix));
 }
 
-test("hands the worker the installation's turn and retry limits when they are set (94S-131)", () => {
+test("hands the worker the installation's turn and retry limits when they are set", () => {
   const intent = intentFor();
   const base = configFor("unix:///fake.sock");
   const without = workerEnvironmentFor(base, intent, "nonce-abc");
@@ -892,7 +892,7 @@ test("hands the worker the installation's turn and retry limits when they are se
   ]);
 });
 
-test("hands the worker the scheduler's LOG_LEVEL without changing the isolation stamp (94S-408)", () => {
+test("hands the worker the scheduler's LOG_LEVEL without changing the isolation stamp", () => {
   const intent = intentFor();
   const base = configFor("unix:///fake.sock");
   const without = workerEnvironmentFor(base, intent, "nonce-abc");
@@ -905,7 +905,7 @@ test("hands the worker the scheduler's LOG_LEVEL without changing the isolation 
   expect(isolationStampFor(quiet)).toBe(isolationStampFor(base));
 });
 
-test("a container started under another inode limit, or before one, is stale (94S-224)", () => {
+test("a container started under another inode limit, or before one, is stale", () => {
   // Not for the volume's sake — the limit is set in place — but because
   // only a launch sets it, and replacing the container is what launches.
   const base = configFor("unix:///fake.sock");
@@ -926,7 +926,7 @@ test("a container started under another inode limit, or before one, is stale (94
   ).toBe(isolationStampFor(base));
 });
 
-test("a container started under other worker limits, or none, is stale (94S-131)", () => {
+test("a container started under other worker limits, or none, is stale", () => {
   const base = configFor("unix:///fake.sock");
   const limited = {
     ...base,
@@ -1224,7 +1224,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
 
   test("the registry names a container's credential before the container exists", async () => {
     // The scheduler fences an exit confirmation on this credential
-    // (94S-262): a worker can only bind to a container the launch row
+    // a worker can only bind to a container the launch row
     // already names, so a pass holding an older one cannot end its binding.
     const intent = intentFor({
       issueBootstrapNonce: async () => {
@@ -1399,7 +1399,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
     const intent = intentFor();
     docker.stallStartsMs = 1_000;
     const refusal = await impatient.ensureExecution(intent).catch((e) => e);
-    // Not a launch failure: the scheduler keeps the credential (94S-393).
+    // Not a launch failure: the scheduler keeps the credential.
     expect(refusal).toBeInstanceOf(LaunchOutcomeUnknownError);
     expect((refusal as Error).cause).toBeInstanceOf(DockerTimeoutError);
     // The start may have taken, so nothing is removed on a guess.
@@ -1489,7 +1489,7 @@ describe("LocalDockerBackend.inspect", () => {
   });
 
   test("a contract-5 container, whose network gives the host an address, is stale", async () => {
-    // Its settings are today's; only the contract number moved (94S-274).
+    // Its settings are today's; only the contract number moved.
     const intent = intentFor();
     const body = await createBodyOf(intent);
     const [, digest] = isolationStampFor(configFor(docker.host)).split(":");
@@ -1933,7 +1933,7 @@ describe("LocalDockerBackend.terminate", () => {
     ).toEqual({ outcome: "terminated", providerRef: replacement.id });
   });
 
-  test("without waitForExit, a worker still draining is left stopping and removed by a later call (94S-385)", async () => {
+  test("without waitForExit, a worker still draining is left stopping and removed by a later call", async () => {
     const quick = new LocalDockerBackend({
       ...configFor(docker.host),
       requestTimeoutMs: 200,
@@ -2036,7 +2036,7 @@ describe("LocalDockerBackend worker networks", () => {
     const network = networkOf(intent);
     expect(network).toMatchObject({
       driver: "bridge",
-      // The host keeps no address on it (94S-274).
+      // The host keeps no address on it.
       gateway: "",
       internal: true,
       ipv6: false,
@@ -3090,7 +3090,7 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
     }
   });
 
-  test("a worker is handed no object store credential or endpoint (94S-251)", () => {
+  test("a worker is handed no object store credential or endpoint", () => {
     // Built the way the scheduler builds it, from an environment that holds
     // the control host's own key: none of it reaches the container.
     const config = localDockerConfigFromEnv({
@@ -3314,7 +3314,7 @@ describe("LocalDockerBackend workspace volumes", () => {
   });
 });
 
-describe("LocalDockerBackend workspace inode limit (94S-224)", () => {
+describe("LocalDockerBackend workspace inode limit", () => {
   const sessionId = intentFor().sessionId;
 
   test("every launch sets the limit on its workspace before the worker exists", async () => {
@@ -3519,7 +3519,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     expect(probesLeft()).toEqual([]);
   });
 
-  test("a young probe is another preflight's, mid-run, and is left alone (94S-418)", async () => {
+  test("a young probe is another preflight's, mid-run, and is left alone", async () => {
     // Only the old leftover is an interrupted run's. The preflight runs
     // outside the pass lock, so a young one may still be in use.
     const labels = {
@@ -3537,7 +3537,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     expect(probesLeft()).toEqual([`${probePrefix}young000`]);
   });
 
-  test("nothing but the helper's create stands between the probe and its helper (94S-418)", async () => {
+  test("nothing but the helper's create stands between the probe and its helper", async () => {
     // The stray-probe age is bounded by this: until a container references
     // the probe, another preflight's sweep could take it.
     await backend.verifyWorkspaceQuota();
@@ -3547,7 +3547,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     );
   });
 
-  test("a long request timeout keeps a probe young for longer (94S-418)", async () => {
+  test("a long request timeout keeps a probe young for longer", async () => {
     // Twenty one-minute requests: a 15-minute-old probe may still be live.
     const patient = new LocalDockerBackend({
       ...configFor(docker.host),
@@ -3563,7 +3563,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
     expect(probesLeft()).toEqual([`${probePrefix}slow0000`]);
   });
 
-  test("two preflights at once both pass (94S-418)", async () => {
+  test("two preflights at once both pass", async () => {
     // The second one's stray sweep lands between the first one's probe and
     // its helper, e.g. a standalone --once beside the loop's pass.
     let release = () => {};

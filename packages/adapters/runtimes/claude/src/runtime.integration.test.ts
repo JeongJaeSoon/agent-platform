@@ -311,7 +311,7 @@ describe("actual Claude SDK adapter with local Messages API", () => {
     await waitFor(() => exitedPids.length === 1, 5_000);
   }, 30_000);
 
-  test("an interrupt sent in the same tick as its input still ends that turn (94S-351)", async () => {
+  test("an interrupt sent in the same tick as its input still ends that turn", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-351-" });
     const { home, workspace } = isolated;
     server = startFakeAnthropicServer(async () => {
@@ -644,7 +644,7 @@ describe("transcript mirror against the actual SDK", () => {
   }, 60_000);
 });
 
-describe("resumed history against the actual SDK (94S-242)", () => {
+describe("resumed history against the actual SDK", () => {
   test("a checkpoint resume holds exactly the inputs the engine loaded", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-242-" });
     const { home, root, workspace } = isolated;
@@ -847,7 +847,7 @@ async function aborted(signal: AbortSignal): Promise<void> {
   });
 }
 
-describe("checkpoint quiescence against the actual SDK (94S-208)", () => {
+describe("checkpoint quiescence against the actual SDK", () => {
   const bashConfig = (
     workspace: string,
     home: string,
@@ -1003,7 +1003,7 @@ describe("checkpoint quiescence against the actual SDK (94S-208)", () => {
   }, 30_000);
 });
 
-describe("the engine's API key against its own tools (94S-410)", () => {
+describe("the engine's API key against its own tools", () => {
   test("a Bash tool finds the key in no environment and no descriptor", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-410-" });
     const { home, workspace } = isolated;

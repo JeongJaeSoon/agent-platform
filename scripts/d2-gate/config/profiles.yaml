@@ -1,4 +1,4 @@
-# The D2 gate's catalog (94S-247), mounted over config/ by compose.yml. The
+# The D2 gate's catalog, mounted over config/ by compose.yml. The
 # endpoint is the gate's scripted Messages API; the key is a placeholder the
 # gate sets on the API (GATE_PROVIDER_KEY), never a real credential.
 #

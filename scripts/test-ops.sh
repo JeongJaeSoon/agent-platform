@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The test-ops installation's lifecycle in one place (94S-432, docs/test-ops.md):
+# The test-ops installation's lifecycle in one place (docs/test-ops.md)
 #
 #   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, settings, catalog, and on s3 the bucket
 #                                              and S3 key (the deployed release when no manifest is named)
@@ -33,7 +33,7 @@
 # Exit codes: 2 usage, 3 upgrade refused, 1 anything else.
 #
 # LocalStack keeps S3 in memory: after a restart of its container, Docker or
-# the host the API refuses to start (94S-422) until reseed or reset
+# the host the API refuses to start until reseed or reset
 # (docs/test-ops.md).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"

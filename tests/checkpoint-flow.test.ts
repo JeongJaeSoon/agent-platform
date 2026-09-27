@@ -127,7 +127,7 @@ afterAll(async () => {
 });
 
 // The LocalStack variant is skipped rather than left out when LocalStack is
-// off: CI fails an integration job on a skip it did not declare (94S-307),
+// off: CI fails an integration job on a skip it did not declare
 // and a suite that is never declared would slip past that check.
 const backends: Array<[string, boolean, () => Promise<CheckpointObjectStore>]> =
   [
@@ -159,7 +159,7 @@ for (const [name, enabled, createObjects] of backends) {
       const store = memoryCheckpointStore();
       const service = createCheckpointService({
         codecs: { claude: claudeCheckpointCodec },
-        // The mirror does not record part versions yet (94S-246).
+        // The mirror does not record part versions yet.
         objectProtection: "unversioned",
         newPublishId: () => PUBLISH_ID,
         objects,
@@ -309,7 +309,7 @@ for (const [name, enabled, createObjects] of backends) {
       const store = memoryCheckpointStore(live);
       const service = createCheckpointService({
         codecs: { claude: claudeCheckpointCodec },
-        // The mirror does not record part versions yet (94S-246).
+        // The mirror does not record part versions yet.
         objectProtection: "unversioned",
         newPublishId: () => PUBLISH_ID,
         objects,
@@ -428,7 +428,7 @@ for (const [name, enabled, createObjects] of backends) {
       const store = memoryCheckpointStore();
       const service = createCheckpointService({
         codecs: { claude: claudeCheckpointCodec },
-        // The mirror does not record part versions yet (94S-246).
+        // The mirror does not record part versions yet.
         objectProtection: "unversioned",
         newPublishId: () => PUBLISH_ID,
         objects,

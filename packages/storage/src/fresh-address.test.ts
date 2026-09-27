@@ -8,7 +8,7 @@ import { FreshAddressHttpHandler, S3_REQUEST_BOUNDS } from "./s3.ts";
 
 /**
  * A long-lived API or scheduler must follow LocalStack to the address it
- * comes back on (94S-344). DNS is faked with a spy on `Bun.dns.lookup`; the
+ * comes back on. DNS is faked with a spy on `Bun.dns.lookup`; the
  * peer is a real loopback server, so the request really is dialed at the
  * address the spy handed out.
  */
@@ -192,7 +192,7 @@ function plainRequest(protocol: "http:" | "https:"): HttpRequest {
 
 // On a copy: from Bun 1.3.12 a proxy variable written to the real
 // process.env steers every later request of this test process, and neither
-// deleting nor emptying it takes that back (94S-441).
+// deleting nor emptying it takes that back.
 function setEnv(name: string, value: string): void {
   const real = process.env;
   process.env = { ...real, [name]: value };

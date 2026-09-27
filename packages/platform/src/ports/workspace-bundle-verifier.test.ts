@@ -77,7 +77,7 @@ describe("structuralBundleVerifier", () => {
     // this verifier reads is one the writer of the object chose, so a pack git
     // would reject at `index-pack` passes here — and the manifest's own digest
     // is no help, since the worker hashed these same bytes. Closing this needs
-    // git; 94S-228 injects that verifier, and until then a deployment picking
+    // git; injects that verifier, and until then a deployment picking
     // this one is trusting its workers about their own commits.
     expect(
       await verifyBundleBytes(structuralBundleVerifier, {

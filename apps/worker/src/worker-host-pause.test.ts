@@ -134,7 +134,7 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-describe("WorkerHost pause (94S-137)", () => {
+describe("WorkerHost pause", () => {
   test("finishes the turn in flight, answers included, finalizes it with its checkpoint, then releases for the pause", async () => {
     const { gateway, host, log, runtime } = harness([
       { type: "await-input" },
@@ -277,7 +277,7 @@ describe("WorkerHost pause (94S-137)", () => {
     );
   });
 
-  describe("a pause release whose answer is lost (94S-415)", () => {
+  describe("a pause release whose answer is lost", () => {
     const lostAnswer = () =>
       new WorkerGatewayRequestError(0, null, "POST /release timed out", true);
     const revoked = () =>
@@ -514,7 +514,7 @@ describe("WorkerHost pause (94S-137)", () => {
       () => gateway.heartbeats.length > beats + 2,
       "heartbeats while held",
     );
-    // Held, the release is asked again each interval (94S-138): that is how
+    // Held, the release is asked again each interval: that is how
     // the worker learns a resume cancelled the pause.
     await waitFor(() => gateway.releases.length > 2, "the release asked again");
     expect(log).not.toContain("worker.released");

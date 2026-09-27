@@ -15,12 +15,12 @@ import type { Database } from "./queries.ts";
 import { events, sessions } from "./schema.ts";
 
 // A server-side write to the session's event stream. The caller holds the
-// session row FOR UPDATE, as every events writer must (94S-126): ids are
+// session row FOR UPDATE, as every events writer must: ids are
 // taken at insert, so two writers racing without it could commit out of the
 // order readers see. Like every other writer, it holds the payload to the
 // public event contract before storing it: the reader parses each row with
 // the same schema, and a row it cannot parse is lost to every client
-// (94S-283).
+// .
 export async function recordEvent(
   tx: Database,
   input: {

@@ -303,7 +303,7 @@ async function retried<T>(attempt: () => Promise<T>): Promise<T> {
 /**
  * The garbage collector's side of the checkpoint bucket. Its credentials
  * must be the control plane's: releasing a hold is exactly the permission a
- * worker must never have (94S-251).
+ * worker must never have.
  *
  * No `BypassGovernanceRetention`: checkpoints are protected by legal holds
  * alone. A bucket that also has default retention is an operator saying

@@ -190,7 +190,7 @@ integration("a legacy session relaunched after migrate-workspace", () => {
     ]);
     expect(copy?.Labels?.[LABELS.migratedFrom]).toBe(legacy);
 
-    // The refused launch is in its retry backoff (94S-207); spend it on the
+    // The refused launch is in its retry backoff; spend it on the
     // DB clock rather than waiting it out.
     await db
       .update(workerLaunches)

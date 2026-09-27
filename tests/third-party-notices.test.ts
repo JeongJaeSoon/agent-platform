@@ -229,7 +229,7 @@ describe("license policy", () => {
     ).toHaveLength(1);
   });
 
-  // 94S-375: what the notices say about Bun and the bundled Claude Code is
+  // what the notices say about Bun and the bundled Claude Code is
   // tied to a version, so a bump waits for someone to read the new one.
   test("a Bun or Agent SDK version without its pinned build fails", () => {
     expect(problemsOf([], { ...base, bun: "9.9.9" })).toEqual([
@@ -367,7 +367,7 @@ describe("base image pins", () => {
   });
 });
 
-describe("Debian corresponding source (94S-375)", () => {
+describe("Debian corresponding source", () => {
   const status = [
     "Package: libc6",
     "Status: install ok installed",

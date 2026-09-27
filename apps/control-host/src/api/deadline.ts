@@ -20,7 +20,7 @@ export const RESPONSE_IDLE_TIMEOUT_SECONDS = 10;
 // After a response that says `Connection: close`. Bun does not close on that
 // header while request bytes are still unread, and rounds its idle clock to
 // ~4 s ticks, so the 10 s default held a stalled sender's socket 8-12 s past
-// the 408 (94S-311).
+// the 408.
 export const CLOSING_IDLE_TIMEOUT_SECONDS = 1;
 
 export interface RequestDeadlineOptions {

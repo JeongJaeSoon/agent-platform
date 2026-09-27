@@ -381,7 +381,7 @@ integration("worker lease on the monotonic clock end to end", () => {
     );
   }, 90_000);
 
-  test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401 (94S-346)", async () => {
+  test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401", async () => {
     const { executionId, nonce } = await launchSession();
     const runtime = new FakeAgentRuntime([
       { type: "await-input" },

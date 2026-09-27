@@ -113,7 +113,7 @@ const FINAL_ADMISSION_STATES: Array<
 const LAUNCH_ERROR_MAX_CHARS = 1_000;
 
 /**
- * Overdue terminate receipts one pass turns `unknown` (94S-450). A backlog
+ * Overdue terminate receipts one pass turns `unknown`. A backlog
  * is worked off over several passes, as the reconciler's batch does, rather
  * than in one statement that can outlast the pass.
  */
@@ -225,7 +225,7 @@ export function createPostgresSchedulerStore(
             isNull(sessions.executionRevokedAt),
             // Before the LIMIT, so a backlog of spent sessions cannot crowd
             // out the ones that can still run, nor sessions waiting out a
-            // restore backoff (94S-345).
+            // restore backoff.
             lt(sessions.costUsd, options.sessionCostLimitUsd),
             restoreRetryDue(),
             notExists(
@@ -591,7 +591,7 @@ export function createPostgresSchedulerStore(
             eq(workerLaunches.launchAttempts, expectedAttempts),
             holdsSlot(),
             // A launch asked to go since the pass read it — by a terminate,
-            // or by the gateway failing its session (94S-280) — gets no new
+            // or by the gateway failing its session — gets no new
             // resource.
             exists(
               db
@@ -678,7 +678,7 @@ export function createPostgresSchedulerStore(
                 .limit(1);
         // A worker that has not asked for input yet is still restoring or
         // starting up; cut short, it would count as a failed startup
-        // (94S-302). Its first poll ends that, and gets no turn.
+        // . Its first poll ends that, and gets no turn.
         const startingUp =
           session !== undefined &&
           session.restoreAttemptId === launch.claimedAttemptId;

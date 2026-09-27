@@ -44,7 +44,7 @@ describe("scheduler exit code", () => {
     expect(exitCodeFor(clean)).toBe(0);
   });
 
-  test("a kill still draining is not a failure (94S-385)", () => {
+  test("a kill still draining is not a failure", () => {
     expect(exitCodeFor({ ...clean, killsStopping: [ref] })).toBe(0);
     expect(exitCodeFor({ ...clean, orphansStopping: [ref] })).toBe(0);
   });

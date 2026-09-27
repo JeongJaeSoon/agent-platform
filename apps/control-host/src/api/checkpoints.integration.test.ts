@@ -107,7 +107,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
     });
     // Object Lock, as the compose bucket is: the composition pins and holds
-    // checkpoint objects by default (94S-229).
+    // checkpoint objects by default.
     bucket = await createLocalstackBucket({
       objectLock: true,
       prefix: "api-ckpt-it",
@@ -238,10 +238,10 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
 
   test.each([
     ["checkpoint_lease_held", "Another checkpoint holds the lease"],
-    // 94S-312: a ready run whose publish failed reports it the same way.
+    // a ready run whose publish failed reports it the same way.
     ["publish_failed", "workspace: 12000 untracked files, over the 10000"],
   ] as const)(
-    "a checkpoint refused as %s is recorded and the pointer stays (94S-208)",
+    "a checkpoint refused as %s is recorded and the pointer stays",
     async (reason, detail) => {
       const { claimed, principal, scope } = await claimedSession();
       const pointer = async () =>
@@ -283,7 +283,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     60_000,
   );
 
-  test("a manifest refused at finalize leaves the key free to finalize the turn without one (94S-246)", async () => {
+  test("a manifest refused at finalize leaves the key free to finalize the turn without one", async () => {
     const { principal, scope, turnId } = await claimedSession();
     const asked = await gateway.requestCheckpoint(principal, {
       ...scope,
@@ -474,7 +474,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     });
   }, 60_000);
 
-  test("what finalize verified is what restore gets, whatever happens to the keys afterwards (94S-229)", async () => {
+  test("what finalize verified is what restore gets, whatever happens to the keys afterwards", async () => {
     const { claimed, principal, scope, turnId } = await claimedSession();
     const sessionId = claimed.session_id;
     const prefix = sessionObjectPrefix(sessionId);
@@ -644,7 +644,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     expect(await objects.get(rootPart.key)).not.toEqual(transcript);
   }, 60_000);
 
-  test("a damaged pointer restores the newest held revision below it, and the session and its event stream say so (94S-204)", async () => {
+  test("a damaged pointer restores the newest held revision below it, and the session and its event stream say so", async () => {
     const { claimed, principal, scope, turnId } = await claimedSession();
     const sessionId = claimed.session_id;
     const prefix = sessionObjectPrefix(sessionId);
@@ -836,7 +836,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     );
   }, 60_000);
 
-  test("a locked deployment refuses to start on a bucket that cannot pin or hold versions; an unversioned one says so and starts (94S-229)", async () => {
+  test("a locked deployment refuses to start on a bucket that cannot pin or hold versions; an unversioned one says so and starts", async () => {
     await assertCheckpointBucketProtection(storageConfig(bucket));
     const plain = await createLocalstackBucket({ prefix: "api-ckpt-plain" });
     try {

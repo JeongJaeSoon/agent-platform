@@ -54,7 +54,7 @@ export function parseMigrateWorkspaceArgs(
 }
 
 /**
- * Moves legacy workspaces onto the current quota contract (94S-225): an
+ * Moves legacy workspaces onto the current quota contract: an
  * explicit operator action, never something a pass does on its own. Holds
  * the scheduler's pass lock throughout, so no pass launches onto or reclaims
  * either volume while a copy is in flight; run it between passes. Returns

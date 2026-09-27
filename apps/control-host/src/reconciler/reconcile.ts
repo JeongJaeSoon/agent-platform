@@ -45,7 +45,7 @@ export function reconcilerSettings(
   // Every lease this judges carries the deadline its writer stamped from the
   // API's HEARTBEAT_TTL_SEC. A value here could only disagree with that one,
   // and silently ignoring it would let an operator believe it applies
-  // (94S-132).
+  // .
   if (environment.HEARTBEAT_TTL_SEC !== undefined) {
     throw new Error(
       "HEARTBEAT_TTL_SEC is read by the API only; the reconciler judges the lease deadlines stored with each heartbeat. Unset it here.",

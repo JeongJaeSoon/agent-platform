@@ -10,7 +10,7 @@ import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { createLogger } from "@agent-platform/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
 
-// The operator's catalog activation (94S-295). The API never activates the
+// The operator's catalog activation. The API never activates the
 // catalog it loads: with several replicas mid-rollout, whichever started last
 // would win. The revision to activate is the one each replica logs at
 // startup ("Session catalog loaded", `revision`).

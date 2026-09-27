@@ -140,7 +140,7 @@ export async function transactionWithBindingRetry<T>(
  */
 export async function lockSessionForControl(
   tx: Database,
-  // No owner for an operator command, which acts on any session (94S-321).
+  // No owner for an operator command, which acts on any session.
   input: {
     sessionId: string;
     ownerId?: string;
@@ -195,13 +195,13 @@ export function controlClock(callerNow: Date, startedAt: number): Date {
 
 /**
  * Whether the checkpoint the session points at can be restored from. A
- * blocking reason (94S-201: a dropped transcript mirror batch) means the
+ * blocking reason (a dropped transcript mirror batch) means the
  * pointer may have been taken by the run whose mirror is missing entries, so
  * it is not trusted until a later run commits past it. An advisory one (the
  * run was not quiescent) only says the newest turn went uncaptured; the
- * pointer it left is still the one to resume from (94S-284) — distrusting
+ * pointer it left is still the one to resume from — distrusting
  * it would wedge a stopped session, which no later commit ever reaches. A
- * pointer at or below the revision a start_fresh decision retired (94S-288)
+ * pointer at or below the revision a start_fresh decision retired
  * belongs to an engine session the operator already gave up on.
  *
  * Deliberately coarse: a pointer committed by an earlier, healthy run would
@@ -227,7 +227,7 @@ export function hasRestorePoint<
 /**
  * The checkpoint revision the session's state is actually based on: the
  * pointer's, unless the last restore fell back to an earlier revision
- * because the pointer's checkpoint was damaged (94S-204) and nothing has
+ * because the pointer's checkpoint was damaged and nothing has
  * committed since. Coverage is judged on this one — the pointer's turn
  * watermark describes work the running session no longer has.
  */
@@ -240,11 +240,11 @@ export function restoreBaseRevision(session: {
 
 /**
  * Reports accepted receipts matching `overdue` as unknown, at most `limit`
- * of them (94S-399): a backlog is worked off over several passes rather than
+ * of them: a backlog is worked off over several passes rather than
  * in one statement that can outlast the pass. The batch is read and locked
  * first, in its own statement, because a `LIMIT … FOR UPDATE` subquery inside
  * the UPDATE may be rescanned and flip more than `limit`. The oldest go first
- * (94S-450), so a receipt cannot wait behind a backlog that keeps growing. A
+ * so a receipt cannot wait behind a backlog that keeps growing. A
  * row another transaction holds is left to the next pass, not waited on.
  */
 export async function expireOverdueReceipts(

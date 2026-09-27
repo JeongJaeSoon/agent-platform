@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Postgres restarts on a new address; the API must follow it (94S-343):
+# Postgres restarts on a new address; the API must follow it
 #
 #   tests/e2e/db-restart.sh
 #

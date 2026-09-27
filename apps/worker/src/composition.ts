@@ -227,7 +227,7 @@ function claudeRunConfig(
 
 /**
  * The fingerprint a checkpoint of this claim's run is stamped with, and the
- * one a restore plan is asked for (94S-261). The committed CLAUDE.md is not
+ * one a restore plan is asked for. The committed CLAUDE.md is not
  * read: the digest records only that the profile lets it in.
  */
 export function claudeClaimFingerprint(
@@ -251,7 +251,7 @@ export function claudeClaimFingerprint(
  * The claim's provider as the engine sees it: the upstream endpoint stays
  * (policy approves it and the checkpoint fingerprint names it), but the
  * calls go to the egress proxy's provider route with the attempt's token,
- * and the proxy adds the credential (94S-252).
+ * and the proxy adds the credential.
  */
 export function engineProfile(
   provider: RuntimeConfig["provider"],

@@ -56,7 +56,7 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
       HOME: scratch,
       GIT_CONFIG_NOSYSTEM: "1",
       // As `runGit` does: a detached `git maintenance run --auto` would
-      // repack under a comparison of the repository's objects (94S-412).
+      // repack under a comparison of the repository's objects.
       GIT_CONFIG_COUNT: "2",
       GIT_CONFIG_KEY_0: "maintenance.auto",
       GIT_CONFIG_VALUE_0: "false",

@@ -1,12 +1,12 @@
 /**
- * What the platform charges a session for one Messages call (94S-409): the
+ * What the platform charges a session for one Messages call: the
  * provider's list price per million tokens, by the model the answer names.
  * The platform owns this table and updates it with its releases, when a
  * model is added or a price changes; checked against Anthropic's pricing
  * on 2026-09-26.
  *
- * Fast mode has its own rates (94S-451), and each web search adds its
- * per-search fee. US-only inference costs 1.1x on every token rate (94S-454).
+ * Fast mode has its own rates, and each web search adds its
+ * per-search fee. US-only inference costs 1.1x on every token rate.
  * An estimate, not a bill: code execution container time is not priced.
  */
 

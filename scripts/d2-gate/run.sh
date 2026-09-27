@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The D2 completion gate (94S-247), as one command:
+# The D2 completion gate, as one command
 #
 #   scripts/d2-gate/run.sh
 #
@@ -97,7 +97,7 @@ curl -fsS -u "agent:${gitea_password}" -X POST "${gitea_url}/api/v1/user/repos" 
 api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create gate-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
-# The reconciler runs as the product runs it, on its own loop (94S-320).
+# The reconciler runs as the product runs it, on its own loop.
 dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
 
 echo "== gate" >&2

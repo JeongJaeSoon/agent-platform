@@ -22,7 +22,7 @@ const system = join("packages", "system");
 const routes = join("apps", "control-host", "src", "api", "routes");
 const worker = join("apps", "worker");
 const storage = "@agent-platform/storage";
-/** The one worker file allowed to know objects live in S3 (94S-244). */
+/** The one worker file allowed to know objects live in S3. */
 const workerObjectStore = join(worker, "src", "object-store.ts");
 
 type Manifest = {
@@ -544,7 +544,7 @@ describe("architecture", () => {
   test("the worker imports runtime-core, the Claude adapter, contracts, storage, system and observability only", async () => {
     const allowed = new Set([
       "@agent-platform/contracts",
-      // The log format and masking rules; it imports nothing itself (94S-386).
+      // The log format and masking rules; it imports nothing itself.
       "@agent-platform/observability",
       "@agent-platform/runtime-claude",
       "@agent-platform/runtime-core",

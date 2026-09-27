@@ -143,7 +143,7 @@ function checkpointPort(
 }
 
 integration(
-  "a replaced worker never silently drops the conversation (94S-288)",
+  "a replaced worker without a covering checkpoint never silently drops the conversation",
   () => {
     let database: TempDatabase;
     let pool: Pool;

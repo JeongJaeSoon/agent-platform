@@ -11,7 +11,7 @@ import { connect as tlsConnect } from "node:tls";
  *
  * Deliberately minimal: one request per connection (`connection: close`),
  * the request body sent with a length — whole, or streamed at a length
- * known up front (the object store route's uploads, 94S-251) — no
+ * known up front (the object store route's uploads) — no
  * `Expect: 100-continue`, no pooling.
  */
 

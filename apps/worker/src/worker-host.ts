@@ -54,7 +54,7 @@ import {
 import { type ProviderFailure, TurnAccounting } from "./turn-accounting.ts";
 import type { WorkspacePreparer } from "./workspace.ts";
 
-/** Where the claim's object store token goes (94S-251). */
+/** Where the claim's object store token goes. */
 export type ObjectStoreAccess = { useToken(token: string): void };
 
 /** The gateway client plus the one thing a claim changes about it. */
@@ -66,7 +66,7 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
 /**
  * `runtimeConfig` is the claim's: the server resolved it from the session's
  * profile. `principal` is the claim's too — the session's owner partition,
- * which the runtime hashes into every checkpoint fingerprint (94S-209). It
+ * which the runtime hashes into every checkpoint fingerprint. It
  * is never defaulted here: a worker that made one up would let two
  * partitions on one provider resume each other's checkpoints.
  */
@@ -148,7 +148,7 @@ type Stop = {
   /**
    * A drain asked of this process from outside (`drain`), unlike the ones
    * it decides itself: a mirror error can end a startup as surely as a
-   * failure does (94S-302).
+   * failure does.
    */
   requested?: true;
 };
@@ -187,7 +187,7 @@ type Turn = {
   /**
    * When the interrupt's grace runs out (performance.now()): it bounds the
    * whole way to the engine's terminal, not each step. The checkpoint capture
-   * after it has a budget of its own (94S-382).
+   * after it has a budget of its own.
    */
   interruptDeadline?: number;
   /** Monotonic origin for every stage of this interrupt's diagnostic timeline. */
@@ -210,7 +210,7 @@ const INTERRUPT_GRACE_MS = 5_000;
 /**
  * How long an interrupted turn's capture gets once the engine has stopped.
  * With the grace before it and finalize after it, the turn settles well
- * before the reconciler fences an interrupt still unsettled at 60s (94S-273).
+ * before the reconciler fences an interrupt still unsettled at 60s.
  */
 const INTERRUPT_CAPTURE_MS = 30_000;
 /** How long a closed engine gets to exit, and a killed one after that. */
@@ -504,7 +504,7 @@ export class WorkerHost {
   /**
    * Tells the gateway this attempt restored what its claim named and can
    * take input: a session resumed out of `paused` admits none until then
-   * (94S-138). A resumed engine is waited on first — its transcript loaded,
+   * . A resumed engine is waited on first — its transcript loaded
    * the engine initialized — so a restore that fails there fails the resume
    * instead of reaching the first turn. The revision reported is the one the
    * restore loaded (the claim's, for a plan resuming this container's disk);
@@ -620,7 +620,7 @@ export class WorkerHost {
     if (this.stopping?.kind === "lost") return;
     // Committing the pause revokes this credential and moves the epoch on,
     // so either refusal while the release is unanswered is most likely that
-    // commit, its answer lost (94S-415): UNAUTHORIZED for a request that
+    // commit, its answer lost: UNAUTHORIZED for a request that
     // came after it, STALE_EPOCH for one that authenticated before it and
     // waited on its fence. A double fault — the binding ended by a terminate
     // as the release went out — is reported paused too; the session's state
@@ -695,7 +695,7 @@ export class WorkerHost {
           continue;
         }
         // The session was waiting, but on an operator rather than a worker:
-        // its turns have no checkpoint this worker could restore (94S-288).
+        // its turns have no checkpoint this worker could restore.
         // Nothing went wrong here, so the worker leaves as one with nothing
         // to claim does.
         if (error.code === "RECOVERY_REQUIRED") {
@@ -799,7 +799,7 @@ export class WorkerHost {
    * the session stays pausing and shows why, and the release is asked again
    * every heartbeat interval until it commits or something else stops this
    * attempt (terminate fences it, SIGTERM drains it). Once the pause is no
-   * longer the open one — a resume cancelled it (94S-138), or a newer pause
+   * longer the open one — a resume cancelled it, or a newer pause
    * replaced it — the answer is REQUEST_STALE and the attempt goes back to
    * its input loop as if it had never been asked.
    */
@@ -812,7 +812,7 @@ export class WorkerHost {
     );
     if (!flushed || this.ownerLost) return "ended";
     // Raced with the loss, as the release below is: a lost attempt's engine
-    // is killed now, not once these requests give up (94S-392).
+    // is killed now, not once these requests give up.
     await this.untilAbandoned(
       this.pending?.flush(this.options.timeouts.requestTimeoutMs) ??
         Promise.resolve(),
@@ -1030,7 +1030,7 @@ export class WorkerHost {
 
   /**
    * Sends the input unless the engine session already holds its uuid. Such a
-   * send is deduplicated and never answered (94S-242); regenerating the uuid
+   * send is deduplicated and never answered; regenerating the uuid
    * would make it a new turn and redo whatever the first delivery did. The
    * transcript the run resumed from is what says so, and when it holds the
    * input its outcome is unknown: it was recorded, not proven finished.
@@ -1429,7 +1429,7 @@ export class WorkerHost {
   }
 
   /**
-   * The interrupt's effect, recorded ahead of the checkpoint (94S-382): the
+   * The interrupt's effect, recorded ahead of the checkpoint: the
    * engine ended the turn by abort after acknowledging the interrupt, so it
    * does no more work for it. Inside the turn's stream, before the cut, so
    * it is durable before the capture starts; it settles nothing, and the
@@ -1960,7 +1960,7 @@ export class WorkerHost {
     const releasable = await this.settleBeforeRelease();
     // Beating until here, not only until the engine is gone: the event tail
     // and the pending flush can outlast the lease, and one that lapses
-    // meanwhile is fenced by the reconciler with the turn unknown (94S-392).
+    // meanwhile is fenced by the reconciler with the turn unknown.
     if (this.heartbeat !== undefined) {
       await settledWithin(
         this.heartbeat.stop(),
@@ -1974,19 +1974,19 @@ export class WorkerHost {
     const request: ReleaseRequest = {
       ...this.scope,
       turn_id: null,
-      // The session shows it when a restore keeps failing (94S-345).
+      // The session shows it when a restore keeps failing.
       reason: this.scrubber.scrub(this.stopping?.reason ?? "loop ended"),
     };
     const gateway = this.options.gateway;
-    // A startup a signal cut short is not a failed one (94S-302).
+    // A startup a signal cut short is not a failed one.
     const releasing = (
       this.stopping?.kind === "drain" && this.stopping.requested
         ? gateway
             .release({ ...request, stop_kind: "drain" })
             .catch((error: unknown) => {
               // A strict gateway older than this worker refuses the field
-              // (94S-361). The session is still handed back without it, which
-              // that gateway counts as it counted every stop before 94S-302;
+              // . The session is still handed back without it, which
+              // that gateway counts as it counted every stop before
               // a lapsed lease would count it all the same, only later.
               if (
                 !(error instanceof WorkerGatewayRequestError) ||
@@ -2167,7 +2167,7 @@ export class WorkerHost {
   /**
    * A budget for a stage the turn deadline does not cover. The heartbeat
    * extends the lease on its own clock whatever the stage is doing, so one
-   * that never ends would hold the session forever (94S-269). Expiry fails
+   * that never ends would hold the session forever. Expiry fails
    * the worker, unless a stop is already under way: a drain keeps its outcome.
    */
   private stageBudget(stage: string, ms: number) {
@@ -2366,7 +2366,7 @@ function releaseReason(error: unknown): string {
 
 /**
  * One JSON object per line: `timestamp`, `level`, `event`, then the fields,
- * masked by the platform's log rules (94S-386). Keys that name a message
+ * masked by the platform's log rules. Keys that name a message
  * body are kept: the worker logs no bodies, and the rule would drop
  * `input_id`.
  */

@@ -132,7 +132,7 @@ describe("fake Anthropic Messages API", () => {
     const ok = await timed();
 
     // Bun.sleep has millisecond granularity and can wake up to 1ms before
-    // performance.now() says the full delay passed (94S-327).
+    // performance.now says the full delay passed.
     for (const ms of elapsed) expect(ms).toBeGreaterThanOrEqual(49);
     expect(quota.status).toBe(429);
     expect(await quota.json()).toEqual({

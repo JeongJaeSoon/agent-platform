@@ -29,7 +29,7 @@ const quiet: SchedulerLogger = {
 };
 
 /**
- * 94S-225: a stopped session's workspace expires, and the expiry is
+ * a stopped session's workspace expires, and the expiry is
  * serialized with resume. Each test fixes one interleaving of the GC pass
  * and a resume against real PostgreSQL row locks; the daemon is a stand-in
  * whose removal can be held open or made to fail.

@@ -106,7 +106,7 @@ function result(uuid: string): NativeSdkMessage {
   };
 }
 
-/** Stands in for CheckpointService (94S-201): every ready preparation commits. */
+/** Stands in for CheckpointService: every ready preparation commits. */
 function capturing(): WorkerCheckpointPort {
   // Revisions start at 0, as the gateway's pointer does.
   let revision = -1;
@@ -405,7 +405,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
     expect(await turnStatus(sessionId, 1)).toBe("interrupted");
     const streamed = await stream.seen;
     expect(streamed).toContain('"phase":"interrupting"');
-    // The effect is stored as its own event, named by the intent (94S-382).
+    // The effect is stored as its own event, named by the intent.
     expect(streamed.indexOf('"phase":"interrupting"')).toBeLessThan(
       streamed.indexOf('"phase":"engine_stopped"'),
     );

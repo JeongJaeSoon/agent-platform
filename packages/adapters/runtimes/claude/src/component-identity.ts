@@ -97,7 +97,7 @@ export function describeComponents(
   const plugins = Array.from({ length: declared.length }, (_, i) => declared[i])
     .filter((plugin): plugin is NonNullable<typeof plugin> => plugin != null)
     // Code-unit order, as canonicalJson sorts keys: the fingerprint must not
-    // depend on the host's locale (94S-400).
+    // depend on the host's locale.
     .sort((left, right) =>
       left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
     )

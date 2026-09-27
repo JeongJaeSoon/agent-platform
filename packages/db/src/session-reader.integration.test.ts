@@ -28,7 +28,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const OWNER = "owner-reader";
 
-integration("session reader on PostgreSQL (94S-396)", () => {
+integration("session reader on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;

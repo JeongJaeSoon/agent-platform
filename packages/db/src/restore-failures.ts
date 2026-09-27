@@ -11,7 +11,7 @@ type SessionRow = typeof sessions.$inferSelect;
 
 /**
  * Claimed launches an active session may spend on a worker that ends before
- * it is ready for input (94S-345, 94S-347), as a resume may
+ * it is ready for input, as a resume may
  * (RESUME_LAUNCH_LIMIT). One such exit says little — a deploy's SIGTERM, a
  * read damaged in transit — so the next launch waits out the startup backoff
  * (30s, then 60s) and tries again; a startup that keeps failing, whether it
@@ -111,7 +111,7 @@ export async function recordStartupFailure(
     subtype: restoring ? "checkpoint_restore_failed" : "startup_failed",
     ...(restoring
       ? {
-          // What the attempt was restoring: a fallback's base (94S-204) when
+          // What the attempt was restoring: a fallback's base when
           // its plan fell back, the pointer otherwise.
           checkpoint_revision:
             session.checkpointRestoreAttemptId === input.attemptId

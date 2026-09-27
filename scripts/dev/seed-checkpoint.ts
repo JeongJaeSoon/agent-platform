@@ -2,10 +2,10 @@
  * Development fixture for scripts/backup.sh → restore.sh → verify-restore.sh.
  *
  * Writes one session with one committed checkpoint into an installation the
- * way a worker and the control plane would (94S-124 contracts): transcript
+ * way a worker and the control plane would (contracts): transcript
  * parts through the mirror, a real `git bundle`, the manifest sealed by the
  * Claude codec and uploaded create-only, then the DB pointer. The product
- * writes one only at the end of a real worker turn (94S-246); this gives a
+ * writes one only at the end of a real worker turn; this gives a
  * backup something for the verifier to compare without running one.
  *
  * Only for a local compose installation. Every write goes to a fresh random
@@ -75,7 +75,7 @@ const captured = await mirror.captureTranscripts(engineSession);
 if (captured === null) throw new Error("root transcript was not captured");
 
 // Every ref names the version it was written as, as a locked finalize
-// requires (94S-229). The mirror does not report part versions yet (94S-246),
+// requires. The mirror does not report part versions yet
 // so each part's current version is read back; nothing else writes these keys.
 async function withVersion<T extends ObjectRef>(ref: T): Promise<T> {
   const head = await objects.head(ref.key);

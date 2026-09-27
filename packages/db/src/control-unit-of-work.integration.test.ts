@@ -521,7 +521,7 @@ integration("session terminate on PostgreSQL", () => {
     ).toEqual({ status: 409, code: "STALE_EPOCH" });
   });
 
-  test("terminate cancels a pending replacement so the kill's exit is confirmable (94S-220)", async () => {
+  test("terminate cancels a pending replacement so the kill's exit is confirmable", async () => {
     const partition = `replace-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
     const l = await launch(partition, session.session_id);
@@ -926,7 +926,7 @@ integration("session terminate on PostgreSQL", () => {
     );
   });
 
-  test("terminate and the exit it waits on each put the admission they reach on the stream, in step with the receipt (94S-293)", async () => {
+  test("terminate and the exit it waits on each put the admission they reach on the stream, in step with the receipt", async () => {
     const { session, launch: l, claimed } = await bound("stream");
     await deliver(claimed);
     await finishTurn(claimed);
@@ -963,7 +963,7 @@ integration("session terminate on PostgreSQL", () => {
     expect(await statusFrames(session)).toHaveLength(stopped.length);
   });
 
-  test("an exit that leaves the turn unknown puts recovery_required on the stream (94S-293)", async () => {
+  test("an exit that leaves the turn unknown puts recovery_required on the stream", async () => {
     const { session, launch: l, claimed } = await bound("stream-unknown");
     await deliver(claimed);
     await gateway.confirmExecutionGone(l.executionId);
@@ -975,7 +975,7 @@ integration("session terminate on PostgreSQL", () => {
     expect(frames.at(-1)).toMatchObject(await readsAs(session));
   });
 
-  test("a terminate with nothing to kill reports stopped at once, with its succeeded receipt (94S-293)", async () => {
+  test("a terminate with nothing to kill reports stopped at once, with its succeeded receipt", async () => {
     const session = await queuedSession(`stream-idle-${crypto.randomUUID()}`);
     const result = await terminate(
       session,
@@ -993,7 +993,7 @@ integration("session terminate on PostgreSQL", () => {
     ]);
   });
 
-  test("terminate on a stopped session changes nothing on it, so the revision a client holds stays good (94S-310)", async () => {
+  test("terminate on a stopped session changes nothing on it, so the revision a client holds stays good", async () => {
     const { session, launch: l, claimed } = await bound("restop");
     await deliver(claimed);
     await finishTurn(claimed, 0);

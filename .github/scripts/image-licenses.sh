@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What one app image ships, against THIRD_PARTY_NOTICES.md (94S-338):
+# What one app image ships, against THIRD_PARTY_NOTICES.md
 # `image-licenses.sh <control-host|worker|egress-proxy> <image ref>`.
 #
 # The notices are computed from bun.lock; this is where that model meets a
@@ -16,7 +16,7 @@ image="$2"
 docker run --rm --entrypoint bun -v "$PWD:/repo:ro" "$image" \
   /repo/scripts/third-party-notices.ts --verify "$app" /app
 
-# The corresponding-source list this build shipped (94S-375), for the log.
+# The corresponding-source list this build shipped, for the log.
 echo "::group::${app}: /app/DEBIAN_SOURCES.md"
 docker run --rm --entrypoint cat "$image" /app/DEBIAN_SOURCES.md
 echo "::endgroup::"

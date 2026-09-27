@@ -210,7 +210,7 @@ describe("HttpWorkerGatewayClient", () => {
     expect(error.message).toContain("ECONNREFUSED");
   });
 
-  test("a 2xx whose body breaks off is retryable, and the heartbeat keeps the lease (94S-392)", async () => {
+  test("a 2xx whose body breaks off is retryable, and the heartbeat keeps the lease", async () => {
     const broken = () =>
       new Response(
         new ReadableStream({

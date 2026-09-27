@@ -6,7 +6,7 @@ import {
 } from "@agent-platform/contracts/settings";
 
 /**
- * The limits an installation runs under (94S-131). Every control process
+ * The limits an installation runs under. Every control process
  * reads them with this one parser, so the API that admits input, the gateway
  * that dispatches it and the scheduler that launches workers cannot disagree
  * about them. There are no defaults here on purpose: a missing value stops
@@ -44,7 +44,7 @@ export type InstallationLimitsEnvironment = {
  * What the storage limit counts today: the UTF-8 bytes of every input
  * message a session was given. Events, checkpoint objects and worker disks
  * are not in it — refusing an event batch would strand the turn that wrote
- * it, and a worker's disk has its own quota (94S-215).
+ * it, and a worker's disk has its own quota.
  */
 export const STORAGE_ACCOUNTED_CONTENT = STORAGE_ACCOUNTED_CONTENT_VALUES;
 

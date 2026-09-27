@@ -32,7 +32,7 @@ describe("assertPassOutlastsStop", () => {
     expect(() => assertPassOutlastsStop(180_000, docker)).not.toThrow();
   });
 
-  test("refuses a pass timeout a worker stop can outlast (94S-385)", () => {
+  test("refuses a pass timeout a worker stop can outlast", () => {
     const { docker } = schedulerConfigFromEnv(base);
     expect(() => assertPassOutlastsStop(120_000, docker)).toThrow(message);
     expect(() => assertPassOutlastsStop(150_000, docker)).toThrow(message);

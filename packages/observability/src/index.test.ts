@@ -89,7 +89,7 @@ describe("structured logging", () => {
     expect(sink.records[1]?.message).toBe("[REDACTED]");
   });
 
-  test("drops the login from a URL and keeps the rest of it (94S-386)", () => {
+  test("drops the login from a URL and keeps the rest of it", () => {
     const sink = new MemoryLogSink();
     const logger = createLogger({ sinks: [sink] });
 

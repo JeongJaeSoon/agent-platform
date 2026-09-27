@@ -18,7 +18,7 @@ import {
 const KEY = "sessions/s1/checkpoints/0000000000/a/p/workspace.bundle";
 const MiB = 1024 * 1024;
 
-describe("transfer budgets grow with the object (94S-318)", () => {
+describe("transfer budgets grow with the object", () => {
   test("the floor up to 256 MiB, the same rate above it", () => {
     expect(transferBudgetMs(0, 300_000)).toBe(300_000);
     expect(transferBudgetMs(128 * MiB, 300_000)).toBe(300_000);

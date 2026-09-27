@@ -94,7 +94,7 @@ export type SoakConfig = {
     toleranceMs: number;
   };
   /**
-   * How often the product reconciler's status file is read (94S-320), and
+   * How often the product reconciler's status file is read, and
    * how old its last successful pass may be at any reading — the compose
    * healthcheck's RECONCILER_HEALTH_STALE_SEC.
    */
@@ -103,7 +103,7 @@ export type SoakConfig = {
   targets: {
     acceptP95Ms: number;
     interruptEffectMs: number;
-    /** POST to the turn settling `interrupted`, checkpoint included (94S-382). */
+    /** POST to the turn settling `interrupted`, checkpoint included. */
     interruptTerminalMs: number;
     terminateEffectMs: number;
     readyzAvailability: number;
@@ -572,7 +572,7 @@ export type ReadyzSample = {
   wallMs: number;
   /**
    * From `t` to curl's spawn returning. Kept for the record only: the child
-   * may start after the spawn returned (94S-453).
+   * may start after the spawn returned.
    */
   spawnMs?: number;
 };
@@ -588,7 +588,7 @@ export type VmStall = Stall & {
 };
 
 /**
- * The host probe (94S-453): curl from the host, each slot, to the /healthz
+ * The host probe: curl from the host, each slot, to the /healthz
  * of two idle containers that do no product work, vm-lag and its twin
  * host-echo. Both sit behind the same Docker Desktop port forward readyz
  * takes, which can hold requests while the VM keeps ticking (RC4 06:05:52Z,
@@ -622,7 +622,7 @@ type VmPoll = {
 };
 
 /**
- * O-1 exclusions (94S-440, 94S-443, 94S-453; decided with Codex). The
+ * O-1 exclusions (decided with Codex). The
  * target itself (availability 1.0, the 2s timeout) is the config's.
  * - runner: a slot the host runner never probed says nothing of the API;
  * - host: a timeout with no answer but 200 while a stall of at least
@@ -839,7 +839,7 @@ export function judgeReadyz(
 }
 
 /**
- * P-3 host exclusions (94S-444, 94S-453; decided with Codex), on O-1's
+ * P-3 host exclusions (decided with Codex), on O-1's
  * rule: an interrupt whose effect came later than the target while a VM or
  * host probe stall of at least `stallMinMs`, or the `afterStallMs` after it
  * the stack takes to catch up (RC4: readyz slow ~20s after one), surely
@@ -855,7 +855,7 @@ export const INTERRUPT_EXCLUSION = {
 };
 
 /**
- * The interrupt's effect (94S-453): POST sent → the worker logging
+ * The interrupt's effect: POST sent → the worker logging
  * engine_stopped, moved onto the host clock at the latest it can have
  * been. The probe reads the container clock just before the POST and again
  * once the event was read; each reading bounds the offset by half its
@@ -1345,7 +1345,7 @@ function background(soak: Soak, clock: Clock): Promise<void>[] {
       pollVmStalls(soak, vmLagUrl(env)),
     ),
   ];
-  // The compose reconciler (94S-320) runs its own loop; its status file is
+  // The compose reconciler runs its own loop; its status file is
   // the record of whether passes kept succeeding over the whole run.
   tasks.push(
     every(clock, config.reconciler.intervalSec * 1000, async () => {

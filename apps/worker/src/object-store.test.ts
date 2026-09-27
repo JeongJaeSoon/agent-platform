@@ -37,7 +37,7 @@ describe("objectStoreConfigFromEnv", () => {
   });
 
   test("an object store credential in the environment is not read", () => {
-    // 94S-251: the worker is never handed one, and one that turned up anyway
+    // the worker is never handed one, and one that turned up anyway
     // would not be used to reach the store.
     const config = objectStoreConfigFromEnv(
       {
@@ -157,7 +157,7 @@ describe("createWorkerObjectStore", () => {
   });
 });
 
-describe("isObjectStoreOutage (94S-390)", () => {
+describe("isObjectStoreOutage", () => {
   const answered = (status: number) =>
     Object.assign(new Error(`status ${status}`), {
       $metadata: { httpStatusCode: status },

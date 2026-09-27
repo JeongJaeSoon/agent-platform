@@ -25,7 +25,7 @@ export const SSE_SCHEMA_VERSION = 1;
 // A status event reports the session's projected status, or a control step
 // that no stored status names: an interrupt the worker has taken and is
 // waiting on the engine's terminal for (`interrupting`), and the engine
-// having stopped the turn on that interrupt (`engine_stopped`, 94S-382). The
+// having stopped the turn on that interrupt (`engine_stopped`). The
 // latter is the interrupt's effect; the turn is `interrupted` only once its
 // checkpoint is committed, which may come later or not at all.
 export const STATUS_EVENT_PHASE_VALUES = [

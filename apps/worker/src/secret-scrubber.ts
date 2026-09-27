@@ -27,7 +27,7 @@ export function claimSecrets(
 
 /**
  * Removes the values of the secrets this worker holds from what it sends
- * out (94S-252). The engine's tools run with the engine's environment and
+ * out. The engine's tools run with the engine's environment and
  * can read this process's too, so a Bash call that prints them hands them to
  * the model, and from there to a tool result or a reply. The event stream is
  * what other people read; it gets the text with each known value replaced.
@@ -122,7 +122,7 @@ export function scrubbingGateway(
 }
 
 /**
- * The log gets the same treatment (94S-386): an error message can quote what
+ * The log gets the same treatment: an error message can quote what
  * the process holds. `scrubber` is read per line, because the claim that
  * brings most of the secrets arrives after the logger is handed out.
  */

@@ -22,7 +22,7 @@ type SessionRow = typeof sessions.$inferSelect;
 // counting it would leave start_fresh as the only way past an abandon, since
 // no checkpoint ever covers a turn whose outcome was unknown. A turn counts
 // only once it was delivered: one the scheduler failed for want of a launch
-// (94S-207) never reached an engine.
+// never reached an engine.
 export const RAN_TURN_STATUSES = ["completed", "failed", "interrupted"];
 
 /**
@@ -32,7 +32,7 @@ export const RAN_TURN_STATUSES = ["completed", "failed", "interrupted"];
  *
  * `revision` names another checkpoint to judge coverage on, still only when
  * the pointer is a restore point. A pause passes the base a fallback restore
- * left the session on (94S-204), since that is what a resume would restore.
+ * left the session on, since that is what a resume would restore.
  * The gap check keeps the pointer: turns a fallback dropped were reported
  * by the fallback itself, so they are not a loss nobody was told about.
  */
@@ -79,7 +79,7 @@ export async function contextCoverage(
 }
 
 /**
- * Whether a new engine session would silently lose turns (94S-288): a turn
+ * Whether a new engine session would silently lose turns: a turn
  * ran that neither the trusted checkpoint covers nor a start_fresh decision
  * already wrote off. Turn sequences start at 1, so 0 stands for "none".
  */
@@ -120,7 +120,7 @@ export async function raiseContextGap(
       updatedAt: now,
     })
     .where(eq(sessions.id, session.id));
-  // A resume still waiting on its first ready (94S-138) ends here as well.
+  // A resume still waiting on its first ready ends here as well.
   await tx
     .update(receipts)
     .set({

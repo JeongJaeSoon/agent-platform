@@ -219,7 +219,7 @@ log "backup: repos/ $(printf '%s' "$REPOS_JSON" | jq length) bundled, $(printf '
 # --- images ----------------------------------------------------------------
 # api/worker/scheduler are null until the installation runs them. Restore
 # does not need them; tests/e2e/restore-resume.sh compares the worker's here
-# with the image of the worker that produced the checkpoint (94S-324).
+# with the image of the worker that produced the checkpoint.
 IMAGES_JSON='{}'
 for service in postgres localstack gitea egress-proxy api worker scheduler; do
   cid="$(compose "$PROJECT" ps -aq "$service" 2>/dev/null | head -n1 || true)"

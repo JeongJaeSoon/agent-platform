@@ -9,7 +9,7 @@ import { join } from "node:path";
  * mounted into the container and moved to a new commit changes the files but
  * not the running code. The process records this digest when it starts and
  * the healthcheck compares it with the files on disk, so a stale proxy
- * reports itself unhealthy. The image compose runs now (94S-323) bakes the
+ * reports itself unhealthy. The image compose runs now bakes the
  * source in; the digest still names the code that is running.
  */
 export function sourceDigest(dir: string): string {

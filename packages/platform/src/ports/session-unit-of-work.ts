@@ -14,7 +14,7 @@ import type {
 import type { Principal } from "../authorization/policy.ts";
 
 // Checked inside the acceptance transaction, after an idempotent replay has
-// been answered: a replay is never refused for a limit (94S-131).
+// been answered: a replay is never refused for a limit.
 export type InputLimits = {
   queuedInputLimitPerSession: number;
   storageLimitBytes: number;
@@ -35,7 +35,7 @@ export type AcceptSessionInput = {
   // of an earlier acceptance must still succeed, a new request must not.
   repository: { id: string; url: string; branch: string } | null;
   // The profile's fingerprint under the catalog that allowed the pair, which
-  // every claim of the session is then held to (94S-253). Left out, the row
+  // every claim of the session is then held to. Left out, the row
   // is pinned by its first claim, as one from before the column is.
   profileFingerprint?: string;
   message: string;
@@ -77,8 +77,8 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   // against the current limit, so a changed limit applies at once.
   cost_usd: number;
   // What the claim matches against the catalog, so the service can say the
-  // catalog no longer allows it (94S-280). Never exposed: the URL may embed
-  // a credential (94S-147).
+  // catalog no longer allows it. Never exposed: the URL may embed
+  // a credential.
   repo_url: string;
   branch: string;
   profile_fingerprint: string | null;

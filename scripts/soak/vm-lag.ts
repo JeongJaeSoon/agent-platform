@@ -1,12 +1,12 @@
 /**
- * The soak's VM stall probe (94S-443): a container on the soak stack that
+ * The soak's VM stall probe: a container on the soak stack that
  * ticks every 100ms and records every tick that came late by a stall, so a
  * readyz sample that failed while the whole Docker Desktop VM stood still
- * (94S-442) can be told from one the product failed. It shares nothing with
+ * can be told from one the product failed. It shares nothing with
  * the product: it runs on the gate's plain Bun image and only reads clocks.
  *
  *   GET /stalls?since=<index>   {bootId, now, stalls: [...]} after <index>
- *   GET /healthz                also the runner's host probe target (94S-453)
+ * GET /healthz also the runner's host probe target
  *
  * A stall's `from`/`to` are this container's wall clock at the tick before
  * and the tick after; `gapMs` is the monotonic time between them.

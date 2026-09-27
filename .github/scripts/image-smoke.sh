@@ -42,11 +42,11 @@ for (const pid of readdirSync("/proc").filter((d) => /^[0-9]+$/.test(d))) {
 console.log(zombies);
 '
 
-# 94S-272: the API image must reap what the verifier orphans wherever it
+# the API image must reap what the verifier orphans wherever it
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
   local image="$1" cid
-  # The image carries no catalog (94S-132): without one mounted the API must
+  # The image carries no catalog: without one mounted the API must
   # refuse to start rather than run someone's example profiles.
   local refused status
   refused="$(timeout 60 docker run --rm --label "$smoke_label" \
@@ -93,7 +93,7 @@ YAML
   chmod 644 "$config_dir"/*.yaml
   # The default command, with a database that is never reached: the server
   # stays up (readiness answers 503) and nothing here needs it. The
-  # installation limits have no code default (94S-131).
+  # installation limits have no code default.
   cid="$(docker run -d --label "$smoke_label" \
     -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
     -e CHECKPOINT_OBJECT_STORE=disabled \
@@ -113,7 +113,7 @@ YAML
   assert_init_reaps "$image" "$cid"
 }
 
-# 94S-272 for the API, 94S-247 for the worker: tini is PID 1, the app is its
+# for the API, for the worker: tini is PID 1, the app is its
 # child, and the orphans a timed-out git leaves behind are reaped. `cid` is a
 # running container of the image started with its own ENTRYPOINT.
 assert_init_reaps() {
@@ -138,7 +138,7 @@ assert_init_reaps() {
   [ "$control" -gt 0 ] || { echo "the zombie probe found none without an init" >&2; exit 1; }
 }
 
-# 94S-323: the proxy boots from its own image with no source mounted, runs
+# the proxy boots from its own image with no source mounted, runs
 # unprivileged over code it cannot rewrite, refuses what is not allowlisted,
 # and stops on SIGTERM as PID 1.
 egress_proxy_smoke() {
@@ -173,7 +173,7 @@ case "$app" in
     echo "claude --version: $version"
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
-    # 94S-423: a commit in a fresh repository needs no identity of its own,
+    # a commit in a fresh repository needs no identity of its own
     # and carries the one docs/operations.md names.
     ident="$(docker run --rm "$image" sh -c 'cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"
     echo "default commit identity: $ident"
@@ -184,12 +184,12 @@ case "$app" in
     assert_init_reaps "$image" "$(docker run -d --label "$smoke_label" \
       "$image" bun -e 'setInterval(() => {}, 1 << 30)')"
     # The workspace inode helper runs from this image with its own
-    # entrypoint (94S-224): every tool its script calls must be here.
+    # entrypoint: every tool its script calls must be here.
     docker run --rm --entrypoint /bin/sh "$image" -c \
       'xfs_io -V && xfs_quota -V && command -v awk sed stat mknod mkdir >/dev/null'
     ;;
   control-host)
-    # git: the checkpoint bundle verifier spawns it (94S-201).
+    # git: the checkpoint bundle verifier spawns it.
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
     api_init_smoke "$image"
     # One executable for every role; it refuses to guess one.

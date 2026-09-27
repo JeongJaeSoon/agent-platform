@@ -73,7 +73,7 @@ describe("catalog config schema", () => {
     expect(catalog.profiles.p).toEqual(expected);
     expect(catalog.repositories.app).toEqual(repository);
     // What the worker protocol carries is neither the value nor where it
-    // came from (94S-252): only the upstream and the proxy's token.
+    // came from: only the upstream and the proxy's token.
     expect(runtimeProviderOf(expected, "wep_t")).toEqual({
       kind: "anthropic",
       endpoint: "https://api.anthropic.invalid",
@@ -130,7 +130,7 @@ describe("catalog config schema", () => {
     );
   });
 
-  test("a repository credential is a reference too, resolved at load and kept out of the revision (94S-252)", () => {
+  test("a repository credential is a reference too, resolved at load and kept out of the revision", () => {
     const withAuth = {
       ...repository,
       auth: { kind: "basic", username: "reader", value_env: "REPO_TOKEN" },

@@ -75,7 +75,7 @@ const catalog: SessionCatalog = {
   },
 };
 
-integration("pause on PostgreSQL (94S-137)", () => {
+integration("pause on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -420,7 +420,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
     expect(audit.map((row) => row.payload)).toContainEqual(
       expect.objectContaining({ admission_state: "pausing" }),
     );
-    // ...and the stream still reads to its end past it (94S-283). The
+    // ...and the stream still reads to its end past it. The
     // turn was draining, so the status the pause reports is running.
     expect(pauseStatus(await streamed(session))).toEqual([
       expect.objectContaining({ phase: "running", admission_state: "pausing" }),
@@ -578,7 +578,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
     expect((await sessionRow(fresh.sessionId)).admissionState).toBe("active");
   });
 
-  test("after a fallback restore the pause rests on, and its receipt names, the revision restored (94S-204)", async () => {
+  test("after a fallback restore the pause rests on, and its receipt names, the revision restored", async () => {
     const fellBack = await newSession("idle-fallback");
     const worker = await claim(fellBack);
     await finalize(worker, await deliver(worker), 0);
@@ -640,7 +640,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
     expect(await stored()).toHaveLength(before + 1);
   });
 
-  test("an advisory pending reason blocks a pause only when the pointer falls short of the last turn (94S-284)", async () => {
+  test("an advisory pending reason blocks a pause only when the pointer falls short of the last turn", async () => {
     // Turn 1 checkpointed at revision 0; a second turn, when asked for,
     // ends without one.
     const idleOn = async (name: string, secondTurn: boolean) => {
@@ -673,7 +673,7 @@ integration("pause on PostgreSQL (94S-137)", () => {
     // The turn's own checkpoint was refused (a dev server still running):
     // nothing covers it, whatever the reason says.
     const uncovered = await idleOn("advisory-uncovered", true);
-    // The exit already hands that gap to an operator (94S-288); a row from
+    // The exit already hands that gap to an operator; a row from
     // before that check still meets the pause's own coverage rule.
     expect((await sessionRow(uncovered.sessionId)).admissionState).toBe(
       "recovery_required",

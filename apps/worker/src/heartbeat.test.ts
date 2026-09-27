@@ -91,7 +91,7 @@ describe("Heartbeat", () => {
     expect(beat.leaseLeftMs).toBeLessThanOrEqual(60_000 - 1_000);
   });
 
-  test("counts the remainder from when the beat was sent, not from when its answer came (94S-322)", async () => {
+  test("counts the remainder from when the beat was sent, not from when its answer came", async () => {
     let clock = 0;
     const { heartbeat: beat } = heartbeat(
       async () => {
@@ -124,7 +124,7 @@ describe("Heartbeat", () => {
     expect(beat.leaseLeftMs).toBe(30_000 - 1_000 - 1_000);
   });
 
-  test("the lease is judged on the monotonic clock whatever the wall clock or the answer's deadline say (94S-322)", async () => {
+  test("the lease is judged on the monotonic clock whatever the wall clock or the answer's deadline say", async () => {
     // A gateway whose clock is an hour behind the worker's: the deadline it
     // names is already past on this side, and only the remainder counts.
     const {
@@ -194,7 +194,7 @@ describe("Heartbeat", () => {
     expect(lost[0]).toContain("LEASE_EXPIRED");
   });
 
-  // 94S-321: an operator's execution revocation revokes the session token,
+  // an operator's execution revocation revokes the session token
   // so the next beat does not even authenticate. That is a stop, never a
   // gateway outage to ride out until the lease lapses.
   test("declares ownership lost when its token is revoked", async () => {
@@ -306,7 +306,7 @@ describe("Heartbeat", () => {
     await beat.stop();
   });
 
-  test("a beat stuck while the gateway restarts does not hold the lease: the next one renews it (94S-346)", async () => {
+  test("a beat stuck while the gateway restarts does not hold the lease: the next one renews it", async () => {
     // The first beat went out while the API was down and sits in the
     // network; the API is back for every beat after it.
     let calls = 0;

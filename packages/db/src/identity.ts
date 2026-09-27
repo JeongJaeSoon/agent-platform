@@ -17,7 +17,7 @@ import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { memberships, users, webSessions, workspaces } from "./schema.ts";
 
-// Identity queries for the cookie-session path (94S-151). API keys keep
+// Identity queries for the cookie-session path. API keys keep
 // their own helpers in queries.ts so that path is untouched.
 
 export type WorkspaceRow = typeof workspaces.$inferSelect;

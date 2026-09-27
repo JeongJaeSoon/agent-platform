@@ -45,7 +45,7 @@ export interface AgentRun extends AsyncIterable<AgentFrame> {
    * Resolves once the engine has loaded the session it was started on — the
    * resumed transcript read, the engine initialized — without any input
    * sent. Rejects when the transcript cannot be read. A resumed worker
-   * reports itself ready only after this (94S-138).
+   * reports itself ready only after this.
    */
   ready(): Promise<void>;
   interrupt(): Promise<{ stillQueued: string[] }>;

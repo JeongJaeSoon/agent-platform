@@ -119,7 +119,7 @@ describe("session contracts", () => {
     expect(sessionSummarySchema.safeParse(missing).success).toBe(false);
   });
 
-  test("summary runtime is a whole catalog entry or null, never a partial one (94S-197)", () => {
+  test("summary runtime is a whole catalog entry or null, never a partial one", () => {
     const summary = {
       id: SESSION_ID,
       revision: 0,
@@ -372,7 +372,7 @@ describe("answers, pending requests and control", () => {
   });
 
   test("a context gap is visible on the detail, and start_fresh takes no target", () => {
-    // 94S-288: a session held back because no checkpoint covers the turns
+    // a session held back because no checkpoint covers the turns
     // that ran says which ones, and a reset stays visible afterwards.
     const base = {
       id: SESSION_ID,
@@ -558,7 +558,7 @@ describe("worker protocol", () => {
     auth_revision: 1,
   };
 
-  test("a heartbeat answer carries the lease as time remaining on the database clock (94S-322)", () => {
+  test("a heartbeat answer carries the lease as time remaining on the database clock", () => {
     const answer = {
       lease_expires_at: AT,
       lease_remaining_ms: 120_000,
@@ -708,13 +708,13 @@ describe("worker protocol", () => {
     };
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
     // Only the public summary may lack a runtime; a claim always has one
-    // (94S-197).
+    // .
     expect(
       bootstrapClaimResponseSchema.safeParse({ ...claim, runtime: null })
         .success,
     ).toBe(false);
     // The engine's budget is what is left of the session's, never below
-    // nothing and never left out (94S-279).
+    // nothing and never left out.
     const { remaining_budget_usd: _b, ...withoutBudget } = claim;
     expect(bootstrapClaimResponseSchema.safeParse(withoutBudget).success).toBe(
       false,
@@ -735,9 +735,9 @@ describe("worker protocol", () => {
     expect(bootstrapClaimResponseSchema.safeParse(withoutProfile).success).toBe(
       false,
     );
-    // The fingerprint names the exact profile the claim resolved (94S-132).
+    // The fingerprint names the exact profile the claim resolved.
     // The lease a worker tracks is the remaining time, not the deadline
-    // (94S-322): a claim without it could only be judged by a wall clock.
+    // a claim without it could only be judged by a wall clock.
     const { lease_remaining_ms: _r, ...withoutRemaining } = claim;
     expect(
       bootstrapClaimResponseSchema.safeParse(withoutRemaining).success,
@@ -788,7 +788,7 @@ describe("worker protocol", () => {
       }).success,
     ).toBe(true);
     // The upstream credential itself is refused in every shape it used to
-    // take (94S-252): the worker is only ever handed the proxy's token.
+    // take: the worker is only ever handed the proxy's token.
     for (const kind of ["anthropic", "litellm"] as const) {
       for (const auth of [
         { kind: "api_key", value: "provider-key" },
@@ -898,7 +898,7 @@ describe("worker protocol", () => {
     }
   });
 
-  test("a checkpoint and a restore plan name object versions, never the replaceable null one (94S-229)", () => {
+  test("a checkpoint and a restore plan name object versions, never the replaceable null one", () => {
     const scope = {
       session_id: SESSION_ID,
       turn_id: "1",
@@ -971,7 +971,7 @@ describe("worker protocol", () => {
     expect(() => plan("null")).toThrow();
   });
 
-  test("a restore plan says when it falls back to an earlier revision, and names what it skipped (94S-204)", () => {
+  test("a restore plan says when it falls back to an earlier revision, and names what it skipped", () => {
     const plan = (fallback: unknown) =>
       restorePlanResponseSchema.safeParse({
         status: "ready",

@@ -1,16 +1,16 @@
-# The product services, defined once for every installation (94S-430). Never
+# The product services, defined once for every installation. Never
 # run alone: docker-compose.yml lays compose.local.yml over it for a local
 # stack, and compose.test-ops.yml is the test-ops layer. A layer adds what
 # its installation needs — builds, local dependencies, their endpoints — and
 # holds none of the security settings below, which tests/images.test.ts
 # checks. Paths are relative to this directory.
 
-# Installation limits (94S-131). The API and the scheduler both refuse to
+# Installation limits. The API and the scheduler both refuse to
 # start without them, and read them with one parser, so both services take
 # this one block. These are local defaults, not recommendations: size them
 # per installation.
 # The egress proxy asks the API what a worker's route token stands for
-# (94S-252), over the API's second listener, which only the proxy is given.
+# over the API's second listener, which only the proxy is given.
 # The same value on both sides. The default serves the local stack only:
 # anything that can present it gets the catalog's provider and repository
 # credentials back, so set your own in ../.env anywhere else.
@@ -107,7 +107,7 @@ services:
 
   # The only route off every worker network. The scheduler gives each worker
   # an internal network of its own and attaches this container to it under
-  # the name in EXECUTION_EGRESS_PROXY_URL (94S-216); workers are handed it as
+  # the name in EXECUTION_EGRESS_PROXY_URL; workers are handed it as
   # HTTP_PROXY/HTTPS_PROXY, and the two allowlists below are the whole of
   # what a worker can reach. The label is how the scheduler finds it, so each
   # installation on a daemon labels its own proxy with its own id.
@@ -117,7 +117,7 @@ services:
     image: ${EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}
     environment:
       # Nothing public: a worker's one public destination is its provider,
-      # which it reaches through the credential route below (94S-383).
+      # which it reaches through the credential route below.
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-}
       # The worker gateway alone. api:3000 is the compose-run API (`apps`
       # profile); host.docker.internal stays for an API started on the host
@@ -125,7 +125,7 @@ services:
       # deliberately absent.
       EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
       EGRESS_PROXY_PORT: *egress-forward-port
-      # The credential routes (94S-252): workers send their provider and git
+      # The credential routes: workers send their provider and git
       # calls here with an attempt-scoped token, and the proxy puts the
       # catalog's credential on them. The authorizer is the compose-run API's
       # second listener; for an API on the host, use
@@ -133,13 +133,13 @@ services:
       EGRESS_CREDENTIAL_PORT: *egress-credential-port
       EGRESS_AUTHORIZER_URL: *proxy-authorizer-url
       # Upstreams only the credential routes reach, never a worker directly
-      # (94S-383): the provider, the repository and the object store, which
-      # the object store route sends the API-signed request to (94S-251).
+      # the provider, the repository and the object store, which
+      # the object store route sends the API-signed request to.
       # On the forward proxy each would be a way round its route: the
       # provider with a key of the worker's own, outside cost accounting;
       # Gitea without a token; LocalStack, which takes any signature, into
       # every session's prefix. fake-messages:4010 is the example profile's
-      # Messages API (94S-132).
+      # Messages API.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443}
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,localstack:4566}
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
@@ -150,7 +150,7 @@ services:
     labels:
       agent-platform.egress-proxy: ${EXECUTION_INSTALLATION_ID:-local}
     # Also unhealthy when /app/src no longer matches what the process loaded
-    # (94S-319). The image bakes the source in, so this now only fires when
+    # . The image bakes the source in, so this now only fires when
     # someone mounts a source tree over it and moves that checkout.
     healthcheck:
       test: ["CMD", "bun", "run", "/app/src/healthcheck.ts"]
@@ -158,7 +158,7 @@ services:
       timeout: 3s
       retries: 12
       start_period: 5s
-    # On every worker network, so held to what a worker is held to (94S-388).
+    # On every worker network, so held to what a worker is held to.
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -235,16 +235,16 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
-      # The egress proxy's authorizer (94S-252). Not published and not on
+      # The egress proxy's authorizer. Not published and not on
       # any worker allowlist: only the proxy, on this compose network, calls
       # it. Without both the API starts, and every worker's provider and
       # repository call is refused.
       EGRESS_AUTHORIZER_PORT: *egress-authorizer-port
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
-      # The operator catalog (94S-132): config/ mounted below. The image
+      # The operator catalog: config/ mounted below. The image
       # carries none, so an API without a mounted catalog does not start.
       PLATFORM_CONFIG_DIR: /app/config
-      # Checkpoint object store (94S-201): the same bucket the scheduler
+      # Checkpoint object store: the same bucket the scheduler
       # hands each worker. The API reads manifests, transcripts and workspace
       # bundles back from it to verify a checkpoint before the session pointer
       # advances; without it the API refuses to start
@@ -254,9 +254,9 @@ services:
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       # Pin every checkpoint object by version and hold what a checkpoint
-      # commits (94S-229); the bucket above is created with Object Lock.
+      # commits; the bucket above is created with Object Lock.
       # "unversioned" reads by key only — for a bucket without versioning. A
-      # restored bucket needs no such thing: restore re-pins (94S-282).
+      # restored bucket needs no such thing: restore re-pins.
       CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
       # Sized with mem_limit above.
       CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
@@ -294,7 +294,7 @@ services:
       - /tmp:uid=1000,gid=1000
       - /home/bun:uid=1000,gid=1000
 
-  # The control host's scheduler role (94S-117): the same pass loop as the
+  # The control host's scheduler role: the same pass loop as the
   # reconciler below (apps/control-host/src/pass-loop), one scheduling pass
   # per child process every SCHEDULER_INTERVAL_SEC. It gives up after
   # SCHEDULER_MAX_CONSECUTIVE_FAILURES failed passes so the restart policy
@@ -306,13 +306,13 @@ services:
   # ends a pass on its own: JOB_POOL_TIMEOUTS (packages/db/src/pool.ts) bound
   # the failing statement to connect 5s + read 20s and the pass-lock unlock
   # to another 20s, and every store call after a lost connection fails at
-  # once, so the pass exits 1 about 45s in (94S-255). Docker calls are
+  # once, so the pass exits 1 about 45s in. Docker calls are
   # bounded by EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC, except a stop: the daemon
   # answers it only once the worker has drained, up to
   # EXECUTION_DOCKER_STOP_TIMEOUT_SEC. A kill asks and does not wait (the next
   # pass confirms the worker gone), but a pass can still wait out one whole
   # stop, so SCHEDULER_PASS_TIMEOUT_SEC must exceed stop + request timeout or
-  # the scheduler refuses to start (94S-385). It is the watchdog for the rest.
+  # the scheduler refuses to start. It is the watchdog for the rest.
   #
   # Stopping: SIGTERM stops the loop, and the pass in flight stops at its next
   # safe point, before any further reservation; it is killed 30s later
@@ -357,7 +357,7 @@ services:
       EXECUTION_EGRESS_CREDENTIAL_PORT: *egress-credential-port
       <<: *installation-limits
       # Docker Desktop cannot carry a project quota, so the local stack opts out
-      # (94S-215); a daemon on xfs+prjquota should set it back to `on`.
+      # a daemon on xfs+prjquota should set it back to `on`.
       EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:-off}
       EXECUTION_WORKSPACE_QUOTA_MB: ${EXECUTION_WORKSPACE_QUOTA_MB:-4096}
       EXECUTION_WORKSPACE_QUOTA_INODES: ${EXECUTION_WORKSPACE_QUOTA_INODES:-1000000}
@@ -367,7 +367,7 @@ services:
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
       # The bucket and region the scheduler names to each worker. No key and
       # no endpoint: workers reach the object store through the proxy's
-      # object store route, signed by the API (94S-251).
+      # object store route, signed by the API.
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-5}
@@ -375,7 +375,7 @@ services:
       # Above SCHEDULER_INTERVAL_SEC + SCHEDULER_PASS_TIMEOUT_SEC, or the
       # scheduler refuses to start: two successes can be that far apart.
       SCHEDULER_HEALTH_STALE_SEC: ${SCHEDULER_HEALTH_STALE_SEC:-200}
-      # Above EXECUTION_DOCKER_STOP_TIMEOUT_SEC + the request timeout (94S-385).
+      # Above EXECUTION_DOCKER_STOP_TIMEOUT_SEC + the request timeout.
       SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-180}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
@@ -394,7 +394,7 @@ services:
 
   # Lease expiry, overdue interrupts and terminations, and orphan sessions are
   # recovered by nothing else, so this runs by default with the other apps
-  # (94S-320). The control host's reconciler role (`main.ts reconciler`, the
+  # . The control host's reconciler role (`main.ts reconciler`, the
   # pass loop in apps/control-host/src/pass-loop) runs one pass per child
   # process every RECONCILER_INTERVAL_SEC, kills a pass that outlives
   # RECONCILER_PASS_TIMEOUT_SEC, and exits after

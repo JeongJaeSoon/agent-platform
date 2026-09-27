@@ -450,7 +450,7 @@ async function restoreRef(
  * What the committing attempt's state was built on: the fallback's revision
  * when the row records one for this very attempt, the pointer otherwise.
  * Another attempt's fallback says nothing about what this one restored. A
- * base at or below the revision a start_fresh decision retired (94S-288) is
+ * base at or below the revision a start_fresh decision retired is
  * no base at all: the engine session started empty, and a fallback past this
  * checkpoint must not restore the history the operator gave up.
  */
@@ -597,7 +597,7 @@ function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
   );
 }
 
-// A row from before 94S-253 has no fingerprint; it runs on whatever the
+// A row from before has no fingerprint; it runs on whatever the
 // pair's profile is now, and the claim that binds it pins that.
 export function runnablePairOf(
   session: RunnableFields,
@@ -621,7 +621,7 @@ function replayableBinding(
 ): boolean {
   return (
     LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) &&
-    // An operator's revocation (94S-321) must not see a token rotated in
+    // An operator's revocation must not see a token rotated in
     // after it, whatever state it left the session in.
     session.executionRevokedAt === null &&
     session.podId === launch.executionId &&
@@ -658,16 +658,16 @@ export function runnableCondition(runnable: readonly RunnablePair[]): SQL {
 /**
  * A launch reserved for one session whose pair the catalog has since dropped
  * would wait out the worker's claim timeout, exit unclaimed, and be rebuilt
- * until the scheduler's failure limit gave it up (94S-207) — holding a slot
+ * until the scheduler's failure limit gave it up — holding a slot
  * the whole time for an answer that is already known here. When the pinned
  * session is otherwise claimable and only the pair stands in the way, the
  * launch is given up on now, in the claim's transaction and under its launch
- * row lock (94S-280). Anything else — the session bound, paused, spent, or
+ * row lock. Anything else — the session bound, paused, spent, or
  * the launch already asked to go — is left to the ordinary "nothing to claim".
  *
  * With several API replicas mid-rollout, the one that answers could fail a
  * session another would run. So only a host whose catalog is the revision an
- * operator activated gives up (94S-295); any other answers "nothing to
+ * operator activated gives up; any other answers "nothing to
  * claim" and writes nothing, leaving the existing failure count as the net.
  * With none activated there is one replica, and its catalog is the one.
  */
@@ -741,7 +741,7 @@ async function giveUpOnCatalogMismatch(
     )
     .limit(1);
   if (execution?.desiredState !== "running") return null;
-  // A context gap is the operator's call before the catalog's (94S-288): it
+  // A context gap is the operator's call before the catalog's: it
   // holds the queued input for start_fresh, where a catalog give-up would
   // fail it and leave the gap to be found only at the next claim.
   const coverage = await contextCoverage(tx, session);
@@ -753,7 +753,7 @@ async function giveUpOnCatalogMismatch(
       .where(eq(executions.id, launch.executionId));
     return "context_gap";
   }
-  // Names ids only: the stored URL may embed a credential (94S-147).
+  // Names ids only: the stored URL may embed a credential.
   const detail = runnable.some((pair) => allowsPair(pair, session))
     ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
     : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
@@ -970,10 +970,10 @@ export function createPostgresWorkerUnitOfWork(
           }
           // Terminate, close, a pause with nothing to drain and the lease
           // sweep fence this attempt by moving the session on, but leave it
-          // `allocated` until the execution is seen gone (94S-139). A replay
+          // `allocated` until the execution is seen gone. A replay
           // is therefore judged as a new claim and the fence would judge it:
           // still the session's binding, on its epoch, and claimable
-          // (94S-291). Refused before anything is written, so the tokens and
+          // . Refused before anything is written, so the tokens and
           // lease stay as the exit observation expects to find them.
           if (!replayableBinding(bound.session, bound.attempt, launch)) {
             return { outcome: "invalid_credential" };
@@ -985,7 +985,7 @@ export function createPostgresWorkerUnitOfWork(
           const pair = runnablePairOf(bound.session, input.runnable);
           if (
             pair === undefined ||
-            // A row from before 94S-253 bound by a claim that did not pin it:
+            // A row from before bound by a claim that did not pin it
             // the provider token that claim issued names the settings it ran
             // under, and a replay may not trade them for this catalog's.
             (bound.session.profileFingerprint === null &&
@@ -1040,7 +1040,7 @@ export function createPostgresWorkerUnitOfWork(
             and(
               eq(unassignedSessions.partition, launch.partition),
               // The signal carries a copy; the session's own partition is
-              // the one that says which pool may run it (94S-367).
+              // the one that says which pool may run it.
               eq(sessions.partition, launch.partition),
               isNull(sessions.podId),
               inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
@@ -1094,7 +1094,7 @@ export function createPostgresWorkerUnitOfWork(
           return { outcome: "no_session" };
         }
         // A worker bound now would start an engine session without turns it
-        // has no checkpoint for, and the user would never be told (94S-288).
+        // has no checkpoint for, and the user would never be told.
         // The session goes to an operator instead, and the launch is asked to
         // go so the scheduler reclaims it rather than rebuilding it.
         const coverage = await contextCoverage(tx, locked);
@@ -1113,10 +1113,10 @@ export function createPostgresWorkerUnitOfWork(
         }
 
         // Read once: the binding hands the worker exactly the restore the
-        // session holds this attempt to reporting ready from (94S-345).
+        // session holds this attempt to reporting ready from.
         const restore = await restoreRef(tx, locked);
         // Every claim is on trial until its worker is ready for input
-        // (94S-347): one with nothing to restore can still fail preparing
+        // one with nothing to restore can still fail preparing
         // the workspace, over and over.
         const [session] = await tx
           .update(sessions)
@@ -1125,7 +1125,7 @@ export function createPostgresWorkerUnitOfWork(
             executionGeneration: launch.generation,
             executionId: launch.executionId,
             podId: launch.executionId,
-            // Pins a row from before 94S-253; any other holds this already.
+            // Pins a row from before; any other holds this already.
             profileFingerprint: pair.profileFingerprint,
             restoreAttemptId: input.attemptId,
             updatedAt: input.now,
@@ -1406,7 +1406,7 @@ export function createPostgresWorkerUnitOfWork(
         const at = await dbNow(tx);
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
         // A worker asks for input only once it has started up, restore or
-        // not, and every worker version does (94S-347): its later exit is not
+        // not, and every worker version does: its later exit is not
         // a failed startup, and the ones before it no longer count. Only an
         // answered poll says so; one refused here may be the last it sends.
         if (fenced.session.restoreAttemptId === fence.attemptId) {
@@ -1432,7 +1432,7 @@ export function createPostgresWorkerUnitOfWork(
         const { message, turn } = head;
 
         // The head was delivered to an earlier attempt and never finalized:
-        // its outcome is unknown, and only the reconciler (94S-139) may
+        // its outcome is unknown, and only the reconciler may
         // decide; a fresh delivery here would re-run its side effects.
         const redelivery =
           turn.attemptId === fence.attemptId &&
@@ -1447,7 +1447,7 @@ export function createPostgresWorkerUnitOfWork(
         // A turn this attempt already holds is finished whatever it costs;
         // only a new one is refused.
         if (overBudget && !redelivery) return none;
-        // The scheduler is draining the launch to replace it (94S-250): the
+        // The scheduler is draining the launch to replace it: the
         // turn this attempt runs is its last. Read under the session lock,
         // which `requestDrain` takes before it looks for an open turn.
         if (!redelivery && (await drainRequested(tx, fenced.attempt))) {
@@ -1481,7 +1481,7 @@ export function createPostgresWorkerUnitOfWork(
               .returning({ id: sessions.id }),
             "session",
           );
-          // The turn boundary is on the stream too (94S-294). A turn just
+          // The turn boundary is on the stream too. A turn just
           // handed over has asked nothing yet, so it reads as running.
           await recordStatus(tx, {
             sessionId: fence.sessionId,
@@ -1538,7 +1538,7 @@ export function createPostgresWorkerUnitOfWork(
         const mirrorError = input.transcript?.mirrorError ?? null;
         // A mirror that has written nothing yet reports nulls on every beat
         // until its first batch lands; there is nothing to record, and an
-        // empty SET is an error in drizzle (94S-309).
+        // empty SET is an error in drizzle.
         if (persistedAt !== null || mirrorError !== null) {
           // A late heartbeat cannot walk the mirror mark backwards, and an
           // error only sets the reason: clearing is a checkpoint's to do.
@@ -1909,7 +1909,7 @@ export function createPostgresWorkerUnitOfWork(
             ),
           );
         // An unknown outcome keeps its queue head: the input stays blocked
-        // until an operator recovery decision (94S-140), never redelivered.
+        // until an operator recovery decision, never redelivered.
         if (!unknownOutcome) {
           await tx
             .delete(queueMessages)
@@ -1938,7 +1938,7 @@ export function createPostgresWorkerUnitOfWork(
         );
         // After every event of the turn, which the check above found
         // durable: the stream ends the turn where the session now reads
-        // (94S-294). Only an open turn holds a question, so the stored
+        // . Only an open turn holds a question, so the stored
         // status is the public one.
         const recovering =
           unknownOutcome &&
@@ -2162,7 +2162,7 @@ export function createPostgresWorkerUnitOfWork(
             .set({
               leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
               // A drain was asked of it, so a startup it cut short is not
-              // counted (94S-302); the failures before it still are.
+              // counted; the failures before it still are.
               ...(input.drained
                 ? {
                     restoreAttemptId: sql`NULLIF(${sessions.restoreAttemptId}, ${fence.attemptId})`,
@@ -2195,7 +2195,7 @@ export function createPostgresWorkerUnitOfWork(
         if (fenced.outcome !== "ok") return fenced;
         const { session } = fenced;
         // The attempt restored the base its claim and plan handed it, so the
-        // restores that failed before it no longer count (94S-345).
+        // restores that failed before it no longer count.
         if (
           session.restoreAttemptId === fence.attemptId &&
           input.restoredRevision !== null &&
@@ -2375,7 +2375,7 @@ export function createPostgresWorkerUnitOfWork(
         // knowable result now that the execution is gone. Saying nothing
         // would leave it looking like work in progress, so it is recorded as
         // unknown here and its input stays on the queue until an operator
-        // decides (94S-140). The judgement lives in the same transaction
+        // decides. The judgement lives in the same transaction
         // that removes the binding.
         const unresolved = await tx
           .update(turns)
@@ -2438,22 +2438,22 @@ export function createPostgresWorkerUnitOfWork(
             );
         }
 
-        // A session that asked for this kill (terminate, 94S-139) lands in
+        // A session that asked for this kill (terminate) lands in
         // `stopped`, unless a turn was left unresolved, in which case the
         // recovery decision takes precedence just as for any other exit. A
-        // session an operator already closed (94S-140) stays closed: the
+        // session an operator already closed stays closed: the
         // unknown turn is recorded above, but nothing reopens the session.
         const stopping = session.admissionState === "stopping";
         const closed = session.admissionState === "closed";
         // A pause completes only here, on the observed absence, and only onto
         // a checkpoint that covers every turn that ran. One that cannot has
-        // lost the only attempt that could still have committed it (94S-285):
+        // lost the only attempt that could still have committed it
         // the pause fails and the session is active again, as after any lost
         // worker, so a new one restores the last trusted checkpoint for the
         // queued input — unless that checkpoint leaves a turn behind, which
-        // the context check below hands to an operator (94S-288). A blocking pending reason (a dropped mirror batch, or
+        // the context check below hands to an operator. A blocking pending reason (a dropped mirror batch, or
         // one this build does not know) cannot be carried on from, so that
-        // one goes to an operator instead, as a cancel would (94S-138).
+        // one goes to an operator instead, as a cancel would.
         const pauseBlockedBy =
           session.admissionState === "pausing" && unresolved.length === 0
             ? await pauseBlocker(tx, session)
@@ -2477,7 +2477,7 @@ export function createPostgresWorkerUnitOfWork(
           launch?.claimedAttemptId !== undefined &&
           (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT;
         // A session left taking work would hand its next input to a worker
-        // that cannot restore the turns it ran (94S-288). Judged here, where
+        // that cannot restore the turns it ran. Judged here, where
         // the loss becomes certain, so it shows before anyone sends another
         // message; the claim gate stays the one that cannot be bypassed. A
         // failed pause lands here too: the pointer it could not advance is
@@ -2491,8 +2491,8 @@ export function createPostgresWorkerUnitOfWork(
             : null;
         const contextLost = coverage !== null && contextGap(session, coverage);
         // The worker claimed and ended before it was ready for input: its
-        // restore never reported ready (94S-345), or it never asked for input
-        // (94S-347). Without counting it the session goes straight back in
+        // restore never reported ready, or it never asked for input
+        // . Without counting it the session goes straight back in
         // line and the next worker fails the same way, one generation after
         // another. A resume counts its own launches; a pause, terminate,
         // close or revocation has taken the session out of `active`.
@@ -2587,7 +2587,7 @@ export function createPostgresWorkerUnitOfWork(
         }
         // Every admission this exit settles is a status change the event
         // stream has to carry, or a client following it stays at stopping,
-        // pausing or wherever the unknown turn left it (94S-293). Written in
+        // pausing or wherever the unknown turn left it. Written in
         // the transaction that settles the kill and pause receipts, so the
         // stream never reports stopped under an open terminate.
         const settledInto = closed
@@ -2642,7 +2642,7 @@ export function createPostgresWorkerUnitOfWork(
             })
             .where(openPauseReceipt(session.id));
         }
-        // The terminate receipt, and an execution revocation's (94S-321),
+        // The terminate receipt, and an execution revocation's
         // succeeds only here, on the observed absence;
         // one that already went `unknown` past its deadline is upgraded. The
         // turn it names is the earliest still unknown, whether it became so

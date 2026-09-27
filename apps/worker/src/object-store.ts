@@ -21,7 +21,7 @@ import {
  * `workerEnvironmentFor`): the bucket and region, and the prefix this
  * worker's session owns. No credential: the worker reaches the object store
  * only through the egress proxy's object store route, with the token its
- * claim hands out (94S-251).
+ * claim hands out.
  */
 export type WorkerObjectStoreEnvironment = {
   AWS_REGION?: string | undefined;
@@ -131,7 +131,7 @@ const TRANSPORT_FAILURES = new Set([
  * The store failing to answer rather than answering no: a connection that
  * failed or was cut, a request or name lookup past its bound, a body that
  * kept stalling or ended short, or a 5xx, 408 or 429. Worth asking again later; a 401, 403
- * or other 4xx, an integrity failure, or a malformed answer is not (94S-390).
+ * or other 4xx, an integrity failure, or a malformed answer is not.
  */
 export function isObjectStoreOutage(error: unknown): boolean {
   for (let depth = 0, current = error; depth < 5; depth += 1) {

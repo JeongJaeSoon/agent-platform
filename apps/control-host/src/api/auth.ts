@@ -217,7 +217,7 @@ export async function bootstrapGateFromEnv(
     users = await store.countUsers();
   } catch (error) {
     // The API starts without its database and answers readiness 503
-    // (94S-256), so an unreachable database cannot stop startup here. The
+    // so an unreachable database cannot stop startup here. The
     // count is unknown; print anyway, since the value only ever works while
     // users is 0.
     users = null;

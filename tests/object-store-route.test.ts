@@ -38,7 +38,7 @@ import {
 } from "./object-route-fixture.ts";
 
 /**
- * The worker's only way to the object store (94S-251): the egress proxy's
+ * The worker's only way to the object store: the egress proxy's
  * object store route, the real authorizer behind it and the real signer,
  * with the worker holding nothing but its attempt's token. A raw S3 client
  * with that token as its key — what a worker that ignores its own wrapper

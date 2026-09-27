@@ -122,7 +122,7 @@ describe("control host executable", () => {
         expect(healthy.stdout).toContain("last successful pass");
 
         // A recent degraded pass is healthy and says it was degraded
-        // (94S-368); an old one, a failure after it, or a pass past its
+        // an old one, a failure after it, or a pass past its
         // deadline is not.
         const old = new Date(Date.now() - 600_000).toISOString();
         const degraded = await health({
@@ -166,7 +166,7 @@ describe("control host executable", () => {
   );
 
   test(
-    "a scheduler loop forgets the quota preflight an earlier loop noted (94S-393)",
+    "a scheduler loop forgets the quota preflight an earlier loop noted",
     async () => {
       const dir = await mkdtemp(join(tmpdir(), "control-host-quota-"));
       try {

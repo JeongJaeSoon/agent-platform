@@ -53,7 +53,7 @@ const id = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const input = unreachable;
 
 // Every service entry point with the action it needs. A policy that takes an
-// action away refuses each of them, whichever service owns it (94S-397).
+// action away refuses each of them, whichever service owns it.
 const entryPoints: [
   string,
   SessionAction,

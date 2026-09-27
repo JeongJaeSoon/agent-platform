@@ -292,7 +292,7 @@ export const activateAgentResponseSchema = z
   })
   .strict();
 
-/** 94S-132 config, read-only, so a card can pick a model it is allowed to use. */
+/** config, read-only, so a card can pick a model it is allowed to use. */
 export const runtimeProfileSummarySchema = z
   .object({
     id: z.string().min(1).max(128),

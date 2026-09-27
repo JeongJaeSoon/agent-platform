@@ -409,7 +409,7 @@ const HOST_FAULTS = [
   "cannot allocate memory",
   "out of memory",
   "read-only file system",
-  // index-pack reading an object size wider than its size_t (94S-369): a
+  // index-pack reading an object size wider than its size_t: a
   // limit of the git that runs, like memory, so the same bytes can be a
   // valid object to a wider git.
   "too large for this platform",
@@ -423,7 +423,7 @@ const HOST_FAULTS = [
  * words in `HOST_FAULTS` can still be echoed that way, because narrowing
  * them risks the opposite mistake of retiring a checkpoint over a host
  * fault; a bundle that talks itself into a retry costs one capped attempt,
- * and 94S-271 stops it repeating.
+ * and stops it repeating.
  */
 const HELPER_KILLED = /^error: [\w-]+ died of signal \d+$/;
 

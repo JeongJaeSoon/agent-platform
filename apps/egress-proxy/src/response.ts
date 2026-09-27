@@ -9,7 +9,7 @@
  * asynchronously, and says nothing in the head. A client that reads such a
  * head as keep-alive pools the proxy connection and sends its next request —
  * to whatever origin — down it. That is how a worker's S3 list after its
- * gateway claim landed on the API (94S-299).
+ * gateway claim landed on the API.
  *
  * So the final head the client sees always says `connection: close`,
  * whatever the upstream said; interim 1xx heads only lose their hop-by-hop

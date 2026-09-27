@@ -1,5 +1,5 @@
 /**
- * What one checkpoint's transcript stage costs as a session ages (94S-380):
+ * What one checkpoint's transcript stage costs as a session ages
  * a turn appends one part, and a capture runs at every turn boundary, as the
  * worker does. In memory, so what it measures is the session store's own
  * work, not the object store's latency.

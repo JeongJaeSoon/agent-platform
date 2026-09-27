@@ -130,7 +130,7 @@ const oneDimensional = (column: unknown) =>
 // row added by the interface track carries a workspace_id. Vocabularies are
 // CHECK constraints rather than pg enums so that widening one is a plain
 // additive migration, and rather than contracts imports so that the schema
-// does not depend on a package that is still landing (94S-148).
+// does not depend on a package that is still landing.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),
@@ -257,7 +257,7 @@ export const webSessions = pgTable(
   ],
 );
 
-// One Grant row per 94S-148 `grantSchema`; the refs are stored as
+// One Grant row per `grantSchema`; the refs are stored as
 // (kind, id) column pairs so the evaluator (I0-5a) matches them exactly in
 // SQL without unpacking JSON. `service_principal_id` is always a service
 // actor, so it carries no kind column.
@@ -276,7 +276,7 @@ export const grants = pgTable(
     resourceId: text("resource_id").notNull(),
     audienceKind: text("audience_kind").notNull(),
     audienceId: text("audience_id").notNull(),
-    /** Narrows the 94S-132 key scope; never widens it. */
+    /** Narrows the key scope; never widens it. */
     scopes: text().array().notNull().default([]),
     revision: integer().notNull().default(0),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
@@ -322,13 +322,13 @@ export const grants = pgTable(
       sql`${oneDimensional(table.scopes)} AND ${table.scopes} <@ ${SESSION_SCOPES_SQL}`,
     ),
     check("grants_revision_check", sql`${table.revision} >= 0`),
-    // Same bounds as 94S-148 opaqueIdSchema (1..128) and resource/audience
+    // Same bounds as opaqueIdSchema (1..128) and resource/audience
     // refs (1..512), so an empty id cannot be stored and then never matched.
     check(
       "grants_id_length_check",
       sql`length(${table.actorId}) BETWEEN 1 AND 128 AND (${table.servicePrincipalId} IS NULL OR length(${table.servicePrincipalId}) BETWEEN 1 AND 128) AND length(${table.resourceId}) BETWEEN 1 AND 512 AND length(${table.audienceId}) BETWEEN 1 AND 512`,
     ),
-    // A grant stored under workspace A must not name workspace B (94S-148
+    // A grant stored under workspace A must not name workspace B (
     // grantSchema): the evaluator compares the request's workspace with
     // workspace_id, so such a row would match across the boundary.
     check(
@@ -376,7 +376,7 @@ export const sessions = pgTable(
     // The profile's fingerprint (catalog.ts profileFingerprint) when the
     // session was accepted: settings and credential reference, never the
     // value. A claim binds only on a host whose profile under this id still
-    // hashes to it (94S-253). Null on rows from before it, pinned by their
+    // hashes to it. Null on rows from before it, pinned by their
     // next claim.
     profileFingerprint: text("profile_fingerprint"),
     repositoryId: text("repository_id"),
@@ -394,7 +394,7 @@ export const sessions = pgTable(
     // came after. Any commit clears an advisory one.
     checkpointPendingAttemptId: text("checkpoint_pending_attempt_id"),
     // The earlier revision the session was last restored from because the
-    // pointer's own checkpoint was damaged (94S-204). While set, the
+    // pointer's own checkpoint was damaged. While set, the
     // session's state is that revision's, not the pointer's; the next
     // committed checkpoint, or another attempt restoring the pointer,
     // clears it. The attempt column names the attempt that was last handed
@@ -402,7 +402,7 @@ export const sessions = pgTable(
     // is held to the base it was given.
     checkpointFallbackRevision: integer("checkpoint_fallback_revision"),
     checkpointRestoreAttemptId: text("checkpoint_restore_attempt_id"),
-    // Set by a start_fresh recovery decision (94S-288): the last turn that
+    // Set by a start_fresh recovery decision: the last turn that
     // ran before the operator accepted losing its context, and the pointer
     // the session had then. Turns up to the first are no longer a context
     // gap; checkpoints up to the second are retired and never restored,
@@ -416,7 +416,7 @@ export const sessions = pgTable(
     lastTranscriptPersistedAt: timestamp("last_transcript_persisted_at", {
       withTimezone: true,
     }),
-    // A stopped session's workspace being reclaimed (94S-225): set under the
+    // A stopped session's workspace being reclaimed: set under the
     // session lock before the volume is removed, cleared by the claim id that
     // set it once the removal settles. Resume refuses while it is set, so a
     // resumed session never has its workspace removed underneath it.
@@ -447,18 +447,18 @@ export const sessions = pgTable(
     // not a uuid: release ids are derived hashes.
     agentReleaseId: text("agent_release_id"),
     // What this session's Messages calls cost, as the egress proxy metered
-    // them: each is priced and added once (provider_usage, 94S-409), the
+    // them: each is priced and added once (provider_usage), the
     // engine's calls and a tool's alike. An estimate. Sessions from before
-    // it carry the engine's own turn totals (94S-131) up to that point.
+    // it carry the engine's own turn totals up to that point.
     // Compared against SESSION_COST_LIMIT_USD at dispatch.
     costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
       .notNull()
       .default(0),
     // Whether the last status event the stream carries about input said
-    // needs_input (94S-278). A record of what was published, not a state:
+    // needs_input. A record of what was published, not a state
     // it flips only in the transaction that writes that status event.
     inputAnnounced: boolean("input_announced").notNull().default(false),
-    // An operator revoked this session's execution authority (94S-321).
+    // An operator revoked this session's execution authority.
     // Independent of admission_state on purpose: every lifecycle path that
     // would dispatch again (resume, start_fresh, a claim) refuses while it
     // is set, and only the operator's restore command clears it.
@@ -467,8 +467,8 @@ export const sessions = pgTable(
     }),
     executionRevokedReason: text("execution_revoked_reason"),
     // Startups that failed before their worker was ready for input: a
-    // restore not reported ready (94S-345), or any claim that never asked
-    // for input (94S-347). The attempt is the one claimed and not yet ready;
+    // restore not reported ready, or any claim that never asked
+    // for input. The attempt is the one claimed and not yet ready
     // the count is consecutive, cleared by a ready worker, and at its limit
     // the session waits in recovery_required. Until then no launch is made
     // before retry_at. The reason is the last failed attempt's. Named for
@@ -477,7 +477,7 @@ export const sessions = pgTable(
     restoreFailureCount: integer("restore_failure_count").notNull().default(0),
     restoreRetryAt: timestamp("restore_retry_at", { withTimezone: true }),
     restoreFailureReason: text("restore_failure_reason"),
-    // The worker pool that may run this session (94S-367). Chosen when the
+    // The worker pool that may run this session. Chosen when the
     // session is created and never changed after: every signal and launch
     // copies it, and a claim only binds a session whose partition is the
     // launch's, so a claim never moves a session to another pool.
@@ -516,7 +516,7 @@ export const sessions = pgTable(
   ],
 );
 
-// Retained content the installation holds (94S-131). A `turns` insert trigger
+// Retained content the installation holds. A `turns` insert trigger
 // (migration 0107) charges every input in the same transaction that writes
 // it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
 // concurrent writer can race past the limit. One row per scope: today only
@@ -656,14 +656,14 @@ export const receipts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    /** 94S-148 `receiptActorSchema`: principal plus the human behind it. */
+    /** `receiptActorSchema`: principal plus the human behind it. */
     actor: jsonb(),
   },
   (table) => [
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
     // The terminate deadline sweep runs every scheduler and reconciler pass
     // and must not read the whole receipt history to find the few open ones.
-    // An execution revocation (94S-321) is swept the same way.
+    // An execution revocation is swept the same way.
     index("receipts_open_terminate_idx")
       .on(table.createdAt)
       .where(
@@ -726,7 +726,7 @@ export const pendingRequests = pgTable(
     // execution went away before it said.
     settledOutcome: text("settled_outcome"),
     // Set when the worker handed the `question` event to the gateway
-    // (94S-278); a replay must carry the same pair. Null for a worker that
+    // a replay must carry the same pair. Null for a worker that
     // publishes the event itself.
     toolUseId: text("tool_use_id"),
     tool: text(),
@@ -815,7 +815,7 @@ export const checkpoints = pgTable(
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    // Set by checkpoint garbage collection (94S-281) before it deletes the
+    // Set by checkpoint garbage collection before it deletes the
     // revision's objects: no restore reaches this revision any more, and a
     // backup leaves it out rather than fail on what is gone.
     collectedAt: timestamp("collected_at", { withTimezone: true }),
@@ -887,7 +887,7 @@ export const attempts = pgTable(
   ],
 );
 
-// One Messages call the egress proxy metered (94S-409), priced when it was
+// One Messages call the egress proxy metered, priced when it was
 // recorded. Its cost is added to the session's in the same transaction, and
 // the proxy's own id for the exchange keys it, so a report sent again after
 // a lost answer is not counted twice. The attempt is the one the proxy's
@@ -914,7 +914,7 @@ export const providerUsage = pgTable(
     cacheReadInputTokens: bigint("cache_read_input_tokens", {
       mode: "number",
     }).notNull(),
-    // What else the price rests on (94S-451). Rows from before it say
+    // What else the price rests on. Rows from before it say
     // `unknown`, as a report from a proxy that predates it does; they were
     // priced as standard with no tool fee.
     speed: text().notNull().default("unknown"),
@@ -929,7 +929,7 @@ export const providerUsage = pgTable(
     })
       .notNull()
       .default(0),
-    // Rows from before 94S-454 say `unknown`, as a report from a proxy that
+    // Rows from before say `unknown`, as a report from a proxy that
     // predates it does; they were priced with no geo multiplier.
     inferenceGeo: text("inference_geo").notNull().default("unknown"),
     // The proxy estimated the call high because its answer did not say what
@@ -998,7 +998,7 @@ export const workerLaunches = pgTable(
     // Launch attempts that failed before any worker bound: a create or start
     // the provider refused, or a resource that exited unclaimed. Never reset,
     // so a launch that keeps failing reaches the scheduler's limit and gives
-    // its slot back instead of holding it forever (94S-207).
+    // its slot back instead of holding it forever.
     launchFailureCount: integer("launch_failure_count").notNull().default(0),
     // Attempts whose outcome was recorded, success or failure. A failure is
     // fenced on it, so one reported by a pass that lost its lock mid-ensure
@@ -1009,7 +1009,7 @@ export const workerLaunches = pgTable(
     launchRetryAt: timestamp("launch_retry_at", { withTimezone: true }),
     lastLaunchError: text("last_launch_error"),
     // When the scheduler first asked the worker this launch bound to drain,
-    // because its resource no longer meets the isolation contract (94S-250).
+    // because its resource no longer meets the isolation contract.
     // From then on the worker is handed no new turn; the replacement waits
     // for the one it runs, up to a deadline counted from here.
     drainRequestedAt: timestamp("drain_requested_at", { withTimezone: true }),
@@ -1057,8 +1057,8 @@ export const workerLaunches = pgTable(
 // Tokens handed out by bootstrapClaim; only their hashes are stored. Each
 // attempt holds one live token per purpose: `gateway` authenticates the
 // worker's own calls, `provider` and `repository` the egress proxy's
-// credential routes (94S-252), `object_store` its object store route
-// (94S-251). All of them are issued, extended and revoked together, and a
+// credential routes, `object_store` its object store route
+// . All of them are issued, extended and revoked together, and a
 // token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
@@ -1106,7 +1106,7 @@ export const workers = pgTable("workers", {
     .defaultNow(),
   // Stamped by whoever heartbeats, from its own TTL; the orphan reconciler
   // compares against this and holds no TTL of its own, so a TTL set on one
-  // process cannot be judged by another's (94S-132).
+  // process cannot be judged by another's.
   leaseExpiresAt: timestamp("lease_expires_at", {
     withTimezone: true,
   }).notNull(),
@@ -1139,7 +1139,7 @@ export const apiKeys = pgTable(
   ],
 );
 
-// The catalog revision an operator activated (94S-295): only a gateway
+// The catalog revision an operator activated: only a gateway
 // whose own `catalogRevision` equals it may fail a session for a pair its
 // catalog lacks. One row at most; none means a single replica, where every
 // gateway is the authority. The API never writes it — the operator's

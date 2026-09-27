@@ -81,7 +81,7 @@ const catalog: SessionCatalog = {
 };
 
 integration(
-  "resume from paused and pause cancel on PostgreSQL (94S-138)",
+  "resume from paused and pause cancellation preserve the PostgreSQL receipt contract",
   () => {
     let database: TempDatabase;
     let pool: Pool;
@@ -196,7 +196,7 @@ integration(
       };
     }
 
-    // A pool worker registered straight on the partition, as 94S-137's tests do.
+    // A pool worker registered straight on the partition, as tests do.
     async function claim(session: Session): Promise<Worker> {
       const executionId = `exec-${crypto.randomUUID()}`;
       const registered = await gateway.registerLaunch({
@@ -598,7 +598,7 @@ integration(
       expect((await receiptRow(otherResume.receipt_id)).status).toBe("failed");
     });
 
-    test("a resume whose pointer stopped covering the last turn fails at the claim, with its receipt (94S-288)", async () => {
+    test("a resume whose pointer stopped covering the last turn fails at the claim, with its receipt", async () => {
       const { session } = await pausedSession("gap");
       const resume = await accepted("resume", session);
       // A blocker recorded after the pause leaves the pointer untrusted, so
@@ -834,7 +834,7 @@ integration(
       ).toHaveLength(1);
     });
 
-    // 94S-285: the held attempt was the only one that could commit the pause.
+    // the held attempt was the only one that could commit the pause.
     async function blockedPauseLosesItsWorker(
       name: string,
       reason: string | null,
@@ -879,7 +879,7 @@ integration(
       return { session, pause };
     }
 
-    test("a blocked pause whose worker is lost fails, and the turn its checkpoint never covered sends the session to an operator (94S-285, 94S-288)", async () => {
+    test("a blocked pause whose worker is lost fails, and the turn its checkpoint never covered sends the session to an operator", async () => {
       const { session, pause } = await blockedPauseLosesItsWorker("lost", null);
       const row = await sessionRow(session.sessionId);
       // The pause fails back to active, but the queued input would run on a
@@ -916,7 +916,7 @@ integration(
       ).toEqual([]);
     });
 
-    test("a pause blocked on mirror_error whose worker is lost goes to recovery_required (94S-285)", async () => {
+    test("a pause blocked on mirror_error whose worker is lost goes to recovery_required", async () => {
       const { session, pause } = await blockedPauseLosesItsWorker(
         "lost-mirror",
         "mirror_error",
@@ -939,7 +939,7 @@ integration(
       ).toEqual([]);
     });
 
-    test("a pause blocked on a reason this build does not know is treated as blocking when its worker is lost (94S-285)", async () => {
+    test("a pause blocked on a reason this build does not know is treated as blocking when its worker is lost", async () => {
       const { session, pause } = await blockedPauseLosesItsWorker(
         "lost-unknown",
         "a_reason_from_a_newer_build",
@@ -1022,7 +1022,7 @@ integration(
       );
     });
 
-    test("a resume past the session's cost limit is held resuming, unlaunched, until the limit rises or a terminate closes it (94S-131)", async () => {
+    test("a resume past the session's cost limit is held resuming, unlaunched, until the limit rises or a terminate closes it", async () => {
       const { session } = await pausedSession("budget");
       await db
         .update(sessions)

@@ -120,7 +120,7 @@ export class BoundedNodeHttpHandler extends NodeHttpHandler {
 
 /**
  * {@link BoundedNodeHttpHandler} that looks a plain-http endpoint's name up
- * again for every request (94S-344), for the control plane's long-lived
+ * again for every request, for the control plane's long-lived
  * processes.
  *
  * Under Bun, `node:http` hands a hostname to `fetch`, whose resolver keeps
@@ -346,7 +346,7 @@ export class BodyStallError extends Error {
 
 /**
  * A body that ended cleanly before the length its response declared: a
- * failed read, not damage, and worth another request (94S-390).
+ * failed read, not damage, and worth another request.
  */
 export class BodyTruncatedError extends Error {
   constructor(message: string) {

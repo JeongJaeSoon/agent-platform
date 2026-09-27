@@ -213,7 +213,7 @@ describe("WorkerHost turn loop", () => {
       reason: null,
       usage: { input_tokens: 3 },
     });
-    // Checkpoints are not wired to this gateway yet (94S-201).
+    // Checkpoints are not wired to this gateway yet.
     expect(gateway.finalized[0]?.checkpoint).toBeNull();
     expect(gateway.releases).toHaveLength(1);
   });
@@ -356,7 +356,7 @@ describe("WorkerHost turn loop", () => {
     expect(gateway.releases).toEqual([]);
   });
 
-  test("leaves at once, unclaimed, when the session waits on an operator instead (94S-288)", async () => {
+  test("leaves at once, unclaimed, when the session waits on an operator instead", async () => {
     const gateway = new FakeWorkerGateway();
     let claims = 0;
     gateway.bootstrapClaim = async () => {
@@ -381,7 +381,7 @@ describe("WorkerHost turn loop", () => {
     expect(gateway.releases).toEqual([]);
   });
 
-  test("leaves at once, unclaimed, when its session was failed for a catalog mismatch (94S-280)", async () => {
+  test("leaves at once, unclaimed, when its session was failed for a catalog mismatch", async () => {
     const gateway = new FakeWorkerGateway();
     let claims = 0;
     gateway.bootstrapClaim = async () => {
@@ -509,7 +509,7 @@ describe("WorkerHost approvals", () => {
   test("denies a request nobody answered rather than holding the turn open", async () => {
     const gateway = new FakeWorkerGateway();
     // The gateway's expiry, not the worker's own timeout, bounds a request
-    // it registered (94S-389).
+    // it registered.
     const register = gateway.registerPending.bind(gateway);
     gateway.registerPending = async (request) => ({
       ...(await register(request)),
@@ -569,7 +569,7 @@ describe("WorkerHost ownership and shutdown", () => {
     );
   });
 
-  // 94S-321: an operator's execution revocation revokes the token, so the
+  // an operator's execution revocation revokes the token, so the
   // beat that follows is refused before it reaches any fence.
   test("stops the running turn without finalizing once its token is revoked", async () => {
     const gateway = new FakeWorkerGateway();
@@ -729,7 +729,7 @@ describe("WorkerHost ownership and shutdown", () => {
     expect(gateway.releases).toHaveLength(1);
   });
 
-  test("keeps beating while the shutdown flushes the event tail, until the release (94S-392)", async () => {
+  test("keeps beating while the shutdown flushes the event tail, until the release", async () => {
     class StalledAppend extends FakeWorkerGateway {
       override appendEvents(): Promise<never> {
         this.calls.push("appendEvents");
@@ -958,7 +958,7 @@ describe("WorkerHost ownership and shutdown", () => {
   });
 });
 
-describe("WorkerHost cost and provider failures (94S-131)", () => {
+describe("WorkerHost cost and provider failures", () => {
   test("finalizes each turn with its share of the engine's running total", async () => {
     const { gateway, host } = harness([
       { type: "await-input" },
@@ -983,7 +983,7 @@ describe("WorkerHost cost and provider failures (94S-131)", () => {
     ]);
   });
 
-  test("a turn the engine gave no total for finalizes with no cost, not zero (94S-275)", async () => {
+  test("a turn the engine gave no total for finalizes with no cost, not zero", async () => {
     const { gateway, host } = harness([
       { type: "await-input" },
       { type: "emit", message: resultMessage(uuidForTurn(1)) },
@@ -1066,7 +1066,7 @@ describe("WorkerHost cost and provider failures (94S-131)", () => {
     });
   });
 
-  test("a turn the engine ended on its budget fails as budget_exceeded, with its cost and its checkpoint (94S-279)", async () => {
+  test("a turn the engine ended on its budget fails as budget_exceeded, with its cost and its checkpoint", async () => {
     const gateway = new FakeWorkerGateway({ remainingBudgetUsd: 4.5 });
     const { budgets, host } = harness(
       [
@@ -1118,7 +1118,7 @@ describe("WorkerHost cost and provider failures (94S-131)", () => {
     });
   });
 
-  test("an engine that started its cost count over finishes the turn and drains (94S-279)", async () => {
+  test("an engine that started its cost count over finishes the turn and drains", async () => {
     const gateway = new FakeWorkerGateway();
     const { host } = harness(
       [
@@ -1273,7 +1273,7 @@ describe("WorkerHost before the engine starts", () => {
     expect(logged.join("\n")).not.toContain("git.example.test");
   });
 
-  test("a failure that quotes the claim's secrets reaches the log without them (94S-386)", async () => {
+  test("a failure that quotes the claim's secrets reaches the log without them", async () => {
     const providerValue = "wep_provider-log-one";
     const repositoryValue = "wep_repository-log-one";
     const gateway = new FakeWorkerGateway({
@@ -1346,7 +1346,7 @@ describe("WorkerHost before the engine starts", () => {
     expect(launched).toEqual([]);
     expect(gateway.finalized).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
-    // A failure: the session counts it against its startups (94S-302).
+    // A failure: the session counts it against its startups.
     expect(gateway.releases[0]).not.toHaveProperty("stop_kind");
   });
 
@@ -1382,7 +1382,7 @@ describe("WorkerHost before the engine starts", () => {
     expect(summary.outcome).toBe("drained");
     expect(launched).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
-    // Asked to stop, not failed: not a failed startup (94S-302).
+    // Asked to stop, not failed: not a failed startup.
     expect(gateway.releases[0]).toMatchObject({
       reason: "received SIGTERM",
       stop_kind: "drain",
@@ -1416,7 +1416,7 @@ describe("WorkerHost before the engine starts", () => {
 
     expect(summary.outcome).toBe("drained");
     // The strict gateway refused the field it does not know; the release
-    // without it is the one it kept (94S-361).
+    // without it is the one it kept.
     expect(gateway.releases).toHaveLength(2);
     expect(gateway.releases[0]).toMatchObject({ stop_kind: "drain" });
     expect(gateway.releases[1]).toMatchObject({ reason: "received SIGTERM" });
@@ -1525,7 +1525,7 @@ describe("WorkerHost outcomes a drain must not hide", () => {
     expect(gateway.finalized).toEqual([]);
   });
 
-  describe("checkpoint lease (94S-208)", () => {
+  describe("checkpoint lease", () => {
     const committed: WorkerCheckpointPort = {
       restorePlan: async () => ({ mode: "new" }),
       capture: async (preparation) =>
@@ -2078,7 +2078,7 @@ function resumedFrom(capture: () => void = () => {}): WorkerCheckpointPort {
   };
 }
 
-describe("WorkerHost with a resumed engine session (94S-242)", () => {
+describe("WorkerHost with a resumed engine session", () => {
   test("closes an input the resumed transcript already holds as outcome_unknown, without sending it", async () => {
     let captures = 0;
     const { gateway, host, runtime } = harness(
@@ -2534,7 +2534,7 @@ function never<T>(): Promise<T> {
   return new Promise<T>(() => {});
 }
 
-describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
+describe("WorkerHost stalls the turn deadline does not cover", () => {
   test("a nextInput the gateway keeps failing ends the worker within its retry budget, heartbeats and all", async () => {
     const gateway = new FakeWorkerGateway();
     gateway.enqueue("committed but never answered");
@@ -2565,7 +2565,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
     expect(gateway.releases).toHaveLength(1);
   });
 
-  test("events the gateway keeps failing end the worker within the retry budget instead of holding the turn's finalize (94S-392)", async () => {
+  test("events the gateway keeps failing end the worker within the retry budget instead of holding the turn's finalize", async () => {
     const gateway = new FakeWorkerGateway();
     gateway.appendFailure = unavailable();
     gateway.enqueue("a turn whose events never land");
@@ -2887,7 +2887,7 @@ describe("WorkerHost stalls the turn deadline does not cover (94S-269)", () => {
   });
 });
 
-describe("WorkerHost restoring a checkpoint (94S-246)", () => {
+describe("WorkerHost restoring a checkpoint", () => {
   test("hands the engine the CLAUDE.md the checkpoint pinned, not the preparer's", async () => {
     const { claudeMds, host } = harness([{ type: "await-input" }], {
       checkpoints: {
@@ -2968,7 +2968,7 @@ describe("WorkerHost restoring a checkpoint (94S-246)", () => {
   });
 });
 
-describe("WorkerHost checkpoint publishing (94S-246)", () => {
+describe("WorkerHost checkpoint publishing", () => {
   const publishing: WorkerCheckpointPort = {
     restorePlan: async () => ({ mode: "new" }),
     capture: async (preparation) =>
@@ -3029,7 +3029,7 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
     expect(gateway.finalized.map((call) => call.checkpoint)).toEqual([null]);
     expect(gateway.calls.filter((call) => call === "finalize").length).toBe(2);
     expect(warnings).toContain("worker.checkpoint.failed");
-    // The session shows the turn went without its checkpoint (94S-312).
+    // The session shows the turn went without its checkpoint.
     expect(recorded).toEqual([
       {
         detail: "Checkpoint manifest rejected: bundle digest mismatch",
@@ -3189,7 +3189,7 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
       ),
     ).toBe(true);
     // A drain it decided itself, which before any input would be a failed
-    // startup: not reported as one asked of it (94S-302).
+    // startup: not reported as one asked of it.
     expect(gateway.releases[0]).not.toHaveProperty("stop_kind");
   });
 
@@ -3364,7 +3364,7 @@ describe("WorkerHost checkpoint publishing (94S-246)", () => {
   });
 });
 
-describe("secrets in what the engine prints (94S-252)", () => {
+describe("secrets in what the engine prints", () => {
   test("a Bash that dumps the environment and the remote leaves no secret in events", async () => {
     const providerHeld = "wep_provider-attempt-one";
     const repositoryHeld = "wep_repository-attempt-one";

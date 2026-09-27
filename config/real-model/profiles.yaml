@@ -7,7 +7,7 @@
 # run against api.anthropic.com: nothing in this catalog names the compose
 # fake. The key is read from the API process's environment; the API refuses
 # to start without it, and workers only ever hold an egress token for it
-# (94S-252).
+# .
 profiles:
   claude-coding-real:
     runtime_kind: claude_agent_sdk

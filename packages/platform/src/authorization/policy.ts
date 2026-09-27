@@ -10,13 +10,13 @@ export type SessionAction =
 
 // Whether the actor may take the action at all. Ownership is not asked here:
 // every store reads and writes under actor.ownerId in its own transaction, so
-// another owner's session is a 404 from there (94S-397).
+// another owner's session is a 404 from there.
 export interface AuthorizationPolicy {
   authorize(actor: Principal, action: SessionAction): boolean;
 }
 
 // Scopes are checked at the HTTP edge before a service is called
-// (apps/control-host/src/api/scope-policy.ts, 94S-132); this policy is where
+// (apps/control-host/src/api/scope-policy.ts); this policy is where
 // they move once something other than the API calls these services.
 export const allowAllPolicy: AuthorizationPolicy = {
   authorize: () => true,

@@ -245,7 +245,7 @@ describe("images.yml supply-chain", () => {
   const job = workflow.jobs["supply-chain"];
 
   test("is one job, on pull requests, judging every build", () => {
-    // Branch protection requires it by this name (94S-363).
+    // Branch protection requires it by this name.
     expect(Object.keys(workflow.on)).toContain("pull_request");
     expect(job?.needs).toBe("build");
     // Skipped would count as passed.

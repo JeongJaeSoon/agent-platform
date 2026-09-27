@@ -29,7 +29,7 @@ import {
 } from "./checkpoint-service.ts";
 
 /**
- * 94S-229: what a checkpoint verified is what it restores. Every object is
+ * what a checkpoint verified is what it restores. Every object is
  * named by version, finalize reads those versions and holds them, and the
  * pointer and the restore plan carry them — so a key overwritten, deleted or
  * reused after the commit changes nothing the session resumes from.
@@ -400,7 +400,7 @@ describe("locked (the default)", () => {
 });
 
 /**
- * 94S-342: a pointer committed with its versions held vouches that they are
+ * a pointer committed with its versions held vouches that they are
  * still stored and held, so finalize spends requests only on what the turn
  * added — not on every part the session ever wrote.
  */
@@ -697,7 +697,7 @@ describe("finalize trusts what a held pointer already proved", () => {
   });
 });
 
-describe("locked fallback to an earlier revision (94S-204)", () => {
+describe("locked fallback to an earlier revision", () => {
   /**
    * What only garbage collection or a privileged operator can do to a held
    * version: lift the hold, then destroy the version.
@@ -990,7 +990,7 @@ describe("unversioned, then locked", () => {
 
     // The next candidate names the committed manifest as one of its own
     // untracked files, to have locked verification hold it. Finalize no
-    // longer accepts a name in another publish's directory (94S-281), but
+    // longer accepts a name in another publish's directory, but
     // the hold can come from elsewhere, and it must not count either.
     const manifestBytes = (await objects.get(
       first.manifest_ref,

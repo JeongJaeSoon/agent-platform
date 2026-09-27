@@ -106,7 +106,7 @@ export function readGitBundleHeader(
 
 /**
  * Whether `bytes` is a bundle a restore can fetch `commit` out of on its own,
- * or, with `earlier`, after the bundles before it in a chain (94S-227).
+ * or, with `earlier`, after the bundles before it in a chain.
  *
  * Three things disqualify it. A *prerequisite* means git will refuse the fetch
  * unless the receiver already has that commit, and a restore starts from an

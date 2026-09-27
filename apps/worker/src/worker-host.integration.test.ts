@@ -50,7 +50,7 @@ const timeouts: WorkerTimeouts = {
 };
 
 /**
- * Stands in for CheckpointService (94S-201): it records the engine handle a
+ * Stands in for CheckpointService: it records the engine handle a
  * finished turn could be resumed from, and hands back the plan the next
  * process should open with. It commits nothing, because a finalize carrying a
  * checkpoint is still refused.
@@ -232,7 +232,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
         mode: "resume",
         resume,
         // The transcript is on this container's own disk; a real restore binds
-        // a revision-scoped mirror instead (94S-201/94S-203).
+        // a revision-scoped mirror instead.
         localTranscriptResume: true,
       }),
       execution: { bootstrapNonce: "wln_test", generation: 2, id: "exec-1" },
@@ -271,7 +271,7 @@ describe("WorkerHost against the actual Claude SDK", () => {
 
     // Third process: handed turn 1 again, as a retry after a crash would be.
     // The engine already holds its uuid and would swallow it without an
-    // answer (94S-242); the transcript says so before anything is sent.
+    // answer; the transcript says so before anything is sent.
     const thirdGateway = new FakeWorkerGateway({
       runtimeConfig,
       sessionId: SESSION_ID,
@@ -355,7 +355,7 @@ function committing(): WorkerCheckpointPort & { refs: CheckpointRef[] } {
 }
 
 // The SDK has no `interrupted` terminal reason: an interrupt ends the turn as
-// an abort, and only the host knows it asked for one (94S-287).
+// an abort, and only the host knows it asked for one.
 describe("WorkerHost interrupt against the actual Claude SDK", () => {
   const cases: Array<{
     moment: "streaming" | "tool";

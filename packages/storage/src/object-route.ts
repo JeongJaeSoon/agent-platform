@@ -16,7 +16,7 @@ import {
 import { listPrefixWithin, objectKeyWithin } from "./scoped-objects.ts";
 
 /**
- * The control plane's half of the object store route (94S-251). A worker
+ * The control plane's half of the object store route. A worker
  * holds no object store credential: its S3 requests go to the egress proxy,
  * which asks the API whether the attempt behind the token still owns its
  * session, and then whether this one request is one the session may make.

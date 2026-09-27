@@ -1,6 +1,6 @@
 /**
  * THIRD_PARTY_NOTICES.md: the third-party components each deploy image
- * carries and their licenses (94S-338).
+ * carries and their licenses.
  *
  *   bun scripts/third-party-notices.ts                  rewrite the file
  *   bun scripts/third-party-notices.ts --check          fail when it is stale
@@ -12,7 +12,7 @@
  *     each built image against /app
  *   bun scripts/third-party-notices.ts --debian-sources  print DEBIAN_SOURCES.md
  *     for the Debian system it runs on; each Dockerfile writes it into /app
- *     after its last apt-get (94S-375)
+ * after its last apt-get
  *
  * The package list is each image's production closure, read from bun.lock the
  * way its Dockerfile installs it: control-host with `--filter
@@ -862,7 +862,7 @@ export function mentionsGpl(copyright: string): boolean {
 
 /**
  * DEBIAN_SOURCES.md: the corresponding source of every Debian package in an
- * image, one row per source package and version (94S-375).
+ * image, one row per source package and version.
  */
 export function renderDebianSources(
   packages: readonly DebianPackage[],

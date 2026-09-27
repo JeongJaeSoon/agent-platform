@@ -92,7 +92,7 @@ describe("Claude checkpoint codec", () => {
     expect(decodeCheckpointManifest(bytes)).toEqual(original);
   });
 
-  test("round-trips a bundle built on two earlier ones, oldest first (94S-227)", () => {
+  test("round-trips a bundle built on two earlier ones, oldest first", () => {
     const base = manifest().workspace;
     const link = (name: string, sha: string) => ({
       bytes: 512,
@@ -120,7 +120,7 @@ describe("Claude checkpoint codec", () => {
     ).toThrow();
   });
 
-  test("round-trips the object versions a writer pinned (94S-229)", () => {
+  test("round-trips the object versions a writer pinned", () => {
     const parts = [
       {
         bytes: 42,
@@ -216,7 +216,7 @@ describe("Claude checkpoint codec", () => {
   // decoding and re-encoding it must write the same bytes. A stored manifest
   // is verified by the digest of its bytes, never re-encoded; only subagent
   // labels differing in case or `_` would re-encode in another order.
-  test("a manifest stored before the shared canonical JSON still verifies and re-encodes to the same bytes (94S-400)", () => {
+  test("a manifest stored before the shared canonical JSON still verifies and re-encodes to the same bytes", () => {
     const stored = new TextEncoder().encode(
       `${JSON.stringify(STORED_MANIFEST)}\n`,
     );
@@ -667,7 +667,7 @@ describe("Claude profile fingerprint", () => {
 
   test("tells two tenants' in-process servers of one class apart by identity", () => {
     // Same class, same registry name, different tenant state inside: the
-    // class name alone called these compatible (94S-209).
+    // class name alone called these compatible.
     const tenant = (identity: string) => ({
       ...config,
       identities: { mcpServers: { review: identity } },
@@ -720,7 +720,7 @@ describe("Claude profile fingerprint", () => {
   });
 
   test("a plain-object cycle is opaque, a shared sub-object is not", () => {
-    // `describeOpaque` (94S-124) only stopped at class instances; a cyclic
+    // `describeOpaque` only stopped at class instances; a cyclic
     // plain object still reached JSON.stringify and threw RangeError.
     const cyclic: Record<string, unknown> = { command: "x" };
     cyclic.self = cyclic;

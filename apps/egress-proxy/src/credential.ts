@@ -13,7 +13,7 @@ import { type UpstreamBody, upstreamExchange } from "./upstream-http.ts";
 import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
 
 /**
- * The proxy's credential routes (94S-252): the one place a worker's request
+ * The proxy's credential routes: the one place a worker's request
  * picks up a provider key or a repository login, which the worker itself
  * never holds. The worker presents an attempt-scoped token; the gateway's
  * authorizer says what it stands for right now and hands back the upstream
@@ -26,13 +26,13 @@ import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
  * second request pipelined behind an authorized one must never reach the
  * upstream on its coat-tails. Bun's HTTP server does the framing. Plaintext
  * on the worker's side is fine: only the worker and this proxy sit on a
- * worker's network (94S-216).
+ * worker's network.
  *
  * Only the operations a session needs are routed — the Messages API, and
  * the read half of git's smart HTTP — so a leaked token buys at most that,
  * for as long as its attempt still owns its session.
  *
- * The object store route (94S-251) is the one way a worker reaches its
+ * The object store route is the one way a worker reaches its
  * objects: the store itself is not on its allowlist. The worker's S3 client
  * sends ordinary S3 requests here with its token as the access key id; the
  * authorizer judges each one against the session's prefix and signs it with
@@ -84,7 +84,7 @@ const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
  */
 const MAX_OBJECT_BODY_BYTES = 512 * 1024 * 1024;
 /**
- * Request body bytes all exchanges together may hold (94S-388). Bun takes a
+ * Request body bytes all exchanges together may hold. Bun takes a
  * body off the socket as fast as the client sends it, read or not, so a
  * body is held from the moment its request is admitted until its exchange
  * ends: the upstream answers from its head, while the body may still be
@@ -615,7 +615,7 @@ export function startCredentialProxy(
   }
 
   // What one Messages call used goes to the API, which prices it and adds it
-  // to the session's cost (94S-409). After the exchange, never in its way:
+  // to the session's cost. After the exchange, never in its way
   // the worker already has its answer, and the ids come from the grant, so
   // an attempt that has since lost its session is still charged for it.
   async function reportUsage(
@@ -989,7 +989,7 @@ export function startCredentialProxy(
       let answered = false;
       // Once answered, an ended exchange frees its slot whatever becomes of
       // the body: one handed back after the worker hung up is pulled once by
-      // Bun and then neither read nor cancelled (94S-366). Until then the
+      // Bun and then neither read nor cancelled. Until then the
       // slot stays held, and `ends` cuts every wait of the exchange short.
       const hungUp = () => {
         if (answered) release();
@@ -1239,7 +1239,7 @@ function tracked(
  * A body read through `meter`, which is settled once however the exchange
  * ends: the body in full, broken or cancelled, or the exchange cut, which is
  * all a worker that hung up leaves behind (Bun neither reads nor cancels the
- * body after that, 94S-366). A cut stream was still billed for what the
+ * body after that, ). A cut stream was still billed for what the
  * upstream had done.
  */
 function metered(

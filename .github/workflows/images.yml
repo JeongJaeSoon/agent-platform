@@ -7,10 +7,10 @@ name: Images
 # deployment.md § 배포·승격·롤백). Registry CD beyond the push is D5.
 #
 # Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
-# and scans it for known vulnerabilities (94S-338). The `supply-chain` job is
+# and scans it for known vulnerabilities. The `supply-chain` job is
 # the verdict, a required check: a high or critical vulnerability with a fix
 # available, in an image or anywhere in bun.lock, fails it; one without a fix
-# is only reported (94S-363). A tag's release waits for the same verdict on
+# is only reported. A tag's release waits for the same verdict on
 # the build and on the digest it promotes. The daily run turns a failed
 # verdict into an issue (`vulnerability-report`).
 on:
@@ -37,7 +37,7 @@ env:
   REGISTRY: ghcr.io
   # Lower-cased in the metadata step: ghcr rejects upper-case repository paths.
   IMAGE_PREFIX: ${{ github.repository }}
-  # Pulled from the CI mirror, not Docker Hub (94S-317): the Dockerfiles'
+  # Pulled from the CI mirror, not Docker Hub: the Dockerfiles'
   # own BUN_IMAGE by the same digest, so the image bytes do not change, the
   # BuildKit that setup-buildx-action runs, and the Dockerfile frontend.
   # ci-image-mirror.yml copies them; tests/ci-images.test.ts holds them to
@@ -73,7 +73,7 @@ jobs:
           name="${REGISTRY}/$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')-${APP}"
           echo "name=${name}" >>"$GITHUB_OUTPUT"
           echo "tags=${name}:sha-${GITHUB_SHA::12}" >>"$GITHUB_OUTPUT"
-          # The Dockerfiles' APT_UPGRADE_KEY (94S-363): a new day misses the
+          # The Dockerfiles' APT_UPGRADE_KEY: a new day misses the
           # cached `apt-get upgrade` layer, so the daily run scans that day's
           # Debian fixes rather than the first build's.
           echo "apt-upgrade-key=$(date -u +%F)" >>"$GITHUB_OUTPUT"
@@ -102,7 +102,7 @@ jobs:
           NAME: ${{ steps.meta.outputs.name }}
         run: .github/scripts/image-smoke.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
 
-      # THIRD_PARTY_NOTICES.md against what the image really holds (94S-338).
+      # THIRD_PARTY_NOTICES.md against what the image really holds.
       - name: Licenses of what the image ships
         env:
           APP: ${{ matrix.app }}
@@ -163,7 +163,7 @@ jobs:
           path: digests/${{ matrix.app }}.json
           if-no-files-found: error
 
-  # The required check (94S-363). One job name whatever the event, so branch
+  # The required check. One job name whatever the event, so branch
   # protection can hold on to it. `always()`, not `!cancelled()`: a skipped
   # required check counts as passed (docs/ci.md), so it runs even when a
   # build failed or the run was cancelled, and then fails for the missing
@@ -279,7 +279,7 @@ jobs:
       # builds again, and the apt layer is not pinned (a build job that ran
       # before UTC midnight upgraded on another key). The licenses must hold,
       # the scan must run, and a fixable high or critical finding stops the
-      # release as it does `supply-chain` (94S-363).
+      # release as it does `supply-chain`.
       - name: Licenses and vulnerabilities of the pushed digest
         timeout-minutes: 10
         env:

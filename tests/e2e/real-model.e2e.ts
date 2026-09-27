@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Api, e2eEnv, poll, type SseEvent, type Turn } from "./client.ts";
 
 /**
- * The alpha path against the real Messages API (94S-373), run by
+ * The alpha path against the real Messages API, run by
  * `tests/e2e/run.sh --real-model`: two turns, a checkpoint, and a third turn
  * on a new worker restored from it. A real model's words vary, so nothing
  * here reads them. What is checked is what the tools returned (the
@@ -103,7 +103,7 @@ function commitSeen(events: SseEvent[]): string {
   return commit;
 }
 
-test("two turns, a checkpoint and a resume on a new worker, against the real model (94S-373)", async () => {
+test("two turns, a checkpoint and a resume on a new worker, against the real model", async () => {
   // 1. The model writes and commits a file; every write asks permission.
   const created = await api.createSession(
     exactly(write),

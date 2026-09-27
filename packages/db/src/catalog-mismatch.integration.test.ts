@@ -152,7 +152,7 @@ class ClaimingBackend implements ExecutionBackend {
   }
 }
 
-integration("claim against a catalog that dropped the pair (94S-280)", () => {
+integration("claim against a catalog that dropped the pair", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -350,7 +350,7 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
     ]);
   }, 60_000);
 
-  test("a resuming session's launch fails the resume to an operator and keeps its input (94S-138)", async () => {
+  test("a resuming session's launch fails the resume to an operator and keeps its input", async () => {
     const session = await queuedSession(MOVED_TO);
     const intent = await store().reserveLaunch({
       backend: "local_docker",
@@ -422,7 +422,7 @@ integration("claim against a catalog that dropped the pair (94S-280)", () => {
     expect(execution?.desired).toBe("terminated");
   });
 
-  test("a session with a context gap goes to an operator instead, its input kept (94S-288)", async () => {
+  test("a session with a context gap goes to an operator instead, its input kept", async () => {
     const session = await queuedSession(MOVED_TO);
     // Turn 1 ran and no checkpoint covers it; turn 2 waits.
     await db

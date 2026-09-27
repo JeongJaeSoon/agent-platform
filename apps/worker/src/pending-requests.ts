@@ -37,7 +37,7 @@ export type PendingRequestsOptions = {
   /**
    * How long this worker holds a callback the gateway has not registered.
    * Once it has, the gateway's own expiry replaces this, longer or shorter:
-   * the installation's PENDING_REQUEST_TTL_SEC is the API's alone (94S-389).
+   * the installation's PENDING_REQUEST_TTL_SEC is the API's alone.
    */
   timeoutMs: number;
   onOwnershipLost?: (error: unknown) => void;
@@ -55,7 +55,7 @@ type Pending = {
   input: Record<string, unknown>;
   inputHash: string;
   settle: (decision: PermissionDecision) => void;
-  /** On `performance.now`: a wall-clock jump must not move it (94S-392). */
+  /** On `performance.now`: a wall-clock jump must not move it. */
   openedAt: number;
   deadline: number;
   timer: ReturnType<typeof setTimeout> | undefined;

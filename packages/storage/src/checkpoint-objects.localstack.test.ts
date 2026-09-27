@@ -52,7 +52,7 @@ localstackTest(
   30_000,
 );
 
-// 94S-337: checkpoint writes name no encryption, so the bucket default the
+// checkpoint writes name no encryption, so the bucket default the
 // API checks at startup is what every object is stored with.
 localstackTest(
   "checkpoint objects are stored with the bucket's SSE-S3 default",
@@ -164,7 +164,7 @@ localstackTest(
   30_000,
 );
 
-// 94S-336: the sequential case above cannot show that the endpoint serializes
+// the sequential case above cannot show that the endpoint serializes
 // two workers racing for one manifest key, which is the case the precondition
 // exists for. Run with and without Object Lock, the `locked` deployment shape.
 const RACERS = 16;
@@ -302,7 +302,7 @@ localstackTest(
   30_000,
 );
 
-// 94S-229, against the real endpoint: a version is what a checkpoint names,
+// against the real endpoint: a version is what a checkpoint names
 // so what the key holds later — an overwrite, a delete marker, a create-only
 // write landing again behind the marker — cannot reach it, and a held version
 // cannot be deleted by anyone who has not released the hold.

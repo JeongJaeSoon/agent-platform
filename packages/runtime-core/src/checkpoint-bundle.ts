@@ -9,7 +9,7 @@ export const CHECKPOINT_WORKTREE_REF = "refs/checkpoint/worktree";
  */
 export const CHECKPOINT_BRANCH_PREFIX = "refs/checkpoint/branch/";
 /**
- * The commit the session's repository CLAUDE.md is read from (94S-258): the
+ * The commit the session's repository CLAUDE.md is read from: the
  * branch commit the first worker fetched, carried unchanged from checkpoint
  * to checkpoint so a resumed engine gets the instructions it started with.
  */
@@ -55,7 +55,7 @@ export type CheckpointBundleRefs = {
 };
 
 /**
- * The one rule for a checkpoint bundle's refs (94S-391): finalize applies it
+ * The one rule for a checkpoint bundle's refs: finalize applies it
  * before the pointer moves, and a restore before it touches the workspace,
  * so a checkpoint that commits is one a restore checks out. `refs` are the
  * refs the chain's last bundle lists, each with the commit it peels to

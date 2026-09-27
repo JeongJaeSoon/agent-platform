@@ -370,7 +370,7 @@ export type ControlSample = {
   /**
    * POST sent → the effect observed by the runner (null: not within the
    * budget). For an interrupt that is the SSE read; P-3 judges the worker's
-   * own engine_stopped time where its log has one (94S-453).
+   * own engine_stopped time where its log has one.
    */
   effectMs: number | null;
   effect: string | null;
@@ -386,7 +386,7 @@ export type ControlSample = {
 /**
  * Interrupts a turn that is waiting on its slow model call. The effect is
  * the engine having stopped the turn: its `status{phase:"engine_stopped"}`
- * event read off the session's stream (94S-382). The turn reaching a
+ * event read off the session's stream. The turn reaching a
  * terminal status (polled every `pollMs`) is timed apart as `terminalMs`,
  * since it waits on the checkpoint, and so is the receipt. `continued` says
  * whether the engine asked the model for anything after the interrupt was
@@ -491,7 +491,7 @@ export async function interruptProbe(
     extra: {
       reachedSlowStep: reached !== null,
       sentAt: new Date(posted.sentAt).toISOString(),
-      // Place the worker's engine_stopped log line on this clock (94S-453).
+      // Place the worker's engine_stopped log line on this clock.
       clockOffsetMs: clock.offsetMs,
       clockRttMs: clock.rttMs,
       clockAfterOffsetMs: clockAfter?.offsetMs ?? null,

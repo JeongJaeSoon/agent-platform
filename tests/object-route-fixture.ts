@@ -17,7 +17,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 
 /**
- * The control plane side of the object store route (94S-251), real from the
+ * The control plane side of the object store route, real from the
  * database up: a session in PGlite, the real gateway claiming it, and the
  * real authorizer listening with the real signer. Shared by the in-process
  * suite (`object-store-route.test.ts`) and the Docker egress suite, which
@@ -136,7 +136,7 @@ export async function startObjectRouteFixture(options: {
         if (execution !== null) {
           await gateway.confirmExecutionGone(execution);
           // A worker gone before asking for input is a failed startup whose
-          // backoff holds the next launch back (94S-347); here it has
+          // backoff holds the next launch back; here it has
           // elapsed, as the gateway's own tests let it.
           await db
             .update(schema.sessions)

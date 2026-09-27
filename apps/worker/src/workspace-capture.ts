@@ -82,8 +82,8 @@ export type WorkspaceCaptureLimits = {
 /**
  * Deliberately minimal: the whole history rides every checkpoint and the
  * untracked files are held in memory to be uploaded. Revisit when sessions
- * approach these (94S-227 makes bundles incremental). The bundle limit is
- * the control plane's, which it verifies within its time budgets (94S-318).
+ * approach these (makes bundles incremental). The bundle limit is
+ * the control plane's, which it verifies within its time budgets.
  */
 export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
   maxBundleBytes: DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
@@ -95,7 +95,7 @@ export const DEFAULT_WORKSPACE_CAPTURE_LIMITS: WorkspaceCaptureLimits = {
 };
 
 /**
- * The bundles a capture may build on (94S-227): the chain of the checkpoint
+ * The bundles a capture may build on: the chain of the checkpoint
  * before it, as the control plane will check the new one against it.
  */
 export type BundleBase = {
@@ -389,7 +389,7 @@ async function captureWorkspaceOnce(
     // `--renormalize` re-reads every tracked file rather than trusting the
     // index's stat data, which an edit that kept size and mtime slips past.
     // Deliberately simple: every capture hashes the whole tree; revisit with
-    // 94S-227 if that shows in turn latency.
+    // if that shows in turn latency.
     const staging: GitExtras["env"] = {
       GIT_DIR: repository,
       GIT_INDEX_FILE: index,

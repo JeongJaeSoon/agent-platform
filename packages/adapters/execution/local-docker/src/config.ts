@@ -46,7 +46,7 @@ export type LocalDockerBackendConfig = {
    */
   egressProxyUrl: string;
   /**
-   * The port of the same proxy's credential routes (94S-252), where the
+   * The port of the same proxy's credential routes, where the
    * worker's provider and repository calls pick up the credentials it never
    * holds. Same host as `egressProxyUrl`, since only that alias resolves on
    * a worker network; handed to the worker as `WORKER_EGRESS_CREDENTIAL_URL`.
@@ -67,7 +67,7 @@ export type LocalDockerBackendConfig = {
    * bucket and region, plus the session prefix the backend computes per
    * launch. No endpoint and no credential — the worker reaches the store
    * only through the egress proxy's object store route, which the API signs
-   * for (94S-251).
+   * for.
    */
   objectStore: WorkerObjectStoreAccess;
   /** Deadline for each Docker Engine API call. */
@@ -91,15 +91,15 @@ export type LocalDockerBackendConfig = {
   workspaceGcMinAgeMs: number;
   workspaceQuota: WorkspaceQuota;
   /**
-   * Installation limits the worker enforces itself (94S-131), handed to it as
+   * Installation limits the worker enforces itself, handed to it as
    * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. The scheduler
    * always sets them; a worker launched without the retries refuses to
-   * start, since that limit has no code default (94S-292). Only backends
+   * start, since that limit has no code default. Only backends
    * running a stand-in image leave this out.
    */
   workerLimits?: { maxTurnSeconds: number; providerMaxRetries: number };
   /**
-   * The scheduler's own `LOG_LEVEL`, handed to the worker as is (94S-408).
+   * The scheduler's own `LOG_LEVEL`, handed to the worker as is.
    * Not part of the isolation stamp: an adopted container keeps the level it
    * was launched with rather than being replaced for it.
    */
@@ -144,7 +144,7 @@ export const DEFAULT_INSTALLATION_ID = "local";
 const INSTALLATION_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 /**
  * The settings of the shared worker network that per-execution networks
- * replaced (94S-216). Set, they mean an operator expects a network this host
+ * replaced. Set, they mean an operator expects a network this host
  * no longer uses, so startup stops and says what changed.
  */
 const RETIRED_NETWORK_SETTINGS = [
@@ -221,7 +221,7 @@ export function localDockerConfigFromEnv(
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
 /**
  * What a worker's checkpoint restore holds at once on an emptied workspace
- * before any file is checked out (94S-370): the chain's bundles and the
+ * before any file is checked out: the chain's bundles and the
  * repository they are staged into, then that repository and the workspace's
  * fetched copy — two copies of the control plane's 256 MiB bundle limit —
  * beside up to 256 MiB of untracked files, with room for pack indexes and

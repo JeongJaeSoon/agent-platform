@@ -54,7 +54,7 @@ export const checkpointRefSchema = z.object({
   manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
   // The version `putImmutable` answered for the manifest. The server verifies
   // that version, records it on the pointer and restores from it; a server
-  // that requires versions refuses a checkpoint without one (94S-229).
+  // that requires versions refuses a checkpoint without one.
   manifest_version: objectVersionSchema.optional(),
 });
 
@@ -77,7 +77,7 @@ export const bootstrapClaimRequestSchema = z
 // claims again: while the attempt has not used a token, the same binding
 // comes back with a working credential.
 
-// A capability for one of the egress proxy's credential routes (94S-252),
+// A capability for one of the egress proxy's credential routes
 // never an upstream credential: the proxy asks the gateway what it stands
 // for on every request and injects the provider key or repository
 // credential itself. It lives exactly as long as the attempt's session
@@ -91,14 +91,14 @@ export const egressTokenAuthSchema = z
 // left the catalog still describes the workspace this session lives in.
 export const workspaceRepositorySchema = z
   .object({
-    // Catalog key at creation; null for rows that predate the catalog (94S-147).
+    // Catalog key at creation; null for rows that predate the catalog.
     id: z.string().min(1).nullable(),
     // As the session row holds it. The catalog refuses a URL that carries a
-    // credential (94S-132), but a row from before it may still hold one, so
+    // credential, but a row from before it may still hold one, so
     // the worker never stores this in a checkout unstripped.
     url: z.string().min(1),
     branch: z.string().min(1),
-    // How the worker reaches the repository over the network (94S-252): an
+    // How the worker reaches the repository over the network: an
     // attempt-scoped token for the egress proxy's read-only repository
     // route, which injects the upstream credential the worker never sees.
     // Absent when the URL is not http(s), which only tests use.
@@ -111,7 +111,7 @@ export const workspaceDescriptorSchema = z
 
 // Who the session acts for: its owner partition (`AuthorizationContext.
 // owner_scope`), copied from the session row. The worker hashes it into the
-// checkpoint fingerprint (94S-209), which is what keeps two partitions on one
+// checkpoint fingerprint, which is what keeps two partitions on one
 // shared provider endpoint from resuming each other's checkpoints. It is an
 // identifier, never a credential, and it names a partition rather than the
 // caller of the moment so another member of the same partition can resume.
@@ -158,7 +158,7 @@ export const projectSettingsSchema = z
 
 // Everything the engine needs beyond the identity in `runtime`: resolved by
 // the server from the profile the session was created with. The provider
-// key does not ride here (94S-252): the egress proxy injects it, and what the
+// key does not ride here: the egress proxy injects it, and what the
 // worker holds is a token that is worthless off the worker network and dies
 // with the attempt. That token is still a secret for as long as it lives, so
 // nothing here may reach an event, a manifest or a log — see
@@ -173,15 +173,15 @@ export const runtimeConfigSchema = z
   })
   .strict();
 
-// The catalog's name for the settings in `runtime_config` (94S-132): a hash
+// The catalog's name for the settings in `runtime_config`: a hash
 // of the profile without its credential. The settings still ride in full —
 // the engine needs them — and this is what a log line or a later
-// comparison (94S-253) can hold instead.
+// comparison can hold instead.
 export const profileFingerprintSchema = z
   .string()
   .regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 hex>");
 
-// The lease as the worker may track it (94S-322): what was left of it on the
+// The lease as the worker may track it: what was left of it on the
 // database clock at an instant after the request was sent. Counted from its
 // own send time on a monotonic clock, it can only end early, never late,
 // whatever either side's wall clock says. `lease_expires_at` is that same
@@ -203,7 +203,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   profile_fingerprint: profileFingerprintSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
-  // The object store route's capability (94S-251): the worker holds no
+  // The object store route's capability: the worker holds no
   // object store credential, only this token, which reaches its session's
   // prefix for as long as the attempt owns the session.
   object_store: z.object({ access: egressTokenAuthSchema }).strict(),
@@ -211,7 +211,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   restore: checkpointRefSchema.nullable(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
   // most this attempt's engine may spend before it ends the turn in flight
-  // (94S-279). A second line only; the gate stays the stored sum against the
+  // . A second line only; the gate stays the stored sum against the
   // limit, checked before every turn.
   remaining_budget_usd: z.number().nonnegative(),
 });
@@ -479,7 +479,7 @@ export const restorePlanRequestSchema = workerScopeSchema
 
 // `version`, when present, is the only thing the worker may download: the
 // key's current object can be a later write than the one the checkpoint
-// verified (94S-229).
+// verified.
 const restoreObjectSchema = z.object({
   key: z.string().min(1),
   bytes: z.number().int().nonnegative(),
@@ -521,7 +521,7 @@ export const restorePlanSchema = z.object({
   manifest_ref: z.string().min(1),
   // What the restored revision's manifest must hash to. It equals the
   // claim's restore digest unless `fallback` says an earlier revision is
-  // restored, and then only this names it (94S-204).
+  // restored, and then only this names it.
   manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
   manifest_version: objectVersionSchema.optional(),
   engine: z.string().min(1),
@@ -531,7 +531,7 @@ export const restorePlanSchema = z.object({
   artifacts: z.array(restoreArtifactSchema),
   object_keys: z.array(z.string().min(1)),
   // Present only when the pointer's own checkpoint was damaged and the plan
-  // restores an earlier revision (`revision` above) instead (94S-204). The
+  // restores an earlier revision (`revision` above) instead. The
   // resumed session is then older than the pointer says, so the worker must
   // not treat this as the checkpoint its claim named.
   fallback: restoreFallbackSchema.optional(),
@@ -558,7 +558,7 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
       }),
     ),
     // Set when the pointer's checkpoint was damaged and it is the earlier
-    // `revision` the runtime cannot resume (94S-204).
+    // `revision` the runtime cannot resume.
     fallback: restoreFallbackSchema
       .extend({ revision: revisionSchema })
       .optional(),
@@ -578,7 +578,7 @@ export const finalizeRequestSchema = workerScopeSchema
     finalize_key: z.string().min(1),
     // The last source_sequence this attempt produced before the terminal.
     // The turn only closes once the stream is durable through it, so a
-    // finalize can never overtake its own event tail (94S-218). Zero means
+    // finalize can never overtake its own event tail. Zero means
     // the attempt has written no events yet.
     final_source_sequence: z.number().int().nonnegative().max(INT4_MAX),
     terminal: z.object({
@@ -588,8 +588,8 @@ export const finalizeRequestSchema = workerScopeSchema
       usage: z.unknown().nullable(),
       // What the engine says this turn cost, in USD; an estimate, not a bill.
       // Kept on the turn; the session's spend is what the egress proxy
-      // metered (94S-409). Absent or null when it gave no usable figure: the
-      // turn reads as unreported (94S-275). A turn known to have cost
+      // metered. Absent or null when it gave no usable figure: the
+      // turn reads as unreported. A turn known to have cost
       // nothing sends 0.
       cost_usd: z
         .number()
@@ -613,9 +613,9 @@ export const finalizeResponseSchema = z.object({
 // REQUEST_STALE once the pause is not the open one), and a refused attempt
 // keeps its lease. Without it the release is unconditional.
 // `stop_kind: "drain"` says the worker was asked to stop (SIGTERM), not that
-// it failed: a startup it ends is not counted against the session (94S-302).
+// it failed: a startup it ends is not counted against the session.
 // A gateway older than the field refuses it with BAD_REQUEST, and the worker
-// then releases without it (94S-361).
+// then releases without it.
 export const releaseRequestSchema = workerScopeSchema
   .extend({
     reason: z.string().min(1),

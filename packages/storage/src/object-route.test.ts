@@ -104,7 +104,7 @@ function verify(grant: ObjectRouteGrant, method: string): void {
   );
 }
 
-describe("the object store route's signer (94S-251)", () => {
+describe("the object store route's signer", () => {
   test("a get under the session prefix is signed for exactly its path", async () => {
     const grant = await signed(
       request(

@@ -255,7 +255,7 @@ describe("soak tooling", () => {
   });
 });
 
-describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
+describe("O-1 readyz exclusions", () => {
   const T0 = Date.parse("2026-09-25T10:00:00.000Z");
   const at = (ms: number) => new Date(T0 + ms).toISOString();
   const ok = (i: number): ReadyzSample => ({
@@ -356,7 +356,7 @@ describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
     }
   });
 
-  test("a runner slow to see curl end leaves only what curl surely ran (94S-453)", () => {
+  test("a runner slow to see curl end leaves only what curl surely ran", () => {
     // curl ran 2s and the runner saw it end at 3.6s: curl may have started
     // as late as 1.6s, however soon its spawn returned.
     const slowRunner = { ...timeout(10), wallMs: 3600, spawnMs: 5 };
@@ -429,7 +429,7 @@ describe("O-1 readyz exclusions (94S-440, 94S-443)", () => {
   });
 });
 
-describe("P-3 host exclusions (94S-444)", () => {
+describe("P-3 host exclusions", () => {
   const T0 = Date.parse("2026-09-25T13:00:00.000Z");
   const targets = { interruptEffectMs: 5000, interruptTerminalMs: 50_000 };
   const sentAt = (i: number) => T0 + i * 60_000;
@@ -600,7 +600,7 @@ describe("P-3 host exclusions (94S-444)", () => {
     ).toMatchObject({ pass: true, hostExcluded: 1, hostExcludedRatio: 0.01 });
   });
 });
-describe("host probe and the P-3 split (94S-453)", () => {
+describe("host probe and the P-3 split", () => {
   const T0 = Date.parse("2026-09-26T07:00:00.000Z");
   const iso = (ms: number) => new Date(T0 + ms).toISOString();
   // A host probe request to `target`, sent `at` after T0, that took `ms` in curl.
@@ -1037,7 +1037,7 @@ describe("host probe and the P-3 split (94S-453)", () => {
   });
 });
 
-describe("Api.statusPhase (94S-382)", () => {
+describe("Api.statusPhase", () => {
   test("reads the turn's phase off the stream, resumes from the last id, and waits out the stream limit", async () => {
     const seen: Array<string | null> = [];
     let refusals = 1;

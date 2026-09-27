@@ -10,7 +10,7 @@ import { heartbeatTtlMsFromEnv } from "./lease-config.ts";
  * The API's own settings, apart from the installation limits it shares with
  * the scheduler. One parser for startup and readiness, and every value that
  * is set but wrong stops the process: a typo that quietly became a default
- * is an installation running under settings nobody chose (94S-389).
+ * is an installation running under settings nobody chose.
  */
 export type ApiSettings = {
   leaseTtlMs: number;

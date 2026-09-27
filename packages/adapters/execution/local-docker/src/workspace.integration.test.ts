@@ -292,7 +292,7 @@ integration("workspace volumes against a real daemon", () => {
     ).toBeNull();
   }, 60_000);
 
-  test("a worker's workspace stops new files at the inode limit and bytes at the byte limit (94S-224)", async () => {
+  test("a worker's workspace stops new files at the inode limit and bytes at the byte limit", async () => {
     if (!supportsQuota) {
       // Nothing to hold: this daemon has no quota, and the preflight test
       // above is what holds it to refusing to start instead.
@@ -320,7 +320,7 @@ integration("workspace volumes against a real daemon", () => {
         `test "$(df -P -k /workspace | awk 'NR==2 {print $2}')" -le ${QUOTA_BYTES / 1024}`,
       ),
     ).toBe(0);
-    // The byte ceiling is still there beside it (94S-215).
+    // The byte ceiling is still there beside it.
     expect(
       await runScript(
         client,
@@ -333,13 +333,13 @@ integration("workspace volumes against a real daemon", () => {
     );
   }, 180_000);
 
-  test("a workspace from before the inode limit gets it on its next launch (94S-224)", async () => {
+  test("a workspace from before the inode limit gets it on its next launch", async () => {
     if (!supportsQuota) {
       expect(supportsQuota).toBe(false);
       return;
     }
     const intent = intentFor();
-    // Made the way 94S-215 made them: bounded by bytes, labelled, and never
+    // Made the way made them: bounded by bytes, labelled, and never
     // shown to the helper.
     const volume = `${workspaceVolumePrefixFor(intent.sessionId, installationId)}pre22400`;
     await client.createVolume({

@@ -1,6 +1,6 @@
 /**
  * What one Messages call used, read off the answer on its way to the worker
- * (94S-409). The engine's own figure is its SDK's `total_cost_usd`, which a
+ * . The engine's own figure is its SDK's `total_cost_usd`, which a
  * tool calling the route with the engine's token never shows up in; the
  * proxy sees every call, so it is where those are counted.
  *
@@ -18,9 +18,9 @@
  * charged from its request: a token for every byte sent, and all the
  * output `max_tokens` allowed.
  *
- * The speed is priced too (94S-451): the answer's `usage.speed`, or the
+ * The speed is priced too: the answer's `usage.speed`, or the
  * request's `speed` when the answer does not say. So are the server tools
- * the answer counted in `usage.server_tool_use`, and where it ran (94S-454):
+ * the answer counted in `usage.server_tool_use`, and where it ran
  * the answer's `usage.inference_geo`, else the request's `inference_geo`,
  * else `unknown`, since a workspace's default may be the dearer one.
  */

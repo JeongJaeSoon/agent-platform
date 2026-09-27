@@ -81,7 +81,7 @@ describe("git workspace bundle verifier", () => {
     expect(verdict).toEqual({ status: "restorable" });
   });
 
-  test("a chain is restorable fetched in order, and its incremental bundle alone is not (94S-227)", async () => {
+  test("a chain is restorable fetched in order, and its incremental bundle alone is not", async () => {
     const chain = await createGitBundleChain();
     const directory = await mkdtemp(join(tempRoot, "chain-"));
     const base = {
@@ -157,7 +157,7 @@ describe("git workspace bundle verifier", () => {
       ["refs/checkpoint/head", "refs/checkpoint/worktree", "refs/tags/v1"],
       "Checkpoint bundle carries refs a capture does not write: refs/tags/v1",
     ],
-  ])("a bundle %s is unusable (94S-391)", async (_, refs, reason) => {
+  ])("a bundle %s is unusable", async (_, refs, reason) => {
     const odd = await createGitBundle({ refs });
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
 
@@ -230,7 +230,7 @@ describe("git workspace bundle verifier", () => {
   });
 
   test("an object size wider than git's size_t is a limit of that git, not a verdict", async () => {
-    // What CI's git printed for a raised object count (94S-369). A 32-bit
+    // What CI's git printed for a raised object count. A 32-bit
     // git says the same of a valid object over 4 GiB, so it is retried.
     const stderr =
       "fatal: object size too large for this platform\nerror: index-pack died\n";
@@ -548,7 +548,7 @@ describe("git workspace bundle verifier", () => {
     expect(fetch.stderr).toContain("did not send all necessary objects");
   });
 
-  test("a bundle recorded against HEAD, as `git bundle create … HEAD` writes it, is not a checkpoint a restore checks out (94S-391)", async () => {
+  test("a bundle recorded against HEAD, as `git bundle create … HEAD` writes it, is not a checkpoint a restore checks out", async () => {
     const source = await mkdtemp(join(tempRoot, "head-"));
     const env = {
       GIT_AUTHOR_EMAIL: "t@example.invalid",
@@ -633,7 +633,7 @@ describe("git workspace bundle verifier", () => {
     // ("index-pack died of signal 6"), where the bytes declare a huge object
     // the memory cap refuses the allocation ("Out of memory"), and where
     // the size header runs past size_t index-pack stops there ("object size
-    // too large for this platform", 94S-369). All three are retryable throws.
+    // too large for this platform", ). All three are retryable throws.
     const verifier = createGitWorkspaceBundleVerifier({ tempRoot });
     const outcome = await verifyBundleBytes(verifier, {
       bytes,

@@ -57,7 +57,7 @@ async function claim(db: Database, sessionId: string, podId: string) {
     return claimed;
   });
 }
-// Leases end on the database clock (94S-211), so these tests wait for real
+// Leases end on the database clock, so these tests wait for real
 // time to pass. The TTL is what a loaded runner has to reach the next call
 // inside a lease; waits past a deadline are only ever too long, never short.
 const LEASE_TTL_MS = 2_000;
@@ -279,7 +279,7 @@ integration("orphan reconciliation on PostgreSQL", () => {
   });
 });
 
-// 94S-139: the lease-expiry reconciler for gateway-bound sessions. It fences
+// the lease-expiry reconciler for gateway-bound sessions. It fences
 // the silent worker and asks for its execution to go; what happens to the
 // turn is decided by confirmExecutionGone once the backend says it is gone.
 integration("expired lease reconciliation on PostgreSQL", () => {

@@ -21,7 +21,7 @@ export type IsolatedWorkspaceOptions = {
  * Creates `<root>/workspace/.claude` and `<root>/home` under a fresh temp
  * root. Claude Code loads every `CLAUDE.md` from the cwd up to `/`, so the
  * fixture refuses to hand out a workspace whose ancestors carry instructions
- * (94S-91 isolation contract: the parent tree must be tenant-private).
+ * (isolation contract: the parent tree must be tenant-private).
  */
 export async function createIsolatedWorkspace(
   options: IsolatedWorkspaceOptions = {},

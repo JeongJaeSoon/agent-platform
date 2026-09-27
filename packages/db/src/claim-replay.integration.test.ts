@@ -30,10 +30,10 @@ import {
 } from "./schema.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
-// 94S-291: a claim whose response was lost is retried with the same nonce
+// a claim whose response was lost is retried with the same nonce
 // and answered from the attempt the first claim created. Terminate, close,
 // pause and the lease sweep fence that attempt by moving the session on
-// while leaving it `allocated` until the execution is seen gone (94S-139),
+// while leaving it `allocated` until the execution is seen gone
 // so the replay has to judge the binding the way a new claim and the fence
 // would, or it hands a stopping session fresh credentials.
 
@@ -520,7 +520,7 @@ integration("claim replay against the session's current binding", () => {
       ).toEqual(before);
       // The pause does not hang on the refused worker: the exit observation
       // settles it. This session never ran a turn, so it has no checkpoint to
-      // pause onto and the pause fails back to active (94S-285).
+      // pause onto and the pause fails back to active.
       await gateway.confirmExecutionGone(l.executionId);
       expect((await sessionRow(session.session_id)).admissionState).toBe(
         "active",
@@ -614,7 +614,7 @@ integration("claim replay against the session's current binding", () => {
       });
 
       // The replacement worker claims the session once the old one is gone
-      // and the startup backoff its unready exit started is over (94S-347).
+      // and the startup backoff its unready exit started is over.
       await gateway.confirmExecutionGone(old.executionId);
       await db
         .update(sessions)

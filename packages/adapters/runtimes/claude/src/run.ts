@@ -82,7 +82,7 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
   /**
    * Resolves once every message pushed so far is written to the engine. A
    * control request goes out at once, so one sent before that overtakes the
-   * input it was meant to follow (94S-351).
+   * input it was meant to follow.
    */
   flushed(): Promise<void> {
     // Not released by finish(): what was queued before it is still written.

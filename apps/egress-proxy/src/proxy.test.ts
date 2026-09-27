@@ -195,7 +195,7 @@ describe("egress proxy", () => {
     await upstream.stop(true);
   });
 
-  // 94S-299. Bun.serve ignores the `connection: close` the proxy forwards
+  // . Bun.serve ignores the `connection: close` the proxy forwards
   // whenever its handler answers after an await, so the upstream stays open;
   // a client that reads the response as keep-alive then sends its next
   // request — to any origin — down the same socket, and the proxy used to
@@ -1317,7 +1317,7 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
 }
 
 describe("the system resolver", () => {
-  test("asks libc on every call, so a restarted upstream is followed (94S-344)", async () => {
+  test("asks libc on every call, so a restarted upstream is followed", async () => {
     const answers = ["10.0.0.7", "10.0.0.9"];
     const lookup = spyOn(Bun.dns, "lookup").mockImplementation(
       async () =>

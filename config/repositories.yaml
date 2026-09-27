@@ -1,4 +1,4 @@
-# Repositories sessions may run against (94S-132). A session names one by
+# Repositories sessions may run against. A session names one by
 # id; the worker is handed the URL and branch registered here at claim time.
 #
 # `profiles` is the allowlist of profiles that may run against this
@@ -6,7 +6,7 @@
 # naming a pair not listed answers 422. A session whose pair has since been
 # removed, or whose id now points at another URL or branch, is failed with
 # CATALOG_MISMATCH at its next launch; restoring the pair lets the next
-# message run it again, and nothing reruns on its own (docs/operations.md, 94S-280).
+# message run it again, and nothing reruns on its own (docs/operations.md).
 #
 # URLs must be http:// or https:// (a worker's only way out is the HTTP(S)
 # egress proxy) and must not carry a credential (no userinfo, no query
@@ -14,7 +14,7 @@
 #
 # A private repository names its login under `auth`, by reference like a
 # profile's provider key (value_env or secret_id, exactly one). The worker
-# never receives it (94S-252): it clones through the egress proxy's
+# never receives it: it clones through the egress proxy's
 # repository route with a token scoped to its attempt, and the proxy adds
 # this login on the way out. Read access is all the route serves; nothing is
 # ever pushed through it.

@@ -69,7 +69,7 @@ export type WorkerTimeouts = {
   interruptGraceMs?: number;
   /**
    * How long an interrupted turn's checkpoint capture may run once the engine
-   * has stopped, apart from the grace above (94S-382). Not configurable from
+   * has stopped, apart from the grace above. Not configurable from
    * the environment; the default stays well inside the reconciler's settle
    * deadline for an interrupt.
    */
@@ -85,7 +85,7 @@ export type WorkerTimeouts = {
   toolUseFrameWaitMs?: number;
   /**
    * How long before an unrenewed lease runs out the worker gives it up and
-   * kills the engine (94S-322): enough for the kill to land before another
+   * kills the engine: enough for the kill to land before another
    * attempt may be handed the session. `LEASE_SAFETY_MARGIN_MS` when unset.
    */
   leaseSafetyMarginMs?: number;
@@ -99,7 +99,7 @@ export type WorkerTimeouts = {
    * How long a poll, or one batch of events, keeps retrying a gateway that
    * answers with transient errors. The server may already have handed the
    * turn over, and a finalize waits on its events, so without it a worker
-   * whose heartbeats still land holds that turn forever (94S-269, 94S-392).
+   * whose heartbeats still land holds that turn forever.
    * Counted from the first failure; retries are not charged to `maxTurnMs`.
    */
   nextInputRetryTimeoutMs: number;
@@ -107,7 +107,7 @@ export type WorkerTimeouts = {
   /**
    * A pending permission or question denied once nobody has answered it,
    * until the gateway has registered it; from then on the server's
-   * PENDING_REQUEST_TTL_SEC decides (94S-389).
+   * PENDING_REQUEST_TTL_SEC decides.
    */
   questionTimeoutMs: number;
   requestTimeoutMs: number;
@@ -139,7 +139,7 @@ export type WorkerRuntimeSettings = {
 export type WorkerConfig = {
   bootstrapNonce: string;
   /**
-   * The egress proxy's credential routes (94S-252): where the engine's
+   * The egress proxy's credential routes: where the engine's
    * Messages calls and the workspace's git fetches go with the tokens the
    * claim hands out, and pick up the credentials this process never holds.
    */
@@ -209,7 +209,7 @@ export function workerConfigFromEnv(
         environment.WORKER_CLAUDE_CONFIG_DIR ?? `${home}/.claude`,
       cwd: required(environment.WORKER_WORKSPACE_DIR, "WORKER_WORKSPACE_DIR"),
       home,
-      // An installation limit, so no code default (94S-292): the scheduler
+      // An installation limit, so no code default: the scheduler
       // always passes the installation's PROVIDER_MAX_RETRIES.
       providerMaxRetries: integerSetting(
         environment,

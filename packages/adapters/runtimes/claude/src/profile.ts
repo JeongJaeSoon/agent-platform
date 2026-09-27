@@ -90,7 +90,7 @@ export function validateRuntimeConfig(
     // checkpoint being resumed, or handing over nothing at all, which leaves
     // the engine replaying the container's local disk. Either is a different
     // conversation than the one that was committed. A store bound to a
-    // restore plan declares `revisionScoped` (94S-203); a genuinely local
+    // restore plan declares `revisionScoped`; a genuinely local
     // resume has to say so out loud.
     throw new Error("Resume needs a revision-scoped transcript mirror");
   }
@@ -105,7 +105,7 @@ export function validateRuntimeConfig(
 /**
  * The only host variables the engine inherits verbatim. On the worker
  * network the egress proxy is the sole route to the Messages endpoint and
- * the container learns it through these (94S-199); the SDK replaces the
+ * the container learns it through these; the SDK replaces the
  * child's environment rather than merging it, so they have to be carried
  * across by hand. Each is forwarded only when the host sets it: an uppercase
  * twin the host never had would change which value the engine prefers.
@@ -124,7 +124,7 @@ const HOST_PROXY_VARIABLES = [
 ] as const;
 
 /**
- * The descriptor the engine reads its API key from (94S-410). The engine
+ * The descriptor the engine reads its API key from. The engine
  * reads it once, closes it and drops the variable before any tool runs, and
  * a socket, unlike a pipe or a file, cannot be reopened through the
  * engine's fd directory under /proc by a process it was never handed to.
@@ -181,7 +181,7 @@ export function runtimeEnvironment(
   }
   if (auth.kind === "egress_token") {
     // The engine talks to the egress proxy's credential route, which puts the
-    // real credential on the request (94S-252); the token is all it holds.
+    // real credential on the request; the token is all it holds.
     // The route is plain HTTP on the worker network, so it must not be sent
     // through the forward proxy, which would refuse it anyway.
     environment.ANTHROPIC_BASE_URL = normalizeEndpoint(auth.transport);

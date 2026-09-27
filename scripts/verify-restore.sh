@@ -174,7 +174,7 @@ while IFS='|' read -r session revision ref expected manifest_version held is_poi
       check_ref "$tag part" "$key" "$version" "$sha" "$WORK/part" "$bytes" || ok=0
     done < "$refs"
     # The chain oldest first, as a restore fetches it: an incremental bundle
-    # (94S-227) verifies only on top of the ones before it.
+    # verifies only on top of the ones before it.
     chain_ok=1
     chain="$WORK/chain-$ROWS"
     if ! jq -j '((.workspace.baseBundles // []) + [.workspace.bundle])[] | "\(.key)\u0000\(.version // "")\u0000\(.sha256)\u0000\(.bytes)\u0000"' "$manifest" > "$chain"; then

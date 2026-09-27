@@ -84,7 +84,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
   const localstackName = `ap-it-localstack-${suffix}`;
   /** The API's side of the object store route, with the only key. */
   const authorizerName = `ap-it-authorizer-${suffix}`;
-  /** Answers like the API: Bun.serve, after an await (94S-299). */
+  /** Answers like the API: Bun.serve, after an await. */
   const gatewayName = `ap-it-gateway-${suffix}`;
   /** A second installation on the same daemon, with a proxy of its own. */
   const otherInstallationId = `eg2-${suffix}`;
@@ -577,7 +577,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
         "EGRESS_PROXY_PORT=3128",
         // The object store is an upstream of the credential routes only:
         // LocalStack takes any signature, so the forward proxy must not
-        // reach it (94S-251).
+        // reach it.
         `EGRESS_AUTHORIZER_URL=http://${authorizerName}:3100`,
         `EGRESS_AUTHORIZER_TOKEN=${fixture.authorizerToken}`,
         "EGRESS_CREDENTIAL_PORT=3129",
@@ -778,7 +778,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
 
   test("Bun's own fetch handshakes through the tunnel", async () => {
     // Bun 1.3.10–1.3.13 put GREASE encrypted_client_hello on every fetch and
-    // node:https hello, which this proxy refuses; 1.3.14 does not (94S-441).
+    // node:https hello, which this proxy refuses; 1.3.14 does not.
     // This pins that where a runtime upgrade would change it back.
     const before = await logsOf(proxyName);
     const result = await bunFetchProbe(`https://${tlsName}:8443/`);
@@ -866,7 +866,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
     ]);
   }, 300_000);
 
-  // 94S-251: the wrapper above is the worker's own code, which a worker
+  // the wrapper above is the worker's own code, which a worker
   // that runs anything can bypass. This is what bypassing it gets: its
   // token as the key of a plain S3 client, from inside the worker network.
   test("a raw S3 client with the worker's token reaches no other session's objects", async () => {
@@ -959,7 +959,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
     expect(proxied.output).not.toContain("ListBucketResult");
   }, 180_000);
 
-  // 94S-299: every new session's worker died here. Its gateway claim left
+  // every new session's worker died here. Its gateway claim left
   // the pooled proxy connection open (Bun.serve ignores `connection: close`
   // after an await), and the session store's first S3 list went down it to
   // the gateway, whose JSON answer the SDK failed to parse as XML. Then the
@@ -1039,7 +1039,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
   }, 180_000);
 
   /**
-   * 94S-216: workers launched by the backend, each on the network it made
+   * workers launched by the backend, each on the network it made
    * for them. B serves HTTP; A and a worker of another installation, C, try
    * to reach it. Every refusal below is paired with a positive control, so a
    * dead server, a wrong address or a failed lookup cannot pass as isolation.
@@ -1491,7 +1491,7 @@ console.log("TLS " + response.status + " " + (await response.text()));
     }, 60_000);
   });
 
-  test("an upstream back on a new address is followed at once by the proxy and by the S3 handler (94S-344)", async () => {
+  test("an upstream back on a new address is followed at once by the proxy and by the S3 handler", async () => {
     // Stop the upstream, start a placeholder in the gap and the upstream again,
     // so it comes back on another address. Docker's DNS gave the old answer a
     // TTL of 600s; a resolver that kept it would miss the new address for ten
@@ -1658,7 +1658,7 @@ type FollowLine = { cares: string; handler: string };
 /**
  * A long-lived process calling one upstream every half second through the
  * storage package's S3 handler, with node:dns's answer for the same name
- * beside each result (94S-344).
+ * beside each result.
  */
 const FOLLOW_PROBE = `
 import { lookup } from "node:dns/promises";

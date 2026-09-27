@@ -28,7 +28,7 @@ export type EventPublisherOptions = {
    * with transient errors, counted from its first failure. Past it the
    * stream fails as on a refusal: a heartbeat that still lands would
    * otherwise keep the lease while the turn waits on its events forever
-   * (94S-392). Unbounded when unset.
+   * . Unbounded when unset.
    */
   retryBudgetMs?: number;
   sleep?: (ms: number) => Promise<void>;

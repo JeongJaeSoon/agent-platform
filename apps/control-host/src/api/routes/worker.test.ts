@@ -175,7 +175,7 @@ describe("/internal/worker", () => {
     expect(v1.status).toBe(401);
   });
 
-  test("a token the database cannot be asked about yet is a retryable 503, never 401 (94S-346)", async () => {
+  test("a token the database cannot be asked about yet is a retryable 503, never 401", async () => {
     // What an API that restarted ahead of its database meets: PostgreSQL
     // answering that it is still starting up.
     const work = createPostgresWorkerUnitOfWork(db);
@@ -219,7 +219,7 @@ describe("/internal/worker", () => {
     ["40P01", "deadlock detected"],
     ["40001", "could not serialize access due to concurrent update"],
   ])(
-    "a transaction rolled back with %s is a retryable 503 with Retry-After, not a lost lease (94S-392)",
+    "a transaction rolled back with %s is a retryable 503 with Retry-After, not a lost lease",
     async (code, text) => {
       await seedSession();
       const { binding } = await claimed();
@@ -287,7 +287,7 @@ describe("/internal/worker", () => {
     ).toEqual({ status: 403, code: "FORBIDDEN" });
   });
 
-  test("bootstrap-claim refuses a bearer nonce other than the one it claims with (94S-397)", async () => {
+  test("bootstrap-claim refuses a bearer nonce other than the one it claims with", async () => {
     await seedSession();
     const first = await claimed();
     expect(
@@ -361,7 +361,7 @@ describe("/internal/worker", () => {
       branch: "main",
       access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
     });
-    // The provider key never crosses this route (94S-252); the worker holds
+    // The provider key never crosses this route; the worker holds
     // a token only the egress proxy's authorizer can turn into it.
     expect(binding.runtime_config.provider.auth).toEqual({
       kind: "egress_token",

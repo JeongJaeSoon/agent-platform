@@ -190,7 +190,7 @@ function sha256(bytes: Uint8Array): string {
 }
 
 describe("SessionCheckpoints", () => {
-  test("waits out an object store outage before opening a fresh transcript generation (94S-477)", async () => {
+  test("waits out an object store outage before opening a fresh transcript generation", async () => {
     let elapsed = 0;
     const h = harness({
       sleep: async (ms) => {
@@ -273,7 +273,7 @@ describe("SessionCheckpoints", () => {
     );
   });
 
-  test("uploads the bundle from a file in chunks, and leaves no spool behind (94S-318)", async () => {
+  test("uploads the bundle from a file in chunks, and leaves no spool behind", async () => {
     const h = harness();
     const { claim, mirror } = await opened(h);
     await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
@@ -697,7 +697,7 @@ describe("SessionCheckpoints", () => {
     ).toBe(true);
   });
 
-  test("logs how long each stage of a publish took (94S-380)", async () => {
+  test("logs how long each stage of a publish took", async () => {
     const h = harness();
     const { claim, mirror } = await opened(h);
     await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
@@ -748,7 +748,7 @@ describe("SessionCheckpoints", () => {
     expect(JSON.stringify(result)).not.toContain("sessions/");
   });
 
-  test("a failed publish logs the stages it reached, up to the one that failed (94S-380)", async () => {
+  test("a failed publish logs the stages it reached, up to the one that failed", async () => {
     const h = harness();
     const { claim, mirror } = await opened(h);
     await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
@@ -788,7 +788,7 @@ describe("SessionCheckpoints", () => {
   });
 });
 
-describe("a publish that fails for a reason other than the mirror (94S-312)", () => {
+describe("a publish that fails for a reason other than the mirror", () => {
   const manifestRef = `sessions/${SESSION}/checkpoints/0000000000/att_fake/0123456789abcdef0123456789abcdef/manifest.json`;
   const directory = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
   const bundle = new TextEncoder().encode("bundle bytes");
@@ -1046,7 +1046,7 @@ describe("a publish that fails for a reason other than the mirror (94S-312)", ()
     ]);
   });
 
-  test("writes the bundle and untracked files as content-addressed, the manifest as not (94S-380)", async () => {
+  test("writes the bundle and untracked files as content-addressed, the manifest as not", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const putImmutable = objects.putImmutable.bind(objects);
     const writes: Array<{ key: string; contentAddressed: boolean }> = [];
@@ -1096,7 +1096,7 @@ describe("a publish that fails for a reason other than the mirror (94S-312)", ()
   });
 });
 
-describe("unchanged untracked files (94S-476)", () => {
+describe("unchanged untracked files", () => {
   test("reuses the previous committed version and reports capture sizes", async () => {
     const objects = createMemoryCheckpointObjectStore({ versioned: true });
     const putImmutable = objects.putImmutable.bind(objects);
@@ -1433,7 +1433,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(plan.sessionStore).toBeDefined();
   });
 
-  test("restores the earlier revision a fallback plan names in place of the claim's damaged pointer (94S-204)", async () => {
+  test("restores the earlier revision a fallback plan names in place of the claim's damaged pointer", async () => {
     const from = await published({ versioned: true });
     await replaceWorkspaceWithLeftovers();
     const damaged: Partial<CheckpointRef> = {
@@ -1546,7 +1546,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     ]);
   });
 
-  test("streams the bundle to the workspace volume, never through get, and keeps only the staged repository (94S-318)", async () => {
+  test("streams the bundle to the workspace volume, never through get, and keeps only the staged repository", async () => {
     const from = await published({ instructions: true });
     await replaceWorkspaceWithLeftovers();
     const get = from.objects.get.bind(from.objects);
@@ -1581,7 +1581,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     );
   });
 
-  test("refuses bytes that fail the store's checksum as damage, like a digest mismatch (94S-345)", async () => {
+  test("refuses bytes that fail the store's checksum as damage, like a digest mismatch", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
     const get = from.objects.get.bind(from.objects);
@@ -1673,7 +1673,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     // Cleared before the download, which then needs no room beside it; the
     // spool goes with the failure.
     expect(await readdir(workspace)).toEqual([]);
-    // Damage fails the claim, which the session counts (94S-390).
+    // Damage fails the claim, which the session counts.
     expect(h.warnings).toEqual([]);
     expect(h.gateway.restorePlans).toHaveLength(1);
   });
@@ -1711,7 +1711,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     ).rejects.toBeInstanceOf(RestoreRefused);
   });
 
-  test("waits out an object store that stops answering for 100s, then restores without counting a failure (94S-390)", async () => {
+  test("waits out an object store that stops answering for 100s, then restores without counting a failure", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
     // Down under the bundle's download, cutting the first one short.
@@ -1745,7 +1745,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(h.gateway.restorePlans).toHaveLength(waits.length + 1);
   });
 
-  test("waits out a gateway that cannot plan while the store is down (94S-390)", async () => {
+  test("waits out a gateway that cannot plan while the store is down", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
     const waited: number[] = [];
@@ -1776,7 +1776,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(h.errors).toEqual([]);
   });
 
-  test("fails at once when the store refuses the request rather than failing to answer (94S-390)", async () => {
+  test("fails at once when the store refuses the request rather than failing to answer", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
     const down = outage(from.objects, 100_000, () => answered(403));
@@ -1789,7 +1789,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(h.gateway.restorePlans).toHaveLength(1);
   });
 
-  test("gives up waiting on the store once stopped (94S-390)", async () => {
+  test("gives up waiting on the store once stopped", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
     const down = outage(from.objects, Number.POSITIVE_INFINITY, () =>
@@ -1834,7 +1834,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
   });
 });
 
-describe("a long session's transcript (94S-314, 94S-296)", () => {
+describe("a long session's transcript", () => {
   const context = (claim: BootstrapClaimResponse) => ({
     scope: scopeOf(claim),
     recheck: async () => ready,
@@ -1953,7 +1953,7 @@ describe("a long session's transcript (94S-314, 94S-296)", () => {
   });
 });
 
-describe("restoring a transcript over the size limit (94S-296)", () => {
+describe("restoring a transcript over the size limit", () => {
   test("is refused before any transcript part is fetched", async () => {
     const from = await published();
     // A real revision of one part just over the limit, pinned where nothing
@@ -1995,7 +1995,7 @@ describe("restoring a transcript over the size limit (94S-296)", () => {
   });
 });
 
-describe("a bundle built on the checkpoint before (94S-227)", () => {
+describe("a bundle built on the checkpoint before", () => {
   /** Two turns of one run, the gateway committing the first in between. */
   async function twoTurns(
     between: (
@@ -2072,7 +2072,7 @@ describe("a bundle built on the checkpoint before (94S-227)", () => {
     ]);
   });
 
-  test("a restore the store failed is redone only once the round's other downloads are over (94S-390)", async () => {
+  test("a restore the store failed is redone only once the round's other downloads are over", async () => {
     const { first, second } = await twoTurns();
     await replaceWorkspaceWithLeftovers();
     const stream = second.objects.stream.bind(second.objects);

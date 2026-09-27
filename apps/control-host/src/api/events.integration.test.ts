@@ -306,7 +306,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
 
   test("a stored row the contract rejects reads as EVENT_UNREADABLE under its own id, and the stream goes on past it", async () => {
     const sessionId = await createdSession();
-    // The shape pause wrote before 94S-283: a status event with no phase.
+    // The shape pause wrote before: a status event with no phase.
     const [broken] = await db
       .insert(events)
       .values({

@@ -389,7 +389,7 @@ describe("pass loop", () => {
   }, 30_000);
 });
 
-describe("pass loop: degraded passes (94S-368)", () => {
+describe("pass loop: degraded passes", () => {
   let dir: string;
   let sink: MemoryLogSink;
   let logger: StructuredLogger;

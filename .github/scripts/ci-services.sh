@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The service containers of an integration job (PostgreSQL, LocalStack),
-# started by a step instead of `services:` (94S-316). The runner starts
+# started by a step instead of `services:`. The runner starts
 # `services:` before the first step, one after another, and waits out each
 # health check on a 2·4·8s backoff; here the pulls run side by side while the
 # job installs its dependencies, and readiness is probed every second.
@@ -41,7 +41,7 @@ launch() {
       "${POSTGRES_SERVICE_IMAGE:?}"
     ;;
   localstack)
-    # secretsmanager: the catalog's secret_id references (94S-132).
+    # secretsmanager: the catalog's secret_id references.
     set -- --publish 4566:4566 \
       --env SERVICES=s3,secretsmanager \
       --env AWS_DEFAULT_REGION=ap-northeast-1 \

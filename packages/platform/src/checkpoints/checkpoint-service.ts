@@ -191,7 +191,7 @@ export type CheckpointServiceDependencies = {
   bundleSpoolRoot?: string;
   /**
    * How long a bundle whose verification threw is answered with that same
-   * retryable error instead of being verified again (94S-271). A throw is a
+   * retryable error instead of being verified again. A throw is a
    * limit or a host fault, never a verdict, so the checkpoint is not retired;
    * but a bundle that runs the verifier out of its limits does so on every
    * retry, and each retry holds one of the few verification slots for up to
@@ -242,7 +242,7 @@ export type CheckpointServiceDependencies = {
    * Two consequences worth knowing before changing it. A checkpoint over the
    * limit is refused rather than promoted unverified, so a session whose
    * workspace outgrows the limit stops checkpointing entirely and says so in
-   * the rejection reason; 94S-227 (incremental bundles) is what keeps a long
+   * the rejection reason; (incremental bundles) is what keeps a long
    * session from walking into that. And the limit is applied on the way out as
    * well as in, so lowering it retires restore plans that were committed under
    * the old one — raise it back and they return.
@@ -537,7 +537,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * previous pointer are not hashed again, because parts are write-once:
    * without that, every checkpoint would re-download the whole transcript.
    * With `held` they are not even HEADed, or finalize would still cost a
-   * request per part the session ever wrote (94S-342).
+   * request per part the session ever wrote.
    *
    * *The workspace commit.* Same idea one level up: an object that hashes
    * correctly is still the wrong object if it does not carry the commit the
@@ -568,7 +568,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       );
     }
     // From the sizes the refs claim, which the reads below hold the stored
-    // bytes to: a transcript over the limit is refused unread (94S-296).
+    // bytes to: a transcript over the limit is refused unread.
     const oversized = transcriptSizeProblem(
       transcriptParts(manifest.transcripts),
     );
@@ -695,7 +695,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * because what is being checked is not the object's integrity but its
    * relationship to *this* manifest's commit, and that changes with every
    * revision even when the bytes do not. So are the bundles it builds on
-   * (94S-227): the chain as a whole is held to one bundle's size, so
+   * the chain as a whole is held to one bundle's size, so
    * verifying it costs no more than verifying a bundle that stands alone.
    */
   async function badWorkspaceBundle(
@@ -902,8 +902,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * (`held`). Its finalize held every one before it committed (`holdAll`),
    * and nothing releases a version the live pointer names: garbage
    * collection keeps every version the pointer and its fallback window
-   * name, transcript parts included (checkpoint-collector.ts, 94S-281,
-   * 94S-326). The pointer read here is still the pointer
+   * name, transcript parts included (checkpoint-collector.ts,
+   * ). The pointer read here is still the pointer
    * when the finalize commits: finalize passes the revision just below its
    * candidate as `parent`, the commit takes the candidate only as the next
    * revision, and the pointer advances one revision at a time, so a pointer
@@ -1066,7 +1066,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
 
   /**
    * Finalize only, and only in `locked`, where garbage collection runs
-   * (94S-326): a transcript part the finalizing attempt's generation did not
+   * a transcript part the finalizing attempt's generation did not
    * write must be one the checkpoint the candidate builds on names, by the
    * same version rule collection keeps it by. That checkpoint is the pointer
    * — the candidate commits only as the revision after it — or, for an
@@ -1384,9 +1384,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      *
      * Not the turn path. A checkpoint riding a turn's finalize commits through
      * `WorkerUnitOfWork.finalizeAtomic`, in the same transaction as the turn's
-     * terminal, receipt and queue ACK (94S-201); the gateway verifies with
+     * terminal, receipt and queue ACK; the gateway verifies with
      * `verifyAttemptManifest` and never calls this. This is the turn-less
-     * commit a drain or pause needs (94S-137).
+     * commit a drain or pause needs.
      */
     async finalize(
       input: FinalizeCheckpointInput,

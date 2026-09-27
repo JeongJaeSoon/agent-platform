@@ -1,10 +1,10 @@
 /**
- * The D2 gate's fault injector (94S-247): a pass-through HTTP proxy that
+ * The D2 gate's fault injector: a pass-through HTTP proxy that
  * sits between workers and the two things they write to — the Worker
  * Gateway (`:3000` → api:3000) and the object store (`:4566` →
  * localstack:4566). The scheduler hands workers the gateway address, and
  * the API signs the workers' object store requests for this address, which
- * the egress proxy's object store route then sends here (94S-251); the
+ * the egress proxy's object store route then sends here; the
  * proxy allows nothing else of ours, so every write a worker makes is seen
  * here and none can go around it.
  *
@@ -16,7 +16,7 @@
  * - `lose_response`: forward, let the upstream commit, answer the worker a
  *   bare 502 — the response lost on the way back.
  * - `fail`: answer an S3-style 500 without forwarding.
- * - `delay`: hold the request `delayMs` before forwarding it (94S-135 races).
+ * - `delay`: hold the request `delayMs` before forwarding it (races).
  * - `hold`: hold the request until the rule is released
  *   (`POST /rules/<id>/release`) or removed, or `delayMs` passes if set — so
  *   a race can let it through only after its other half has happened.

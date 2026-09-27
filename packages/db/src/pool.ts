@@ -270,7 +270,7 @@ class DeadlinePool extends Pool {
 
 // What pg dials through (the `stream` option): a plain socket whose hostname
 // connect resolves with lookupEveryTime, so a restarted postgres is found at
-// its new address (94S-343). pg calls connect(port, host), or
+// its new address. pg calls connect(port, host), or
 // connect(path) for a Unix socket, which needs no lookup.
 export class LookupEveryTimeSocket extends Socket {
   override connect(...args: unknown[]): this {

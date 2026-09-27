@@ -91,7 +91,7 @@ export type SessionCheckpointsOptions = {
   objects: CheckpointObjectStore;
   /** `sessions/<id>/`, as the launcher configured the store. */
   objectPrefix: string;
-  /** What this worker runs, recomputed from the claim (94S-261). */
+  /** What this worker runs, recomputed from the claim. */
   fingerprint: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
   /** The provisioned root the engine runs in, and the manifest's `cwd`. */
   workspaceRoot: string;
@@ -128,7 +128,7 @@ type Bound = {
   published?: PublishedCheckpoint | undefined;
 };
 
-/** A checkpoint's workspace bundles as its manifest names them (94S-227). */
+/** A checkpoint's workspace bundles as its manifest names them. */
 type BundleChain = {
   revision: number;
   /** Oldest first; the last is the manifest's `bundle`. */
@@ -228,7 +228,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (pointer !== null) {
       // The store not answering is no fault of the checkpoint: the restore
       // is redone whole inside this attempt rather than failing a claim the
-      // session counts towards RESTORE_FAILED (94S-390). What the store did
+      // session counts towards RESTORE_FAILED. What the store did
       // answer is held to the manifest as ever.
       for (let retries = 0; ; retries += 1) {
         try {
@@ -324,7 +324,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
    *
    * What needs no disk runs first, while the workspace is untouched: the
    * gateway's plan (whose fingerprint verdict is made against this worker's
-   * recomputed one, 94S-261), the manifest the claim pinned by digest — the
+   * recomputed one, ), the manifest the claim pinned by digest — the
    * authority for everything else — checked against the claim, this runtime
    * and this workspace root, and the inherited transcript parts read and
    * parsed.
@@ -553,7 +553,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     );
     if (paths !== undefined) throw refuse(`untracked files: ${paths}`);
     // Before a single part is fetched: holding and parsing a transcript this
-    // size is what would take the worker down (94S-296).
+    // size is what would take the worker down.
     const oversized = transcriptSizeProblem(
       transcriptParts(manifest.transcripts),
     );
@@ -803,7 +803,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
     }
     const directory = manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1);
-    // The version each upload answered, which the manifest names (94S-229).
+    // The version each upload answered, which the manifest names.
     const versions = new Map<string, string>();
     const upload = async (
       key: string,
@@ -1048,7 +1048,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
 }
 
 /**
- * How long each stage of one capture took, for its log line (94S-380): a
+ * How long each stage of one capture took, for its log line: a
  * capture that runs long says which stage it spent the time in. A stage
  * that failed is timed up to its failure; one never reached is absent.
  */
@@ -1142,7 +1142,7 @@ function claimScope(claim: BootstrapClaimResponse): WorkerScope {
  * checkpoint it restores. A plan for another revision or manifest means the
  * pointer moved after the claim, and the claim is what this worker restores
  * — unless the plan says it falls back from the claim's own pointer, which
- * was damaged, to an earlier revision (94S-204). That one is pinned by the
+ * was damaged, to an earlier revision. That one is pinned by the
  * digest the plan carries, since the claim only knows the pointer's.
  */
 function planFor(

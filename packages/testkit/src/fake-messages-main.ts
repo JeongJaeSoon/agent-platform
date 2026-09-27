@@ -1,7 +1,7 @@
 import { startFakeAnthropicServer } from "./fake-anthropic.ts";
 import { type GateRequest, replyFor, specIdsIn } from "./scripted-messages.ts";
 
-// The local stack's Messages API (94S-132): the example profile in
+// The local stack's Messages API: the example profile in
 // config/profiles.yaml points here, so a session runs end to end without an
 // Anthropic account. A message carrying a GATE-SPEC plays that script
 // (docs/quickstart.md, tests/e2e); any other gets the same short answer.

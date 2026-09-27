@@ -193,7 +193,7 @@ describe.each([
     });
   });
 
-  test("offers an incremental bundle whose prerequisites an earlier bundle offers as tips (94S-227)", async () => {
+  test("offers an incremental bundle whose prerequisites an earlier bundle offers as tips", async () => {
     const { directory, shas } = await repository(2);
     await git(directory, "branch", "base", shas[0] as string);
     const base = await bundle(directory, ["base"]);

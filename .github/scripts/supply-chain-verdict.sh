@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The release policy over the scans' result files (94S-363):
+# The release policy over the scans' result files
 # `supply-chain-verdict.sh <result dir> <no-verdict: warn|fail>`.
 #
 # Reads control-host, worker, egress-proxy (image-scan.sh) and npm

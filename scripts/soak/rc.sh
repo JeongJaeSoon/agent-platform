@@ -13,7 +13,7 @@
 #
 # 1. runs the D2 gate (scripts/d2-gate/run.sh: A–E, R1–R2, H1–H5) on images
 #    built from <rc-sha>, under a project of its own, and stops if it failed:
-#    no candidate goes on without it (94S-404);
+# no candidate goes on without it
 # 2. builds the images (never reusing tags) and writes rc.json: the RC and
 #    tools SHAs, every image id the stack runs, the RC's bun.lock and the 24h
 #    config's sha256 — before anything is measured, and refusing to go on
@@ -25,7 +25,7 @@
 # 4. resets the stack and runs the interrupt campaign (config/interrupt-3h.json:
 #    the soak's load with a judged window of 185 minutes, an interrupt every
 #    8th turn), and stops unless every criterion passed and P-3 did so on at
-#    least 500 in-window interrupts it did not host-exclude (94S-444) (`soak`
+# least 500 in-window interrupts it did not host-exclude (`soak`
 #    resumes from here, past a failure
 #    only with SOAK_RC_OVERRIDE);
 # 5. resets the stack and runs the 24-hour soak (config/soak-24h.json).
@@ -38,7 +38,7 @@
 # images, under the same checks (descends from the RC, infra/ unchanged,
 # clean); rc.json's `stages` records, for every stage run, the product SHA
 # and the tools SHA it ran with. To run the soak again with fixed tools on
-# the images already built (94S-443):
+# the images already built
 #
 #   stop the rc.sh still running, if any, and `stack.sh down`
 #   mv $SOAK_STATE/rc-<sha7>/soak $SOAK_STATE/rc-<sha7>/soak.<why>

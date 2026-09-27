@@ -52,7 +52,7 @@ export function listPrefixWithin(scope: string, prefix: string): boolean {
 /**
  * Confines a store to one prefix: every key must start with it, and a list
  * may only ask for keys under it. The boundary itself is the object store
- * route (94S-251): the worker holds no object store credential, and the
+ * route: the worker holds no object store credential, and the
  * route signs only requests under its session's prefix. This guard is the
  * fast failure in front of it, so a stray key is refused in the process
  * that made it rather than after a round trip.

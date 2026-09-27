@@ -183,7 +183,7 @@ export const authorizationContextSchema = z
     service_principal: serviceActorSchema.optional(),
     owner_scope: ownerScopeSchema,
     workspace_id: workspaceIdSchema.optional(),
-    /** The 94S-132 ceiling carried with the context, never re-derived downstream. */
+    /** The ceiling carried with the context, never re-derived downstream. */
     scopes: z.array(sessionScopeSchema),
   })
   .strict()
@@ -364,7 +364,7 @@ export const grantSchema = z
     actions: z.array(authorizationActionSchema).min(1),
     resource: resourceRefSchema,
     audience: audienceRefSchema,
-    /** Never widens the 94S-132 key scope; it can only narrow it. */
+    /** Never widens the key scope; it can only narrow it. */
     scopes: z.array(sessionScopeSchema),
     revision: revisionSchema,
     revoked_at: timestampSchema.nullable(),

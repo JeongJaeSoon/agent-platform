@@ -8,7 +8,7 @@ import {
 import { planOf, SPEC_MARKER } from "../d2-gate/fake-messages.ts";
 
 /**
- * The soak's Messages API (94S-135): the D2 gate's scripted model (a
+ * The soak's Messages API: the D2 gate's scripted model (a
  * `GATE-SPEC` in the prompt says what each step does) with two additions a
  * day-long run needs.
  *

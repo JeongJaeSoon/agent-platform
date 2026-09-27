@@ -168,7 +168,7 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-describe("WorkerHost ready report (94S-138)", () => {
+describe("WorkerHost ready report", () => {
   test("reports ready with the restored revision before it asks for any input", async () => {
     const gateway = restoredGateway();
     const { host } = harness(
@@ -284,7 +284,7 @@ describe("WorkerHost ready report (94S-138)", () => {
   });
 });
 
-describe("WorkerHost pause withdrawn by a resume (94S-138)", () => {
+describe("WorkerHost pause withdrawn by a resume", () => {
   test("a held worker whose pause was cancelled goes back to its input loop on the same engine", async () => {
     const { gateway, host, log, runtime } = harness([
       { type: "await-input" },

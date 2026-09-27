@@ -148,7 +148,7 @@ describe("durability projection", () => {
     });
   });
 
-  test("a session restored from an earlier revision says which one (94S-204)", () => {
+  test("a session restored from an earlier revision says which one", () => {
     expect(
       projectDurability({
         checkpointCommittedAt: null,

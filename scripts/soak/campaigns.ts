@@ -227,7 +227,7 @@ async function pointerMismatches(db: Pool): Promise<unknown[]> {
 
 /**
  * Every attempt's events are numbered 1, 2, 3… with no gap or repeat. Events
- * the control plane records about an attempt (94S-345's restore failure)
+ * the control plane records about an attempt ('s restore failure)
  * carry its id but no worker sequence, so they are not part of the count.
  */
 async function numberingProblems(db: Pool): Promise<string[]> {
@@ -862,7 +862,7 @@ const corruptFallback: Campaign = {
       second.specId,
     );
     const fellBack = after?.checkpoint_fallback_revision != null;
-    // The two outcomes 94S-204 designs for damage: an older revision is
+    // The two outcomes designs for damage: an older revision is
     // restored and recorded, or the session stops for a recovery decision.
     const visible = fellBack || after?.admission_state === "recovery_required";
     ctx.rows.push(
@@ -895,7 +895,7 @@ const corruptFallback: Campaign = {
  * image: Docker Desktop runs every container on one kernel clock, so moving
  * the real clock would move every other card's stack too. Monotonic time is
  * left alone (FAKETIME_DONT_FAKE_MONOTONIC), which is what a skewed host
- * looks like. 94S-322 (lease on a monotonic deadline) is what should make
+ * looks like. (lease on a monotonic deadline) is what should make
  * this pass; before it lands a failure here is the expected finding.
  */
 const clockSkew: Campaign = {
@@ -1570,7 +1570,7 @@ const resumeClose: Campaign = {
 };
 
 /**
- * 94S-336: the object store the stack runs (the compose-pinned LocalStack)
+ * the object store the stack runs (the compose-pinned LocalStack)
  * must let exactly one of many concurrent create-only PUTs to one key win
  * and keep the winner's bytes; putImmutable must then answer duplicate for
  * the same bytes and conflict for others, without changing what is stored.
@@ -1685,7 +1685,7 @@ const concurrentPut: Campaign = {
   },
 };
 
-/** The operator's Grant command (94S-321), run where keys.ts runs. */
+/** The operator's Grant command, run where keys.ts runs. */
 async function grants(
   ctx: Ctx,
   command: "revoke" | "restore",
@@ -1973,7 +1973,7 @@ const controlHostRoles: Campaign = {
 };
 
 /**
- * 94S-324's tests/e2e/restore-resume.sh: backup, restore into a new
+ * tests/e2e/restore-resume.sh: backup, restore into a new
  * project, and a new worker resuming the same native session. It builds
  * and removes projects of its own, named after soak135.
  */

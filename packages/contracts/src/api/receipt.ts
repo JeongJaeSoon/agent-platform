@@ -30,7 +30,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "terminate",
   "resume",
   "recovery_decision",
-  // The operator's execution revocation (94S-321); written on the session
+  // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
 ] as const;

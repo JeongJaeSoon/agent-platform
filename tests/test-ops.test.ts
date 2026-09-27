@@ -34,7 +34,7 @@ import {
 } from "./compose-layers.ts";
 
 /**
- * scripts/test-ops.sh without a daemon (94S-432): its argument and settings
+ * scripts/test-ops.sh without a daemon: its argument and settings
  * refusals, and the checks of scripts/lib/test-ops.ts it runs — the release
  * manifest, the rendered installation, the bucket round trip and the
  * upgrade gate. Deploying, upgrading, backing up and reseeding a running
@@ -258,7 +258,7 @@ describe("scripts/test-ops.sh", () => {
   });
 
   // The provider key rotation in docs/test-ops.md: the deployed release again,
-  // worker unchanged, so nothing is approved (94S-434 found it dying under
+  // worker unchanged, so nothing is approved ( found it dying under
   // `set -u` and leaving pending.json behind).
   test("upgrade to the same worker image needs no approval", async () => {
     const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
@@ -594,7 +594,7 @@ describe("bucket round trip", () => {
   });
 
   // Off rather than skipped where LocalStack is not configured: an
-  // undeclared skip fails the integration job (94S-307).
+  // undeclared skip fails the integration job.
   (localstackEnabled() ? describe : describe.skip)("on LocalStack", () => {
     const model = (bucket: {
       bucket: string;

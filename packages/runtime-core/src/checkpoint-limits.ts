@@ -18,7 +18,7 @@ export const DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES = 256 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_MAX_MANIFEST_OBJECTS = 20_000;
 /**
- * Bundles in one chain, the last included (94S-227). Each is a fetch of its
+ * Bundles in one chain, the last included. Each is a fetch of its
  * own when it is verified and restored; past this a worker starts over with
  * a bundle that stands alone.
  */

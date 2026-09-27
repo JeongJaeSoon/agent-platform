@@ -615,7 +615,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(lost?.status).toBe("unknown");
     expect(lost?.error).toMatchObject({ code: "REQUEST_STALE" });
 
-    // What an operator's recovery decision leaves behind (94S-140): the
+    // What an operator's recovery decision leaves behind: the
     // unknown turn settled and off the queue, the session taking input again.
     await db
       .update(turns)
@@ -910,7 +910,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(attempt?.state).toBe("lost");
     expect(await statuses(owner, sessionId)).toEqual(RUNNING);
   });
-  // 94S-278: the stream reports the needs_input edges the reads derive.
+  // the stream reports the needs_input edges the reads derive.
   async function ask(
     worker: Worker,
     request: RegisterPendingRequest["request"],
@@ -935,7 +935,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   }
 
   // The session's stream as a client reads it, reduced to what orders. It
-  // opens with the status:running the delivery of turn 1 wrote (94S-294).
+  // opens with the status:running the delivery of turn 1 wrote.
   async function stream(sessionId: string) {
     const rows = await db
       .select({
@@ -1109,7 +1109,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(detail?.status).toBe("running");
   });
 
-  test("GET and the stream's last status agree at every turn boundary, each written once (94S-294)", async () => {
+  test("GET and the stream's last status agree at every turn boundary, each written once", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const agreed = async () => {
       const detail = await createPostgresSessionReader(db).getSession(
@@ -1200,7 +1200,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(await announced(sessionId)).toBe(false);
   });
 
-  test("an input to a failed session puts queued on the stream with the read (94S-294)", async () => {
+  test("an input to a failed session puts queued on the stream with the read", async () => {
     const { owner, sessionId, worker } = await runningSession();
     await gateway.finalize(worker.principal, {
       ...(worker.scope as WorkerScope & { turn_id: string }),

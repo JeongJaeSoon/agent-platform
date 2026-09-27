@@ -10,7 +10,7 @@ import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
 import { createLogger } from "@agent-platform/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
 
-// The operator's execution Grant command (94S-321). Alpha has no Grant
+// The operator's execution Grant command. Alpha has no Grant
 // management API or UI (architecture.md 실행 권한 회수와 API key 회수), so
 // this runs where keys.ts runs: inside the API image, against its database.
 const USAGE = `Usage: bun run src/grants.ts revoke <session_id> --reason <text>

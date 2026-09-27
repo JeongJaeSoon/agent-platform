@@ -84,7 +84,7 @@ export function ReceiptSummary({
             ) : null}
           </>
         ) : (
-          // A mutation outside a session names its resource instead (94S-148).
+          // A mutation outside a session names its resource instead.
           // The kind shows raw until a screen actually renders one of these —
           // the ticket that adds that route owns the Korean label for it.
           <div className="ap-receipt__field">

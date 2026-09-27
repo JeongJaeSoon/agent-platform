@@ -45,7 +45,7 @@ const roomy: InputLimits = {
   storageLimitBytes: Number.MAX_SAFE_INTEGER,
 };
 
-integration("usage API on PostgreSQL (94S-275)", () => {
+integration("usage API on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;

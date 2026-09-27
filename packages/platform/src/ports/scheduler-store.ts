@@ -11,9 +11,9 @@ import type { ExecutionIncarnation } from "./worker-unit-of-work.ts";
 /**
  * Why a resource that exists is torn down and built again.
  * `credential_mismatch`: it holds a bootstrap credential the registry has
- * rotated past, so it can never bind (94S-231).
+ * rotated past, so it can never bind.
  * `spec_mismatch`: it runs an image or limits other than the ones its launch
- * was reserved with (94S-202).
+ * was reserved with.
  */
 export type ReplaceReason =
   | "credential_mismatch"
@@ -263,7 +263,7 @@ export interface SchedulerStore {
    * `ensureExecution` on another pass rebuilds a resource with a fresh
    * credential without touching the count, so the count alone would let a
    * stale judgement — of any reason — shut the door on that fresh
-   * credential (94S-231). The scheduler always passes it; leaving it out
+   * credential. The scheduler always passes it; leaving it out
    * fences on the count alone.
    */
   requestReplacement(
@@ -274,7 +274,7 @@ export interface SchedulerStore {
   ): Promise<number | null>;
   /**
    * Asks the worker a claimed launch bound to drain, before its resource is
-   * replaced for a contract it no longer meets (94S-250): from the first
+   * replaced for a contract it no longer meets: from the first
    * call on, the worker is handed no new turn, so the one it runs is its
    * last. Idempotent — the first request's time is kept and the deadline
    * counts from it. Answered under the lock a worker's next-input takes, so

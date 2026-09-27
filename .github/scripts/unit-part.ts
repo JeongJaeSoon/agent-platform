@@ -2,7 +2,7 @@
 // Prints the test files one unit part of `check` runs, one `./path` per line.
 //
 // `check` runs the suite without services in two parts named after the repo
-// layout (94S-305): `packages` is every discovered file under packages/, and
+// layout: `packages` is every discovered file under packages/, and
 // `rest` is every other one — apps/ and tests/ today. `rest` is the complement
 // by construction, so a file cannot fall between the two parts, and a new
 // top-level directory the `test` filters pick up lands in `rest` rather than

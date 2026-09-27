@@ -67,7 +67,7 @@ export const QUERIES: Query[] = [
     id: "stale_write.after_attempt_end",
     invariant: "stale_write",
     title: "events written by an attempt after it ended",
-    // checkpoint_restore_failed (94S-345) and startup_failed (94S-347) are
+    // checkpoint_restore_failed and startup_failed are
     // the control plane's record of an ended attempt, written when the exit
     // is observed, not by the attempt.
     sql: `SELECT e.session_id::text, e.attempt_id, e.id, e.type, e.created_at, a.ended_at, a.end_reason

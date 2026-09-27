@@ -137,7 +137,7 @@ function ask(
   );
 }
 
-describe("egress authorizer (94S-252)", () => {
+describe("egress authorizer", () => {
   test("turns a live token into its upstream and the credential to inject", async () => {
     const claim = await claimed();
     const provider = await ask({
@@ -211,7 +211,7 @@ describe("egress authorizer (94S-252)", () => {
     ).toBe(413);
   });
 
-  test("a chunked body is refused at 16 KiB, before the rest is read (94S-388)", async () => {
+  test("a chunked body is refused at 16 KiB, before the rest is read", async () => {
     let pulled = 0;
     const response = await authorize(
       new Request(`http://authorizer.invalid${EGRESS_AUTHORIZER_PATH}`, {
@@ -277,7 +277,7 @@ describe("egress authorizer (94S-252)", () => {
   });
 });
 
-describe("usage reports (94S-451)", () => {
+describe("usage reports", () => {
   const counts = {
     input_tokens: 0,
     output_tokens: 1_000,
@@ -347,7 +347,7 @@ describe("usage reports (94S-451)", () => {
     });
   });
 
-  test("a US-only call pays 1.1x and the ledger row says so (94S-454)", async () => {
+  test("a US-only call pays 1.1x and the ledger row says so", async () => {
     // claude-opus-5: $25 out per million.
     const { body, row } = await report({
       speed: "standard",
@@ -372,7 +372,7 @@ describe("usage reports (94S-451)", () => {
   test("a row from before the migration still matches its old proxy's retry", async () => {
     const claim = await claimed();
     const exchangeId = crypto.randomUUID();
-    // Written as 94S-409 wrote it: no speed, no tool counts.
+    // Written as wrote it: no speed, no tool counts.
     await db.insert(schema.providerUsage).values({
       exchangeId,
       sessionId: claim.session_id,
@@ -434,7 +434,7 @@ describe("egressAuthorizerConfigFromEnv", () => {
   });
 });
 
-describe("the object store route's answers (94S-251)", () => {
+describe("the object store route's answers", () => {
   const signed = (withSigner = true) =>
     createEgressAuthorizer({
       gateway,

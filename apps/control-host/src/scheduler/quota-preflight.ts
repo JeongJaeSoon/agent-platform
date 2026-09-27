@@ -4,7 +4,7 @@ import type { PassLoopLogger } from "../pass-loop/loop.ts";
 
 /**
  * Handed by the scheduler loop to its passes: where they note the settings
- * the workspace quota preflight passed under (94S-393). A pass run on its own
+ * the workspace quota preflight passed under. A pass run on its own
  * has none and always probes; only the loop, which removes the file when it
  * starts, can vouch that the daemon is the one the note was made against.
  */

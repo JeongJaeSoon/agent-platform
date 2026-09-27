@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Integration jobs start PostgreSQL and LocalStack from a step, not from
-// `services:` (94S-316). The script is checked against a fake docker; the
+// `services:`. The script is checked against a fake docker; the
 // workflow for where its steps sit.
 
 const root = join(import.meta.dir, "..");

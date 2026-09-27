@@ -57,7 +57,7 @@ describe("app Dockerfiles", () => {
   });
 
   // Types newer than the runtime let a call typecheck that the images then
-  // cannot run (94S-339).
+  // cannot run.
   test("packageManager and @types/bun name the Bun the images run", () => {
     const runtime =
       basePins["control-host"].pin?.match(/^oven\/bun:([^@]+)@/)?.[1];
@@ -98,7 +98,7 @@ describe("app Dockerfiles", () => {
     expect(source).toMatch(/^USER 1000:1000$/m);
   });
 
-  // 94S-338: every image carries the notices of what it ships, at /app.
+  // every image carries the notices of what it ships, at /app.
   test.each(apps)("%s copies THIRD_PARTY_NOTICES.md into /app", (app) => {
     expect(basePins[app].source).toMatch(
       /^COPY (?:[^\n]* )?THIRD_PARTY_NOTICES\.md \.\/$/m,
@@ -107,7 +107,7 @@ describe("app Dockerfiles", () => {
   });
 
   // The Bun pin freezes Debian too, so the stage that ships upgrades it,
-  // under the key images.yml changes daily (94S-363).
+  // under the key images.yml changes daily.
   test.each(apps)("%s upgrades Debian in the stage it ships", (app) => {
     const source = basePins[app].source;
     const shipped = source.slice(source.lastIndexOf("\nFROM "));
@@ -116,7 +116,7 @@ describe("app Dockerfiles", () => {
     );
   });
 
-  // 94S-375: the source list is written from the shipped stage's own dpkg
+  // the source list is written from the shipped stage's own dpkg
   // database, after the last step that installs; images.yml's --verify
   // catches a later one that changes the packages.
   test.each(apps)(
@@ -134,13 +134,13 @@ describe("app Dockerfiles", () => {
   );
 
   // The scheduler runs the worker image as the workspace inode helper
-  // (94S-224); image-smoke.sh runs the tools themselves.
+  // image-smoke.sh runs the tools themselves.
   test("the worker carries xfsprogs for the inode helper", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
   });
 
   // The notices list what the image holds, so a package the Dockerfile
-  // deletes after install is left out of them (94S-375).
+  // deletes after install is left out of them.
   test("the worker deletes exactly what the notices leave out", () => {
     const [pattern] = REMOVED_AFTER_INSTALL.worker;
     expect(basePins.worker.source).toContain(
@@ -151,7 +151,7 @@ describe("app Dockerfiles", () => {
   });
 
   // docs/operations.md names this identity; image-smoke.sh commits with it.
-  test("the worker gives Claude's commits a default author (94S-423)", () => {
+  test("the worker gives Claude's commits a default author", () => {
     expect(basePins.worker.source).toContain(
       "git config --system user.name agent-platform \\\n" +
         "  && git config --system user.email noreply@agent-platform.invalid\n",
@@ -252,7 +252,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
   // A credential route's upstream on a forward list is a way round the
   // route: the provider outside cost accounting, Gitea without a token,
-  // LocalStack into every session's prefix (94S-383).
+  // LocalStack into every session's prefix.
   test("workers reach the provider, Gitea and the object store only through the credential routes", () => {
     const forward = ["EGRESS_ALLOWLIST", "EGRESS_PRIVATE_ALLOWLIST"];
     const credential = [
@@ -324,9 +324,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     compose.indexOf("\n  worker:"),
   );
 
-  // The API for the git helpers its bundle verifier orphans (94S-272), the
+  // The API for the git helpers its bundle verifier orphans, the
   // worker for those of a git killed as a group and for the tools Claude Code
-  // leaves behind (94S-301). In the image, not compose or HostConfig, so
+  // leaves behind. In the image, not compose or HostConfig, so
   // `docker run` and a scheduler that overrides Cmd get it too; image-smoke.sh
   // checks the running container.
   test.each(["control-host", "worker"] as const)(
@@ -372,7 +372,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
     expect(schedulerBlock).toContain("/var/run/docker.sock:");
     // The reconciler records intent in the database; the scheduler acts on
-    // it (94S-320). Neither a mount nor a DOCKER_HOST gives it the daemon.
+    // it. Neither a mount nor a DOCKER_HOST gives it the daemon.
     expect(reconcilerBlock).not.toContain("docker.sock");
     expect(reconcilerBlock).not.toContain("DOCKER_HOST");
     expect(reconcilerBlock).not.toMatch(/^ {4}volumes:/m);
@@ -481,7 +481,7 @@ const composeServices = (path: string) =>
 /** The local stack's services as infra/docker-compose.yml merges them. */
 const localStack = () => layeredServices<ComposeService>(LOCAL_LAYERS);
 
-describe("compose publishes nothing beyond loopback and runs pinned images (94S-323)", () => {
+describe("compose publishes nothing beyond loopback and runs pinned images", () => {
   const services = localStack();
   const restore = composeServices("infra/docker-compose.restore.yml");
 
@@ -564,7 +564,7 @@ describe("compose publishes nothing beyond loopback and runs pinned images (94S-
     expect(proxy?.volumes).toBeUndefined();
   });
 
-  test("the egress proxy is held to what a worker is, and its memory is bounded (94S-388)", () => {
+  test("the egress proxy is held to what a worker is, and its memory is bounded", () => {
     const proxy = services["egress-proxy"];
     expect(proxy?.read_only).toBe(true);
     expect(proxy?.cap_drop).toEqual(["ALL"]);
@@ -631,7 +631,7 @@ function render(
   };
 }
 
-// 94S-430: one definition of the product services, and a layer per
+// one definition of the product services, and a layer per
 // installation that adds to it and loosens nothing.
 describe("compose layers", () => {
   const core = servicesOf(CORE);
@@ -651,7 +651,7 @@ describe("compose layers", () => {
     POSTGRES_PASSWORD: "test-ops-postgres-placeholder",
     EGRESS_AUTHORIZER_TOKEN: "test-ops-authorizer-placeholder",
   };
-  // The rest of what the env file must give (94S-432): the API alone holds
+  // The rest of what the env file must give: the API alone holds
   // the S3 key (on s3) and the provider key.
   const API_KEYS = {
     AWS_ACCESS_KEY_ID: "test-ops-s3-key-id",
@@ -1038,7 +1038,7 @@ describe("compose layers", () => {
       // Relative paths still resolve from infra/, as every overlay assumes.
       expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
       // LocalStack keeps S3 in memory; a data volume only suggested otherwise
-      // (94S-422).
+      // .
       expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
         "gitea-data",
         "postgres-data",
@@ -1167,7 +1167,7 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  // 94S-431: the files scripts/local.sh and tests/e2e/run.sh start with
+  // the files scripts/local.sh and tests/e2e/run.sh start with
   // --real-model, each rendered with a key in the caller's environment.
   test.each([
     [["compose.yaml", REAL_MODEL]],
@@ -1209,7 +1209,7 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  // 94S-439: where scripts/local.sh reads the ports to check and the worker
+  // where scripts/local.sh reads the ports to check and the worker
   // label to delete, also under the CI quickstart job's COMPOSE_FILE.
   test.each([
     [LOCAL_LAYERS, {}, "local"],

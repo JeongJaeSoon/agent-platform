@@ -18,11 +18,11 @@ import {
 
 /**
  * The worker container learns its only route off the worker network through
- * `HTTP_PROXY`/`HTTPS_PROXY` (94S-199), but the engine is a child process
+ * `HTTP_PROXY`/`HTTPS_PROXY`, but the engine is a child process
  * with an environment the adapter builds from scratch. This runs the actual
  * SDK child against the actual egress proxy, in-process, with the proxy as
  * the only allowlisted path to a local fake Messages API — the topology the
- * container will have, minus the container (94S-245).
+ * container will have, minus the container.
  *
  * Two shapes, because the proxy has two code paths: absolute-form HTTP for a
  * plaintext endpoint, and `CONNECT` for the TLS endpoint production uses.

@@ -6,13 +6,13 @@ import { sessionIdSchema, timestampSchema } from "../shared/index.ts";
 const countSchema = z.number().int().nonnegative();
 
 /**
- * What the storage limit counts today (94S-131). A reader must not assume
+ * What the storage limit counts today. A reader must not assume
  * events, checkpoints or worker disks are inside `used_bytes`.
  */
 export const STORAGE_ACCOUNTED_CONTENT_VALUES = ["input_messages"] as const;
 
 /**
- * GET /v1/limits (94S-275): the limits the installation runs under and how
+ * GET /v1/limits: the limits the installation runs under and how
  * much of the installation-wide ones is in use. Every figure under `usage`
  * is summed across all owners, so none of them compares against a
  * per-session limit.
@@ -53,9 +53,9 @@ export const installationLimitsResponseSchema = z
   .strict();
 
 /**
- * GET /v1/sessions/{id}/usage (94S-275). The cost is an estimate, never a
+ * GET /v1/sessions/{id}/usage. The cost is an estimate, never a
  * bill: every Messages call the egress proxy saw, the engine's and a tool's
- * alike, priced by the platform's table (94S-409). A session from before
+ * alike, priced by the platform's table. A session from before
  * that also carries the engine's own turn totals up to then. `complete` is
  * about turn reports only: false while a turn is running or when a turn
  * ended without reporting a cost, in which case the true total is unknown.

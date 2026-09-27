@@ -86,7 +86,7 @@ describe("Markdown relative links", () => {
 });
 
 // Setting names, found the way check.py found them for the feature map
-// (94S-379): read off an environment object, or handed by name to a parser.
+// read off an environment object, or handed by name to a parser.
 const NAME = "[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+";
 const CODE_READS = [
   new RegExp(

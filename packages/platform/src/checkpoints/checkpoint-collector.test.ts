@@ -31,7 +31,7 @@ import {
 } from "./checkpoint-service.ts";
 
 /**
- * 94S-281: garbage collection releases and deletes what no restore can reach
+ * garbage collection releases and deletes what no restore can reach
  * and no finalize can still commit — and nothing else, whatever order it
  * runs in against a finalize.
  */
@@ -443,7 +443,7 @@ describe("superseded revisions", () => {
   });
 });
 
-describe("a bundle chain (94S-227)", () => {
+describe("a bundle chain", () => {
   test("a base bundle stays while a kept checkpoint builds on it, though its own revision goes", async () => {
     const chain = await createGitBundleChain();
     const part = await transcriptPart(0);
@@ -751,7 +751,7 @@ describe("what the pointer vouches for", () => {
   });
 });
 
-describe("transcript parts (94S-326)", () => {
+describe("transcript parts", () => {
   test("a dead generation's tail and a part only an abandoned revision named go; the live generation's and inherited parts stay", async () => {
     const inherited = await transcriptPart(0);
     const abandoned = await transcriptPart(1);
@@ -849,7 +849,7 @@ describe("transcript parts (94S-326)", () => {
   });
 });
 
-describe("finalize against transcript collection (94S-326)", () => {
+describe("finalize against transcript collection", () => {
   test("refuses a part of another generation the checkpoint it builds on does not name", async () => {
     const named = await transcriptPart(0);
     const unnamed = await transcriptPart(1);

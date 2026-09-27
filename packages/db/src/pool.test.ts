@@ -105,7 +105,7 @@ describe("request deadline", () => {
   });
 });
 
-describe("database host resolution (94S-343)", () => {
+describe("database host resolution", () => {
   const dial = (socket: Socket, port: number, host: string) =>
     new Promise<string>((resolve, reject) => {
       socket.once("connect", () => {

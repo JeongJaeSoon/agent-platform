@@ -56,7 +56,7 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
       GIT_CONFIG_NOSYSTEM: "1",
       // As `runGit` does. Otherwise `commit` detaches
       // `git maintenance run --auto`, whose cruft repack (git >= 2.54) can
-      // race a later `gc --prune=now` and keep the commit it prunes (94S-412).
+      // race a later `gc --prune=now` and keep the commit it prunes.
       GIT_CONFIG_COUNT: "2",
       GIT_CONFIG_KEY_0: "maintenance.auto",
       GIT_CONFIG_VALUE_0: "false",
@@ -214,7 +214,7 @@ describe("restoring a captured checkout", () => {
     ).rejects.toThrow();
   });
 
-  test("keeps only what the instructions commit reaches, which a capture still bundles once the engine pruned its own copy (94S-370)", async () => {
+  test("keeps only what the instructions commit reaches, which a capture still bundles once the engine pruned its own copy", async () => {
     const pinned = await commitFiles({ "CLAUDE.md": "rules\n" });
     const noise = () =>
       crypto.getRandomValues(new Uint8Array(256 * 1024)).join();
@@ -450,7 +450,7 @@ describe("staging a checkpoint bundle", () => {
 
 // Finalize and restore read a bundle's refs by one rule: what one refuses
 // the other does, so no checkpoint commits that a resume cannot check out.
-describe("a bundle finalize and restore both refuse (94S-391)", () => {
+describe("a bundle finalize and restore both refuse", () => {
   test.each([
     ["without refs/checkpoint/worktree", ["refs/checkpoint/head"]],
     [
@@ -493,7 +493,7 @@ describe("a bundle finalize and restore both refuse (94S-391)", () => {
   );
 });
 
-describe("a bundle built on the checkpoint before (94S-227)", () => {
+describe("a bundle built on the checkpoint before", () => {
   const onto = (...earlier: WorkspaceCapture[]): BundleBase => ({
     maxBytes: DEFAULT_WORKSPACE_CAPTURE_LIMITS.maxBundleBytes,
     tips: earlier.flatMap((capture) => capture.bundle.tips),
@@ -600,7 +600,7 @@ describe("a bundle built on the checkpoint before (94S-227)", () => {
     );
   });
 
-  test("chains three deep to a capture that changed nothing, which both finalize and restore take (94S-374)", async () => {
+  test("chains three deep to a capture that changed nothing, which both finalize and restore take", async () => {
     await commitFiles({ "a.txt": "1\n" });
     const first = await captured();
     const head = await commitFiles({ "a.txt": "2\n" });

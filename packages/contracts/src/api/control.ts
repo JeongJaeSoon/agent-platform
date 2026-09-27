@@ -47,14 +47,14 @@ export const recoveryDecisionRequestSchema = z.discriminatedUnion("decision", [
     })
     .strict(),
   z.object({ ...recoveryDecisionBase, decision: z.literal("close") }).strict(),
-  // Continue a session whose context cannot be restored (94S-288) on a new
+  // Continue a session whose context cannot be restored on a new
   // engine session that does not remember the turns before it. Nothing is
   // restored, the checkpoints so far are retired, and queued input runs.
   z
     .object({ ...recoveryDecisionBase, decision: z.literal("start_fresh") })
     .strict(),
   // Restore the same checkpoint again on a session its failed restores
-  // stopped (94S-345), once what made them fail is fixed (94S-348). The
+  // stopped, once what made them fail is fixed. The
   // failure count starts over and queued input runs.
   z
     .object({ ...recoveryDecisionBase, decision: z.literal("retry_restore") })

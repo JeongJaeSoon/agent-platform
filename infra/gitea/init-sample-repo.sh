@@ -6,7 +6,7 @@
 # so a restarted stack keeps its repository and its history.
 #
 # The repository is public on purpose: workers clone it anonymously, since a
-# catalog URL may not carry a credential (94S-132). Its owner can push, and
+# catalog URL may not carry a credential. Its owner can push, and
 # workers reach Gitea through the egress proxy, so the owner's password is
 # never a known default: unless GITEA_AGENT_PASSWORD is set, it is random and
 # printed nowhere. Set a known one with

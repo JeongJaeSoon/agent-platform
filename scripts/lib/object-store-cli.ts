@@ -1,6 +1,6 @@
 /**
  * The object store steps of scripts/backup.sh, restore.sh and
- * verify-restore.sh (94S-429), through the production S3 adapter, so the
+ * verify-restore.sh, through the production S3 adapter, so the
  * scripts run the same against the compose project's LocalStack and against
  * any S3-compatible store, AWS S3 included:
  *

@@ -61,7 +61,7 @@ describe("TurnAccounting", () => {
     expect(accounting.settle().costUsd).toBeUndefined();
   });
 
-  test("says when the engine's count started over, and only then (94S-279)", () => {
+  test("says when the engine's count started over, and only then", () => {
     const accounting = new TurnAccounting();
     accounting.observe(result(0.5, "resumed"));
     accounting.observe(result(1, "resumed"));
