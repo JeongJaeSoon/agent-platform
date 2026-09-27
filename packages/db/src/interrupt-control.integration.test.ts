@@ -80,13 +80,16 @@ integration("turn interrupts on PostgreSQL", () => {
   let gateway: WorkerGateway;
   let interrupts: ReturnType<typeof createInterruptService>;
   let answers: ReturnType<typeof createPendingRequestService>;
+  const resultSink = new MemoryLogSink();
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "interrupt_it" });
     pool = new Pool({ connectionString: database.url, max: 16 });
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
-      work: createPostgresWorkerUnitOfWork(db),
+      work: createPostgresWorkerUnitOfWork(db, {
+        logger: new StructuredLogger({ sinks: [resultSink] }),
+      }),
       catalog,
       checkpoints: {
         async verify() {
@@ -323,6 +326,19 @@ integration("turn interrupts on PostgreSQL", () => {
       .where(eq(sessions.id, sessionId));
     expect(session?.admissionState).toBe("active");
     expect(session?.checkpointRevision).toBe(0);
+    expect(resultSink.records).toContainEqual(
+      expect.objectContaining({
+        event: "control.result",
+        fields: expect.objectContaining({
+          operation: "interrupt",
+          outcome: "interrupted",
+          reason_code: "none",
+          control_id: handed.control?.control_id,
+          duration_ms: expect.any(Number),
+          effect_ms: expect.any(Number),
+        }),
+      }),
+    );
 
     // Asked again after the terminal, it did nothing, whatever the turn says.
     const late = await interrupt(owner, sessionId, "1");

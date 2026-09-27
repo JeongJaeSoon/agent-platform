@@ -1767,7 +1767,8 @@ export function createPostgresWorkerUnitOfWork(
 
     finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult> {
       const { fence, now } = input;
-      return db.transaction(async (tx) => {
+      const controlResults: ControlResultEvent[] = [];
+      const transaction = db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return fenced;
 
@@ -1866,12 +1867,16 @@ export function createPostgresWorkerUnitOfWork(
           .returning({ id: turns.id, sequence: turns.sequence });
         expectFenced([terminal].filter(Boolean), "turn");
         if (terminal) {
-          await settleTurnInterrupts(tx, {
-            turnRowId: terminal.id,
-            turnSequence: terminal.sequence,
-            terminal: input.terminal.status,
-            at: now,
-          });
+          controlResults.push(
+            ...(await settleTurnInterrupts(tx, {
+              sessionId: fence.sessionId,
+              turnRowId: terminal.id,
+              turnSequence: terminal.sequence,
+              terminal: input.terminal.status,
+              terminalReason: input.terminal.reason,
+              at: now,
+            })),
+          );
         }
 
         const receiptStatus = RECEIPT_STATUS_BY_TERMINAL[input.terminal.status];
@@ -1972,6 +1977,12 @@ export function createPostgresWorkerUnitOfWork(
             checkpointRevision,
           },
         };
+      }) as Promise<FinalizeResult>;
+      return transaction.then((result) => {
+        for (const controlResult of controlResults) {
+          logControlResult(options.logger, controlResult);
+        }
+        return result;
       });
     },
 
@@ -2382,12 +2393,16 @@ export function createPostgresWorkerUnitOfWork(
           )
           .returning({ id: turns.id, sequence: turns.sequence });
         for (const turn of unresolved) {
-          await settleTurnInterrupts(tx, {
-            turnRowId: turn.id,
-            turnSequence: turn.sequence,
-            terminal: "outcome_unknown",
-            at: now,
-          });
+          controlResults.push(
+            ...(await settleTurnInterrupts(tx, {
+              sessionId: session.id,
+              turnRowId: turn.id,
+              turnSequence: turn.sequence,
+              terminal: "outcome_unknown",
+              terminalReason: "execution_gone",
+              at: now,
+            })),
+          );
         }
         // Requests the gone worker raised can never be answered by it; left
         // open they would keep the session reporting pending input forever.

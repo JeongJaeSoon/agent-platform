@@ -176,10 +176,6 @@ type Turn = {
   interrupting: boolean;
   /** The intent that interrupted the turn, named by its engine_stopped event. */
   controlId?: string;
-  /** Durable acceptance time carried by the control intent. */
-  controlIssuedAt?: number;
-  /** Acceptance to the turn terminal that made the control observable. */
-  controlEffectMs?: number;
   /**
    * How the engine answered the interrupt sent for this turn, if one was.
    * The SDK ends every abort alike, so only an acknowledged interrupt makes
@@ -1363,23 +1359,6 @@ export class WorkerHost {
         turn_id: turnId,
         status: terminal.status,
       });
-      if (interruptTurn?.controlId !== undefined) {
-        const noOp =
-          terminal.status !== "interrupted" &&
-          terminal.status !== "outcome_unknown";
-        this.logger.info("control.result", {
-          message: "Interrupt control result recorded",
-          operation: "interrupt",
-          outcome: terminal.status,
-          reason_code: noOp
-            ? "no_op"
-            : stableReasonCode(terminal.reason, terminal.status),
-          duration_ms: interruptTurn.controlEffectMs ?? 0,
-          effect_ms: interruptTurn.controlEffectMs ?? 0,
-          control_id: interruptTurn.controlId,
-          turn_id: turnId,
-        });
-      }
       this.turn = undefined;
       this.scope.turn_id = null;
     } finally {
@@ -1437,12 +1416,6 @@ export class WorkerHost {
   private cutTurn(turn: Turn, settlement: Settlement): void {
     if (turn.cut) return;
     turn.cut = true;
-    if (turn.interrupting && turn.controlEffectMs === undefined) {
-      turn.controlEffectMs = Math.max(
-        0,
-        Date.now() - (turn.controlIssuedAt ?? Date.now()),
-      );
-    }
     this.recordEngineStopped(turn, settlement);
     this.publisher?.hold();
     turn.settle(settlement);
@@ -1520,8 +1493,6 @@ export class WorkerHost {
     }
     turn.interrupting = true;
     turn.controlId = control.control_id;
-    const issuedAt = Date.parse(control.issued_at);
-    turn.controlIssuedAt = Number.isFinite(issuedAt) ? issuedAt : Date.now();
     turn.interruptStartedAt = performance.now();
     this.logInterruptStage(turn, "control_received");
     this.logger.info("worker.turn.interrupting", {
@@ -2379,11 +2350,6 @@ async function settledWithin(
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function stableReasonCode(reason: string | null, outcome: string): string {
-  if (reason === null) return outcome === "interrupted" ? "none" : outcome;
-  return /^[a-z0-9_]+$/.test(reason) ? reason : "unspecified";
 }
 
 function releaseReason(error: unknown): string {

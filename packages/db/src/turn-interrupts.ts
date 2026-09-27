@@ -4,7 +4,10 @@ import type {
 } from "@agent-platform/contracts";
 import type { StructuredLogger } from "@agent-platform/observability";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
-import { logControlResult } from "./control-observability.ts";
+import {
+  type ControlResultEvent,
+  logControlResult,
+} from "./control-observability.ts";
 import { expireOverdueReceipts, OPEN_TURN_STATUSES } from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -42,12 +45,14 @@ export function interruptReceiptResult(
 export async function settleTurnInterrupts(
   tx: Database,
   input: {
+    sessionId: string;
     turnRowId: number;
     turnSequence: number;
     terminal: TerminalTurnStatus;
+    terminalReason: string | null;
     at: Date;
   },
-): Promise<void> {
+): Promise<ControlResultEvent[]> {
   const settled = await tx
     .update(controlIntents)
     .set({ settledAt: input.at })
@@ -58,15 +63,19 @@ export async function settleTurnInterrupts(
         isNull(controlIntents.settledAt),
       ),
     )
-    .returning({ receiptId: controlIntents.receiptId });
-  if (settled.length === 0) return;
+    .returning({
+      acceptedAt: controlIntents.issuedAt,
+      controlId: controlIntents.id,
+      receiptId: controlIntents.receiptId,
+    });
+  if (settled.length === 0) return [];
   const result = interruptReceiptResult(
     input.turnSequence,
     input.terminal,
     true,
   );
   const unknown = input.terminal === "outcome_unknown";
-  await tx
+  const updated = await tx
     .update(receipts)
     .set({
       status: unknown ? "unknown" : "succeeded",
@@ -90,7 +99,28 @@ export async function settleTurnInterrupts(
         // the turn actually ended as.
         inArray(receipts.status, ["accepted", "unknown"]),
       ),
-    );
+    )
+    .returning({ id: receipts.id });
+  const updatedIds = new Set(updated.map(({ id }) => id));
+  const reasonCode = result.no_op
+    ? "no_op"
+    : stableReasonCode(input.terminalReason, input.terminal);
+  return settled
+    .filter(({ receiptId }) => updatedIds.has(receiptId))
+    .map(({ acceptedAt, controlId }) => ({
+      acceptedAt,
+      controlId,
+      effectiveAt: input.at,
+      operation: "interrupt",
+      outcome: input.terminal,
+      reasonCode,
+      sessionId: input.sessionId,
+    }));
+}
+
+function stableReasonCode(reason: string | null, outcome: string): string {
+  if (reason === null) return outcome === "interrupted" ? "none" : outcome;
+  return /^[a-z0-9_]+$/.test(reason) ? reason : "unspecified";
 }
 
 /**

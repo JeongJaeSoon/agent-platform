@@ -11,7 +11,10 @@ import {
 } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { controlIntents, receipts, sessions, turns } from "./schema.ts";
-import { expireOverdueInterrupts } from "./turn-interrupts.ts";
+import {
+  expireOverdueInterrupts,
+  settleTurnInterrupts,
+} from "./turn-interrupts.ts";
 
 /**
  * 94S-399: a reconciler back from a long stop finds a backlog of overdue
@@ -165,6 +168,55 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
         }),
       ]),
     );
+  });
+
+  test("a control accepted after the worker terminal is still returned by receipt settlement", async () => {
+    const sessionId = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id: sessionId,
+      ownerId: "owner-a",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${sessionId}`,
+    });
+    const [turn] = await db
+      .insert(turns)
+      .values({ sessionId, sequence: 1, message: "m1", status: "running" })
+      .returning({ id: turns.id });
+    if (!turn) throw new Error("no turn");
+    const receiptId = await acceptedReceipt("interrupt");
+    const controlId = crypto.randomUUID();
+    await db.insert(controlIntents).values({
+      id: controlId,
+      sessionId,
+      kind: "interrupt",
+      targetTurnId: turn.id,
+      attemptId: "attempt-a",
+      receiptId,
+      issuedAt: LONG_AGO,
+    });
+    const effectiveAt = new Date();
+
+    const results = await db.transaction((tx) =>
+      settleTurnInterrupts(tx, {
+        sessionId,
+        turnRowId: turn.id,
+        turnSequence: 1,
+        terminal: "completed",
+        terminalReason: null,
+        at: effectiveAt,
+      }),
+    );
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        controlId,
+        effectiveAt,
+        operation: "interrupt",
+        outcome: "completed",
+        reasonCode: "no_op",
+        sessionId,
+      }),
+    ]);
   });
 
   test("the scheduler sweep takes one batch per pass too (94S-450)", async () => {
