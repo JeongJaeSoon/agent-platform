@@ -867,6 +867,34 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
+  test("the rendered services share the compose egress port set", () => {
+    const { exitCode, stderr, model } = render(LOCAL_LAYERS);
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    const proxy = model?.services["egress-proxy"]?.environment;
+    const api = model?.services.api?.environment;
+    const scheduler = model?.services.scheduler?.environment;
+    const workerProxyUrl = new URL(
+      String(scheduler?.EXECUTION_EGRESS_PROXY_URL),
+    );
+    const proxyAuthorizerUrl = new URL(String(proxy?.EGRESS_AUTHORIZER_URL));
+
+    expect({
+      forward: proxy?.EGRESS_PROXY_PORT,
+      workerProxy: workerProxyUrl.port,
+      credential: proxy?.EGRESS_CREDENTIAL_PORT,
+      workerCredential: scheduler?.EXECUTION_EGRESS_CREDENTIAL_PORT,
+      authorizer: api?.EGRESS_AUTHORIZER_PORT,
+      proxyAuthorizer: proxyAuthorizerUrl.port,
+    }).toEqual({
+      forward: "3128",
+      workerProxy: "3128",
+      credential: "3129",
+      workerCredential: "3129",
+      authorizer: "3100",
+      proxyAuthorizer: "3100",
+    });
+  });
+
   test.each([
     ["s3", S3_LAYERS, Object.keys(TEST_OPS_REQUIRED)],
     [
