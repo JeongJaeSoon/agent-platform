@@ -26,6 +26,17 @@
       }
     },
     {
+      "name": "[Agent Platform] terminate acceptance latency",
+      "type": "metric alert",
+      "query": "avg(last_5m):p95:agent_platform.terminate.acceptance.duration_ms{*} > 200",
+      "message": "Terminate acceptance p95 exceeded 200 ms. Correlate the API and control transaction logs by request_id; see docs/operations.md#api-설정-94s-389.",
+      "tags": ["service:api", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 200 },
+        "require_full_window": false
+      }
+    },
+    {
       "name": "[Agent Platform] unknown turn outcome",
       "type": "metric alert",
       "query": "max(last_5m):max:agent_platform.turn.outcome_unknown_count{*} > 0",
@@ -66,6 +77,62 @@
       "tags": ["service:worker", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] checkpoint capture latency",
+      "type": "metric alert",
+      "query": "avg(last_5m):p95:agent_platform.checkpoint.capture.duration_ms{*} > 20000",
+      "message": "Checkpoint capture p95 exceeded 20 s. Inspect durations_ms on worker.checkpoint.published; see docs/operations.md#checkpoint-복원이-계속-실패하는-세션-94s-345.",
+      "tags": [
+        "service:agent-platform-worker",
+        "threshold_stage:first-week-tuning"
+      ],
+      "options": {
+        "thresholds": { "critical": 20000 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] checkpoint bundle near limit",
+      "type": "metric alert",
+      "query": "max(last_15m):max:agent_platform.checkpoint.bundle_bytes{*} > 214748364",
+      "message": "A workspace bundle exceeded 80% of the 256 MiB limit. Inspect the published checkpoint before it is refused.",
+      "tags": [
+        "service:agent-platform-worker",
+        "threshold_stage:first-week-tuning"
+      ],
+      "options": {
+        "thresholds": { "critical": 214748364 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] checkpoint untracked bytes near limit",
+      "type": "metric alert",
+      "query": "max(last_15m):max:agent_platform.checkpoint.untracked_bytes{*} > 214748364",
+      "message": "Untracked workspace bytes exceeded 80% of the 256 MiB limit. Inspect the published checkpoint before capture is refused.",
+      "tags": [
+        "service:agent-platform-worker",
+        "threshold_stage:first-week-tuning"
+      ],
+      "options": {
+        "thresholds": { "critical": 214748364 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] checkpoint manifest near limit",
+      "type": "metric alert",
+      "query": "max(last_15m):max:agent_platform.checkpoint.manifest_bytes{*} > 6710886",
+      "message": "A checkpoint manifest exceeded 80% of the 8 MiB limit. Inspect object counts and transcript growth before publish is refused.",
+      "tags": [
+        "service:agent-platform-worker",
+        "threshold_stage:first-week-tuning"
+      ],
+      "options": {
+        "thresholds": { "critical": 6710886 },
         "require_full_window": false
       }
     },

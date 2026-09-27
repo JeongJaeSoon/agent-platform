@@ -31,6 +31,31 @@
       "path": "@fields.duration_ms",
       "type": "number",
       "display_name": "Duration ms"
+    },
+    {
+      "path": "@fields.total_ms",
+      "type": "number",
+      "display_name": "Checkpoint total ms"
+    },
+    {
+      "path": "@fields.bundle_bytes",
+      "type": "number",
+      "display_name": "Checkpoint bundle bytes"
+    },
+    {
+      "path": "@fields.untracked_bytes",
+      "type": "number",
+      "display_name": "Checkpoint untracked bytes"
+    },
+    {
+      "path": "@fields.untracked_uploads",
+      "type": "number",
+      "display_name": "Checkpoint untracked uploads"
+    },
+    {
+      "path": "@fields.manifest_bytes",
+      "type": "number",
+      "display_name": "Checkpoint manifest bytes"
     }
   ],
   "excluded_high_cardinality_attributes": [

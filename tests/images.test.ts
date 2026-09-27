@@ -756,6 +756,7 @@ describe("compose layers", () => {
     const metricDefinitions = definitions[2] as {
       requests: {
         data: {
+          id: string;
           attributes: { group_by?: { path: string; tag_name?: string }[] };
         };
       }[];
@@ -766,12 +767,29 @@ describe("compose layers", () => {
         expect(group.tag_name).not.toBe("session_id");
       }
     }
+    expect(metricDefinitions.requests.map(({ data }) => data.id)).toEqual(
+      expect.arrayContaining([
+        "agent_platform.checkpoint.capture.duration_ms",
+        "agent_platform.checkpoint.bundle_bytes",
+        "agent_platform.checkpoint.untracked_bytes",
+        "agent_platform.checkpoint.untracked_uploads",
+        "agent_platform.checkpoint.manifest_bytes",
+        "agent_platform.terminate.acceptance.duration_ms",
+      ]),
+    );
     const facets = definitions[1] as {
       excluded_high_cardinality_attributes: string[];
     };
     expect(facets.excluded_high_cardinality_attributes).toContain(
       "@session_id",
     );
+    const monitors = definitions[3] as {
+      requests: { type: string; options: { thresholds?: unknown } }[];
+    };
+    expect(
+      monitors.requests.find(({ type }) => type === "service check")?.options
+        .thresholds,
+    ).toBeDefined();
   });
 
   test("Datadog database checks are read-only SELECT queries", () => {

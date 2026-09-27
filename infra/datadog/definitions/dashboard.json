@@ -45,6 +45,18 @@
           {
             "definition": {
               "type": "timeseries",
+              "title": "Terminate acceptance p95",
+              "requests": [
+                {
+                  "q": "p95:agent_platform.terminate.acceptance.duration_ms{env:$env}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
               "title": "Launch and exit churn",
               "requests": [
                 {
@@ -96,6 +108,38 @@
           {
             "definition": {
               "type": "timeseries",
+              "title": "Checkpoint capture p95",
+              "requests": [
+                {
+                  "q": "p95:agent_platform.checkpoint.capture.duration_ms{env:$env}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Checkpoint payload sizes",
+              "requests": [
+                {
+                  "q": "max:agent_platform.checkpoint.bundle_bytes{env:$env}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "max:agent_platform.checkpoint.untracked_bytes{env:$env}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "max:agent_platform.checkpoint.manifest_bytes{env:$env}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
               "title": "Host disk and inode use",
               "requests": [
                 {
@@ -115,7 +159,7 @@
     {
       "definition": {
         "type": "note",
-        "content": "Provider 429/5xx, control acceptance latency, exact checkpoint timing and object-store inventory remain measurement gaps tracked by 94S-487 (inventory also by 94S-482).",
+        "content": "Provider 429/5xx, non-terminate control acceptance latency, transcript PUT/byte totals, and object-store inventory remain measurement gaps tracked by 94S-487 (inventory also by 94S-482).",
         "background_color": "yellow",
         "font_size": "14",
         "text_align": "left",
