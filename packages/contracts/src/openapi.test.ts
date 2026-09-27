@@ -1,14 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { OPENAPI_OUTPUT_PATH } from "../scripts/generate-openapi.ts";
+import {
+  API_REFERENCE_OUTPUT_PATH,
+  OPENAPI_OUTPUT_PATH,
+  renderApiReferenceDocument,
+  renderScalarAsset,
+  SCALAR_ASSET_OUTPUT_PATH,
+} from "../scripts/generate-openapi.ts";
 import { buildOpenApiDocument, renderOpenApiDocument } from "./openapi.ts";
+import { API_ERROR_CODE_VALUES } from "./shared/error.ts";
 
 describe("OpenAPI document", () => {
   test("is committed and matches the generator output", () => {
     expect(readFileSync(OPENAPI_OUTPUT_PATH, "utf8")).toBe(
       renderOpenApiDocument(),
     );
+  });
+
+  test("commits an offline read-only Scalar reference from the same document", () => {
+    expect(readFileSync(API_REFERENCE_OUTPUT_PATH, "utf8")).toBe(
+      renderApiReferenceDocument(),
+    );
+    expect(readFileSync(SCALAR_ASSET_OUTPUT_PATH, "utf8")).toBe(
+      renderScalarAsset(),
+    );
+    const html = renderApiReferenceDocument();
+    const scalarAsset = renderScalarAsset();
+    expect(html).toContain('src="./scalar.js"');
+    expect(html).toContain("&quot;disabled&quot;:true");
+    expect(html).toContain("&quot;hideClientButton&quot;:true");
+    expect(html).toContain("&quot;hideTestRequestButton&quot;:true");
+    expect(html).toContain("&quot;showDeveloperTools&quot;:&quot;never&quot;");
+    expect(html).toContain("&quot;showToolbar&quot;:&quot;never&quot;");
+    expect(html).toContain("&quot;telemetry&quot;:false");
+    expect(html).toContain("&quot;withDefaultFonts&quot;:false");
+    expect(html).not.toMatch(/(?:src|href)="https?:\/\//);
+    expect(html).not.toContain("Authorization");
+    expect(scalarAsset).not.toContain("./chunks/");
   });
 
   test("every cookie-authenticated mutation documents the CSRF header and 403", () => {
@@ -50,6 +79,7 @@ describe("OpenAPI document", () => {
         "/healthz",
         "/readyz",
         "/v1",
+        "/v1/openapi.json",
         "/v1/auth/bootstrap",
         "/v1/auth/login",
         "/v1/auth/logout",
@@ -103,6 +133,56 @@ describe("OpenAPI document", () => {
         });
       }
     }
+  });
+
+  test("narrows every operation error response to its expected codes", () => {
+    const document = buildOpenApiDocument();
+    const known = new Set<string>(API_ERROR_CODE_VALUES);
+    for (const [path, operations] of Object.entries(document.paths)) {
+      for (const [method, raw] of Object.entries(operations)) {
+        const { responses } = raw as {
+          responses: Record<
+            string,
+            {
+              $ref?: string;
+              content?: {
+                "application/json"?: {
+                  schema?: {
+                    allOf?: Array<{
+                      properties?: {
+                        error?: {
+                          properties?: { code?: { enum?: string[] } };
+                        };
+                      };
+                    }>;
+                  };
+                };
+              };
+            }
+          >;
+        };
+        for (const [status, response] of Object.entries(responses)) {
+          if (Number(status) < 400 || status === "500") continue;
+          const codes =
+            response.content?.["application/json"]?.schema?.allOf?.[1]
+              ?.properties?.error?.properties?.code?.enum;
+          expect(codes?.length, `${method} ${path} ${status}`).toBeGreaterThan(
+            0,
+          );
+          for (const code of codes ?? []) {
+            expect(known.has(code), `${method} ${path} ${status} ${code}`).toBe(
+              true,
+            );
+          }
+        }
+      }
+    }
+    const bootstrap = document.paths["/v1/auth/bootstrap"]?.post as
+      | { responses: Record<string, unknown> }
+      | undefined;
+    expect(bootstrap?.responses["409"]).toEqual(
+      expect.objectContaining({ description: "Error: BOOTSTRAP_DONE" }),
+    );
   });
 
   test("widening the receipt target keeps every alpha response valid", () => {

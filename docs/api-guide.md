@@ -6,13 +6,13 @@ that are illustrative rather than executable in `sh`, `json`, or `text` blocks.
 
 # API 유즈케이스 가이드
 
-이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 [`docs/openapi.json`](openapi.json)이며, 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 CI가 compose의 fake Messages API로 그대로 실행하므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
+이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 `docs/openapi.json`이며, 사람이 읽는 참조는 [`docs/api/index.html`](api/index.html)이다. 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 CI가 compose의 fake Messages API로 그대로 실행하므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
 
 예시는 로컬 기본 주소 `http://127.0.0.1:3000`을 쓴다. 배포 환경에서는 `API`만 바꾼다.
 
 ## 1. API key로 인증하고 scope 확인하기
 
-OpenAPI: [`getApiRoot`](openapi.json)
+OpenAPI: [`getApiRoot`](api/index.html)
 
 **목적.** Bearer API key를 발급하고, 이후 유즈케이스에 필요한 최소 scope를 한 번에 확인한다. 읽기·세션 입력·승인·제어·복구는 각각 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`, `sessions:recover`로 나뉜다.
 
@@ -34,6 +34,16 @@ wait_for() {
   curl -sS "$API$1" "${AUTH[@]}" >&2
   return 1
 }
+wait_for_pending() {
+  for _ in $(seq 1 180); do
+    pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+    [ "$(echo "$pending" | jq -r '.items[0].kind // empty')" = "$1" ] && return 0
+    sleep 1
+  done
+  echo "timed out: pending request kind != $1" >&2
+  echo "$pending" >&2
+  return 1
+}
 revision() {
   curl -sS "$API/v1/sessions/$SID" "${AUTH[@]}" | jq .revision
 }
@@ -47,7 +57,7 @@ curl -sS "$API/v1" "${AUTH[@]}" | jq -e '.owner_id != null'
 
 ## 2. 세션 만들기: profile·repository 선택
 
-OpenAPI: [`createSession`](openapi.json), [`getSession`](openapi.json)
+OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
 
 **목적.** 실행 profile과 repository를 명시해 세션과 첫 turn을 내구적으로 접수한다.
 
@@ -70,15 +80,14 @@ SID=$(echo "$created" | jq -r .session_id)
 
 ## 3. pending-requests의 승인·질문에 답하기
 
-OpenAPI: [`listPendingRequests`](openapi.json), [`answerPendingRequest`](openapi.json), [`getReceipt`](openapi.json)
+OpenAPI: [`listPendingRequests`](api/index.html), [`answerPendingRequest`](api/index.html), [`getReceipt`](api/index.html)
 
 **목적.** worker가 기다리는 도구 승인과 `AskUserQuestion`을 같은 pending-requests 흐름으로 처리한다.
 
-**순서.** 세션이 `needs_input`이 될 때까지 기다리고 목록에서 `request_id`를 읽는다. 권한 요청은 `decision`, 질문 요청은 각 `question_id`의 `selected_option_ids` 또는 `free_text`로 답한다. 응답은 202 receipt이므로 receipt와 turn을 다시 조회한다.
+**순서.** 원하는 종류의 pending request가 목록에 나타날 때까지 기다리고 `request_id`를 읽는다. 권한 요청은 `decision`, 질문 요청은 각 `question_id`의 `selected_option_ids` 또는 `free_text`로 답한다. 응답은 202 receipt이므로 receipt와 turn을 다시 조회한다.
 
 ```bash
-wait_for "/v1/sessions/$SID" .status needs_input
-pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+wait_for_pending permission
 echo "$pending" | jq -e '.items[0].kind == "permission"'
 PERMISSION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
 
@@ -96,8 +105,7 @@ question_message=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-question","steps
   '{message:$message}')
 curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data "$question_message" | jq -e '.turn_id == "2"'
-wait_for "/v1/sessions/$SID" .status needs_input
-pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+wait_for_pending question
 echo "$pending" | jq -e '.items[0].kind == "question"'
 QUESTION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
 QUESTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].question_id')
@@ -118,7 +126,7 @@ wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status s
 
 ## 4. 메시지 보내기와 turn 상태 보기
 
-OpenAPI: [`appendSessionMessage`](openapi.json), [`getSessionTurn`](openapi.json)
+OpenAPI: [`appendSessionMessage`](api/index.html), [`getSessionTurn`](api/index.html)
 
 **목적.** 기존 세션의 같은 engine 대화에 입력을 추가하고, 결과가 terminal인지 확인한다.
 
@@ -141,7 +149,7 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
 
 ## 5. SSE로 진행 보기와 Last-Event-ID 재연결
 
-OpenAPI: [`streamSessionEvents`](openapi.json)
+OpenAPI: [`streamSessionEvents`](api/index.html)
 
 **목적.** 이미 저장된 이벤트를 재생한 뒤 live 진행을 받고, 연결이 끊기면 마지막 cursor 다음부터 이어 본다.
 
@@ -166,7 +174,7 @@ test "$RECONNECT_CODE" = 200
 
 ## 6. interrupt, pause/resume, terminate와 receipt 확인
 
-OpenAPI: [`interruptSession`](openapi.json), [`pauseSession`](openapi.json), [`resumeSession`](openapi.json), [`terminateSession`](openapi.json), [`getReceipt`](openapi.json)
+OpenAPI: [`interruptSession`](api/index.html), [`pauseSession`](api/index.html), [`resumeSession`](api/index.html), [`terminateSession`](api/index.html), [`getReceipt`](api/index.html)
 
 **목적.** turn 하나만 멈추거나, checkpoint를 남겨 worker를 내렸다 복원하거나, 실행을 강제로 종료한다. 모든 비동기 제어는 202 receipt의 최종 상태까지 확인한다.
 
@@ -215,7 +223,7 @@ wait_for "/v1/receipts/$(echo "$terminate" | jq -r .receipt_id)" .status succeed
 
 ## 7. outcome_unknown·RECOVERY_REQUIRED 복구 결정
 
-OpenAPI: [`decideSessionRecovery`](openapi.json), [`resumeSession`](openapi.json), [`getSessionTurn`](openapi.json)
+OpenAPI: [`decideSessionRecovery`](api/index.html), [`resumeSession`](api/index.html), [`getSessionTurn`](api/index.html)
 
 **목적.** terminate나 worker 상실 뒤 외부 효과를 확정할 수 없는 turn을 운영자가 명시적으로 판정한다. `outcome_unknown`을 성공이나 실패로 추측하지 않는다.
 
@@ -247,7 +255,7 @@ wait_for "/v1/sessions/$SID" .admission_state active
 
 ## 8. 사용량·비용·한도 조회
 
-OpenAPI: [`getSessionUsage`](openapi.json), [`getInstallationLimits`](openapi.json)
+OpenAPI: [`getSessionUsage`](api/index.html), [`getInstallationLimits`](api/index.html)
 
 **목적.** 세션의 추정 provider 비용과 입력 queue 상태, 설치 전체의 실행 slot·저장소·turn 상한을 읽는다.
 
@@ -269,7 +277,7 @@ echo "$limits" | jq -e '.scope == "installation" and .limits.execution_slot_limi
 
 ## 9. Idempotency-Key로 안전하게 재시도하기
 
-OpenAPI: [`appendSessionMessage`](openapi.json), [`getReceipt`](openapi.json)
+OpenAPI: [`appendSessionMessage`](api/index.html), [`getReceipt`](api/index.html)
 
 **목적.** 응답 유실이나 timeout 뒤 같은 명령을 중복 실행하지 않고 원래 접수 결과를 다시 받는다.
 

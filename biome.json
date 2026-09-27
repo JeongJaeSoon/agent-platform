@@ -7,7 +7,9 @@
       "!!node_modules",
       "!!dist",
       "!!.claude",
-      "!docs/openapi.json"
+      "!docs/openapi.json",
+      "!docs/api/index.html",
+      "!docs/api/scalar.js"
     ]
   },
   "formatter": {
