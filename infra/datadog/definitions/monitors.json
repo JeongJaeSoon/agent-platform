@@ -48,6 +48,17 @@
       }
     },
     {
+      "name": "[Agent Platform] interrupt effect latency",
+      "type": "metric alert",
+      "query": "avg(last_5m):p95:agent_platform.control.effect.duration_ms{operation:interrupt} > 5000",
+      "message": "Interrupt effect p95 exceeded 5 s. Correlate control.result and worker.turn.interrupt.stage by control_id; see docs/operations.md#interrupt-뒤-결과를-알-수-없는-turn.",
+      "tags": ["service:worker", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 5000 },
+        "require_full_window": false
+      }
+    },
+    {
       "name": "[Agent Platform] checkpoint pending",
       "type": "metric alert",
       "query": "max(last_5m):max:agent_platform.checkpoint.pending_age_seconds{*} > 300",

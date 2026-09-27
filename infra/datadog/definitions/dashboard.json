@@ -57,6 +57,22 @@
           {
             "definition": {
               "type": "timeseries",
+              "title": "Session create and interrupt effect p95",
+              "requests": [
+                {
+                  "q": "p95:agent_platform.session.create.duration_ms{env:$env}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "p95:agent_platform.control.effect.duration_ms{env:$env,operation:interrupt}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
               "title": "Launch and exit churn",
               "requests": [
                 {
