@@ -108,7 +108,9 @@ claim되지 않은 stale 컨테이너는 전처럼 곧바로 교체된다.
 `INCOMPATIBLE_CHECKPOINT`는 재시도해도 같은 worker runtime·profile에서 성공할 수 없는 결정적 실패다. 이 경우 첫 launch 뒤 바로 `recovery_required`로 멈추며 attention과 `checkpoint_restore_failed` 이벤트의 `reason`은 `incompatible_checkpoint`, `failures`는 1, `retry_at`은 null이다. 운영자는 호환 runtime·profile로 되돌린 뒤 `retry_restore`로 같은 checkpoint를 다시 시도하거나, 이전 context를 버려도 되면 `start_fresh`를 선택하거나, 세션을 끝내려면 `close`를 선택한다.
 
 이벤트 스트림에는 실패마다 system `checkpoint_restore_failed`가 남는다. worker 로그의 `worker.checkpoint.restore_refused`, `worker.failed`에서 원인을 확인한다. 저장소 응답 checksum 불일치(전송 중 손상)도 `CHECKPOINT_UNAVAILABLE`로 분류된다.
-- 저장소나 egress-proxy `/object-store` 경로가 잠시 답하지 못한 것은 실패로 세지 않는다(94S-390). worker는 `worker.checkpoint.restore_unavailable` 경고를 남기고 시작 예산(`WORKER_STARTUP_TIMEOUT_SEC`) 안에서 복원을 다시 한다. 이 경고가 이어지면 checkpoint가 아니라 저장소와 경로를 본다. 예산을 넘겨야 실패 1회로 센다. `restore_refused`는 checkpoint 쪽 손상이다.
+- 저장소나 egress-proxy `/object-store` 경로가 잠시 답하지 못한 것은 실패로 세지 않는다(94S-390, 94S-477). 연결 실패·DNS 실패·request/body timeout·잘린 body와 HTTP 408·429·5xx가 일시 장애다. checkpoint 복원은 `worker.checkpoint.restore_unavailable`, checkpoint가 아직 없는 새 generation의 transcript 저장소 확인은 `worker.checkpoint.store_unavailable` 경고를 남긴다. 둘 다 같은 worker 안에서 1초부터 두 배씩, 최대 30초 간격으로 `WORKER_STARTUP_TIMEOUT_SEC`(기본 3600초)까지 다시 시도한다. 저장소가 돌아오면 그 worker가 이어가므로 generation을 새로 만들지 않는다.
+- 시작 예산이 끝날 때까지 장애가 계속되면 그 worker 종료를 시작 실패 1회로 센다. 다음 generation은 30초, 60초의 세션 backoff 뒤에만 뜨고 세 번째 실패에서 `recovery_required`로 멈춘다. 따라서 저장소 장애가 worker의 무제한 즉시 재기동으로 바뀌지 않는다. `WORKER_STARTUP_TIMEOUT_SEC`는 scheduler가 worker에 별도 값을 넘기지 않으므로 현재 배포에서는 코드 기본값으로 고정이다.
+- 객체가 실제로 없거나(404/`NoSuchKey`), 401·403으로 거절되거나, checksum·digest가 맞지 않는 경우는 일시 장애가 아니다. manifest나 manifest가 가리키는 객체가 없으면 `CHECKPOINT_UNAVAILABLE`이며 재시작으로 복구됐다고 간주하지 않는다. bucket 전체가 비었는데 DB pointer가 남은 경우는 API 기동 검사가 먼저 막는다. `restore_refused`는 저장소 경로가 아니라 checkpoint의 영구 손상·불일치 쪽을 조사하라는 신호다.
 - 원인이 세션 밖에 있었다면(프록시의 전송 중 손상, 저장소 경로 설정 오류) 그것을 고친 뒤 `retry_restore`로 같은 checkpoint를 다시 복원한다(94S-348). 횟수가 0으로 돌아가고 queued 입력이 다시 신호된다. 다음 worker는 실패하던 worker와 같은 pointer에서 복원 계획을 다시 받는다.
   ```sh
   # KEY: sessions:recover scope가 있는 API 키
@@ -139,6 +141,7 @@ interrupt한 turn이 `interrupted`로 끝나려면 engine이 멈췄다는 응답
 worker 로그의 `worker.turn.interrupt.stage`를 같은 `session_id`·`turn_id`·`control_id`로 모으면 `control_received` → `sdk_interrupt_called` → `sdk_interrupt_answered` → `engine_terminal` → `capture_started` → `capture_finished` → `finalize_started` → `finalize_finished` 순서와 interrupt 수신 뒤 `elapsed_ms`를 볼 수 있다. SDK 응답이 engine terminal 뒤에 도착하면 정상 순서에 끼워 넣지 않고 `late_sdk_interrupt_answered`로 기록한다. `engine_terminal outcome=timeout`은 5초 grace 안에 SDK/engine terminal이 오지 않은 경우다. `capture_finished outcome=timeout`과 `budget_ms=30000`은 checkpoint 캡처 예산을 쓴 경우이고, `outcome=failed`의 `reason`은 저장소 요청 같은 캡처 자체의 실패다. 캡처가 끝났어도 `finalize_finished outcome=failed`에 `CHECKPOINT_UNAVAILABLE`이 있으면 API가 manifest나 그 ref를 거절한 경우이므로 캡처 시간 초과나 S3 요청 실패로 분류하지 않는다. 5초 grace는 바꾸지 않는다. timeout이면 다음 입력을 같은 engine에 주지 않고 worker를 실패로 내려 복구 결정을 요구한다.
 
 어느 쪽이든 세션은 `status: failed`, `admission_state: recovery_required`가 되고 queued 입력은 dispatch되지 않는다. interrupt receipt는 `unknown`이고 error는 `RECOVERY_REQUIRED`다. 복구는 `sessions:recover` scope로 한다.
+저장소가 다시 정상이어도 `outcome_unknown` turn은 자동 재실행하지 않는다. 저장소 복구는 다음 worker가 checkpoint를 읽을 수 있게 할 뿐, 이미 실행된 turn의 외부 효과를 판정하지 못하기 때문이다. 아래 `abandon`·`confirm_completed`·`close` 가운데 운영자가 고른 결정만 queue head를 정리한다.
 1. `abandon`·`confirm_completed`는 worker가 사라진 것이 확인된 뒤에만 받는다. 그 전에는 409 `RECOVERY_REQUIRED`(`The previous execution has not been confirmed gone`)다. 다음 scheduler pass가 컨테이너 부재를 확인하면 받는다. `close`는 기다리지 않는다. 남은 execution에 종료를 요청하고 바로 받는다.
 2. 그 turn의 도구가 바깥에 한 일을 확인한다. 파일 쓰기, push, 외부 호출은 되돌려지지 않는다.
 3. 결정을 보낸다.
