@@ -17,6 +17,7 @@ import { z } from "zod";
 import {
   ApiHttpError,
   type ApiRouter,
+  apiRoute,
   ingestThenStopClock,
   isStorageUnavailable,
   jsonWithSchema,
@@ -101,7 +102,7 @@ export function registerPublicAuthRoutes(
   const lockout = deps.lockout ?? new LoginLockout();
   const passwordWork = deps.passwordWork ?? new WorkGate();
 
-  router.post("/auth/bootstrap", ingestThenStopClock, async (context) => {
+  apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
     // Done is answered before the token is looked at: once the first owner
     // exists the token has nothing left to protect, and 409 is not a hint.
     if ((await storageMapped(() => deps.identity.countUsers())) > 0) {
@@ -162,7 +163,7 @@ export function registerPublicAuthRoutes(
     }
   });
 
-  router.post("/auth/login", ingestThenStopClock, async (context) => {
+  apiRoute(router, "login", ingestThenStopClock, async (context) => {
     const violation = browserRequestViolation(context);
     if (violation) {
       throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
@@ -259,7 +260,7 @@ export function registerPublicAuthRoutes(
 
 /** Mounted inside the auth middleware. */
 export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
-  router.post("/auth/logout", async (context) => {
+  apiRoute(router, "logout", async (context) => {
     const principal = context.get("principal");
     const cookie = webSessionCookie(context);
     if (principal.kind !== "user" || !cookie) {
@@ -276,7 +277,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     return context.body(null, 204);
   });
 
-  router.get("/auth/me", async (context) => {
+  apiRoute(router, "getAuthMe", async (context) => {
     const principal = context.get("principal");
     const session = context.get("webSession");
     if (principal.kind === "user" && session) {

@@ -1,8 +1,5 @@
-import {
-  API_ROUTE_SCOPES,
-  type Principal,
-  type SessionScope,
-} from "@agent-platform/contracts";
+import type { Principal, SessionScope } from "@agent-platform/contracts";
+import { API_ROUTE_SCOPES } from "./openapi.ts";
 
 // Which session scope a /v1 request needs, read from the OpenAPI route table
 // so the document and the check cannot drift. Checked after authentication

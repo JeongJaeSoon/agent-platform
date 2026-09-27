@@ -47,6 +47,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @anthropic-ai/claude-agent-sdk-linux-arm64 | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
 | @anthropic-ai/claude-agent-sdk-linux-x64 | 0.3.270 | SEE LICENSE IN LICENSE.md | worker |
 | @anthropic-ai/sdk | 0.125.0 | MIT | worker |
+| @asteasolutions/zod-to-openapi | 9.1.0 | MIT | control-host, worker |
 | @aws-sdk/checksums | 3.1001.0 | Apache-2.0 | control-host, worker |
 | @aws-sdk/client-s3 | 3.1131.0 | Apache-2.0 | control-host, worker |
 | @aws-sdk/client-secrets-manager | 3.1138.0 | Apache-2.0 | control-host, worker |
@@ -83,6 +84,8 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @babel/runtime | 7.29.7 | MIT | worker |
 | @electric-sql/pglite | 0.3.10 | Apache-2.0 | control-host, worker |
 | @hono/node-server | 2.1.1 | MIT | worker |
+| @hono/zod-openapi | 1.6.3 | MIT | control-host, worker |
+| @hono/zod-validator | 0.9.1 | MIT | control-host, worker |
 | @modelcontextprotocol/sdk | 1.30.0 | MIT | worker |
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
@@ -185,6 +188,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | object-inspect | 1.13.4 | MIT | worker |
 | on-finished | 2.4.1 | MIT | worker |
 | once | 1.4.0 | ISC | worker |
+| openapi3-ts | 4.6.1 | MIT | control-host, worker |
 | parseurl | 1.3.3 | MIT | worker |
 | path-key | 3.1.1 | MIT | worker |
 | path-to-regexp | 8.4.2 | MIT | worker |
@@ -253,6 +257,8 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 - `@aws-sdk/credential-provider-login@3.972.79` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
 - `@aws-sdk/nested-clients@3.997.45` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
 - `@aws-sdk/nested-clients@3.997.46` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
+- `@hono/zod-openapi@1.6.3` (MIT): 저작자 표기 없음, https://github.com/honojs/middleware.git
+- `@hono/zod-validator@0.9.1` (MIT): 저작자 표기 없음, https://github.com/honojs/middleware.git
 - `bun-types@1.3.14` (MIT): 저작자 표기 없음, https://github.com/oven-sh/bun
 - `drizzle-orm@0.45.2` (Apache-2.0): Drizzle Team, https://github.com/drizzle-team/drizzle-orm.git
 - `pg-types@2.2.0` (MIT): Brian M. Carlson, git://github.com/brianc/node-pg-types.git

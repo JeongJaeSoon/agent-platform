@@ -430,7 +430,7 @@ finalize는 두 가지를 거부한다. 첫째, manifest가 자기 publish 디�
 
 **`unversioned`와 `CHECKPOINT_OBJECT_STORE=disabled` 배포**에서는 hold도 version 고정도 없으므로 GC가 아무것도 하지 않고, 로그만 남긴 뒤 0으로 끝난다.
 
-API 키 모드는 migration을 적용한 전용 로컬 DB에서 키를 한 번 발급한 뒤 사용한다. CLI는 평문 키를 발급 순간 한 번만 출력하고 DB에는 SHA-256 digest와 scope만 저장한다. `--scopes`는 필수이며 `sessions:read`·`sessions:write`·`sessions:approve`·`sessions:control`·`sessions:recover` 중에서 고른다. `/v1` 요청은 route마다 OpenAPI 표(`API_ROUTE_SCOPES`)에 적힌 scope를 요구하고, 없으면 body나 세션을 읽기 전에 `403 FORBIDDEN`이다. `sessions:recover`(recovery-decisions)는 별도 scope라 `sessions:write`나 `sessions:control`에 포함되지 않는다. cookie 사용자는 role로 scope를 받는다(owner 전부, member는 recover 제외). scope 도입 전에 발급된 키(scope NULL)는 아무 scope도 없으므로 다시 발급한다.
+API 키 모드는 migration을 적용한 전용 로컬 DB에서 키를 한 번 발급한 뒤 사용한다. CLI는 평문 키를 발급 순간 한 번만 출력하고 DB에는 SHA-256 digest와 scope만 저장한다. `--scopes`는 필수이며 `sessions:read`·`sessions:write`·`sessions:approve`·`sessions:control`·`sessions:recover` 중에서 고른다. `/v1` 요청은 `apps/control-host/src/api/openapi.ts`의 route 선언에서 파생된 `API_ROUTE_SCOPES`가 요구하는 scope를 검사하고, 없으면 body나 세션을 읽기 전에 `403 FORBIDDEN`이다. `sessions:recover`(recovery-decisions)는 별도 scope라 `sessions:write`나 `sessions:control`에 포함되지 않는다. cookie 사용자는 role로 scope를 받는다(owner 전부, member는 recover 제외). scope 도입 전에 발급된 키(scope NULL)는 아무 scope도 없으므로 다시 발급한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \

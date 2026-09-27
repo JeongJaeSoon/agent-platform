@@ -5,14 +5,19 @@ import {
   sessionIdParamsSchema,
 } from "@agent-platform/contracts";
 import type { PendingRequestService } from "@agent-platform/platform";
-import { type ApiRouter, jsonWithSchema, parseJsonBody } from "../app.ts";
+import {
+  type ApiRouter,
+  apiRoute,
+  jsonWithSchema,
+  parseJsonBody,
+} from "../app.ts";
 import { mapped, requireIdempotencyKey, requireParams } from "./errors.ts";
 
 export function registerPendingRoutes(
   router: ApiRouter,
   service: PendingRequestService,
 ) {
-  router.get("/sessions/:id/pending-requests", async (context) => {
+  apiRoute(router, "listPendingRequests", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const page = await mapped(() =>
       service.listPendingRequests(
@@ -23,7 +28,7 @@ export function registerPendingRoutes(
     return jsonWithSchema(context, listPendingRequestsResponseSchema, page);
   });
 
-  router.post("/sessions/:id/answers", async (context) => {
+  apiRoute(router, "answerPendingRequest", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, postSessionAnswerRequestSchema);

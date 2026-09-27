@@ -4,14 +4,19 @@ import {
   sessionIdParamsSchema,
 } from "@agent-platform/contracts";
 import type { SessionService } from "@agent-platform/platform";
-import { type ApiRouter, jsonWithSchema, parseJsonBody } from "../app.ts";
+import {
+  type ApiRouter,
+  apiRoute,
+  jsonWithSchema,
+  parseJsonBody,
+} from "../app.ts";
 import { mapped, requireIdempotencyKey, requireParams } from "./errors.ts";
 
 export function registerPauseRoutes(
   router: ApiRouter,
   service: Pick<SessionService, "pauseSession">,
 ) {
-  router.post("/sessions/:id/pause", async (context) => {
+  apiRoute(router, "pauseSession", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, pauseSessionRequestSchema);

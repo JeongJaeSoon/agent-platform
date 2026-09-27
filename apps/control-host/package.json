@@ -11,6 +11,7 @@
     "reconciler": "bun run src/main.ts reconciler --once",
     "keys": "bun run src/api/keys.ts",
     "grants": "bun run src/api/grants.ts",
+    "openapi:generate": "bun run scripts/generate-openapi.ts",
     "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "@agent-platform/runtime-claude-codec": "workspace:*",
     "@agent-platform/storage": "workspace:*",
     "@aws-sdk/client-secrets-manager": "^3.888.0",
+    "@hono/zod-openapi": "1.6.3",
     "drizzle-orm": "0.45.2",
     "hono": "4.13.7",
     "pg": "8.16.3",
@@ -29,6 +31,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@scalar/api-reference": "1.72.1",
     "@agent-platform/testkit": "workspace:*",
     "@electric-sql/pglite": "0.3.10",
     "@types/pg": "8.15.5"

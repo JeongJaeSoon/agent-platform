@@ -8,7 +8,7 @@ import {
 } from "@agent-platform/observability";
 import type { EventPage, SessionService } from "@agent-platform/platform";
 import { streamSSE } from "hono/streaming";
-import { ApiHttpError, type ApiRouter } from "../app.ts";
+import { ApiHttpError, type ApiRouter, apiRoute } from "../app.ts";
 import type { SessionEventWakeup } from "../events/notifications.ts";
 import { mapped, requireParams } from "./errors.ts";
 
@@ -112,7 +112,7 @@ export function registerEventRoutes(
     };
   };
 
-  router.get("/sessions/:id/events", async (context) => {
+  apiRoute(router, "streamSessionEvents", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     // The UUID contract accepts either case; Postgres renders lowercase and
     // NOTIFY carries that spelling, so the waiter key must match it.

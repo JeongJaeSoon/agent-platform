@@ -1,7 +1,10 @@
-import { z } from "zod";
-
 import {
+  type ApiErrorCode,
+  apiErrorResponseSchema,
   apiRootResponseSchema,
+  authMeResponseSchema,
+  bootstrapRequestSchema,
+  bootstrapResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
   getReceiptResponseSchema,
@@ -15,38 +18,31 @@ import {
   listSessionsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
+  loginRequestSchema,
+  loginResponseSchema,
   pauseSessionRequestSchema,
   postSessionAnswerRequestSchema,
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
   readyResponseSchema,
   receiptAcceptedResponseSchema,
+  receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
   resumeSessionRequestSchema,
+  type SessionScope,
   sessionDurabilitySchema,
+  sessionIdParamsSchema,
   sessionSummarySchema,
   sessionUsageResponseSchema,
   sseEventSchema,
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
-  turnSummarySchema,
-} from "./api/index.ts";
-import {
-  authMeResponseSchema,
-  bootstrapRequestSchema,
-  bootstrapResponseSchema,
-  loginRequestSchema,
-  loginResponseSchema,
-  type SessionScope,
-  WEB_SESSION_COOKIE_NAME,
-} from "./domain/index.ts";
-import {
-  type ApiErrorCode,
-  apiErrorResponseSchema,
-  receiptIdParamsSchema,
-  sessionIdParamsSchema,
   turnIdParamsSchema,
-} from "./shared/index.ts";
+  turnSummarySchema,
+  WEB_SESSION_COOKIE_NAME,
+} from "@agent-platform/contracts";
+import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
+import { z } from "zod";
 
 export const OPENAPI_VERSION = "0.1.0-alpha";
 
@@ -100,7 +96,7 @@ type ComponentName =
   | keyof typeof requestComponents
   | keyof typeof responseComponents;
 
-type Route = {
+type RouteDeclaration = {
   method: "get" | "post";
   path: string;
   operationId: string;
@@ -143,7 +139,7 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
   503: ["BACKEND_UNAVAILABLE"],
 };
 
-const routes: Route[] = [
+export const API_ROUTE_DECLARATIONS = [
   {
     method: "get",
     path: "/healthz",
@@ -472,7 +468,10 @@ const routes: Route[] = [
     success: { status: 200, schema: "Receipt" },
     errors: [401, 404, 503],
   },
-];
+] as const satisfies readonly RouteDeclaration[];
+
+export type ApiOperationId =
+  (typeof API_ROUTE_DECLARATIONS)[number]["operationId"];
 
 /**
  * The session scope each operation demands, as the API enforces it before
@@ -483,21 +482,22 @@ export const API_ROUTE_SCOPES: ReadonlyArray<{
   method: "GET" | "POST";
   path: string;
   scope: SessionScope;
-}> = routes.flatMap((route) =>
-  route.scope
+}> = API_ROUTE_DECLARATIONS.flatMap((declaration) => {
+  const route: RouteDeclaration = declaration;
+  return route.scope
     ? [
         {
           method: route.method === "get" ? "GET" : "POST",
           path: route.path,
-          scope: `sessions:${route.scope}` as const,
+          scope: `sessions:${route.scope}` as SessionScope,
         },
       ]
-    : [],
-);
+    : [];
+});
 
 type JsonSchema = Record<string, unknown>;
 
-function securityFor(route: Route): Array<Record<string, string[]>> {
+function securityFor(route: RouteDeclaration): Array<Record<string, string[]>> {
   if (route.auth === "public") return [];
   if (route.auth === "session") return [{ cookieSession: [] }];
   return route.scope ? [{ bearerApiKey: [] }, { cookieSession: [] }] : [];
@@ -506,7 +506,7 @@ function securityFor(route: Route): Array<Record<string, string[]>> {
 // The /v1 middleware refuses a cookie-authenticated POST without the CSRF
 // header (403), so every such operation documents both; bearer calls never
 // send it, hence `required: false`.
-function takesCookieMutation(route: Route): boolean {
+function takesCookieMutation(route: RouteDeclaration): boolean {
   return (
     route.method === "post" &&
     securityFor(route).some((scheme) => "cookieSession" in scheme)
@@ -521,7 +521,10 @@ function jsonContent(name: ComponentName) {
   return { "application/json": { schema: ref(name) } };
 }
 
-function errorCodesFor(route: Route, status: number): readonly ApiErrorCode[] {
+function errorCodesFor(
+  route: RouteDeclaration,
+  status: number,
+): readonly ApiErrorCode[] {
   const codes = route.errorCodes?.[status] ?? COMMON_ERROR_CODES[status];
   if (!codes || codes.length === 0) {
     throw new Error(
@@ -586,7 +589,7 @@ function pathParameters(path: string) {
   });
 }
 
-export function buildOpenApiDocument() {
+function buildSchemas(): Record<string, JsonSchema> {
   const schemas: Record<string, JsonSchema> = {};
   for (const [io, components] of [
     ["input", requestComponents],
@@ -606,94 +609,130 @@ export function buildOpenApiDocument() {
       schemas[id] = schema;
     }
   }
+  return schemas;
+}
 
-  const paths: Record<string, Record<string, unknown>> = {};
-  for (const route of routes) {
-    const parameters: unknown[] = pathParameters(route.path);
-    if (route.query) {
-      const querySchema = schemas[route.query];
-      if (!querySchema) throw new Error(`Missing query schema ${route.query}`);
-      parameters.push(...queryParameters(querySchema));
-    }
-    if (route.method === "post" && route.idempotent !== false) {
-      parameters.push({
-        name: "Idempotency-Key",
-        in: "header",
-        required: true,
-        schema: { type: "string", minLength: 1, maxLength: 255 },
-      });
-    }
-    if (route.lastEventId) {
-      parameters.push({
-        name: "Last-Event-ID",
-        in: "header",
-        required: false,
-        schema: { type: "string", minLength: 1 },
-      });
-    }
-    const csrf = route.csrf === "always" || takesCookieMutation(route);
-    if (csrf) {
-      parameters.push({
-        name: "X-Requested-With",
-        in: "header",
-        required: route.csrf === "always",
-        description:
-          route.csrf === "always"
-            ? "Always required: the literal `agent-platform-web`."
-            : "Required with a cookie session: the literal `agent-platform-web`.",
-        schema: { type: "string", enum: ["agent-platform-web"] },
-      });
-    }
-    const responses: Record<string, unknown> = {
-      [route.success.status]:
-        route.success.status === 204
-          ? { description: "No content" }
-          : {
-              description: route.success.sse ? "Event stream" : "Success",
-              content: route.success.sse
-                ? {
-                    "text/event-stream": { schema: ref(route.success.schema) },
-                  }
-                : jsonContent(route.success.schema),
-            },
+const schemas = buildSchemas();
+
+export type ApiRouteConfig = RouteConfig & {
+  path: string;
+  getRoutingPath(): string;
+};
+
+function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
+  const parameters: unknown[] = pathParameters(route.path);
+  if (route.query) {
+    const querySchema = schemas[route.query];
+    if (!querySchema) throw new Error(`Missing query schema ${route.query}`);
+    parameters.push(...queryParameters(querySchema));
+  }
+  if (route.method === "post" && route.idempotent !== false) {
+    parameters.push({
+      name: "Idempotency-Key",
+      in: "header",
+      required: true,
+      schema: { type: "string", minLength: 1, maxLength: 255 },
+    });
+  }
+  if (route.lastEventId) {
+    parameters.push({
+      name: "Last-Event-ID",
+      in: "header",
+      required: false,
+      schema: { type: "string", minLength: 1 },
+    });
+  }
+  const csrf = route.csrf === "always" || takesCookieMutation(route);
+  if (csrf) {
+    parameters.push({
+      name: "X-Requested-With",
+      in: "header",
+      required: route.csrf === "always",
+      description:
+        route.csrf === "always"
+          ? "Always required: the literal `agent-platform-web`."
+          : "Required with a cookie session: the literal `agent-platform-web`.",
+      schema: { type: "string", enum: ["agent-platform-web"] },
+    });
+  }
+  const responses: Record<string, unknown> = {
+    [route.success.status]:
+      route.success.status === 204
+        ? { description: "No content" }
+        : {
+            description: route.success.sse ? "Event stream" : "Success",
+            content: route.success.sse
+              ? {
+                  "text/event-stream": { schema: ref(route.success.schema) },
+                }
+              : jsonContent(route.success.schema),
+          },
+  };
+  const errors = new Set<number>(route.errors);
+  if (csrf || route.scope) errors.add(403);
+  if (route.method !== "get") errors.add(408);
+  for (const status of [...errors].sort((a, b) => a - b)) {
+    const codes = errorCodesFor(route, status);
+    responses[status] = {
+      description: `Error: ${codes.join(", ")}`,
+      content: errorContent(codes),
     };
-    const errors = new Set(route.errors);
-    // The CSRF refusal, and the scope refusal every scoped route can give.
-    if (csrf || route.scope) errors.add(403);
-    // The API reads every non-GET body under a deadline before the handler.
-    if (route.method !== "get") errors.add(408);
-    for (const status of [...errors].sort((a, b) => a - b)) {
-      const codes = errorCodesFor(route, status);
-      responses[status] = {
-        description: `Error: ${codes.join(", ")}`,
-        content: errorContent(codes),
-      };
-    }
-    // Any handler can fail in a way nothing mapped; the app's error hook
-    // answers that for every route alike.
-    responses[500] = { $ref: "#/components/responses/InternalError" };
-    const operations = paths[route.path] ?? {};
-    paths[route.path] = operations;
-    operations[route.method] = {
-      operationId: route.operationId,
-      summary: route.summary,
-      ...(route.description ? { description: route.description } : {}),
-      ...(route.scope ? { "x-scope": `sessions:${route.scope}` } : {}),
-      security: securityFor(route),
-      parameters,
-      ...(route.body
-        ? {
-            requestBody: {
+  }
+  responses[500] = { $ref: "#/components/responses/InternalError" };
+
+  return createRoute({
+    method: route.method,
+    path: route.path,
+    operationId: route.operationId,
+    summary: route.summary,
+    ...(route.description ? { description: route.description } : {}),
+    ...(route.scope ? { "x-scope": `sessions:${route.scope}` } : {}),
+    security: securityFor(route),
+    parameters,
+    ...(route.body
+      ? {
+          request: {
+            body: {
               required: true,
               content: jsonContent(route.body),
             },
-          }
-        : {}),
-      responses,
-    };
-  }
+          },
+        }
+      : {}),
+    responses,
+  } as RouteConfig & { path: string }) as ApiRouteConfig;
+}
 
-  return {
+const routeConfigs = new Map<ApiOperationId, ApiRouteConfig>(
+  API_ROUTE_DECLARATIONS.map((route) => [
+    route.operationId,
+    createApiRouteConfig(route),
+  ]),
+);
+
+export function apiRouteConfig(
+  operationId: ApiOperationId,
+  basePath = "",
+): ApiRouteConfig {
+  const route = routeConfigs.get(operationId);
+  if (!route) throw new Error(`Unknown API operation ${operationId}`);
+  if (!basePath) return route;
+  if (route.path !== basePath && !route.path.startsWith(`${basePath}/`)) {
+    throw new Error(`${route.path} is not under ${basePath}`);
+  }
+  const path = route.path.slice(basePath.length) || "/";
+  return createRoute({ ...route, path }) as ApiRouteConfig;
+}
+
+export function buildOpenApiDocument() {
+  const registry = new OpenAPIHono();
+  for (const route of API_ROUTE_DECLARATIONS) {
+    registry.openapi(
+      apiRouteConfig(route.operationId) as never,
+      (() => new Response()) as never,
+    );
+  }
+  const generated = registry.getOpenAPI31Document({
     openapi: "3.1.0",
     info: {
       title: "Agent Platform API",
@@ -701,6 +740,11 @@ export function buildOpenApiDocument() {
       description:
         "Private alpha session control plane. Generated from the Zod contracts in packages/contracts; do not edit by hand.",
     },
+  });
+
+  return {
+    openapi: generated.openapi,
+    info: generated.info,
     components: {
       securitySchemes: {
         bearerApiKey: { type: "http", scheme: "bearer" },
@@ -718,7 +762,7 @@ export function buildOpenApiDocument() {
         },
       },
     },
-    paths,
+    paths: generated.paths ?? {},
   };
 }
 
