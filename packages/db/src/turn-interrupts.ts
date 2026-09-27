@@ -2,7 +2,9 @@ import type {
   InterruptReceiptResult,
   TerminalTurnStatus,
 } from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { logControlResult } from "./control-observability.ts";
 import { expireOverdueReceipts, OPEN_TURN_STATUSES } from "./control-shared.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -100,7 +102,13 @@ export async function settleTurnInterrupts(
  */
 export async function expireOverdueInterrupts(
   db: Database,
-  input: { now: Date; deadlineMs: number; dryRun?: boolean; limit: number },
+  input: {
+    now: Date;
+    deadlineMs: number;
+    dryRun?: boolean;
+    limit: number;
+    logger?: Pick<StructuredLogger, "info">;
+  },
 ): Promise<number> {
   return expireOverdueReceipts(db, {
     overdue: inArray(
@@ -117,8 +125,29 @@ export async function expireOverdueInterrupts(
         ),
     ),
     message: `the interrupted turn did not end within ${Math.round(input.deadlineMs / 1000)}s; reconciliation continues`,
+    onExpired: (expired) => {
+      for (const receipt of expired) {
+        const sessionId = sessionIdFromTarget(receipt.targetRef);
+        if (sessionId === undefined) continue;
+        logControlResult(input.logger, {
+          acceptedAt: receipt.createdAt,
+          controlId: receipt.id,
+          effectiveAt: input.now,
+          operation: "interrupt",
+          outcome: "unknown",
+          reasonCode: "deadline_exceeded",
+          sessionId,
+        });
+      }
+    },
     ...input,
   });
+}
+
+function sessionIdFromTarget(target: unknown): string | undefined {
+  if (target === null || typeof target !== "object") return undefined;
+  const sessionId = (target as { session_id?: unknown }).session_id;
+  return typeof sessionId === "string" ? sessionId : undefined;
 }
 
 /**

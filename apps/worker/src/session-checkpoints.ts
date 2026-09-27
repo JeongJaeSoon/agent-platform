@@ -584,68 +584,93 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   ): Promise<CheckpointRef | null> {
     const bound = this.#bound;
     if (bound === undefined) return null;
-    if (preparation.status === "rejected") {
-      await this.#report(preparation, context.scope);
-      if (preparation.reason !== "mirror_error") {
-        await this.#reportLostMirror(bound, context, undefined);
-      }
-      return null;
-    }
     let stage = "request";
     let revision: number | null = null;
     let manifestRef: string | null = null;
     let lost: string | undefined;
     let failed: string | undefined;
     const timer = new StageTimer();
+    let outcome = "failed";
+    let reasonCode = "internal_error";
     try {
-      const answer = await timer.time("request", () =>
-        this.#options.gateway.requestCheckpoint({
-          ...context.scope,
-          preparation: { status: "ready" },
-        }),
-      );
-      if (answer.status === "blocked") {
-        this.#options.logger.warn("worker.checkpoint.blocked", {
-          reason: answer.reason,
-          detail: answer.detail,
+      if (preparation.status === "rejected") {
+        outcome = "refused";
+        reasonCode = preparation.reason;
+        await this.#report(preparation, context.scope);
+        if (preparation.reason !== "mirror_error") {
+          await this.#reportLostMirror(bound, context, undefined);
+        }
+        return null;
+      }
+      try {
+        const answer = await timer.time("request", () =>
+          this.#options.gateway.requestCheckpoint({
+            ...context.scope,
+            preparation: { status: "ready" },
+          }),
+        );
+        if (answer.status === "blocked") {
+          outcome = "blocked";
+          reasonCode = answer.reason;
+          this.#options.logger.warn("worker.checkpoint.blocked", {
+            reason: answer.reason,
+            detail: answer.detail,
+          });
+        } else {
+          revision = answer.revision;
+          manifestRef = answer.manifest_ref;
+          stage = "publish";
+          const published = await this.#publish(
+            bound,
+            preparation,
+            context,
+            { manifestRef: answer.manifest_ref, revision: answer.revision },
+            timer,
+          );
+          outcome = "succeeded";
+          reasonCode = "none";
+          return published;
+        }
+      } catch (error) {
+        if (isOwnershipLost(error)) {
+          reasonCode = "ownership_lost";
+          throw error;
+        }
+        const failedAt = error instanceof PublishFailure ? error.stage : stage;
+        outcome = error instanceof PublishFailure ? "refused" : "failed";
+        reasonCode = failedAt;
+        this.#options.logger.warn("worker.checkpoint.failed", {
+          stage: failedAt,
+          category: error instanceof PublishFailure ? "refused" : "error",
+          reason: describe(error),
+          revision,
+          manifest_ref: manifestRef,
+          ...timer.fields(),
         });
-      } else {
-        revision = answer.revision;
-        manifestRef = answer.manifest_ref;
-        stage = "publish";
-        return await this.#publish(
-          bound,
-          preparation,
-          context,
-          { manifestRef: answer.manifest_ref, revision: answer.revision },
-          timer,
+        if (error instanceof MirrorLost) lost = error.message;
+        else failed = `${failedAt}: ${describe(error)}`;
+      }
+      const mirrorLost = await this.#reportLostMirror(bound, context, lost);
+      // A ready run whose checkpoint went unwritten looks, from the session,
+      // exactly like one that wrote it until something needs it. A lost mirror
+      // already says more, and outranks it.
+      if (failed !== undefined && !mirrorLost) {
+        await this.#report(
+          { status: "rejected", reason: "publish_failed", detail: failed },
+          context.scope,
         );
       }
-    } catch (error) {
-      if (isOwnershipLost(error)) throw error;
-      const failedAt = error instanceof PublishFailure ? error.stage : stage;
-      this.#options.logger.warn("worker.checkpoint.failed", {
-        stage: failedAt,
-        category: error instanceof PublishFailure ? "refused" : "error",
-        reason: describe(error),
+      return null;
+    } finally {
+      this.#options.logger.info("worker.checkpoint.result", {
+        message: "Checkpoint capture finished",
+        operation: "checkpoint_capture",
+        outcome,
+        reason_code: reasonCode,
         revision,
-        manifest_ref: manifestRef,
-        ...timer.fields(),
+        ...timer.resultFields(),
       });
-      if (error instanceof MirrorLost) lost = error.message;
-      else failed = `${failedAt}: ${describe(error)}`;
     }
-    const mirrorLost = await this.#reportLostMirror(bound, context, lost);
-    // A ready run whose checkpoint went unwritten looks, from the session,
-    // exactly like one that wrote it until something needs it. A lost mirror
-    // already says more, and outranks it.
-    if (failed !== undefined && !mirrorLost) {
-      await this.#report(
-        { status: "rejected", reason: "publish_failed", detail: failed },
-        context.scope,
-      );
-    }
-    return null;
   }
 
   async finalizeRefused(detail: string, scope: WorkerScope): Promise<void> {
@@ -784,9 +809,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       key: string,
       body: Uint8Array | ImmutableObjectSource,
     ) => {
+      timer.startedPut();
       const result = await objects.putImmutable(key, body, {
         contentAddressed: true,
       });
+      timer.finishedPut(body, result.outcome);
       // Content-addressed keys under this publish's own directory: another
       // body there is corruption, not a race anyone could have won.
       if (result.outcome === "conflict") {
@@ -864,6 +891,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
     const { capture } = captured;
     const bases = capture.bundle.incremental ? (previous?.links ?? []) : [];
+    timer.reused(bases.length);
 
     const previousUntracked = new Map(
       previous?.untracked.map((file) => [file.path, file]),
@@ -879,7 +907,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         earlier.sha256 === digest &&
         earlier.executable === (file.executable ? true : undefined);
       if (same) unchanged += 1;
-      if (same && earlier.version !== undefined) return earlier;
+      if (same && earlier.version !== undefined) {
+        timer.reused(1);
+        return earlier;
+      }
       const ref: WorkspaceArtifact = {
         ...refOf(`${directory}untracked/${digest}`, file.bytes),
         ...(file.executable ? { executable: true } : {}),
@@ -960,15 +991,19 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       },
     };
     const encoded = this.#codec.encode(manifest);
+    timer.manifest(encoded.bytes.byteLength);
     if (encoded.bytes.byteLength > DEFAULT_MAX_MANIFEST_BYTES) {
       throw new PublishFailure(
         "manifest",
         `the manifest is ${encoded.bytes.byteLength} bytes, over the ${DEFAULT_MAX_MANIFEST_BYTES} the control plane reads`,
       );
     }
-    const stored = await timer.time("manifest", () =>
-      objects.putImmutable(manifestRef, encoded.bytes),
-    );
+    const stored = await timer.time("manifest", async () => {
+      timer.startedPut();
+      const result = await objects.putImmutable(manifestRef, encoded.bytes);
+      timer.finishedPut(encoded.bytes, result.outcome);
+      return result;
+    });
     if (stored.outcome === "conflict") {
       throw new PublishFailure(
         "manifest",
@@ -1020,6 +1055,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
 class StageTimer {
   readonly #started = performance.now();
   readonly #stages: Record<string, number> = {};
+  #conflictCount = 0;
+  #manifestBytes = 0;
+  #putCount = 0;
+  #reusedCount = 0;
+  #uploadedBytes = 0;
 
   async time<T>(stage: string, work: () => Promise<T>): Promise<T> {
     const started = performance.now();
@@ -1034,6 +1074,53 @@ class StageTimer {
     return {
       durations_ms: { ...this.#stages },
       total_ms: Math.round(performance.now() - this.#started),
+    };
+  }
+
+  startedPut(): void {
+    this.#putCount += 1;
+  }
+
+  finishedPut(
+    body: Uint8Array | ImmutableObjectSource,
+    outcome: "created" | "duplicate" | "conflict",
+  ): void {
+    if (outcome === "created") {
+      this.#uploadedBytes +=
+        body instanceof Uint8Array ? body.byteLength : body.bytes;
+    } else if (outcome === "duplicate") {
+      this.#reusedCount += 1;
+    } else {
+      this.#conflictCount += 1;
+    }
+  }
+
+  reused(count: number): void {
+    this.#reusedCount += count;
+  }
+
+  manifest(bytes: number): void {
+    this.#manifestBytes = bytes;
+  }
+
+  resultFields(): {
+    conflict_count: number;
+    duration_ms: number;
+    durations_ms: Record<string, number>;
+    manifest_bytes: number;
+    put_count: number;
+    reused_count: number;
+    uploaded_bytes: number;
+  } {
+    const { durations_ms, total_ms } = this.fields();
+    return {
+      conflict_count: this.#conflictCount,
+      duration_ms: total_ms,
+      durations_ms,
+      manifest_bytes: this.#manifestBytes,
+      put_count: this.#putCount,
+      reused_count: this.#reusedCount,
+      uploaded_bytes: this.#uploadedBytes,
     };
   }
 }

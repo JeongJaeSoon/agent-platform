@@ -324,13 +324,21 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       try {
         await next();
       } finally {
-        const terminate = context.req.path.match(
-          /^\/v1\/sessions\/([^/]+)\/terminate\/?$/,
-        );
-        if (context.req.method === "POST" && terminate) {
-          logger.info("Terminate API request completed", {
-            session_id: terminate[1],
-            status: context.res.status,
+        if (context.req.path === "/v1" || context.req.path.startsWith("/v1/")) {
+          const status = context.res.status;
+          logger.info("API request completed", {
+            event: "api.request.completed",
+            operation: "api_request",
+            outcome:
+              status < 400
+                ? "succeeded"
+                : status < 500
+                  ? "client_error"
+                  : "server_error",
+            reason_code: status < 400 ? "none" : `http_${status}`,
+            route_template: context.req.routePath,
+            method: context.req.method,
+            status,
             duration_ms: Math.round(performance.now() - startedAt),
           });
         }

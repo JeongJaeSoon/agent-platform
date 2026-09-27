@@ -255,11 +255,24 @@ export async function expireOverdueReceipts(
     now: Date;
     dryRun?: boolean;
     limit?: number;
+    onExpired?: (
+      receipts: readonly {
+        createdAt: Date;
+        id: string;
+        operation: string;
+        targetRef: unknown;
+      }[],
+    ) => void;
   },
 ): Promise<number> {
   const candidates = (from: Database) => {
     const query = from
-      .select({ id: receipts.id })
+      .select({
+        createdAt: receipts.createdAt,
+        id: receipts.id,
+        operation: receipts.operation,
+        targetRef: receipts.targetRef,
+      })
       .from(receipts)
       .where(and(eq(receipts.status, "accepted"), input.overdue))
       .$dynamic();
@@ -268,9 +281,9 @@ export async function expireOverdueReceipts(
       : query.orderBy(receipts.createdAt, receipts.id).limit(input.limit);
   };
   if (input.dryRun) return (await candidates(db)).length;
-  return db.transaction(async (tx) => {
+  const expired = await db.transaction(async (tx) => {
     const batch = await candidates(tx).for("update", { skipLocked: true });
-    if (batch.length === 0) return 0;
+    if (batch.length === 0) return batch;
     await tx
       .update(receipts)
       .set({
@@ -284,6 +297,8 @@ export async function expireOverdueReceipts(
           batch.map(({ id }) => id),
         ),
       );
-    return batch.length;
+    return batch;
   });
+  input.onExpired?.(expired);
+  return expired.length;
 }

@@ -80,11 +80,13 @@ export function reconcileOnce(
       expireOverdueInterrupts(db, {
         ...options,
         deadlineMs: INTERRUPT_RECEIPT_DEADLINE_MS,
+        logger,
       }),
     expireTerminations: (options) =>
       expireOverdueTerminations(db, {
         ...options,
         deadlineMs: TERMINATE_DEADLINE_MS,
+        logger,
       }),
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
   });

@@ -515,7 +515,7 @@ describe("POST /v1/sessions/{id}/terminate validation", () => {
     });
   });
 
-  test("logs API latency with the request id", async () => {
+  test("logs API latency with the request id and route template", async () => {
     const sink = new MemoryLogSink();
     const logger = new StructuredLogger({ sinks: [sink] });
     const receiptId = crypto.randomUUID();
@@ -539,16 +539,21 @@ describe("POST /v1/sessions/{id}/terminate validation", () => {
 
     expect(response.status).toBe(202);
     const record = sink.records.find(
-      ({ message }) => message === "Terminate API request completed",
+      ({ event }) => event === "api.request.completed",
     );
     const responseRequestId = response.headers.get("X-Request-Id");
     expect(responseRequestId).not.toBeNull();
     expect(record?.request_id).toBe(responseRequestId ?? undefined);
     expect(record?.fields).toMatchObject({
-      session_id: sessionId,
+      operation: "api_request",
+      outcome: "succeeded",
+      reason_code: "none",
+      route_template: "/v1/sessions/:id/terminate",
+      method: "POST",
       status: 202,
       duration_ms: expect.any(Number),
     });
+    expect(JSON.stringify(record)).not.toContain(sessionId);
   });
 
   test("requires Idempotency-Key, expected_revision, and rejects extra fields", async () => {

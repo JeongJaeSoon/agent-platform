@@ -728,6 +728,24 @@ describe("SessionCheckpoints", () => {
     expect(published?.fields?.total_ms).toBeGreaterThanOrEqual(
       Math.max(...Object.values(stages)),
     );
+    const result = h.infos.find(
+      ({ event }) => event === "worker.checkpoint.result",
+    );
+    expect(result?.fields).toMatchObject({
+      message: "Checkpoint capture finished",
+      operation: "checkpoint_capture",
+      outcome: "succeeded",
+      reason_code: "none",
+      duration_ms: expect.any(Number),
+      durations_ms: expect.any(Object),
+      put_count: 2,
+      uploaded_bytes: expect.any(Number),
+      manifest_bytes: expect.any(Number),
+      reused_count: 0,
+      conflict_count: 0,
+    });
+    expect(result?.fields).not.toHaveProperty("manifest_ref");
+    expect(JSON.stringify(result)).not.toContain("sessions/");
   });
 
   test("a failed publish logs the stages it reached, up to the one that failed (94S-380)", async () => {
@@ -756,6 +774,17 @@ describe("SessionCheckpoints", () => {
       "transcript",
       "untracked_upload",
     ]);
+    expect(
+      h.infos.find(({ event }) => event === "worker.checkpoint.result"),
+    ).toMatchObject({
+      fields: {
+        operation: "checkpoint_capture",
+        outcome: "refused",
+        reason_code: "transcript",
+        put_count: 1,
+        manifest_bytes: 0,
+      },
+    });
   });
 });
 

@@ -171,10 +171,10 @@ const pendingRequests = createPendingRequestService({
 });
 const interrupts = createInterruptService({
   authorization: allowAllPolicy,
-  store: createPostgresTurnInterrupts(db),
+  store: createPostgresTurnInterrupts(db, { logger }),
 });
 const workers = createWorkerGateway({
-  work: createPostgresWorkerUnitOfWork(db),
+  work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
   // The storage-backed verifier: a checkpoint is promoted only after its
   // manifest, objects and workspace bundle were read back from S3 (checked by

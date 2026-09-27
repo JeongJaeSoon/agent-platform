@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -42,7 +43,7 @@ async function acceptedReceipt(operation: string): Promise<string> {
     id,
     ownerId: "owner-a",
     operation,
-    targetRef: {},
+    targetRef: { session_id: "session-a" },
     createdAt: LONG_AGO,
   });
   return id;
@@ -122,6 +123,48 @@ describe("overdue receipt expiry takes one batch per call (94S-399)", () => {
     expect(await expire(false)).toBe(1);
     expect(await unknownCount()).toBe(LIMIT + 1);
     expect(await expire(false)).toBe(0);
+  });
+
+  test("expired interrupt and terminate receipts log their final unknown result", async () => {
+    await overdueInterrupts(1);
+    await acceptedReceipt("terminate");
+    const sink = new MemoryLogSink();
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const now = new Date();
+
+    await expireOverdueInterrupts(db, {
+      now,
+      deadlineMs: DEADLINE_MS,
+      limit: LIMIT,
+      logger,
+    });
+    await expireOverdueTerminations(db, {
+      now,
+      deadlineMs: DEADLINE_MS,
+      limit: LIMIT,
+      logger,
+    });
+
+    expect(sink.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "control.result",
+          fields: expect.objectContaining({
+            operation: "interrupt",
+            outcome: "unknown",
+            reason_code: "deadline_exceeded",
+          }),
+        }),
+        expect.objectContaining({
+          event: "control.result",
+          fields: expect.objectContaining({
+            operation: "terminate",
+            outcome: "unknown",
+            reason_code: "deadline_exceeded",
+          }),
+        }),
+      ]),
+    );
   });
 
   test("the scheduler sweep takes one batch per pass too (94S-450)", async () => {

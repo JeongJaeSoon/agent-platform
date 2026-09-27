@@ -7,6 +7,7 @@ import {
   terminalTurnStatusSchema,
   type WorkerEvent,
 } from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
 import {
   budgetExceeded,
   CHECKPOINT_ROOT_PARENT,
@@ -66,6 +67,10 @@ import {
   sql,
 } from "drizzle-orm";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
+import {
+  type ControlResultEvent,
+  logControlResult,
+} from "./control-observability.ts";
 import {
   ENDED_ATTEMPT_STATES,
   hasRestorePoint,
@@ -884,7 +889,10 @@ async function revokeCredentials(tx: Database, attemptId: string, now: Date) {
     );
 }
 
-export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
+export function createPostgresWorkerUnitOfWork(
+  db: Database,
+  options: { logger?: StructuredLogger } = {},
+): WorkerUnitOfWork {
   return {
     async registerLaunchAtomic(input: RegisterLaunchInput) {
       const inserted = await db
@@ -2242,11 +2250,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
       });
     },
 
-    confirmExecutionGoneAtomic(
+    async confirmExecutionGoneAtomic(
       input: ConfirmExecutionGoneInput,
     ): Promise<ConfirmExecutionGoneResult> {
       const { executionId, incarnation, now } = input;
-      return db.transaction(async (tx) => {
+      const controlResults: ControlResultEvent[] = [];
+      const transaction = db.transaction(async (tx) => {
         const [launch] = await tx
           .select({
             claimedAttemptId: workerLaunches.claimedAttemptId,
@@ -2623,7 +2632,7 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
         // one that already went `unknown` past its deadline is upgraded. The
         // turn it names is the earliest still unknown, whether it became so
         // just now or in an earlier exit the session is still recovering from.
-        await tx
+        const settledKills = await tx
           .update(receipts)
           .set({
             status: "succeeded",
@@ -2640,7 +2649,24 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
               inArray(receipts.status, ["accepted", "unknown"]),
               sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
             ),
-          );
+          )
+          .returning({
+            acceptedAt: receipts.createdAt,
+            controlId: receipts.id,
+            operation: receipts.operation,
+          });
+        for (const settled of settledKills) {
+          if (settled.operation !== "terminate") continue;
+          controlResults.push({
+            acceptedAt: settled.acceptedAt,
+            controlId: settled.controlId,
+            effectiveAt: now,
+            operation: "terminate",
+            outcome: "succeeded",
+            reasonCode: "execution_gone",
+            sessionId: session.id,
+          });
+        }
 
         // Re-signal only when nothing is left unresolved: an unknown turn
         // must not be re-run by the next claim.
@@ -2669,6 +2695,12 @@ export function createPostgresWorkerUnitOfWork(db: Database): WorkerUnitOfWork {
             .onConflictDoNothing({ target: unassignedSessions.sessionId });
         }
         return { sessionReleased: true, slotReleased: slot.length === 1 };
+      }) as Promise<ConfirmExecutionGoneResult>;
+      return transaction.then((result) => {
+        for (const controlResult of controlResults) {
+          logControlResult(options.logger, controlResult);
+        }
+        return result;
       });
     },
 

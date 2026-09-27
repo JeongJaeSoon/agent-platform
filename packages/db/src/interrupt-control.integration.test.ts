@@ -4,6 +4,7 @@ import type {
   FinalizeRequest,
   WorkerScope,
 } from "@agent-platform/contracts";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   allowAllPolicy,
   createInterruptService,
@@ -358,8 +359,18 @@ integration("turn interrupts on PostgreSQL", () => {
   test("a terminal turn answers at once with a no-op receipt naming its terminal", async () => {
     const { owner, sessionId, worker } = await runningSession();
     await finalize(worker, "1", "completed");
+    const sink = new MemoryLogSink();
+    const instrumented = createInterruptService({
+      authorization: allowAllPolicy,
+      store: createPostgresTurnInterrupts(db, {
+        logger: new StructuredLogger({ sinks: [sink] }),
+      }),
+    });
 
-    const accepted = await interrupt(owner, sessionId, "1");
+    const accepted = await instrumented.interrupt(owner, sessionId, {
+      idempotencyKey: crypto.randomUUID(),
+      body: { target_turn_id: "1" },
+    });
 
     expect(accepted.receipt_status).toBe("succeeded");
     expect(await receiptOf(accepted.receipt_id)).toMatchObject({
@@ -372,6 +383,21 @@ integration("turn interrupts on PostgreSQL", () => {
       .from(controlIntents)
       .where(eq(controlIntents.sessionId, sessionId));
     expect(intents).toHaveLength(0);
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        event: "control.result",
+        message: "Control result recorded",
+        fields: expect.objectContaining({
+          operation: "interrupt",
+          outcome: "completed",
+          reason_code: "no_op",
+          control_id: accepted.receipt_id,
+          session_id: sessionId,
+          duration_ms: 0,
+          effect_ms: 0,
+        }),
+      }),
+    );
   });
 
   test("a queued turn is refused, and unknown turns or sessions are not found", async () => {

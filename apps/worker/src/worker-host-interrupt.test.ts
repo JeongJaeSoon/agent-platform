@@ -214,6 +214,18 @@ describe("WorkerHost interrupt", () => {
       });
       expect(stage.elapsed_ms).toBeNumber();
     }
+    const results = records.filter(({ event }) => event === "control.result");
+    expect(results).toHaveLength(1);
+    expect(results[0]?.fields).toMatchObject({
+      message: "Interrupt control result recorded",
+      operation: "interrupt",
+      outcome: "interrupted",
+      reason_code: "error_during_execution",
+      duration_ms: expect.any(Number),
+      effect_ms: expect.any(Number),
+      control_id: "ctl-1",
+      turn_id: "1",
+    });
   });
 
   test("stops only the targeted turn within 5s, with a checkpoint, and runs the next input on the same engine", async () => {
