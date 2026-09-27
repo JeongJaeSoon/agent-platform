@@ -317,9 +317,25 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const v1 = new Hono<ApiEnvironment>({ strict: false });
   app.use("*", async (context, next) => {
     const requestId = crypto.randomUUID();
+    const startedAt = performance.now();
     context.set("requestId", requestId);
     context.header("X-Request-Id", requestId);
-    await logger.withContext({ request_id: requestId }, next);
+    await logger.withContext({ request_id: requestId }, async () => {
+      try {
+        await next();
+      } finally {
+        const terminate = context.req.path.match(
+          /^\/v1\/sessions\/([^/]+)\/terminate\/?$/,
+        );
+        if (context.req.method === "POST" && terminate) {
+          logger.info("Terminate API request completed", {
+            session_id: terminate[1],
+            status: context.res.status,
+            duration_ms: Math.round(performance.now() - startedAt),
+          });
+        }
+      }
+    });
   });
 
   if (authMode === "none") {

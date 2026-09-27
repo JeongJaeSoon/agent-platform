@@ -373,7 +373,7 @@ describe("the e2e compose overlay", () => {
       });
   });
 
-  test("is laid over the stack in both jobs, the page left as written", () => {
+  test("is laid over the stack in both jobs, the guides left as written", () => {
     const stepValues = (job: string, variable: string) =>
       (ci.jobs[job]?.steps ?? []).flatMap(({ env = {} }) =>
         variable in env ? [env[variable]] : [],
@@ -381,8 +381,10 @@ describe("the e2e compose overlay", () => {
     expect(stepValues("e2e", "E2E_COMPOSE_OVERRIDE")).toEqual([OVERLAY]);
     expect(stepValues("quickstart", "COMPOSE_FILE")).toEqual([
       `compose.yaml:${OVERLAY}`,
+      `compose.yaml:${OVERLAY}`,
     ]);
     expect(read("docs/quickstart.md")).not.toContain("ci-mirror");
+    expect(read("docs/api-guide.md")).not.toContain("ci-mirror");
   });
 });
 

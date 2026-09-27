@@ -552,8 +552,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # docs/quickstart.md run as written on this fresh clone (94S-134): every
-  # `bash` block of the page, in order, on its default project and ports —
+  # docs/quickstart.md and docs/api-guide.md run as written on this fresh clone
+  # (94S-134, 94S-484): every `bash` block, in order, on the default project and ports —
   # the terminal record a new user would get, printed block by block. A page
   # edit that breaks a command fails here instead of in someone's terminal.
   # COMPOSE_FILE adds the mirror overlay `e2e` uses (94S-365) under the
@@ -569,6 +569,11 @@ jobs:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
           QUICKSTART_OUT: ${{ runner.temp }}/quickstart
         run: tests/e2e/quickstart.sh
+      - name: docs/api-guide.md
+        env:
+          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
+          QUICKSTART_OUT: ${{ runner.temp }}/api-guide
+        run: tests/e2e/quickstart.sh docs/api-guide.md
       - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
@@ -576,7 +581,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quickstart-record
-          path: ${{ runner.temp }}/quickstart
+          path: |
+            ${{ runner.temp }}/quickstart
+            ${{ runner.temp }}/api-guide
           if-no-files-found: ignore
           retention-days: 14
 
