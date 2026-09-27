@@ -89,7 +89,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 
 1. release의 `source_commit`을 checkout하고 dependency를 고정 설치한다.
 2. S3 object store로 `preflight`를 먼저 실행한다. 실패하면 `deploy`하지 않는다.
-3. 같은 manifest로 `deploy`하고 `/readyz`, scheduler와 reconciler health를 [감시 지점](test-ops.md#감시-지점)에서 확인한다.
+3. 같은 manifest로 `deploy`하고 `/readyz`, scheduler와 reconciler health를 [감시 지점](test-ops.md#감시-지점)에서 확인한다. 사용자가 접속할 endpoint의 인증 없는 `/docs`와 같은 origin의 `/docs/scalar.js`가 각각 HTML·JavaScript로 200을 응답하는지도 확인한다. 이 화면의 요청 시험 기능은 꺼져 있으므로 실제 API 호출은 다음 단계에서 발급한 key로 별도 수행한다.
 4. [배포 절차의 Gitea 단계](test-ops.md#배포)대로 owner와 public sample repository를 만든다. 무작위 password는 화면이나 evidence에 기록하지 않는다.
 5. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
 6. [quickstart의 curl 준비](quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `profile_id`는 배포 catalog의 `claude-coding`을 쓴다.

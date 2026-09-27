@@ -21,6 +21,10 @@ import { registerUsageRoutes } from "./routes/usage.ts";
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
 const NOT_YET_IMPLEMENTED: string[] = [];
+// The API reference UI and its same-origin asset are public documentation,
+// not API operations. Keep this exception explicit so adding another Hono
+// handler still requires either an OpenAPI declaration or a reviewed reason.
+const NON_API_ROUTES = new Set(["GET /docs", "GET /docs/scalar.js"]);
 
 function apiApp() {
   const auth = {
@@ -45,7 +49,7 @@ function apiApp() {
   });
 }
 
-function honoRoutes(): Set<string> {
+function registeredHonoRoutes(): Set<string> {
   const app = apiApp();
   // /internal/* is the worker protocol, not part of the public document.
   return new Set(
@@ -58,6 +62,12 @@ function honoRoutes(): Set<string> {
         (route) =>
           `${route.method} ${route.path.replace(/\/$/, "").replace(/:(\w+)/g, "{$1}") || "/"}`,
       ),
+  );
+}
+
+function honoRoutes(): Set<string> {
+  return new Set(
+    [...registeredHonoRoutes()].filter((route) => !NON_API_ROUTES.has(route)),
   );
 }
 
@@ -79,6 +89,14 @@ test("every Hono handler is declared in the OpenAPI route table", () => {
   const declared = openApiRoutes();
   for (const route of honoRoutes()) {
     expect(declared, `${route} is served but not in OpenAPI`).toContain(route);
+  }
+});
+
+test("only the documentation UI routes are excluded from OpenAPI", () => {
+  const served = registeredHonoRoutes();
+  for (const route of NON_API_ROUTES) {
+    expect(served).toContain(route);
+    expect(openApiRoutes()).not.toContain(route);
   }
 });
 

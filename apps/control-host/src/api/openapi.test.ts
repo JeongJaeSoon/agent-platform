@@ -84,6 +84,7 @@ describe("OpenAPI document", () => {
     expect(html).toContain("&quot;withDefaultFonts&quot;:false");
     expect(html).not.toMatch(/(?:src|href)="https?:\/\//);
     expect(html).not.toContain("Authorization");
+    expect(scalarAsset).toContain("meta[property=csp-nonce]");
     expect(scalarAsset).not.toContain("./chunks/");
   });
 

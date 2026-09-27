@@ -16,6 +16,7 @@ WORKDIR /app
 COPY package.json bun.lock bunfig.toml tsconfig.base.json THIRD_PARTY_NOTICES.md ./
 COPY apps ./apps
 COPY packages ./packages
+COPY docs/api/index.html docs/api/scalar.js ./docs/api/
 # --filter limits the install to the one app this image runs, which is what
 # keeps @anthropic-ai/* out of it; the lockfile stays frozen either way.
 RUN bun install --frozen-lockfile --production \
