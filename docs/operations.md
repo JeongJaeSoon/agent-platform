@@ -565,7 +565,7 @@ egress-proxy와 API의 authorizer listener는 아래 값을 읽는다.
 | `LOG_LEVEL` | `info` | proxy 로그 수준. 규칙은 위 API 설정과 같다 |
 | `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | API의 authorizer listener(`EGRESS_AUTHORIZER_PORT`)가 여는 주소 |
 
-compose는 세 포트를 서비스마다 따로 적는다. proxy의 `EGRESS_PROXY_PORT: "3128"`·`EGRESS_CREDENTIAL_PORT: "3129"`, api의 `EGRESS_AUTHORIZER_PORT: "3100"`, proxy의 `EGRESS_AUTHORIZER_URL`(`http://api:3100`), scheduler의 `EXECUTION_EGRESS_PROXY_URL`(`http://egress-proxy:3128`)이다. scheduler에는 `EXECUTION_EGRESS_CREDENTIAL_PORT`를 넘기지 않고 코드 기본값 3129를 쓴다. 포트 하나를 바꾸려면 그 짝을 모두 같은 값으로 바꾼다.
+compose의 세 포트와 두 내부 URL은 `infra/compose.core.yml` 상단의 `x-egress-ports` 한 곳에서 정한다. proxy의 `EGRESS_PROXY_PORT`·`EGRESS_CREDENTIAL_PORT`·`EGRESS_AUTHORIZER_URL`, api의 `EGRESS_AUTHORIZER_PORT`, scheduler의 `EXECUTION_EGRESS_PROXY_URL`·`EXECUTION_EGRESS_CREDENTIAL_PORT`는 모두 그 anchor를 쓴다. 포트를 바꿀 때는 같은 블록의 listener와 URL 짝을 함께 바꾼다. `tests/images.test.ts`가 `docker compose config` 결과에서 두 URL의 포트와 세 listener가 맞는지 확인한다.
 
 API 컨테이너의 메모리는 checkpoint bundle 검증이 정한다. 검증은 동시에 두 개까지 돌고, 검증마다 git fetch와 index-pack이 각자 `CHECKPOINT_GIT_MEMORY_MB`의 주소 공간 상한 아래에서 함께 돈다. 두 값은 함께 바꾼다. 상한만 올리면 OOM killer가 무엇을 죽일지 정하게 된다(94S-259). 계산은 `infra/compose.core.yml`의 api 서비스 주석에 있다.
 

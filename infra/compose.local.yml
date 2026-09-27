@@ -50,7 +50,7 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
     ports:
-      # For an API started on the host (README); loopback only.
+      # For an API started on the host (docs/development.md); loopback only.
       - "127.0.0.1:4567:4566"
     volumes:
       - ./localstack/secrets-init/10-seed-secrets.sh:/etc/localstack/init/ready.d/10-seed-secrets.sh:ro
@@ -109,8 +109,8 @@ services:
       context: ..
       dockerfile: apps/egress-proxy/Dockerfile
 
-  # A developer's overrides (README rule). Not the reconciler's: it refuses
-  # to start with the API's HEARTBEAT_TTL_SEC.
+  # A developer's overrides (docs/development.md). Not the reconciler's: it
+  # refuses to start with the API's HEARTBEAT_TTL_SEC.
   api:
     build:
       context: ..
