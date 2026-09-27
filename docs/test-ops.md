@@ -416,4 +416,4 @@ scripts/test-ops.sh status
 - scheduler: `Workspace quota preflight failed; …`, `Network isolation preflight failed; …`, `Database connection lost; …`, `Worker workspaces have no disk or inode quota`(quota가 꺼진 채 떴다는 뜻이다)
 - checkpoint GC: `Checkpoint GC failed for a session`
 
-OpenTelemetry 지표는 알파 뒤다. 알파의 관측은 위 상태 파일, DB 쿼리, 구조화 로그다.
+OpenTelemetry 지표는 알파 뒤다. 알파의 관측은 위 상태 파일, DB 쿼리, 구조화 로그이며, 선택형 Datadog Agent·초기 monitor·계측 공백의 정본은 [monitoring-datadog.md](monitoring-datadog.md)다.

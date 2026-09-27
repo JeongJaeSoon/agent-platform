@@ -1,0 +1,58 @@
+services:
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7.83.3
+    restart: unless-stopped
+    env_file:
+      - /etc/agent-platform/datadog.env
+    environment:
+      DD_APM_ENABLED: "false"
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_CONTAINER_EXCLUDE: "name:datadog-agent"
+      DD_PROCESS_CONFIG_PROCESS_COLLECTION_ENABLED: "false"
+      DD_TAGS: version:${DD_VERSION:?DD_VERSION must name the release version}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /proc:/host/proc:ro
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+      - ./datadog/conf.d/http_check.d:/etc/datadog-agent/conf.d/http_check.d:ro
+      - ./datadog/conf.d/postgres.d:/etc/datadog-agent/conf.d/postgres.d:ro
+    labels:
+      com.datadoghq.tags.service: datadog-agent
+      com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
+      com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
+
+  api:
+    labels:
+      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"api"}]'
+      com.datadoghq.tags.service: api
+      com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
+      com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
+
+  scheduler:
+    labels:
+      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"scheduler"}]'
+      com.datadoghq.tags.service: scheduler
+      com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
+      com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
+
+  reconciler:
+    labels:
+      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"reconciler"}]'
+      com.datadoghq.tags.service: reconciler
+      com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
+      com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
+
+  egress-proxy:
+    labels:
+      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"egress-proxy"}]'
+      com.datadoghq.tags.service: egress-proxy
+      com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
+      com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
+
+  postgres:
+    labels:
+      com.datadoghq.tags.service: postgres
+      com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
+      com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}

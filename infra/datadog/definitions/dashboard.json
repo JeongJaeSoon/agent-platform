@@ -1,0 +1,129 @@
+{
+  "title": "Agent Platform alpha operations",
+  "description": "Initial thresholds are provisional for the first seven days. Do not group by session_id.",
+  "layout_type": "ordered",
+  "template_variables": [
+    { "name": "env", "prefix": "env", "default": "*" },
+    { "name": "version", "prefix": "version", "default": "*" }
+  ],
+  "tags": ["threshold_stage:first-week-tuning"],
+  "widgets": [
+    {
+      "definition": {
+        "type": "group",
+        "title": "Control plane",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Oldest queue age",
+              "requests": [
+                {
+                  "q": "max:agent_platform.queue.oldest_age_seconds{env:$env}",
+                  "aggregator": "max"
+                }
+              ],
+              "autoscale": true,
+              "precision": 0
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Unknown outcomes (5m)",
+              "requests": [
+                {
+                  "q": "max:agent_platform.turn.outcome_unknown_count{env:$env}",
+                  "aggregator": "max"
+                }
+              ],
+              "autoscale": true,
+              "precision": 0
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Launch and exit churn",
+              "requests": [
+                {
+                  "q": "sum:agent_platform.launch.failed{env:$env}.as_count()",
+                  "display_type": "bars"
+                },
+                {
+                  "q": "sum:agent_platform.execution.exited{env:$env}.as_count()",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "Durability and capacity",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Checkpoint failures",
+              "requests": [
+                {
+                  "q": "sum:agent_platform.checkpoint.failed{env:$env} by {stage}.as_count()",
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Oldest checkpoint pending age",
+              "requests": [
+                {
+                  "q": "max:agent_platform.checkpoint.pending_age_seconds{env:$env}",
+                  "aggregator": "max"
+                }
+              ],
+              "autoscale": true,
+              "precision": 0
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Host disk and inode use",
+              "requests": [
+                {
+                  "q": "max:system.disk.in_use{env:$env} by {host}",
+                  "display_type": "line"
+                },
+                {
+                  "q": "max:system.fs.inodes.in_use{env:$env} by {host}",
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "note",
+        "content": "Provider 429/5xx, control acceptance latency, exact checkpoint timing and object-store inventory remain measurement gaps tracked by 94S-487 (inventory also by 94S-482).",
+        "background_color": "yellow",
+        "font_size": "14",
+        "text_align": "left",
+        "vertical_align": "top",
+        "show_tick": false,
+        "tick_pos": "50%",
+        "tick_edge": "left"
+      }
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+{
+  "endpoint": "/api/v1/monitor",
+  "initial_threshold_policy": "Tune after the first seven days of server deployment data.",
+  "requests": [
+    {
+      "name": "[Agent Platform] readyz unavailable",
+      "type": "service check",
+      "query": "\"http.can_connect\".over(\"instance:agent-platform-readyz\").by(\"env\").last(3).count_by_status()",
+      "message": "API readiness failed. Follow docs/operations.md#api-설정-94s-389.",
+      "tags": ["service:api", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 1, "warning": 1, "ok": 1 },
+        "notify_no_data": true,
+        "no_data_timeframe": 5
+      }
+    },
+    {
+      "name": "[Agent Platform] queue oldest age",
+      "type": "metric alert",
+      "query": "max(last_5m):max:agent_platform.queue.oldest_age_seconds{*} > 30",
+      "message": "Input queue is not draining. Inspect scheduler health and capacity in docs/operations.md#reconcilerscheduler와-worker-격리.",
+      "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 30 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] unknown turn outcome",
+      "type": "metric alert",
+      "query": "max(last_5m):max:agent_platform.turn.outcome_unknown_count{*} > 0",
+      "message": "A turn outcome is unknown. Follow docs/operations.md#interrupt-뒤-결과를-알-수-없는-turn.",
+      "tags": ["service:worker", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] checkpoint pending",
+      "type": "metric alert",
+      "query": "max(last_5m):max:agent_platform.checkpoint.pending_age_seconds{*} > 300",
+      "message": "Checkpoint state has remained pending. Follow docs/operations.md#checkpoint-복원이-계속-실패하는-세션-94s-345.",
+      "tags": ["service:worker", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 300 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] checkpoint failure",
+      "type": "metric alert",
+      "query": "sum(last_5m):sum:agent_platform.checkpoint.failed{*}.as_count() > 0",
+      "message": "Checkpoint capture or finalize failed. Follow docs/operations.md#checkpoint-복원이-계속-실패하는-세션-94s-345.",
+      "tags": ["service:worker", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] checkpoint capture late",
+      "type": "metric alert",
+      "query": "sum(last_5m):sum:agent_platform.checkpoint.late{*}.as_count() > 0",
+      "message": "Checkpoint capture exceeded its interrupt budget. Follow docs/operations.md#checkpoint-복원이-계속-실패하는-세션-94s-345.",
+      "tags": ["service:worker", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] stale execution lease",
+      "type": "metric alert",
+      "query": "max(last_5m):max:agent_platform.lease.stale_count{*} > 0",
+      "message": "At least one live attempt is past lease expiry. Inspect reconciler health in docs/operations.md#reconcilerscheduler와-worker-격리.",
+      "tags": ["service:reconciler", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] worker launch churn",
+      "type": "metric alert",
+      "query": "sum(last_10m):sum:agent_platform.launch.failed{*}.as_count() > 3",
+      "message": "Worker resources are repeatedly failing to launch. Follow docs/operations.md#시작-단계에서-계속-죽는-세션-94s-302-94s-347.",
+      "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 3 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] worker exit churn",
+      "type": "metric alert",
+      "query": "sum(last_10m):sum:agent_platform.execution.exited{*}.as_count() > 5",
+      "message": "Worker resources are repeatedly exiting. Follow docs/operations.md#시작-단계에서-계속-죽는-세션-94s-302-94s-347.",
+      "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 5 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] scheduler pass failed",
+      "type": "metric alert",
+      "query": "sum(last_5m):sum:agent_platform.scheduler.pass_failed{*}.as_count() > 0",
+      "message": "A scheduler pass failed. Inspect its structured log and status file using docs/operations.md#reconcilerscheduler와-worker-격리.",
+      "tags": ["service:scheduler", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] provider fallback pricing",
+      "type": "metric alert",
+      "query": "max(last_1h):max:agent_platform.provider.fallback_pricing_count_1h{*} > 0",
+      "message": "Provider usage used fallback pricing. Verify the deployed price table before interpreting cost.",
+      "tags": ["service:egress-proxy", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] provider hourly cost",
+      "type": "metric alert",
+      "query": "max(last_1h):max:agent_platform.provider.cost_usd_1h{*} > 20",
+      "message": "Provider cost for the last hour exceeded the initial alpha threshold. Check installation and session limits in docs/operations.md#설치-상한-94s-131.",
+      "tags": ["service:egress-proxy", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 20 },
+        "require_full_window": false
+      }
+    },
+    {
+      "name": "[Agent Platform] Docker disk pressure",
+      "type": "metric alert",
+      "query": "avg(last_10m):max:system.disk.in_use{*} by {host,device} > 0.8",
+      "message": "Docker host disk usage exceeded 80%. Follow docs/test-ops.md#감시-지점.",
+      "tags": ["service:docker", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0.8 },
+        "require_full_window": true
+      }
+    },
+    {
+      "name": "[Agent Platform] host inode pressure",
+      "type": "metric alert",
+      "query": "avg(last_10m):max:system.fs.inodes.in_use{*} by {host} > 0.8",
+      "message": "Host inode usage exceeded 80%. Follow docs/operations.md#worker-workspace의-상한과-회수.",
+      "tags": ["service:docker", "threshold_stage:first-week-tuning"],
+      "options": {
+        "thresholds": { "critical": 0.8 },
+        "require_full_window": true
+      }
+    }
+  ]
+}

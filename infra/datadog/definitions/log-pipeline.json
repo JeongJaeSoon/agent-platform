@@ -1,0 +1,51 @@
+{
+  "endpoint": "/api/v1/logs/config/pipelines",
+  "requests": [
+    {
+      "name": "Agent Platform structured stdout",
+      "description": "Parse the JSON record emitted by @agent-platform/observability and promote message to the searchable event attribute.",
+      "is_enabled": true,
+      "filter": {
+        "query": "source:agent-platform OR service:agent-platform-worker"
+      },
+      "processors": [
+        {
+          "type": "grok-parser",
+          "name": "Parse JSON stdout",
+          "is_enabled": true,
+          "source": "message",
+          "samples": [
+            "{\"timestamp\":\"2026-09-27T00:00:00.000Z\",\"level\":\"warn\",\"message\":\"worker.checkpoint.failed\",\"fields\":{\"stage\":\"finalize\"}}"
+          ],
+          "grok": {
+            "support_rules": "",
+            "match_rules": "agent_platform_json %{data::json}"
+          }
+        },
+        {
+          "type": "date-remapper",
+          "name": "Use application timestamp",
+          "is_enabled": true,
+          "sources": ["timestamp"]
+        },
+        {
+          "type": "status-remapper",
+          "name": "Use application level",
+          "is_enabled": true,
+          "sources": ["level"]
+        },
+        {
+          "type": "attribute-remapper",
+          "name": "Promote message to event",
+          "is_enabled": true,
+          "sources": ["message"],
+          "source_type": "attribute",
+          "target": "event",
+          "target_type": "attribute",
+          "preserve_source": true,
+          "override_on_conflict": false
+        }
+      ]
+    }
+  ]
+}
