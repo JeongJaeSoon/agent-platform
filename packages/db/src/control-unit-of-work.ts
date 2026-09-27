@@ -3,6 +3,7 @@ import type {
   ControlAcceptedResponse,
   TerminateReceiptResult,
 } from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
 import type {
   PauseSessionInput,
   RecoveryDecisionInput,
@@ -12,7 +13,11 @@ import type {
   TerminateSessionResult,
 } from "@agent-platform/platform";
 import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import type { PoolClient } from "pg";
 import {
+  BindingMoved,
+  type ControlStageMeasure,
   controlClock,
   earliestUnknownTurn,
   expireOverdueReceipts,
@@ -21,7 +26,6 @@ import {
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
-  transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
@@ -29,6 +33,7 @@ import { publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
+import * as schema from "./schema.ts";
 import {
   executions,
   idempotencyKeys,
@@ -97,6 +102,18 @@ export async function expireOverdueTerminations(
 
 type SessionRow = typeof sessions.$inferSelect;
 
+function rowsOf<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    Array.isArray((result as { rows?: unknown }).rows)
+  ) {
+    return (result as { rows: T[] }).rows;
+  }
+  throw new Error("Database statement returned no rows");
+}
+
 /**
  * What stopping a session's execution writes, apart from the session row:
  * the terminate transaction (api.md § 승인·중단·강제 종료) and the operator's
@@ -112,83 +129,110 @@ type SessionRow = typeof sessions.$inferSelect;
 export async function stopExecution(
   tx: Database,
   session: SessionRow,
-  input: { now: Date; by: "terminate" | "execution revocation" },
+  input: {
+    now: Date;
+    by: "terminate" | "execution revocation";
+    measure?: ControlStageMeasure;
+  },
 ): Promise<{
   pendingKill: boolean;
   inputWait: { waitingBefore: boolean; at: Date };
 }> {
   const { now, by } = input;
+  const measure = input.measure ?? (async (_stage, work) => work());
   const sessionId = session.id;
   // Queued input will never run: its turns end as cancelled, its queue
   // rows go, and whoever submitted it learns so through the receipt.
-  const cancelled = await tx
-    .update(turns)
-    .set({
-      status: "cancelled",
-      endedAt: now,
-      terminalReason: "terminated",
-    })
-    .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")))
-    .returning({ id: turns.id, sequence: turns.sequence });
+  const cancelled = await measure("cancel_queued_turns_ms", () =>
+    tx
+      .update(turns)
+      .set({
+        status: "cancelled",
+        endedAt: now,
+        terminalReason: "terminated",
+      })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")))
+      .returning({ id: turns.id, sequence: turns.sequence }),
+  );
   if (cancelled.length > 0) {
-    await tx.delete(queueMessages).where(
-      inArray(
-        queueMessages.turnId,
-        cancelled.map((turn) => turn.id),
+    await measure("delete_queue_messages_ms", () =>
+      tx.delete(queueMessages).where(
+        inArray(
+          queueMessages.turnId,
+          cancelled.map((turn) => turn.id),
+        ),
       ),
     );
-    await tx
-      .update(receipts)
-      .set({
-        status: "failed",
-        error: {
-          code: "SESSION_STOPPED",
-          message: `input cancelled by ${by} before it ran`,
-        },
-        // `result` stays the acceptance response (receiptSchema.result).
-        updatedAt: now,
-      })
-      .where(
-        and(
-          inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
-          eq(receipts.status, "accepted"),
-          sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
-          inArray(
-            sql`${receipts.targetRef}->>'turn_id'`,
-            cancelled.map((turn) => String(turn.sequence)),
+    await measure("fail_input_receipts_ms", () =>
+      tx
+        .update(receipts)
+        .set({
+          status: "failed",
+          error: {
+            code: "SESSION_STOPPED",
+            message: `input cancelled by ${by} before it ran`,
+          },
+          // `result` stays the acceptance response (receiptSchema.result).
+          updatedAt: now,
+        })
+        .where(
+          and(
+            inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+            eq(receipts.status, "accepted"),
+            sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
+            inArray(
+              sql`${receipts.targetRef}->>'turn_id'`,
+              cancelled.map((turn) => String(turn.sequence)),
+            ),
           ),
         ),
-      );
+    );
   }
   // Judged on the database clock, which is what the projection reads with;
   // the caller's clock only stamps the rows.
-  const at = await dbNow(tx);
-  const waitingBefore = await inputWaitBefore(tx, session, at);
+  const at = await measure("database_clock_ms", () => dbNow(tx));
+  const waitingBefore = await measure("wait_before_stop_ms", () =>
+    inputWaitBefore(tx, session, at),
+  );
   // A question nobody can answer any more: the worker that asked is being
   // fenced out, so an answer would land on nothing.
-  await tx
-    .update(pendingRequests)
-    .set({ resolvedAt: now })
-    .where(
-      and(
-        eq(pendingRequests.sessionId, sessionId),
-        isNull(pendingRequests.resolvedAt),
+  await measure("resolve_pending_requests_ms", () =>
+    tx
+      .update(pendingRequests)
+      .set({ resolvedAt: now })
+      .where(
+        and(
+          eq(pendingRequests.sessionId, sessionId),
+          isNull(pendingRequests.resolvedAt),
+        ),
       ),
-    );
+  );
   // The kill outbox. An executions row is one generation, so asking for this
   // row is asking for exactly the generation the session is bound to. The
   // scheduler carries it out and confirmExecutionGone settles the session
   // and the receipt once the resource is absent.
   const pendingKill = session.executionId !== null;
   if (session.executionId !== null) {
-    const outbox = await tx
-      .update(executions)
-      .set({ desiredState: "terminated" })
-      .where(eq(executions.id, session.executionId))
-      .returning({ id: executions.id });
+    const executionId = session.executionId;
+    const outbox = await measure("execution_stop_intent_ms", () =>
+      tx.execute<{ id: string }>(sql`
+        WITH stopped AS (
+          UPDATE ${executions}
+          SET desired_state = 'terminated'
+          WHERE ${executions.id} = ${executionId}
+          RETURNING ${executions.id} AS id
+        ), cleared_replacement AS (
+          UPDATE ${workerLaunches}
+          SET replacement_reason = NULL
+          WHERE ${workerLaunches.executionId} = ${executionId}
+            AND EXISTS (SELECT 1 FROM stopped)
+        )
+        SELECT id FROM stopped
+      `),
+    );
     // A bound session without its executions row is a broken invariant,
     // not evidence that nothing is running.
-    if (outbox.length !== 1) {
+    if (rowsOf<{ id: string }>(outbox).length !== 1) {
       throw new Error(
         `Session ${sessionId} points at execution ${session.executionId} which has no row`,
       );
@@ -198,39 +242,39 @@ export async function stopExecution(
     // as "the rebuild in progress". The intent is cancelled under the launch
     // row lock the caller took; replacement_count is the scheduler's CAS and
     // stays as it is.
-    await tx
-      .update(workerLaunches)
-      .set({ replacementReason: null })
-      .where(eq(workerLaunches.executionId, session.executionId));
   }
   // A pause still draining is overtaken: the kill ends the execution before
   // any checkpoint the pause was waiting for. Likewise a resume still
   // waiting on its worker's restore.
   if (session.admissionState === "pausing") {
-    await tx
-      .update(receipts)
-      .set({
-        status: "failed",
-        error: {
-          code: "CONTROL_SUPERSEDED",
-          message: `superseded by ${by} before the pause completed`,
-        },
-        updatedAt: now,
-      })
-      .where(openPauseReceipt(sessionId));
+    await measure("supersede_pause_receipt_ms", () =>
+      tx
+        .update(receipts)
+        .set({
+          status: "failed",
+          error: {
+            code: "CONTROL_SUPERSEDED",
+            message: `superseded by ${by} before the pause completed`,
+          },
+          updatedAt: now,
+        })
+        .where(openPauseReceipt(sessionId)),
+    );
   }
   if (session.admissionState === "resuming") {
-    await tx
-      .update(receipts)
-      .set({
-        status: "failed",
-        error: {
-          code: "CONTROL_SUPERSEDED",
-          message: `superseded by ${by} before the resume completed`,
-        },
-        updatedAt: now,
-      })
-      .where(openResumeReceipt(sessionId));
+    await measure("supersede_resume_receipt_ms", () =>
+      tx
+        .update(receipts)
+        .set({
+          status: "failed",
+          error: {
+            code: "CONTROL_SUPERSEDED",
+            message: `superseded by ${by} before the resume completed`,
+          },
+          updatedAt: now,
+        })
+        .where(openResumeReceipt(sessionId)),
+    );
   }
   return { pendingKill, inputWait: { waitingBefore, at } };
 }
@@ -266,6 +310,7 @@ export async function announceStopped(
     into: ReturnType<typeof stoppedAdmission>;
     inputWait: { waitingBefore: boolean; at: Date };
     extra: Record<string, unknown>;
+    measure?: ControlStageMeasure;
     now: Date;
   },
 ) {
@@ -278,6 +323,7 @@ export async function announceStopped(
       sessionId: session.id,
       ...input.inputWait,
       turnRowId: null,
+      ...(input.measure ? { measure: input.measure } : {}),
     });
     return;
   }
@@ -285,12 +331,27 @@ export async function announceStopped(
     sessionId: session.id,
     phase: publicStatus(into.status ?? session.status, false),
     extra: { admission_state: into.admissionState, ...input.extra },
+    ...(input.measure ? { measure: input.measure } : {}),
     turnRowId: null,
     now: input.now,
   });
 }
 
-export function createPostgresSessionControl(db: Database): SessionControl {
+type TerminateTelemetryOptions = {
+  connect?: () => Promise<PoolClient>;
+  logger?: Pick<StructuredLogger, "info">;
+};
+
+function roundedTimings(timings: ReadonlyMap<string, number>) {
+  return Object.fromEntries(
+    [...timings].map(([stage, duration]) => [stage, Math.round(duration)]),
+  );
+}
+
+export function createPostgresSessionControl(
+  db: Database,
+  options: TerminateTelemetryOptions = {},
+): SessionControl {
   return {
     async terminateAtomic(
       input: TerminateSessionInput,
@@ -303,14 +364,87 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         key: input.idempotencyKey,
       };
       const startedAt = Date.now();
-      return transactionWithBindingRetry(db, terminateIn);
+      const timings = new Map<string, number>();
+      const measure: ControlStageMeasure = async (stage, work) => {
+        const started = performance.now();
+        try {
+          return await work();
+        } finally {
+          timings.set(
+            stage,
+            (timings.get(stage) ?? 0) + performance.now() - started,
+          );
+        }
+      };
+      let client: PoolClient | undefined;
+      let outcome = "error";
+      let attempts = 0;
+      try {
+        if (options.connect) {
+          client = await measure("pool_checkout_ms", options.connect);
+        }
+        const transactionDb = client ? drizzle(client, { schema }) : db;
+        for (let attempt = 1; ; attempt += 1) {
+          attempts = attempt;
+          const transactionStarted = performance.now();
+          let workFinished: number | undefined;
+          try {
+            const result = await transactionDb.transaction(async (tx) => {
+              timings.set(
+                "transaction_begin_ms",
+                (timings.get("transaction_begin_ms") ?? 0) +
+                  performance.now() -
+                  transactionStarted,
+              );
+              try {
+                return await terminateIn(tx, attempt);
+              } finally {
+                workFinished = performance.now();
+              }
+            });
+            if (workFinished !== undefined) {
+              timings.set(
+                "commit_ms",
+                (timings.get("commit_ms") ?? 0) +
+                  performance.now() -
+                  workFinished,
+              );
+            }
+            outcome = result.outcome;
+            return result;
+          } catch (error) {
+            if (workFinished !== undefined) {
+              timings.set(
+                "rollback_ms",
+                (timings.get("rollback_ms") ?? 0) +
+                  performance.now() -
+                  workFinished,
+              );
+            }
+            if (!(error instanceof BindingMoved) || attempt >= 3) throw error;
+          }
+        }
+      } finally {
+        client?.release();
+        options.logger?.info("Terminate control transaction completed", {
+          session_id: sessionId,
+          outcome,
+          attempts,
+          duration_ms: Date.now() - startedAt,
+          ...roundedTimings(timings),
+        });
+      }
 
       async function terminateIn(
         tx: Database,
         attempt: number,
       ): Promise<TerminateSessionResult> {
-        await lockIdempotencyScope(tx, scope);
-        const existing = await findIdempotent(tx, scope);
+        await measure("idempotency_lock_ms", () =>
+          lockIdempotencyScope(tx, scope),
+        );
+        const existing = await measure("idempotency_lookup_ms", () =>
+          findIdempotent(tx, scope),
+        );
         if (existing) {
           if (existing.payloadHash !== input.payloadHash) {
             return { outcome: "conflict" };
@@ -330,6 +464,7 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           sessionId,
           ownerId: scope.principal,
           attempt,
+          measure,
         });
         if (!session) return { outcome: "not_found" };
         const now = controlClock(input.now, startedAt);
@@ -353,21 +488,24 @@ export function createPostgresSessionControl(db: Database): SessionControl {
         const { pendingKill, inputWait } = await stopExecution(tx, session, {
           now,
           by: TERMINATE,
+          measure,
         });
         const into = stoppedAdmission(session, pendingKill);
         // 94S-310: a stopped session with nothing to kill is already where
         // this leads. Moving its revision would only turn away the next
         // control of a client that read it, over a change that never was.
         if (session.admissionState !== "stopped" || pendingKill) {
-          await tx
-            .update(sessions)
-            .set({
-              revision: sql`${sessions.revision} + 1`,
-              leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
-              updatedAt: now,
-              ...into,
-            })
-            .where(eq(sessions.id, sessionId));
+          await measure("update_session_ms", () =>
+            tx
+              .update(sessions)
+              .set({
+                revision: sql`${sessions.revision} + 1`,
+                leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+                updatedAt: now,
+                ...into,
+              })
+              .where(eq(sessions.id, sessionId)),
+          );
         }
         await announceStopped(tx, {
           session,
@@ -377,6 +515,7 @@ export function createPostgresSessionControl(db: Database): SessionControl {
             reason: input.reason,
             actor: { owner_id: input.principal.ownerId },
           },
+          measure,
           now,
         });
 
@@ -385,33 +524,46 @@ export function createPostgresSessionControl(db: Database): SessionControl {
           receipt_id: receiptId,
           receipt_status: pendingKill ? "accepted" : "succeeded",
         };
-        await tx.insert(receipts).values({
-          id: receiptId,
-          ownerId: scope.principal,
-          operation: TERMINATE,
-          targetRef: { session_id: sessionId, turn_id: null, request_id: null },
-          status: response.receipt_status,
-          // Nothing to kill: the command is complete as soon as it is durable.
-          result: pendingKill
-            ? null
-            : terminateReceiptResult({
-                checkpointRevision: session.checkpointRevision,
-                unconfirmedTurnId: await earliestUnknownTurn(tx, sessionId),
-              }),
-          // The deadline counts from durable acceptance, not from when the
-          // caller read its clock: lock waits inside this transaction must
-          // not eat into the kill's observation window.
-          createdAt: sql`clock_timestamp()`,
-          updatedAt: sql`clock_timestamp()`,
-        });
-        await tx.insert(idempotencyKeys).values({
-          principal: scope.principal,
-          operation: scope.operation,
-          resource: scope.resource,
-          key: scope.key,
-          payloadHash: input.payloadHash,
-          receiptId,
-        });
+        const unconfirmedTurnId = pendingKill
+          ? null
+          : await measure("earliest_unknown_turn_ms", () =>
+              earliestUnknownTurn(tx, sessionId),
+            );
+        await measure("insert_receipt_ms", () =>
+          tx.insert(receipts).values({
+            id: receiptId,
+            ownerId: scope.principal,
+            operation: TERMINATE,
+            targetRef: {
+              session_id: sessionId,
+              turn_id: null,
+              request_id: null,
+            },
+            status: response.receipt_status,
+            // Nothing to kill: the command is complete as soon as it is durable.
+            result: pendingKill
+              ? null
+              : terminateReceiptResult({
+                  checkpointRevision: session.checkpointRevision,
+                  unconfirmedTurnId,
+                }),
+            // The deadline counts from durable acceptance, not from when the
+            // caller read its clock: lock waits inside this transaction must
+            // not eat into the kill's observation window.
+            createdAt: sql`clock_timestamp()`,
+            updatedAt: sql`clock_timestamp()`,
+          }),
+        );
+        await measure("insert_idempotency_key_ms", () =>
+          tx.insert(idempotencyKeys).values({
+            principal: scope.principal,
+            operation: scope.operation,
+            resource: scope.resource,
+            key: scope.key,
+            payloadHash: input.payloadHash,
+            receiptId,
+          }),
+        );
         return { outcome: "accepted", response };
       }
     },
