@@ -326,21 +326,7 @@ get "/v1/sessions/$SID/usage" | jq .
 
 ### 백업 → 복원 → 검증 (수동)
 
-compose 2.24.6 이상과 `bun install`이 필요하다. 원본 설치의 volume은 건드리지 않고, 복원은 새 project로 한다.
-
-backup은 writer가 멈춰 있어야 뜬다. api·scheduler나 세션마다 뜬 worker 컨테이너가 하나라도 돌면 `writers are running: …`으로 아무것도 쓰지 않고 끝난다. 그래서 먼저 세션을 pause해 worker를 내리고(⑦과 같다), DB를 쓰는 reconciler까지 서비스 셋을 멈춘 뒤 백업하고, 끝나면 다시 연다.
-
-```sh
-post "/v1/sessions/$SID/pause" "$(jq -nc --argjson r "$(revision)" '{expected_revision:$r, reason:"backup"}')" | jq .
-wait_for "/v1/sessions/$SID" .admission_state paused
-docker compose stop api scheduler reconciler
-dir=$(scripts/backup.sh --project agent-platform)
-scripts/restore.sh "$dir" --into ap-restore-1 --port-base 25432
-scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄: checkpoints=N passed=N failed=0
-docker compose start api scheduler reconciler
-```
-
-자세한 내용은 [backup-restore.md](backup-restore.md)에 있다. 복원본은 `docker compose -p ap-restore-1 -f infra/docker-compose.yml down -v --rmi local`로 정리한다. `--rmi local`은 복원이 이 checkout에서 빌드한 `ap-restore-1-migrate` 이미지도 지운다.
+백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [내부 알파 실서버 배포의 백업·복원 기준](alpha-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
 
 ## 7. 정리
 

@@ -4,7 +4,7 @@
 
 ## 준비물
 
-저장소 루트에서 Bun 1.3.14와 Git을 사용한다. 실서비스 의존 검증에는 Docker와 Compose도 필요하다. 아래 [진입점](#e2egatesoak-진입점)의 스크립트는 Docker Engine 28 이상에서 돈다.
+저장소 루트에서 Bun 1.3.14와 Git을 사용한다. 실서비스 의존 검증에는 Docker와 Compose도 필요하다. 아래 [진입점](#e2egate와-과거-soak-도구-진입점)의 스크립트는 Docker Engine 28 이상에서 돈다.
 
 ## `bun run check`
 
@@ -55,9 +55,11 @@ compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, ho
 
 API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할 수 있다. 이 모드는 기동 시 경고를 출력하며 기본값이 아니다.
 
-## e2e·gate·soak 진입점
+## e2e·gate와 과거 soak 도구 진입점
 
-`quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 대부분 이 checkout에서 이미지를 빌드하지만, `rc.sh`는 인자로 받은 RC commit에서 빌드하고 `campaign.sh`는 `stack.sh up`이 빌드한 이미지를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
+`quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
+
+soak 도구는 2026-09-27에 종료한 94S-135 판정의 재현·조사용으로 남아 있으며 현재 알파 gate가 아니다. 결과와 남은 검증 범위는 [과거 알파 부하 검증 결과](soak.md)에 있다.
 
 | 명령 | 확인하는 것 | CI | 더 읽을 곳 |
 |---|---|---|---|
@@ -67,6 +69,6 @@ API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할
 | `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | 없음 | [backup-restore.md § 실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인-94s-324) |
 | `tests/e2e/db-restart.sh` | Postgres가 새 주소로 재시작한 뒤 API가 따라붙는지(`/readyz`, 요청 pool, 이벤트 listener) | 없음 | 스크립트 머리 주석 |
 | `scripts/d2-gate/run.sh` | D2 gate(94S-247의 A–E, 94S-320의 R1–R2, 94S-117의 H1–H5) | `D2 gate` workflow(nightly, required 아님) | [ci.md § D2 gate](ci.md#d2-gate-nightly-94s-404) |
-| `scripts/soak/rc.sh <rc-sha>` | release candidate 판정: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | 스크립트 머리 주석 |
-| `bun scripts/soak/p2-phase.ts <out-dir> <rc.json>` | 실행 중인 RC soak 스택에서 P-2의 UTC 5초 위상 60개를 각 2회 보완 측정 | 없음 | [P-2 보완 측정](soak.md) |
-| `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | soak 스택을 따로 다루거나 campaign만 돌린다 | 없음 | 스크립트 머리 주석 |
+| `scripts/soak/rc.sh <rc-sha>` | 과거 RC 판정 흐름 재현: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |
+| `bun scripts/soak/p2-phase.ts <out-dir> <rc.json>` | 과거 RC4용 P-2 위상 보완 측정 도구 | 없음 | [과거 soak 결과](soak.md) |
+| `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | 과거 soak 스택이나 campaign을 재현한다 | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |

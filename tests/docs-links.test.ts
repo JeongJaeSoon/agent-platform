@@ -31,6 +31,14 @@ function trackedMarkdown(): string[] {
   return listed.stdout.toString().split("\0").filter(Boolean);
 }
 
+function relativeHtmlTargets(html: string): string[] {
+  return [...html.matchAll(/\b(?:href|src)=["']([^"']+)["']/gi)]
+    .map((match) => match[1] ?? "")
+    .filter((target) => !/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(target))
+    .map((target) => decodeURIComponent(target.replace(/[#?].*$/, "")))
+    .filter((path) => path !== "");
+}
+
 describe("Markdown relative links", () => {
   test("every one names a file or directory that exists", () => {
     const files = trackedMarkdown();
@@ -66,6 +74,14 @@ describe("Markdown relative links", () => {
         "x#y.md",
       ].sort(),
     );
+  });
+
+  test("every generated API HTML asset exists", () => {
+    const file = "docs/api/index.html";
+    const broken = relativeHtmlTargets(readFileSync(join(root, file), "utf8"))
+      .filter((path) => !existsSync(join(root, dirname(file), path)))
+      .map((path) => `${file} -> ${path}`);
+    expect(broken).toEqual([]);
   });
 });
 

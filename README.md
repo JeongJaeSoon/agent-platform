@@ -1,42 +1,21 @@
-# Agent Platform (코드명 Kollegium) — 세션 컨트롤 플레인
+# Agent Platform (코드명 Kollegium)
 
-공식 TypeScript Claude Agent SDK로 에이전트 세션을 실행하고, 그 세션을 HTTP API·이벤트 스트림·권한 요청·제어(interrupt·pause·resume·terminate·복구)·checkpoint 복원으로 다루게 하는 플랫폼이다. 세션마다 격리된 worker 컨테이너에서 Claude Code가 돈다.
+공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고 HTTP API, 이벤트, 승인, 제어, checkpoint 복구로 다루는 세션 컨트롤 플레인이다.
 
-**private alpha는 신뢰된 내부 인원 한정이다.** provider key, 저장소 credential, object store credential은 worker에 가지 않지만([94S-252](https://linear.app/94soon/issue/94S-252), [94S-251](https://linear.app/94soon/issue/94S-251)), attempt가 살아 있는 동안은 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 자기 세션 prefix 안의 object를 부를 수 있다. 외부 공개 전에 [94S-253](https://linear.app/94soon/issue/94S-253)을 닫는다.
+## 현재 상태
 
-## 로컬에서 시작하기
+**신뢰된 내부 인원만 쓰는 private alpha다.** 24시간 soak는 LocalStack OOM으로 무효였고 재실행하지 않기로 결정했다. 실제 AWS S3, HTTPS, provider 호출, 장시간 부하를 포함한 남은 검증은 [실서버 배포 절차](docs/alpha-deployment.md)에 따라 서버에서 수행한다. 이 상태는 24시간 soak 통과나 외부 공개 준비 완료를 뜻하지 않는다.
 
-Docker Engine 28 이상과 Docker Compose v2(2.24 이상)가 있으면 저장소 루트에서 스택을 띄우고 API key를 받는다. 모델 계정은 필요 없다. 예시 카탈로그는 compose의 fake Messages API를 쓴다.
+provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다. BYOK와 외부 공개 경계를 다루는 [94S-253](https://linear.app/94soon/issue/94S-253)을 닫기 전에는 외부에 공개하지 않는다.
 
-```bash
-scripts/local.sh up
-scripts/local.sh key quickstart \
-  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
-```
+## 문서 지도
 
-그다음 curl로 세션 한 바퀴를 도는 절차, 포트 점검, 정리는 **[docs/quickstart.md](docs/quickstart.md)**에 있다.
-
-## 문서
-
-| 읽는 사람 | 문서 | 내용 |
-|---|---|---|
-| 로컬에서 처음 돌려 보는 사람 | [docs/quickstart.md](docs/quickstart.md) | 준비물, `scripts/local.sh`로 기동·key, curl로 세션 한 바퀴, 정리, 막혔을 때 |
-| 자기 Anthropic key로 실제 Claude를 붙이는 사람 | [docs/real-claude.md](docs/real-claude.md) | real-model e2e 한 번, `scripts/local.sh up --real-model`로 직접 대화, 비용 |
-| test-ops 운영자 | [docs/test-ops.md](docs/test-ops.md) | `scripts/test-ops.sh`로 배포·업그레이드·백업·복원 훈련, 감시 지점 |
-| 운영자 | [docs/operations.md](docs/operations.md) | scheduler·reconciler, worker 격리·egress, workspace 상한, 카탈로그, 설치 상한, 이미지 |
-| 운영자 | [docs/backup-restore.md](docs/backup-restore.md) | 설치 백업, 새 project로 복원, 검증 |
-| 개발자 | [docs/development.md](docs/development.md) | `bun run check`, integration opt-in 변수, 의존 서비스만 띄우기, e2e·gate·soak 진입점 |
-| 개발자 | [docs/ci.md](docs/ci.md) | CI job별 실행 내용, required check, 수동 실행 |
-| 설계를 읽는 사람 | [docs/architecture.md](docs/architecture.md) | 구성요소와 경계, checkpoint 경로, SDK·LiteLLM 방향 |
-| API 사용자 | [docs/api-guide.md](docs/api-guide.md), [docs/api/index.html](docs/api/index.html) | 유즈케이스별 호출 순서·실행 예시와 읽기 전용 API 참조. 정본 JSON은 같은 생성기가 만들며 배포 API의 public `GET /v1/openapi.json`에서도 제공 |
+| 독자 | 먼저 읽을 문서 | 이어서 볼 문서와 파일 |
+| --- | --- | --- |
+| API 사용자 | [API 유즈케이스 가이드](docs/api-guide.md) | [HTML API 참조](docs/api/index.html), [OpenAPI JSON](docs/openapi.json). 배포 API도 인증 전 `GET /v1/openapi.json`에서 같은 사양을 제공한다 |
+| 운영자 | [내부 알파 실서버 배포](docs/alpha-deployment.md) | [운영 참고](docs/operations.md), [Datadog 감시 기준](docs/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/test-ops.md), [백업과 복원](docs/backup-restore.md) |
+| 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/development.md), [구성요소와 경계](docs/architecture.md), [CI](docs/ci.md), [실제 Claude 확인](docs/real-claude.md), [과거 soak 결과](docs/soak.md) |
 
 `docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd packages/contracts openapi:generate`로 함께 다시 만든다.
 
-## 라이선스
-
-이 저장소는 **source-available이지 오픈소스가 아니다.** 읽고 감사할 수 있도록 공개할 뿐,
-공개 자체가 사용권을 주지 않는다. 실행·복제·수정·배포와 이 소프트웨어를 이용한 서비스
-제공은 저작권자의 사전 서면 허가가 있어야 한다. 전문은 [LICENSE](LICENSE)에 있다.
-
-기여는 지금 받지 않는다. 외부 기여가 섞이면 저작권자가 이 소프트웨어를 상용으로
-라이선스할 수 있는 여지가 좁아지기 때문이다.
+라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다.
