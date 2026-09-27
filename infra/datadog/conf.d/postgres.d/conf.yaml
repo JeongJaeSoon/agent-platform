@@ -1,0 +1,70 @@
+init_config:
+
+instances:
+  - host: postgres
+    port: 5432
+    username: datadog
+    password: "%%env_DD_POSTGRES_PASSWORD%%"
+    dbname: sessions
+    min_collection_interval: 30
+    collect_activity_metrics: false
+    collect_database_size_metrics: false
+    tags:
+      - service:postgres
+      - env:%%env_DD_ENV%%
+      - version:%%env_DD_VERSION%%
+    custom_queries:
+      - metric_prefix: agent_platform
+        query: |
+          SELECT COALESCE(
+            EXTRACT(EPOCH FROM clock_timestamp() - MIN(created_at)),
+            0
+          )::double precision AS oldest_age_seconds
+          FROM queue_messages
+          WHERE claimed_by IS NULL
+            AND visible_at <= clock_timestamp()
+        columns:
+          - name: queue.oldest_age_seconds
+            type: gauge
+      - metric_prefix: agent_platform
+        query: |
+          SELECT COALESCE(
+            MAX(EXTRACT(EPOCH FROM clock_timestamp() - updated_at)),
+            0
+          )::double precision AS pending_age_seconds
+          FROM sessions
+          WHERE checkpoint_pending_reason IS NOT NULL
+        columns:
+          - name: checkpoint.pending_age_seconds
+            type: gauge
+      - metric_prefix: agent_platform
+        query: |
+          SELECT COUNT(*)::double precision AS outcome_unknown_count
+          FROM turns
+          WHERE outcome_unknown = true
+            AND created_at >= clock_timestamp() - interval '5 minutes'
+        columns:
+          - name: turn.outcome_unknown_count
+            type: gauge
+      - metric_prefix: agent_platform
+        query: |
+          SELECT COUNT(*)::double precision AS stale_lease_count
+          FROM attempts
+          WHERE state NOT IN ('exited', 'lost')
+            AND lease_expires_at < clock_timestamp()
+        columns:
+          - name: lease.stale_count
+            type: gauge
+      - metric_prefix: agent_platform
+        query: |
+          SELECT
+            COALESCE(SUM(cost_usd), 0)::double precision AS cost_usd_1h,
+            COUNT(*) FILTER (WHERE priced_by = 'fallback')::double precision
+              AS fallback_pricing_count_1h
+          FROM provider_usage
+          WHERE recorded_at >= clock_timestamp() - interval '1 hour'
+        columns:
+          - name: provider.cost_usd_1h
+            type: gauge
+          - name: provider.fallback_pricing_count_1h
+            type: gauge

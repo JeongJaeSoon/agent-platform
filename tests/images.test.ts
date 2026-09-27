@@ -13,6 +13,7 @@ import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
 import {
   COMPOSE_RENDER_TIMEOUT_MS,
   CORE,
+  DATADOG_OVERLAY,
   LOCAL_LAYERS,
   layeredServices,
   REAL_MODEL,
@@ -458,9 +459,13 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 type ComposeService = {
   image?: string;
   build?: { dockerfile?: string };
+  cgroup?: string;
   command?: string[];
+  env_file?: string[];
   environment?: Record<string, string>;
   healthcheck?: { test?: string[] };
+  labels?: Record<string, string>;
+  pid?: string;
   ports?: (string | { host_ip?: string })[];
   restart?: string;
   stop_grace_period?: string;
@@ -595,6 +600,7 @@ type Rendered = {
 function render(
   files: readonly string[],
   variables: Record<string, string> = {},
+  options: { noEnvResolution?: boolean } = {},
 ) {
   const { PATH = "", HOME = "" } = Bun.env;
   const result = Bun.spawnSync(
@@ -610,6 +616,7 @@ function render(
       "apps",
       ...files.flatMap((file) => ["-f", join(root, file)]),
       "config",
+      ...(options.noEnvResolution ? ["--no-env-resolution"] : []),
       "--format",
       "json",
     ],
@@ -673,6 +680,159 @@ describe("compose layers", () => {
     ...TEST_OPS_LAYERS,
     TEST_OPS_STORE_LAYERS.localstack,
   ];
+
+  test("the Datadog Agent is opt-in and reads its API key only from the server env file", () => {
+    const overlay = composeServices(DATADOG_OVERLAY);
+    const agent = overlay["datadog-agent"];
+    expect(localStack()["datadog-agent"]).toBeUndefined();
+    expect(agent).toBeDefined();
+    expect(agent?.image).toBe("gcr.io/datadoghq/agent:7.83.3");
+    expect(agent?.pid).toBe("host");
+    expect(agent?.cgroup).toBe("host");
+    expect(agent?.env_file).toEqual([
+      `\${DATADOG_ENV_FILE:-/etc/agent-platform/datadog.env}`,
+    ]);
+    expect(agent?.environment?.DD_API_KEY).toBeUndefined();
+    expect(read(DATADOG_OVERLAY)).not.toContain("${DD_API_KEY");
+    expect(agent?.volumes).toContain(
+      "/var/run/docker.sock:/var/run/docker.sock:ro",
+    );
+  });
+
+  test("the Datadog overlay adds unified service tags without entering either default layer", () => {
+    expect(LOCAL_LAYERS).not.toContain(DATADOG_OVERLAY);
+    expect(TEST_OPS_LAYERS).not.toContain(DATADOG_OVERLAY);
+    const overlay = composeServices(DATADOG_OVERLAY);
+    for (const service of [
+      "api",
+      "scheduler",
+      "reconciler",
+      "egress-proxy",
+      "postgres",
+    ]) {
+      expect(overlay[service]?.labels).toEqual(
+        expect.objectContaining({
+          "com.datadoghq.tags.service": service,
+          "com.datadoghq.tags.env": expect.stringContaining("${DD_ENV:"),
+          "com.datadoghq.tags.version":
+            expect.stringContaining("${DD_VERSION:"),
+        }),
+      );
+    }
+  });
+
+  test(
+    "the Datadog overlay renders on top of the local stack and leaves the base render unchanged",
+    () => {
+      const base = render(LOCAL_LAYERS);
+      const monitored = render(
+        [...LOCAL_LAYERS, DATADOG_OVERLAY],
+        {
+          DD_ENV: "alpha",
+          DATADOG_ENV_FILE: "/dev/null",
+          DD_VERSION: "test-sha",
+        },
+        { noEnvResolution: true },
+      );
+      expect({ exitCode: base.exitCode, stderr: base.stderr }).toEqual({
+        exitCode: 0,
+        stderr: "",
+      });
+      expect({
+        exitCode: monitored.exitCode,
+        stderr: monitored.stderr,
+      }).toEqual({ exitCode: 0, stderr: "" });
+      expect(base.model?.services["datadog-agent"]).toBeUndefined();
+      expect(monitored.model?.services["datadog-agent"]).toBeDefined();
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test("the Datadog definitions are valid JSON and never tag a metric by session", () => {
+    const definitionFiles = [
+      "log-pipeline.json",
+      "log-facets.json",
+      "log-metrics.json",
+      "monitors.json",
+      "dashboard.json",
+    ];
+    const definitions = definitionFiles.map((name) =>
+      JSON.parse(read(`infra/datadog/definitions/${name}`)),
+    );
+    expect(definitions).toHaveLength(definitionFiles.length);
+    const metricDefinitions = definitions[2] as {
+      requests: {
+        data: {
+          id: string;
+          attributes: {
+            compute: {
+              aggregation_type: string;
+              include_percentiles?: boolean;
+            };
+            group_by?: { path: string; tag_name?: string }[];
+          };
+        };
+      }[];
+    };
+    for (const metric of metricDefinitions.requests) {
+      for (const group of metric.data.attributes.group_by ?? []) {
+        expect(group.path).not.toContain("session_id");
+        expect(group.tag_name).not.toBe("session_id");
+      }
+    }
+    expect(metricDefinitions.requests.map(({ data }) => data.id)).toEqual(
+      expect.arrayContaining([
+        "agent_platform.checkpoint.capture.duration_ms",
+        "agent_platform.checkpoint.bundle_bytes",
+        "agent_platform.checkpoint.untracked_bytes",
+        "agent_platform.checkpoint.untracked_uploads",
+        "agent_platform.checkpoint.manifest_bytes",
+        "agent_platform.terminate.acceptance.duration_ms",
+      ]),
+    );
+    for (const id of [
+      "agent_platform.checkpoint.capture.duration_ms",
+      "agent_platform.terminate.acceptance.duration_ms",
+    ]) {
+      expect(
+        metricDefinitions.requests.find(({ data }) => data.id === id)?.data
+          .attributes.compute,
+      ).toMatchObject({
+        aggregation_type: "distribution",
+        include_percentiles: true,
+      });
+    }
+    const facets = definitions[1] as {
+      excluded_high_cardinality_attributes: string[];
+    };
+    expect(facets.excluded_high_cardinality_attributes).toContain(
+      "@session_id",
+    );
+    const monitors = definitions[3] as {
+      requests: { type: string; options: { thresholds?: unknown } }[];
+    };
+    expect(
+      monitors.requests.find(({ type }) => type === "service check")?.options
+        .thresholds,
+    ).toBeDefined();
+  });
+
+  test("Datadog database checks are read-only SELECT queries", () => {
+    const config = Bun.YAML.parse(
+      read("infra/datadog/conf.d/postgres.d/conf.yaml"),
+    ) as {
+      instances: { custom_queries: { query: string }[] }[];
+    };
+    const queries = config.instances[0]?.custom_queries ?? [];
+    expect(queries.length).toBeGreaterThanOrEqual(4);
+    for (const { query } of queries) {
+      expect(query.trim()).toMatch(/^SELECT\b/i);
+      expect(query).not.toMatch(
+        /\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE|GRANT|REVOKE)\b/i,
+      );
+      expect(query).not.toMatch(/\bsession_id\b/i);
+    }
+  });
 
   // What a layer may set on a service the core defines. Everything else —
   // users, capabilities, read-only roots, memory limits, mounts, ports,

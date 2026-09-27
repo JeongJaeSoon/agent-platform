@@ -1,0 +1,70 @@
+{
+  "facets": [
+    { "path": "@event", "type": "string", "display_name": "Event" },
+    {
+      "path": "@fields.stage",
+      "type": "string",
+      "display_name": "Checkpoint stage"
+    },
+    {
+      "path": "@fields.status",
+      "type": "string",
+      "display_name": "Turn status"
+    },
+    { "path": "@fields.reason", "type": "string", "display_name": "Reason" },
+    {
+      "path": "@fields.state",
+      "type": "string",
+      "display_name": "Execution state"
+    },
+    {
+      "path": "@fields.launch_failure_count",
+      "type": "number",
+      "display_name": "Launch failure count"
+    },
+    {
+      "path": "@fields.consecutive_failures",
+      "type": "number",
+      "display_name": "Consecutive pass failures"
+    },
+    {
+      "path": "@fields.duration_ms",
+      "type": "number",
+      "display_name": "Duration ms"
+    },
+    {
+      "path": "@fields.total_ms",
+      "type": "number",
+      "display_name": "Checkpoint total ms"
+    },
+    {
+      "path": "@fields.bundle_bytes",
+      "type": "number",
+      "display_name": "Checkpoint bundle bytes"
+    },
+    {
+      "path": "@fields.untracked_bytes",
+      "type": "number",
+      "display_name": "Checkpoint untracked bytes"
+    },
+    {
+      "path": "@fields.untracked_uploads",
+      "type": "number",
+      "display_name": "Checkpoint untracked uploads"
+    },
+    {
+      "path": "@fields.manifest_bytes",
+      "type": "number",
+      "display_name": "Checkpoint manifest bytes"
+    }
+  ],
+  "excluded_high_cardinality_attributes": [
+    "@session_id",
+    "@turn_id",
+    "@request_id",
+    "@fields.session_id",
+    "@fields.session_ids",
+    "@fields.execution_id",
+    "@fields.provider_ref"
+  ]
+}

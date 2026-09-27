@@ -1,6 +1,6 @@
 # 운영 참고 — 로컬 Docker 설치의 실행 기반
 
-로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에 있다. 이 문서는 그 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
+로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에 있다. 이 문서는 그 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 알파 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 

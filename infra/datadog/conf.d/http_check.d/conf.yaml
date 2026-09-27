@@ -1,0 +1,10 @@
+init_config:
+
+instances:
+  - name: agent-platform-readyz
+    url: http://api:3000/readyz
+    timeout: 2
+    tags:
+      - service:api
+      - env:%%env_DD_ENV%%
+      - version:%%env_DD_VERSION%%
