@@ -50,6 +50,10 @@ export type WorkspaceCaptureResult =
   | { capture: WorkspaceCapture; status: "captured" }
   | { reason: string; status: "refused" };
 
+type WorkspaceMarker =
+  | { digest: string; status: "marked" }
+  | { reason: string; status: "refused" };
+
 export type WorkspaceCaptureLimits = {
   /**
    * At most `DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES`: the control plane refuses
@@ -244,7 +248,7 @@ const SNAPSHOT_IDENTITY = {
  * would make it a boundary; capture then has to read metadata the way
  * restore writes files, without following links.
  */
-export async function captureWorkspace(input: {
+type WorkspaceCaptureInput = {
   root: string;
   /** A path in a directory the caller owns and removes. */
   bundlePath: string;
@@ -254,7 +258,45 @@ export async function captureWorkspace(input: {
   base?: BundleBase;
   /** For tests that need procfs to be missing. */
   fdDirectory?: string;
-}): Promise<WorkspaceCaptureResult> {
+};
+
+export async function captureWorkspace(
+  input: WorkspaceCaptureInput,
+): Promise<WorkspaceCaptureResult> {
+  const limits = input.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const before = await workspaceMarker(input.root, input.signal, limits);
+    if (before.status === "refused") return before;
+    let result: WorkspaceCaptureResult | undefined;
+    let failure: unknown;
+    try {
+      result = await captureWorkspaceOnce(input);
+    } catch (error) {
+      if (input.signal.aborted) throw error;
+      failure = error;
+    }
+    const after = await workspaceMarker(input.root, input.signal, limits);
+    if (after.status === "refused") {
+      await rm(input.bundlePath, { force: true });
+      return after;
+    }
+    if (before.digest === after.digest) {
+      if (failure !== undefined) throw failure;
+      if (result === undefined)
+        throw new Error("workspace capture returned no result");
+      return result;
+    }
+    await rm(input.bundlePath, { force: true });
+  }
+  return {
+    status: "refused",
+    reason: "the workspace changed during both checkpoint capture attempts",
+  };
+}
+
+async function captureWorkspaceOnce(
+  input: WorkspaceCaptureInput,
+): Promise<WorkspaceCaptureResult> {
   const { root, signal } = input;
   const limits = input.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS;
   const refused = (reason: string): WorkspaceCaptureResult => ({
@@ -654,6 +696,96 @@ export async function captureWorkspace(input: {
       return refused(error.message);
     }
     throw error;
+  } finally {
+    await rm(scratch, { force: true, recursive: true });
+  }
+}
+
+async function workspaceMarker(
+  root: string,
+  signal: AbortSignal,
+  limits: WorkspaceCaptureLimits,
+): Promise<WorkspaceMarker> {
+  const hash = createHash("sha256");
+  const gitDirectory = join(root, ".git");
+  const scratch = await workerScratch(root, "marker");
+  if (scratch === undefined) {
+    return {
+      status: "refused",
+      reason: "the workspace .git is not a directory",
+    };
+  }
+  const run = (args: string[], index?: string) =>
+    runGitBytes(args, {
+      cwd: root,
+      extra: {
+        config: CHECKPOINT_GIT_CONFIG,
+        env: {
+          GIT_DIR: gitDirectory,
+          ...(index === undefined ? {} : { GIT_INDEX_FILE: index }),
+          GIT_WORK_TREE: root,
+        },
+      },
+      limits: checkpointGitLimits(limits),
+      maxStdoutBytes: OUTPUT_LIMIT_BYTES,
+      network: null,
+      overrides: [],
+      redact: (text) => text,
+      signal,
+    });
+  try {
+    const head = await run([
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      "HEAD^{commit}",
+    ]);
+    if (head.code !== 0) {
+      return { status: "refused", reason: "HEAD has no commit yet" };
+    }
+    const index = join(scratch, "index");
+    const copied = await copyIndex(gitDirectory, index, limits.maxIndexBytes);
+    if (copied !== undefined) return { status: "refused", reason: copied };
+    const result = await run(
+      ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+      index,
+    );
+    hash.update(result.stdout);
+    hash.update(`\0${result.code}\0${result.stderr}\0`);
+    const listed = result.stdout;
+    hash.update(head.stdout);
+    hash.update(`\0${head.code}\0${head.stderr}\0`);
+    const decoded = namesOf(listed);
+    if (decoded === undefined) {
+      return { status: "marked", digest: hash.digest("hex") };
+    }
+    const paths = decoded
+      .split("\0")
+      .filter((path) => path !== "")
+      .sort();
+    const mark = async (relative: string): Promise<void> => {
+      signal.throwIfAborted();
+      const path = join(root, relative);
+      const found = await lstat(path, { bigint: true }).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
+          throw error;
+        },
+      );
+      hash.update(`${relative}\0`);
+      if (found === null) {
+        hash.update("missing\0");
+        return;
+      }
+      hash.update(
+        `${found.mode}\0${found.size}\0${found.mtimeNs}\0${found.ctimeNs}\0`,
+      );
+    };
+    for (const path of paths) await mark(path.replace(/\/$/, ""));
+    for (const path of [".git/HEAD", ".git/index", ".git/config"]) {
+      await mark(path);
+    }
+    return { status: "marked", digest: hash.digest("hex") };
   } finally {
     await rm(scratch, { force: true, recursive: true });
   }

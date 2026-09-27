@@ -44,6 +44,11 @@ export type IdempotencyScope = {
   key: string;
 };
 
+export type ControlStageMeasure = <T>(
+  stage: string,
+  work: () => Promise<T>,
+) => Promise<T>;
+
 // An advisory lock serializes same-key races; SELECT FOR UPDATE cannot lock a
 // row that does not exist yet. Always taken before any row lock so every
 // transaction acquires locks in the same order.
@@ -136,33 +141,41 @@ export async function transactionWithBindingRetry<T>(
 export async function lockSessionForControl(
   tx: Database,
   // No owner for an operator command, which acts on any session (94S-321).
-  input: { sessionId: string; ownerId?: string; attempt: number },
+  input: {
+    sessionId: string;
+    ownerId?: string;
+    attempt: number;
+    measure?: ControlStageMeasure;
+  },
 ) {
+  const measure = input.measure ?? (async (_stage, work) => work());
   const owned = and(
     eq(sessions.id, input.sessionId),
     input.ownerId === undefined
       ? undefined
       : eq(sessions.ownerId, input.ownerId),
   );
-  const [peek] = await tx
-    .select({ executionId: sessions.executionId })
-    .from(sessions)
-    .where(owned)
-    .limit(1);
+  const [peek] = await measure("session_binding_peek_ms", () =>
+    tx
+      .select({ executionId: sessions.executionId })
+      .from(sessions)
+      .where(owned)
+      .limit(1),
+  );
   if (peek?.executionId) {
-    await tx
-      .select({ executionId: workerLaunches.executionId })
-      .from(workerLaunches)
-      .where(eq(workerLaunches.executionId, peek.executionId))
-      .limit(1)
-      .for("update");
+    const executionId = peek.executionId;
+    await measure("launch_lock_ms", () =>
+      tx
+        .select({ executionId: workerLaunches.executionId })
+        .from(workerLaunches)
+        .where(eq(workerLaunches.executionId, executionId))
+        .limit(1)
+        .for("update"),
+    );
   }
-  const [session] = await tx
-    .select()
-    .from(sessions)
-    .where(owned)
-    .limit(1)
-    .for("update");
+  const [session] = await measure("session_lock_ms", () =>
+    tx.select().from(sessions).where(owned).limit(1).for("update"),
+  );
   if (!session) return null;
   if (session.executionId !== (peek?.executionId ?? null)) {
     throw new BindingMoved(input.sessionId, input.attempt);

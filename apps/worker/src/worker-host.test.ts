@@ -1789,6 +1789,70 @@ describe("WorkerHost outcomes a drain must not hide", () => {
       // The previous generation stays the one to resume from.
       expect(gateway.finalized[0]?.checkpoint).toBeNull();
     });
+
+    test("a process left under the engine rejects the checkpoint as a background writer", async () => {
+      const preparations: CheckpointPreparation[] = [];
+      const checkpoints: WorkerCheckpointPort = {
+        restorePlan: async () => ({ mode: "new" }),
+        capture: async (preparation) => {
+          preparations.push(preparation);
+          return null;
+        },
+      };
+      const engines: EngineExitWatch = {
+        descendants: async () => [4243],
+        exited: async () => true,
+        running: [],
+        kill() {},
+      };
+      const { gateway, host } = harness(oneTurn, { checkpoints, engines });
+      gateway.enqueue("leave a detached writer behind");
+
+      const summary = await host.runLoop();
+
+      expect(summary.turns).toEqual([
+        { turnId: "1", status: "completed", reason: null },
+      ]);
+      expect(preparations).toEqual([
+        {
+          status: "rejected",
+          reason: "background_writer",
+          detail: "Engine process tree still has background processes: 4243",
+        },
+      ]);
+      expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    });
+
+    test("a process-tree read failure releases the checkpoint lease", async () => {
+      let run: AgentRun | undefined;
+      const engines: EngineExitWatch = {
+        descendants: async () => {
+          throw new Error("procfs denied");
+        },
+        exited: async () => true,
+        running: [],
+        kill() {},
+      };
+      const { gateway, host } = harness(oneTurn, {
+        checkpoints: committed,
+        engines,
+        wrap: (started) => {
+          run = started;
+          return started;
+        },
+      });
+      gateway.enqueue("fail while checking background processes");
+
+      const summary = await host.runLoop();
+
+      expect(summary).toMatchObject({
+        outcome: "failed",
+        reason: "procfs denied",
+      });
+      expect(await run?.prepareCheckpoint()).not.toMatchObject({
+        reason: "checkpoint_lease_held",
+      });
+    });
   });
 
   test("a lease lost while the checkpoint is captured is never finalized", async () => {

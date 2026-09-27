@@ -530,6 +530,8 @@ API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
 | `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다. worker는 scheduler의 값을 받는다 |
 
+terminate 요청은 같은 `request_id`로 두 info 로그를 남긴다. `Terminate control transaction completed`에는 pool checkout, binding·launch·session lock, 각 SQL, commit 또는 rollback, control transaction 전체의 millisecond 계측이 들어간다. `Terminate API request completed`에는 `session_id`·HTTP `status`·인증과 route 처리를 포함한 API 전체 `duration_ms`가 들어간다. 배포 환경에서 수락 지연을 조사할 때는 이 두 로그를 `request_id`로 묶어 어느 단계가 느렸는지 판단한다.
+
 `AUTH_MODE=none`은 egress authorizer(`EGRESS_AUTHORIZER_PORT`)와 함께 쓸 수 없다. authorizer가 켜져 있다는 것은 worker가 proxy를 거쳐 이 API에 닿는다는 뜻이다. `none` 모드에서는 worker 안의 코드가 `X-Owner-Id`로 아무 owner나 행세할 수 있으므로 기동을 거부한다. `AUTH_MODE` 값 자체(`none`|`api-key`)는 전처럼 readiness가 판정한다.
 
 worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고(94S-292), scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
