@@ -25,13 +25,23 @@ x-installation-limits: &installation-limits
   SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-25}
   PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
 
+# Keep the three listeners and the two internal URLs together. Service
+# definitions below only consume these anchors, and tests/images.test.ts
+# verifies that the URL ports still match their listeners.
+x-egress-ports:
+  forward: &egress-forward-port "3128"
+  credential: &egress-credential-port "3129"
+  authorizer: &egress-authorizer-port "3100"
+  worker-proxy-url: &worker-proxy-url ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
+  proxy-authorizer-url: &proxy-authorizer-url ${EGRESS_AUTHORIZER_URL:-http://api:3100}
+
 # Every image is pinned by its multi-arch index digest or is one of the apps
 # built from this repository, so amd64 and arm64 daemons run the same bytes
 # (tests/images.test.ts).
 #
 # Published ports are loopback only, and only for what a process on this
-# host uses (README): nothing here is meant for another machine, and the
-# postgres credentials are local defaults.
+# host uses (docs/development.md): nothing here is meant for another machine,
+# and the postgres credentials are local defaults.
 services:
   postgres:
     image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
@@ -114,14 +124,14 @@ services:
       # with `bun run --cwd apps/control-host start`. `secrets` is
       # deliberately absent.
       EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
-      EGRESS_PROXY_PORT: "3128"
+      EGRESS_PROXY_PORT: *egress-forward-port
       # The credential routes (94S-252): workers send their provider and git
       # calls here with an attempt-scoped token, and the proxy puts the
       # catalog's credential on them. The authorizer is the compose-run API's
       # second listener; for an API on the host, use
       # http://host.docker.internal:3100.
-      EGRESS_CREDENTIAL_PORT: "3129"
-      EGRESS_AUTHORIZER_URL: ${EGRESS_AUTHORIZER_URL:-http://api:3100}
+      EGRESS_CREDENTIAL_PORT: *egress-credential-port
+      EGRESS_AUTHORIZER_URL: *proxy-authorizer-url
       # Upstreams only the credential routes reach, never a worker directly
       # (94S-383): the provider, the repository and the object store, which
       # the object store route sends the API-signed request to (94S-251).
@@ -172,7 +182,7 @@ services:
   # `apps` profile: the sessions API and the scheduler.
   # `docker compose --profile apps up -d --build`.
   # Every value below has a working default. The local layer also reads a
-  # ../.env when present and never writes it (README rule); no other
+  # ../.env when present and never writes it (docs/development.md); no other
   # installation picks up a checkout's .env.
   api:
     image: ${API_IMAGE:-agent-platform-control-host:dev}
@@ -233,7 +243,7 @@ services:
       # any worker allowlist: only the proxy, on this compose network, calls
       # it. Without both the API starts, and every worker's provider and
       # repository call is refused.
-      EGRESS_AUTHORIZER_PORT: "3100"
+      EGRESS_AUTHORIZER_PORT: *egress-authorizer-port
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       # The operator catalog (94S-132): config/ mounted below. The image
       # carries none, so an API without a mounted catalog does not start.
@@ -347,7 +357,8 @@ services:
       WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
       WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
-      EXECUTION_EGRESS_PROXY_URL: ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
+      EXECUTION_EGRESS_PROXY_URL: *worker-proxy-url
+      EXECUTION_EGRESS_CREDENTIAL_PORT: *egress-credential-port
       <<: *installation-limits
       # Docker Desktop cannot carry a project quota, so the local stack opts out
       # (94S-215); a daemon on xfs+prjquota should set it back to `on`.
