@@ -12,7 +12,6 @@ import {
 } from "@agent-platform/contracts";
 import {
   type ApiKeyRecord,
-  type BootstrapInput,
   bootstrapFirstOwner,
   countUsers,
   createWebSession,
@@ -20,15 +19,16 @@ import {
   findLiveMembership,
   findUserForLogin,
   findWorkspace,
-  type LiveMembership,
-  type ResolvedWebSession,
   renewWebSession,
   resolveWebSession,
   revokeWebSession,
-  type UserRow,
-  type WorkspaceRow,
 } from "@agent-platform/db";
 import type { StructuredLogger } from "@agent-platform/observability";
+import type {
+  BootstrapInput,
+  IdentityStore,
+  ResolvedWebSession,
+} from "@agent-platform/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
@@ -41,36 +41,10 @@ import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 export const WEB_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 // A session's expiry slides forward at most this often, so an active tab
 // does not turn every request into an UPDATE.
-export const WEB_SESSION_RENEW_AFTER_MS = 60 * 60 * 1000;
+const WEB_SESSION_RENEW_AFTER_MS = 60 * 60 * 1000;
 // Live sessions one user may hold; the next login drops the oldest.
 export const WEB_SESSIONS_PER_USER = 10;
-export const LOGIN_LOCKOUT_WINDOW_MS = LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000;
-
-export interface IdentityStore {
-  countUsers(): Promise<number>;
-  bootstrap(input: BootstrapInput): Promise<{
-    user: UserRow;
-    workspace: WorkspaceRow;
-  }>;
-  findUserForLogin(email: string): Promise<UserRow | null>;
-  findLiveMembership(userId: string): Promise<LiveMembership | null>;
-  findWorkspace(workspaceId: string): Promise<WorkspaceRow | null>;
-  createWebSession(input: {
-    id: string;
-    userId: string;
-    tokenHash: Uint8Array;
-    ttlMs: number;
-    userAgent: string | null;
-    maxLive: number;
-  }): Promise<{ expiresAt: Date }>;
-  resolveWebSession(tokenHash: Uint8Array): Promise<ResolvedWebSession | null>;
-  renewWebSession(
-    sessionId: string,
-    ttlMs: number,
-    renewAfterMs: number,
-  ): Promise<Date | null>;
-  revokeWebSession(tokenHash: Uint8Array): Promise<void>;
-}
+const LOGIN_LOCKOUT_WINDOW_MS = LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000;
 
 export class DatabaseIdentityStore implements IdentityStore {
   constructor(private readonly db: Database) {}
@@ -179,7 +153,7 @@ export function createBootstrapGate(token: string): BootstrapGate {
   };
 }
 
-export function generateBootstrapToken(): string {
+function generateBootstrapToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
@@ -238,7 +212,7 @@ export async function bootstrapGateFromEnv(
 // Login lockout
 // ---------------------------------------------------------------------------
 
-export const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
+const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
 
 // Each argon2id verify holds ~64 MiB and a core for tens of milliseconds,
 // and an unknown email still runs one against the dummy hash, so rotating
@@ -247,8 +221,8 @@ export const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
 // Per-client (IP) and cross-replica limits need the ingress's view of the
 // client and are left to the deployment.
 // TODO(94S-264): Add product-owned account recovery and shared rate limits.
-export const PASSWORD_WORK_CONCURRENCY = 4;
-export const PASSWORD_WORK_QUEUE = 64;
+const PASSWORD_WORK_CONCURRENCY = 4;
+const PASSWORD_WORK_QUEUE = 64;
 
 /**
  * At most `limit` holders at once and `maxQueued` waiting; anything beyond
@@ -418,7 +392,7 @@ export interface AuthenticatorOptions {
   identity?: IdentityStore;
 }
 
-export type Authenticated = {
+type Authenticated = {
   principal: Principal;
   /** Set on the cookie path; GET /v1/auth/me and logout read it. */
   webSession?: ResolvedWebSession;

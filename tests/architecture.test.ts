@@ -625,15 +625,14 @@ describe("architecture", () => {
       expect(Object.keys(core)).not.toContain(name);
   });
 
-  test("routes know the cursor error through platform, not db", async () => {
+  test("routes know database-backed errors and records through platform ports", async () => {
     const importing = (
       await filesImporting(
         await sourceFiles(join(root, routes)),
         "@agent-platform/db",
       )
     ).map((file) => relative(join(root, routes), file));
-    // TODO(94S-459): Move identity route database access behind a platform port.
-    expect(importing).toEqual(["auth.ts"]);
+    expect(importing).toEqual([]);
   });
 
   test("the Claude adapter names each export and the worker re-exports no package", async () => {

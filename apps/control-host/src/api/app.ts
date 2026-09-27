@@ -9,7 +9,6 @@ import {
   REQUEST_BODY_MAX_BYTES,
   readyResponseSchema,
 } from "@agent-platform/contracts";
-import type { ResolvedWebSession } from "@agent-platform/db";
 import {
   isConnectionFailure,
   RequestDeadlineExceededError,
@@ -18,16 +17,15 @@ import {
   createLogger,
   type StructuredLogger,
 } from "@agent-platform/observability";
+import type {
+  IdentityStore,
+  ResolvedWebSession,
+} from "@agent-platform/platform";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
-import {
-  createAuthenticator,
-  csrfViolation,
-  type IdentityStore,
-  ownerIdOf,
-} from "./auth.ts";
+import { createAuthenticator, csrfViolation, ownerIdOf } from "./auth.ts";
 import {
   BODY_DEADLINE_MS,
   CLOSING_IDLE_TIMEOUT_SECONDS,
@@ -43,7 +41,7 @@ import {
 import type { ReadinessProbe } from "./readiness.ts";
 import { missingScope } from "./scope-policy.ts";
 
-export interface ApiVariables {
+interface ApiVariables {
   // The alpha partition key; every existing route authorizes on it alone.
   ownerId: string;
   principal: Principal;
@@ -59,7 +57,7 @@ export interface ApiVariables {
   handlerIdleSeconds?: number;
 }
 
-export interface ApiBindings {
+interface ApiBindings {
   // Sets the server's idle clock for this request, in seconds; 0 stops it.
   // The app lifts it above the request deadline (or stops it) for database
   // work so a response that waits on the pool's timeouts is not reset
@@ -118,7 +116,7 @@ function apiReferenceCsp(nonce: string): string {
 
 export type ApiRouter = OpenAPIHono<ApiEnvironment>;
 
-export function registerOpenApiRoute(
+function registerOpenApiRoute(
   router: ApiRouter,
   operationId: ApiOperationId,
   handler: Handler<ApiEnvironment>,
