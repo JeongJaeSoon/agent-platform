@@ -117,9 +117,10 @@ question_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
     '{request_id:$request_id, kind:"question", answers:[{question_id:$question_id, selected_option_ids:[$option_id]}]}')")
 echo "$question_answer" | jq -e '.receipt_status == "accepted"'
 wait_for "/v1/sessions/$SID/turns/2" .status completed
+wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status succeeded
 ```
 
-**기대 응답.** 목록의 `items`에는 `kind: "permission"` 또는 `kind: "question"`과 만료 시각이 있다. 답변은 `receipt_status: "accepted"`로 접수되고, worker가 답을 소비하면 receipt가 `succeeded`, turn이 `completed`가 된다.
+**기대 응답.** 목록의 `items`에는 `kind: "permission"` 또는 `kind: "question"`과 만료 시각이 있다. 답변은 `receipt_status: "accepted"`로 접수되고, worker가 답을 소비하면 receipt가 `succeeded`, turn이 `completed`가 된다. worker는 답 소비를 다음 poll에 보고하므로 turn이 먼저 `completed`가 될 수 있다. receipt는 한 번 조회하지 말고 `succeeded`까지 기다린다.
 
 **흔한 오류.** 409 `REQUEST_EXPIRED`면 만료되거나 worker가 이미 포기한 요청이므로 새 세션/turn에서 다시 요청한다. 404 `NOT_FOUND`면 현재 principal이 보지 못하는 세션·요청이거나 이미 닫혔다. 승인 scope가 없으면 403 `FORBIDDEN`이다.
 
