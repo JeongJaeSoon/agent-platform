@@ -3,6 +3,7 @@ import {
   sessionEventVariants,
   type WorkerScope,
 } from "@agent-platform/contracts";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   createWorkerGateway,
   type WorkerGateway,
@@ -403,6 +404,66 @@ integration("session terminate on PostgreSQL", () => {
     expect(
       active.find((row) => row.executionId === l.executionId)?.desiredState,
     ).toBe("terminated");
+  });
+
+  test("records checkout, lock, SQL, commit, and total timings under the request id", async () => {
+    const { session, claimed } = await bound("timings");
+    await deliver(claimed);
+    const before = await sessionRow(session.session_id);
+    const sink = new MemoryLogSink();
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const requestId = crypto.randomUUID();
+
+    const result = await logger.withContext({ request_id: requestId }, () =>
+      createPostgresSessionControl(db, {
+        connect: () => pool.connect(),
+        logger,
+      }).terminateAtomic({
+        principal: { ownerId: session.ownerId },
+        sessionId: session.session_id,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: "timed-hash",
+        expectedRevision: before.revision,
+        reason: "timing probe",
+        now: clock,
+      }),
+    );
+
+    expect(result.outcome).toBe("accepted");
+    const record = sink.records.find(
+      ({ message }) => message === "Terminate control transaction completed",
+    );
+    expect(record?.request_id).toBe(requestId);
+    expect(record?.fields).toMatchObject({
+      session_id: session.session_id,
+      outcome: "accepted",
+      attempts: 1,
+    });
+    const timingFields = [
+      "duration_ms",
+      "pool_checkout_ms",
+      "transaction_begin_ms",
+      "idempotency_lock_ms",
+      "idempotency_lookup_ms",
+      "session_binding_peek_ms",
+      "launch_lock_ms",
+      "session_lock_ms",
+      "cancel_queued_turns_ms",
+      "database_clock_ms",
+      "wait_before_stop_ms",
+      "resolve_pending_requests_ms",
+      "execution_stop_intent_ms",
+      "update_session_ms",
+      "insert_status_event_ms",
+      "notify_status_event_ms",
+      "update_wait_announcement_ms",
+      "insert_receipt_ms",
+      "insert_idempotency_key_ms",
+      "commit_ms",
+    ];
+    for (const field of timingFields) {
+      expect(typeof record?.fields?.[field]).toBe("number");
+    }
   });
 
   test("after terminate the old worker's heartbeat, appendEvents and finalize are 409 STALE_EPOCH", async () => {

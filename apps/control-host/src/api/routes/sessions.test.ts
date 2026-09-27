@@ -3,6 +3,7 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
 } from "@agent-platform/contracts";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   allowAllPolicy,
   createSessionService,
@@ -55,6 +56,7 @@ const catalog: SessionCatalog = {
 
 function app(
   overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl> = {},
+  logger?: StructuredLogger,
 ) {
   const service = createSessionService({
     limits: {
@@ -100,6 +102,7 @@ function app(
   });
   return createApiApp({
     authMode: "none",
+    ...(logger ? { logger } : {}),
     registerRoutes: (router) => registerSessionRoutes(router, service),
   });
 }
@@ -509,6 +512,42 @@ describe("POST /v1/sessions/{id}/terminate validation", () => {
       receipt_id: receiptId,
       receipt_status: "accepted",
       external_effects_reverted: false,
+    });
+  });
+
+  test("logs API latency with the request id", async () => {
+    const sink = new MemoryLogSink();
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const receiptId = crypto.randomUUID();
+    const response = await app(
+      {
+        terminateAtomic: async () => ({
+          outcome: "accepted",
+          response: { receipt_id: receiptId, receipt_status: "accepted" },
+        }),
+      },
+      logger,
+    ).request(terminatePath, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify({ expected_revision: 3 }),
+    });
+
+    expect(response.status).toBe(202);
+    const record = sink.records.find(
+      ({ message }) => message === "Terminate API request completed",
+    );
+    const responseRequestId = response.headers.get("X-Request-Id");
+    expect(responseRequestId).not.toBeNull();
+    expect(record?.request_id).toBe(responseRequestId ?? undefined);
+    expect(record?.fields).toMatchObject({
+      session_id: sessionId,
+      status: 202,
+      duration_ms: expect.any(Number),
     });
   });
 
