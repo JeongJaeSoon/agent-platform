@@ -1158,13 +1158,38 @@ export class WorkerHost {
     // (no answer, a 5xx): that request may still commit, whatever a later
     // retry is told, until one succeeds and the idempotent key settles both.
     let undecided = false;
+    let captureStageFinished = false;
+    const finishInterruptCapture = (fields: Record<string, unknown>): void => {
+      if (interruptTurn === undefined || captureStageFinished) return;
+      captureStageFinished = true;
+      this.logInterruptStage(interruptTurn, "capture_finished", fields);
+    };
     try {
       let checkpoint: CheckpointRef | null = null;
       if (settlement.synthetic !== true) {
         if (interruptTurn !== undefined) {
           this.logInterruptStage(interruptTurn, "capture_started");
         }
-        const capturing = this.capture(run);
+        const rawCapturing = this.capture(run);
+        const capturing =
+          interruptTurn === undefined
+            ? rawCapturing
+            : rawCapturing.then(
+                (result) => {
+                  finishInterruptCapture({
+                    checkpoint_available: result.ref !== null,
+                    outcome: "completed",
+                  });
+                  return result;
+                },
+                (error: unknown) => {
+                  finishInterruptCapture({
+                    outcome: "failed",
+                    reason: describe(error),
+                  });
+                  throw error;
+                },
+              );
         outstanding = capturing;
         // The heartbeat keeps the lease while a capture runs, so one that
         // never returns needs a bound of its own. It moves the workspace out
@@ -1183,18 +1208,19 @@ export class WorkerHost {
             // none. Any other turn fails the worker, and its budget above
             // starts the drain that ends the wait.
             interrupted
-              ? this.withinCaptureBudget(capturing, turnId, interruptTurn)
+              ? this.withinCaptureBudget(
+                  capturing,
+                  turnId,
+                  interruptTurn,
+                  finishInterruptCapture,
+                )
               : capturing,
           );
         } finally {
           budget?.disarm();
         }
         if (captured === undefined) {
-          if (interruptTurn !== undefined) {
-            this.logInterruptStage(interruptTurn, "capture_finished", {
-              outcome: "abandoned",
-            });
-          }
+          finishInterruptCapture({ outcome: "abandoned" });
           capturing.then(
             ({ lease }) => lease?.release(),
             () => {},
@@ -1409,13 +1435,14 @@ export class WorkerHost {
    * turn is `interrupted` only once finalize carries its checkpoint.
    */
   private recordEngineStopped(turn: Turn, settlement: Settlement): void {
-    if (settlement.status !== "interrupted" || settlement.synthetic === true) {
-      return;
+    if (turn.interrupting && settlement.synthetic !== true) {
+      this.logInterruptStage(turn, "engine_terminal", {
+        outcome: "received",
+        terminal_status: settlement.status,
+      });
     }
-    this.logInterruptStage(turn, "engine_terminal", {
-      outcome: "received",
-      terminal_status: settlement.status,
-    });
+    if (settlement.status !== "interrupted" || settlement.synthetic === true)
+      return;
     this.logger.info("worker.turn.engine_stopped", {
       turn_id: turn.turnId,
       control_id: turn.controlId ?? null,
@@ -1580,28 +1607,12 @@ export class WorkerHost {
     capturing: Promise<Captured>,
     turnId: string,
     turn: Turn | undefined,
+    finishCapture: (fields: Record<string, unknown>) => void,
   ): Promise<Captured> {
     const none: Captured = { lease: null, ref: null };
-    let finished = false;
     const tolerant = capturing.then(
-      (captured) => {
-        if (!finished && turn !== undefined) {
-          finished = true;
-          this.logInterruptStage(turn, "capture_finished", {
-            checkpoint_available: captured.ref !== null,
-            outcome: "completed",
-          });
-        }
-        return captured;
-      },
+      (captured) => captured,
       (error: unknown): Captured => {
-        if (!finished && turn !== undefined) {
-          finished = true;
-          this.logInterruptStage(turn, "capture_finished", {
-            outcome: "failed",
-            reason: describe(error),
-          });
-        }
         this.logger.warn("worker.checkpoint.failed", {
           session_id: this.scope.session_id,
           turn_id: turnId,
@@ -1616,13 +1627,7 @@ export class WorkerHost {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<Captured>((resolve) => {
       timer = setTimeout(() => {
-        if (!finished && turn !== undefined) {
-          finished = true;
-          this.logInterruptStage(turn, "capture_finished", {
-            budget_ms: budgetMs,
-            outcome: "timeout",
-          });
-        }
+        finishCapture({ budget_ms: budgetMs, outcome: "timeout" });
         this.logger.warn("worker.checkpoint.late", {
           session_id: this.scope.session_id,
           turn_id: turnId,
