@@ -6,7 +6,7 @@ that are illustrative rather than executable in `sh`, `json`, or `text` blocks.
 
 # API 유즈케이스 가이드
 
-이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 `docs/openapi.json`이며, 사람이 읽는 참조는 [`docs/api/index.html`](api/index.html)이다. 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 CI가 compose의 fake Messages API로 그대로 실행하므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
+이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 `docs/openapi.json`이며, 배포 서버의 인증 없는 `GET /docs`가 읽기 전용 참조를 같은 origin의 `/docs/scalar.js`와 함께 제공한다. 저장소에서 보는 생성물은 [`docs/api/index.html`](api/index.html)이다. 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 CI가 compose의 fake Messages API로 그대로 실행하므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
 
 예시는 로컬 기본 주소 `http://127.0.0.1:3000`을 쓴다. 배포 환경에서는 `API`만 바꾼다.
 
@@ -24,6 +24,14 @@ KEY=$(scripts/local.sh key api-guide \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
+
+DOCS_STATUS=$(curl -sS -o /tmp/agent-platform-api-docs.html -w '%{http_code}' "$API/docs")
+SCALAR_STATUS=$(curl -sS -o /tmp/agent-platform-scalar.js -w '%{http_code}' "$API/docs/scalar.js")
+printf 'GET /docs %s, GET /docs/scalar.js %s\n' "$DOCS_STATUS" "$SCALAR_STATUS"
+test "$DOCS_STATUS" = 200
+test "$SCALAR_STATUS" = 200
+grep -q 'src="/docs/scalar.js"' /tmp/agent-platform-api-docs.html
+test -s /tmp/agent-platform-scalar.js
 
 wait_for() {
   for _ in $(seq 1 180); do

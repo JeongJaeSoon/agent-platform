@@ -80,6 +80,15 @@ describe("app Dockerfiles", () => {
     );
   });
 
+  test("the control-host image carries the generated API reference", () => {
+    expect(basePins["control-host"].source).toContain(
+      "COPY docs/api/index.html docs/api/scalar.js ./docs/api/",
+    );
+    const dockerignore = read(".dockerignore");
+    expect(dockerignore).toContain("!docs/api/index.html");
+    expect(dockerignore).toContain("!docs/api/scalar.js");
+  });
+
   test("the egress proxy image copies only its own code, which needs no install", () => {
     // The Dockerfile has no `bun install`; a dependency added to the proxy
     // must add one (and the deps stage the other apps have) with it.

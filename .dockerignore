@@ -6,6 +6,12 @@ node_modules
 **/node_modules
 **/*.tsbuildinfo
 docs
+!docs/
+docs/*
+!docs/api/
+docs/api/*
+!docs/api/index.html
+!docs/api/scalar.js
 spikes
 tests
 infra

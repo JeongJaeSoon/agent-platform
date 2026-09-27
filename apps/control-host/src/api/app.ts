@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   type ApiErrorCode,
   apiErrorResponseSchema,
@@ -77,6 +78,43 @@ const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 // BODY_DEADLINE_MS, so a sender that stops outright gets the 408 too rather
 // than a reset.
 export const BODY_IDLE_TIMEOUT_SECONDS = 20;
+
+const API_REFERENCE_DIRECTORY = join(import.meta.dir, "../../../../docs/api");
+const API_REFERENCE_SECURITY_HEADERS = {
+  "Cross-Origin-Resource-Policy": "same-origin",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+};
+let apiReferenceHtml: Promise<string> | undefined;
+
+function readApiReferenceHtml(): Promise<string> {
+  apiReferenceHtml ??= Bun.file(join(API_REFERENCE_DIRECTORY, "index.html"))
+    .text()
+    .then((html) => html.replace('src="./scalar.js"', 'src="/docs/scalar.js"'));
+  return apiReferenceHtml;
+}
+
+async function renderApiReferenceHtml(nonce: string): Promise<string> {
+  return (await readApiReferenceHtml()).replace(
+    '    <meta charset="utf-8">',
+    `    <meta charset="utf-8">\n    <meta property="csp-nonce" content="${nonce}">`,
+  );
+}
+
+function apiReferenceCsp(nonce: string): string {
+  return [
+    "default-src 'none'",
+    "script-src 'self'",
+    `style-src 'nonce-${nonce}'`,
+    "img-src data:",
+    "connect-src 'none'",
+    "font-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
 
 export type ApiRouter = OpenAPIHono<ApiEnvironment>;
 
@@ -432,6 +470,29 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       checks: { database: "ok", schema: "ok", config: "ok" },
     });
   });
+
+  app.get("/docs", async () => {
+    const nonce = crypto.randomUUID();
+    return new Response(await renderApiReferenceHtml(nonce), {
+      headers: {
+        ...API_REFERENCE_SECURITY_HEADERS,
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": apiReferenceCsp(nonce),
+        "Content-Type": "text/html; charset=utf-8",
+      },
+    });
+  });
+  app.get(
+    "/docs/scalar.js",
+    () =>
+      new Response(Bun.file(join(API_REFERENCE_DIRECTORY, "scalar.js")), {
+        headers: {
+          ...API_REFERENCE_SECURITY_HEADERS,
+          "Cache-Control": "public, max-age=3600",
+          "Content-Type": "text/javascript; charset=utf-8",
+        },
+      }),
+  );
 
   const authenticator = createAuthenticator({
     authMode,

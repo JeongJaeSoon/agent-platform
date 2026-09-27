@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   apiErrorResponseSchema,
   healthResponseSchema,
@@ -26,6 +27,60 @@ test("serves the generated OpenAPI document without authentication", async () =>
   );
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual(buildOpenApiDocument());
+});
+
+test("serves the offline API reference without authentication", async () => {
+  const app = createApiApp({ authMode: "api-key" });
+  const html = await app.request("/docs");
+  expect(html.status).toBe(200);
+  expect(html.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+  expect(html.headers.get("Cache-Control")).toBe("no-cache");
+  const csp = html.headers.get("Content-Security-Policy");
+  expect(csp).toContain("connect-src 'none'");
+  expect(csp).not.toContain("unsafe-inline");
+  expect(html.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  expect(html.headers.get("X-Frame-Options")).toBe("DENY");
+  expect(html.headers.get("Set-Cookie")).toBeNull();
+  const body = await html.text();
+  expect(body).toContain('src="/docs/scalar.js"');
+  const nonce = body.match(/property="csp-nonce" content="([^"]+)"/)?.[1];
+  expect(nonce).toBeDefined();
+  expect(csp).toContain(`style-src 'nonce-${nonce}'`);
+  expect(body).toContain("&quot;hideTestRequestButton&quot;:true");
+  expect(body).toContain("&quot;telemetry&quot;:false");
+  expect(body).not.toMatch(/(?:src|href)="https?:\/\//);
+
+  const scalar = await app.request("/docs/scalar.js");
+  expect(scalar.status).toBe(200);
+  expect(scalar.headers.get("Content-Type")).toBe(
+    "text/javascript; charset=utf-8",
+  );
+  expect(scalar.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  expect(scalar.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  expect((await scalar.arrayBuffer()).byteLength).toBeGreaterThan(1_000_000);
+});
+
+test("serves the API reference from the documented package-directory launch", async () => {
+  const script = `
+    import { createApiApp } from ${JSON.stringify(join(import.meta.dir, "app.ts"))};
+    const app = createApiApp({ authMode: "api-key" });
+    const html = await app.request("/docs");
+    const scalar = await app.request("/docs/scalar.js");
+    console.log(JSON.stringify({ html: html.status, scalar: scalar.status }));
+  `;
+  const child = Bun.spawn([process.execPath, "-e", script], {
+    cwd: join(import.meta.dir, "../.."),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(stderr).toBe("");
+  expect(exitCode).toBe(0);
+  expect(JSON.parse(stdout)).toEqual({ html: 200, scalar: 200 });
 });
 
 function loggerWithMemory(): {

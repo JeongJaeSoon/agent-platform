@@ -12,7 +12,7 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 
 | 독자 | 먼저 읽을 문서 | 이어서 볼 문서와 파일 |
 | --- | --- | --- |
-| API 사용자 | [API 유즈케이스 가이드](docs/api-guide.md) | [HTML API 참조](docs/api/index.html), [OpenAPI JSON](docs/openapi.json). 배포 API도 인증 전 `GET /v1/openapi.json`에서 같은 사양을 제공한다 |
+| API 사용자 | [API 유즈케이스 가이드](docs/api-guide.md) | 배포 서버의 인증 없는 `GET /docs`에서 읽기 전용 API 참조를 보고, `GET /v1/openapi.json`에서 같은 사양을 받는다. 저장소 생성물은 [HTML](docs/api/index.html)과 [OpenAPI JSON](docs/openapi.json)이다 |
 | 운영자 | [내부 알파 실서버 배포](docs/alpha-deployment.md) | [운영 참고](docs/operations.md), [Datadog 감시 기준](docs/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/test-ops.md), [백업과 복원](docs/backup-restore.md) |
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/development.md), [구성요소와 경계](docs/architecture.md), [CI](docs/ci.md), [실제 Claude 확인](docs/real-claude.md), [과거 soak 결과](docs/soak.md) |
 
