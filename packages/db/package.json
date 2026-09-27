@@ -9,6 +9,7 @@
     "./pool": "./src/pool.ts"
   },
   "scripts": {
+    "bench:terminate": "bun run bench/terminate-control.ts",
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "bun run scripts/generate-migration.ts",
     "db:migrate": "bun run src/migrate.ts",

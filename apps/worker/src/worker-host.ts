@@ -28,6 +28,7 @@ import { endedByAbort } from "@agent-platform/runtime-claude";
 import {
   type AgentRun,
   type CheckpointLease,
+  type CheckpointPreparation,
   isOwnershipLost,
   isRetryable,
   type NativeSdkMessage,
@@ -1862,15 +1863,27 @@ export class WorkerHost {
    * fails or produces nothing to commit gives the lease back at once.
    */
   private async capture(run: AgentRun): Promise<Captured> {
-    const { lease, preparation } = await run.leaseCheckpoint();
-    if (preparation.status === "rejected") {
-      this.logger.warn("worker.checkpoint.rejected", {
-        reason: preparation.reason,
-        detail: preparation.detail,
-      });
-    }
+    const { lease, preparation: runPreparation } = await run.leaseCheckpoint();
     let ref: CheckpointRef | null;
     try {
+      const descendants =
+        runPreparation.status === "ready"
+          ? ((await this.options.engines?.descendants?.()) ?? [])
+          : [];
+      const preparation: CheckpointPreparation =
+        descendants.length === 0
+          ? runPreparation
+          : {
+              status: "rejected",
+              reason: "background_writer",
+              detail: `Engine process tree still has background processes: ${descendants.join(", ")}`,
+            };
+      if (preparation.status === "rejected") {
+        this.logger.warn("worker.checkpoint.rejected", {
+          reason: preparation.reason,
+          detail: preparation.detail,
+        });
+      }
       ref = await this.checkpoints.capture(preparation, {
         scope: { ...this.scope },
         recheck: () => run.prepareCheckpoint(),

@@ -150,7 +150,10 @@ const checkpoints = createApiCheckpoints(
 const sessions = createSessionService({
   authorization: allowAllPolicy,
   inputs: createPostgresSessionUnitOfWork(db),
-  controls: createPostgresSessionControl(db),
+  controls: createPostgresSessionControl(db, {
+    connect: () => pool.connect(),
+    logger,
+  }),
   reader: createPostgresSessionReader(db, { logger }),
   catalog,
   limits,
