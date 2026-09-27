@@ -59,8 +59,8 @@ export type WorkspaceBundleFile = {
  * The alternative default would be to promote pointers on a check that git
  * does not have to agree with, and the damage only surfaces at the next
  * restore — when the execution that wrote the checkpoint is gone and the last
- * healthy revision has already been superseded. 94S-228 supplies the
- * git-backed implementation a composition root wires here.
+ * healthy revision has already been superseded. A composition root wires the
+ * git-backed implementation here.
  */
 export const rejectUnverifiedWorkspaceBundles: WorkspaceBundleVerifier = {
   async verify() {

@@ -512,8 +512,8 @@ export class PendingRequestRegistry {
         behavior: "allow",
         updatedInput: {
           ...entry.input,
-          // 94S-91 fixed this shape against the real SDK: the answers ride
-          // back on the tool input, keyed by the question they answer.
+          // The SDK carries answers on the tool input, keyed by the question
+          // they answer.
           answers: Object.fromEntries(
             entry.questions.map((question) => [
               question.prompt,

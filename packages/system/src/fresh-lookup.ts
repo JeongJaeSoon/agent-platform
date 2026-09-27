@@ -4,7 +4,7 @@ import type { LookupAddress, LookupOptions } from "node:dns";
 // c-ares, and c-ares keeps a record for the TTL the server gave it. Docker's
 // embedded DNS gives 600s, so in a long-lived process a name stays at the
 // address it had before its container restarted — refused, or someone
-// else's — for up to ten minutes (94S-343). The libc resolver keeps no cache
+// else's — for up to ten minutes. The libc resolver keeps no cache
 // of its own and asks on every call; a connection is rare enough that the
 // extra query does not matter.
 export async function resolveEveryTime(

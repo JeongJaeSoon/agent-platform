@@ -768,8 +768,8 @@ console.log("TLS " + response.status + " " + (await response.text()));
   }, 240_000);
 
   test("a real TLS client handshakes through the tunnel when its server name is the authority", async () => {
-    // Verified against the fixture CA, so the tunnel carried a genuine
-    // handshake with the upstream and not merely bytes.
+    // The fixture CA proves the tunnel carried a genuine handshake with the
+    // upstream and not merely bytes.
     const result = await curlProbe(`https://${tlsName}:8443/`);
     expect(result.output).toContain("tls-upstream");
     expect(result.exitCode).toBe(0);

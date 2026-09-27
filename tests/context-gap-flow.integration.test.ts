@@ -52,7 +52,7 @@ import {
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
- * The acceptance run for 94S-288, the QA repro automated: a session finishes
+ * The context-gap recovery path end to end: a session finishes
  * turn 1, its worker goes idle and exits without a checkpoint covering the
  * turn, and the user sends another message. Before this ticket the next
  * worker started a new engine session with nothing restored and no one was
@@ -107,7 +107,7 @@ const silent: WorkerLogger = {
 /**
  * The worker's checkpoint port with what it was asked recorded. `commits`
  * decides whether a ready preparation turns into a checkpoint: false is the
- * publisher failing (or, before 94S-246, not wired at all). A restored
+ * publisher failing or being unavailable. A restored
  * checkpoint resumes the engine session it was captured from, as the real
  * port does, so a run that ignores the checkpoint shows up as a `new` launch.
  */

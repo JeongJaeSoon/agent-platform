@@ -377,7 +377,7 @@ describe("WorkerHost interrupt against the actual Claude SDK", () => {
   ];
 
   test.each(cases)(
-    "an interrupt while $moment ($terminalReason) ends the turn the way 94S-128 says, checkpoint captured: $withCheckpoint",
+    "an interrupt while $moment ($terminalReason) ends the turn as interrupted, checkpoint captured: $withCheckpoint",
     async ({ moment, terminalReason, withCheckpoint }) => {
       isolated = await createIsolatedWorkspace({ prefix: "94s-287-" });
       const { home, workspace } = isolated;

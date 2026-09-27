@@ -325,14 +325,9 @@ function safeExecutionId(ref: ExecutionRef): string {
  * The prefix every one of this session's workspace volumes carries.
  *
  * A workspace is found by its labels rather than by a name derived from the
- * session, because the `local` driver does not put a ceiling back on a name
- * it has already seen. Measured on xfs+prjquota (Docker 27.5.1): the first
- * create of a name bounds the volume at the requested 64 MiB, and the same
- * name removed and created again answers 201 with `Options.size` unchanged
- * while `df` inside a container reports the whole 8 GiB filesystem. The
- * daemon keeps the project id it assigned to that path and never tags the
- * new directory with it, so `size` is metadata with nothing behind it and
- * no API call can tell the two apart. A name is therefore used once.
+ * session, because the `local` driver can retain stale quota metadata when a
+ * removed volume name is reused without applying the quota to the new path.
+ * The Docker API cannot distinguish that state, so a name is used once.
  */
 export function workspaceVolumePrefixFor(
   sessionId: string,

@@ -106,7 +106,7 @@ export const sessionLinkVisibilitySchema = z.enum(
 /**
  * `(installation_id, surface_ref)` is the natural key and stays reserved after
  * revocation: a new message on a revoked thread needs an explicit rebind, it
- * does not quietly open a new session (Codex E08).
+ * does not quietly open a new session.
  */
 // The cap has to admit every pair the component schemas accept, or a valid
 // conversation has no representable ref at all — so it is derived, not picked.

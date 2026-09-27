@@ -34,7 +34,7 @@ export type PassLoopRole = {
 };
 
 export const PASS_LOOP_ROLES = {
-  // 94S-320's settings and status file, kept as they were.
+  // The reconciler keeps the original settings and status-file contract.
   reconciler: {
     prefix: "RECONCILER",
     intervalSec: 10,

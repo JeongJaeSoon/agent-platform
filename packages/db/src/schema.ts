@@ -37,9 +37,9 @@ export const sessionStatus = pgEnum("session_status", SESSION_STATUS_VALUES);
 export const admissionState = pgEnum("admission_state", ADMISSION_STATE_VALUES);
 export const receiptStatus = pgEnum("receipt_status", RECEIPT_STATUS_VALUES);
 
-// Vocabularies the CHECK constraints below pin. They mirror 94S-148's
-// SESSION_SCOPE_VALUES and AUTHORIZATION_ACTION_VALUES; once that package
-// is on main, schema.test.ts should assert the two lists are equal, the way
+// Vocabularies the CHECK constraints below pin. They mirror
+// SESSION_SCOPE_VALUES and AUTHORIZATION_ACTION_VALUES; schema.test.ts
+// asserts the two lists are equal, the way
 // it already does for sessionStatus.
 export const SESSION_SCOPE_VALUES = [
   "sessions:read",
@@ -83,8 +83,7 @@ export const AUDIENCE_KIND_VALUES = [
   "session_link",
   "session",
 ] as const;
-// Which resource kinds each action may be granted on (94S-148
-// ACTION_RESOURCE_KINDS, ported from Kollegium): `session.read` on a
+// Which resource kinds each action may be granted on: `session.read` on a
 // workspace would be a workspace-wide read smuggled in through the resource.
 const ACTION_RESOURCE_KINDS: Record<
   (typeof AUTHORIZATION_ACTION_VALUES)[number],
@@ -154,7 +153,7 @@ export const users = pgTable(
       .notNull()
       .defaultNow(),
     // Account suspension. Losing one workspace is memberships.disabled_at, a
-    // different thing (Codex A03).
+    // different thing.
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
   },
   (table) => [
@@ -287,7 +286,7 @@ export const grants = pgTable(
       .defaultNow(),
   },
   (table) => [
-    // Evaluation is one query by actor and resource (94S-152); revoked rows
+    // Evaluation is one query by actor and resource; revoked rows
     // are kept as history and never match.
     index("grants_lookup_idx")
       .on(
@@ -339,7 +338,7 @@ export const grants = pgTable(
   ],
 );
 
-// Legacy owner_id strings are never backfilled into a workspace (Codex B18):
+// Legacy owner_id strings are never backfilled into a workspace:
 // a row here is an operator's explicit statement that this owner's sessions
 // and keys belong to that workspace. An unmapped owner stays visible only on
 // the api-key path.
@@ -444,8 +443,8 @@ export const sessions = pgTable(
     // sessions are not backfilled, see owner_workspace_map.
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
-    // agent_releases lands with I0-5b (94S-154); the FK is added there. Not
-    // a uuid: release ids are derived hashes (94S-148 agentReleaseIdSchema).
+    // TODO(94S-154): Add the FK when agent_releases is introduced. This is
+    // not a uuid: release ids are derived hashes.
     agentReleaseId: text("agent_release_id"),
     // What this session's Messages calls cost, as the egress proxy metered
     // them: each is priced and added once (provider_usage, 94S-409), the
@@ -521,7 +520,8 @@ export const sessions = pgTable(
 // (migration 0107) charges every input in the same transaction that writes
 // it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
 // concurrent writer can race past the limit. One row per scope: today only
-// "installation"; 94S-187 adds per-workspace rows for memory revisions.
+// "installation".
+// TODO(94S-187): Add per-workspace rows for memory revisions.
 export const storageUsage = pgTable(
   "storage_usage",
   {
@@ -1124,7 +1124,7 @@ export const apiKeys = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     /** Null on legacy keys until an owner_workspace_map row exists. */
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
-    /** Null means the pre-94S-132 "everything" key. */
+    /** Null means the legacy "everything" key. */
     scopes: text().array(),
   },
   (table) => [

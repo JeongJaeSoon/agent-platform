@@ -570,7 +570,7 @@ describe("pass loop: degraded passes (94S-368)", () => {
 });
 
 describe("pass loop configuration", () => {
-  test("defaults: the reconciler keeps 94S-320's", () => {
+  test("uses the reconciler defaults", () => {
     expect(passLoopConfigFromEnv({}, RECONCILER)).toEqual({
       intervalMs: 10_000,
       passTimeoutMs: 60_000,

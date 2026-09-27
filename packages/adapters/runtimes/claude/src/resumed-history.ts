@@ -7,8 +7,8 @@ import type {
 
 /**
  * The entry uuids of the transcript a resumed run continues. A send whose uuid
- * is already in it is deduplicated by the engine and never answered (94S-91,
- * 94S-242), so the host has to know before it sends, not after.
+ * is already in it is deduplicated by the engine and never answered, so the
+ * host has to know before it sends, not after.
  *
  * Every entry's uuid counts, not only user messages': an input the engine
  * folded into a queued command or wrote on a branch is still one it will not

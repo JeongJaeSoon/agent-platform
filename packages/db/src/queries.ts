@@ -20,7 +20,7 @@ export async function createApiKey(
     id: string;
     ownerId: string;
     keyHash: Uint8Array;
-    // Null issues the pre-94S-132 all-scope key; only tests still do.
+    // Null issues the legacy all-scope key; only tests still do.
     scopes: readonly SessionScope[] | null;
   },
 ) {

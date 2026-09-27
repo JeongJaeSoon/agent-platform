@@ -43,7 +43,7 @@ import {
 } from "./probes.ts";
 
 /**
- * The 94S-135 fault and contention campaigns. Each runs on its own freshly
+ * The fault and contention campaigns. Each runs on its own freshly
  * reset stack (scripts/soak/campaign.sh resets between them), drives a few
  * sessions from outside, injects one kind of trouble, and records rows of
  * the criteria table: 입력·기대·실제·pass/fail/skip, plus the invariants
@@ -1927,7 +1927,7 @@ export function bunTestRows(
 }
 
 /**
- * 94S-117's role checks (tests/d2-gate/control-host-roles.e2e.test.ts,
+ * The role checks (tests/d2-gate/control-host-roles.e2e.test.ts,
  * H1–H5) on the soak stack instead of the gate's: its overlay only swaps
  * the Messages API for one that answers the same `/requests`.
  */

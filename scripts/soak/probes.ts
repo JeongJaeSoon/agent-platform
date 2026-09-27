@@ -509,7 +509,7 @@ export async function interruptProbe(
 
 /**
  * Terminates a session mid-turn. Confirmed means the receipt settled
- * (succeeded, or unknown — 94S-135's "확인 또는 unknown") and no worker
+ * (succeeded or unknown) and no worker
  * container of the session is still running; the effect time is when both
  * held. A receipt that says succeeded while a worker still runs is
  * reported (`succeededWhileRunning`).

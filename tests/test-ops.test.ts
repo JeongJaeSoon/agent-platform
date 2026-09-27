@@ -38,8 +38,8 @@ import {
  * refusals, and the checks of scripts/lib/test-ops.ts it runs — the release
  * manifest, the rendered installation, the bucket round trip and the
  * upgrade gate. Deploying, upgrading, backing up and reseeding a running
- * installation need a host with Docker; that rehearsal is 94S-434's, and
- * the s3 store on a real AWS account 94S-303's.
+ * installation need a host with Docker.
+ * TODO(94S-303): Rehearse the object store against a real AWS account.
  */
 
 const repoRoot = join(import.meta.dir, "..");

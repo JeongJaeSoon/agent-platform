@@ -3,7 +3,7 @@ import { database, run } from "../../tests/d2-gate/harness.ts";
 import { soakEnv } from "./lib.ts";
 
 /**
- * The 94S-135 invariants, read from outside the product: the database and
+ * The soak invariants, read from outside the product: the database and
  * the Docker daemon. Each returns the offending rows (capped), so a
  * violation arrives with its evidence. Zero rows everywhere is the pass.
  *

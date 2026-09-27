@@ -49,7 +49,7 @@ const user = (text: string) => ({
   content: [{ type: "text", text }],
 });
 
-describe("94S-135 soak tooling", () => {
+describe("soak tooling", () => {
   test("percentiles are nearest-rank over the samples", () => {
     const samples = Array.from({ length: 100 }, (_, i) => i + 1);
     expect(percentile(samples, 95)).toBe(95);

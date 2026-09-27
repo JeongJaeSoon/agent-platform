@@ -50,9 +50,8 @@ export type GitWorkspaceBundleVerifierOptions = {
 
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
 /**
- * The bundle size the timeout is written for: 256 MiB, which the measured
- * `git fetch` of a 133 MiB bundle (9.5–15.7 s on a loaded host, 94S-230)
- * puts at about half of 60 s.
+ * The bundle size the fixed timeout covers; larger bundles receive time in
+ * direct proportion through `gitVerifyTimeoutMs`.
  */
 export const GIT_VERIFY_TIMEOUT_REFERENCE_BYTES = 256 * 1024 * 1024;
 
@@ -71,13 +70,9 @@ export function gitVerifyTimeoutMs(
 }
 export const DEFAULT_MAX_PACK_OBJECTS = 1_000_000;
 /**
- * 1.5 GiB. The largest object a pack from git's own defaults holds whole is
- * just under `core.bigFileThreshold` (512 MiB; bigger blobs are streamed and
- * never deltified), and resolving a delta of one holds base and result at
- * once: a 480 MiB log file with one edit peaked at 964 MiB resident on Linux,
- * against 202 MiB for a 133 MiB bundle of ordinary source. The cap admits
- * that with margin and refuses the multi-gigabyte results a few kilobytes of
- * delta can declare.
+ * 1.5 GiB. Git may hold a base and resolved result near
+ * `core.bigFileThreshold` at once. The cap leaves margin for that valid case
+ * and refuses multi-gigabyte results declared by a small delta.
  */
 export const DEFAULT_MAX_GIT_MEMORY_BYTES = 1536 * 1024 * 1024;
 

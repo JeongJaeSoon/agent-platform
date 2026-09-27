@@ -632,7 +632,7 @@ describe("architecture", () => {
         "@agent-platform/db",
       )
     ).map((file) => relative(join(root, routes), file));
-    // The identity routes have no platform port yet (94S-459).
+    // TODO(94S-459): Move identity route database access behind a platform port.
     expect(importing).toEqual(["auth.ts"]);
   });
 

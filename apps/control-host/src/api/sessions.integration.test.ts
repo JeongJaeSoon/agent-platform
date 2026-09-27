@@ -1037,7 +1037,7 @@ integration("sessions API on PostgreSQL", () => {
       expect(response.status, bad).toBe(400);
     }
 
-    // Simulate a finished turn the way the worker will record it (94S-121+).
+    // Simulate a finished turn the way the worker records it.
     const [second] = await db
       .select({ id: turns.id })
       .from(turns)
@@ -1085,7 +1085,7 @@ integration("sessions API on PostgreSQL", () => {
       ended_at: endedAt.toISOString(),
       result: "Fixed the failing test.",
       usage: { input_tokens: 10, output_tokens: 20 },
-      // attempts stay empty until they are persisted per attempt (94S-121).
+      // Attempts stay empty until they are persisted per attempt.
       attempts: [],
     });
     const queued = getTurnResponseSchema.parse(

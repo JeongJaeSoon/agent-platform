@@ -2,19 +2,12 @@
 // capture one, so both sides read them from here.
 
 /**
- * 256 MiB. Not memory any more (94S-230): what one bundle costs now is time
- * and disk, and this is the largest size every existing bound still covers
- * without being retuned. Measured under load (Apple M4 Pro, load average
- * ~130), the verifier's `git fetch` of a 133 MiB bundle of real source took
- * 9.5–15.7 s, so 256 MiB lands at roughly half of its 60 s per-invocation
- * timeout (`DEFAULT_GIT_VERIFY_TIMEOUT_MS`), which is also its CPU limit.
- * The read's 300 s budget (`DEFAULT_BODY_READ_BOUNDS.maxReadMs`) asks for
- * 0.85 MiB/s, and so does the 300 s upload bound workers write it under
- * (`S3_REQUEST_BOUNDS.requestTimeout`). Disk: the spool file plus git's copy
- * of the pack, 2 × 256 MiB per verification in flight.
+ * The primary per-bundle cost is time and disk. 256 MiB fits the verifier's
+ * 60 s CPU bound, the 300 s read and upload bounds, and two on-disk copies per
+ * verification: the spool file and git's pack.
  *
- * Those budgets now grow with the size above 256 MiB (94S-318:
- * `gitVerifyTimeoutMs`, `transferBudgetMs`), so going higher is a matter of
+ * The derived `gitVerifyTimeoutMs` and `transferBudgetMs` grow with the size,
+ * so going higher is a matter of
  * disk and of the git memory cap (`CHECKPOINT_GIT_MEMORY_MB`). Workers
  * capture up to this same limit, streamed from and to disk.
  */

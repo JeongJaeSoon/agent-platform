@@ -306,8 +306,8 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     return jsonWithSchema(context, authMeResponseSchema, {
       principal,
       user: null,
-      // A legacy key stays unmapped until an owner_workspace_map row exists
-      // (Codex B18); reading that map is 94S-152.
+      // A legacy key stays unmapped until an owner_workspace_map row exists.
+      // TODO(94S-152): Read that mapping for the authenticated owner.
       workspace: null,
       scopes: principal.scopes,
     });

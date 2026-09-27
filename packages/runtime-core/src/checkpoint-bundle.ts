@@ -24,8 +24,8 @@ export const PEELED_REF_FORMAT =
 
 /**
  * Reads `PEELED_REF_FORMAT` output: every ref with the commit it is, or the
- * commit the annotated tag it is points at directly (a capture that changed
- * nothing tags commits its base carries, 94S-374); null for anything else.
+ * commit the annotated tag points at directly. A capture that changed nothing
+ * may tag a commit its base carries. Returns null for anything else.
  */
 export function peeledCommits(output: string): Map<string, string | null> {
   const commits = new Map<string, string | null>();

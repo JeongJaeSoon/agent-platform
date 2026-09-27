@@ -23,7 +23,7 @@ import { main } from "./main.ts";
 import { migrateWorkspaces } from "./migrate-workspace.ts";
 
 /**
- * 94S-225 AC5 end to end: a session whose workspace predates the quota
+ * Quota backfill end to end: a session whose workspace predates the quota
  * cannot be brought back, `migrate-workspace` moves it, and the very next
  * scheduler pass relaunches it on the copy. Needs a real daemon
  * (`DOCKER_BACKEND_TEST=1`) and PostgreSQL (`QUEUE_DATABASE_URL`).

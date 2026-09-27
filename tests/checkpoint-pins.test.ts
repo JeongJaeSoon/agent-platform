@@ -815,7 +815,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(claim.runtime_config.model).toBe(
       (resolved.profiles[PROFILE_ID] as CatalogProfile).model,
     );
-    // Rows from before 94S-253 carry no fingerprint and are pinned at claim.
+    // Rows without a fingerprint are pinned to the catalog at claim time.
     expect(
       sessionClaim(await sessionOf({ profileFingerprint: null }), resolved),
     ).toEqual(claim);

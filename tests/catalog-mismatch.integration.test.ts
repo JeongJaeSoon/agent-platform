@@ -54,7 +54,7 @@ import {
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
- * The acceptance run for 94S-280, end to end in one process: an operator
+ * Catalog mismatch end to end in one process: an operator
  * re-points a repository id at another URL while a session created against
  * the old one is queued. With one execution slot, the scheduler launches
  * that session first; a real WorkerHost trades the launch nonce at the

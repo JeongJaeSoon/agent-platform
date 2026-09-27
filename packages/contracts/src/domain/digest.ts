@@ -53,10 +53,10 @@ export const digestWaitingReasonSchema = z.enum(DIGEST_WAITING_REASON_VALUES);
 export const costUsdSchema = z.string().regex(/^\d+(\.\d+)?$/);
 
 /**
- * Layer 1 of three (Codex E06): the `session_digests` row.
+ * Layer 1 of three: the `session_digests` row.
  *
- * Owned end to end by I1-1 (94S-159). Dispatch candidate search and the Slack
- * thread summary read it; nothing else writes it.
+ * Dispatch candidate search and the Slack thread summary read it; nothing else
+ * writes it. TODO(94S-159): Implement the row end to end.
  */
 const sessionDigestRowSchema = z
   .object({

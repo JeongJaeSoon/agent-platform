@@ -36,7 +36,7 @@ import {
 } from "./checkpoint-objects.ts";
 
 /**
- * 94S-281 against a real Object Lock bucket: what garbage collection
+ * Garbage collection against a real Object Lock bucket: what it
  * releases and deletes is gone by version, and what the pointer's restore
  * plan names still reads back held.
  */

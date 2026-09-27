@@ -48,7 +48,7 @@ import {
 import type { Stall } from "./vm-lag.ts";
 
 /**
- * The 94S-135 soak runner: N sessions repeating scripted turns against the
+ * The soak runner: N sessions repeating scripted turns against the
  * stack scripts/soak/stack.sh started, for a duration and with measurements
  * fixed in a config file before the run (scripts/soak/config/*.json).
  *

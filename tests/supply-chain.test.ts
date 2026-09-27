@@ -13,7 +13,7 @@ import {
   parseExceptions,
 } from "../.github/scripts/npm-audit.ts";
 
-// The release policy of 94S-363: only a high or critical vulnerability with
+// Only a high or critical vulnerability with
 // a fix available blocks; one without a fix is reported.
 
 const root = join(import.meta.dir, "..");

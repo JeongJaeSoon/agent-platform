@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The 94S-135 soak/campaign stack: the compose product stack built from this
+# The soak/campaign stack: the compose product stack built from this
 # checkout, with the D2 gate overlay (scripts/d2-gate/compose.yml) and the
 # soak overlay (scripts/soak/compose.yml), under a project and installation
 # of its own so it never touches another card's stack.

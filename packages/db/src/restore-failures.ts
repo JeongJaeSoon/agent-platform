@@ -13,7 +13,7 @@ type SessionRow = typeof sessions.$inferSelect;
  * Claimed launches an active session may spend on a worker that ends before
  * it is ready for input (94S-345, 94S-347), as a resume may
  * (RESUME_LAUNCH_LIMIT). One such exit says little — a deploy's SIGTERM, a
- * read damaged in transit — so the next launch waits out 94S-207's backoff
+ * read damaged in transit — so the next launch waits out the startup backoff
  * (30s, then 60s) and tries again; a startup that keeps failing, whether it
  * restores a checkpoint or clones the repository, is for an operator.
  */

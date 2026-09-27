@@ -349,7 +349,7 @@ integration("startup failures before ready on PostgreSQL (94S-347)", () => {
     expect(backingOff.restoreFailureCount).toBe(1);
     expect(backingOff.restoreFailureReason).toBe(REFUSED);
     expect(backingOff.restoreAttemptId).toBeNull();
-    // 94S-207's first backoff, on the database clock.
+    // The first startup backoff, on the database clock.
     const [clock] = await db
       .execute<{ now: string }>(sql`SELECT clock_timestamp()::text AS now`)
       .then((result) => result.rows);

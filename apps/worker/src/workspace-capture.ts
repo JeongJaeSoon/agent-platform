@@ -154,13 +154,11 @@ export const CHECKPOINT_GIT_CONFIG: Array<[string, string]> = [
 ];
 
 /**
- * Address space for each capture or restore git: resolving a delta of a file
- * near `maxFileBytes` holds base and result at once (a 480 MiB file with one
- * edit peaked at 964 MiB resident; see the control plane's
- * `DEFAULT_MAX_GIT_MEMORY_BYTES`, which this matches), and so does staging
- * one that needs converting. Deliberately fixed rather than sized from the
- * container's memory; make it configurable once a deployment changes
- * `WORKER_MEMORY_MB` enough that the two disagree.
+ * Address space for each capture or restore git: resolving a delta near
+ * `maxFileBytes` holds base and result at once, and staging a file that needs
+ * converting has the same shape. This matches the control plane's
+ * `DEFAULT_MAX_GIT_MEMORY_BYTES` and is deliberately independent of the
+ * container memory setting.
  */
 const CHECKPOINT_GIT_MEMORY_BYTES = 1536 * 1024 * 1024;
 /** Compression's worst case on top of the largest file: zlib adds ~0.03%. */

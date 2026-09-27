@@ -987,7 +987,7 @@ integration(
       expect(open.map((r) => r.id)).not.toContain(first.response.receipt_id);
     });
 
-    test("a resume whose launch is given up on (94S-207 quarantine) fails as a resume and keeps the queued input", async () => {
+    test("a resume whose launch exhausts the startup attempts fails as a resume and keeps the queued input", async () => {
       const { session } = await pausedSession("quarantine");
       const resume = await accepted("resume", session);
       const intent = await reserve(session);

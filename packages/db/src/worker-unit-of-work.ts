@@ -668,7 +668,7 @@ export function runnableCondition(runnable: readonly RunnablePair[]): SQL {
  * With several API replicas mid-rollout, the one that answers could fail a
  * session another would run. So only a host whose catalog is the revision an
  * operator activated gives up (94S-295); any other answers "nothing to
- * claim" and writes nothing, leaving 94S-207's failure count as the net.
+ * claim" and writes nothing, leaving the existing failure count as the net.
  * With none activated there is one replica, and its catalog is the one.
  */
 async function giveUpOnCatalogMismatch(

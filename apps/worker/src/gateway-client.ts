@@ -53,7 +53,7 @@ export type HttpWorkerGatewayClientOptions = {
 };
 
 /**
- * The client half of the worker protocol 94S-121 serves. The API mounts it
+ * The client half of the worker protocol. The API mounts it
  * under `/internal`, and the launcher hands out the bare origin, so the
  * prefix is this client's to add. The worker
  * container reaches the gateway through the egress proxy, which fetch reads

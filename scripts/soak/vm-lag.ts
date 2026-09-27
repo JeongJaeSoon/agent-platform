@@ -17,7 +17,7 @@ export type Stall = { index: number; from: number; to: number; gapMs: number };
 const TICK_MS = 100;
 /** Kept well under the 1s the soak judges on, so the log shows near misses. */
 const RECORD_MS = 500;
-/** A day at the 94S-442 rate is ~600 stalls; this bounds a runaway. */
+/** A day at the configured rate is about 600 stalls; this bounds a runaway. */
 const KEEP = 100_000;
 
 export class StallRecorder {

@@ -1,4 +1,4 @@
-# Overlay for the 94S-135 soak and campaigns, applied after
+# Overlay for the soak and campaigns, applied after
 # scripts/d2-gate/compose.yml (ephemeral loopback ports, the gate catalog,
 # workers routed through gate-chaos). scripts/soak/stack.sh is the only
 # intended caller. What it changes on top of the gate:

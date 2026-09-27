@@ -56,7 +56,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 
 /**
- * 94S-252 end to end, in one process: the real gateway issues a claim, the
+ * Credential routes end to end in one process: the real gateway issues a claim,
  * real authorizer answers the real credential proxy, and the real engine
  * child and the real `git` go through it. What is checked is where the
  * catalog's credentials are and are not: on the upstream's requests, and

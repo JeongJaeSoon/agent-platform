@@ -131,8 +131,7 @@ describe("storage S3 client request bounds", () => {
    * The bodies `bodyBytes()` never sees. On any status >= 300 — and for a
    * ListObjectsV2 page on 200 — the SDK reads the body itself, inside
    * `send()`, after both request timeouts have been cleared by the arriving
-   * headers. Measured before this bound existed: `send()` stayed pending
-   * forever, and an `abortSignal` passed to it did not help.
+   * headers. An `abortSignal` passed to `send()` does not reach these bodies.
    */
   test("gives up on an error body that stops mid-XML", async () => {
     const endpoint = await stallingXmlPeer(503);

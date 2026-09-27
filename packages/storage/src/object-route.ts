@@ -29,8 +29,8 @@ import { listPrefixWithin, objectKeyWithin } from "./scoped-objects.ts";
  * store confined to the session prefix: get and head an object, create one
  * that does not exist yet (`putImmutable`; never an overwrite), and list
  * under the prefix. Nothing else is signed — no delete, no copy (its
- * source is a header), no legal hold or retention (the control plane's
- * alone, per 94S-229), no multipart, no ACL.
+ * source is a header), no legal hold or retention (the control plane owns
+ * those), no multipart, no ACL.
  */
 
 /** The worker's request as the proxy saw it, below the route's prefix. */

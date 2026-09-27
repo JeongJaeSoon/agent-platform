@@ -15,7 +15,7 @@ import { expectedMigrations } from "./migration-head.ts";
 /**
  * The 0100 identity migration, run against a database that stands at 0008
  * with data in it. Everything the interface track adds must leave alpha's
- * rows exactly as they were — and, per Codex B18, must not hand them to a
+ * rows exactly as they were — and must not hand them to a
  * workspace on its own.
  */
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -211,7 +211,7 @@ integration("0100 identity migration on PostgreSQL", () => {
         );
         for (const row of sessions.rows) {
           expect(row.pod_id).toBe(`pod-${row.id}`);
-          // Codex B18: no default workspace, no automatic backfill.
+          // No default workspace and no automatic backfill.
           expect(row.workspace_id).toBeNull();
           expect(row.created_by_user_id).toBeNull();
           expect(row.agent_release_id).toBeNull();

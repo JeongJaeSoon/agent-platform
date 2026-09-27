@@ -30,8 +30,8 @@ services:
       - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
     healthcheck:
       # Healthy once the init script has also set the bucket's default
-      # encryption: the API refuses to start on anything but AES256
-      # (94S-337). Three CLI calls do not fit the old 3s.
+      # encryption: the API refuses to start on anything but AES256. The
+      # timeout covers the three sequential CLI calls.
       test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null && awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null && [ \"$$(awslocal s3api get-bucket-encryption --bucket claude-sessions --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text)\" = AES256 ]"]
       interval: 5s
       timeout: 10s

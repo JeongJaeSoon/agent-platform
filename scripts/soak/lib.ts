@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { run } from "../../tests/d2-gate/harness.ts";
 
 /**
- * What the 94S-135 soak runner and the campaigns share: the stack they are
+ * What the soak runner and the campaigns share: the stack they are
  * pointed at (scripts/soak/stack.sh writes it), raw JSONL output, the
  * statistics the criteria are judged with, clock alignment, and the
  * reproducibility record every result carries.

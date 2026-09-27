@@ -85,8 +85,8 @@ integrationTest(
 integrationTest(
   "a CHECK missing from a migration's SQL is caught",
   async () => {
-    // 94S-298's case: the snapshot still has the constraint, so the folder
-    // check passes, and the migration applies without it.
+    // The snapshot still has the constraint, so the folder check passes, and
+    // the migration applies without it.
     const folder = mkdtempSync(join(tmpdir(), "migrations-"));
     folders.push(folder);
     cpSync(MIGRATIONS_FOLDER, folder, { recursive: true });

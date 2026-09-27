@@ -51,7 +51,7 @@ import {
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
- * The acceptance run for 94S-128, end to end in one process: the public API
+ * Interrupt flow end to end in one process: the public API
  * takes the interrupt, PostgreSQL holds it, the Worker Gateway's own HTTP
  * routes hand it to a WorkerHost polling at production cadence, and the
  * receipt and the SSE stream show what came of it. Only the engine is fake,

@@ -34,7 +34,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 // Principal resolution for /v1 (03 §3.2). A bearer key is evaluated alone —
-// a wrong key is never rescued by a cookie (Codex A06) — and the cookie path
+// a wrong key is never rescued by a cookie — and the cookie path
 // exists only when the app was given a session store. AUTH_MODE=none keeps
 // trusting X-Owner-Id and nothing else, exactly as before this file existed.
 
@@ -144,7 +144,7 @@ export async function verifyPassword(
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap token (Codex B10)
+// Bootstrap token
 // ---------------------------------------------------------------------------
 
 export interface BootstrapGate {
@@ -245,7 +245,8 @@ export const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
 // addresses walks straight past the per-email lockout. This bounds the
 // work one process admits no matter how many addresses are tried.
 // Per-client (IP) and cross-replica limits need the ingress's view of the
-// client and are left to the deployment; see the 94S-264 comment.
+// client and are left to the deployment.
+// TODO(94S-264): Add product-owned account recovery and shared rate limits.
 export const PASSWORD_WORK_CONCURRENCY = 4;
 export const PASSWORD_WORK_QUEUE = 64;
 

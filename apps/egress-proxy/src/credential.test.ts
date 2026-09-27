@@ -1566,7 +1566,7 @@ describe("startCredentialProxy", () => {
     await Bun.sleep(20);
     expect(upstreamAborted).toBe(true);
 
-    // An authorizer that stays down past the grace ends it too (Codex R3).
+    // An authorizer that stays down past the grace ends it too.
     upstreamAborted = false;
     answer = "grant";
     const strict = proxy(auth.url, up.port, {

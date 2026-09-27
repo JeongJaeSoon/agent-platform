@@ -46,7 +46,7 @@ export const passwordSchema = z
     `Password exceeds ${PASSWORD_MAX_BYTES} UTF-8 bytes`,
   );
 
-/** Generated at install, printed once, consumed once (Codex B10). */
+/** Generated at install, printed once, consumed once. */
 export const bootstrapTokenSchema = z.string().min(32).max(256);
 
 export const bootstrapRequestSchema = z
@@ -149,7 +149,7 @@ export const authMeResponseSchema = z
       return;
     }
     // An API key has no human behind it, and a legacy key has no workspace
-    // until an explicit mapping exists (Codex B18).
+    // until an explicit mapping exists.
     if (user !== null) {
       ctx.addIssue({
         code: "custom",

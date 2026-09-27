@@ -211,7 +211,7 @@ describe("Claude checkpoint codec", () => {
     );
   });
 
-  // Bytes the localeCompare encoder wrote before 94S-400, as they sit in the
+  // Bytes written by the legacy localeCompare encoder, as they sit in the
   // object store: a stored manifest must still hash to its row's digest, and
   // decoding and re-encoding it must write the same bytes. A stored manifest
   // is verified by the digest of its bytes, never re-encoded; only subagent
@@ -860,12 +860,12 @@ describe("Claude profile fingerprint", () => {
     );
   });
 
-  // Digests the localeCompare encoder computed before 94S-400 for the shape
+  // Digests computed by the legacy localeCompare encoder for the shape
   // the worker stamps checkpoints with (composition.ts claudeRunConfig):
   // checkpoints taken under them must stay compatible. That shape carries no
   // MCP servers or plugins, the only inputs whose names the two orders sort
   // apart (`serverA` and `server_a`, say).
-  test("keeps the digests checkpoints were stamped with before 94S-400", () => {
+  test("keeps digests stamped by the legacy localeCompare encoder", () => {
     expect(
       claudeProfileFingerprint({
         model: "claude-sonnet-4-5",

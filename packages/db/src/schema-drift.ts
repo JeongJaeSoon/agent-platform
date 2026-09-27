@@ -2,8 +2,8 @@ import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
 
 // migration-folder.ts compares schema.ts with the newest snapshot, which is
 // written by drizzle-kit and never by hand, so a SQL file that drops or loses a
-// statement still passes it (94S-300: deleting a CHECK from 0111 migrated
-// cleanly). Diffing the snapshot's DDL against the SQL text cannot close that:
+// statement still passes it. Diffing the snapshot's DDL against the SQL text
+// cannot close that:
 // a migration may split `ADD COLUMN … NOT NULL` into add, backfill and set not
 // null, as 0003 and 0108 do. So the comparison is between two databases —
 // one built by the migrations, one by the DDL schema.ts generates on its own —

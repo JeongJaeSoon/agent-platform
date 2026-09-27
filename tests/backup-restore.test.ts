@@ -756,7 +756,7 @@ describe("verify-restore bundle chain", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  // 94S-135's fault-backup-restore-resume: both turns wrote only an
+  // Both turns wrote only an
   // untracked file, which travels outside the bundle. So the second capture
   // changed nothing git tracks, and carries its refs as annotated tags over
   // commits the base has: the last bundle lists the tag, never the commit. A

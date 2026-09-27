@@ -88,7 +88,8 @@ export const memoryRecordSchema = z.discriminatedUnion("visibility", [
   scopedMemory("workspace", z.null()),
 ]);
 
-/** What a reader must present before any row is selected (94S-155 predicate). */
+/** What a reader must present before any row is selected. */
+// TODO(94S-155): Apply this predicate through the chat-interface policy.
 export const memoryVisibilityQuerySchema = z
   .object({
     workspace_id: workspaceIdSchema,

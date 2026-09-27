@@ -264,7 +264,7 @@ export const nextInputResponseSchema = z.object({
   lease_expires_at: timestampSchema,
   // Nothing more is coming to this attempt: release and exit rather than
   // hold the execution slot. `reason` says why when it is not the attempt's
-  // own drain. Optional so a worker older than 94S-131 still parses it.
+  // own drain. Optional so older workers still parse it.
   draining: z.boolean().optional(),
   reason: z.enum(["BUDGET_EXCEEDED"]).optional(),
 });

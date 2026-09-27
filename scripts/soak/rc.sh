@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The 94S-135 judgement run on one release candidate, as one command:
+# The judgement run on one release candidate, as one command:
 #
 #   scripts/soak/rc.sh <rc-sha>            build, record, campaigns, interrupts, soak
 #   scripts/soak/rc.sh <rc-sha> interrupt  from the interrupt campaign, same run

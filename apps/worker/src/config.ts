@@ -92,7 +92,7 @@ export type WorkerTimeouts = {
   /**
    * Wall-clock budget for one turn, approvals included. Nothing else bounds
    * an engine that stops answering while the heartbeat keeps the lease alive
-   * (94S-242); 94S-131 sets it per installation as `MAX_TURN_SECONDS`.
+   * It is configured per installation as `MAX_TURN_SECONDS`.
    */
   maxTurnMs: number;
   /**
