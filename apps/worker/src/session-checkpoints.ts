@@ -123,9 +123,9 @@ type Bound = {
   runtime: RuntimeFingerprint;
   store: ClaudeSessionStore;
   /** The checkpoint restored from, or the last one this run saw committed. */
-  committed?: BundleChain;
+  committed?: PublishedCheckpoint;
   /** The last one this run published, until the next shows it committed. */
-  published?: BundleChain | undefined;
+  published?: PublishedCheckpoint | undefined;
 };
 
 /** A checkpoint's workspace bundles as its manifest names them (94S-227). */
@@ -134,6 +134,10 @@ type BundleChain = {
   /** Oldest first; the last is the manifest's `bundle`. */
   links: readonly ObjectRef[];
   tips: readonly string[];
+};
+
+type PublishedCheckpoint = BundleChain & {
+  untracked: readonly WorkspaceArtifact[];
 };
 
 /**
@@ -374,10 +378,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
     const manifest = this.#codec.decode(manifestBytes);
     this.#checkManifest(claim, restoring, runtime, manifest);
-    const pinned = (ref: ObjectRef): ObjectRef => {
+    const pinned = <T extends ObjectRef>(ref: T): T => {
       const { version: _stale, ...rest } = ref;
       const version = versions.get(ref.key);
-      return version === undefined ? rest : { ...rest, version };
+      return (version === undefined ? rest : { ...rest, version }) as T;
     };
 
     const store = new ClaudeSessionStore({
@@ -478,6 +482,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           revision: restoring.revision,
           links: [...bases, manifest.workspace.bundle],
           tips: staged.tips,
+          untracked: manifest.workspace.untracked.map(pinned),
         },
       };
       restored = true;
@@ -718,16 +723,16 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   /**
-   * The chain a capture for `revision` may build on: that of the checkpoint
-   * right before it, which finalize holds the new one to, and only while
-   * every bundle of it is still in the store. The server hands out the
-   * revision after the pointer, so one that follows what this run published
-   * last shows that one committed; one that does not, that it was not.
+   * The previous checkpoint a capture for `revision` may build on, which
+   * finalize holds the new one to, and only while every bundle of it is still
+   * in the store. The server hands out the revision after the pointer, so one
+   * that follows what this run published last shows that one committed; one
+   * that does not, that it was not.
    */
-  async #chainBefore(
+  async #checkpointBefore(
     bound: Bound,
     revision: number,
-  ): Promise<BundleChain | undefined> {
+  ): Promise<PublishedCheckpoint | undefined> {
     if (bound.published?.revision === revision - 1) {
       bound.committed = bound.published;
     }
@@ -801,8 +806,8 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         "the workspace .git is not a directory",
       );
     }
-    const chain = await timer.time("chain", () =>
-      this.#chainBefore(bound, request.revision),
+    const previous = await timer.time("chain", () =>
+      this.#checkpointBefore(bound, request.revision),
     );
     const maxBundleBytes = (
       this.#options.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS
@@ -823,14 +828,17 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           ...(bound.instructions === undefined
             ? {}
             : { instructions: bound.instructions }),
-          ...(chain === undefined
+          ...(previous === undefined
             ? {}
             : {
                 base: {
                   maxBytes:
                     maxBundleBytes -
-                    chain.links.reduce((total, link) => total + link.bytes, 0),
-                  tips: chain.tips,
+                    previous.links.reduce(
+                      (total, link) => total + link.bytes,
+                      0,
+                    ),
+                  tips: previous.tips,
                 },
               }),
         }),
@@ -855,16 +863,30 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       await rm(spool, { force: true, recursive: true });
     }
     const { capture } = captured;
-    const bases = capture.bundle.incremental ? (chain?.links ?? []) : [];
+    const bases = capture.bundle.incremental ? (previous?.links ?? []) : [];
 
-    const untracked: WorkspaceArtifact[] = capture.untracked.map((file) => ({
-      ...refOf(`${directory}untracked/${sha256(file.bytes)}`, file.bytes),
-      ...(file.executable ? { executable: true } : {}),
-      path: file.path,
-    }));
+    const previousUntracked = new Map(
+      previous?.untracked.map((file) => [file.path, file]),
+    );
     const distinct = new Map<string, Uint8Array>();
-    capture.untracked.forEach((file, index) => {
-      distinct.set((untracked[index] as WorkspaceArtifact).key, file.bytes);
+    let unchanged = 0;
+    const untracked: WorkspaceArtifact[] = capture.untracked.map((file) => {
+      const digest = sha256(file.bytes);
+      const earlier = previousUntracked.get(file.path);
+      const same =
+        earlier !== undefined &&
+        earlier.bytes === file.bytes.byteLength &&
+        earlier.sha256 === digest &&
+        earlier.executable === (file.executable ? true : undefined);
+      if (same) unchanged += 1;
+      if (same && earlier.version !== undefined) return earlier;
+      const ref: WorkspaceArtifact = {
+        ...refOf(`${directory}untracked/${digest}`, file.bytes),
+        ...(file.executable ? { executable: true } : {}),
+        path: file.path,
+      };
+      distinct.set(ref.key, file.bytes);
+      return ref;
     });
     await timer.time("untracked_upload", () =>
       inBatches([...distinct], UPLOAD_CONCURRENCY, ([key, bytes]) =>
@@ -957,15 +979,24 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       revision: request.revision,
       links: [...bases, manifest.workspace.bundle],
       tips: [
-        ...(bases.length === 0 ? [] : (chain?.tips ?? [])),
+        ...(bases.length === 0 ? [] : (previous?.tips ?? [])),
         ...capture.bundle.tips,
       ],
+      untracked: manifest.workspace.untracked,
     };
     this.#options.logger.info("worker.checkpoint.published", {
       revision: request.revision,
       manifest_ref: manifestRef,
       git_commit: capture.gitCommit,
       untracked: untracked.length,
+      untracked_bytes: capture.untracked.reduce(
+        (total, file) => total + file.bytes.byteLength,
+        0,
+      ),
+      untracked_changed: untracked.length - unchanged,
+      untracked_unchanged: unchanged,
+      untracked_uploads: distinct.size,
+      manifest_bytes: encoded.bytes.byteLength,
       bundle_bytes: bundle.bytes,
       base_bundles: bases.length,
       ...timer.fields(),

@@ -51,6 +51,7 @@ import type {
   WorkspaceCapture,
   WorkspaceCaptureResult,
 } from "./workspace-capture.ts";
+import { captureWorkspace } from "./workspace-capture.ts";
 
 const runtime: RuntimeFingerprint = {
   ...CLAUDE_RUNTIME_FINGERPRINT,
@@ -1066,6 +1067,96 @@ describe("a publish that fails for a reason other than the mirror (94S-312)", ()
   });
 });
 
+describe("unchanged untracked files (94S-476)", () => {
+  test("reuses the previous committed version and reports capture sizes", async () => {
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const putImmutable = objects.putImmutable.bind(objects);
+    const writes: string[] = [];
+    objects.putImmutable = async (key, body, options) => {
+      writes.push(key);
+      return putImmutable(key, body, options);
+    };
+    const notes = new TextEncoder().encode("notes\n");
+    let notesExecutable = false;
+    const h = harness({
+      objects,
+      captureWorkspace: async (input) => {
+        const captured = await captureWorkspace(input);
+        return captured.status === "refused"
+          ? captured
+          : {
+              ...captured,
+              capture: {
+                ...captured.capture,
+                untracked: [
+                  {
+                    bytes: notes,
+                    executable: notesExecutable,
+                    path: "notes.txt",
+                  },
+                ],
+              },
+            };
+      },
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    const turn = { scope: scopeOf(claim), recheck: async () => ready };
+    const manifestOf = async (ref: CheckpointRef | null) => {
+      if (ref === null) {
+        throw new Error(
+          `checkpoint was not published: ${JSON.stringify(h.warnings)}`,
+        );
+      }
+      const bytes = await objects.get(ref.manifest_ref, ref.manifest_version);
+      if (bytes === undefined) throw new Error("manifest missing");
+      return { manifest: claudeCheckpointCodec.decode(bytes), ref };
+    };
+
+    const first = await manifestOf(await h.port.capture(ready, turn));
+    h.gateway.checkpointRevision = first.ref.revision;
+    const second = await manifestOf(await h.port.capture(ready, turn));
+
+    expect(second.manifest.workspace.untracked).toEqual(
+      first.manifest.workspace.untracked,
+    );
+    const secondDirectory = second.ref.manifest_ref.slice(
+      0,
+      second.ref.manifest_ref.lastIndexOf("/") + 1,
+    );
+    expect(
+      writes.filter((key) => key.startsWith(`${secondDirectory}untracked/`)),
+    ).toEqual([]);
+    expect(
+      h.infos.filter(({ event }) => event === "worker.checkpoint.published")[1]
+        ?.fields,
+    ).toMatchObject({
+      manifest_bytes: expect.any(Number),
+      untracked: 1,
+      untracked_bytes: 6,
+      untracked_changed: 0,
+      untracked_unchanged: 1,
+      untracked_uploads: 0,
+    });
+
+    h.gateway.checkpointRevision = second.ref.revision;
+    notesExecutable = true;
+    const third = await manifestOf(await h.port.capture(ready, turn));
+    expect(third.manifest.workspace.untracked).not.toEqual(
+      second.manifest.workspace.untracked,
+    );
+    expect(third.manifest.workspace.untracked[0]?.executable).toBe(true);
+    expect(
+      h.infos.filter(({ event }) => event === "worker.checkpoint.published")[2]
+        ?.fields,
+    ).toMatchObject({
+      untracked_changed: 1,
+      untracked_unchanged: 0,
+      untracked_uploads: 1,
+    });
+  });
+});
+
 /** A gateway whose restore plan is whatever the test says it is. */
 class PlanningGateway extends FakeWorkerGateway {
   constructor(
@@ -1129,6 +1220,21 @@ function planOf(
           label: "root",
           objects: rootTranscript.parts.map(wire),
         },
+        ...(manifest.workspace.untracked.length === 0
+          ? []
+          : [
+              {
+                kind: "workspace_untracked" as const,
+                label: "workspace",
+                objects: manifest.workspace.untracked.map((object) => ({
+                  ...wire(object),
+                  path: object.path,
+                  ...(object.executable === true
+                    ? { executable: true as const }
+                    : {}),
+                })),
+              },
+            ]),
         ...Object.entries(subagents).map(([label, revision]) => ({
           kind: "transcript_subagent" as const,
           label,
