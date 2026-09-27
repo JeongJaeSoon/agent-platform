@@ -189,6 +189,8 @@ type Turn = {
    * after it has a budget of its own (94S-382).
    */
   interruptDeadline?: number;
+  /** Monotonic origin for every stage of this interrupt's diagnostic timeline. */
+  interruptStartedAt?: number;
   /** The input went to the engine: an interrupt can only reach it from here. */
   sent: boolean;
   settled: Promise<Settlement>;
@@ -1131,6 +1133,10 @@ export class WorkerHost {
     turnId: string,
     settlement: Settlement,
   ): Promise<void> {
+    const interruptTurn =
+      this.turn?.turnId === turnId && this.turn.interrupting
+        ? this.turn
+        : undefined;
     // The event tail has to be durable before the turn is declared over: a
     // finalize that overtakes its own events publishes a closed turn whose
     // stream is still arriving. Both waits end with the drain budget, so a
@@ -1155,6 +1161,9 @@ export class WorkerHost {
     try {
       let checkpoint: CheckpointRef | null = null;
       if (settlement.synthetic !== true) {
+        if (interruptTurn !== undefined) {
+          this.logInterruptStage(interruptTurn, "capture_started");
+        }
         const capturing = this.capture(run);
         outstanding = capturing;
         // The heartbeat keeps the lease while a capture runs, so one that
@@ -1174,13 +1183,18 @@ export class WorkerHost {
             // none. Any other turn fails the worker, and its budget above
             // starts the drain that ends the wait.
             interrupted
-              ? this.withinCaptureBudget(capturing, turnId)
+              ? this.withinCaptureBudget(capturing, turnId, interruptTurn)
               : capturing,
           );
         } finally {
           budget?.disarm();
         }
         if (captured === undefined) {
+          if (interruptTurn !== undefined) {
+            this.logInterruptStage(interruptTurn, "capture_finished", {
+              outcome: "abandoned",
+            });
+          }
           capturing.then(
             ({ lease }) => lease?.release(),
             () => {},
@@ -1210,6 +1224,12 @@ export class WorkerHost {
       let terminal: Settlement =
         interrupted && checkpoint === null ? unconfirm() : settlement;
       const finalize = (outcome: Settlement, ref: CheckpointRef | null) => {
+        if (interruptTurn !== undefined) {
+          this.logInterruptStage(interruptTurn, "finalize_started", {
+            checkpoint_present: ref !== null,
+            terminal_status: outcome.status,
+          });
+        }
         const finalizing = this.withRetry(
           () =>
             this.options.gateway
@@ -1238,7 +1258,29 @@ export class WorkerHost {
           () => this.abandonedNow,
         );
         outstanding = finalizing;
-        return this.untilAbandoned(finalizing);
+        return this.untilAbandoned(finalizing).then(
+          (result) => {
+            if (interruptTurn !== undefined) {
+              this.logInterruptStage(interruptTurn, "finalize_finished", {
+                checkpoint_present: ref !== null,
+                outcome: result === undefined ? "abandoned" : "succeeded",
+                terminal_status: outcome.status,
+              });
+            }
+            return result;
+          },
+          (error: unknown) => {
+            if (interruptTurn !== undefined) {
+              this.logInterruptStage(interruptTurn, "finalize_finished", {
+                checkpoint_present: ref !== null,
+                outcome: "failed",
+                reason: describe(error),
+                terminal_status: outcome.status,
+              });
+            }
+            throw error;
+          },
+        );
       };
       let finalized: Awaited<ReturnType<typeof finalize>>;
       try {
@@ -1370,6 +1412,10 @@ export class WorkerHost {
     if (settlement.status !== "interrupted" || settlement.synthetic === true) {
       return;
     }
+    this.logInterruptStage(turn, "engine_terminal", {
+      outcome: "received",
+      terminal_status: settlement.status,
+    });
     this.logger.info("worker.turn.engine_stopped", {
       turn_id: turn.turnId,
       control_id: turn.controlId ?? null,
@@ -1419,6 +1465,8 @@ export class WorkerHost {
     }
     turn.interrupting = true;
     turn.controlId = control.control_id;
+    turn.interruptStartedAt = performance.now();
+    this.logInterruptStage(turn, "control_received");
     this.logger.info("worker.turn.interrupting", {
       turn_id: turn.turnId,
       control_id: control.control_id,
@@ -1443,6 +1491,10 @@ export class WorkerHost {
     turn.timers.push(
       setTimeout(() => {
         if (turn.closed) return;
+        this.logInterruptStage(turn, "engine_terminal", {
+          outcome: "timeout",
+          sdk_response: turn.interruptReceipt ?? "not_sent",
+        });
         // An engine that ignores an interrupt is not handed the next input.
         this.fail(
           `Turn ${turn.turnId} gave no terminal within ${graceMs}ms of its interrupt`,
@@ -1461,12 +1513,20 @@ export class WorkerHost {
 
   private sendInterrupt(run: AgentRun, turn: Turn): void {
     turn.interruptReceipt = "pending";
+    this.logInterruptStage(turn, "sdk_interrupt_called");
     const answered = run.interrupt().then(
       () => {
         turn.interruptReceipt = "acknowledged";
+        this.logInterruptStage(turn, "sdk_interrupt_answered", {
+          outcome: "acknowledged",
+        });
       },
       (error) => {
         turn.interruptReceipt = "refused";
+        this.logInterruptStage(turn, "sdk_interrupt_answered", {
+          outcome: "refused",
+          reason: describe(error),
+        });
         this.logger.warn("worker.interrupt.failed", {
           reason: describe(error),
         });
@@ -1519,22 +1579,54 @@ export class WorkerHost {
   private withinCaptureBudget(
     capturing: Promise<Captured>,
     turnId: string,
+    turn: Turn | undefined,
   ): Promise<Captured> {
     const none: Captured = { lease: null, ref: null };
-    const tolerant = capturing.catch((error: unknown): Captured => {
-      this.logger.warn("worker.checkpoint.failed", {
-        turn_id: turnId,
-        reason: describe(error),
-      });
-      return none;
-    });
+    let finished = false;
+    const tolerant = capturing.then(
+      (captured) => {
+        if (!finished && turn !== undefined) {
+          finished = true;
+          this.logInterruptStage(turn, "capture_finished", {
+            checkpoint_available: captured.ref !== null,
+            outcome: "completed",
+          });
+        }
+        return captured;
+      },
+      (error: unknown): Captured => {
+        if (!finished && turn !== undefined) {
+          finished = true;
+          this.logInterruptStage(turn, "capture_finished", {
+            outcome: "failed",
+            reason: describe(error),
+          });
+        }
+        this.logger.warn("worker.checkpoint.failed", {
+          session_id: this.scope.session_id,
+          turn_id: turnId,
+          control_id: turn?.controlId ?? null,
+          reason: describe(error),
+        });
+        return none;
+      },
+    );
     const budgetMs =
       this.options.timeouts.interruptCaptureMs ?? INTERRUPT_CAPTURE_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<Captured>((resolve) => {
       timer = setTimeout(() => {
+        if (!finished && turn !== undefined) {
+          finished = true;
+          this.logInterruptStage(turn, "capture_finished", {
+            budget_ms: budgetMs,
+            outcome: "timeout",
+          });
+        }
         this.logger.warn("worker.checkpoint.late", {
+          session_id: this.scope.session_id,
           turn_id: turnId,
+          control_id: turn?.controlId ?? null,
           budget_ms: budgetMs,
         });
         tolerant.then(({ lease }) => lease?.release());
@@ -1546,6 +1638,24 @@ export class WorkerHost {
 
   private interruptGraceMs(): number {
     return this.options.timeouts.interruptGraceMs ?? INTERRUPT_GRACE_MS;
+  }
+
+  private logInterruptStage(
+    turn: Turn,
+    stage: string,
+    fields: Record<string, unknown> = {},
+  ): void {
+    this.logger.info("worker.turn.interrupt.stage", {
+      ...fields,
+      session_id: this.scope.session_id,
+      turn_id: turn.turnId,
+      control_id: turn.controlId ?? null,
+      stage,
+      elapsed_ms:
+        turn.interruptStartedAt === undefined
+          ? null
+          : Math.round(performance.now() - turn.interruptStartedAt),
+    });
   }
 
   /**

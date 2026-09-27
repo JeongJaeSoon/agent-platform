@@ -93,6 +93,7 @@ function harness(
   overrides: {
     checkpoints?: WorkerCheckpointPort;
     gateway?: FakeWorkerGateway;
+    logger?: WorkerLogger;
     timeouts?: Partial<WorkerTimeouts>;
     wrap?: (run: AgentRun) => AgentRun;
   } = {},
@@ -128,7 +129,7 @@ function harness(
     checkpoints: overrides.checkpoints ?? capturing(),
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
-    logger: silent,
+    logger: overrides.logger ?? silent,
     runtimes,
     timeouts: { ...timeouts, ...overrides.timeouts },
     workspace: noWorkspace,
@@ -173,6 +174,48 @@ const TWO_TURNS: FakeStep[] = [
 ];
 
 describe("WorkerHost interrupt", () => {
+  test("records a correlated timeline from control receipt through finalize", async () => {
+    const records: Array<{ event: string; fields: Record<string, unknown> }> =
+      [];
+    const record = (event: string, fields: Record<string, unknown> = {}) => {
+      records.push({ event, fields });
+    };
+    const logger: WorkerLogger = {
+      info: record,
+      warn: record,
+      error: record,
+    };
+    const { gateway, host, runtime } = harness(TWO_TURNS, { logger });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    await loop;
+
+    const stages = records
+      .filter(({ event }) => event === "worker.turn.interrupt.stage")
+      .map(({ fields }) => fields);
+    expect(stages.map(({ stage }) => stage)).toEqual([
+      "control_received",
+      "sdk_interrupt_called",
+      "sdk_interrupt_answered",
+      "engine_terminal",
+      "capture_started",
+      "capture_finished",
+      "finalize_started",
+      "finalize_finished",
+    ]);
+    for (const stage of stages) {
+      expect(stage).toMatchObject({
+        session_id: SESSION_ID,
+        turn_id: "1",
+        control_id: "ctl-1",
+      });
+      expect(stage.elapsed_ms).toBeNumber();
+    }
+  });
+
   test("stops only the targeted turn within 5s, with a checkpoint, and runs the next input on the same engine", async () => {
     const checkpoints = capturing();
     // Production cadences: the heartbeat alone would take 10s to say anything.
