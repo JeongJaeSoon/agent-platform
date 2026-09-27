@@ -34,6 +34,16 @@ wait_for() {
   curl -sS "$API$1" "${AUTH[@]}" >&2
   return 1
 }
+wait_for_pending() {
+  for _ in $(seq 1 180); do
+    pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+    [ "$(echo "$pending" | jq -r '.items[0].kind // empty')" = "$1" ] && return 0
+    sleep 1
+  done
+  echo "timed out: pending request kind != $1" >&2
+  echo "$pending" >&2
+  return 1
+}
 revision() {
   curl -sS "$API/v1/sessions/$SID" "${AUTH[@]}" | jq .revision
 }
@@ -74,11 +84,10 @@ OpenAPI: [`listPendingRequests`](api/index.html), [`answerPendingRequest`](api/i
 
 **목적.** worker가 기다리는 도구 승인과 `AskUserQuestion`을 같은 pending-requests 흐름으로 처리한다.
 
-**순서.** 세션이 `needs_input`이 될 때까지 기다리고 목록에서 `request_id`를 읽는다. 권한 요청은 `decision`, 질문 요청은 각 `question_id`의 `selected_option_ids` 또는 `free_text`로 답한다. 응답은 202 receipt이므로 receipt와 turn을 다시 조회한다.
+**순서.** 원하는 종류의 pending request가 목록에 나타날 때까지 기다리고 `request_id`를 읽는다. 권한 요청은 `decision`, 질문 요청은 각 `question_id`의 `selected_option_ids` 또는 `free_text`로 답한다. 응답은 202 receipt이므로 receipt와 turn을 다시 조회한다.
 
 ```bash
-wait_for "/v1/sessions/$SID" .status needs_input
-pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+wait_for_pending permission
 echo "$pending" | jq -e '.items[0].kind == "permission"'
 PERMISSION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
 
@@ -95,8 +104,7 @@ question_message=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-question","steps
   '{message:$message}')
 curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data "$question_message" | jq -e '.turn_id == "2"'
-wait_for "/v1/sessions/$SID" .status needs_input
-pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+wait_for_pending question
 echo "$pending" | jq -e '.items[0].kind == "question"'
 QUESTION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
 QUESTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].question_id')
