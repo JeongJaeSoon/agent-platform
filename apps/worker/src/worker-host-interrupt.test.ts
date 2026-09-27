@@ -583,6 +583,46 @@ describe("WorkerHost interrupt", () => {
     expect(runtime.inputs).toHaveLength(1);
   });
 
+  test("an SDK answer after the grace is recorded as late", async () => {
+    const records: Array<{ event: string; fields: Record<string, unknown> }> =
+      [];
+    const record = (event: string, fields: Record<string, unknown> = {}) => {
+      records.push({ event, fields });
+    };
+    const { gateway, host, runtime } = harness(TWO_TURNS, {
+      logger: { info: record, warn: record, error: record },
+      timeouts: { interruptGraceMs: 20 },
+      wrap: withInterrupt(async () => {
+        await Bun.sleep(60);
+        return { stillQueued: [] };
+      }),
+    });
+    gateway.enqueue("long task");
+    const loop = host.runLoop();
+    await waitFor(() => runtime.inputs.length === 1, "turn 1 delivered");
+    gateway.interrupt("1");
+
+    await loop;
+    await Bun.sleep(60);
+
+    const stages = records
+      .filter(({ event }) => event === "worker.turn.interrupt.stage")
+      .map(({ fields }) => fields);
+    expect(stages.map(({ stage }) => stage)).toEqual([
+      "control_received",
+      "sdk_interrupt_called",
+      "engine_terminal",
+      "finalize_started",
+      "finalize_finished",
+      "late_sdk_interrupt_answered",
+    ]);
+    expect(stages[2]).toMatchObject({
+      outcome: "timeout",
+      sdk_response: "pending",
+    });
+    expect(stages[5]).toMatchObject({ outcome: "acknowledged" });
+  });
+
   test("an intent handed out on every poll interrupts the turn once", async () => {
     let calls = 0;
     const { gateway, host, runtime } = harness(TWO_TURNS, {

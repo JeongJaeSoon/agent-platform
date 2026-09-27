@@ -1544,16 +1544,26 @@ export class WorkerHost {
     const answered = run.interrupt().then(
       () => {
         turn.interruptReceipt = "acknowledged";
-        this.logInterruptStage(turn, "sdk_interrupt_answered", {
-          outcome: "acknowledged",
-        });
+        this.logInterruptStage(
+          turn,
+          turn.closed
+            ? "late_sdk_interrupt_answered"
+            : "sdk_interrupt_answered",
+          { outcome: "acknowledged" },
+        );
       },
       (error) => {
         turn.interruptReceipt = "refused";
-        this.logInterruptStage(turn, "sdk_interrupt_answered", {
-          outcome: "refused",
-          reason: describe(error),
-        });
+        this.logInterruptStage(
+          turn,
+          turn.closed
+            ? "late_sdk_interrupt_answered"
+            : "sdk_interrupt_answered",
+          {
+            outcome: "refused",
+            reason: describe(error),
+          },
+        );
         this.logger.warn("worker.interrupt.failed", {
           reason: describe(error),
         });
