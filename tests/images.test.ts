@@ -757,7 +757,13 @@ describe("compose layers", () => {
       requests: {
         data: {
           id: string;
-          attributes: { group_by?: { path: string; tag_name?: string }[] };
+          attributes: {
+            compute: {
+              aggregation_type: string;
+              include_percentiles?: boolean;
+            };
+            group_by?: { path: string; tag_name?: string }[];
+          };
         };
       }[];
     };
@@ -777,6 +783,18 @@ describe("compose layers", () => {
         "agent_platform.terminate.acceptance.duration_ms",
       ]),
     );
+    for (const id of [
+      "agent_platform.checkpoint.capture.duration_ms",
+      "agent_platform.terminate.acceptance.duration_ms",
+    ]) {
+      expect(
+        metricDefinitions.requests.find(({ data }) => data.id === id)?.data
+          .attributes.compute,
+      ).toMatchObject({
+        aggregation_type: "distribution",
+        include_percentiles: true,
+      });
+    }
     const facets = definitions[1] as {
       excluded_high_cardinality_attributes: string[];
     };

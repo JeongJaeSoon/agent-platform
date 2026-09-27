@@ -37,6 +37,7 @@
         "attributes": {
           "compute": {
             "aggregation_type": "distribution",
+            "include_percentiles": true,
             "path": "@fields.total_ms"
           },
           "filter": { "query": "@event:worker.checkpoint.published" },
@@ -122,6 +123,7 @@
         "attributes": {
           "compute": {
             "aggregation_type": "distribution",
+            "include_percentiles": true,
             "path": "@fields.duration_ms"
           },
           "filter": {
