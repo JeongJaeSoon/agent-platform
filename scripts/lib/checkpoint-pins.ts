@@ -60,6 +60,18 @@ export class CheckpointPinError extends Error {
   }
 }
 
+function recordCheckpointPinProblem(
+  problems: string[],
+  owner: string,
+  error: unknown,
+) {
+  if (error instanceof CheckpointPinError) {
+    problems.push(...error.problems.map((problem) => `${owner}: ${problem}`));
+  } else {
+    problems.push(`${owner}: ${(error as Error).message}`);
+  }
+}
+
 /**
  * What a worker image stamps a checkpoint with (verify-restore.sh --image):
  * its engine build, and the profile digest its own code computes from each
@@ -414,13 +426,7 @@ export async function captureCheckpointObjects(input: {
         await keep(ref.key, content);
       }
     } catch (error) {
-      if (error instanceof CheckpointPinError) {
-        problems.push(
-          ...error.problems.map((problem) => `${owner}: ${problem}`),
-        );
-      } else {
-        problems.push(`${owner}: ${(error as Error).message}`);
-      }
+      recordCheckpointPinProblem(problems, owner, error);
     }
   }
   checkManifestKeysArePrivate(manifests, pinnedRefs, problems);
@@ -584,13 +590,7 @@ export async function planRepin(input: {
         row,
       });
     } catch (error) {
-      if (error instanceof CheckpointPinError) {
-        problems.push(
-          ...error.problems.map((problem) => `${owner}: ${problem}`),
-        );
-      } else {
-        problems.push(`${owner}: ${(error as Error).message}`);
-      }
+      recordCheckpointPinProblem(problems, owner, error);
     }
   }
   checkManifestKeysArePrivate(manifests, pinnedRefs, problems);
