@@ -332,7 +332,7 @@ integration("turn interrupts on PostgreSQL", () => {
         fields: expect.objectContaining({
           operation: "interrupt",
           outcome: "interrupted",
-          reason_code: "none",
+          reason_code: "interrupted",
           control_id: handed.control?.control_id,
           duration_ms: expect.any(Number),
           effect_ms: expect.any(Number),
