@@ -17,13 +17,6 @@ import {
   MAX_TURN_COST_USD,
   TURN_BUDGET_EXCEEDED_REASON,
 } from "@agent-platform/contracts";
-import {
-  LOG_LEVELS,
-  type LogLevel,
-  resolveLogLevel,
-  sanitizeFields,
-  sanitizeText,
-} from "@agent-platform/observability";
 import { endedByAbort } from "@agent-platform/runtime-claude";
 import {
   type AgentRun,
@@ -41,6 +34,7 @@ import {
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
+import { consoleLogger } from "./console-logger.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import { Heartbeat } from "./heartbeat.ts";
@@ -2363,41 +2357,3 @@ function releaseReason(error: unknown): string {
   }
   return describe(error);
 }
-
-/**
- * One JSON object per line: `timestamp`, `level`, `event`, then the fields,
- * masked by the platform's log rules. Keys that name a message
- * body are kept: the worker logs no bodies, and the rule would drop
- * `input_id`.
- */
-export function createConsoleLogger(
-  options: {
-    level?: string;
-    now?: () => Date;
-    write?: (line: string) => void;
-  } = {},
-): WorkerLogger {
-  const threshold = LOG_LEVELS.indexOf(resolveLogLevel(options.level));
-  const now = options.now ?? (() => new Date());
-  const write = options.write ?? ((line: string) => console.log(line));
-  const emit =
-    (level: LogLevel) =>
-    (event: string, fields?: Record<string, unknown>): void => {
-      if (LOG_LEVELS.indexOf(level) < threshold) return;
-      const head = {
-        timestamp: now().toISOString(),
-        level,
-        event: sanitizeText(event),
-      };
-      // Assigned again after the fields, so a field named `level` or
-      // `event` cannot replace the record's own.
-      write(
-        JSON.stringify(
-          Object.assign({ ...head }, sanitizeFields(fields ?? {}, true), head),
-        ),
-      );
-    };
-  return { info: emit("info"), warn: emit("warn"), error: emit("error") };
-}
-
-export const consoleLogger: WorkerLogger = createConsoleLogger();

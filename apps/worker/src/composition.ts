@@ -19,13 +19,13 @@ import type {
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig } from "./config.ts";
+import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
 import {
-  consoleLogger,
   type RuntimeLaunch,
   type RuntimeLauncher,
   type RuntimeRegistry,
