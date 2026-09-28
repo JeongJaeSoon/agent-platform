@@ -5,8 +5,7 @@ export {
   CLAUDE_CODE_VERSION,
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
-  claudeProfileFingerprint,
-} from "./checkpoint-codec.ts";
+} from "@agent-platform/runtime-claude-codec";
 export type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 export {
   FakeAgentRuntime,
@@ -15,6 +14,7 @@ export {
 } from "./fake-adapter.ts";
 export { pendingRequestEvent } from "./mapper.ts";
 export { runtimeEnvironment } from "./profile.ts";
+export { claudeProfileFingerprint } from "./profile-fingerprint.ts";
 export { endedByAbort } from "./run.ts";
 export { ClaudeSdkRuntime, type RuntimeProcessObserver } from "./runtime.ts";
 export { ClaudeSessionStore, TranscriptTooLarge } from "./session-store.ts";
