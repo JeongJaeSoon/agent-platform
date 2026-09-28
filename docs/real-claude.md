@@ -98,9 +98,9 @@ echo "$created" | jq .
 SID=$(echo "$created" | jq -r .session_id)
 ```
 
-파일을 바꾸려 하면 권한 요청(`kind: "permission"`)이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 허용한다. 요청은 한 번에 하나씩 온다. 위 요청이면 `Write`(hello.py) → `Edit`(README.md) → `Bash`(`git add … && git commit …`) 순으로 세 번 온다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
+파일을 바꾸려 하면 권한 요청(`kind: "permission"`)이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 허용한다. 2026-09-29 실측에서는 `Write`(hello.py), `Edit`(README.md), `Bash`(`git add … && git commit …`) 권한 요청 세 개가 이 순서로 한 번에 하나씩 왔다. 모델이 생성하는 도구 요청에 따라 개수와 순서가 달라질 수 있고 여러 권한 요청이 동시에 대기할 수도 있다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
 
-아래 `allow_until_done`은 turn이 끝날(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`) 때까지 3초마다 보고, 세션이 `needs_input`이면 첫 권한 요청을 출력한 뒤 허용한다. turn 제한과 같은 10분(200번)이 지나면 멈춘다. 허용하기 전에 보려면 이 루프 대신 quickstart ③·④의 명령을 한 번씩 되풀이한다.
+아래 `allow_until_done`은 turn이 끝날(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`) 때까지 3초마다 보고, 세션이 `needs_input`이면 첫 권한 요청을 출력한 뒤 허용한다. 동시에 여러 요청이 대기하면 한 회차에 첫 요청 하나를 답하고, 남은 요청으로 세션이 `needs_input`인 동안 다음 회차를 계속한다. turn 제한과 같은 10분(200번)이 지나면 멈춘다. 허용하기 전에 보려면 이 루프 대신 quickstart ③·④의 명령을 한 번씩 되풀이한다.
 
 ```sh
 allow_until_done() {
@@ -127,7 +127,7 @@ allow_until_done 1
 
 대화 흐름을 보려면 다른 터미널에서 이벤트 스트림을 연다(Ctrl-C로 닫는다): `curl -sSN "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY"`.
 
-커밋 작성자는 워커 이미지의 기본값 `agent-platform <noreply@agent-platform.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. Claude는 worker의 작업 트리에서 커밋만 하고 push하지 않으므로 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `Initial commit`만 남는다. 커밋은 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다. Gitea에서 보려면 요청에 push까지 적어야 한다.
+커밋 작성자는 워커 이미지의 기본값 `agent-platform <noreply@agent-platform.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. worker에서는 push를 지원하지 않으므로 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `Initial commit`만 남는다. 커밋은 worker의 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다.
 
 **4. pause → resume 뒤 이어서 대화.** turn이 끝나 세션이 `idle`이 되면 quickstart ⑦·⑧과 같이 멈췄다 되살린다. 새 worker가 checkpoint에서 저장소와 Claude Code 세션을 복원하므로 앞의 대화를 기억한다.
 
@@ -142,10 +142,10 @@ wait_for "/v1/sessions/$SID/turns/2" .status completed
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
   >/tmp/real-claude-events.txt || true
 sed -n 's/^data: *//p' /tmp/real-claude-events.txt |
-  jq -r 'select(.turn_id == "2" and .data.type == "assistant") | .data.message.content[] | select(.type == "text") | .text'
+  jq -r 'select(.turn_id == "2" and .data.type == "assistant") | .data.message.content[]? | select(.type == "text") | .text'
 ```
 
-turn 조회 결과(`result`)에는 답 문장이 없다. 답은 이벤트 스트림의 `assistant` 이벤트에 있으므로, 마지막 두 줄이 스트림을 처음부터 읽어 turn 2의 text만 뽑는다(`curl: (28)`은 quickstart ②와 같이 정상이다). 실측에서는 커밋 hash와 `print("안녕하세요!")`가 나왔다.
+turn 조회 결과(`result`)에는 답 문장이 없다. 답은 이벤트 스트림의 `assistant` 이벤트에 있으므로, 마지막 두 줄이 스트림을 처음부터 읽어 turn 2의 text만 뽑는다(`curl: (28)`은 quickstart ②와 같이 정상이다). 이 식은 Claude adapter의 native message shape을 읽으며 public contract는 `message` 내부 구조를 고정하지 않는다. 실측에서는 커밋 hash와 `print("안녕하세요!")`가 나왔다.
 
 후속 메시지는 모두 `post "/v1/sessions/$SID/messages" "$(say '…')"`로 보낸다. 응답의 `turn_id`로 위 두 줄의 `2`를 바꾸고, 권한 요청이 오는 요청이면 `wait_for` 대신 `allow_until_done <turn_id>`를 쓴다. 지금까지 든 비용은 `get "/v1/sessions/$SID/usage" | jq .`로 본다.
 
