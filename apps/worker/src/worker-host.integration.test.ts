@@ -17,7 +17,7 @@ import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
-import { FakeWorkerGateway } from "./fake-gateway.ts";
+import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import {
   inputUuid,
   type RuntimeRegistry,

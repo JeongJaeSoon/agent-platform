@@ -45,11 +45,11 @@ import type {
   WorkerTimeouts,
 } from "../apps/worker/src/config.ts";
 import { EngineProcesses } from "../apps/worker/src/engine-processes.ts";
+import { SessionCheckpoints } from "../apps/worker/src/session-checkpoints.ts";
 import {
   type FakeCheckpointProtocol,
   FakeWorkerGateway,
-} from "../apps/worker/src/fake-gateway.ts";
-import { SessionCheckpoints } from "../apps/worker/src/session-checkpoints.ts";
+} from "../apps/worker/src/testing/fake-gateway.ts";
 import {
   WorkerHost,
   type WorkerLogger,

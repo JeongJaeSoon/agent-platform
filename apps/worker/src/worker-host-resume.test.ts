@@ -13,7 +13,7 @@ import {
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
-import { FakeWorkerGateway } from "./fake-gateway.ts";
+import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import {
   inputUuid,
   type RuntimeRegistry,

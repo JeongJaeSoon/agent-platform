@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { createConsoleLogger } from "./console-logger.ts";
 import { SecretScrubber, scrubbingLogger } from "./secret-scrubber.ts";
-import { createConsoleLogger } from "./worker-host.ts";
 
 const NOW = new Date("2026-09-25T00:00:00.000Z");
 

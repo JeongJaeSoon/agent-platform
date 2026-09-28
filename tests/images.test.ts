@@ -89,6 +89,11 @@ describe("app Dockerfiles", () => {
     expect(dockerignore).toContain("!docs/api/scalar.js");
   });
 
+  test("test helpers under an app's src/testing stay out of every image", () => {
+    const ignored = read(".dockerignore").split("\n");
+    expect(ignored).toContain("apps/*/src/testing");
+  });
+
   test("the egress proxy image copies only its own code, which needs no install", () => {
     // The Dockerfile has no `bun install`; a dependency added to the proxy
     // must add one (and the deps stage the other apps have) with it.

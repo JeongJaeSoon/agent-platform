@@ -41,11 +41,11 @@ import {
 } from "@agent-platform/testkit/checkpoint-objects";
 
 import { stageCheckpointBundle } from "./checkpoint-restore.ts";
+import { RestoreRefused, SessionCheckpoints } from "./session-checkpoints.ts";
 import {
   FakeWorkerGateway,
   type FakeWorkerGatewayOptions,
-} from "./fake-gateway.ts";
-import { RestoreRefused, SessionCheckpoints } from "./session-checkpoints.ts";
+} from "./testing/fake-gateway.ts";
 import type { WorkerLogger } from "./worker-host.ts";
 import type {
   WorkspaceCapture,

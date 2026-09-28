@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { inputUuid } from "@agent-platform/worker";
 import type { Pool } from "pg";
+import { inputUuid } from "../../apps/worker/src/worker-host.ts";
 import {
   Bucket,
   Chaos,

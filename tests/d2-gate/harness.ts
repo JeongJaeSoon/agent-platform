@@ -703,7 +703,7 @@ export class Workers {
 
   /**
    * The worker's structured log: one `{timestamp, level, event, ...fields}`
-   * object per line (apps/worker/src/worker-host.ts `createConsoleLogger`).
+   * object per line (apps/worker/src/console-logger.ts `createConsoleLogger`).
    */
   async events(name: string): Promise<WorkerEvent[]> {
     const file = this.follow(name);
