@@ -32,7 +32,6 @@ SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. CI `spikes` job�
 bun install --cwd spikes/94s-91 --frozen-lockfile
 uv tool install 'litellm[proxy]==1.100.1'
 bun run --cwd spikes/94s-91 probe:version
-bun run --cwd spikes/94s-91 probe:smoke
 bun run --cwd spikes/94s-91 check
 ```
 
@@ -93,6 +92,8 @@ public API는 다음 8종만 노출한다.
 | `error` | assistant error 또는 mirror error | 안정적인 code와 비민감 message |
 
 native init의 cwd, tool inventory, backend error detail은 공개하지 않는다. `stream_event` partial frame은 native envelope에만 보존하고, 안정적인 public event로 직접 투영하지 않는다.
+
+이 투영은 이 harness가 아니라 제품 코드에서 검증한다. 구현은 `packages/adapters/runtimes/claude/src/mapper.ts`(unit 테스트 `mapper.test.ts`)이고, 실제 SDK 왕복은 같은 디렉터리의 `runtime.integration.test.ts`가 확인한다.
 
 ## LiteLLM 실제 proxy 계약
 

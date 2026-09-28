@@ -58,7 +58,7 @@
 - 앱끼리는 import하지 않는다. control host는 실행물 하나에 role 셋이고, Docker backend에 닿는 것은 scheduler role뿐이다. worker 컨테이너에는 Docker socket도 host bind mount도 없다.
 - worker는 runtime-core·Claude adapter·contracts·storage·system·observability만 import하고, storage는 worker의 object store 모듈 하나만 import한다.
 - DNS 조회와 git 실행 도구는 `packages/system`에 있고 runtime-core에는 없다. checkpoint 상한은 worker와 platform이 따로 선언하지 않고 runtime-core에서 가져온다.
-- Claude adapter의 진입점은 export할 심볼을 이름으로 적고(`export *` 없음), worker 진입점은 다른 패키지를 재수출하지 않는다. `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
+- Claude adapter의 진입점은 export할 심볼을 이름으로 적는다(`export *` 없음). `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
 - `/v1` route는 DB-backed 오류와 row를 platform port(`InvalidCursorError`, `IdentityStore`)로만 알고, db 구현을 직접 import하지 않는다.
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
 

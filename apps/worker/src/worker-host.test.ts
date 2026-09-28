@@ -23,7 +23,7 @@ import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
-import { FakeWorkerGateway } from "./fake-gateway.ts";
+import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import {
   inputUuid,
   type RuntimeRegistry,

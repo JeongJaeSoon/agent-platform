@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { inputUuid } from "@agent-platform/worker";
 import type { Pool } from "pg";
+import { inputUuid } from "../../apps/worker/src/worker-host.ts";
 import {
   Bucket,
   Chaos,
@@ -21,7 +21,7 @@ import {
   Workers,
   waitFor,
   write,
-} from "./d2-gate/harness.ts";
+} from "./harness.ts";
 
 /**
  * The D2 completion gate: the product stack built from this

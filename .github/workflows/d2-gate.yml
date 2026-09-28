@@ -24,7 +24,6 @@ on:
       - .github/workflows/ci.yml
       - .github/workflows/d2-gate.yml
       - scripts/d2-gate/**
-      - tests/d2-gate.e2e.test.ts
       - tests/d2-gate/**
 
 permissions:

@@ -33,7 +33,7 @@ export function verdicts(workflow: string, reports: string[]): Verdict[] {
     .flatMap((job) => job.skips)
     .filter(
       ({ file, test }) =>
-        file.startsWith("tests/d2-gate") && test !== "(unnamed)",
+        file.startsWith("tests/d2-gate/") && test !== "(unnamed)",
     )
     .map(({ file, test }) => ({
       file,

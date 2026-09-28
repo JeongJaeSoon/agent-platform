@@ -635,21 +635,12 @@ describe("architecture", () => {
     expect(importing).toEqual([]);
   });
 
-  test("the Claude adapter names each export and the worker re-exports no package", async () => {
+  test("the Claude adapter names each export", async () => {
     const adapterEntry = await readFile(
       join(root, claudeAdapter, "src", "index.ts"),
       "utf8",
     );
     expect(adapterEntry).not.toMatch(/export (type )?\*/);
-    const workerEntry = await readFile(
-      join(root, worker, "src", "index.ts"),
-      "utf8",
-    );
-    const reexported = [...workerEntry.matchAll(importPattern)].map(
-      specifierOf,
-    );
-    expect(reexported.length).toBeGreaterThan(0);
-    expect(reexported.filter((s) => !s.startsWith("./"))).toEqual([]);
   });
 
   test("operational scripts take the checkpoint codec from the SDK-free package", async () => {

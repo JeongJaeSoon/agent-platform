@@ -241,7 +241,7 @@ jobs:
               - tests/architecture.
               - tests/ci-images.
               - tests/ci-services.
-              - tests/d2-gate
+              - tests/d2-gate/
               - tests/docs-links.
               - tests/e2e/real-model.
               - tests/soak/
@@ -256,17 +256,17 @@ jobs:
               # The D2 gate needs the whole compose stack and the
               # images built from the checkout; scripts/d2-gate/run.sh runs it.
               # (unnamed) is its beforeAll/afterAll.
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "(unnamed)"
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "A: two turns on one engine, checkpoint, restore onto a clean worker"
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "B: a publish that fails at the manifest is never promoted"
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "C: a transcript mirror error blocks the checkpoint and new input"
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "D: a worker that loses its lease mid-turn promotes nothing"
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "E: an accepted interrupt stops its turn, however early it lands"
               # sweep on the same stack; run against a stack kept by
               # D2_GATE_UP_ONLY=1 scripts/d2-gate/run.sh.
@@ -367,9 +367,6 @@ jobs:
           mapfile -t files <<<"$files"
           bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml" "${files[@]}"
           bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
-      # Not a *.test.ts file, so `bun test` never picks it up on its own.
-      - if: matrix.domain == 'api'
-        run: bun test ./apps/control-host/src/api/server.integration.ts
       # Whatever the suites pulled, by whatever path: none of it from Docker
       # Hub. Also after a failure — such a pull is worth knowing about anyway.
       - if: '!cancelled()'
@@ -647,8 +644,8 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-      # Both spikes typecheck across ../../packages/contracts, so they need the
-      # root workspace installed as well as their own lockfile.
+      # The 94s-91 harness imports packages/testkit by relative path, so it needs
+      # the root workspace installed as well as its own lockfile.
       - run: bun install --frozen-lockfile
       - run: bun install --cwd spikes/94s-91 --frozen-lockfile
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile

@@ -107,8 +107,8 @@ export async function issueApiKey(
   return { keyId, plaintext };
 }
 
-const USAGE = `Usage: bun run src/keys.ts create <owner_id> --scopes <scope>[,<scope>...]
-       bun run src/keys.ts revoke <key_id>
+const USAGE = `Usage: bun run apps/control-host/src/api/keys.ts create <owner_id> --scopes <scope>[,<scope>...]
+       bun run apps/control-host/src/api/keys.ts revoke <key_id>
 Scopes: ${SESSION_SCOPE_VALUES.join(", ")}`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

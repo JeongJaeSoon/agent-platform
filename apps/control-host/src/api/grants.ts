@@ -13,8 +13,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 // The operator's execution Grant command. Alpha has no Grant
 // management API or UI (architecture.md 실행 권한 회수와 API key 회수), so
 // this runs where keys.ts runs: inside the API image, against its database.
-const USAGE = `Usage: bun run src/grants.ts revoke <session_id> --reason <text>
-       bun run src/grants.ts restore <session_id> --reason <text>`;
+const USAGE = `Usage: bun run apps/control-host/src/api/grants.ts revoke <session_id> --reason <text>
+       bun run apps/control-host/src/api/grants.ts restore <session_id> --reason <text>`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

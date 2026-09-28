@@ -44,16 +44,16 @@ import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
 } from "@agent-platform/testkit/workspace";
-import {
-  claimSecrets,
-  engineProfile,
-  GitWorkspace,
-  SecretScrubber,
-} from "@agent-platform/worker";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
+import { engineProfile } from "../apps/worker/src/composition.ts";
+import {
+  claimSecrets,
+  SecretScrubber,
+} from "../apps/worker/src/secret-scrubber.ts";
+import { GitWorkspace } from "../apps/worker/src/workspace.ts";
 
 /**
  * Credential routes end to end in one process: the real gateway issues a claim,
