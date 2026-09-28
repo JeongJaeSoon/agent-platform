@@ -65,5 +65,4 @@ soak 도구는 2026-09-27에 종료한 94S-135 판정의 재현·조사용으로
 | `tests/e2e/db-restart.sh` | Postgres가 새 주소로 재시작한 뒤 API가 따라붙는지(`/readyz`, 요청 pool, 이벤트 listener) | 없음 | 스크립트 머리 주석 |
 | `scripts/d2-gate/run.sh` | D2 gate(94S-247의 A–E, 94S-320의 R1–R2, 94S-117의 H1–H5) | `D2 gate` workflow(nightly, required 아님) | [ci.md § D2 gate](ci.md#d2-gate-nightly-94s-404) |
 | `scripts/soak/rc.sh <rc-sha>` | 과거 RC 판정 흐름 재현: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |
-| `bun scripts/soak/p2-phase.ts <out-dir> <rc.json>` | 과거 RC4용 P-2 위상 보완 측정 도구 | 없음 | [과거 soak 결과](soak.md) |
 | `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | 과거 soak 스택이나 campaign을 재현한다 | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |

@@ -645,8 +645,8 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-      # Both spikes typecheck across ../../packages/contracts, so they need the
-      # root workspace installed as well as their own lockfile.
+      # The 94s-91 harness imports packages/testkit by relative path, so it needs
+      # the root workspace installed as well as its own lockfile.
       - run: bun install --frozen-lockfile
       - run: bun install --cwd spikes/94s-91 --frozen-lockfile
       - run: bun install --cwd spikes/94s-92 --frozen-lockfile
