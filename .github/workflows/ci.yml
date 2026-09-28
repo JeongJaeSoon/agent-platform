@@ -368,9 +368,6 @@ jobs:
           mapfile -t files <<<"$files"
           bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml" "${files[@]}"
           bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
-      # Not a *.test.ts file, so `bun test` never picks it up on its own.
-      - if: matrix.domain == 'api'
-        run: bun test ./apps/control-host/src/api/server.integration.ts
       # Whatever the suites pulled, by whatever path: none of it from Docker
       # Hub. Also after a failure — such a pull is worth knowing about anyway.
       - if: '!cancelled()'

@@ -25,11 +25,6 @@ bun run --cwd packages/adapters/runtimes/claude test:direct-local
 bun test spikes/94s-91/src/litellm-transport.test.ts
 ```
 
-```bash
-QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-  bun test ./apps/control-host/src/api/server.integration.ts
-```
-
 terminate 수락 지연은 PostgreSQL 임시 DB에서 동시 세션 10개(terminate 5개와 pause 5개)를 섞어 재현한다. 기본 20라운드의 terminate 100표본에서 nearest-rank p95가 500ms를 넘으면 실패하며, 결과에는 단계별 p95도 함께 나온다. `BENCH_ROUNDS`는 표본을 더 모을 때만 늘린다.
 
 ```bash
