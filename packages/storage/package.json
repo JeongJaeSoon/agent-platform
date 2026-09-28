@@ -15,9 +15,7 @@
     "@smithy/types": "^4.18.0"
   },
   "scripts": {
-    "benchmark:localstack": "bun run src/benchmark.ts",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test src"
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@agent-platform/testkit": "workspace:*"
