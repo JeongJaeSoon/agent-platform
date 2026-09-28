@@ -5,6 +5,7 @@ import {
   sanitizeFields,
   sanitizeText,
 } from "@agent-platform/observability";
+
 import type { WorkerLogger } from "./worker-host.ts";
 
 /**

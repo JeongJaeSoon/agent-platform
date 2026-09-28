@@ -16,6 +16,7 @@ import {
   type PermissionRequest,
   WorkerGatewayRequestError,
 } from "@agent-platform/runtime-core";
+
 import {
   PendingRequestRegistry,
   type PendingRequestsOptions,

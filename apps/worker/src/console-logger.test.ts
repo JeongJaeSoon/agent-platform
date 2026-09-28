@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { createConsoleLogger } from "./console-logger.ts";
 import { SecretScrubber, scrubbingLogger } from "./secret-scrubber.ts";
 
