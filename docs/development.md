@@ -17,7 +17,7 @@ bun run check
 
 `bun test`는 루트 `bunfig.toml`의 preload로 `packages/db/src/pglite-release.ts`를 먼저 읽는다. 이 preload는 닫은 PGlite가 WebAssembly memory를 놓게 한다. Linux의 Bun은 모든 ArrayBuffer를 약 60 GiB 고정 예약 안에 두는데, PGlite 하나가 그중 약 4 GiB를 쓴다. 닫고도 참조가 남은 PGlite가 쌓이면 뒤 테스트의 할당이 `RangeError: Out of memory`로 실패했다(94S-436). 저장소 루트 밖에서 `bun test`를 돌리면 preload가 빠진다.
 
-워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
+워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. `test:unit`은 `src`에서 `*.integration.test.ts`를 뺀 전부를, `test:direct-local`은 `*.integration.test.ts` 전부를 고르므로 파일을 더해도 스크립트를 고치지 않는다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
 
 ```bash
 bun run --cwd packages/adapters/runtimes/claude test:unit
