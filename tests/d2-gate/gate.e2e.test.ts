@@ -21,7 +21,7 @@ import {
   Workers,
   waitFor,
   write,
-} from "./d2-gate/harness.ts";
+} from "./harness.ts";
 
 /**
  * The D2 completion gate: the product stack built from this

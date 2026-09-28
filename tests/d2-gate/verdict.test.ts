@@ -15,9 +15,9 @@ jobs:
             docker: false
             paths: [tests/]
             skips:
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "(unnamed)"
-              - file: tests/d2-gate.e2e.test.ts
+              - file: tests/d2-gate/gate.e2e.test.ts
                 test: "A: one"
               - file: tests/d2-gate/roles.e2e.test.ts
                 test: "H1: two"
@@ -33,7 +33,7 @@ const report = (cases: string) =>
 describe("d2-gate-verdict", () => {
   test("names every declared gate test with its result", () => {
     const gate = report(
-      '<testcase name="A: one" file="tests/d2-gate.e2e.test.ts" />',
+      '<testcase name="A: one" file="tests/d2-gate/gate.e2e.test.ts" />',
     );
     const roles = report(
       '<testcase name="H1: two" file="tests/d2-gate/roles.e2e.test.ts">' +
@@ -42,7 +42,11 @@ describe("d2-gate-verdict", () => {
         "<skipped /></testcase>",
     );
     expect(verdicts(workflow, [gate, roles])).toEqual([
-      { file: "tests/d2-gate.e2e.test.ts", test: "A: one", result: "PASS" },
+      {
+        file: "tests/d2-gate/gate.e2e.test.ts",
+        test: "A: one",
+        result: "PASS",
+      },
       {
         file: "tests/d2-gate/roles.e2e.test.ts",
         test: "H1: two",

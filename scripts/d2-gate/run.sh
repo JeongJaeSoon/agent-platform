@@ -6,7 +6,7 @@
 # Builds the control-host, worker and egress-proxy images from this
 # checkout, starts the compose product stack under a project of its own with the gate overlay
 # (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
-# then runs tests/d2-gate.e2e.test.ts, tests/d2-gate/reconciler-sweep.e2e.test.ts
+# then runs tests/d2-gate/gate.e2e.test.ts, tests/d2-gate/reconciler-sweep.e2e.test.ts
 # and tests/d2-gate/control-host-roles.e2e.test.ts against it and prints each
 # test's result (.github/scripts/d2-gate-verdict.ts). The report (JSON and
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
@@ -18,7 +18,7 @@
 #
 # D2_GATE_UP_ONLY=1 stops before the test and keeps the stack, writing the
 # variables the test reads to $D2_GATE_OUT/vars.sh: source it and run
-# `bun test tests/d2-gate.e2e.test.ts` to iterate against the same stack.
+# `bun test tests/d2-gate/gate.e2e.test.ts` to iterate against the same stack.
 #
 # Needs Docker Engine 28+ (the worker network's isolated gateway mode) and
 # bun. Leaves nothing behind unless D2_GATE_KEEP=1: the compose project, the
@@ -127,7 +127,7 @@ fi
 status=0
 # Fresh, so a reused D2_GATE_OUT cannot pass on an older run's reports.
 rm -f "$out/gate.junit.xml" "$out/roles.junit.xml"
-bun test tests/d2-gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
+bun test tests/d2-gate/gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
   --reporter=junit --reporter-outfile="$out/gate.junit.xml" \
   --timeout 1800000 2>&1 | tee "$out/test.log" || status=$?
 # Last, the role checks, which restart the services and stop

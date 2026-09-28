@@ -23,7 +23,7 @@ import {
 import { Pool } from "pg";
 
 /**
- * What tests/d2-gate.e2e.test.ts drives the stack with. Everything here
+ * What tests/d2-gate/gate.e2e.test.ts drives the stack with. Everything here
  * talks to the running product from outside — public HTTP, the database,
  * the bucket, the Docker CLI and the gate's own fault injector — so what
  * the gate observes is what an operator could.
