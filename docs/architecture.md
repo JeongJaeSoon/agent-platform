@@ -11,22 +11,38 @@
 
 ## 저장소 구성
 
+최상위 디렉터리는 다음과 같다. 테스트와 스크립트를 어디에 두는지는 [development.md § 테스트·스크립트 배치](development.md#테스트스크립트-배치)에 있다.
+
+| 경로 | 무엇이 있는가 |
+|---|---|
+| `apps` | 배포 단위 셋(control-host·worker·egress-proxy). 앱마다 `Dockerfile`이 있고 이미지 하나가 된다. 앱끼리는 import하지 않는다 |
+| `packages` | 앱이 조립하는 workspace 라이브러리. 아래 표에 패키지마다 한 줄씩 있다 |
+| `spikes` | workspace 밖의 독립 설치 단위. [`spikes/94s-91`](../spikes/94s-91/README.md)은 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness로, 실제 SDK·Claude Code·LiteLLM proxy 왕복을 확인하는 유일한 곳이다. `spikes/94s-92`는 저장 backend 선택(94S-92)의 harness다. CI `spikes` job은 main push와 수동 실행에서만 돌고 run을 막지 않는다([ci.md](ci.md)) |
+| `tests` | 패키지 하나로 닫히지 않는 테스트: 여러 앱·패키지를 엮는 흐름, 저장소·CI·`scripts`를 검사하는 테스트, 스택 전체 harness(`tests/e2e`, `tests/d2-gate`, `tests/soak`) |
+| `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), gate와 과거 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 수동 재현기(`scripts/bun-http-stall`) |
+| `.github` | CI 전용. workflow(`workflows`), composite action(`actions/bun-setup`), workflow만 부르는 helper(`.github/scripts`). 운영자가 부르는 도구는 여기가 아니라 `scripts`에 둔다 |
+| `infra` | compose layer(`compose.core.yml`·`compose.local.yml`·`compose.test-ops*.yml`·`compose.real-model.yml`·`compose.datadog.yml`)와 진입 파일 `docker-compose.yml`, 컨테이너 초기화 스크립트(`infra/gitea`·`infra/localstack`), Datadog 설정(`infra/datadog`) |
+| `config` | API가 읽는 로컬 기본 카탈로그(`profiles.yaml`·`repositories.yaml`). compose가 `/app/config`로 mount한다. `config/real-model`은 실제 Messages API용 카탈로그로 `--real-model` 실행과 복원 검증이 쓴다 |
+| `docs` | 사용자·운영·개발 문서, 생성된 `openapi.json`, API가 `/docs`로 서빙하는 참조 페이지(`docs/api`) |
+
+### 패키지와 앱
+
 | 경로 | 구현된 기반 |
 |---|---|
-| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`shared`(ID·error)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
+| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`domain`(agent·auth·authorization·workspace, 기억·digest 선행 계약)·`chat`(chat 표면 envelope 선행 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
-| `packages/storage` | S3 transcript와 git 저장·복원 primitive |
-| `packages/observability` | 구조화 로깅·메트릭·트레이싱 기반 |
+| `packages/storage` | content-addressed checkpoint object store, 요청·body 읽기에 상한을 건 S3 client, worker가 egress proxy의 object route로 쓰는 client, git workspace bundle 검증 |
+| `packages/observability` | 구조화 로거(`createLogger`, `LOG_LEVEL`)와 로그 redaction 규칙. 메트릭과 트레이싱은 없다 |
 | `packages/system` | 업무 의미가 없는 Bun·OS 도구: 캐시 없이 매번 묻는 DNS 조회(`lookupEveryTime`), 자원 상한을 건 git 실행(`gitCommand`)·process group 종료. db·storage·worker가 쓰고, 이 패키지는 아무것에도 의존하지 않는다(94S-403) |
 | `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog·policy |
 | `apps/control-host` | 제어 영역 배포 단위(94S-117). 실행물 하나(`src/main.ts <api\|scheduler\|reconciler>`)가 role을 인자로 받고 기본값은 없다. `src/api`는 `@hono/zod-openapi` route 선언에서 `/v1` handler와 OpenAPI를 함께 등록하고, `/internal` Worker Gateway·API 키·키 발급 CLI도 제공한다. `bun run --cwd apps/control-host openapi:generate`가 `docs/openapi.json`과 로컬 Scalar HTML을 함께 만들며 API는 인증 전 `GET /v1/openapi.json`과 읽기 전용 `GET /docs`를 제공한다. `/docs/scalar.js`는 외부 CDN 없이 같은 origin에서 서빙하고 두 문서 UI 경로는 OpenAPI operation에 넣지 않는다. `src/scheduler`는 launch intent를 커밋하고 LocalDockerBackend로 worker 컨테이너를 보장하는 pass, `src/reconciler`는 만료된 lease를 회수하는 pass다. Docker backend는 scheduler role만 로드한다 |
-| `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다. worker와 control plane이 함께 지키는 checkpoint 상한(manifest 크기·object 수, bundle 크기·사슬 길이)도 여기 한 곳에서 export한다 |
+| `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다. worker와 control plane이 함께 지키는 checkpoint 상한(manifest 크기·object 수, bundle 크기·사슬 길이)도 여기 한 곳에서 export한다. worker가 쓰는 port(`WorkerGatewayClient`, workspace 준비 계획)도 여기 있다(94S-340) |
 | `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |
 | `packages/adapters/runtimes/claude-codec` | Claude checkpoint manifest codec(`claudeCheckpointCodec`)·transcript digest·pin된 SDK/CLI 버전 상수. SDK 의존이 없어 api 이미지와 운영 스크립트(`scripts/lib`)가 읽는다(94S-201). `runtime-claude`는 worker와 테스트가 쓰는 codec·버전 상수만 이름으로 재수출한다 |
 | `apps/worker` | worker 컨테이너의 진입점(`src/main.ts`). scheduler가 넘긴 bootstrap identity로 세션 하나를 claim하고 WorkerHost 루프(Gateway claim → Claude adapter 실행 → 이벤트 발행 → pending 등록 → checkpoint publish·restore)를 돈다(94S-122·246). SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 `apps/egress-proxy/Dockerfile`이 install 없이 자기 `src`만 복사한 이미지로 기동한다(94S-323) |
-| `packages/testkit` | 테스트 fixture(`fake-anthropic`·`postgres`·`localstack`·`workspace`). 각 패키지가 devDependency로만 참조한다 |
+| `packages/testkit` | 테스트 fixture: fake Messages API(`fake-anthropic`·`scripted-messages`), PostgreSQL·LocalStack opt-in 헬퍼(`postgres`·`localstack`), 격리 workspace(`workspace`), 메모리 checkpoint object store(`checkpoint-objects`), git bundle·HTTP 저장소 헬퍼(`git-bundle`·`git-http`). 각 패키지가 devDependency로만 참조한다. `fake-messages-main.ts`는 로컬 compose의 `fake-messages` 서비스가 실행하는 진입점이다 |
 | `packages/ui` | 웹 콘솔 화면이 공유하는 표현 계층. 서버가 준 상태를 그리기만 한다([packages/ui/README.md](../packages/ui/README.md)) |
 | `infra/compose.core.yml` | 모든 설치가 같이 쓰는 제품 서비스: Postgres·Gitea, one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 control-host 이미지 하나로 api·scheduler(루프)·reconciler(루프) role을 띄우고(Docker socket은 scheduler에만) worker 이미지를 smoke한다. 보안 설정은 이 파일에만 있다(94S-430) |
 | `infra/docker-compose.yml` (+ 루트 `compose.yaml`) | 로컬 스택: core 위에 `infra/compose.local.yml`(LocalStack S3·Secrets Manager, fake Messages API, 샘플 저장소 생성, 앱 이미지 빌드)을 합친다. 루트 `compose.yaml`이 이 파일을 include하므로 루트에서 `docker compose`를 그대로 쓴다. test-ops는 core 위에 `infra/compose.test-ops.yml`과 object store layer(기본 LocalStack, 또는 AWS S3)를 얹고 `scripts/test-ops.sh`로 운영한다([test-ops.md](test-ops.md)) |

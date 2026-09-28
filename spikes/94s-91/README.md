@@ -1,5 +1,7 @@
 # 94S-91 Agent SDK 호환성 게이트
 
+SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. CI `spikes` job은 main push와 수동 실행에서만 이 harness를 돌린다([docs/ci.md](../../docs/ci.md)).
+
 ## 결론
 
 `@anthropic-ai/claude-agent-sdk@0.3.270`과 번들 Claude Code `2.1.270`을 로컬 worker 기반으로 채택한다. Anthropic 전송은 LiteLLM `1.100.1`의 `/v1/messages` 경로를 사용한다. 이 디렉터리는 실제 SDK가 실제 Claude Code child process를 실행하고 로컬 fake Anthropic upstream 및 실제 LiteLLM proxy와 왕복하는 process-level 계약 harness다.

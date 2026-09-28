@@ -89,7 +89,7 @@ Agent는 Docker socket과 container log directory를 read-only로 mount하고 ho
 
 ## 정의 적용과 검증
 
-이 PR은 Datadog API를 호출하지 않는다. 운영자는 JSON을 검토한 뒤 각 파일의 `endpoint`에 `requests` 항목을 하나씩 적용한다. [`log-facets.json`](../infra/datadog/definitions/log-facets.json)은 UI에서 만들 facet과 만들지 않을 high-cardinality attribute 목록이다. [`dashboard.json`](../infra/datadog/definitions/dashboard.json)은 dashboard create body다.
+정의는 자동으로 적용되지 않는다. 운영자는 JSON을 검토한 뒤 각 파일의 `endpoint`에 `requests` 항목을 하나씩 적용한다. [`log-facets.json`](../infra/datadog/definitions/log-facets.json)은 UI에서 만들 facet과 만들지 않을 high-cardinality attribute 목록이다. [`dashboard.json`](../infra/datadog/definitions/dashboard.json)은 dashboard create body다.
 
 서버 배포에서 다음을 확인한다.
 
