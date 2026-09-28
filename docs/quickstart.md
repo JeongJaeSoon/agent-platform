@@ -288,7 +288,7 @@ bun install
 
 | 명령 | 확인하는 것 | 성공 표시 |
 |---|---|---|
-| `tests/e2e/run.sh` | 알파 경로 전체(3장과 같은 흐름 + pause 경계 케이스). CI `e2e` job과 같다 | `tests: pass=6 skip=0 fail=0` |
+| `tests/e2e/run.sh` | 알파 경로 전체(3장과 같은 흐름 + pause 경계 케이스). CI `e2e` job과 같다 | 끝의 `tests:` 줄이 `skip=0 fail=0`이고 exit 0 |
 | `tests/e2e/quickstart.sh` | 이 문서의 `bash` 블록을 순서대로 한 `bash -euo pipefail`에서 실행한다. `jq -e` 줄 하나라도 `false`면 실패다. CI `quickstart` job과 같다. 1장 스택이 없을 때만 돌린다(아래 경고) | `== quickstart: every block ran` |
 | `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 전부 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | exit 0. 비교표는 `RR_OUT/record.txt` |
 
