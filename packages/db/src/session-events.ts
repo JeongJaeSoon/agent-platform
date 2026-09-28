@@ -19,8 +19,7 @@ import { events, sessions } from "./schema.ts";
 // taken at insert, so two writers racing without it could commit out of the
 // order readers see. Like every other writer, it holds the payload to the
 // public event contract before storing it: the reader parses each row with
-// the same schema, and a row it cannot parse is lost to every client
-// .
+// the same schema, and a row it cannot parse is lost to every client.
 export async function recordEvent(
   tx: Database,
   input: {

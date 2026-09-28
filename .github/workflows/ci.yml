@@ -306,8 +306,7 @@ jobs:
       # Not `services:`, which the runner starts one by one before the first
       # step and polls on a 2·4·8s backoff (46s for api). From here the pulls
       # overlap each other and the install below; `wait` then probes every
-      # second, and fails with the container's log if one never gets ready
-      # .
+      # second, and fails with the container's log if one never gets ready.
       - if: matrix.postgres || matrix.localstack
         env:
           POSTGRES: ${{ matrix.postgres }}

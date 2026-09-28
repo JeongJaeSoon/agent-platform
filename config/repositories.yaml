@@ -24,8 +24,8 @@
 #     username: agent
 #     value_env: SAMPLE_APP_GIT_PASSWORD
 #
-# The example is the compose Gitea.
-# TODO(94S-52): Automate creation of the sample repository.
+# The example is the compose Gitea; its gitea-init service creates the
+# repository (infra/gitea/init-sample-repo.sh).
 repositories:
   sample-app:
     url: http://gitea:3000/agent/sample-app.git

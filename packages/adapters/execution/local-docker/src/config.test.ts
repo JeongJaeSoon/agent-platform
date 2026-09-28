@@ -207,8 +207,7 @@ describe("localDockerConfigFromEnv", () => {
       );
     }
     // The scheduler shares the control host's environment, key included;
-    // none of it reaches the backend config a worker is launched from
-    // .
+    // none of it reaches the backend config a worker is launched from.
     const config = localDockerConfigFromEnv({
       ...base,
       AWS_ACCESS_KEY_ID: "control-host-key-id",
