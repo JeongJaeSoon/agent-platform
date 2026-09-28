@@ -16,13 +16,12 @@ import {
   type PermissionRequest,
   WorkerGatewayRequestError,
 } from "@agent-platform/runtime-core";
-
-import { FakeWorkerGateway } from "./fake-gateway.ts";
 import {
   PendingRequestRegistry,
   type PendingRequestsOptions,
   QUESTION_TOOL,
 } from "./pending-requests.ts";
+import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 
 const scope: WorkerScope = {
   session_id: "11111111-1111-4111-8111-111111111111",

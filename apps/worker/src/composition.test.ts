@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { CLAUDE_AGENT_SDK_VERSION } from "@agent-platform/runtime-claude";
 
-import { claudeRuntimeRegistry } from "./composition.ts";
+import { claudeRuntimeRegistry, createWorkerHost } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
+import { WorkerHost } from "./worker-host.ts";
 
 const config: WorkerConfig = {
   bootstrapNonce: "wln_test",
@@ -37,6 +38,12 @@ const config: WorkerConfig = {
     startupTimeoutMs: 60_000,
   },
 };
+
+describe("createWorkerHost", () => {
+  test("builds a host from the environment the launcher provides", () => {
+    expect(createWorkerHost(config)).toBeInstanceOf(WorkerHost);
+  });
+});
 
 describe("claudeRuntimeRegistry", () => {
   test("serves a session created for the engine this image ships", () => {

@@ -34,7 +34,7 @@ import type {
 } from "@agent-platform/contracts";
 import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 
-import type { WorkerGatewaySession } from "./worker-host.ts";
+import type { WorkerGatewaySession } from "../worker-host.ts";
 
 /** What the fake claim hands out for the object store route. */
 export const FAKE_OBJECT_STORE_TOKEN = "weo_fake-object-store-token";
