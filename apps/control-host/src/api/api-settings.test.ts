@@ -3,6 +3,7 @@ import {
   ApiSettingsError,
   apiSettingsFromEnv,
   apiSettingsProblems,
+  heartbeatTtlMsFromEnv,
 } from "./api-settings.ts";
 
 describe("apiSettingsFromEnv", () => {
@@ -85,5 +86,37 @@ describe("apiSettingsFromEnv", () => {
       "SSE_MAX_STREAMS must be a positive integer",
     ]);
     expect(apiSettingsProblems({})).toEqual([]);
+  });
+});
+
+describe("heartbeatTtlMsFromEnv", () => {
+  test("unset is the platform default; a positive number is seconds", () => {
+    expect(heartbeatTtlMsFromEnv(undefined)).toBe(30_000);
+    expect(heartbeatTtlMsFromEnv("45")).toBe(45_000);
+    expect(heartbeatTtlMsFromEnv("20.5")).toBe(20_500);
+  });
+
+  test("anything else stops the API instead of becoming the default", () => {
+    expect(heartbeatTtlMsFromEnv("86400")).toBe(86_400_000);
+    for (const value of [
+      "",
+      " ",
+      "0",
+      "-5",
+      // At or under the worker's margin + interval (10 s + 10 s): every
+      // attempt would give its lease up at or near its first beat.
+      "0.5",
+      "10",
+      "20",
+      "abc",
+      "Infinity",
+      "NaN",
+      "86401",
+      "1e308",
+    ]) {
+      expect(() => heartbeatTtlMsFromEnv(value)).toThrow(
+        /^HEARTBEAT_TTL_SEC must be a number of seconds above 20 /,
+      );
+    }
   });
 });
