@@ -16,7 +16,6 @@ spikes
 tests
 infra
 **/*.test.ts
-**/*.integration.ts
 .env
 .env.*
 !.env.example

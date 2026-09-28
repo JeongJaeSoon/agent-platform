@@ -5,7 +5,7 @@ import type { Client } from "pg";
 import {
   PostgresSessionNotifier,
   SESSION_EVENTS_CHANNEL,
-} from "./notifications.ts";
+} from "./session-notifier.ts";
 
 // Enough of pg.Client for LISTEN: connect, one query, events, end.
 class FakeClient extends EventEmitter {

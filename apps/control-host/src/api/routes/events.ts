@@ -9,7 +9,7 @@ import {
 import type { EventPage, SessionService } from "@agent-platform/platform";
 import { streamSSE } from "hono/streaming";
 import { ApiHttpError, type ApiRouter, apiRoute } from "../app.ts";
-import type { SessionEventWakeup } from "../events/notifications.ts";
+import type { SessionEventWakeup } from "../session-notifier.ts";
 import { mapped, requireParams } from "./errors.ts";
 
 // api.md § 이벤트: 15 s keepalive, and a revoked key ends the stream within
