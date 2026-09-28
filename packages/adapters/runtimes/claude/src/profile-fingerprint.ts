@@ -4,8 +4,6 @@ import { describeComponents } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { publicProfile } from "./profile.ts";
 
-export * from "@agent-platform/runtime-claude-codec";
-
 /**
  * Digest of everything about a run's configuration that changes how a stored
  * transcript replays, plus who the run acts for. The model credential is
