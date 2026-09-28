@@ -13,6 +13,4 @@
 
 ## 남아 있는 도구
 
-`scripts/soak/rc.sh`, `stack.sh`, `campaign.sh`, `scripts/soak/p2-phase.ts`와 `tests/soak/`는 과거 판정을 재현하고 회귀를 조사하기 위해 남긴다. 이 도구의 존재나 성공을 현재 알파의 24시간 soak 통과로 해석하지 않는다.
-
-P-2 보완 도구는 RC4의 제품 SHA·이미지 digest·10-session workload를 전후로 확인하고, 15분 warmup 뒤 UTC 5분 위상의 60개 5초 bucket마다 2개씩 총 120개 요청을 계획한다. 누락, 예약 창 이탈, 201/202가 아닌 응답, artifact 불완전, 동시 호스트 작업은 재시도하지 않고 측정을 `INVALID`로 만든다. nearest-rank p95의 114번째 표본이 500ms 이하일 때만 P-2가 통과하도록 구현돼 있다. 이 프로토콜은 실행되지 않았으며 최종 알파 판정을 바꾸지 않는다.
+`scripts/soak/rc.sh`, `stack.sh`, `campaign.sh`와 `tests/soak/`는 과거 판정을 재현하고 회귀를 조사하기 위해 남긴다. 이 도구의 존재나 성공을 현재 알파의 24시간 soak 통과로 해석하지 않는다.
