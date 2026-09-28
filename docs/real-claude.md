@@ -12,10 +12,10 @@
 ## overlay가 바꾸는 것
 
 - API가 `config/real-model/`의 카탈로그를 읽는다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 카탈로그에는 fake를 가리키는 profile이 없다.
-- key는 셸의 `ANTHROPIC_API_KEY`에서 **API 컨테이너에만** 이름으로 전달된다. compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
+- key는 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)에서 **API 컨테이너에만** 이름으로 전달된다. 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
 - 상한: `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초). A와 B가 같은 값을 쓴다.
 
-`ANTHROPIC_API_KEY`가 export되지 않았거나 비어 있으면 두 명령 모두 Docker를 건드리기 전에 exit 2로 끝난다. fake로 대신 뜨지 않는다.
+`ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있으면 두 명령 모두 Docker를 건드리기 전에 exit 2로 끝난다. fake로 대신 뜨지 않는다.
 
 ## key 입력과 폐기
 
@@ -32,6 +32,8 @@ echo
 - 명령을 실행한 뒤에는 `unset ANTHROPIC_API_KEY`로 셸에서 지운다. B는 `up`이 끝나면 key가 이미 API 컨테이너에 넘어가 있으므로 바로 지워도 된다.
 - 스택이 떠 있는 동안에는 API 컨테이너 설정(`docker inspect`)에 key가 있다. 다 쓰면 스택을 내린다(A는 스스로, B는 `scripts/local.sh down`).
 - 다 쓴 key는 Console의 API Keys에서 비활성화하거나 삭제한다.
+
+매번 입력하지 않으려면 `.env.example`을 복사한 `.env`의 `ANTHROPIC_API_KEY=` 줄에 값을 적는다. `.env`는 git과 이미지 빌드가 무시한다. 두 명령은 셸에 export된 값이 없을 때만 이 한 줄을 읽고, `.env`의 다른 값은 가져오지 않는다. 다른 파일을 쓰려면 `AGENT_PLATFORM_DOTENV`에 그 경로를 준다. 값은 `.env.example`에 적지 않는다(추적되는 파일이고 저장소는 public이다). 디스크에 평문으로 남으므로 다 쓰면 그 줄을 비운다.
 
 ## A. 명령 하나로 real-model e2e
 
@@ -144,7 +146,7 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 
 | 증상 | 원인과 조치 |
 |---|---|
-| `--real-model`이 바로 exit 2로 끝난다 | `ANTHROPIC_API_KEY`가 export되지 않았거나 비었다. [key 입력](#key-입력과-폐기) 세 줄과 `export ANTHROPIC_API_KEY`를 같은 셸에서 한 뒤 다시 실행한다 |
+| `--real-model`이 바로 exit 2로 끝난다 | `ANTHROPIC_API_KEY`가 셸에도 `.env`에도 없거나 비었다. [key 입력](#key-입력과-폐기) 세 줄과 `export ANTHROPIC_API_KEY`를 같은 셸에서 한 뒤 다시 실행한다 |
 | `local.sh up --real-model`이 `too old for --real-model`로 끝난다 | Docker Compose가 2.24.6보다 낮다. 2.24.0–2.24.5는 `include` 위의 overlay를 `conflicts with imported resource`로 거부한다. compose를 올린다 |
 | turn이 `budget_exceeded`로 실패한다 | 세션 비용이 1달러 상한을 넘었다. 새 세션을 만든다 |
 | 그 밖의 증상 | [quickstart 8장](quickstart.md#8-막혔을-때)을 본다 |

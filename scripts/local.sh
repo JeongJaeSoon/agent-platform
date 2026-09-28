@@ -19,7 +19,8 @@
 # --real-model adds infra/compose.real-model.yml, the overlay
 # `tests/e2e/run.sh --real-model` runs: the catalog in config/real-model, the
 # caller's exported ANTHROPIC_API_KEY handed by name to the API alone, and
-# the e2e's cost limits (docs/real-claude.md). Without the key nothing is
+# the e2e's cost limits (docs/real-claude.md). The key comes from the shell
+# or, failing that, the repository's .env. Without the key nothing is
 # touched. The project is the same, so `down` deletes it like any other.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
@@ -58,14 +59,28 @@ usage() {
   exit 2
 }
 
+# --real-model's key: the shell's export wins, else the ANTHROPIC_API_KEY
+# line of the repository's .env (git- and docker-ignored). Only that line is
+# read; the rest of .env holds compose defaults this script must not take.
+# AGENT_PLATFORM_DOTENV names another file (the tests point it elsewhere).
+key_from_dotenv() {
+  local file="${AGENT_PLATFORM_DOTENV:-.env}" value
+  if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ ! -f "$file" ]; then return 0; fi
+  value="$(sed -n 's/^ANTHROPIC_API_KEY=//p' "$file" | tail -n 1)"
+  value="${value%\"}"
+  value="${value#\"}"
+  if [ -n "$value" ]; then export ANTHROPIC_API_KEY="$value"; fi
+}
+
 # The mode `up` and `reset` take, settled before either touches Docker.
 mode() {
   case "$*" in
     "") ;;
     --real-model)
+      key_from_dotenv
       if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         # Never a quiet fallback to the fake: that stack would look fine.
-        echo "local.sh: --real-model needs ANTHROPIC_API_KEY exported (docs/real-claude.md); nothing was started" >&2
+        echo "local.sh: --real-model needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md); nothing was started" >&2
         exit 2
       fi
       real_model=1

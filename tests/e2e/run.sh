@@ -29,7 +29,8 @@
 # catalog in config/real-model and, alone, the key from ANTHROPIC_API_KEY
 # (infra/compose.real-model.yml, which also caps what the run can spend;
 # `scripts/local.sh up --real-model` starts the same overlay), and
-# tests/e2e/real-model.e2e.ts runs in place of the scripted suites. Without
+# tests/e2e/real-model.e2e.ts runs in place of the scripted suites. The key
+# comes from the shell or, failing that, the repository's .env. Without
 # a key it stops before touching Docker, and it fails if the key's value
 # turns up anywhere in E2E_OUT. Paid calls, so no CI job runs it;
 # docs/real-claude.md gives the command and its cost.
@@ -44,10 +45,23 @@ case "$*" in
   --real-model) real_model=1 ;;
   *) echo "usage: tests/e2e/run.sh [--real-model]" >&2; exit 2 ;;
 esac
+# --real-model's key: the shell's export wins, else the ANTHROPIC_API_KEY
+# line of the repository's .env (git- and docker-ignored). Only that line is
+# read; the rest of .env holds compose defaults this script must not take.
+# AGENT_PLATFORM_DOTENV names another file (the tests point it elsewhere).
+key_from_dotenv() {
+  local file="${AGENT_PLATFORM_DOTENV:-.env}" value
+  if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ ! -f "$file" ]; then return 0; fi
+  value="$(sed -n 's/^ANTHROPIC_API_KEY=//p' "$file" | tail -n 1)"
+  value="${value%\"}"
+  value="${value#\"}"
+  if [ -n "$value" ]; then export ANTHROPIC_API_KEY="$value"; fi
+}
+if [ -n "$real_model" ]; then key_from_dotenv; fi
 if [ -n "$real_model" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
   # Never a quiet fallback to the scripted fake: that run would pass and
   # prove nothing about the real model.
-  echo "e2e --real-model: ANTHROPIC_API_KEY is unset or empty; nothing was started" >&2
+  echo "e2e --real-model: ANTHROPIC_API_KEY is unset or empty in the shell and .env; nothing was started" >&2
   exit 2
 fi
 

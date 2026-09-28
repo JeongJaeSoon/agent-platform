@@ -188,6 +188,7 @@ echo " 0 fail"
         TMPDIR: dir,
         E2E_OUT: out,
         STUB_ARGV: argv,
+        AGENT_PLATFORM_DOTENV: join(dir, "no-dotenv"),
         ...env,
       },
     });
@@ -251,6 +252,28 @@ echo " 0 fail"
     expect(record).toMatch(/^tested_sha: [0-9a-f]{40} /m);
     expect(await recordText(result.out)).not.toContain(PROBE);
     expect(result.stderr).not.toContain(PROBE);
+  });
+
+  test("takes the key from .env when the shell has none, and the shell's over it", async () => {
+    const dotenv = join(dir, "dotenv-run");
+    await Bun.write(dotenv, `POSTGRES_DB=other\n${KEY_VARIABLE}="${PROBE}"\n`);
+    const result = run("dotenv", { AGENT_PLATFORM_DOTENV: dotenv });
+    expect(result.status).toBe(0);
+    expect(await result.argv).not.toContain(PROBE);
+    expect(await recordText(result.out)).not.toContain(PROBE);
+    expect(result.stderr).not.toContain(PROBE);
+    // The leak check reads the key the run used, wherever it came from.
+    const leak = run("dotenv-leak", {
+      AGENT_PLATFORM_DOTENV: dotenv,
+      STUB_LEAK: "1",
+    });
+    expect(leak.status).not.toBe(0);
+    expect(leak.stderr).toContain("value is in the record");
+    const empty = join(dir, "dotenv-empty");
+    await Bun.write(empty, `${KEY_VARIABLE}=\n`);
+    const none = run("dotenv-empty", { AGENT_PLATFORM_DOTENV: empty });
+    expect(none.status).toBe(2);
+    expect(await none.argv).toBe("");
   });
 
   test("fails, naming the file but not the value, when the key reaches the record", async () => {
@@ -319,6 +342,7 @@ echo '{"status":"ready"}'
         PATH: `${join(dir, "bin")}:${process.env.PATH}`,
         HOME: dir,
         STUB_ARGV: argv,
+        AGENT_PLATFORM_DOTENV: join(dir, "no-dotenv"),
         ...env,
       },
     });
@@ -366,6 +390,18 @@ echo '{"status":"ready"}'
     );
     expect(result.argv).not.toContain(PROBE);
     expect(result.argv).not.toContain(" -p ");
+  });
+
+  test("takes the key from .env when the shell has none", async () => {
+    const dotenv = join(dir, "dotenv-local");
+    await Bun.write(dotenv, `${KEY_VARIABLE}=${PROBE}\n`);
+    const result = await local("dotenv", ["up", "--real-model"], {
+      AGENT_PLATFORM_DOTENV: dotenv,
+    });
+    expect(result.status).toBe(0);
+    expect(result.argv).toContain(`-f ${OVERLAY} up -d --build`);
+    expect(result.argv).not.toContain(PROBE);
+    expect(result.stderr).not.toContain(PROBE);
   });
 
   test("refuses a compose that cannot put an overlay on the include", async () => {
