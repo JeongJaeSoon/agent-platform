@@ -30,6 +30,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+. scripts/lib/real-model-key.sh
 
 MIN_ENGINE_MAJOR=28
 MIN_COMPOSE=2.24
@@ -59,26 +60,18 @@ usage() {
   exit 2
 }
 
-# --real-model's key: the shell's export wins, else the ANTHROPIC_API_KEY
-# line of the repository's .env (git- and docker-ignored). Only that line is
-# read; the rest of .env holds compose defaults this script must not take.
-# AGENT_PLATFORM_DOTENV names another file (the tests point it elsewhere).
-key_from_dotenv() {
-  local file="${AGENT_PLATFORM_DOTENV:-.env}" value
-  if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ ! -f "$file" ]; then return 0; fi
-  value="$(sed -n 's/^ANTHROPIC_API_KEY=//p' "$file" | tail -n 1)"
-  value="${value%\"}"
-  value="${value#\"}"
-  if [ -n "$value" ]; then export ANTHROPIC_API_KEY="$value"; fi
-}
-
 # The mode `up` and `reset` take, settled before either touches Docker.
 mode() {
+  local key_status
   case "$*" in
     "") ;;
     --real-model)
-      key_from_dotenv
-      if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+      key_status=0
+      real_model_key_from_dotenv || key_status=$?
+      if [ "$key_status" = 2 ]; then
+        echo "local.sh: invalid ANTHROPIC_API_KEY quoting in ${AGENT_PLATFORM_DOTENV:-.env}; nothing was started" >&2
+        exit 2
+      elif [ "$key_status" != 0 ]; then
         # Never a quiet fallback to the fake: that stack would look fine.
         echo "local.sh: --real-model needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md); nothing was started" >&2
         exit 2

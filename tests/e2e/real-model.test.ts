@@ -177,10 +177,11 @@ echo " 0 fail"
     name: string,
     env: Record<string, string>,
     args = ["--real-model"],
+    bashArgs: string[] = [],
   ) {
     const out = join(dir, name);
     const argv = join(dir, `${name}.argv`);
-    const result = Bun.spawnSync(["bash", RUN, ...args], {
+    const result = Bun.spawnSync(["bash", ...bashArgs, RUN, ...args], {
       cwd: ROOT,
       env: {
         PATH: `${join(dir, "bin")}:${process.env.PATH}`,
@@ -276,6 +277,47 @@ echo " 0 fail"
     expect(await none.argv).toBe("");
   });
 
+  test.each([
+    ["crlf", `${KEY_VARIABLE}=${PROBE}\r\n`],
+    ["single-quoted", `${KEY_VARIABLE}='${PROBE}'\n`],
+    ["exported", `export ${KEY_VARIABLE}=${PROBE}\n`],
+  ])("accepts %s dotenv syntax", async (name, contents) => {
+    const dotenv = join(dir, `dotenv-run-${name}`);
+    await Bun.write(dotenv, contents);
+    const result = run(`dotenv-${name}`, { AGENT_PLATFORM_DOTENV: dotenv });
+    expect(result.status).toBe(0);
+    expect(await result.argv).not.toContain(PROBE);
+    expect(result.stderr).not.toContain(PROBE);
+  });
+
+  test.each([
+    ["opening", `${KEY_VARIABLE}='${PROBE}\n`],
+    ["closing", `${KEY_VARIABLE}=${PROBE}'\n`],
+  ])("rejects a dotenv value with only a %s quote", async (name, contents) => {
+    const dotenv = join(dir, `dotenv-run-unmatched-${name}`);
+    await Bun.write(dotenv, contents);
+    const result = run(`dotenv-unmatched-${name}`, {
+      AGENT_PLATFORM_DOTENV: dotenv,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("invalid ANTHROPIC_API_KEY quoting");
+    expect(result.stderr).not.toContain(PROBE);
+    expect(await result.argv).toBe("");
+  });
+
+  test("does not expose shell or dotenv keys under xtrace", async () => {
+    const dotenv = join(dir, "dotenv-run-xtrace");
+    await Bun.write(dotenv, `${KEY_VARIABLE}='${PROBE}'\n`);
+    for (const [name, env] of [
+      ["shell", { [KEY_VARIABLE]: PROBE }],
+      ["dotenv", { AGENT_PLATFORM_DOTENV: dotenv }],
+    ] as const) {
+      const result = run(`xtrace-${name}`, env, ["--real-model"], ["-x"]);
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain(PROBE);
+    }
+  });
+
   test("fails, naming the file but not the value, when the key reaches the record", async () => {
     const result = run("leak", { [KEY_VARIABLE]: PROBE, STUB_LEAK: "1" });
     expect(result.status).not.toBe(0);
@@ -335,9 +377,10 @@ echo '{"status":"ready"}'
     name: string,
     args: string[],
     env: Record<string, string> = {},
+    bashArgs: string[] = [],
   ) {
     const argv = join(dir, `${name}.argv`);
-    const result = Bun.spawnSync(["bash", LOCAL, ...args], {
+    const result = Bun.spawnSync(["bash", ...bashArgs, LOCAL, ...args], {
       env: {
         PATH: `${join(dir, "bin")}:${process.env.PATH}`,
         HOME: dir,
@@ -402,6 +445,56 @@ echo '{"status":"ready"}'
     expect(result.argv).toContain(`-f ${OVERLAY} up -d --build`);
     expect(result.argv).not.toContain(PROBE);
     expect(result.stderr).not.toContain(PROBE);
+  });
+
+  test.each([
+    ["crlf", `${KEY_VARIABLE}=${PROBE}\r\n`],
+    ["single-quoted", `${KEY_VARIABLE}='${PROBE}'\n`],
+    ["exported", `export ${KEY_VARIABLE}=${PROBE}\n`],
+  ])("accepts %s dotenv syntax", async (name, contents) => {
+    const dotenv = join(dir, `dotenv-local-${name}`);
+    await Bun.write(dotenv, contents);
+    const result = await local(`dotenv-${name}`, ["up", "--real-model"], {
+      AGENT_PLATFORM_DOTENV: dotenv,
+    });
+    expect(result.status).toBe(0);
+    expect(result.argv).not.toContain(PROBE);
+    expect(result.stderr).not.toContain(PROBE);
+  });
+
+  test.each([
+    ["opening", `${KEY_VARIABLE}="${PROBE}\n`],
+    ["closing", `${KEY_VARIABLE}=${PROBE}"\n`],
+  ])("rejects a dotenv value with only a %s quote", async (name, contents) => {
+    const dotenv = join(dir, `dotenv-local-unmatched-${name}`);
+    await Bun.write(dotenv, contents);
+    const result = await local(
+      `dotenv-unmatched-${name}`,
+      ["up", "--real-model"],
+      { AGENT_PLATFORM_DOTENV: dotenv },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("invalid ANTHROPIC_API_KEY quoting");
+    expect(result.stderr).not.toContain(PROBE);
+    expect(result.argv).toBe("");
+  });
+
+  test("does not expose shell or dotenv keys under xtrace", async () => {
+    const dotenv = join(dir, "dotenv-local-xtrace");
+    await Bun.write(dotenv, `${KEY_VARIABLE}="${PROBE}"\n`);
+    for (const [name, env] of [
+      ["shell", { [KEY_VARIABLE]: PROBE }],
+      ["dotenv", { AGENT_PLATFORM_DOTENV: dotenv }],
+    ] as const) {
+      const result = await local(
+        `xtrace-${name}`,
+        ["up", "--real-model"],
+        env,
+        ["-x"],
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain(PROBE);
+    }
   });
 
   test("refuses a compose that cannot put an overlay on the include", async () => {

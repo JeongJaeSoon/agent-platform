@@ -38,6 +38,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+. scripts/lib/real-model-key.sh
 
 real_model=""
 case "$*" in
@@ -45,24 +46,18 @@ case "$*" in
   --real-model) real_model=1 ;;
   *) echo "usage: tests/e2e/run.sh [--real-model]" >&2; exit 2 ;;
 esac
-# --real-model's key: the shell's export wins, else the ANTHROPIC_API_KEY
-# line of the repository's .env (git- and docker-ignored). Only that line is
-# read; the rest of .env holds compose defaults this script must not take.
-# AGENT_PLATFORM_DOTENV names another file (the tests point it elsewhere).
-key_from_dotenv() {
-  local file="${AGENT_PLATFORM_DOTENV:-.env}" value
-  if [ -n "${ANTHROPIC_API_KEY:-}" ] || [ ! -f "$file" ]; then return 0; fi
-  value="$(sed -n 's/^ANTHROPIC_API_KEY=//p' "$file" | tail -n 1)"
-  value="${value%\"}"
-  value="${value#\"}"
-  if [ -n "$value" ]; then export ANTHROPIC_API_KEY="$value"; fi
-}
-if [ -n "$real_model" ]; then key_from_dotenv; fi
-if [ -n "$real_model" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  # Never a quiet fallback to the scripted fake: that run would pass and
-  # prove nothing about the real model.
-  echo "e2e --real-model: ANTHROPIC_API_KEY is unset or empty in the shell and .env; nothing was started" >&2
-  exit 2
+if [ -n "$real_model" ]; then
+  key_status=0
+  real_model_key_from_dotenv || key_status=$?
+  if [ "$key_status" = 2 ]; then
+    echo "e2e --real-model: invalid ANTHROPIC_API_KEY quoting in ${AGENT_PLATFORM_DOTENV:-.env}; nothing was started" >&2
+    exit 2
+  elif [ "$key_status" != 0 ]; then
+    # Never a quiet fallback to the scripted fake: that run would pass and
+    # prove nothing about the real model.
+    echo "e2e --real-model: ANTHROPIC_API_KEY is unset or empty in the shell and .env; nothing was started" >&2
+    exit 2
+  fi
 fi
 
 if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
@@ -111,8 +106,10 @@ cleanup() {
   if [ -n "$real_model" ]; then
     # The pattern goes in through a builtin and a pipe, never an argument,
     # and only file names come out.
-    local leaked
+    local leaked restore_xtrace=""
+    case $- in *x*) restore_xtrace=1; set +x ;; esac
     leaked="$(grep -rlF -D skip -f <(printf '%s\n' "$ANTHROPIC_API_KEY") "$out" || true)"
+    [ -z "$restore_xtrace" ] || set -x
     if [ -n "$leaked" ]; then
       echo "e2e --real-model: ANTHROPIC_API_KEY's value is in the record:" >&2
       echo "$leaked" >&2
