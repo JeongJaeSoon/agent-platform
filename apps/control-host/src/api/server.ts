@@ -50,7 +50,6 @@ import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
-import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -63,6 +62,7 @@ import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
+import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 
 const authMode = process.env.AUTH_MODE;

@@ -17,17 +17,12 @@ bun run check
 
 `bun test`는 루트 `bunfig.toml`의 preload로 `packages/db/src/pglite-release.ts`를 먼저 읽는다. 이 preload는 닫은 PGlite가 WebAssembly memory를 놓게 한다. Linux의 Bun은 모든 ArrayBuffer를 약 60 GiB 고정 예약 안에 두는데, PGlite 하나가 그중 약 4 GiB를 쓴다. 닫고도 참조가 남은 PGlite가 쌓이면 뒤 테스트의 할당이 `RangeError: Out of memory`로 실패했다(94S-436). 저장소 루트 밖에서 `bun test`를 돌리면 preload가 빠진다.
 
-워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
+워커 adapter의 단위 테스트와 실제 SDK·로컬 fake Messages API 테스트는 분리해서 실행할 수 있다. `test:unit`은 `src`에서 `*.integration.test.ts`를 뺀 전부를, `test:direct-local`은 `*.integration.test.ts` 전부를 고르므로 파일을 더해도 스크립트를 고치지 않는다. 후자는 실제 번들 Claude Code subprocess를 띄워 같은 process의 후속 턴과 새 process의 resume을 확인하지만 유료 모델 API는 호출하지 않는다.
 
 ```bash
 bun run --cwd packages/adapters/runtimes/claude test:unit
 bun run --cwd packages/adapters/runtimes/claude test:direct-local
 bun test spikes/94s-91/src/litellm-transport.test.ts
-```
-
-```bash
-QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-  bun test ./apps/control-host/src/api/server.integration.ts
 ```
 
 terminate 수락 지연은 PostgreSQL 임시 DB에서 동시 세션 10개(terminate 5개와 pause 5개)를 섞어 재현한다. 기본 20라운드의 terminate 100표본에서 nearest-rank p95가 500ms를 넘으면 실패하며, 결과에는 단계별 p95도 함께 나온다. `BENCH_ROUNDS`는 표본을 더 모을 때만 늘린다.
@@ -70,5 +65,4 @@ soak 도구는 2026-09-27에 종료한 94S-135 판정의 재현·조사용으로
 | `tests/e2e/db-restart.sh` | Postgres가 새 주소로 재시작한 뒤 API가 따라붙는지(`/readyz`, 요청 pool, 이벤트 listener) | 없음 | 스크립트 머리 주석 |
 | `scripts/d2-gate/run.sh` | D2 gate(94S-247의 A–E, 94S-320의 R1–R2, 94S-117의 H1–H5) | `D2 gate` workflow(nightly, required 아님) | [ci.md § D2 gate](ci.md#d2-gate-nightly-94s-404) |
 | `scripts/soak/rc.sh <rc-sha>` | 과거 RC 판정 흐름 재현: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |
-| `bun scripts/soak/p2-phase.ts <out-dir> <rc.json>` | 과거 RC4용 P-2 위상 보완 측정 도구 | 없음 | [과거 soak 결과](soak.md) |
 | `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | 과거 soak 스택이나 campaign을 재현한다 | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |

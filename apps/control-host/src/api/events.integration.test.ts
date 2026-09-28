@@ -29,10 +29,10 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
-import { PostgresSessionNotifier } from "./events/notifications.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { PostgresSessionNotifier } from "./session-notifier.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
