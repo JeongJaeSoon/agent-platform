@@ -1,3 +1,8 @@
+# The optional Datadog overlay, merged last over a local or test-ops stack
+# (docs/monitoring-datadog.md). It adds the Agent and the log labels on the
+# product services; without it no stack gains a Datadog mount, label or
+# required variable. The Agent reads its key only from the env_file below,
+# never from the compose environment, so an ambient key cannot reach it.
 services:
   datadog-agent:
     image: gcr.io/datadoghq/agent:7.83.3

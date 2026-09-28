@@ -13,7 +13,7 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-`check`는 workspace typecheck → Biome → 패키지·앱 Bun 테스트다(CI는 이 셋을 역할별 job으로 나눠 동시에 돈다). `QUEUE_DATABASE_URL`이 없으면 실제 PostgreSQL integration test가, `STORAGE_LOCALSTACK_TEST=1`이 없으면 LocalStack integration test가 skip된다. 이 두 opt-in 변수와 fake Messages API·격리 workspace fixture는 `packages/testkit`(`fake-anthropic`·`postgres`·`localstack`·`workspace`)이 제공하며, 각 패키지는 devDependency로만 참조한다(`tests/architecture.test.ts`가 검사). API의 실제 PostgreSQL·키 CLI·HTTP 프로세스 검증은 CI와 로컬에서 별도 명령으로 실행한다. 전체 pass 숫자만 보지 말고 실행·skip 목록을 구분한다. CI가 어느 job에서 어떤 변수를 켜는지는 [ci.md](ci.md)에 있다.
+`check`는 workspace typecheck → Biome → 패키지·앱 Bun 테스트다(CI는 이 셋을 역할별 job으로 나눠 동시에 돈다). `QUEUE_DATABASE_URL`이 없으면 실제 PostgreSQL integration test가, `STORAGE_LOCALSTACK_TEST=1`이 없으면 LocalStack integration test가 skip된다. 이 두 opt-in 변수와 fake Messages API·격리 workspace fixture는 `packages/testkit`([모듈 목록](architecture.md#패키지와-앱))이 제공하며, 각 패키지는 devDependency로만 참조한다(`tests/architecture.test.ts`가 검사). API의 실제 PostgreSQL·키 CLI·HTTP 프로세스 검증은 CI와 로컬에서 별도 명령으로 실행한다. 전체 pass 숫자만 보지 말고 실행·skip 목록을 구분한다. CI가 어느 job에서 어떤 변수를 켜는지는 [ci.md](ci.md)에 있다.
 
 `bun test`는 루트 `bunfig.toml`의 preload로 `packages/db/src/pglite-release.ts`를 먼저 읽는다. 이 preload는 닫은 PGlite가 WebAssembly memory를 놓게 한다. Linux의 Bun은 모든 ArrayBuffer를 약 60 GiB 고정 예약 안에 두는데, PGlite 하나가 그중 약 4 GiB를 쓴다. 닫고도 참조가 남은 PGlite가 쌓이면 뒤 테스트의 할당이 `RangeError: Out of memory`로 실패했다(94S-436). 저장소 루트 밖에서 `bun test`를 돌리면 preload가 빠진다.
 
@@ -66,3 +66,20 @@ soak 도구는 2026-09-27에 종료한 94S-135 판정의 재현·조사용으로
 | `scripts/d2-gate/run.sh` | D2 gate(94S-247의 A–E, 94S-320의 R1–R2, 94S-117의 H1–H5) | `D2 gate` workflow(nightly, required 아님) | [ci.md § D2 gate](ci.md#d2-gate-nightly-94s-404) |
 | `scripts/soak/rc.sh <rc-sha>` | 과거 RC 판정 흐름 재현: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |
 | `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | 과거 soak 스택이나 campaign을 재현한다 | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |
+| `bun scripts/bun-http-stall/client.ts` | Bun `node:http` 클라이언트가 동시 keep-alive 응답 body 도중에 멈추는지(94S-441). S3 client가 이 경로로 읽으므로 Bun을 올릴 때 다시 잰다. `node`가 필요하다 | 없음(수동) | 스크립트 머리 주석 |
+
+## 테스트·스크립트 배치
+
+- 한 패키지·앱 안에서 닫히는 테스트는 대상 소스 옆에 `*.test.ts`로 둔다. PostgreSQL·LocalStack·Docker·실제 SDK가 필요한 테스트는 `*.integration.test.ts`다. `__tests__` 디렉터리는 쓰지 않는다.
+- 여러 앱·패키지를 엮는 흐름 테스트와 저장소·CI·`scripts`를 검사하는 테스트는 루트 `tests/`에 둔다. 루트 `scripts/`와 `.github/` 안의 테스트는 `bun test` 필터에 걸리지 않아 돌지 않는다.
+- 스택 전체를 띄우는 harness는 실행 도구를 `scripts/<이름>/`에, 테스트를 `tests/<이름>/`에 짝으로 둔다(`d2-gate`, `soak`). e2e는 실행기와 테스트를 함께 `tests/e2e`에 둔다.
+- 테스트 전용 도우미는 대상의 `src/testing/`에 둔다(예: `apps/egress-proxy/src/testing`). 여러 패키지가 쓰는 fixture는 `packages/testkit`에 둔다.
+- 수동 벤치는 `<패키지>/bench/`에 두고 그 패키지 tsconfig의 include에 넣는다. 테스트 파일 이름을 쓰지 않는다.
+- 새 루트 `tests/*.test.ts`는 ci.yml `integration-domain`의 `paths`에 접두어가 있어야 한다. 없으면 integration job이 모두 실패한다([ci.md](ci.md)).
+- 환경 변수에 따라 테스트를 skip하는 코드(`skipIf` 등)를 새로 넣지 않는다. integration job이 선언되지 않은 skip으로 실패시킨다. skip이 꼭 필요하면 ci.yml에 선언한다.
+- 루트 `tests/`·`scripts/`·`.github/scripts`의 `.ts`는 어느 tsconfig에도 들어 있지 않아 `bun run typecheck`가 보지 않는다(94S-518). 고친 파일은 직접 실행해 확인한다.
+- 운영자와 개발자가 부르는 도구는 `scripts/`에, workflow만 부르는 helper는 `.github/scripts/`에 둔다.
+
+## migration 만들기
+
+스키마(`packages/db/src/schema.ts`)를 고친 뒤 `bun run --cwd packages/db db:generate`로 다음 번호의 migration을 만든다. drizzle-kit generate에 인자를 그대로 넘기고, 생성된 `migrations/meta`를 Biome 형식으로 맞춘다. 다른 migration이 main에 먼저 들어가 번호가 겹치면, 커밋을 하나로 합치고 `origin/main`에 rebase한 뒤 `bun run --cwd packages/db db:restack`으로 번호·snapshot·journal을 다시 만든다. 직접 쓴 SQL(backfill, trigger 등)은 새 base에 맞는지 읽은 뒤에만 `--keep-handwritten`으로 남긴다. 사용법과 충돌 처리는 `packages/db/scripts/restack-migration.ts` 머리 주석에 있다.

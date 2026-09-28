@@ -6,8 +6,7 @@
 # Its own id rather than claude-coding-local, so a session made here can only
 # run against api.anthropic.com: nothing in this catalog names the compose
 # fake. The key is read from the API process's environment; the API refuses
-# to start without it, and workers only ever hold an egress token for it
-# .
+# to start without it, and workers only ever hold an egress token for it.
 profiles:
   claude-coding-real:
     runtime_kind: claude_agent_sdk

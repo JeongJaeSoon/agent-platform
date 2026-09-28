@@ -326,8 +326,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
       receiptStatus: "accepted",
       authRevision: before.authRevision + 1,
       executionId: l.executionId,
-      // The attempt's gateway credential and its three egress tokens
-      // .
+      // The attempt's gateway credential and its three egress tokens.
       revokedCredentials: 4,
     });
 
@@ -401,8 +400,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
         receipt_id: result.receiptId,
       },
     });
-    // Like a terminate, it puts the admission it moved to on the stream
-    // .
+    // Like a terminate, it puts the admission it moved to on the stream.
     expect(audits).toContainEqual({
       type: "status",
       payload: {

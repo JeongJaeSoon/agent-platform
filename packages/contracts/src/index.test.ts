@@ -707,8 +707,7 @@ describe("worker protocol", () => {
       remaining_budget_usd: 12.5,
     };
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
-    // Only the public summary may lack a runtime; a claim always has one
-    // .
+    // Only the public summary may lack a runtime; a claim always has one.
     expect(
       bootstrapClaimResponseSchema.safeParse({ ...claim, runtime: null })
         .success,

@@ -1051,8 +1051,7 @@ describe("compose layers", () => {
       }
       // Relative paths still resolve from infra/, as every overlay assumes.
       expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
-      // LocalStack keeps S3 in memory; a data volume only suggested otherwise
-      // .
+      // LocalStack keeps S3 in memory; a data volume only suggested otherwise.
       expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
         "gitea-data",
         "postgres-data",

@@ -21,9 +21,9 @@ services:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
-      # The operator's shared provider key is for the internal alpha only.
+      # The operator's shared provider key, for the internal alpha only; the
+      # catalog's profiles name it with `value_env: ANTHROPIC_API_KEY`.
       # TODO(94S-376): Decide the provider-key ownership model before release.
-      # the catalog's profiles name it with `value_env: ANTHROPIC_API_KEY`.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be the operator's provider key}
     # Replaces the core's ../config mount: the catalog lives outside the
     # checkout, at the revision the release manifest names.
