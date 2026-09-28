@@ -29,7 +29,8 @@
 # catalog in config/real-model and, alone, the key from ANTHROPIC_API_KEY
 # (infra/compose.real-model.yml, which also caps what the run can spend;
 # `scripts/local.sh up --real-model` starts the same overlay), and
-# tests/e2e/real-model.e2e.ts runs in place of the scripted suites. Without
+# tests/e2e/real-model.e2e.ts runs in place of the scripted suites. The key
+# comes from the shell or, failing that, the repository's .env. Without
 # a key it stops before touching Docker, and it fails if the key's value
 # turns up anywhere in E2E_OUT. Paid calls, so no CI job runs it;
 # docs/real-claude.md gives the command and its cost.
@@ -37,6 +38,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+. scripts/lib/real-model-key.sh
 
 real_model=""
 case "$*" in
@@ -44,11 +46,18 @@ case "$*" in
   --real-model) real_model=1 ;;
   *) echo "usage: tests/e2e/run.sh [--real-model]" >&2; exit 2 ;;
 esac
-if [ -n "$real_model" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  # Never a quiet fallback to the scripted fake: that run would pass and
-  # prove nothing about the real model.
-  echo "e2e --real-model: ANTHROPIC_API_KEY is unset or empty; nothing was started" >&2
-  exit 2
+if [ -n "$real_model" ]; then
+  key_status=0
+  real_model_key_from_dotenv || key_status=$?
+  if [ "$key_status" = 2 ]; then
+    echo "e2e --real-model: invalid ANTHROPIC_API_KEY quoting in ${AGENT_PLATFORM_DOTENV:-.env}; nothing was started" >&2
+    exit 2
+  elif [ "$key_status" != 0 ]; then
+    # Never a quiet fallback to the scripted fake: that run would pass and
+    # prove nothing about the real model.
+    echo "e2e --real-model: ANTHROPIC_API_KEY is unset or empty in the shell and .env; nothing was started" >&2
+    exit 2
+  fi
 fi
 
 if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
@@ -97,8 +106,10 @@ cleanup() {
   if [ -n "$real_model" ]; then
     # The pattern goes in through a builtin and a pipe, never an argument,
     # and only file names come out.
-    local leaked
+    local leaked restore_xtrace=""
+    case $- in *x*) restore_xtrace=1; set +x ;; esac
     leaked="$(grep -rlF -D skip -f <(printf '%s\n' "$ANTHROPIC_API_KEY") "$out" || true)"
+    [ -z "$restore_xtrace" ] || set -x
     if [ -n "$leaked" ]; then
       echo "e2e --real-model: ANTHROPIC_API_KEY's value is in the record:" >&2
       echo "$leaked" >&2

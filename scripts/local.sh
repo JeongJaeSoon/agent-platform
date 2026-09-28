@@ -19,7 +19,8 @@
 # --real-model adds infra/compose.real-model.yml, the overlay
 # `tests/e2e/run.sh --real-model` runs: the catalog in config/real-model, the
 # caller's exported ANTHROPIC_API_KEY handed by name to the API alone, and
-# the e2e's cost limits (docs/real-claude.md). Without the key nothing is
+# the e2e's cost limits (docs/real-claude.md). The key comes from the shell
+# or, failing that, the repository's .env. Without the key nothing is
 # touched. The project is the same, so `down` deletes it like any other.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
@@ -29,6 +30,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+. scripts/lib/real-model-key.sh
 
 MIN_ENGINE_MAJOR=28
 MIN_COMPOSE=2.24
@@ -60,12 +62,18 @@ usage() {
 
 # The mode `up` and `reset` take, settled before either touches Docker.
 mode() {
+  local key_status
   case "$*" in
     "") ;;
     --real-model)
-      if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+      key_status=0
+      real_model_key_from_dotenv || key_status=$?
+      if [ "$key_status" = 2 ]; then
+        echo "local.sh: invalid ANTHROPIC_API_KEY quoting in ${AGENT_PLATFORM_DOTENV:-.env}; nothing was started" >&2
+        exit 2
+      elif [ "$key_status" != 0 ]; then
         # Never a quiet fallback to the fake: that stack would look fine.
-        echo "local.sh: --real-model needs ANTHROPIC_API_KEY exported (docs/real-claude.md); nothing was started" >&2
+        echo "local.sh: --real-model needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md); nothing was started" >&2
         exit 2
       fi
       real_model=1
