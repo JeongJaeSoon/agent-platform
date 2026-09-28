@@ -17,11 +17,11 @@
 |---|---|
 | `apps` | 배포 단위 셋(control-host·worker·egress-proxy). 앱마다 `Dockerfile`이 있고 이미지 하나가 된다. 앱끼리는 import하지 않는다 |
 | `packages` | 앱이 조립하는 workspace 라이브러리. 아래 표에 패키지마다 한 줄씩 있다 |
-| `spikes` | workspace 밖의 독립 설치 단위. [`spikes/94s-91`](../spikes/94s-91/README.md)은 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness로, 실제 SDK·Claude Code·LiteLLM proxy 왕복을 확인하는 유일한 곳이다. `spikes/94s-92`는 저장 backend 선택(94S-92)의 harness다. CI `spikes` job은 main push와 수동 실행에서만 돌고 run을 막지 않는다([ci.md](ci.md)) |
+| `spikes` | workspace 밖의 독립 설치 단위. [`spikes/94s-91`](../spikes/94s-91/README.md)은 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. 실제 LiteLLM proxy를 거친 SDK 왕복은 여기서만 확인한다. `spikes/94s-92`는 저장 backend 선택(94S-92)의 harness다. CI `spikes` job은 main push와 수동 실행에서만 돌고 run을 막지 않는다([ci.md](ci.md)) |
 | `tests` | 패키지 하나로 닫히지 않는 테스트: 여러 앱·패키지를 엮는 흐름, 저장소·CI·`scripts`를 검사하는 테스트, 스택 전체 harness(`tests/e2e`, `tests/d2-gate`, `tests/soak`) |
-| `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), gate와 과거 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 수동 재현기(`scripts/bun-http-stall`) |
+| `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), gate와 과거 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 개발용 fixture(`scripts/dev`), `THIRD_PARTY_NOTICES.md` 생성기(`third-party-notices.ts`), 수동 재현기(`scripts/bun-http-stall`) |
 | `.github` | CI 전용. workflow(`workflows`), composite action(`actions/bun-setup`), workflow만 부르는 helper(`.github/scripts`). 운영자가 부르는 도구는 여기가 아니라 `scripts`에 둔다 |
-| `infra` | compose layer(`compose.core.yml`·`compose.local.yml`·`compose.test-ops*.yml`·`compose.real-model.yml`·`compose.datadog.yml`)와 진입 파일 `docker-compose.yml`, 컨테이너 초기화 스크립트(`infra/gitea`·`infra/localstack`), Datadog 설정(`infra/datadog`) |
+| `infra` | compose layer(`compose.core.yml`·`compose.local.yml`·`compose.test-ops*.yml`·`compose.real-model.yml`·`compose.datadog.yml`)와 진입 파일 `docker-compose.yml`, 복원용 layer `docker-compose.restore.yml`, 컨테이너 초기화 스크립트(`infra/gitea`·`infra/localstack`), Datadog 설정(`infra/datadog`) |
 | `config` | API가 읽는 로컬 기본 카탈로그(`profiles.yaml`·`repositories.yaml`). compose가 `/app/config`로 mount한다. `config/real-model`은 실제 Messages API용 카탈로그로 `--real-model` 실행과 복원 검증이 쓴다 |
 | `docs` | 사용자·운영·개발 문서, 생성된 `openapi.json`, API가 `/docs`로 서빙하는 참조 페이지(`docs/api`) |
 
@@ -31,7 +31,7 @@
 |---|---|
 | `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`domain`(agent·auth·authorization·workspace, 기억·digest 선행 계약)·`chat`(chat 표면 envelope 선행 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
-| `packages/storage` | content-addressed checkpoint object store, 요청·body 읽기에 상한을 건 S3 client, worker가 egress proxy의 object route로 쓰는 client, git workspace bundle 검증 |
+| `packages/storage` | content-addressed checkpoint object store, 요청·body 읽기에 상한을 건 S3 client, worker가 egress proxy의 object route로 쓰는 client, scope 밖 key를 막는 object store, 자원 상한을 건 git 실행기, git workspace bundle 검증 |
 | `packages/observability` | 구조화 로거(`createLogger`, `LOG_LEVEL`)와 로그 redaction 규칙. 메트릭과 트레이싱은 없다 |
 | `packages/system` | 업무 의미가 없는 Bun·OS 도구: 캐시 없이 매번 묻는 DNS 조회(`lookupEveryTime`), 자원 상한을 건 git 실행(`gitCommand`)·process group 종료. db·storage·worker가 쓰고, 이 패키지는 아무것에도 의존하지 않는다(94S-403) |
 | `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog·policy |
