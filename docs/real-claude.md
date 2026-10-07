@@ -1,21 +1,21 @@
 # 실제 Claude로 확인하기
 
-[quickstart](quickstart.md)의 로컬 스택을 fake 대신 실제 Messages API에 붙이는 방법 둘을 다룬다.
+로컬 스택의 기본은 실제 Messages API다. [quickstart](quickstart.md)는 결정적인 대본과 무료 CI를 위해 `--fake-model`로 띄우고, 이 문서는 기본 경로를 쓰는 방법 둘을 다룬다.
 
 - **A. 유료 e2e 한 번**: `tests/e2e/run.sh --real-model`. 스택을 띄우고 정해진 시나리오를 돌린 뒤 스스로 지운다.
-- **B. 직접 대화**: `scripts/local.sh up --real-model`. 스택을 띄워 두고 curl로 자유 문장을 보낸다.
+- **B. 직접 대화**: `scripts/local.sh up`. 스택을 띄워 두고 curl로 자유 문장을 보낸다.
 
-둘 다 같은 overlay(`infra/compose.real-model.yml`)와 카탈로그(`config/real-model/`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다([94S-376](https://linear.app/94soon/issue/94S-376)). AWS 계정은 필요 없다(S3·Secrets Manager는 그대로 LocalStack이다). 유료 호출이므로 CI에서는 돌지 않는다. 실 AWS S3까지 쓰는 확인은 [94S-303](https://linear.app/94soon/issue/94S-303)이다.
+둘 다 같은 기본 카탈로그(`config/`)와 비용 상한 overlay(`infra/compose.real-model.yml`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다([94S-376](https://linear.app/94soon/issue/94S-376)). AWS 계정은 필요 없다(S3·Secrets Manager는 그대로 LocalStack이다). 유료 호출이므로 CI에서는 돌지 않는다. 실 AWS S3까지 쓰는 확인은 [94S-303](https://linear.app/94soon/issue/94S-303)이다.
 
 준비물은 [quickstart 0장](quickstart.md#0-준비물)과 같고, Docker Compose는 **2.24.6 이상**이어야 한다(`include`로 합친 스택 위에 overlay를 겹친다). B는 quickstart 2장의 curl 헬퍼를 쓴다.
 
-## overlay가 바꾸는 것
+## 기본 스택이 쓰는 것
 
-- API가 `config/real-model/`의 카탈로그를 읽는다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 카탈로그에는 fake를 가리키는 profile이 없다.
-- key는 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)에서 **API 컨테이너에만** 이름으로 전달된다. 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
-- 상한: `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초). A와 B가 같은 값을 쓴다.
+- API가 `config/`의 카탈로그를 읽는다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 카탈로그에는 fake를 가리키는 profile이 없다. fake 카탈로그(`config/fake-model/`)는 `--fake-model` overlay를 얹을 때만 읽는다.
+- key는 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)에서 **API 컨테이너에만** 이름으로 전달된다(`infra/compose.local.yml`). 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
+- 상한: `infra/compose.real-model.yml`이 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
 
-`ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있으면 두 명령 모두 Docker를 건드리기 전에 exit 2로 끝난다. fake로 대신 뜨지 않는다.
+`ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있으면 두 명령 모두 Docker를 건드리기 전에 exit 2로 끝난다. fake로 대신 뜨지 않는다. key 없이 띄우려면 `--fake-model`을 명시한다.
 
 ## key 입력과 폐기
 
@@ -43,7 +43,7 @@ tests/e2e/run.sh --real-model
 unset ANTHROPIC_API_KEY
 ```
 
-`run.sh`는 평소 e2e와 같은 스택을 자기 compose project와 루프백 임시 포트로 띄워 overlay를 얹고, 스크립트된 스위트 대신 `tests/e2e/real-model.e2e.ts`를 돈다. 끝나면 자기가 만든 것을 모두 지운다. 1장 스택과 겹치지 않는다.
+`run.sh`는 평소 e2e와 같은 스택을 자기 compose project와 루프백 임시 포트로 띄우되 fake overlay 대신 비용 상한 overlay를 얹고, 스크립트된 스위트 대신 `tests/e2e/real-model.e2e.ts`를 돈다. 끝나면 자기가 만든 것을 모두 지운다. 1장 스택과 겹치지 않는다.
 
 **무엇을 확인하나.** 모델의 문장은 보지 않는다. 도구 결과(저장소 상태)와 플랫폼 기록을 본다.
 
@@ -69,13 +69,13 @@ docker image rm "agent-platform-control-host:$P" "agent-platform-worker:$P" "age
 
 ## B. 실제 Claude와 직접 대화하기
 
-스택을 띄워 두고 대본 없이 자유 문장을 보낸다. fake 스택과 같은 project(`agent-platform`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 실행하면 api와 scheduler만 real 카탈로그로 다시 만들어진다. 그 전에 만든 fake 세션은 카탈로그에 profile이 없으므로 다음 메시지부터 `CATALOG_MISMATCH`로 실패한다([operations.md](operations.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset --real-model`을 쓴다(기존 세션과 데이터가 지워진다). 옵션 없이 `scripts/local.sh up`을 다시 실행하면 fake 카탈로그로 돌아가고 API 컨테이너에서 key도 빠진다.
+스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`agent-platform`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행하면 api와 scheduler가 real 카탈로그로 다시 만들어진다. 그 전에 만든 fake 세션은 카탈로그에 profile이 없으므로 다음 메시지부터 `CATALOG_MISMATCH`로 실패한다([operations.md](operations.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다). `scripts/local.sh up --fake-model`을 다시 실행하면 fake 카탈로그로 돌아간다.
 
 **1. 스택 띄우기.** key 입력 세 줄 뒤에 이어서 붙여 넣는다.
 
 ```sh
 export ANTHROPIC_API_KEY
-scripts/local.sh up --real-model
+scripts/local.sh up
 unset ANTHROPIC_API_KEY
 KEY=$(scripts/local.sh key real-claude \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
@@ -171,7 +171,7 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 
 | 증상 | 원인과 조치 |
 |---|---|
-| `--real-model`이 바로 exit 2로 끝난다 | `ANTHROPIC_API_KEY`가 셸에도 `.env`에도 없거나 비었다. [key 입력](#key-입력과-폐기) 세 줄과 `export ANTHROPIC_API_KEY`를 같은 셸에서 한 뒤 다시 실행한다 |
-| `local.sh up --real-model`이 `too old for --real-model`로 끝난다 | Docker Compose가 2.24.6보다 낮다. 2.24.0–2.24.5는 `include` 위의 overlay를 `conflicts with imported resource`로 거부한다. compose를 올린다 |
+| `run.sh --real-model`이나 `local.sh up`이 바로 exit 2로 끝난다 | `ANTHROPIC_API_KEY`가 셸에도 `.env`에도 없거나 비었다. [key 입력](#key-입력과-폐기) 세 줄과 `export ANTHROPIC_API_KEY`를 같은 셸에서 한 뒤 다시 실행한다 |
+| `local.sh up`이 `docker compose … is too old; … is an overlay on compose.yaml's include`로 끝난다 | Docker Compose가 2.24.6보다 낮다. 2.24.0–2.24.5는 `include` 위의 overlay를 `conflicts with imported resource`로 거부한다. compose를 올린다 |
 | turn이 `budget_exceeded`로 실패한다 | 세션 비용이 1달러 상한을 넘었다. 새 세션을 만든다 |
 | 그 밖의 증상 | [quickstart 8장](quickstart.md#8-막혔을-때)을 본다 |
