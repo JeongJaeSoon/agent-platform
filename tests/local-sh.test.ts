@@ -77,6 +77,8 @@ echo '{"status":"ready"}'
         ...process.env,
         PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
         COMPOSE_FILE: "",
+        ANTHROPIC_API_KEY: "",
+        AGENT_PLATFORM_DOTENV: join(dir, "no.env"),
         STUB_API: "",
         STUB_OURS: "",
         STUB_PROXY: "",
@@ -99,8 +101,14 @@ echo '{"status":"ready"}'
       .split("\n")
       .filter(Boolean);
 
+  // status, down and key take no mode, so they see a --fake-model stack too.
+  const noMode = "compose --profile apps --profile fake-model";
+  const realUp =
+    "compose --profile apps -f compose.yaml -f infra/compose.real-model.yml up -d --build";
+  const key = { ANTHROPIC_API_KEY: "sk-test" };
+
   const deletions = (id: string) => [
-    "compose --profile apps down -v --remove-orphans",
+    `${noMode} down -v --remove-orphans`,
     `ps -aq --filter label=agent-platform.installation=${id}`,
     `network ls -q --filter label=agent-platform.installation=${id}`,
     `volume ls -q --filter label=agent-platform.installation=${id}`,
@@ -118,7 +126,7 @@ echo '{"status":"ready"}'
     });
     expect(result.exitCode).toBe(0);
     expect(await calls("docker-calls")).toEqual([
-      "compose --profile apps ps -aq egress-proxy",
+      `${noMode} ps -aq egress-proxy`,
       'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
       ...deletions("ap434local"),
     ]);
@@ -131,8 +139,8 @@ echo '{"status":"ready"}'
       const result = await run(["down"]);
       expect(result.exitCode).toBe(0);
       expect(await calls("docker-calls")).toEqual([
-        "compose --profile apps ps -aq egress-proxy",
-        "compose --profile apps config --format json",
+        `${noMode} ps -aq egress-proxy`,
+        `${noMode} config --format json`,
         ...deletions(id),
       ]);
     },
@@ -164,19 +172,20 @@ echo '{"status":"ready"}'
   test("reset stops when down fails", async () => {
     await writeFile(config, rendered("local"));
     const result = await run(["reset"], {
+      ...key,
       STUB_API: "127.0.0.1:43123",
       STUB_DOWN_EXIT: "1",
     });
     expect(result.exitCode).not.toBe(0);
     const docker = await calls("docker-calls");
-    expect(docker).toContain("compose --profile apps down -v --remove-orphans");
-    expect(docker).not.toContain("compose --profile apps up -d --build");
+    expect(docker).toContain(`${noMode} down -v --remove-orphans`);
+    expect(docker).not.toContain(realUp);
     expect(result.stderr).not.toContain("local.sh: deleted");
   });
 
   test("up and status read /readyz where compose publishes the api", async () => {
     await writeFile(config, rendered("local"));
-    const up = await run(["up"], { STUB_API: "127.0.0.1:43123" });
+    const up = await run(["up"], { ...key, STUB_API: "127.0.0.1:43123" });
     expect(up).toMatchObject({ exitCode: 0, stdout: '{"status":"ready"}\n' });
     const status = await run(["status"], { STUB_API: "0.0.0.0:43124" });
     expect(status.stdout).toContain('readyz: {"status":"ready"}');
@@ -190,17 +199,47 @@ echo '{"status":"ready"}'
     expect(await calls("curl-calls")).toHaveLength(2);
   });
 
-  test("--real-model puts its overlay on top of COMPOSE_FILE's files", async () => {
+  test.each([
+    [[], key, "infra/compose.real-model.yml"],
+    [["--fake-model"], {}, "infra/compose.fake-model.yml"],
+  ] as const)(
+    "up %p puts its overlay on top of COMPOSE_FILE's files",
+    async (mode, env, overlay) => {
+      await writeFile(config, rendered("local"));
+      const result = await run(["up", ...mode], {
+        ...env,
+        COMPOSE_FILE: "compose.yaml:ports.yml",
+        STUB_API: "127.0.0.1:43123",
+      });
+      expect(result.exitCode).toBe(0);
+      expect(await calls("docker-calls")).toContain(
+        `compose --profile apps -f compose.yaml -f ports.yml -f ${overlay} up -d --build`,
+      );
+    },
+  );
+
+  test("up and reset without a key start nothing and name --fake-model", async () => {
     await writeFile(config, rendered("local"));
-    const result = await run(["up", "--real-model"], {
-      ANTHROPIC_API_KEY: `[REDACTED]`,
-      COMPOSE_FILE: "compose.yaml:ports.yml",
+    for (const command of ["up", "reset"]) {
+      const result = await run([command]);
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain(
+        "up needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md), or --fake-model to run without one; nothing was started",
+      );
+    }
+    expect(await calls("docker-calls")).toEqual([]);
+  });
+
+  test("the key comes from .env when the shell has none", async () => {
+    await writeFile(config, rendered("local"));
+    const dotenv = join(dir, "key.env");
+    await writeFile(dotenv, "ANTHROPIC_API_KEY='sk-from-dotenv'\n");
+    const result = await run(["up"], {
+      AGENT_PLATFORM_DOTENV: dotenv,
       STUB_API: "127.0.0.1:43123",
     });
     expect(result.exitCode).toBe(0);
-    expect(await calls("docker-calls")).toContain(
-      "compose --profile apps -f compose.yaml -f ports.yml -f infra/compose.real-model.yml up -d --build",
-    );
+    expect(await calls("docker-calls")).toContain(realUp);
   });
 
   test("up refuses a rendered port another listener holds, not one its stack does", async () => {
@@ -212,20 +251,20 @@ echo '{"status":"ready"}'
     try {
       const port = String(listener.port);
       await writeFile(config, rendered("local", [port]));
-      const busy = await run(["up"], { STUB_API: `127.0.0.1:${port}` });
+      const busy = await run(["up"], { ...key, STUB_API: `127.0.0.1:${port}` });
       expect(busy.exitCode).toBe(1);
       expect(busy.stderr).toContain(`port(s) 127.0.0.1:${port} already in use`);
-      expect(await calls("docker-calls")).not.toContainEqual(
-        "compose --profile apps up -d --build",
-      );
+      expect(await calls("docker-calls")).not.toContainEqual(realUp);
 
       const elsewhere = await run(["up"], {
+        ...key,
         STUB_API: `127.0.0.1:${port}`,
         STUB_OURS: `0.0.0.0:${port}->3000/tcp`,
       });
       expect(elsewhere.exitCode).toBe(1);
 
       const ours = await run(["up"], {
+        ...key,
         STUB_API: `127.0.0.1:${port}`,
         STUB_OURS: `127.0.0.1:${port}->3000/tcp`,
       });

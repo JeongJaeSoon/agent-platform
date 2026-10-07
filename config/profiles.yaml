@@ -13,22 +13,23 @@
 # created with: change a setting under a new id, since editing one
 # in place stops every session made with it (CATALOG_MISMATCH).
 #
-# The example below is the local mode: the compose `fake-messages` service
-# answers the Messages API, and the key is a placeholder seeded into the
-# local Secrets Manager (infra/localstack/secrets-init). No external account
-# is involved.
+# The example below is the real Messages API with the caller's
+# ANTHROPIC_API_KEY, which the local stack hands to the API alone
+# (docs/real-claude.md); without it the API does not start. Workers only
+# ever hold an egress token for it. config/fake-model is the catalog for
+# running without a key (infra/compose.fake-model.yml).
 profiles:
-  claude-coding-local:
+  claude-coding-real:
     runtime_kind: claude_agent_sdk
     runtime_version: "0.3.270"
     model: claude-sonnet-5
-    tools: [Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion]
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
     permission_mode: default
     provider:
       kind: anthropic
-      endpoint: http://fake-messages:4010
+      endpoint: https://api.anthropic.com
       auth:
         kind: api_key
-        secret_id: agent-platform/local/fake-messages
+        value_env: ANTHROPIC_API_KEY
     project_settings:
       claude_md: true

@@ -79,7 +79,7 @@ echo "== build (${project})" >&2
 (cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$out/build.log" 2>&1
 
 echo "== stack" >&2
-dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
+dc up -d --wait postgres localstack secrets gitea gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
 dc up -d --wait api >>"$out/up.log" 2>&1
 
 port() { dc port "$1" "$2" | sed 's/.*://'; }

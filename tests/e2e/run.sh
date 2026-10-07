@@ -4,8 +4,9 @@
 #   tests/e2e/run.sh
 #
 # Builds the api, scheduler and worker images from this checkout, starts the
-# product compose stack (`apps` profile — the one docs/quickstart.md starts)
-# under a project of its own with ephemeral loopback ports
+# product compose stack (`apps` profile) on the fake Messages API
+# (infra/compose.fake-model.yml — the stack docs/quickstart.md starts with
+# `--fake-model`) under a project of its own with ephemeral loopback ports
 # (tests/e2e/compose.yml), issues an API key with the key CLI, then runs
 # tests/e2e against the public HTTP API. The run record (command, tested
 # SHA, image ids, SDK and Claude Code versions), the test output with its
@@ -25,10 +26,10 @@
 #
 #   tests/e2e/run.sh --real-model
 #
-# The same stack against the real Messages API: the API reads the
-# catalog in config/real-model and, alone, the key from ANTHROPIC_API_KEY
-# (infra/compose.real-model.yml, which also caps what the run can spend;
-# `scripts/local.sh up --real-model` starts the same overlay), and
+# The same stack against the real Messages API: no fake overlay, so the API
+# reads the default catalog in config/ and, alone, the key from
+# ANTHROPIC_API_KEY; infra/compose.real-model.yml caps what the run can
+# spend (`scripts/local.sh up` starts the same overlay), and
 # tests/e2e/real-model.e2e.ts runs in place of the scripted suites. The key
 # comes from the shell or, failing that, the repository's .env. Without
 # a key it stops before touching Docker, and it fails if the key's value
@@ -41,9 +42,10 @@ cd "$root"
 . scripts/lib/real-model-key.sh
 
 real_model=""
+model_overlay=infra/compose.fake-model.yml
 case "$*" in
   "") ;;
-  --real-model) real_model=1 ;;
+  --real-model) real_model=1; model_overlay=infra/compose.real-model.yml ;;
   *) echo "usage: tests/e2e/run.sh [--real-model]" >&2; exit 2 ;;
 esac
 if [ -n "$real_model" ]; then
@@ -78,7 +80,7 @@ label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
 dc() {
   docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
-    ${real_model:+-f infra/compose.real-model.yml} \
+    -f "$model_overlay" \
     ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
 }
 
@@ -160,15 +162,16 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "claude_agent_sdk: ${sdk_version}"
   echo "claude_code: ${claude_version}"
   if [ -n "$real_model" ]; then
-    echo "model: $(sed -n 's/^ *model: //p' config/real-model/profiles.yaml)"
-    echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' config/real-model/profiles.yaml)"
+    echo "model: $(sed -n 's/^ *model: //p' config/profiles.yaml)"
+    echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' config/profiles.yaml)"
     echo "session_cost_limit_usd: $(sed -n 's/^ *SESSION_COST_LIMIT_USD: "\(.*\)"$/\1/p' infra/compose.real-model.yml)"
   fi
 } | tee "$out/record.txt" >&2
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
-export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
+[ -n "$real_model" ] ||
+  export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.

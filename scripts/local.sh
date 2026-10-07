@@ -3,9 +3,9 @@
 # `agent-platform` from compose.yaml, on the loopback ports docs/quickstart.md
 # lists.
 #
-#   scripts/local.sh up [--real-model]   check Docker and ports, build, start, wait for /readyz
+#   scripts/local.sh up [--fake-model]   check Docker, ports and the key, build, start, wait for /readyz
 #   scripts/local.sh down                delete the stack AND ALL ITS DATA
-#   scripts/local.sh reset [--real-model]
+#   scripts/local.sh reset [--fake-model]
 #                                        down, then up
 #   scripts/local.sh status              containers and /readyz
 #   scripts/local.sh key <owner> --scopes <scope>[,<scope>...]
@@ -16,12 +16,16 @@
 # the rows that point at them. `down` therefore deletes the volumes too, and
 # the API refuses to start on a bucket emptied behind the database's back.
 #
-# --real-model adds infra/compose.real-model.yml, the overlay
-# `tests/e2e/run.sh --real-model` runs: the catalog in config/real-model, the
-# caller's exported ANTHROPIC_API_KEY handed by name to the API alone, and
-# the e2e's cost limits (docs/real-claude.md). The key comes from the shell
-# or, failing that, the repository's .env. Without the key nothing is
-# touched. The project is the same, so `down` deletes it like any other.
+# `up` runs the real Messages API: the catalog in config/, the caller's
+# ANTHROPIC_API_KEY handed by name to the API alone, and the real-model
+# e2e's cost limits (infra/compose.real-model.yml, docs/real-claude.md). The
+# key comes from the shell or, failing that, the repository's .env. Without
+# the key nothing is touched.
+#
+# --fake-model runs without a key instead (infra/compose.fake-model.yml):
+# the compose fake Messages API answers from the script in each prompt
+# (docs/quickstart.md). The project is the same either way, so `down`
+# deletes whichever is up.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
 # compose's to resolve: the ports checked, the /readyz waited on
@@ -44,15 +48,20 @@ die() {
   exit 1
 }
 
-real_model=""
+# The overlay `up` and `reset` add; empty for the commands that take no mode.
+overlay=""
 compose() {
-  local files=() file IFS=:
-  if [ -n "$real_model" ]; then
+  local args=() file IFS=:
+  if [ -n "$overlay" ]; then
     # -f replaces COMPOSE_FILE, so the overlay goes on top of its files.
-    for file in ${COMPOSE_FILE:-compose.yaml}; do files+=(-f "$file"); done
-    files+=(-f infra/compose.real-model.yml)
+    for file in ${COMPOSE_FILE:-compose.yaml}; do args+=(-f "$file"); done
+    args+=(-f "$overlay")
+  else
+    # status, down and key: the fake-model profile too, so they still see
+    # the fake Messages API of a --fake-model stack.
+    args+=(--profile fake-model)
   fi
-  docker compose --profile apps ${files[@]+"${files[@]}"} "$@"
+  docker compose --profile apps "${args[@]}" "$@"
 }
 
 usage() {
@@ -64,8 +73,7 @@ usage() {
 mode() {
   local key_status
   case "$*" in
-    "") ;;
-    --real-model)
+    "")
       key_status=0
       real_model_key_from_dotenv || key_status=$?
       if [ "$key_status" = 2 ]; then
@@ -73,11 +81,12 @@ mode() {
         exit 2
       elif [ "$key_status" != 0 ]; then
         # Never a quiet fallback to the fake: that stack would look fine.
-        echo "local.sh: --real-model needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md); nothing was started" >&2
+        echo "local.sh: up needs ANTHROPIC_API_KEY exported or in .env (docs/real-claude.md), or --fake-model to run without one; nothing was started" >&2
         exit 2
       fi
-      real_model=1
+      overlay=infra/compose.real-model.yml
       ;;
+    --fake-model) overlay=infra/compose.fake-model.yml ;;
     *) usage ;;
   esac
 }
@@ -113,8 +122,8 @@ preflight() {
     die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" ||
     die "docker compose $compose_version is too old; compose.yaml needs $MIN_COMPOSE or newer (include, env_file required)"
-  [ -z "$real_model" ] || version_at_least "$compose_version" "$MIN_COMPOSE_OVERLAY" ||
-    die "docker compose $compose_version is too old for --real-model; an overlay on compose.yaml's include needs $MIN_COMPOSE_OVERLAY or newer"
+  [ -z "$overlay" ] || version_at_least "$compose_version" "$MIN_COMPOSE_OVERLAY" ||
+    die "docker compose $compose_version is too old; $overlay is an overlay on compose.yaml's include, which needs $MIN_COMPOSE_OVERLAY or newer"
   command -v jq >/dev/null || die "jq is not installed"
   bindings=$(rendered | jq -r '[.services[].ports[]? | select(.published and .protocol != "udp")
     | "\(.host_ip // "")|\(.published)"] | unique | .[]')
@@ -179,7 +188,8 @@ installation_id() {
 }
 
 down() {
-  local id
+  # Whichever mode the stack was started in (reset's included).
+  local id overlay=""
   command -v jq >/dev/null || die "jq is not installed"
   id=$(installation_id) || true
   [ -n "$id" ] || die "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted"

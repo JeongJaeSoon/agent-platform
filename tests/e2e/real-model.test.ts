@@ -10,20 +10,21 @@ import {
   runtimeProviderOf,
 } from "@agent-platform/platform";
 import {
+  FAKE_MODEL,
   LOCAL_LAYERS,
   layeredServices,
   REAL_MODEL as OVERLAY,
 } from "../compose-layers.ts";
 
 /**
- * The plumbing of `tests/e2e/run.sh --real-model` and
- * `scripts/local.sh up --real-model`, without Docker or a key: the
- * catalog the API reads, the overlay that hands the key to the API alone,
- * and both scripts run against stand-ins for docker, bun and curl. The paid
- * run is the user's (docs/real-claude.md).
+ * The plumbing of `tests/e2e/run.sh --real-model` and `scripts/local.sh up`,
+ * without Docker or a key: the default catalog the API reads, the local
+ * layer that hands the key to the API alone, the overlay's cost limits, and
+ * both scripts run against stand-ins for docker, bun and curl. The paid run
+ * is the user's (docs/real-claude.md).
  */
 const ROOT = join(import.meta.dir, "../..");
-const CATALOG = join(ROOT, "config/real-model");
+const CATALOG = join(ROOT, "config");
 const RUN = join(ROOT, "tests/e2e/run.sh");
 const LOCAL = join(ROOT, "scripts/local.sh");
 const KEY_VARIABLE = "ANTHROPIC_API_KEY";
@@ -48,13 +49,13 @@ function defaults(...layers: Array<Service | undefined>) {
   return env;
 }
 
-describe("real-model catalog", () => {
+describe("default catalog", () => {
   test("its one profile calls api.anthropic.com with the key from the API's environment", async () => {
     const catalog = await loadSessionCatalog({
       dir: CATALOG,
       env: { [KEY_VARIABLE]: PROBE },
       readSecret: async () => {
-        throw new Error("the real-model catalog reads no secret");
+        throw new Error("the default catalog reads no secret");
       },
     });
     expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-real"]);
@@ -89,7 +90,7 @@ describe("real-model catalog", () => {
   });
 });
 
-describe("real-model compose overlay", () => {
+describe("real-model compose layers", () => {
   test("only the API is given the key, by name and never by value", async () => {
     const files = [...LOCAL_LAYERS, "tests/e2e/compose.yml", OVERLAY];
     for (const file of files) {
@@ -97,7 +98,7 @@ describe("real-model compose overlay", () => {
         (await compose(file)).services,
       )) {
         const env = service.environment ?? {};
-        if (file === OVERLAY && name === "api") {
+        if (file === LOCAL_LAYERS[1] && name === "api") {
           expect(env[KEY_VARIABLE]).toBeNull();
         } else {
           expect(Object.hasOwn(env, KEY_VARIABLE)).toBe(false);
@@ -106,15 +107,13 @@ describe("real-model compose overlay", () => {
     }
   });
 
-  test("the API reads config/real-model inside the config/ the core mounts", () => {
+  test("the API reads the config/ the core mounts", () => {
     const api = layeredServices<Service & { volumes?: string[] }>([
       ...LOCAL_LAYERS,
       OVERLAY,
     ]).api;
     expect(api?.volumes).toContain("../config:/app/config:ro");
-    expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe(
-      "/app/config/real-model",
-    );
+    expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe("/app/config");
   });
 
   test("the proxy allows the profile's endpoint and the limits cap one run", async () => {
@@ -326,11 +325,12 @@ echo " 0 fail"
     expect(result.stderr).not.toContain(PROBE);
   });
 
-  test("the scripted run keeps its suites and adds no overlay", async () => {
+  test("the scripted run keeps its suites on the fake overlay", async () => {
     const result = run("fake", { [KEY_VARIABLE]: PROBE }, []);
     expect(result.status).toBe(0);
     const argv = await result.argv;
     expect(argv).not.toContain(OVERLAY);
+    expect(argv).toContain(`-f ${FAKE_MODEL}`);
     expect(argv).toContain(
       "bun test ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts --timeout 900000",
     );
@@ -340,7 +340,7 @@ echo " 0 fail"
   });
 });
 
-describe("local.sh up --real-model", () => {
+describe("local.sh up", () => {
   let dir: string;
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "real-model-local-"));
@@ -403,15 +403,9 @@ echo '{"status":"ready"}'
       ["empty", { [KEY_VARIABLE]: "" }],
     ] as const) {
       for (const verb of ["up", "reset"]) {
-        const result = await local(
-          `no-key-${verb}-${name}`,
-          [verb, "--real-model"],
-          env,
-        );
+        const result = await local(`no-key-${verb}-${name}`, [verb], env);
         expect(result.status).toBe(2);
-        expect(result.stderr).toContain(
-          `--real-model needs ${KEY_VARIABLE} exported`,
-        );
+        expect(result.stderr).toContain(`up needs ${KEY_VARIABLE} exported`);
         expect(result.argv).toBe("");
       }
     }
@@ -423,7 +417,7 @@ echo '{"status":"ready"}'
   });
 
   test("starts the default project with the overlay, the key in no argument", async () => {
-    const result = await local("clean", ["up", "--real-model"], {
+    const result = await local("clean", ["up"], {
       [KEY_VARIABLE]: PROBE,
     });
     expect(result.stderr).not.toContain(PROBE);
@@ -438,7 +432,7 @@ echo '{"status":"ready"}'
   test("takes the key from .env when the shell has none", async () => {
     const dotenv = join(dir, "dotenv-local");
     await Bun.write(dotenv, `${KEY_VARIABLE}=${PROBE}\n`);
-    const result = await local("dotenv", ["up", "--real-model"], {
+    const result = await local("dotenv", ["up"], {
       AGENT_PLATFORM_DOTENV: dotenv,
     });
     expect(result.status).toBe(0);
@@ -454,7 +448,7 @@ echo '{"status":"ready"}'
   ])("accepts %s dotenv syntax", async (name, contents) => {
     const dotenv = join(dir, `dotenv-local-${name}`);
     await Bun.write(dotenv, contents);
-    const result = await local(`dotenv-${name}`, ["up", "--real-model"], {
+    const result = await local(`dotenv-${name}`, ["up"], {
       AGENT_PLATFORM_DOTENV: dotenv,
     });
     expect(result.status).toBe(0);
@@ -468,11 +462,9 @@ echo '{"status":"ready"}'
   ])("rejects a dotenv value with only a %s quote", async (name, contents) => {
     const dotenv = join(dir, `dotenv-local-unmatched-${name}`);
     await Bun.write(dotenv, contents);
-    const result = await local(
-      `dotenv-unmatched-${name}`,
-      ["up", "--real-model"],
-      { AGENT_PLATFORM_DOTENV: dotenv },
-    );
+    const result = await local(`dotenv-unmatched-${name}`, ["up"], {
+      AGENT_PLATFORM_DOTENV: dotenv,
+    });
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("invalid ANTHROPIC_API_KEY quoting");
     expect(result.stderr).not.toContain(PROBE);
@@ -486,12 +478,7 @@ echo '{"status":"ready"}'
       ["shell", { [KEY_VARIABLE]: PROBE }],
       ["dotenv", { AGENT_PLATFORM_DOTENV: dotenv }],
     ] as const) {
-      const result = await local(
-        `xtrace-${name}`,
-        ["up", "--real-model"],
-        env,
-        ["-x"],
-      );
+      const result = await local(`xtrace-${name}`, ["up"], env, ["-x"]);
       expect(result.status).toBe(0);
       expect(result.stderr).not.toContain(PROBE);
     }
@@ -499,26 +486,22 @@ echo '{"status":"ready"}'
 
   test("refuses a compose that cannot put an overlay on the include", async () => {
     for (const verb of ["up", "reset"]) {
-      const result = await local(
-        `old-compose-${verb}`,
-        [verb, "--real-model"],
-        {
-          [KEY_VARIABLE]: PROBE,
-          STUB_COMPOSE: "2.24.5",
-        },
-      );
+      const result = await local(`old-compose-${verb}`, [verb], {
+        [KEY_VARIABLE]: PROBE,
+        STUB_COMPOSE: "2.24.5",
+      });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("too old for --real-model");
+      expect(result.stderr).toContain(
+        `too old; ${OVERLAY} is an overlay on compose.yaml's include`,
+      );
       // A reset that cannot start deletes nothing either.
       expect(result.argv).not.toMatch(/ (up -d|down)/);
     }
   });
 
-  test("the fake stack and down add no overlay", async () => {
-    for (const verb of ["up", "down"]) {
-      const result = await local(`fake-${verb}`, [verb], {
-        [KEY_VARIABLE]: PROBE,
-      });
+  test("--fake-model and down add no real-model overlay", async () => {
+    for (const args of [["up", "--fake-model"], ["down"]]) {
+      const result = await local(`fake-${args.join("-")}`, args);
       expect(result.status).toBe(0);
       expect(result.argv).toContain("compose --profile apps ");
       expect(result.argv).not.toContain(OVERLAY);

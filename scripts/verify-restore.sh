@@ -18,7 +18,7 @@
 # engine, SDK and CLI versions, and the profile digest its own code computes
 # from the claim the API would hand the session, built from the session row
 # and the catalog in --config-dir (default config/, the API's own default;
-# config/real-model for a real-model stack). A pointer sealed under another
+# config/fake-model for a --fake-model stack). A pointer sealed under another
 # build, or under a digest the image no longer computes, fails as
 # incompatible. Without --image each plan is asked with the checkpoint's own
 # runtime, and the image check is printed as SKIP.

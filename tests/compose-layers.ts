@@ -10,8 +10,10 @@ const root = join(import.meta.dir, "..");
 export const CORE = "infra/compose.core.yml";
 export const LOCAL_LAYERS = [CORE, "infra/compose.local.yml"] as const;
 export const TEST_OPS_LAYERS = [CORE, "infra/compose.test-ops.yml"] as const;
-/** Over the local stack, for `--real-model`. */
+/** Over the local stack: the real-model e2e's cost limits. */
 export const REAL_MODEL = "infra/compose.real-model.yml";
+/** Over the local stack, for `--fake-model` and the free runs. */
+export const FAKE_MODEL = "infra/compose.fake-model.yml";
 export const DATADOG_OVERLAY = "infra/compose.datadog.yml";
 export const TEST_OPS_STORE_LAYERS = {
   localstack: "infra/compose.test-ops.localstack.yml",

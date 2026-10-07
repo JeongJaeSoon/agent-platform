@@ -69,7 +69,7 @@ up() {
     (cd "${SOAK_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$state/build.log" 2>&1
   fi
   echo "== stack (${project})" >&2
-  dc up -d --wait postgres localstack secrets gitea fake-messages gate-chaos gate-messages egress-proxy vm-lag host-echo >"$state/up.log" 2>&1
+  dc up -d --wait postgres localstack secrets gitea gate-chaos gate-messages egress-proxy vm-lag host-echo >"$state/up.log" 2>&1
   dc up -d --wait api >>"$state/up.log" 2>&1
 
   port() { dc port "$1" "$2" | sed 's/.*://'; }

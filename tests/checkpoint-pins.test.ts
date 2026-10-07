@@ -693,7 +693,7 @@ describe("backup → restore re-pin", () => {
 });
 
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
-  const PROFILE_ID = "claude-coding-local";
+  const PROFILE_ID = "claude-coding-real";
   const REPOSITORY_ID = "sample-app";
   // The API's default catalog, credentials standing in as verify-restore's do.
   const catalog = async () =>

@@ -138,7 +138,7 @@ services:
       # On the forward proxy each would be a way round its route: the
       # provider with a key of the worker's own, outside cost accounting;
       # Gitea without a token; LocalStack, which takes any signature, into
-      # every session's prefix. fake-messages:4010 is the example profile's
+      # every session's prefix. fake-messages:4010 is config/fake-model's
       # Messages API.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443}
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,localstack:4566}
