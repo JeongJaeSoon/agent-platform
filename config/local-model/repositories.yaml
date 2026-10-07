@@ -1,0 +1,7 @@
+# The example repository (config/repositories.yaml), trusted for the local
+# model profiles alone.
+repositories:
+  sample-app:
+    url: http://gitea:3000/agent/sample-app.git
+    branch: main
+    profiles: [local-ollama, local-litellm]

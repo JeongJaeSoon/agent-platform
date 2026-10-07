@@ -9,8 +9,12 @@ import { Api, e2eEnv, poll, type SseEvent, type Turn } from "./client.ts";
  * repository's state) and what the platform recorded (turns, attempts,
  * checkpoint, the engine session, usage).
  */
-const api = new Api(e2eEnv());
-const PROFILE_ID = "claude-coding-real";
+const api = new Api(e2eEnv({ needsMessages: false }));
+// `--local-model` names the profiles of config/local-model here, comma
+// separated, and the same path runs once on each.
+const PROFILE_IDS = (process.env.E2E_PROFILE_IDS ?? "claude-coding-real").split(
+  ",",
+);
 const TURN_TIMEOUT = 300_000;
 
 const nonce = crypto.randomUUID().slice(0, 8);
@@ -103,96 +107,101 @@ function commitSeen(events: SseEvent[]): string {
   return commit;
 }
 
-test("two turns, a checkpoint and a resume on a new worker, against the real model", async () => {
-  // 1. The model writes and commits a file; every write asks permission.
-  const created = await api.createSession(
-    exactly(write),
-    undefined,
-    PROFILE_ID,
-  );
-  expect(created.status).toBe(201);
-  const sessionId = created.body.session_id;
-  const first = await completed(sessionId, "1");
-  const firstEvents = await eventsOf(sessionId, "1");
-  expect(toolCommands(firstEvents).some((c) => c.includes(file))).toBe(true);
+test.each(PROFILE_IDS)(
+  "two turns, a checkpoint and a resume on a new worker, against the real model (%s)",
+  async (profileId) => {
+    // 1. The model writes and commits a file; every write asks permission.
+    const created = await api.createSession(
+      exactly(write),
+      undefined,
+      profileId,
+    );
+    expect(created.status).toBe(201);
+    const sessionId = created.body.session_id;
+    const first = await completed(sessionId, "1");
+    const firstEvents = await eventsOf(sessionId, "1");
+    expect(toolCommands(firstEvents).some((c) => c.includes(file))).toBe(true);
 
-  // 2. A second turn on the same worker reads the commit back.
-  const second = await api.send(sessionId, exactly(inspect));
-  const sameWorker = await completed(sessionId, second.turn_id);
-  expect(attemptsOf(sameWorker)).toEqual(attemptsOf(first));
-  const commit = commitSeen(await eventsOf(sessionId, second.turn_id));
+    // 2. A second turn on the same worker reads the commit back.
+    const second = await api.send(sessionId, exactly(inspect));
+    const sameWorker = await completed(sessionId, second.turn_id);
+    expect(attemptsOf(sameWorker)).toEqual(attemptsOf(first));
+    const commit = commitSeen(await eventsOf(sessionId, second.turn_id));
 
-  // 3. Pause: the worker checkpoints both turns and goes away.
-  const pause = await api.control(sessionId, "pause", {
-    expected_revision: (await api.session(sessionId)).revision,
-    reason: "e2e real model",
-  });
-  expect(pause.status).toBe(202);
-  const paused = await api.sessionUntil(
-    sessionId,
-    "is paused",
-    (s) => s.admission_state === "paused",
-    TURN_TIMEOUT,
-  );
-  expect(paused.checkpoint_revision).not.toBeNull();
-  expect(paused.durability.last_checkpointed_turn_id).toBe(second.turn_id);
+    // 3. Pause: the worker checkpoints both turns and goes away.
+    const pause = await api.control(sessionId, "pause", {
+      expected_revision: (await api.session(sessionId)).revision,
+      reason: "e2e real model",
+    });
+    expect(pause.status).toBe(202);
+    const paused = await api.sessionUntil(
+      sessionId,
+      "is paused",
+      (s) => s.admission_state === "paused",
+      TURN_TIMEOUT,
+    );
+    expect(paused.checkpoint_revision).not.toBeNull();
+    expect(paused.durability.last_checkpointed_turn_id).toBe(second.turn_id);
 
-  // 4. Resume: a new worker restores the repository and the engine session.
-  const resume = await api.control(sessionId, "resume", {
-    expected_revision: paused.revision,
-  });
-  expect(resume.status).toBe(202);
-  await api.sessionUntil(
-    sessionId,
-    "is active again",
-    (s) => s.admission_state === "active",
-    TURN_TIMEOUT,
-  );
-  const third = await api.send(sessionId, exactly(inspect));
-  const restored = await completed(sessionId, third.turn_id);
-  const thirdEvents = await eventsOf(sessionId, third.turn_id);
-  expect(commitSeen(thirdEvents)).toBe(commit);
-  for (const attempt of attemptsOf(restored)) {
-    expect(attemptsOf(first)).not.toContain(attempt);
-  }
-  expect(engineSession(thirdEvents)).toBe(engineSession(firstEvents));
+    // 4. Resume: a new worker restores the repository and the engine session.
+    const resume = await api.control(sessionId, "resume", {
+      expected_revision: paused.revision,
+    });
+    expect(resume.status).toBe(202);
+    await api.sessionUntil(
+      sessionId,
+      "is active again",
+      (s) => s.admission_state === "active",
+      TURN_TIMEOUT,
+    );
+    const third = await api.send(sessionId, exactly(inspect));
+    const restored = await completed(sessionId, third.turn_id);
+    const thirdEvents = await eventsOf(sessionId, third.turn_id);
+    expect(commitSeen(thirdEvents)).toBe(commit);
+    for (const attempt of attemptsOf(restored)) {
+      expect(attemptsOf(first)).not.toContain(attempt);
+    }
+    expect(engineSession(thirdEvents)).toBe(engineSession(firstEvents));
 
-  // 5. Usage: every turn reported a cost, inside the run's limit.
-  const usage = await api.expect<{
-    budget_exceeded: boolean;
-    cost: {
-      amount_usd: string;
-      complete: boolean;
-      reported_turn_count: number;
-    };
-    cost_limit_usd: string;
-  }>(200, "GET", `/v1/sessions/${sessionId}/usage`);
-  expect(usage.cost.complete).toBe(true);
-  expect(usage.cost.reported_turn_count).toBe(3);
-  // Decimal strings (costUsdSchema), compared as numbers.
-  const spent = Number(usage.cost.amount_usd);
-  expect(spent).toBeGreaterThan(0);
-  expect(spent).toBeLessThanOrEqual(Number(usage.cost_limit_usd));
-  expect(usage.budget_exceeded).toBe(false);
-  const limits = await api.expect<{
-    limits: { session_cost_limit_usd: string };
-  }>(200, "GET", "/v1/limits");
-  expect(usage.cost_limit_usd).toBe(limits.limits.session_cost_limit_usd);
+    // 5. Usage: every turn reported a cost, inside the run's limit.
+    const usage = await api.expect<{
+      budget_exceeded: boolean;
+      cost: {
+        amount_usd: string;
+        complete: boolean;
+        reported_turn_count: number;
+      };
+      cost_limit_usd: string;
+    }>(200, "GET", `/v1/sessions/${sessionId}/usage`);
+    expect(usage.cost.complete).toBe(true);
+    expect(usage.cost.reported_turn_count).toBe(3);
+    // Decimal strings (costUsdSchema), compared as numbers.
+    const spent = Number(usage.cost.amount_usd);
+    expect(spent).toBeGreaterThan(0);
+    expect(spent).toBeLessThanOrEqual(Number(usage.cost_limit_usd));
+    expect(usage.budget_exceeded).toBe(false);
+    const limits = await api.expect<{
+      limits: { session_cost_limit_usd: string };
+    }>(200, "GET", "/v1/limits");
+    expect(usage.cost_limit_usd).toBe(limits.limits.session_cost_limit_usd);
 
-  // One line for the run record.
-  console.log(
-    JSON.stringify({
-      real_model: {
-        session_id: sessionId,
-        commit,
-        engine_session: engineSession(thirdEvents),
-        attempts: {
-          before: attemptsOf(first),
-          after: attemptsOf(restored),
+    // One line for the run record.
+    console.log(
+      JSON.stringify({
+        real_model: {
+          profile_id: profileId,
+          session_id: sessionId,
+          commit,
+          engine_session: engineSession(thirdEvents),
+          attempts: {
+            before: attemptsOf(first),
+            after: attemptsOf(restored),
+          },
+          cost_usd: usage.cost.amount_usd,
+          cost_limit_usd: usage.cost_limit_usd,
         },
-        cost_usd: usage.cost.amount_usd,
-        cost_limit_usd: usage.cost_limit_usd,
-      },
-    }),
-  );
-}, 1_200_000);
+      }),
+    );
+  },
+  1_200_000,
+);

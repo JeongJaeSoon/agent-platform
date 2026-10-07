@@ -35,6 +35,14 @@
 # a key it stops before touching Docker, and it fails if the key's value
 # turns up anywhere in E2E_OUT. Paid calls, so no CI job runs it;
 # docs/real-claude.md gives the command and its cost.
+#
+#   tests/e2e/run.sh --local-model
+#
+# The same suite against the Ollama on this machine instead: the API reads
+# config/local-model, whose two profiles call Ollama directly and through a
+# LiteLLM proxy (infra/compose.local-model.yml), and the suite runs once on
+# each. Needs Ollama on localhost:11434 with gemma4:26b-mlx pulled; nothing
+# is paid. docs/local-model.md says what it shows and what it does not.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -43,11 +51,23 @@ cd "$root"
 
 real_model=""
 model_overlay=infra/compose.fake-model.yml
+local_model=""
 case "$*" in
   "") ;;
   --real-model) real_model=1; model_overlay=infra/compose.real-model.yml ;;
-  *) echo "usage: tests/e2e/run.sh [--real-model]" >&2; exit 2 ;;
+  --local-model) local_model=1; model_overlay=infra/compose.local-model.yml ;;
+  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model]" >&2; exit 2 ;;
 esac
+if [ -n "$local_model" ]; then
+  if ! curl -sf -m 5 http://127.0.0.1:11434/api/version >/dev/null; then
+    echo "e2e --local-model: no Ollama on 127.0.0.1:11434; nothing was started" >&2
+    exit 2
+  fi
+  # Ollama takes any key; LiteLLM's master key only has to match between the
+  # proxy and the API, so a fresh one per run unless the caller set one.
+  export LOCAL_OLLAMA_API_KEY="${LOCAL_OLLAMA_API_KEY:-ollama-local}"
+  export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-local-$(openssl rand -hex 16)}"
+fi
 if [ -n "$real_model" ]; then
   key_status=0
   real_model_key_from_dotenv || key_status=$?
@@ -153,7 +173,7 @@ claude_version="$(dc logs --no-color worker 2>/dev/null | sed -n 's/.*| //p' | t
 sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p' \
   packages/adapters/runtimes/claude/package.json)"
 {
-  echo "command: tests/e2e/run.sh${real_model:+ --real-model}"
+  echo "command: tests/e2e/run.sh${real_model:+ --real-model}${local_model:+ --local-model}"
   echo "tested_sha: ${sha} (uncommitted paths: ${dirty})"
   echo "docker_engine: ${docker_version}"
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
@@ -166,11 +186,16 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
     echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' config/profiles.yaml)"
     echo "session_cost_limit_usd: ${SESSION_COST_LIMIT_USD:-$(sed -n 's/^ *SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-\(.*\)}$/\1/p' infra/compose.real-model.yml)}"
   fi
+  if [ -n "$local_model" ]; then
+    echo "ollama: $(curl -s http://127.0.0.1:11434/api/version)"
+    echo "models: $(sed -n 's/^ *model: //p' config/local-model/profiles.yaml | paste -sd, -)"
+    echo "provider_endpoints: $(sed -n 's/^ *endpoint: //p' config/local-model/profiles.yaml | paste -sd, -)"
+  fi
 } | tee "$out/record.txt" >&2
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
-[ -n "$real_model" ] ||
+[ -n "$real_model$local_model" ] ||
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
@@ -184,6 +209,9 @@ echo "== tests/e2e" >&2
 set +e
 if [ -n "$real_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
+elif [ -n "$local_model" ]; then
+  suites=(./tests/e2e/real-model.e2e.ts)
+  export E2E_PROFILE_IDS=local-ollama,local-litellm
 else
   suites=(./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts)
 fi

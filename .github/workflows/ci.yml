@@ -243,6 +243,7 @@ jobs:
               - tests/ci-services.
               - tests/d2-gate/
               - tests/docs-links.
+              - tests/e2e/local-model.
               - tests/e2e/real-model.
               - tests/soak/
               - tests/ci-issue-scripts.
