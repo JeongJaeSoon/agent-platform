@@ -153,6 +153,8 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
 
 **기대 응답.** 메시지는 202와 새 `turn_id`를 돌려주고, turn 조회는 최종 상태와 커밋된 결과를 돌려준다.
 
+`completed`는 engine이 turn을 오류 없이 끝냈다는 뜻이지, 요청한 일을 다 했다는 뜻이 아니다. 모델이 "먼저 파일 목록을 보겠다"며 도구 하나만 부르고 답을 끝내도 turn은 `completed`가 된다. 플랫폼은 모델의 답을 해석해 과제 완료를 판정하지 않는다. 일이 끝났는지는 클라이언트가 [5절](#5-sse로-진행-보기와-last-event-id-재연결)의 `assistant`·`tool_use`·`tool_result` 이벤트로 확인하고, 덜 끝났으면 같은 세션에 다음 메시지를 보낸다.
+
 **흔한 오류.** 409 `SESSION_PAUSED`나 `RECOVERY_REQUIRED`면 입력을 더 보내지 말고 각각 resume 또는 복구 결정을 먼저 한다. 429면 세션별 queued input 상한을 확인한다.
 
 ## 5. SSE로 진행 보기와 Last-Event-ID 재연결
