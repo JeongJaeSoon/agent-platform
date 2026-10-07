@@ -857,6 +857,106 @@ describe("startCredentialProxy", () => {
     expect(text).toContain("withheld");
   });
 
+  describe("a provider upstream's 401/403", () => {
+    const REFUSED = "Provider upstream refused the credential route";
+    function refusals(lines: string[]) {
+      return lines
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              level: string;
+              message: string;
+              fields: Record<string, unknown>;
+            },
+        )
+        .filter((record) => record.message === REFUSED);
+    }
+
+    test("is logged at warn with the upstream's own words", async () => {
+      const up = upstream(
+        () =>
+          new Response(`Invalid host header${"!".repeat(600)}`, {
+            status: 403,
+          }),
+      );
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}`, [
+          ["x-api-key", PROVIDER_KEY],
+        ]),
+      );
+      const lines: string[] = [];
+      const server = proxy(auth.url, up.port, {
+        logger: createProxyLogger("warn", (line) => lines.push(line)),
+      });
+      const response = await messages(server.port);
+      expect(response.status).toBe(403);
+      expect(await response.text()).toStartWith("Invalid host header");
+      const [record, ...rest] = refusals(lines);
+      expect(rest).toHaveLength(0);
+      expect(record?.level).toBe("warn");
+      expect(record?.fields).toMatchObject({
+        purpose: "provider",
+        path: "/v1/messages",
+        host: "upstream.test",
+        session_id: "sess-1",
+        status: 403,
+      });
+      const excerpt = record?.fields.upstream_error as string;
+      expect(excerpt).toStartWith("Invalid host header");
+      expect(excerpt).toHaveLength(512);
+      const all = lines.join("\n");
+      expect(all).not.toContain(PROVIDER_KEY);
+      expect(all).not.toContain(WORKER_TOKEN);
+    });
+
+    test("keeps out a body that echoes the credential", async () => {
+      const up = upstream(
+        (request) =>
+          new Response(`invalid key ${request.headers.get("x-api-key")}`, {
+            status: 401,
+          }),
+      );
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}`, [
+          ["x-api-key", PROVIDER_KEY],
+        ]),
+      );
+      const lines: string[] = [];
+      const server = proxy(auth.url, up.port, {
+        logger: createProxyLogger("debug", (line) => lines.push(line)),
+      });
+      expect((await messages(server.port)).status).toBe(401);
+      const [record] = refusals(lines);
+      expect(record?.fields).toMatchObject({
+        status: 401,
+        upstream_error_withheld: true,
+      });
+      expect(record?.fields).not.toHaveProperty("upstream_error");
+      const all = lines.join("\n");
+      expect(all).not.toContain(PROVIDER_KEY);
+      expect(all).not.toContain("invalid key");
+      expect(all).not.toContain(WORKER_TOKEN);
+    });
+
+    test("is the only status logged that way", async () => {
+      let status = 200;
+      const up = upstream(() => Response.json({ type: "error" }, { status }));
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}`, [
+          ["x-api-key", PROVIDER_KEY],
+        ]),
+      );
+      const lines: string[] = [];
+      const server = proxy(auth.url, up.port, {
+        logger: createProxyLogger("debug", (line) => lines.push(line)),
+      });
+      for (status of [200, 400, 404, 429, 500]) {
+        expect((await messages(server.port)).status).toBe(status);
+      }
+      expect(refusals(lines)).toHaveLength(0);
+    });
+  });
+
   test("an ordinary error body is relayed, and an encoded one is not", async () => {
     let encoded = false;
     const up = upstream(() =>
