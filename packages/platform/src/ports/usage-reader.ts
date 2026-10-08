@@ -19,6 +19,7 @@ export type SessionUsageRecord = {
   sessionId: string;
   /** `sessions.cost_usd` as the database prints the numeric. */
   costUsd: string;
+  providerTokens: number;
   reportedTurnCount: number;
   unreportedTurnCount: number;
   openTurnCount: number;

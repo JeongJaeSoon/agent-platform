@@ -11,6 +11,8 @@ import {
  * that dispatches it and the scheduler that launches workers cannot disagree
  * about them. There are no defaults here on purpose: a missing value stops
  * the process, and the documented defaults live in `infra/compose.core.yml`.
+ * The one exception is SESSION_TOKEN_LIMIT, which came later and defaults to
+ * none so an installation that never set it runs as it did.
  */
 export type InstallationLimits = {
   /** Worker containers that may hold a slot at once. */
@@ -26,6 +28,12 @@ export type InstallationLimits = {
   maxTurnSeconds: number;
   /** A session that has spent this much is dispatched nothing further. */
   sessionCostLimitUsd: number;
+  /**
+   * Provider tokens a session may use over its lifetime, whatever they cost;
+   * null when the installation sets none. Past it the session is stopped
+   * exactly where the cost limit stops it.
+   */
+  sessionTokenLimit: number | null;
   /** Retries of a failed Messages request before the turn fails. */
   providerMaxRetries: number;
 };
@@ -36,6 +44,7 @@ export type InstallationLimitsEnvironment = {
   PROVIDER_MAX_RETRIES?: string | undefined;
   QUEUED_INPUT_LIMIT_PER_SESSION?: string | undefined;
   SESSION_COST_LIMIT_USD?: string | undefined;
+  SESSION_TOKEN_LIMIT?: string | undefined;
   STORAGE_LIMIT_BYTES?: string | undefined;
   [name: string]: string | undefined;
 };
@@ -77,7 +86,7 @@ export function installationLimitsFromEnv(
 }
 
 function parseAll(environment: InstallationLimitsEnvironment): {
-  limits: Record<keyof InstallationLimits, number | undefined>;
+  limits: Record<keyof InstallationLimits, number | null | undefined>;
   problems: string[];
 } {
   const { problems, read } = settingProblems();
@@ -114,6 +123,15 @@ function parseAll(environment: InstallationLimitsEnvironment): {
         max: MAX_SESSION_COST_LIMIT_USD,
       }),
     ),
+    // Zero, the default, means no token limit.
+    sessionTokenLimit: read(() => {
+      const limit = integerSetting(environment, "SESSION_TOKEN_LIMIT", {
+        min: 0,
+        max: Number.MAX_SAFE_INTEGER,
+        default: 0,
+      });
+      return limit === 0 ? null : limit;
+    }),
     // Zero is a real setting: the first failed request fails the turn.
     providerMaxRetries: read(() =>
       integerSetting(environment, "PROVIDER_MAX_RETRIES", {
@@ -125,7 +143,29 @@ function parseAll(environment: InstallationLimitsEnvironment): {
   return { limits, problems };
 }
 
-/** The one budget predicate every gate uses: spent is over once it reaches the limit. */
-export function budgetExceeded(costUsd: number, limitUsd: number): boolean {
-  return costUsd >= limitUsd;
+/** What a session has used, as `sessions` keeps it. */
+export type SessionSpend = { costUsd: number; providerTokens: number };
+
+/** The limits a session's spend is held to. */
+export type SessionBudget = { costUsd: number; tokens: number | null };
+
+export function sessionBudgetOf(limits: InstallationLimits): SessionBudget {
+  return {
+    costUsd: limits.sessionCostLimitUsd,
+    tokens: limits.sessionTokenLimit,
+  };
+}
+
+/**
+ * The one budget predicate every gate uses: spent is over once it reaches
+ * either limit.
+ */
+export function budgetExceeded(
+  spend: SessionSpend,
+  budget: SessionBudget,
+): boolean {
+  return (
+    spend.costUsd >= budget.costUsd ||
+    (budget.tokens !== null && spend.providerTokens >= budget.tokens)
+  );
 }

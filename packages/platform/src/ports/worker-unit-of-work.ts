@@ -59,6 +59,7 @@ export type WorkerBinding = {
   restore: CheckpointRef | null;
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
+  providerTokens: number;
 };
 
 // A profile and repository this host may run together, with the URL and
@@ -87,6 +88,8 @@ export type ClaimInput = {
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput.
   costLimitUsd: number;
+  // SESSION_TOKEN_LIMIT, held the same way; absent or null, none.
+  tokenLimit?: number | null;
   nonceHash: Uint8Array;
   executionId: string;
   executionGeneration: number;
@@ -130,6 +133,7 @@ export type EgressAuthorization =
       repository: { id: string | null; url: string; branch: string };
       // What the session has spent as of this answer.
       costUsd: number;
+      providerTokens: number;
     }
   // Unknown, revoked, expired, or presented for another purpose.
   | { outcome: "invalid_token" }
@@ -194,6 +198,7 @@ export type NextInputInput = {
   now: Date;
   // A session that has spent this much is handed no new turn.
   costLimitUsd: number;
+  tokenLimit?: number | null;
 };
 export type DeliveredInput = {
   turnId: string;

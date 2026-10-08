@@ -186,6 +186,7 @@ const workers = createWorkerGateway({
   pending: createPostgresWorkerPendingStore(db),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
+    sessionTokenLimit: limits.sessionTokenLimit,
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits
     // exactly this long once the request is registered.

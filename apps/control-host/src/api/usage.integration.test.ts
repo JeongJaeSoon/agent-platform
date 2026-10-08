@@ -38,6 +38,7 @@ const limits: InstallationLimits = {
   storageLimitBytes: 1_073_741_824,
   maxTurnSeconds: 3600,
   sessionCostLimitUsd: 2.5,
+  sessionTokenLimit: null,
   providerMaxRetries: 2,
 };
 const roomy: InputLimits = {
@@ -311,6 +312,40 @@ integration("usage API on PostgreSQL", () => {
 
     expect(usage.cost.amount_usd).toBe("2.500000");
     expect(usage.budget_exceeded).toBe(true);
+  });
+
+  test("budget_exceeded also counts tokens once a token limit is set, whatever they cost", async () => {
+    const owner = `owner-${crypto.randomUUID()}`;
+    const id = await session(owner, ["many tokens"]);
+    await db
+      .update(sessions)
+      .set({ providerTokens: 1_000 })
+      .where(eq(sessions.id, id));
+
+    const unlimited = await usageOf(id, owner);
+    expect(unlimited).toMatchObject({
+      token_count: 1_000,
+      token_limit: null,
+      budget_exceeded: false,
+    });
+
+    const tokenLimited = createUsageService({
+      authorization: allowAllPolicy,
+      reader: createPostgresUsageReader(db),
+      limits: { ...limits, sessionTokenLimit: 1_000 },
+    });
+    const usage = sessionUsageResponseSchema.parse(
+      await tokenLimited.getSessionUsage({ ownerId: owner }, id),
+    );
+    expect(usage).toMatchObject({
+      cost: { amount_usd: "0.000000" },
+      token_count: 1_000,
+      token_limit: 1_000,
+      budget_exceeded: true,
+    });
+    expect(
+      (await tokenLimited.getInstallationLimits()).limits.session_token_limit,
+    ).toBe(1_000);
   });
 
   test("another owner's session, a missing one and a malformed id all answer 404", async () => {

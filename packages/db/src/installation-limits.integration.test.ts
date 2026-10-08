@@ -39,6 +39,7 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const COST_LIMIT_USD = 10;
+const TOKEN_LIMIT = 1_000;
 const roomy: InputLimits = {
   queuedInputLimitPerSession: 1_000,
   storageLimitBytes: Number.MAX_SAFE_INTEGER,
@@ -50,12 +51,11 @@ integration("installation limits on PostgreSQL", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let gateway: WorkerGateway;
+  // The same installation with SESSION_TOKEN_LIMIT set.
+  let tokenGateway: WorkerGateway;
 
-  beforeAll(async () => {
-    database = await createTempDatabase({ prefix: "limits_it" });
-    pool = new Pool({ connectionString: database.url, max: 20 });
-    db = drizzle(pool, { schema });
-    gateway = createWorkerGateway({
+  const gatewayWith = (sessionTokenLimit: number | null) =>
+    createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: {
         profiles: {
@@ -91,10 +91,18 @@ integration("installation limits on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: COST_LIMIT_USD,
+        sessionTokenLimit,
         leaseTtlMs: 30_000,
         sleep: async () => {},
       },
     });
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "limits_it" });
+    pool = new Pool({ connectionString: database.url, max: 20 });
+    db = drizzle(pool, { schema });
+    gateway = gatewayWith(null);
+    tokenGateway = gatewayWith(TOKEN_LIMIT);
   }, 60_000);
 
   afterAll(async () => {
@@ -103,9 +111,10 @@ integration("installation limits on PostgreSQL", () => {
   }, 60_000);
 
   const inputs = () => createPostgresSessionUnitOfWork(db);
-  const store = () =>
+  const store = (sessionTokenLimit: number | null = null) =>
     createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: COST_LIMIT_USD,
+      sessionTokenLimit,
       connectForLock: () => pool.connect(),
     });
 
@@ -755,6 +764,151 @@ integration("installation limits on PostgreSQL", () => {
       await spend(other.session_id, COST_LIMIT_USD);
       expect(
         await store().reserveLaunch({
+          backend: "local_docker",
+          image: "sha256:worker",
+          now: new Date(),
+          resources: {
+            cpus: 1,
+            memoryBytes: 512 * 1024 * 1024,
+            pidsLimit: 256,
+          },
+          sessionId: other.session_id,
+          slotLimit: 1_000,
+        }),
+      ).toBeNull();
+    });
+  });
+  describe("session token budget", () => {
+    async function sessionTokens(sessionId: string): Promise<number> {
+      const [row] = await db
+        .select({ providerTokens: sessions.providerTokens })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      return row?.providerTokens ?? Number.NaN;
+    }
+
+    async function spendTokens(sessionId: string, providerTokens: number) {
+      await db
+        .update(sessions)
+        .set({ providerTokens })
+        .where(eq(sessions.id, sessionId));
+    }
+
+    test("a metered call adds every token it used once, whatever it cost", async () => {
+      const { session, claimed } = await bound();
+      const report = {
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({
+          inputTokens: 100,
+          cacheCreationInputTokens: 20,
+          cacheCreation1hInputTokens: 5,
+          cacheReadInputTokens: 30,
+          outputTokens: 50,
+        }),
+      };
+      await gateway.recordProviderUsage(report);
+      await gateway.recordProviderUsage(report);
+      // The 1h cache writes are inside cache_creation, so not added again.
+      expect(await sessionTokens(session.session_id)).toBe(200);
+
+      await gateway.recordProviderUsage({
+        ...report,
+        exchangeId: crypto.randomUUID(),
+        usage: usage({ model: "local-model", outputTokens: 7 }),
+      });
+      expect(await sessionTokens(session.session_id)).toBe(207);
+    });
+
+    test("with no token limit set, a session past any token count still runs", async () => {
+      const { session, claimed } = await bound();
+      await spendTokens(session.session_id, Number.MAX_SAFE_INTEGER);
+
+      const next = await gateway.nextInput(
+        principalOf(claimed),
+        scopeOf(claimed),
+      );
+      expect(next.input?.turn_id).toBe("1");
+      expect(
+        (
+          await gateway.authorizeEgress({
+            token: claimed.runtime_config.provider.auth.token,
+            purpose: "provider",
+          })
+        ).session_id,
+      ).toBe(session.session_id);
+    });
+
+    test("a session at its token limit gets no new turn or provider call, though its cost is nothing", async () => {
+      const { session, claimed } = await bound();
+      await spendTokens(session.session_id, TOKEN_LIMIT - 1);
+      expect(
+        (await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed)))
+          .input?.turn_id,
+      ).toBe("1");
+
+      await tokenGateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ model: "local-model", outputTokens: 1 }),
+      });
+      await finalize(claimed, "1");
+      await append(session, "second");
+      await spend(session.session_id, 0);
+
+      expect(
+        await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed)),
+      ).toMatchObject({
+        input: null,
+        draining: true,
+        reason: "BUDGET_EXCEEDED",
+      });
+      expect(
+        await failure(
+          tokenGateway.authorizeEgress({
+            token: claimed.runtime_config.provider.auth.token,
+            purpose: "provider",
+          }),
+        ),
+      ).toEqual({ status: 403, code: "BUDGET_EXCEEDED" });
+    });
+
+    test("a session at its token limit is not claimed, demanded or reserved", async () => {
+      const spent = await queuedSession();
+      await spendTokens(spent.session_id, TOKEN_LIMIT);
+      const l = await launch(spent.partition, spent.session_id);
+      expect(
+        await failure(
+          tokenGateway.bootstrapClaim(bootstrap, {
+            execution_id: l.executionId,
+            execution_generation: l.generation,
+            credential: { kind: "launch_nonce", nonce: l.nonce },
+          }),
+        ),
+      ).toEqual({ status: 404, code: "NOT_FOUND" });
+
+      const under = await queuedSession();
+      await spendTokens(under.session_id, TOKEN_LIMIT - 1);
+      const demand = await store(TOKEN_LIMIT).inspectDemand({ limit: 1_000 });
+      expect(demand.eligibleSessionIds).not.toContain(spent.session_id);
+      expect(demand.eligibleSessionIds).toContain(under.session_id);
+      // The same count with no token limit set is demanded as before.
+      const unlimited = await queuedSession();
+      await spendTokens(unlimited.session_id, TOKEN_LIMIT);
+      expect(
+        (await store().inspectDemand({ limit: 1_000 })).eligibleSessionIds,
+      ).toContain(unlimited.session_id);
+      expect(
+        (await store(TOKEN_LIMIT).inspectDemand({ limit: 1_000 }))
+          .eligibleSessionIds,
+      ).not.toContain(unlimited.session_id);
+
+      const other = await queuedSession();
+      await spendTokens(other.session_id, TOKEN_LIMIT);
+      expect(
+        await store(TOKEN_LIMIT).reserveLaunch({
           backend: "local_docker",
           image: "sha256:worker",
           now: new Date(),

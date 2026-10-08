@@ -54,6 +54,7 @@ export async function main(
         connectForLock: () => pool.connect(),
         logger,
         sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
+        sessionTokenLimit: config.limits.sessionTokenLimit,
       }),
       (error) => {
         logger.error("Database connection lost; failing the rest of the pass", {

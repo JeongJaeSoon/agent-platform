@@ -454,6 +454,14 @@ export const sessions = pgTable(
     costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" })
       .notNull()
       .default(0),
+    // Every token of those same calls (input, cache writes and reads,
+    // output), whatever they cost. A provider_usage insert trigger
+    // (migration 0127) adds them, so every API build counts them. Compared
+    // against SESSION_TOKEN_LIMIT wherever cost_usd is compared against its
+    // limit.
+    providerTokens: bigint("provider_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
     // Whether the last status event the stream carries about input said
     // needs_input. A record of what was published, not a state
     // it flips only in the transaction that writes that status event.

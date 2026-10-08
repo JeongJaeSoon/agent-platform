@@ -47,6 +47,7 @@ import {
   type RestoreBaseInput,
   type RestoreBaseResult,
   type RunnablePair,
+  type SessionBudget,
   storedPendingReasonHoldsWork,
   type WorkerBinding,
   type WorkerFence,
@@ -60,7 +61,6 @@ import {
   gt,
   inArray,
   isNull,
-  lt,
   max,
   notInArray,
   type SQL,
@@ -79,6 +79,7 @@ import {
   OPEN_TURN_STATUSES,
   parseTurnSequence,
   restoreBaseRevision,
+  withinBudget,
 } from "./control-shared.ts";
 import {
   earliestUnknownTurn,
@@ -655,6 +656,13 @@ export function runnableCondition(runnable: readonly RunnablePair[]): SQL {
   return sql`((${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}, ${sessions.profileFingerprint}) IN (${pinned}) OR (${sessions.profileFingerprint} IS NULL AND (${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${pairs})))`;
 }
 
+function budgetOf(input: {
+  costLimitUsd: number;
+  tokenLimit?: number | null;
+}): SessionBudget {
+  return { costUsd: input.costLimitUsd, tokens: input.tokenLimit ?? null };
+}
+
 /**
  * A launch reserved for one session whose pair the catalog has since dropped
  * would wait out the worker's claim timeout, exit unclaimed, and be rebuilt
@@ -675,7 +683,10 @@ async function giveUpOnCatalogMismatch(
   tx: Database,
   launch: typeof workerLaunches.$inferSelect,
   sessionId: string,
-  input: Pick<ClaimInput, "runnable" | "catalogRevision" | "costLimitUsd">,
+  input: Pick<
+    ClaimInput,
+    "runnable" | "catalogRevision" | "costLimitUsd" | "tokenLimit"
+  >,
   now: Date,
 ): Promise<"catalog_mismatch" | "context_gap" | null> {
   const { runnable } = input;
@@ -692,7 +703,7 @@ async function giveUpOnCatalogMismatch(
     !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
     // Reserved for this launch and no later one.
     session.executionId !== launch.executionId ||
-    budgetExceeded(session.costUsd, input.costLimitUsd) ||
+    budgetExceeded(session, budgetOf(input)) ||
     runnablePairOf(session, runnable) !== undefined
   ) {
     return null;
@@ -817,6 +828,7 @@ async function bindingOf(
     },
     restore: restore === undefined ? await restoreRef(tx, session) : restore,
     costUsd: session.costUsd,
+    providerTokens: session.providerTokens,
   };
 }
 
@@ -1046,7 +1058,7 @@ export function createPostgresWorkerUnitOfWork(
               inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
               isNull(sessions.executionRevokedAt),
               runnableCondition(input.runnable),
-              lt(sessions.costUsd, input.costLimitUsd),
+              withinBudget(budgetOf(input)),
               restoreRetryDue(),
               ...(launch.sessionId === null
                 ? []
@@ -1273,6 +1285,7 @@ export function createPostgresWorkerUnitOfWork(
             branch: fenced.session.branch,
           },
           costUsd: fenced.session.costUsd,
+          providerTokens: fenced.session.providerTokens,
         };
       });
     },
@@ -1417,10 +1430,7 @@ export function createPostgresWorkerUnitOfWork(
         }
         // Read under the session lock the fence holds, and finalize adds to
         // it under the same lock, so a turn cannot start on a stale total.
-        const overBudget = budgetExceeded(
-          fenced.session.costUsd,
-          input.costLimitUsd,
-        );
+        const overBudget = budgetExceeded(fenced.session, budgetOf(input));
         const none = {
           outcome: "ok" as const,
           input: null,

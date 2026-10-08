@@ -3370,6 +3370,18 @@
                 "type": "string",
                 "pattern": "^\\d+(\\.\\d+)?$"
               },
+              "session_token_limit": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "provider_max_retries": {
                 "type": "integer",
                 "minimum": 0,
@@ -3382,6 +3394,7 @@
               "storage_limit_bytes",
               "max_turn_seconds",
               "session_cost_limit_usd",
+              "session_token_limit",
               "provider_max_retries"
             ],
             "additionalProperties": false
@@ -3524,6 +3537,23 @@
             "type": "string",
             "pattern": "^\\d+(\\.\\d+)?$"
           },
+          "token_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "token_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "budget_exceeded": {
             "type": "boolean"
           },
@@ -3544,6 +3574,8 @@
           "refreshed_at",
           "cost",
           "cost_limit_usd",
+          "token_count",
+          "token_limit",
           "budget_exceeded",
           "queued_input_count",
           "queued_input_limit"

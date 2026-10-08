@@ -116,7 +116,8 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("PAUSE_BLOCKED"),
     reason: pauseBlockedReasonSchema,
   }),
-  // The session has spent SESSION_COST_LIMIT_USD, so no further turn is
+  // The session has spent SESSION_COST_LIMIT_USD or used SESSION_TOKEN_LIMIT
+  // tokens, so no further turn is
   // dispatched; input is still queued.
   z.object({
     code: z.literal("BUDGET_EXCEEDED"),

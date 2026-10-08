@@ -754,7 +754,8 @@ export class WorkerHost {
         if (next.reason === "BUDGET_EXCEEDED") {
           this.stop({
             kind: "idle",
-            reason: "The session has spent its cost budget (BUDGET_EXCEEDED)",
+            reason:
+              "The session has spent its cost or token budget (BUDGET_EXCEEDED)",
           });
           return;
         }

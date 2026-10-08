@@ -80,6 +80,7 @@ export async function migrateWorkspaces(
       connectForLock: () => pool.connect(),
       logger,
       sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
+      sessionTokenLimit: config.limits.sessionTokenLimit,
     });
     // The copy lands under the ceiling this host enforces; a daemon that
     // cannot carry it would only fail the copy later and less clearly.

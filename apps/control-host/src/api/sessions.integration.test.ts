@@ -100,6 +100,7 @@ integration("sessions API on PostgreSQL", () => {
       queuedInputLimitPerSession: number;
       storageLimitBytes: number;
       sessionCostLimitUsd: number;
+      sessionTokenLimit?: number | null;
     }) =>
       createSessionService({
         limits,
@@ -115,11 +116,12 @@ integration("sessions API on PostgreSQL", () => {
       sessionCostLimitUsd: 1_000,
     });
     // One queued input per session, room for no message at all, and a one
-    // dollar budget.
+    // dollar or 100 token budget.
     const tightService = serviceWith({
       queuedInputLimitPerSession: 1,
       storageLimitBytes: 1,
       sessionCostLimitUsd: 1,
+      sessionTokenLimit: 100,
     });
     tight = createApiApp({
       authMode: "none",
@@ -1194,6 +1196,35 @@ integration("sessions API on PostgreSQL", () => {
     const spent = await detail();
     expect(spent.attention).toMatchObject({ code: "BUDGET_EXCEEDED" });
     expect(JSON.stringify(spent)).not.toContain("cost_usd");
+  }, 60_000);
+
+  test("detail raises BUDGET_EXCEEDED once the session's tokens reach the limit, at no cost", async () => {
+    const sessionId = await createdSession("limit-budget-tokens-1");
+    const detail = async (on: typeof tight) => {
+      const response = await on.request(`/v1/sessions/${sessionId}`, {
+        headers: { "X-Owner-Id": owner },
+      });
+      expect(response.status).toBe(200);
+      return getSessionResponseSchema.parse(await response.json());
+    };
+    await db
+      .update(sessions)
+      .set({ providerTokens: 99 })
+      .where(eq(sessions.id, sessionId));
+    expect((await detail(tight)).attention).toBeNull();
+
+    await db
+      .update(sessions)
+      .set({ providerTokens: 100 })
+      .where(eq(sessions.id, sessionId));
+    const spent = await detail(tight);
+    expect(spent.attention).toMatchObject({
+      code: "BUDGET_EXCEEDED",
+      reason: expect.stringContaining("100 token"),
+    });
+    expect(JSON.stringify(spent)).not.toContain("provider_tokens");
+    // The installation with no token limit says nothing about the count.
+    expect((await detail(app)).attention).toBeNull();
   }, 60_000);
 
   test("detail raises CATALOG_MISMATCH while the catalog does not allow the session's pair, and drops it once restored", async () => {

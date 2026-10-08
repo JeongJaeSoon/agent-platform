@@ -177,10 +177,21 @@ export function createSessionService(deps: {
   controls: SessionControl;
   reader: SessionReader;
   catalog: SessionCatalog;
-  limits: InputLimits & { sessionCostLimitUsd: number };
+  limits: InputLimits & {
+    sessionCostLimitUsd: number;
+    sessionTokenLimit?: number | null;
+  };
   now?: () => Date;
 }) {
   const { authorization, inputs, controls, reader, catalog } = deps;
+  const budget = {
+    costUsd: deps.limits.sessionCostLimitUsd,
+    tokens: deps.limits.sessionTokenLimit ?? null,
+  };
+  const budgetText =
+    budget.tokens === null
+      ? `${budget.costUsd} USD`
+      : `${budget.costUsd} USD or ${budget.tokens} token`;
   const inputLimits: InputLimits = {
     queuedInputLimitPerSession: deps.limits.queuedInputLimitPerSession,
     storageLimitBytes: deps.limits.storageLimitBytes,
@@ -558,6 +569,7 @@ export function createSessionService(deps: {
       const {
         profile_id,
         cost_usd,
+        provider_tokens,
         repo_url,
         branch,
         profile_fingerprint,
@@ -578,10 +590,13 @@ export function createSessionService(deps: {
               }) ??
           // Dispatch stops at the same predicate (nextInputAtomic), so what
           // this says and what the gateway does come from one comparison.
-          (budgetExceeded(cost_usd, deps.limits.sessionCostLimitUsd)
+          (budgetExceeded(
+            { costUsd: cost_usd, providerTokens: provider_tokens },
+            budget,
+          )
             ? {
                 code: "BUDGET_EXCEEDED",
-                reason: `The session has spent its ${deps.limits.sessionCostLimitUsd} USD budget; queued messages will not run and a pending resume will not launch`,
+                reason: `The session has reached its ${budgetText} budget; queued messages will not run and a pending resume will not launch`,
               }
             : null),
         runtime: runtimeFor(profile_id),

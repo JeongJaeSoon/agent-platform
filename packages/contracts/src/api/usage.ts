@@ -28,6 +28,8 @@ export const installationLimitsResponseSchema = z
         storage_limit_bytes: countSchema,
         max_turn_seconds: countSchema,
         session_cost_limit_usd: costUsdSchema,
+        // null when the installation sets no token limit.
+        session_token_limit: countSchema.nullable(),
         provider_max_retries: countSchema,
       })
       .strict(),
@@ -78,6 +80,10 @@ export const sessionUsageResponseSchema = z
       })
       .strict(),
     cost_limit_usd: costUsdSchema,
+    // Every token of the same calls the cost counts, whatever they cost.
+    token_count: countSchema,
+    token_limit: countSchema.nullable(),
+    // Either limit reached.
     budget_exceeded: z.boolean(),
     queued_input_count: countSchema,
     queued_input_limit: countSchema,
