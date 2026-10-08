@@ -1205,7 +1205,10 @@ describe("compose layers", () => {
       const api = services.api;
       expect(api?.environment?.ANTHROPIC_API_KEY).toBe(probe);
       expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe("/app/config");
+      // The default catalog reads no secret_id, so nothing waits on these.
       expect(services["fake-messages"]).toBeUndefined();
+      expect(services.secrets).toBeUndefined();
+      expect(Object.keys(api?.depends_on ?? {})).not.toContain("secrets");
       expect(
         api?.volumes?.find((volume) => volume.target === "/app/config")?.source,
       ).toBe(join(root, "config"));
@@ -1231,7 +1234,8 @@ describe("compose layers", () => {
 
   // `scripts/local.sh up --fake-model` and the free runs: with no key the
   // API reads the fake catalog and waits on the fake Messages API, whose
-  // checkout mount resolves to the repository from either project directory.
+  // checkout mount resolves to the repository from either project directory,
+  // and on the Secrets Manager holding that catalog's placeholder key.
   test.each([
     [["compose.yaml", FAKE_MODEL]],
     [[...LOCAL_LAYERS, FAKE_MODEL, "tests/e2e/compose.yml"]],
@@ -1248,9 +1252,11 @@ describe("compose layers", () => {
       expect(services.api?.environment?.PLATFORM_CONFIG_DIR).toBe(
         "/app/config/fake-model",
       );
-      expect(services.api?.depends_on?.["fake-messages"]).toMatchObject({
-        condition: "service_healthy",
-      });
+      for (const name of ["fake-messages", "secrets"])
+        expect({ name, on: services.api?.depends_on?.[name] }).toMatchObject({
+          name,
+          on: { condition: "service_healthy" },
+        });
       expect(
         services["fake-messages"]?.volumes?.map(
           (volume) => `${volume.source}:${volume.target}`,
@@ -1262,13 +1268,27 @@ describe("compose layers", () => {
 
   // where scripts/local.sh reads the ports to check and the worker
   // label to delete, also under the CI quickstart job's COMPOSE_FILE.
+  const PORTS = ["3000", "3001", "4566", "5432"];
+  // 4567 is the secrets service's, on only with the fake catalog.
+  const FAKE_PORTS = [...PORTS, "4567"].sort();
   test.each([
-    [LOCAL_LAYERS, {}, "local"],
-    [LOCAL_LAYERS, { EXECUTION_INSTALLATION_ID: "ap434local" }, "ap434local"],
-    [["compose.yaml", "tests/e2e/compose.ci-mirror.yml"], {}, "local"],
+    [LOCAL_LAYERS, {}, "local", PORTS],
+    [
+      LOCAL_LAYERS,
+      { EXECUTION_INSTALLATION_ID: "ap434local" },
+      "ap434local",
+      PORTS,
+    ],
+    [[...LOCAL_LAYERS, FAKE_MODEL], {}, "local", FAKE_PORTS],
+    [
+      ["compose.yaml", "tests/e2e/compose.ci-mirror.yml", FAKE_MODEL],
+      {},
+      "local",
+      FAKE_PORTS,
+    ],
   ] as const)(
     "%p rendered with %j names installation %p and its loopback ports",
-    (files, variables, id) => {
+    (files, variables, id, ports) => {
       const { exitCode, stderr, model } = render(files, variables);
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
       const services = model?.services ?? {};
@@ -1282,13 +1302,7 @@ describe("compose layers", () => {
       const published = Object.values(services).flatMap(
         (service) => service.ports?.map((port) => port.published) ?? [],
       );
-      expect([...new Set(published)].sort()).toEqual([
-        "3000",
-        "3001",
-        "4566",
-        "4567",
-        "5432",
-      ]);
+      expect([...new Set(published)].sort()).toEqual([...ports]);
       expect(
         services.api?.ports?.map(({ host_ip, target }) => ({
           host_ip,
