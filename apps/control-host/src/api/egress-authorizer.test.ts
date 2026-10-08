@@ -72,7 +72,11 @@ beforeEach(async () => {
       },
     },
     checkpoints: acceptAllCheckpoints,
-    options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 60_000 },
+    options: {
+      sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
+      leaseTtlMs: 60_000,
+    },
   });
   authorize = createEgressAuthorizer({
     gateway,

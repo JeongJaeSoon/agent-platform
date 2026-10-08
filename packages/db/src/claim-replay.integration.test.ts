@@ -89,6 +89,7 @@ integration("claim replay against the session's current binding", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs,
         now: () => clock,
         sleep: async () => {},

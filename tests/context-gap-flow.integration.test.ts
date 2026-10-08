@@ -170,6 +170,7 @@ integration(
           queuedInputLimitPerSession: 1_000,
           storageLimitBytes: 1e15,
           sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
         },
       });
       gateway = createWorkerGateway({
@@ -177,7 +178,11 @@ integration(
         catalog,
         checkpoints: { verify: async () => ({ status: "verified" }) },
         pending: createPostgresWorkerPendingStore(db),
-        options: { leaseTtlMs: 30_000, sessionCostLimitUsd: 1_000 },
+        options: {
+          leaseTtlMs: 30_000,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
       });
       const app = createApiApp({
         authMode: "none",

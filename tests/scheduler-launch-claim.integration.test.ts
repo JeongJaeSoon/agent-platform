@@ -244,7 +244,11 @@ integration(
           },
         },
         checkpoints: acceptAllCheckpoints,
-        options: { leaseTtlMs: 60_000, sessionCostLimitUsd: 25 },
+        options: {
+          leaseTtlMs: 60_000,
+          sessionCostLimitUsd: 25,
+          sessionTokenLimit: null,
+        },
       });
       const app = createApiApp({
         authMode: "api-key",

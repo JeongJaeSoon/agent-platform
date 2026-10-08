@@ -100,6 +100,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: 2_000,
         now,
         sleep: async () => {},

@@ -91,6 +91,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: LEASE_TTL_MS,
         now,
         sleep: async () => {},

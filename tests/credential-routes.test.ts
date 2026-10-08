@@ -163,7 +163,11 @@ async function topology(): Promise<Topology> {
       },
     },
     checkpoints: acceptAllCheckpoints,
-    options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 60_000 },
+    options: {
+      sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
+      leaseTtlMs: 60_000,
+    },
   });
   authorizer = Bun.serve({
     hostname: "127.0.0.1",

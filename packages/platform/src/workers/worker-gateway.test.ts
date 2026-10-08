@@ -89,6 +89,7 @@ function gateway(
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       leaseTtlMs: 30_000,
       maxWaitMs: 1_000,
       pollIntervalMs: 100,
@@ -224,7 +225,11 @@ describe("WorkerGateway", () => {
           return { status: "rejected", reason: "sha mismatch" };
         },
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     await expect(
       instance.finalize(principal, {
@@ -293,7 +298,11 @@ describe("WorkerGateway", () => {
           return { status: "rejected", reason: "storage is unreachable" };
         },
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     // The turn is already terminal, so a verifier that happens to be down
     // must not hide a result the worker has no other way to learn.
@@ -340,6 +349,7 @@ describe("WorkerGateway", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: 30_000,
         pollIntervalMs: 250,
         now: () => at,
@@ -454,7 +464,11 @@ describe("WorkerGateway", () => {
         },
       },
       checkpoints: acceptAllCheckpoints,
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     const request = {
       execution_id: "e",
@@ -578,7 +592,11 @@ describe("WorkerGateway", () => {
         repositories: {},
       },
       checkpoints: acceptAllCheckpoints,
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     const offClaim = await off.bootstrapClaim({ kind: "bootstrap" }, request);
     expect("project_settings" in offClaim.runtime_config).toBe(false);
@@ -594,7 +612,11 @@ describe("WorkerGateway", () => {
       }),
       catalog: { profiles: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     await expect(
       stranger.bootstrapClaim({ kind: "bootstrap" }, request),
@@ -610,7 +632,11 @@ describe("WorkerGateway", () => {
       }),
       catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
       checkpoints: acceptAllCheckpoints,
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     const spentClaim = await spent.bootstrapClaim(
       { kind: "bootstrap" },
@@ -704,7 +730,11 @@ describe("WorkerGateway", () => {
           return unimplemented();
         },
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     expect(
       await instance.requestCheckpoint(principal, {
@@ -774,7 +804,11 @@ describe("WorkerGateway", () => {
         requestCheckpoint: unimplemented,
         getRestorePlan: unimplemented,
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     await expect(
       fenced.requestCheckpoint(principal, {
@@ -838,7 +872,11 @@ describe("WorkerGateway", () => {
           return { status: "none" };
         },
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     expect(
       await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
@@ -883,7 +921,11 @@ describe("WorkerGateway", () => {
           return answer;
         },
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     expect(
       await instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
@@ -1168,7 +1210,11 @@ describe("WorkerGateway", () => {
           return { status: "none" };
         },
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     await expect(
       instance.restorePlan(principal, { ...scope, runtime: fingerprint }),
@@ -1237,7 +1283,11 @@ describe("WorkerGateway", () => {
           throw outage;
         },
       },
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     const finalizeRequest = {
       ...scope,
@@ -1355,7 +1405,11 @@ describe("heartbeat control_pending", () => {
       } as unknown as NonNullable<
         Parameters<typeof createWorkerGateway>[0]["pending"]
       >,
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     const beat = await instance.heartbeat(principal, {
       ...scope,
@@ -1422,7 +1476,11 @@ describe("authorizeEgress", () => {
       }),
       catalog,
       checkpoints: acceptAllCheckpoints,
-      options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     return { asked, instance };
   }
@@ -1646,7 +1704,11 @@ describe("unmetered sessions", () => {
       }),
       catalog: { profiles: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
-      options: { sessionCostLimitUsd: 1, leaseTtlMs: 30_000 },
+      options: {
+        sessionCostLimitUsd: 1,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
     });
     return instance.recordProviderUsage({
       exchangeId: "ex_1",
@@ -1710,7 +1772,11 @@ describe("unmetered sessions", () => {
           },
         },
         checkpoints: acceptAllCheckpoints,
-        options: { sessionCostLimitUsd: 1, leaseTtlMs: 30_000 },
+        options: {
+          sessionCostLimitUsd: 1,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
       });
       const response = await instance.bootstrapClaim(
         { kind: "bootstrap" },

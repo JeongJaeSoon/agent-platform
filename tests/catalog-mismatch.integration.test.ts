@@ -298,6 +298,7 @@ integration("a session whose pair left the catalog, end to end", () => {
         queuedInputLimitPerSession: 1_000,
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
       },
     });
 
@@ -329,7 +330,11 @@ integration("a session whose pair left the catalog, end to end", () => {
       catalog,
       checkpoints: { verify: async () => ({ status: "verified" }) },
       pending: createPostgresWorkerPendingStore(db),
-      options: { leaseTtlMs: 30_000, sessionCostLimitUsd: 1_000 },
+      options: {
+        leaseTtlMs: 30_000,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      },
     });
     after = createApiApp({
       authMode: "none",
@@ -387,6 +392,7 @@ integration("a session whose pair left the catalog, end to end", () => {
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
     });
     const pass = () =>
       runScheduler({

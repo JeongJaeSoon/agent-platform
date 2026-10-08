@@ -76,6 +76,7 @@ beforeEach(async () => {
     },
     options: {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       leaseTtlMs: 60_000,
       sleep: async () => {},
     },

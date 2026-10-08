@@ -79,6 +79,7 @@ beforeEach(async () => {
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       leaseTtlMs: LEASE_TTL_MS,
       now: () => clock,
       sleep: async () => {},
@@ -196,7 +197,11 @@ describe("/internal/worker", () => {
             },
             catalog: { profiles: {}, repositories: {} },
             checkpoints: acceptAllCheckpoints,
-            options: { sessionCostLimitUsd: 1_000, leaseTtlMs: LEASE_TTL_MS },
+            options: {
+              sessionCostLimitUsd: 1_000,
+              sessionTokenLimit: null,
+              leaseTtlMs: LEASE_TTL_MS,
+            },
           }),
         ),
     });
@@ -240,7 +245,11 @@ describe("/internal/worker", () => {
               },
               catalog: { profiles: {}, repositories: {} },
               checkpoints: acceptAllCheckpoints,
-              options: { sessionCostLimitUsd: 1_000, leaseTtlMs: LEASE_TTL_MS },
+              options: {
+                sessionCostLimitUsd: 1_000,
+                sessionTokenLimit: null,
+                leaseTtlMs: LEASE_TTL_MS,
+              },
             }),
           ),
       });
@@ -615,6 +624,7 @@ describe("/internal/worker", () => {
             },
             options: {
               sessionCostLimitUsd: 1_000,
+              sessionTokenLimit: null,
               leaseTtlMs: LEASE_TTL_MS,
               now: () => clock,
             },
