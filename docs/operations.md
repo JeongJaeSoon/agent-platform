@@ -545,7 +545,7 @@ provider:
 - claim의 `remaining_budget_usd`는 `null`이고 worker는 SDK에 `maxBudgetUsd`를 넘기지 않는다. SDK는 모르는 model을 자체 추정 단가로 계산해 예산에서 turn을 끊기 때문이다.
 - `GET /v1/sessions/{id}/usage`는 `cost.kind: "unmetered"`로 답한다. `amount_usd`는 `"0.000000"`, `budget_exceeded`는 `false`다. `cost_limit_usd`는 설치 값을 그대로 보여 주지만 이 세션에는 적용되지 않는다.
 - 과금 여부는 세션을 만들 때 세션 행(`sessions.unmetered`)에 고정된다. 가격·claim 예산·usage 표시는 이 값을 읽고, 보고를 받은 API의 카탈로그는 보지 않는다. 그래서 rolling update 중 그 profile을 모르는 replica가 보고를 받아도 비용이 붙지 않는다. `billing`을 바꾸면 fingerprint가 바뀌므로 새 id로 추가한다(같은 id를 고치면 기존 세션은 `CATALOG_MISMATCH`가 된다).
-- 이 기능이 없는 옛 API는 `unmetered` 세션의 보고도 가격표로 계산한다. `none` profile로 세션을 만드는 것은 모든 API replica를 이 버전으로 올린 뒤에 한다.
+- `none` profile로 세션을 만드는 것은 모든 API replica와 모든 scheduler의 `WORKER_IMAGE`를 이 버전으로 올린 뒤에 한다. 옛 API는 `unmetered` 세션의 보고도 가격표로 계산하고, 옛 worker는 claim의 `remaining_budget_usd: null`을 계약 위반으로 거절해 엔진을 띄우지 못한다. 같은 이유로 `unmetered` 세션이 남아 있는 동안에는 API·worker를 옛 버전으로 되돌리지 않는다.
 - 시간·동시성 상한(`MAX_TURN_SECONDS`, `EXECUTION_SLOT_LIMIT`, `QUEUED_INPUT_LIMIT_PER_SESSION`)은 그대로 걸린다.
 - API는 endpoint host가 사설 주소(10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, `::1`, fc00::/7, fe80::/10)이거나 공개 DNS에 없는 이름(점 없는 compose 서비스 이름, `localhost`, `.internal`·`.local`·`.localhost`·`.lan`·`.home.arpa`)일 때만 `none`을 받는다. 그 밖이면 기동하지 않는다. egress proxy 쪽에서는 그 host를 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다.
 - 사설 주소는 필요조건일 뿐이다. 사설망의 LiteLLM도 유료 upstream을 대리할 수 있다. `none` 선언이 맞는지는 운영자가 책임진다. 잘못 선언하면 유료 호출이 비용 상한 없이 나간다. Datadog `agent_platform.provider.unmetered_tokens_1h`(최근 1시간 `unmetered` 행 토큰 합)와 provider 콘솔의 사용량을 같이 본다.
