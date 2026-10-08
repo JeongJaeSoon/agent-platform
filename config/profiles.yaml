@@ -13,6 +13,12 @@
 # created with: change a setting under a new id, since editing one
 # in place stops every session made with it (CATALOG_MISMATCH).
 #
+# `provider.billing: none` marks an endpoint that does not bill per token (a
+# model served on your own hardware): its sessions are recorded at no cost
+# and run with no dollar limit. Only a private address or a name public DNS
+# does not serve is accepted; that the endpoint really is unbilled is yours
+# to make sure of (docs/operations.md).
+#
 # The example below is the real Messages API with the caller's
 # ANTHROPIC_API_KEY, which the local stack hands to the API alone
 # (docs/real-claude.md); without it the API does not start. Workers only

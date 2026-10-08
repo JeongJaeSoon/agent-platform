@@ -95,12 +95,18 @@ const webUrl = credentialFreeUrl
     { message: "https must name its host, not an address" },
   );
 
+// `none` is the operator's word that this endpoint does not bill per token
+// (a model served on their own hardware): its usage is recorded at no cost
+// and no dollar limit applies to its sessions. Absent means `per_token`.
+const billingSchema = z.enum(["per_token", "none"]).optional();
+
 const catalogProviderSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("anthropic"),
       endpoint: webUrl,
       auth: credentialRef(z.literal("api_key")),
+      billing: billingSchema,
     })
     .strict(),
   z
@@ -108,9 +114,54 @@ const catalogProviderSchema = z.discriminatedUnion("kind", [
       kind: z.literal("litellm"),
       endpoint: webUrl,
       auth: credentialRef(z.enum(["api_key", "bearer"])),
+      billing: billingSchema,
     })
     .strict(),
 ]);
+
+const PRIVATE_NAME_SUFFIXES = [
+  ".internal",
+  ".local",
+  ".localhost",
+  ".lan",
+  ".home.arpa",
+];
+
+function privateIpv4(address: string): boolean {
+  const [a = 0, b = 0] = address.split(".").map(Number);
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127)
+  );
+}
+
+/**
+ * Whether a host can only be reached inside the operator's network: a
+ * private address, or a name public DNS does not serve (a compose service,
+ * `*.internal`). Necessary for `billing: none`, not sufficient: a private
+ * gateway may still front a paid API, which is the operator's to rule out.
+ */
+export function isPrivateEndpointHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  switch (isIP(host)) {
+    case 4:
+      return privateIpv4(host);
+    // fc00::/7 and fe80::/10, written out to a full first group.
+    case 6:
+      return (
+        host === "::1" || /^(f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):/.test(host)
+      );
+  }
+  const name = host.replace(/\.$/, "");
+  return (
+    !name.includes(".") ||
+    PRIVATE_NAME_SUFFIXES.some((suffix) => name.endsWith(suffix))
+  );
+}
 export const catalogProfileConfigSchema = z
   .object({
     runtime_kind: z.literal("claude_agent_sdk"),
@@ -123,7 +174,18 @@ export const catalogProfileConfigSchema = z
     // field existed keeps the run it was reviewed for.
     project_settings: projectSettingsSchema.default({ claude_md: false }),
   })
-  .strict();
+  .strict()
+  .refine(
+    (profile) =>
+      profile.provider.billing !== "none" ||
+      !isWebUrl(profile.provider.endpoint) ||
+      isPrivateEndpointHost(new URL(profile.provider.endpoint).hostname),
+    {
+      message:
+        "billing none needs an endpoint on a private address or a name public DNS does not serve",
+      path: ["provider", "billing"],
+    },
+  );
 
 // How the egress proxy logs in to the repository host for this
 // repository's read-only route. `basic` carries a login (Gitea
@@ -226,10 +288,12 @@ export type CatalogProfile = {
         kind: "anthropic";
         endpoint: string;
         auth: { kind: "api_key"; value: string; ref: CredentialRef };
+        billing?: "none" | undefined;
       }
     | {
         kind: "litellm";
         endpoint: string;
+        billing?: "none" | undefined;
         auth: {
           kind: "api_key" | "bearer";
           value: string;
@@ -286,6 +350,26 @@ export type EgressUpstream = {
   /** Set on the upstream request, replacing whatever the worker sent. */
   headers: Array<[string, string]>;
 };
+
+/**
+ * Whether a session runs unmetered: its profile declared `billing: none` and
+ * is still the one the session was created with. One edited since, or gone,
+ * is priced like any other, at the table or the fallback.
+ */
+export function unmeteredSession(
+  catalog: SessionCatalog,
+  session: { profileId: string | null; profileFingerprint: string | null },
+): boolean {
+  const profile =
+    session.profileId !== null &&
+    Object.hasOwn(catalog.profiles, session.profileId)
+      ? catalog.profiles[session.profileId]
+      : undefined;
+  return (
+    profile?.provider.billing === "none" &&
+    profileFingerprint(profile) === session.profileFingerprint
+  );
+}
 
 /** Where a provider route goes and how it authenticates there. */
 export function providerUpstreamOf(profile: CatalogProfile): EgressUpstream {
@@ -499,9 +583,16 @@ export function resolveSessionCatalog(
     const { kind, ...refFields } = profile.provider.auth;
     const ref = credentialRefOf(refFields);
     const value = resolved(`profiles.${id}.provider.auth`, ref);
+    // `per_token` is the default spelled out: dropped, so a profile that
+    // writes it keeps the fingerprint it had before the field existed.
+    const { billing, ...provider } = profile.provider;
     profiles[id] = {
       ...profile,
-      provider: { ...profile.provider, auth: { kind, value, ref } },
+      provider: {
+        ...provider,
+        auth: { kind, value, ref },
+        ...(billing === "none" ? { billing } : {}),
+      },
     } as CatalogProfile;
   }
   const repositories: Record<string, CatalogRepository> = {};

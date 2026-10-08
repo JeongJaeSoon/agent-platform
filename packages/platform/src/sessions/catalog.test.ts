@@ -12,6 +12,7 @@ import {
   resolveSessionCatalog,
   runtimeProviderOf,
   sessionCatalogConfigSchema,
+  unmeteredSession,
 } from "./catalog.ts";
 
 // What an operator writes: the credential is a reference, never a value.
@@ -373,8 +374,100 @@ test("only web addresses: the worker's one way out is the HTTP(S) proxy", () => 
   ).not.toThrow();
 });
 
+describe("billing", () => {
+  const billed = (billing: string, endpoint: string) =>
+    config({
+      ...configured,
+      provider: { ...configured.provider, endpoint, billing },
+    });
+
+  test("none is kept on the profile; per_token, the default, is dropped", () => {
+    const none = load(billed("none", "http://litellm:4000")).profiles.p;
+    expect(none?.provider.billing).toBe("none");
+    expect(
+      unmeteredSession(load(billed("none", "http://litellm:4000")), {
+        profileId: "p",
+        profileFingerprint: profileFingerprint(none as CatalogProfile),
+      }),
+    ).toBe(true);
+    const perToken = load(billed("per_token", "https://api.anthropic.invalid"))
+      .profiles.p;
+    expect(perToken?.provider).not.toHaveProperty("billing");
+    expect(perToken).toEqual(load(config()).profiles.p);
+  });
+
+  test("none is accepted only on an endpoint public DNS does not serve", () => {
+    for (const endpoint of [
+      "http://litellm:4000",
+      "http://ollama.internal:11434",
+      "http://gpu.local:8000",
+      "http://localhost:11434",
+      "https://gpu-box.lan",
+      "http://10.0.0.5:4000",
+      "http://172.20.1.2:4000",
+      "http://192.168.1.10:11434",
+      "http://100.100.1.1:4000",
+      "http://127.0.0.1:11434",
+      "http://[::1]:11434",
+      "http://[fd12:3456::1]:4000",
+    ]) {
+      expect(() => load(billed("none", endpoint))).not.toThrow();
+    }
+    for (const endpoint of [
+      "https://api.anthropic.com",
+      "https://litellm.example.com",
+      "http://8.8.8.8:4000",
+      "http://172.32.0.1:4000",
+      "http://[2001:db8::1]:4000",
+      "http://[fc::1]:4000",
+    ]) {
+      expect(() => load(billed("none", endpoint))).toThrow(
+        /profiles\.p\.provider\.billing: billing none needs an endpoint on a private address/,
+      );
+    }
+  });
+
+  test("an unknown value is refused", () => {
+    expect(() => load(billed("free", "http://litellm:4000"))).toThrow(
+      /profiles\.p\.provider\.billing/,
+    );
+  });
+});
+
 describe("profile fingerprint and catalog revision", () => {
   const base = () => load(config()).profiles.p as CatalogProfile;
+
+  test("a profile without billing, or with per_token, keeps the fingerprint it had before the field", () => {
+    // What main computed for this profile before `billing` existed.
+    const before =
+      "sha256:99f5f59a41e3bc02be1f2ffd7af4b0a4fae68ca567dc05368cab9285f5ffd983";
+    expect(profileFingerprint(base())).toBe(before);
+    expect(
+      profileFingerprint(
+        load(
+          config({
+            ...configured,
+            provider: { ...configured.provider, billing: "per_token" },
+          }),
+        ).profiles.p as CatalogProfile,
+      ),
+    ).toBe(before);
+    // Declaring none is a new profile.
+    const local = (billing?: string) =>
+      profileFingerprint(
+        load(
+          config({
+            ...configured,
+            provider: {
+              ...configured.provider,
+              endpoint: "http://litellm:4000",
+              ...(billing === undefined ? {} : { billing }),
+            },
+          }),
+        ).profiles.p as CatalogProfile,
+      );
+    expect(local("none")).not.toBe(local());
+  });
 
   test("is a sha256 over the settings and the reference, never the value", () => {
     const profile = base();
