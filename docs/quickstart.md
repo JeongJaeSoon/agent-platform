@@ -33,7 +33,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | git | 아무 버전 | clone |
 | Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
 
-로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(LocalStack S3), **4567**(LocalStack Secrets Manager), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
+로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(LocalStack S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
 
 ```bash
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -65,7 +65,7 @@ scripts/local.sh status
 
 `up --fake-model`은 compose project `agent-platform`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(S3), secrets(API 전용 Secrets Manager), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages(`--fake-model`일 때만), egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(S3), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다

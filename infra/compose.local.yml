@@ -1,10 +1,10 @@
 # The local layer over compose.core.yml: what a machine without
 # test-ops' AWS account needs to run the product. docker-compose.yml merges
 # the two. It adds
-# - the local dependencies: LocalStack for S3 and, apart, for the API's
-#   Secrets Manager, and the sample repository;
-# - the fake Messages API, off unless infra/compose.fake-model.yml turns it
-#   on;
+# - the local dependencies: LocalStack for S3 and the sample repository;
+# - the fake Messages API and, apart from the S3 LocalStack, the API's
+#   Secrets Manager its catalog reads, both off unless
+#   infra/compose.fake-model.yml turns them on;
 # - the builds of the apps from this checkout;
 # - the endpoints and LocalStack credentials that point the API at them,
 #   and the ordering on them.
@@ -43,8 +43,11 @@ services:
   # The API's Secrets Manager, apart from `localstack` on purpose
   # workers reach that one through the egress proxy, and nothing on the
   # allowlist may answer for the provider keys the catalog references. Only
-  # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER).
+  # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER). Off by default:
+  # only config/fake-model reads a secret_id, so infra/compose.fake-model.yml
+  # turns it on.
   secrets:
+    profiles: [fake-model]
     image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     environment:
       SERVICES: secretsmanager
@@ -134,8 +137,6 @@ services:
       ANTHROPIC_API_KEY:
     depends_on:
       localstack:
-        condition: service_healthy
-      secrets:
         condition: service_healthy
 
   worker:

@@ -101,7 +101,7 @@ integration("catalog credentials from LocalStack Secrets Manager", () => {
         secretsManagerReader(env)(id === secretId ? missing : id),
     });
     await expect(load).rejects.toThrow(
-      `profiles.p.provider.auth.secret_id: ${secretId} could not be read (ResourceNotFoundException)`,
+      `profiles.p.provider.auth.secret_id: ${secretId} could not be read from ${env.AWS_ENDPOINT_URL_SECRETS_MANAGER} (ResourceNotFoundException)`,
     );
   });
 });

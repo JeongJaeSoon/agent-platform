@@ -4,12 +4,14 @@
 # gate and soak). It names no path, so it merges the same under either
 # project directory.
 #
-# It turns on compose.local.yml's fake-messages and points the API at
-# config/fake-model, whose profile calls it with a placeholder key from the
-# local Secrets Manager. Sessions follow the GATE-SPEC script in each prompt
+# It turns on compose.local.yml's fake-messages and secrets and points the
+# API at config/fake-model, whose profile calls the former with a placeholder
+# key from the latter. Sessions follow the GATE-SPEC script in each prompt
 # (docs/quickstart.md § 스크립트된 프롬프트).
 services:
   fake-messages:
+    profiles: !reset []
+  secrets:
     profiles: !reset []
   api:
     environment:
@@ -19,4 +21,6 @@ services:
       ANTHROPIC_API_KEY: ""
     depends_on:
       fake-messages:
+        condition: service_healthy
+      secrets:
         condition: service_healthy

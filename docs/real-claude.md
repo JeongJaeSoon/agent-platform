@@ -5,7 +5,7 @@
 - **A. 유료 e2e 한 번**: `tests/e2e/run.sh --real-model`. 스택을 띄우고 정해진 시나리오를 돌린 뒤 스스로 지운다.
 - **B. 직접 대화**: `scripts/local.sh up`. 스택을 띄워 두고 curl로 자유 문장을 보낸다.
 
-둘 다 같은 기본 카탈로그(`config/`)와 비용 상한 overlay(`infra/compose.real-model.yml`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다([94S-376](https://linear.app/94soon/issue/94S-376)). AWS 계정은 필요 없다(S3·Secrets Manager는 그대로 LocalStack이다). 유료 호출이므로 CI에서는 돌지 않는다. 실 AWS S3까지 쓰는 확인은 [94S-303](https://linear.app/94soon/issue/94S-303)이다.
+둘 다 같은 기본 카탈로그(`config/`)와 비용 상한 overlay(`infra/compose.real-model.yml`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다([94S-376](https://linear.app/94soon/issue/94S-376)). AWS 계정은 필요 없다(S3는 그대로 LocalStack이다. 기본 카탈로그는 Secrets Manager를 쓰지 않아 `secrets`는 뜨지 않는다). 유료 호출이므로 CI에서는 돌지 않는다. 실 AWS S3까지 쓰는 확인은 [94S-303](https://linear.app/94soon/issue/94S-303)이다.
 
 준비물은 [quickstart 0장](quickstart.md#0-준비물)과 같고, Docker Compose는 **2.24.6 이상**이어야 한다(`include`로 합친 스택 위에 overlay를 겹친다). B는 quickstart 2장의 curl 헬퍼를 쓴다.
 
