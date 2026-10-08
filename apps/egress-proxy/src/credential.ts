@@ -578,9 +578,9 @@ export function startCredentialProxy(
     });
   }
 
-  // In the Messages API's error shape, whose message the engine puts in the
-  // turn's result text: that text is how the worker tells this refusal from
-  // any other 403.
+  // In the Messages API's error shape, so the engine shows why it was
+  // refused. The turn's reason comes from the session's spend at finalize,
+  // not from this text.
   function budgetExceededReply(): Response {
     return Response.json(
       {
