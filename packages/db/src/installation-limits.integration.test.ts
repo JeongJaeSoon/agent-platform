@@ -5,9 +5,11 @@ import {
   type WorkerScope,
 } from "@agent-platform/contracts";
 import {
+  type CatalogProfile,
   createWorkerGateway,
   type InputLimits,
   type ProviderUsage,
+  profileFingerprint,
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
@@ -40,6 +42,23 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const COST_LIMIT_USD = 10;
 const TOKEN_LIMIT = 1_000;
+const LOCAL_UNMETERED: CatalogProfile = {
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  model: "gemma4-local",
+  tools: ["Read"],
+  permission_mode: "default",
+  provider: {
+    kind: "litellm",
+    endpoint: "http://litellm:4000",
+    auth: {
+      kind: "bearer",
+      value: "local-master-key",
+      ref: { value_env: "LITELLM_MASTER_KEY" },
+    },
+    billing: "none",
+  },
+};
 const roomy: InputLimits = {
   queuedInputLimitPerSession: 1_000,
   storageLimitBytes: Number.MAX_SAFE_INTEGER,
@@ -75,6 +94,7 @@ integration("installation limits on PostgreSQL", () => {
               },
             },
           },
+          "local-unmetered": LOCAL_UNMETERED,
         },
         repositories: {
           "sample-app": {
@@ -488,6 +508,34 @@ integration("installation limits on PostgreSQL", () => {
         ),
       ).toEqual({ status: 404, code: "NOT_FOUND" });
       expect(await sessionCost(other.session.session_id)).toBe(0);
+    });
+
+    test("a session on a billing none profile records its calls at no cost and never reaches the limit", async () => {
+      const { session, claimed } = await bound();
+      await db
+        .update(sessions)
+        .set({
+          profileId: "local-unmetered",
+          profileFingerprint: profileFingerprint(LOCAL_UNMETERED),
+        })
+        .where(eq(sessions.id, session.session_id));
+      const priced = await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        // Far past the limit at the table's rates, were it priced.
+        usage: usage({ inputTokens: 10_000_000, outputTokens: 1_000_000 }),
+      });
+      expect(priced).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+      const [row] = await db
+        .select({
+          pricedBy: providerUsage.pricedBy,
+          inputTokens: providerUsage.inputTokens,
+        })
+        .from(providerUsage)
+        .where(eq(providerUsage.sessionId, session.session_id));
+      expect(row).toEqual({ pricedBy: "unmetered", inputTokens: 10_000_000 });
+      expect(await sessionCost(session.session_id)).toBe(0);
     });
 
     test("a model the table does not know is charged at the highest known rates", async () => {

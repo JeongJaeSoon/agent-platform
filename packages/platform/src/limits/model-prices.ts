@@ -145,6 +145,12 @@ export type ProviderUsage = {
   estimated: boolean;
 };
 
+/**
+ * Which rates priced a call: the table's, the fallback's (a model the table
+ * does not know), or none, for a profile that declared `billing: none`.
+ */
+export type PricedBy = "table" | "fallback" | "unmetered";
+
 export function priceProviderUsage(usage: ProviderUsage): {
   costUsd: number;
   pricedBy: "table" | "fallback";

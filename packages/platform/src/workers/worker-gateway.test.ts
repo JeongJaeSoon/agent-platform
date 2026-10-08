@@ -400,6 +400,7 @@ describe("WorkerGateway", () => {
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
       leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
+      profileFingerprint: null,
       ownerScope: "owner-a",
       repository: {
         id: "gone-from-catalog",
@@ -1596,5 +1597,158 @@ describe("authorizeEgress", () => {
         }).instance.authorizeEgress({ token: "wer_x", purpose: "repository" }),
       ).rejects.toMatchObject({ status: 409 });
     }
+  });
+});
+
+describe("billing none profiles", () => {
+  const local = (billing?: "none"): CatalogProfile => ({
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    model: "gemma4-local",
+    tools: ["Read"],
+    permission_mode: "default",
+    provider: {
+      kind: "litellm",
+      endpoint: "http://litellm:4000",
+      auth: {
+        kind: "bearer",
+        value: "master-key",
+        ref: { value_env: "LITELLM_MASTER_KEY" },
+      },
+      ...(billing === undefined ? {} : { billing }),
+    },
+  });
+  const usage = {
+    // A name the table knows, so per_token would price it from the table.
+    model: "claude-sonnet-5",
+    inputTokens: 1_000_000,
+    outputTokens: 1_000,
+    cacheCreationInputTokens: 0,
+    cacheCreation1hInputTokens: 0,
+    cacheReadInputTokens: 0,
+    speed: "standard",
+    inferenceGeo: "global",
+    webSearchRequests: 0,
+    webFetchRequests: 0,
+    codeExecutionRequests: 0,
+    estimated: false,
+  };
+
+  function priced(
+    catalogProfile: CatalogProfile,
+    stored: { profileId: string | null; profileFingerprint: string | null },
+    reported = usage,
+  ) {
+    const instance = createWorkerGateway({
+      work: work({
+        recordProviderUsageAtomic: async (input) => ({
+          outcome: "recorded",
+          ...input.priceFor(stored),
+        }),
+      }),
+      catalog: { profiles: { local: catalogProfile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: { sessionCostLimitUsd: 1, leaseTtlMs: 30_000 },
+    });
+    return instance.recordProviderUsage({
+      exchangeId: "ex_1",
+      sessionId: scope.session_id,
+      attemptId: "att_1",
+      usage: reported,
+    });
+  }
+
+  test("a call on a billing none session costs nothing, whatever model the answer names", async () => {
+    const profile = local("none");
+    const session = {
+      profileId: "local",
+      profileFingerprint: profileFingerprint(profile),
+    };
+    expect(await priced(profile, session)).toEqual({
+      costUsd: 0,
+      pricedBy: "unmetered",
+    });
+    expect(
+      await priced(profile, session, { ...usage, model: "gemma4-local" }),
+    ).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+  });
+
+  test("an unbilled declaration that is not the session's own prices as before", async () => {
+    // per_token: the table for a model it knows, the fallback for one it does not.
+    const metered = local();
+    const session = {
+      profileId: "local",
+      profileFingerprint: profileFingerprint(metered),
+    };
+    expect((await priced(metered, session)).pricedBy).toBe("table");
+    expect(
+      (await priced(metered, session, { ...usage, model: "gemma4-local" }))
+        .pricedBy,
+    ).toBe("fallback");
+    // A profile edited to none after the session was created.
+    expect((await priced(local("none"), session)).pricedBy).toBe("table");
+    // A session with no profile.
+    expect(
+      (
+        await priced(local("none"), {
+          profileId: null,
+          profileFingerprint: null,
+        })
+      ).pricedBy,
+    ).toBe("table");
+  });
+
+  test("the claim gives a billing none session no budget and a per_token one what is left", async () => {
+    const claim = async (profile: CatalogProfile) => {
+      const instance = createWorkerGateway({
+        work: work({
+          claimAtomic: async () => ({
+            outcome: "claimed",
+            binding: {
+              sessionId: scope.session_id,
+              attemptId: "att_1",
+              leaseEpoch: 1,
+              executionGeneration: 1,
+              authRevision: 0,
+              leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+              leaseRemainingMs: 30_000,
+              profileId: "local",
+              profileFingerprint: profileFingerprint(profile),
+              ownerScope: "owner-a",
+              repository: {
+                id: "app",
+                url: "https://example.invalid/app.git",
+                branch: "main",
+              },
+              restore: null,
+              costUsd: 0.25,
+            },
+          }),
+        }),
+        catalog: {
+          profiles: { local: profile },
+          repositories: {
+            app: {
+              url: "https://example.invalid/app.git",
+              branch: "main",
+              profiles: ["local"],
+            },
+          },
+        },
+        checkpoints: acceptAllCheckpoints,
+        options: { sessionCostLimitUsd: 1, leaseTtlMs: 30_000 },
+      });
+      const response = await instance.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      );
+      return bootstrapClaimResponseSchema.parse(response).remaining_budget_usd;
+    };
+    expect(await claim(local("none"))).toBeNull();
+    expect(await claim(local())).toBe(0.75);
   });
 });

@@ -951,8 +951,11 @@ export const providerUsage = pgTable(
       mode: "number",
     }).notNull(),
     // `fallback`: the model was not in the price table and every part was
-    // charged at the highest known rate.
-    pricedBy: text("priced_by").$type<"table" | "fallback">().notNull(),
+    // charged at the highest known rate. `unmetered`: the session's profile
+    // declared `billing: none`, so the call cost nothing.
+    pricedBy: text("priced_by")
+      .$type<"table" | "fallback" | "unmetered">()
+      .notNull(),
     recordedAt: timestamp("recorded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -961,7 +964,7 @@ export const providerUsage = pgTable(
     index("provider_usage_session_idx").on(table.sessionId),
     check(
       "provider_usage_priced_by_check",
-      sql`${table.pricedBy} IN ('table', 'fallback')`,
+      sql`${table.pricedBy} IN ('table', 'fallback', 'unmetered')`,
     ),
     check("provider_usage_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
   ],

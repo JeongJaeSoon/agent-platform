@@ -9,7 +9,7 @@ import type {
   WorkerEvent,
   WorkspaceRepository,
 } from "@agent-platform/contracts";
-import type { ProviderUsage } from "../limits/model-prices.ts";
+import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
@@ -51,6 +51,8 @@ export type WorkerBinding = {
   // arrived; what the worker tracks, on its own monotonic clock.
   leaseRemainingMs: number;
   profileId: string | null;
+  // Null for a session created before fingerprints were stored.
+  profileFingerprint: string | null;
   // The session's owner partition, straight from the row; the claim hands
   // it to the worker as the checkpoint principal.
   ownerScope: string;
@@ -139,15 +141,19 @@ export type EgressAuthorization =
   | { outcome: "invalid_token" }
   | FenceRejection;
 
-// One Messages call the egress proxy metered, priced. The ids are
-// the ones the proxy's grant carried, so the attempt may have ended since.
+// One Messages call the egress proxy metered. The ids are the ones the
+// proxy's grant carried, so the attempt may have ended since. `priceFor` is
+// asked with the session row locked, since whether its profile is billed
+// decides the price.
 export type ProviderUsageInput = {
   exchangeId: string;
   sessionId: string;
   attemptId: string;
   usage: ProviderUsage;
-  costUsd: number;
-  pricedBy: "table" | "fallback";
+  priceFor(session: {
+    profileId: string | null;
+    profileFingerprint: string | null;
+  }): { costUsd: number; pricedBy: PricedBy };
 };
 
 export type ProviderUsageResult =
@@ -157,7 +163,7 @@ export type ProviderUsageResult =
   | {
       outcome: "recorded" | "replayed";
       costUsd: number;
-      pricedBy: "table" | "fallback";
+      pricedBy: PricedBy;
     }
   // No such attempt of that session.
   | { outcome: "unknown_attempt" }
