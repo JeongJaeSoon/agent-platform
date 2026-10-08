@@ -277,6 +277,10 @@ export type FinalizeInput = {
   finalSourceSequence: number;
   terminal: FinalizeRequest["terminal"];
   checkpoint: CheckpointRef | null;
+  // A provider failure on a session that has spent this much is recorded as
+  // the budget ending the turn, whatever the engine made of the refusal.
+  costLimitUsd: number;
+  tokenLimit: number | null;
   // The verifier's verdict on `checkpoint`, never the worker's say.
   checkpointVersionsHeld?: boolean;
 };

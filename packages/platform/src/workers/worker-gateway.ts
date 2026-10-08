@@ -1129,6 +1129,8 @@ export function createWorkerGateway(deps: {
         finalSourceSequence: request.final_source_sequence,
         terminal: request.terminal,
         checkpoint: request.checkpoint,
+        costLimitUsd: deps.options.sessionCostLimitUsd,
+        tokenLimit,
       };
       // A finalize that already committed is answered from the stored turn.
       // Re-verifying its checkpoint could fail for a reason that has nothing
