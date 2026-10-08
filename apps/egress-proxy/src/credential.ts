@@ -9,6 +9,7 @@ import {
   normalizeHost,
 } from "./policy.ts";
 import { systemResolver } from "./proxy.ts";
+import { REDACTED, sanitizeText } from "./redaction.ts";
 import { type UpstreamBody, upstreamExchange } from "./upstream-http.ts";
 import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
 
@@ -71,6 +72,8 @@ const DEFAULT_REGRANT_GRACE_MS = 90_000;
 const DEFAULT_MAX_EXCHANGES_PER_CLIENT = 32;
 /** An error body bigger than this is not relayed at all. */
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
+/** How much of a refusing provider's error body the warn log keeps. */
+const REFUSAL_EXCERPT_CHARS = 512;
 /**
  * The Messages API's own request limit (32 MB), with the upstream left to
  * judge the last few bytes. Held whole, so it is also this route's share of
@@ -806,7 +809,10 @@ export function startCredentialProxy(
       headers.set("content-length", length);
     }
     if (!response.ok) {
-      return withheldIfLeaking(response, headers, secrets, route.purpose);
+      return withheldIfLeaking(response, headers, secrets, route.purpose, {
+        ...fields,
+        path: route.path,
+      });
     }
     const encoding = response.headers.get("content-encoding");
     if (encoding !== null && encoding.toLowerCase() !== "identity") {
@@ -861,16 +867,46 @@ export function startCredentialProxy(
     headers: Headers,
     secrets: readonly string[],
     purpose: EgressPurpose,
+    fields: Readonly<Record<string, unknown>>,
   ): Promise<Response> {
     const encoding = response.headers.get("content-encoding");
     const body = await readAtMost(response, MAX_ERROR_BODY_BYTES);
     const text = body === null ? null : new TextDecoder().decode(body);
+    // readAtMost answers null for a body over the cap and for one that
+    // failed mid-read alike.
+    const unsafe =
+      text === null
+        ? "too_large_or_unreadable"
+        : encoding !== null && encoding.toLowerCase() !== "identity"
+          ? "encoded"
+          : secrets.some((secret) => text.includes(secret))
+            ? "secret_match"
+            : null;
+    // The worker's engine reports any 401/403 as a failed login; the
+    // upstream's own words are what tell a bad key from, say, a local
+    // server refusing the Host header.
     if (
-      body === null ||
-      text === null ||
-      (encoding !== null && encoding.toLowerCase() !== "identity") ||
-      secrets.some((secret) => text.includes(secret))
+      purpose === "provider" &&
+      (response.status === 401 || response.status === 403)
     ) {
+      const excerpt = text?.slice(0, REFUSAL_EXCERPT_CHARS) ?? "";
+      // Said here rather than left to the logger, which would replace a
+      // secret-shaped excerpt with a bare [REDACTED] and no reason.
+      const withheld =
+        unsafe ??
+        (sanitizeText(excerpt) === REDACTED ? "redacted_pattern" : null);
+      logger.warn("Provider upstream refused the credential route", {
+        ...fields,
+        status: response.status,
+        ...(withheld === null
+          ? { upstream_error: excerpt }
+          : {
+              upstream_error_withheld: true,
+              upstream_error_withheld_reason: withheld,
+            }),
+      });
+    }
+    if (unsafe !== null) {
       if (purpose === "object_store") {
         const withheld = s3Error(
           response.status,
