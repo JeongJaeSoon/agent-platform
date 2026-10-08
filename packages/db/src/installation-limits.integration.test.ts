@@ -900,6 +900,44 @@ integration("installation limits on PostgreSQL", () => {
       ).toEqual({ status: 403, code: "BUDGET_EXCEEDED" });
     });
 
+    test("an unmetered session still counts its tokens and stops at the token limit", async () => {
+      const { session, claimed } = await bound();
+      await db
+        .update(sessions)
+        .set({ unmetered: true })
+        .where(eq(sessions.id, session.session_id));
+      expect(
+        (await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed)))
+          .input?.turn_id,
+      ).toBe("1");
+      const priced = await tokenGateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ inputTokens: TOKEN_LIMIT, outputTokens: 1 }),
+      });
+      expect(priced).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+      expect(await sessionTokens(session.session_id)).toBe(TOKEN_LIMIT + 1);
+      await finalize(claimed, "1");
+      await append(session, "second");
+
+      expect(
+        await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed)),
+      ).toMatchObject({
+        input: null,
+        draining: true,
+        reason: "BUDGET_EXCEEDED",
+      });
+      expect(
+        await failure(
+          tokenGateway.authorizeEgress({
+            token: claimed.runtime_config.provider.auth.token,
+            purpose: "provider",
+          }),
+        ),
+      ).toEqual({ status: 403, code: "BUDGET_EXCEEDED" });
+    });
+
     test("a session at its token limit is not claimed, demanded or reserved", async () => {
       const spent = await queuedSession();
       await spendTokens(spent.session_id, TOKEN_LIMIT);
