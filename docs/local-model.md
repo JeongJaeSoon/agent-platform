@@ -32,5 +32,6 @@ relay는 `ollama.internal`이라는 별칭으로 부른다. loopback에 바인�
 ## 결과를 읽는 법
 
 - 통과는 연결과 프로토콜이 된다는 뜻이다. tool_use, permission, transcript 보관, checkpoint, 새 worker에서 재개가 로컬 모델로도 돈다. 모델이 열린 과제를 얼마나 잘 하는지는 따로 봐야 한다. 이 시나리오는 정해진 명령 하나를 실행시킬 뿐이다.
+- 약한 모델은 tool을 한 번 부른 뒤 결과를 보고하지 않고 turn을 끝낼 수 있다. 엔진은 이것을 정상 종료로 기록하므로 turn이 `completed`라도 과제가 끝났다는 뜻은 아니다. 여러 단계가 필요한 과제는 저장소 상태로 결과를 확인한다.
 - 비용은 실제 비용이 아니다. 가격표(`packages/platform/src/limits/model-prices.ts`)에 없는 모델이라 가장 비싼 단가로 추정한다. Ollama는 prompt cache를 `cache_read_input_tokens`로 보고하지만 LiteLLM 경로는 전부 `input_tokens`로 보고해서, 같은 대화라도 LiteLLM 쪽 추정치가 몇 배 크다. 세션 상한은 compose 기본값 `SESSION_COST_LIMIT_USD=25`이다.
 - LiteLLM의 `num_ctx`는 MLX runner(`gemma4:26b-mlx`)에 반영되지 않는다. context 길이는 Ollama가 모델을 올린 값을 따른다.
