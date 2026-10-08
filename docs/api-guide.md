@@ -281,7 +281,7 @@ echo "$limits" | jq .
 echo "$limits" | jq -e '.scope == "installation" and .limits.execution_slot_limit >= 0 and .usage.execution_slots_used >= 0'
 ```
 
-**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
+**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 `cost_limit_usd`는 그 세션에 적용되지 않지만, token 상한은 그대로 걸린다([operations.md](operations.md#과금-없는-profile-billing-none-94s-541)). 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
 
 **흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
 

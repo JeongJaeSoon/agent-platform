@@ -70,7 +70,9 @@ export const sessionUsageResponseSchema = z
     cost: z
       .object({
         amount_usd: costUsdSchema,
-        kind: z.literal("estimated"),
+        // `unmetered`: the session's profile declared it is not billed per
+        // token, so its calls cost nothing and the cost limit never stops it.
+        kind: z.enum(["estimated", "unmetered"]),
         source: z.literal("provider_usage"),
         completeness_scope: z.literal("turn_reports"),
         complete: z.boolean(),

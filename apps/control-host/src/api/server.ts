@@ -164,6 +164,7 @@ const usage = createUsageService({
   authorization: allowAllPolicy,
   reader: createPostgresUsageReader(db),
   limits,
+  catalog,
 });
 const pendingRequests = createPendingRequestService({
   authorization: allowAllPolicy,

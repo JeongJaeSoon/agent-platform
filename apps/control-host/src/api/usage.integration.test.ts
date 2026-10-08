@@ -60,6 +60,7 @@ integration("usage API on PostgreSQL", () => {
       authorization: allowAllPolicy,
       reader: createPostgresUsageReader(db),
       limits,
+      catalog: { profiles: {}, repositories: {} },
     });
     app = createApiApp({
       authMode: "none",

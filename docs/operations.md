@@ -526,6 +526,29 @@ API와 scheduler는 아래 값 중 `SESSION_TOKEN_LIMIT`를 뺀 여섯 값이 �
 - 비용 상한과 토큰 상한은 호출이 끝난 뒤에 판정한다. 동시에 열린 호출은 모두 인가를 통과할 수 있고, 진행 중인 turn은 상한을 넘을 수 있다.
 - 누적 비용이나 누적 token이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다(94S-394). 새 provider 교환은 곧바로 거절되고, 이미 열린 교환은 다음 재인가(30초 주기)에서 끊긴다. repository·object store route는 거절하지 않는다.
 
+### 과금 없는 profile (`billing: none`, 94S-541)
+
+자체 호스팅 모델(Ollama, 사설망의 LiteLLM 등)은 토큰당 청구가 없다. 가격표에도 없어서 그대로 두면 fallback 최고 단가로 계산되고, `SESSION_COST_LIMIT_USD`와 SDK `maxBudgetUsd`에 걸려 turn이 끊긴다. 이런 profile은 `provider.billing: none`으로 선언한다.
+
+```yaml
+provider:
+  kind: litellm
+  endpoint: http://litellm:4000
+  billing: none
+  auth:
+    kind: bearer
+    value_env: LITELLM_MASTER_KEY
+```
+
+- 생략하면 `per_token`이다. 생략한 profile과 `per_token`이라고 적은 profile은 fingerprint가 같고, 지금과 똑같이 가격표·fallback으로 계산한다.
+- `none` profile로 만든 세션의 provider 호출은 응답이 어떤 model 이름을 대든 비용 0, ledger `priced_by=unmetered`로 적힌다. 토큰은 그대로 적힌다. 세션 비용이 늘지 않으므로 비용 상한 판정 네 곳(egress 인가, `nextInput`, 메시지 접수, 엔진)에 걸리지 않는다.
+- claim의 `remaining_budget_usd`는 `null`이고 worker는 SDK에 `maxBudgetUsd`를 넘기지 않는다. SDK는 모르는 model을 자체 추정 단가로 계산해 예산에서 turn을 끊기 때문이다.
+- `GET /v1/sessions/{id}/usage`는 `cost.kind: "unmetered"`로 답한다. `amount_usd`는 `"0.000000"`, `budget_exceeded`는 `false`다. `cost_limit_usd`는 설치 값을 그대로 보여 주지만 이 세션에는 적용되지 않는다.
+- 판정 기준은 세션이 만들어질 때의 profile이다. `billing`을 바꾸면 fingerprint가 바뀌므로 새 id로 추가한다. 같은 id를 고치면 기존 세션은 `CATALOG_MISMATCH`가 되고, 그 사이 들어온 호출은 가격표로 계산한다.
+- 시간·동시성 상한(`MAX_TURN_SECONDS`, `EXECUTION_SLOT_LIMIT`, `QUEUED_INPUT_LIMIT_PER_SESSION`)은 그대로 걸린다.
+- API는 endpoint host가 사설 주소(10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, `::1`, fc00::/7, fe80::/10)이거나 공개 DNS에 없는 이름(점 없는 compose 서비스 이름, `localhost`, `.internal`·`.local`·`.localhost`·`.lan`·`.home.arpa`)일 때만 `none`을 받는다. 그 밖이면 기동하지 않는다. egress proxy 쪽에서는 그 host를 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다.
+- 사설 주소는 필요조건일 뿐이다. 사설망의 LiteLLM도 유료 upstream을 대리할 수 있다. `none` 선언이 맞는지는 운영자가 책임진다. 잘못 선언하면 유료 호출이 비용 상한 없이 나간다. Datadog `agent_platform.provider.unmetered_tokens_1h`(최근 1시간 `unmetered` 행 토큰 합)와 provider 콘솔의 사용량을 같이 본다.
+
 ## API 설정 (94S-389)
 
 API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control-host/src/api/api-settings.ts`)로 읽는다. 설정하지 않으면 기본값을 쓴다. 설정했는데 틀린 값이면(빈 문자열 포함) 기본값으로 돌아가지 않는다. 숫자 설정은 API·scheduler·reconciler·worker와 설치 상한이 모두 이 규칙을 따른다(`packages/contracts/src/shared/settings.ts`, 94S-413). 기본값이 없는 값은 설정하지 않으면 `X is required`로, 틀린 값은 `X must be a positive integer`처럼 기대한 범위를 적어 거부한다. 받은 값은 적지 않는다. 로그에 남고, 다른 변수에 잘못 넣은 비밀일 수 있어서다. 이때 `Refusing to start: API settings are invalid` 한 줄에 문제를 모두 남기고 기동하지 않는다. 떠 있는 API의 `/readyz`도 같은 검증을 `config` 체크로 다시 수행한다.

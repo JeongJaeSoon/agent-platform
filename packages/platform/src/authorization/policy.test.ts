@@ -43,6 +43,7 @@ function services(authorization: AuthorizationPolicy) {
     authorization,
     reader: unreachable,
     limits: unreachable,
+    catalog: unreachable,
   });
   return { sessions, pending, interrupts, usage };
 }
