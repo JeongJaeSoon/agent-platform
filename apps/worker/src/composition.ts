@@ -148,7 +148,7 @@ export function claudeRuntimeRegistry(
           providerMaxRetries: config.runtime.providerMaxRetries,
           // Nor is this: it is what the session had left at the claim, so
           // it differs on every resume of the same run.
-          maxBudgetUsd,
+          ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
           ...plan,
         },
         hooks,

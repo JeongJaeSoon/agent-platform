@@ -212,8 +212,9 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
   // most this attempt's engine may spend before it ends the turn in flight
   // . A second line only; the gate stays the stored sum against the
-  // limit, checked before every turn.
-  remaining_budget_usd: z.number().nonnegative(),
+  // limit, checked before every turn. Null when the session's profile
+  // declared `billing: none`: no dollar limit applies to it.
+  remaining_budget_usd: z.number().nonnegative().nullable(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never

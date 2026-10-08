@@ -102,7 +102,7 @@ function harness(
       : { resumedTranscript: overrides.resumedTranscript },
   );
   const launched: RuntimeConfig[] = [];
-  const budgets: number[] = [];
+  const budgets: Array<number | undefined> = [];
   const principals: ClaimPrincipal[] = [];
   const claudeMds: Array<string | null> = [];
   const runtimes: RuntimeRegistry = {
@@ -1064,6 +1064,26 @@ describe("WorkerHost cost and provider failures", () => {
         last_retry_status: 503,
       },
     });
+  });
+
+  test("a claim with no budget starts the engine with none", async () => {
+    const gateway = new FakeWorkerGateway({ remainingBudgetUsd: null });
+    const { budgets, host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { gateway },
+    );
+    gateway.enqueue("hello");
+
+    const summary = await host.runLoop();
+
+    expect(budgets).toEqual([undefined]);
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
   });
 
   test("a turn the engine ended on its budget fails as budget_exceeded, with its cost and its checkpoint", async () => {
