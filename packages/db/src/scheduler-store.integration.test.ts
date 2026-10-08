@@ -37,6 +37,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
   test("only one of two overlapping passes gets the pass lock", async () => {
     const store = createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
     const [first, second] = await Promise.all([
@@ -55,6 +56,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
     const store = createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
     });
     const lock = await store.acquirePassLock();
     if (!lock) throw new Error("lock not taken");
@@ -86,6 +88,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
   test("15 concurrent reservations from an empty pool yield exactly slotLimit intents", async () => {
     const store = createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
     const ids: string[] = [];
@@ -123,6 +126,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
   async function reservedLaunch() {
     const store = createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
     const sessionId = crypto.randomUUID();
@@ -255,6 +259,7 @@ integration("PostgresSchedulerStore under concurrent reservations", () => {
   test("issueBootstrapNonce writes the deadline on the database clock, not this process's", async () => {
     const store = createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
     const id = crypto.randomUUID();

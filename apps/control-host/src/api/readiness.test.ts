@@ -27,7 +27,9 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0129_session_provider_tokens_cap");
+    expect(expectedMigrationHead().tag).toBe(
+      "0129_session_provider_tokens_cap",
+    );
   });
 
   test("passes on a migrated database with the required configuration", async () => {

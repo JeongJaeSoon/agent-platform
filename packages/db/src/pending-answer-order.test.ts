@@ -99,7 +99,7 @@ async function askingSession() {
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),
     catalog: CATALOG,
-    limits: { ...LIMITS, sessionCostLimitUsd: 1_000 },
+    limits: { ...LIMITS, sessionCostLimitUsd: 1_000, sessionTokenLimit: null },
   });
   const created = await service.createSession(OWNER, {
     idempotencyKey: crypto.randomUUID(),

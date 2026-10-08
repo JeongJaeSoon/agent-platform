@@ -108,6 +108,7 @@ integration("session terminate on PostgreSQL", () => {
   const store = () =>
     createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
 

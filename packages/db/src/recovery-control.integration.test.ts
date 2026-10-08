@@ -117,6 +117,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
   const store = () =>
     createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
 

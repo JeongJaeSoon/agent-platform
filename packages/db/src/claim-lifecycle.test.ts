@@ -171,6 +171,7 @@ function claim(ref: ExecutionRef, nonce: string) {
     attemptId: `att-${crypto.randomUUID()}`,
     catalogRevision: "catalog-under-test",
     costLimitUsd: 1_000,
+    tokenLimit: null,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
     credentialTtlMs: 60_000,
     egress: {
@@ -206,6 +207,7 @@ beforeEach(async () => {
   await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
   store = createPostgresSchedulerStore(db, {
     sessionCostLimitUsd: 1_000,
+    sessionTokenLimit: null,
     connectForLock: async () => ({
       query: async (text: string) => {
         const result = await client.query<Record<string, unknown>>(text);

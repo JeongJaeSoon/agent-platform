@@ -111,6 +111,7 @@ integration("claim replay against the session's current binding", () => {
   const store = () =>
     createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
 

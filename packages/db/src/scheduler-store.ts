@@ -86,8 +86,8 @@ export type PostgresSchedulerStoreOptions = {
    * would launch another, round and round.
    */
   sessionCostLimitUsd: number;
-  /** SESSION_TOKEN_LIMIT, for the same reason; absent or null, none. */
-  sessionTokenLimit?: number | null;
+  /** SESSION_TOKEN_LIMIT, for the same reason; null, none. */
+  sessionTokenLimit: number | null;
   logger?: StructuredLogger;
 };
 
@@ -140,7 +140,7 @@ export function createPostgresSchedulerStore(
   const nonceTtlMs = options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
   const budget = {
     costUsd: options.sessionCostLimitUsd,
-    tokens: options.sessionTokenLimit ?? null,
+    tokens: options.sessionTokenLimit,
   };
   const work = createPostgresWorkerUnitOfWork(db, {
     ...(options.logger ? { logger: options.logger } : {}),

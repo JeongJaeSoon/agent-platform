@@ -120,6 +120,7 @@ integration("startup failures before ready on PostgreSQL", () => {
     createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
     });
 
   type Worker = {

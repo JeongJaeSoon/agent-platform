@@ -180,14 +180,14 @@ export function createSessionService(deps: {
   catalog: SessionCatalog;
   limits: InputLimits & {
     sessionCostLimitUsd: number;
-    sessionTokenLimit?: number | null;
+    sessionTokenLimit: number | null;
   };
   now?: () => Date;
 }) {
   const { authorization, inputs, controls, reader, catalog } = deps;
   const budget = {
     costUsd: deps.limits.sessionCostLimitUsd,
-    tokens: deps.limits.sessionTokenLimit ?? null,
+    tokens: deps.limits.sessionTokenLimit,
   };
   const budgetText =
     budget.tokens === null

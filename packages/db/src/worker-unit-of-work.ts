@@ -658,9 +658,9 @@ export function runnableCondition(runnable: readonly RunnablePair[]): SQL {
 
 function budgetOf(input: {
   costLimitUsd: number;
-  tokenLimit?: number | null;
+  tokenLimit: number | null;
 }): SessionBudget {
-  return { costUsd: input.costLimitUsd, tokens: input.tokenLimit ?? null };
+  return { costUsd: input.costLimitUsd, tokens: input.tokenLimit };
 }
 
 /**

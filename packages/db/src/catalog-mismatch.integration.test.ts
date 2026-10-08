@@ -97,6 +97,7 @@ class ClaimingBackend implements ExecutionBackend {
         catalogRevision: "catalog-under-test",
         runnable: this.runnable,
         costLimitUsd: 1_000,
+        tokenLimit: null,
         nonceHash: hashWorkerToken(nonce),
         executionId: intent.executionId,
         executionGeneration: intent.generation,
@@ -175,6 +176,7 @@ integration("claim against a catalog that dropped the pair", () => {
     createPostgresSchedulerStore(db, {
       connectForLock: () => pool.connect(),
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
     });
 
   async function queuedSession(url = REGISTERED) {
@@ -371,6 +373,7 @@ integration("claim against a catalog that dropped the pair", () => {
       catalogRevision: "catalog-under-test",
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
+      tokenLimit: null,
       nonceHash: hashWorkerToken(nonce),
       executionId: intent.executionId,
       executionGeneration: intent.generation,
@@ -446,6 +449,7 @@ integration("claim against a catalog that dropped the pair", () => {
       catalogRevision: "catalog-under-test",
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
+      tokenLimit: null,
       nonceHash: hashWorkerToken(nonce),
       executionId: intent.executionId,
       executionGeneration: intent.generation,
@@ -520,6 +524,7 @@ integration("claim against a catalog that dropped the pair", () => {
         catalogRevision: "catalog-under-test",
         runnable: [pairAt(REGISTERED)],
         costLimitUsd,
+        tokenLimit: null,
         nonceHash: hashWorkerToken(launch.nonce),
         executionId: launch.ref.executionId,
         executionGeneration: launch.ref.generation,

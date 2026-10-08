@@ -133,6 +133,7 @@ integration(
       createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
       });
 
     type Worker = {
@@ -1052,6 +1053,7 @@ integration(
       const raised = createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
         sessionCostLimitUsd: 2_000,
+        sessionTokenLimit: null,
       });
       expect(
         (await raised.inspectDemand({ limit: 1_000 })).eligibleSessionIds,

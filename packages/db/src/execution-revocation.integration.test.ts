@@ -108,6 +108,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
   const store = () =>
     createPostgresSchedulerStore(db, {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       connectForLock: () => pool.connect(),
     });
   const revoke = (sessionId: string) =>

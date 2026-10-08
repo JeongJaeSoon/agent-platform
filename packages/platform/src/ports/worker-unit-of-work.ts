@@ -90,8 +90,8 @@ export type ClaimInput = {
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput.
   costLimitUsd: number;
-  // SESSION_TOKEN_LIMIT, held the same way; absent or null, none.
-  tokenLimit?: number | null;
+  // SESSION_TOKEN_LIMIT, held the same way; null, none.
+  tokenLimit: number | null;
   nonceHash: Uint8Array;
   executionId: string;
   executionGeneration: number;
@@ -204,7 +204,7 @@ export type NextInputInput = {
   now: Date;
   // A session that has spent this much is handed no new turn.
   costLimitUsd: number;
-  tokenLimit?: number | null;
+  tokenLimit: number | null;
 };
 export type DeliveredInput = {
   turnId: string;

@@ -100,7 +100,7 @@ integration("sessions API on PostgreSQL", () => {
       queuedInputLimitPerSession: number;
       storageLimitBytes: number;
       sessionCostLimitUsd: number;
-      sessionTokenLimit?: number | null;
+      sessionTokenLimit: number | null;
     }) =>
       createSessionService({
         limits,
@@ -114,6 +114,7 @@ integration("sessions API on PostgreSQL", () => {
       queuedInputLimitPerSession: 1_000,
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
     });
     // One queued input per session, room for no message at all, and a one
     // dollar or 100 token budget.
