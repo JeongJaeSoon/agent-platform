@@ -13,7 +13,7 @@
 
 - API가 `config/`의 카탈로그를 읽는다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 카탈로그에는 fake를 가리키는 profile이 없다. fake 카탈로그(`config/fake-model/`)는 `--fake-model` overlay를 얹을 때만 읽는다.
 - key는 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)에서 **API 컨테이너에만** 이름으로 전달된다(`infra/compose.local.yml`). 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
-- 상한: `infra/compose.real-model.yml`이 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
+- 상한: `infra/compose.real-model.yml`이 기본으로 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. 올리려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
 
 `ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있으면 두 명령 모두 Docker를 건드리기 전에 exit 2로 끝난다. fake로 대신 뜨지 않는다. key 없이 띄우려면 `--fake-model`을 명시한다.
 
@@ -163,7 +163,7 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 
 - A는 turn 세 개에 모델 호출이 10번 안팎이다. 캐시가 맞으면 한 번 실행에 약 0.2달러이고, 캐시가 전혀 맞지 않아도 0.6달러를 넘지 않을 것으로 본다. 이미지 빌드까지 합쳐 처음에는 10분 남짓 걸린다.
 - B는 보내는 메시지만큼 든다. 위 예시(turn 두 개)는 A와 비슷한 규모다.
-- 상한은 세션당 1달러다. SDK가 호출이 끝날 때마다 누적 비용을 확인하므로 마지막 호출 하나만큼은 넘을 수 있다. 넘으면 그 turn이 `budget_exceeded`로 실패한다. B에서는 새 세션을 만들면 다시 1달러가 생긴다.
+- 상한은 기본 세션당 1달러다(위 [상한](#기본-스택이-쓰는-것)대로 올릴 수 있다). SDK가 호출이 끝날 때마다 누적 비용을 확인하므로 마지막 호출 하나만큼은 넘을 수 있다. 넘으면 그 turn이 `budget_exceeded`로 실패한다. B에서는 새 세션을 만들면 다시 1달러가 생긴다.
 
 실제로 든 비용은 A는 `test.log`의 `cost_usd`, B는 세션의 `usage`에 있다. 둘 다 egress proxy가 계측한 usage를 플랫폼 가격표로 환산한 추정치다(94S-409). 청구액은 Console에서 확인한다.
 

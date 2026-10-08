@@ -903,7 +903,11 @@ describe("compose layers", () => {
       ["environment"],
       ["SESSION_COST_LIMIT_USD", "MAX_TURN_SECONDS"],
     ],
-    [FAKE_MODEL, ["environment", "depends_on"], ["PLATFORM_CONFIG_DIR"]],
+    [
+      FAKE_MODEL,
+      ["environment", "depends_on"],
+      ["PLATFORM_CONFIG_DIR", "ANTHROPIC_API_KEY"],
+    ],
     [TEST_OPS_STORE_LAYERS.s3, ["environment"], S3_ONLY],
     [
       TEST_OPS_STORE_LAYERS.localstack,
@@ -1232,10 +1236,14 @@ describe("compose layers", () => {
     [["compose.yaml", FAKE_MODEL]],
     [[...LOCAL_LAYERS, FAKE_MODEL, "tests/e2e/compose.yml"]],
   ])(
-    "%p runs the fake Messages API with the fake catalog",
+    "%p runs the fake Messages API with the fake catalog, and no key",
     (files) => {
-      const { exitCode, stderr, model } = render(files);
+      const probe = `key-probe-${crypto.randomUUID()}`;
+      const { exitCode, stderr, model } = render(files, {
+        ANTHROPIC_API_KEY: probe,
+      });
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(JSON.stringify(model)).not.toContain(probe);
       const services = model?.services ?? {};
       expect(services.api?.environment?.PLATFORM_CONFIG_DIR).toBe(
         "/app/config/fake-model",

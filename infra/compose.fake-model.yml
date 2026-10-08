@@ -14,6 +14,9 @@ services:
   api:
     environment:
       PLATFORM_CONFIG_DIR: /app/config/fake-model
+      # The fake catalog reads no key: a real one exported in the shell or
+      # .env stays out of this container.
+      ANTHROPIC_API_KEY: ""
     depends_on:
       fake-messages:
         condition: service_healthy

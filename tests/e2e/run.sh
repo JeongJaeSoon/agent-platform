@@ -164,7 +164,7 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   if [ -n "$real_model" ]; then
     echo "model: $(sed -n 's/^ *model: //p' config/profiles.yaml)"
     echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' config/profiles.yaml)"
-    echo "session_cost_limit_usd: $(sed -n 's/^ *SESSION_COST_LIMIT_USD: "\(.*\)"$/\1/p' infra/compose.real-model.yml)"
+    echo "session_cost_limit_usd: ${SESSION_COST_LIMIT_USD:-$(sed -n 's/^ *SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-\(.*\)}$/\1/p' infra/compose.real-model.yml)}"
   fi
 } | tee "$out/record.txt" >&2
 

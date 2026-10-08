@@ -1,11 +1,12 @@
-# The real-model e2e's limits, for `tests/e2e/run.sh --real-model` over
-# infra/docker-compose.yml, whose catalog (config/) already runs the real
-# Messages API with the caller's ANTHROPIC_API_KEY. They bound what one
-# session can spend: the worker hands the session's remaining budget to the
-# SDK as maxBudgetUsd. It names no path.
+# The real model's limits, for `scripts/local.sh up` over compose.yaml and
+# `tests/e2e/run.sh --real-model` over infra/docker-compose.yml, whose
+# catalog (config/) already runs the real Messages API with the caller's
+# ANTHROPIC_API_KEY. They bound what one session can spend: the worker hands
+# the session's remaining budget to the SDK as maxBudgetUsd. The shell or the
+# project's .env can raise them. It names no path.
 x-real-model-limits: &real-model-limits
-  SESSION_COST_LIMIT_USD: "1"
-  MAX_TURN_SECONDS: "600"
+  SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-1}
+  MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-600}
 
 services:
   api:
