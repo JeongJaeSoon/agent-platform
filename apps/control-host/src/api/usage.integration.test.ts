@@ -363,7 +363,8 @@ integration("usage API on PostgreSQL", () => {
        VALUES ($1, $2, $3, 1, 1, 1, 'exited', now())`,
       [attemptId, id, executionId],
     );
-    const huge = Number.MAX_SAFE_INTEGER;
+    // bigint's own maximum: one call's four counts overflow a bigint sum.
+    const huge = "9223372036854775807";
     for (let call = 0; call < 3; call++) {
       await pool.query(
         `INSERT INTO provider_usage (exchange_id, session_id, attempt_id, model, input_tokens, output_tokens, cache_creation_input_tokens, cache_creation_1h_input_tokens, cache_read_input_tokens, estimated, cost_usd, priced_by)
@@ -373,7 +374,7 @@ integration("usage API on PostgreSQL", () => {
     }
 
     const usage = await usageOf(id, owner);
-    expect(usage.token_count).toBe(huge);
+    expect(usage.token_count).toBe(Number.MAX_SAFE_INTEGER);
     const ledger = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM provider_usage WHERE session_id = $1",
       [id],
