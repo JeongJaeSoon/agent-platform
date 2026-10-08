@@ -294,9 +294,10 @@ integration("installation limits on PostgreSQL", () => {
     claimed: Claimed,
     turnId: string,
     overrides: Partial<FinalizeRequest> & { costUsd?: number | null } = {},
+    via: WorkerGateway = gateway,
   ) {
     const { costUsd = 1.5, ...rest } = overrides;
-    return gateway.finalize(principalOf(claimed), {
+    return via.finalize(principalOf(claimed), {
       ...scopeOf(claimed, turnId),
       turn_id: turnId,
       finalize_key: `fin-${turnId}`,
@@ -410,6 +411,24 @@ integration("installation limits on PostgreSQL", () => {
       expect(outcomes.filter((o) => o === "storage_exhausted")).toHaveLength(9);
       expect(await storedBytes()).toBe(before + 30);
     }, 30_000);
+  });
+
+  // What the engine reports when the proxy refused the call, or when the
+  // regrant cut the exchange before any refusal text reached it.
+  const providerFailure = (result: string) => ({
+    status: "failed" as const,
+    reason: "api_error",
+    result: {
+      subtype: "success",
+      is_error: true,
+      terminal_reason: "api_error",
+      api_error_status: 403,
+      provider_error: "authentication_failed",
+      last_retry_status: null,
+      result,
+    },
+    usage: null,
+    cost_usd: 0,
   });
 
   describe("session cost budget", () => {
@@ -666,6 +685,80 @@ integration("installation limits on PostgreSQL", () => {
       ).toMatchObject({ input: null, reason: "BUDGET_EXCEEDED" });
     });
 
+    for (const [cause, text] of [
+      [
+        "a proxy refusal",
+        "Failed to authenticate. API Error: 403 BUDGET_EXCEEDED: the session has reached its cost or token limit",
+      ],
+      ["a cut exchange", "API Error: Connection error."],
+    ] as const) {
+      test(`${cause} on a spent session ends the turn as budget_exceeded, whatever the engine said`, async () => {
+        const { session, claimed } = await bound();
+        await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+        await spend(session.session_id, COST_LIMIT_USD);
+        const ended = { terminal: providerFailure(text) };
+
+        await finalize(claimed, "1", ended);
+        await finalize(claimed, "1", ended);
+
+        const [turn] = await db
+          .select({
+            status: turns.status,
+            reason: turns.terminalReason,
+            result: turns.resultJson,
+          })
+          .from(turns)
+          .where(eq(turns.sessionId, session.session_id));
+        expect(turn?.status).toBe("failed");
+        expect(turn?.reason).toBe(TURN_BUDGET_EXCEEDED_REASON);
+        expect(turn?.result).toMatchObject({
+          result: { terminal_reason: "api_error", provider_error: null },
+        });
+        const [receipt] = await db
+          .select({ error: receipts.error })
+          .from(receipts)
+          .where(
+            and(
+              sql`${receipts.targetRef}->>'session_id' = ${session.session_id}`,
+              eq(receipts.status, "failed"),
+            ),
+          );
+        expect(receipt?.error).toEqual({
+          code: "BUDGET_EXCEEDED",
+          message: TURN_BUDGET_EXCEEDED_REASON,
+        });
+      });
+    }
+
+    test("a provider failure below the limit keeps the engine's reason and diagnosis", async () => {
+      const { session, claimed } = await bound();
+      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+      await spend(session.session_id, COST_LIMIT_USD - 0.01);
+
+      await finalize(claimed, "1", {
+        terminal: providerFailure("API Error: 403 egress token refused"),
+      });
+
+      const [turn] = await db
+        .select({ reason: turns.terminalReason, result: turns.resultJson })
+        .from(turns)
+        .where(eq(turns.sessionId, session.session_id));
+      expect(turn?.reason).toBe("api_error");
+      expect(turn?.result).toMatchObject({
+        result: { provider_error: "authentication_failed" },
+      });
+      const [receipt] = await db
+        .select({ error: receipts.error })
+        .from(receipts)
+        .where(
+          and(
+            sql`${receipts.targetRef}->>'session_id' = ${session.session_id}`,
+            eq(receipts.status, "failed"),
+          ),
+        );
+      expect(receipt?.error).toMatchObject({ code: "INTERNAL_ERROR" });
+    });
+
     test("every claim hands the engine what is left, so a resumed attempt gets less", async () => {
       const { session, claimed, launched } = await bound();
       expect(claimed.remaining_budget_usd).toBe(COST_LIMIT_USD);
@@ -898,6 +991,25 @@ integration("installation limits on PostgreSQL", () => {
           }),
         ),
       ).toEqual({ status: 403, code: "BUDGET_EXCEEDED" });
+    });
+
+    test("a provider failure on a session at its token limit ends the turn as budget_exceeded, though its cost is nothing", async () => {
+      const { session, claimed } = await bound();
+      await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed));
+      await spendTokens(session.session_id, TOKEN_LIMIT);
+
+      await finalize(
+        claimed,
+        "1",
+        { terminal: providerFailure("API Error: Connection error.") },
+        tokenGateway,
+      );
+
+      const [turn] = await db
+        .select({ reason: turns.terminalReason })
+        .from(turns)
+        .where(eq(turns.sessionId, session.session_id));
+      expect(turn?.reason).toBe(TURN_BUDGET_EXCEEDED_REASON);
     });
 
     test("an unmetered session still counts its tokens and stops at the token limit", async () => {
