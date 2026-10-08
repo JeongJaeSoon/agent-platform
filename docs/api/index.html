@@ -3547,8 +3547,15 @@
             "additionalProperties": false
           },
           "cost_limit_usd": {
-            "type": "string",
-            "pattern": "^\\d+(\\.\\d+)?$"
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "token_count": {
             "type": "integer",

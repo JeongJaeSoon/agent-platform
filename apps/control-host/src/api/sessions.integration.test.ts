@@ -1175,6 +1175,9 @@ integration("sessions API on PostgreSQL", () => {
     expect(keys?.n).toBe(0);
   }, 60_000);
 
+  const reasonOf = (detail: { attention: unknown }) =>
+    (detail.attention as { reason?: string } | null)?.reason ?? "";
+
   test("detail raises BUDGET_EXCEEDED once the session's cost reaches the limit", async () => {
     const sessionId = await createdSession("limit-budget-1");
     const detail = async () => {
@@ -1195,12 +1198,18 @@ integration("sessions API on PostgreSQL", () => {
       .set({ costUsd: 1 })
       .where(eq(sessions.id, sessionId));
     const spent = await detail();
-    expect(spent.attention).toMatchObject({ code: "BUDGET_EXCEEDED" });
+    expect(spent.attention?.code).toBe("BUDGET_EXCEEDED");
+    expect(reasonOf(spent)).toContain("its 1 USD cost limit;");
+    expect(reasonOf(spent)).not.toContain("token");
     expect(JSON.stringify(spent)).not.toContain("cost_usd");
   }, 60_000);
 
-  test("detail raises BUDGET_EXCEEDED once the session's tokens reach the limit, at no cost", async () => {
+  test("detail raises BUDGET_EXCEEDED once an unmetered session's tokens reach the limit, naming no dollar limit", async () => {
     const sessionId = await createdSession("limit-budget-tokens-1");
+    await db
+      .update(sessions)
+      .set({ unmetered: true })
+      .where(eq(sessions.id, sessionId));
     const detail = async (on: typeof tight) => {
       const response = await on.request(`/v1/sessions/${sessionId}`, {
         headers: { "X-Owner-Id": owner },
@@ -1219,11 +1228,18 @@ integration("sessions API on PostgreSQL", () => {
       .set({ providerTokens: 100 })
       .where(eq(sessions.id, sessionId));
     const spent = await detail(tight);
-    expect(spent.attention).toMatchObject({
-      code: "BUDGET_EXCEEDED",
-      reason: expect.stringContaining("100 token"),
-    });
+    expect(spent.attention?.code).toBe("BUDGET_EXCEEDED");
+    expect(reasonOf(spent)).toContain("its 100 token limit;");
+    expect(reasonOf(spent)).not.toContain("USD");
     expect(JSON.stringify(spent)).not.toContain("provider_tokens");
+
+    await db
+      .update(sessions)
+      .set({ costUsd: 1 })
+      .where(eq(sessions.id, sessionId));
+    expect(reasonOf(await detail(tight))).toContain(
+      "its 1 USD cost limit and its 100 token limit;",
+    );
     // The installation with no token limit says nothing about the count.
     expect((await detail(app)).attention).toBeNull();
   }, 60_000);

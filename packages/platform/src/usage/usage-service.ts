@@ -95,7 +95,9 @@ export function createUsageService(deps: {
           unreported_turn_count: usage.unreportedTurnCount,
           open_turn_count: usage.openTurnCount,
         },
-        cost_limit_usd: decimalUsd(limits.sessionCostLimitUsd),
+        cost_limit_usd: usage.unmetered
+          ? null
+          : decimalUsd(limits.sessionCostLimitUsd),
         token_count: usage.providerTokens,
         token_limit: limits.sessionTokenLimit,
         // The predicate dispatch stops at, so this and the gate agree.

@@ -81,7 +81,8 @@ export const sessionUsageResponseSchema = z
         open_turn_count: countSchema,
       })
       .strict(),
-    cost_limit_usd: costUsdSchema,
+    // null for an unmetered session: the cost limit does not apply to it.
+    cost_limit_usd: costUsdSchema.nullable(),
     // Every token of the same calls the cost counts, whatever they cost.
     token_count: countSchema,
     token_limit: countSchema.nullable(),
