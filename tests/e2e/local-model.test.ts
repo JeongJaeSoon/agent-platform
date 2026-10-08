@@ -90,6 +90,7 @@ describe("local-model compose overlay", () => {
     expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe(
       "/app/config/local-model",
     );
+    expect(api?.environment?.ANTHROPIC_API_KEY).toBe("");
     for (const [name, service] of Object.entries(services)) {
       const env = service.environment ?? {};
       for (const key of KEYS) {

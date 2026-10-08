@@ -19,6 +19,9 @@ services:
       LOCAL_OLLAMA_API_KEY:
       LITELLM_MASTER_KEY:
       PLATFORM_CONFIG_DIR: /app/config/local-model
+      # The local catalog reads no Anthropic key: a real one exported in the
+      # shell or .env stays out of this container.
+      ANTHROPIC_API_KEY: ""
   egress-proxy:
     environment:
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: gitea:3000,fake-messages:4010,localstack:4566,ollama.internal:11434,litellm:4000

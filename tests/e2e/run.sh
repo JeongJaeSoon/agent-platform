@@ -197,6 +197,8 @@ export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
 [ -n "$real_model$local_model" ] ||
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
+# Before the E2E_UP_ONLY exit, so vars.sh carries it too.
+[ -z "$local_model" ] || export E2E_PROFILE_IDS=local-ollama,local-litellm
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
@@ -211,7 +213,6 @@ if [ -n "$real_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 elif [ -n "$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
-  export E2E_PROFILE_IDS=local-ollama,local-litellm
 else
   suites=(./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts)
 fi
