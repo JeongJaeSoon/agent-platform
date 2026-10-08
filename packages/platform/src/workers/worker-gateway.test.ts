@@ -400,7 +400,7 @@ describe("WorkerGateway", () => {
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
       leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
-      profileFingerprint: null,
+      unmetered: false,
       ownerScope: "owner-a",
       repository: {
         id: "gone-from-catalog",
@@ -1600,8 +1600,8 @@ describe("authorizeEgress", () => {
   });
 });
 
-describe("billing none profiles", () => {
-  const local = (billing?: "none"): CatalogProfile => ({
+describe("unmetered sessions", () => {
+  const local: CatalogProfile = {
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
     model: "gemma4-local",
@@ -1615,11 +1615,11 @@ describe("billing none profiles", () => {
         value: "master-key",
         ref: { value_env: "LITELLM_MASTER_KEY" },
       },
-      ...(billing === undefined ? {} : { billing }),
+      billing: "none",
     },
-  });
+  };
   const usage = {
-    // A name the table knows, so per_token would price it from the table.
+    // A name the table knows, so a billed session prices it from the table.
     model: "claude-sonnet-5",
     inputTokens: 1_000_000,
     outputTokens: 1_000,
@@ -1634,19 +1634,17 @@ describe("billing none profiles", () => {
     estimated: false,
   };
 
-  function priced(
-    catalogProfile: CatalogProfile,
-    stored: { profileId: string | null; profileFingerprint: string | null },
-    reported = usage,
-  ) {
+  // The catalog is empty on purpose: a replica that does not know the
+  // session's profile prices its calls from the row all the same.
+  function priced(unmetered: boolean, reported = usage) {
     const instance = createWorkerGateway({
       work: work({
         recordProviderUsageAtomic: async (input) => ({
           outcome: "recorded",
-          ...input.priceFor(stored),
+          ...input.priceFor({ unmetered }),
         }),
       }),
-      catalog: { profiles: { local: catalogProfile }, repositories: {} },
+      catalog: { profiles: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       options: { sessionCostLimitUsd: 1, leaseTtlMs: 30_000 },
     });
@@ -1658,48 +1656,23 @@ describe("billing none profiles", () => {
     });
   }
 
-  test("a call on a billing none session costs nothing, whatever model the answer names", async () => {
-    const profile = local("none");
-    const session = {
-      profileId: "local",
-      profileFingerprint: profileFingerprint(profile),
-    };
-    expect(await priced(profile, session)).toEqual({
+  test("a call on an unmetered session costs nothing, whatever model the answer names", async () => {
+    expect(await priced(true)).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+    expect(await priced(true, { ...usage, model: "gemma4-local" })).toEqual({
       costUsd: 0,
       pricedBy: "unmetered",
     });
-    expect(
-      await priced(profile, session, { ...usage, model: "gemma4-local" }),
-    ).toEqual({ costUsd: 0, pricedBy: "unmetered" });
   });
 
-  test("an unbilled declaration that is not the session's own prices as before", async () => {
-    // per_token: the table for a model it knows, the fallback for one it does not.
-    const metered = local();
-    const session = {
-      profileId: "local",
-      profileFingerprint: profileFingerprint(metered),
-    };
-    expect((await priced(metered, session)).pricedBy).toBe("table");
+  test("a call on a billed session prices as before: the table, or the fallback", async () => {
+    expect((await priced(false)).pricedBy).toBe("table");
     expect(
-      (await priced(metered, session, { ...usage, model: "gemma4-local" }))
-        .pricedBy,
+      (await priced(false, { ...usage, model: "gemma4-local" })).pricedBy,
     ).toBe("fallback");
-    // A profile edited to none after the session was created.
-    expect((await priced(local("none"), session)).pricedBy).toBe("table");
-    // A session with no profile.
-    expect(
-      (
-        await priced(local("none"), {
-          profileId: null,
-          profileFingerprint: null,
-        })
-      ).pricedBy,
-    ).toBe("table");
   });
 
-  test("the claim gives a billing none session no budget and a per_token one what is left", async () => {
-    const claim = async (profile: CatalogProfile) => {
+  test("the claim gives an unmetered session no budget and a billed one what is left", async () => {
+    const claim = async (unmetered: boolean) => {
       const instance = createWorkerGateway({
         work: work({
           claimAtomic: async () => ({
@@ -1713,7 +1686,7 @@ describe("billing none profiles", () => {
               leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
               leaseRemainingMs: 30_000,
               profileId: "local",
-              profileFingerprint: profileFingerprint(profile),
+              unmetered,
               ownerScope: "owner-a",
               repository: {
                 id: "app",
@@ -1726,7 +1699,7 @@ describe("billing none profiles", () => {
           }),
         }),
         catalog: {
-          profiles: { local: profile },
+          profiles: { local },
           repositories: {
             app: {
               url: "https://example.invalid/app.git",
@@ -1748,7 +1721,7 @@ describe("billing none profiles", () => {
       );
       return bootstrapClaimResponseSchema.parse(response).remaining_budget_usd;
     };
-    expect(await claim(local("none"))).toBeNull();
-    expect(await claim(local())).toBe(0.75);
+    expect(await claim(true)).toBeNull();
+    expect(await claim(false)).toBe(0.75);
   });
 });

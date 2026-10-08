@@ -351,24 +351,9 @@ export type EgressUpstream = {
   headers: Array<[string, string]>;
 };
 
-/**
- * Whether a session runs unmetered: its profile declared `billing: none` and
- * is still the one the session was created with. One edited since, or gone,
- * is priced like any other, at the table or the fallback.
- */
-export function unmeteredSession(
-  catalog: SessionCatalog,
-  session: { profileId: string | null; profileFingerprint: string | null },
-): boolean {
-  const profile =
-    session.profileId !== null &&
-    Object.hasOwn(catalog.profiles, session.profileId)
-      ? catalog.profiles[session.profileId]
-      : undefined;
-  return (
-    profile?.provider.billing === "none" &&
-    profileFingerprint(profile) === session.profileFingerprint
-  );
+/** Whether the profile declared `billing: none`: no cost, no dollar limit. */
+export function isUnmetered(profile: CatalogProfile): boolean {
+  return profile.provider.billing === "none";
 }
 
 /** Where a provider route goes and how it authenticates there. */

@@ -349,3 +349,81 @@ describe("profile fingerprint pinned at create", () => {
     );
   });
 });
+
+describe("billing none pinned at create", () => {
+  const UNMETERED = catalogOf({
+    ...profile(),
+    provider: {
+      kind: "litellm",
+      endpoint: "http://litellm:4000",
+      auth: {
+        kind: "bearer",
+        value: "local-master-key",
+        ref: { value_env: "LITELLM_MASTER_KEY" },
+      },
+      billing: "none",
+    },
+  });
+  const usage = {
+    model: "gemma4-local",
+    inputTokens: 1_000_000,
+    outputTokens: 1_000,
+    cacheCreationInputTokens: 0,
+    cacheCreation1hInputTokens: 0,
+    cacheReadInputTokens: 0,
+    speed: "standard",
+    inferenceGeo: "global",
+    webSearchRequests: 0,
+    webFetchRequests: 0,
+    codeExecutionRequests: 0,
+    estimated: false,
+  };
+
+  async function stored(sessionId: string) {
+    const [row] = await db
+      .select({ unmetered: sessions.unmetered, costUsd: sessions.costUsd })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    return row;
+  }
+
+  test("a replica whose catalog does not have the profile still records the session's calls at no cost", async () => {
+    const sessionId = await createSession(UNMETERED);
+    expect(await stored(sessionId)).toEqual({ unmetered: true, costUsd: 0 });
+
+    const local = gatewayOf(UNMETERED);
+    const claimed = await claim(local, await launch(local, sessionId, true));
+    expect(claimed.remaining_budget_usd).toBeNull();
+
+    // Mid-rollout, the report lands on a replica with the old catalog.
+    const old = gatewayOf(ORIGINAL);
+    expect(
+      await old.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId,
+        attemptId: claimed.attempt_id,
+        usage,
+      }),
+    ).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+    expect(await stored(sessionId)).toEqual({ unmetered: true, costUsd: 0 });
+  });
+
+  test("a session on a billed profile is not unmetered and its calls are priced", async () => {
+    const sessionId = await createSession(ORIGINAL);
+    expect((await stored(sessionId))?.unmetered).toBe(false);
+    const gateway = gatewayOf(ORIGINAL);
+    const claimed = await claim(
+      gateway,
+      await launch(gateway, sessionId, true),
+    );
+    expect(claimed.remaining_budget_usd).toBe(1_000);
+    const priced = await gateway.recordProviderUsage({
+      exchangeId: crypto.randomUUID(),
+      sessionId,
+      attemptId: claimed.attempt_id,
+      usage,
+    });
+    expect(priced.pricedBy).toBe("fallback");
+    expect((await stored(sessionId))?.costUsd).toBe(priced.costUsd);
+  });
+});

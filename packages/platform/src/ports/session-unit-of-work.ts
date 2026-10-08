@@ -38,6 +38,8 @@ export type AcceptSessionInput = {
   // every claim of the session is then held to. Left out, the row
   // is pinned by its first claim, as one from before the column is.
   profileFingerprint?: string;
+  // The profile declared `billing: none`; fixed on the session for good.
+  unmetered?: boolean;
   message: string;
   limits: InputLimits;
 };

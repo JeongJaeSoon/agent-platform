@@ -820,7 +820,7 @@ async function bindingOf(
     leaseExpiresAt: attempt.leaseExpiresAt,
     leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
-    profileFingerprint: session.profileFingerprint,
+    unmetered: session.unmetered,
     ownerScope: session.ownerId,
     repository: {
       id: session.repositoryId,
@@ -1299,10 +1299,7 @@ export function createPostgresWorkerUnitOfWork(
         // them. No fence beyond the pair: an attempt that has lost its
         // session since the call still made it.
         const [pair] = await tx
-          .select({
-            profileId: sessions.profileId,
-            profileFingerprint: sessions.profileFingerprint,
-          })
+          .select({ unmetered: sessions.unmetered })
           .from(sessions)
           .innerJoin(attempts, eq(attempts.sessionId, sessions.id))
           .where(

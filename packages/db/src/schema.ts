@@ -379,6 +379,10 @@ export const sessions = pgTable(
     // hashes to it. Null on rows from before it, pinned by their
     // next claim.
     profileFingerprint: text("profile_fingerprint"),
+    // The profile declared `billing: none` when the session was accepted.
+    // Fixed on the row, not read from each API's catalog: during a rollout
+    // a replica that does not know the profile must not price its calls.
+    unmetered: boolean().notNull().default(false),
     repositoryId: text("repository_id"),
     checkpointRevision: integer("checkpoint_revision"),
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {

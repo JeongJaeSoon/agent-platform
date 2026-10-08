@@ -6,11 +6,6 @@ import {
 import { allowAllPolicy } from "../authorization/policy.ts";
 import type { InstallationLimits } from "../limits/installation-limits.ts";
 import type { SessionUsageRecord } from "../ports/usage-reader.ts";
-import {
-  type CatalogProfile,
-  profileFingerprint,
-  type SessionCatalog,
-} from "../sessions/catalog.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createUsageService, decimalUsd } from "./usage-service.ts";
 
@@ -27,8 +22,7 @@ const readAt = new Date("2026-09-23T10:00:00.000Z");
 const record: SessionUsageRecord = {
   readAt,
   sessionId: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
-  profileId: null,
-  profileFingerprint: null,
+  unmetered: false,
   costUsd: "0.000000",
   providerTokens: 0,
   reportedTurnCount: 0,
@@ -37,13 +31,9 @@ const record: SessionUsageRecord = {
   queuedInputCount: 0,
 };
 
-function service(
-  session: SessionUsageRecord | null = record,
-  catalog: SessionCatalog = { profiles: {}, repositories: {} },
-) {
+function service(session: SessionUsageRecord | null = record) {
   return createUsageService({
     authorization: allowAllPolicy,
-    catalog,
     limits,
     reader: {
       installationUsage: async () => ({
@@ -117,35 +107,17 @@ describe("usage service", () => {
     expect(spent.budget_exceeded).toBe(true);
   });
 
-  test("a session on a billing none profile reads unmetered; edited or unbilled it reads estimated", async () => {
-    const local = (billing?: "none"): CatalogProfile => ({
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "1",
-      model: "gemma4-local",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "http://litellm:4000",
-        auth: { kind: "bearer", value: "master-key", ref: { value_env: "K" } },
-        ...(billing === undefined ? {} : { billing }),
-      },
-    });
-    const kindOf = async (
-      profile: CatalogProfile,
-      fingerprint = profileFingerprint(profile),
-    ) =>
-      (
-        await service(
-          { ...record, profileId: "local", profileFingerprint: fingerprint },
-          { profiles: { local: profile }, repositories: {} },
-        ).getSessionUsage({ ownerId: "owner-a" }, record.sessionId)
-      ).cost.kind;
-
-    expect(await kindOf(local("none"))).toBe("unmetered");
-    expect(await kindOf(local())).toBe("estimated");
-    expect(await kindOf(local("none"), profileFingerprint(local()))).toBe(
-      "estimated",
-    );
+  test("a session accepted on a billing none profile reads unmetered", async () => {
+    for (const [unmetered, kind] of [
+      [true, "unmetered"],
+      [false, "estimated"],
+    ] as const) {
+      const usage = await service({ ...record, unmetered }).getSessionUsage(
+        { ownerId: "owner-a" },
+        record.sessionId,
+      );
+      expect(sessionUsageResponseSchema.parse(usage).cost.kind).toBe(kind);
+      expect(usage.budget_exceeded).toBe(false);
+    }
   });
 });

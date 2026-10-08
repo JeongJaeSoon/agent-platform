@@ -67,7 +67,6 @@ import {
   repositoryUpstreamOf,
   runtimeConfigOf,
   type SessionCatalog,
-  unmeteredSession,
 } from "../sessions/catalog.ts";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
@@ -779,7 +778,7 @@ export function createWorkerGateway(deps: {
             // An unmetered session gets no budget at all: the engine would
             // price a model it does not know at a guessed rate and cut the
             // turn on it.
-            remaining_budget_usd: unmeteredSession(catalog, binding)
+            remaining_budget_usd: binding.unmetered
               ? null
               : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
           };
@@ -879,12 +878,13 @@ export function createWorkerGateway(deps: {
       attemptId: string;
       usage: ProviderUsage;
     }): Promise<{ costUsd: number; pricedBy: PricedBy }> {
-      // Decided by the profile, never by the model the answer names: that
-      // name is the upstream's to pick.
+      // Decided by the session row, never by the model the answer names
+      // (the upstream's to pick) or by this API's catalog (another replica's
+      // may differ mid-rollout).
       const result = await work.recordProviderUsageAtomic({
         ...report,
         priceFor: (session) =>
-          unmeteredSession(catalog, session)
+          session.unmetered
             ? { costUsd: 0, pricedBy: "unmetered" }
             : priceProviderUsage(report.usage),
       });

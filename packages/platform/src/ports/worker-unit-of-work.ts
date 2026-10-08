@@ -51,8 +51,8 @@ export type WorkerBinding = {
   // arrived; what the worker tracks, on its own monotonic clock.
   leaseRemainingMs: number;
   profileId: string | null;
-  // Null for a session created before fingerprints were stored.
-  profileFingerprint: string | null;
+  // The session's profile declared `billing: none` when it was accepted.
+  unmetered: boolean;
   // The session's owner partition, straight from the row; the claim hands
   // it to the worker as the checkpoint principal.
   ownerScope: string;
@@ -143,17 +143,17 @@ export type EgressAuthorization =
 
 // One Messages call the egress proxy metered. The ids are the ones the
 // proxy's grant carried, so the attempt may have ended since. `priceFor` is
-// asked with the session row locked, since whether its profile is billed
+// asked with the session row locked, since whether the session is billed
 // decides the price.
 export type ProviderUsageInput = {
   exchangeId: string;
   sessionId: string;
   attemptId: string;
   usage: ProviderUsage;
-  priceFor(session: {
-    profileId: string | null;
-    profileFingerprint: string | null;
-  }): { costUsd: number; pricedBy: PricedBy };
+  priceFor(session: { unmetered: boolean }): {
+    costUsd: number;
+    pricedBy: PricedBy;
+  };
 };
 
 export type ProviderUsageResult =

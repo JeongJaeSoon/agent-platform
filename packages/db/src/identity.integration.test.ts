@@ -121,6 +121,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "partition",
     // arrives as 0
     "provider_tokens",
+    // arrives as false
+    "unmetered",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],

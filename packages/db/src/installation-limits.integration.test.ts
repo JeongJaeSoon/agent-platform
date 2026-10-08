@@ -5,11 +5,9 @@ import {
   type WorkerScope,
 } from "@agent-platform/contracts";
 import {
-  type CatalogProfile,
   createWorkerGateway,
   type InputLimits,
   type ProviderUsage,
-  profileFingerprint,
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
@@ -42,23 +40,6 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const COST_LIMIT_USD = 10;
 const TOKEN_LIMIT = 1_000;
-const LOCAL_UNMETERED: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "gemma4-local",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "http://litellm:4000",
-    auth: {
-      kind: "bearer",
-      value: "local-master-key",
-      ref: { value_env: "LITELLM_MASTER_KEY" },
-    },
-    billing: "none",
-  },
-};
 const roomy: InputLimits = {
   queuedInputLimitPerSession: 1_000,
   storageLimitBytes: Number.MAX_SAFE_INTEGER,
@@ -94,7 +75,6 @@ integration("installation limits on PostgreSQL", () => {
               },
             },
           },
-          "local-unmetered": LOCAL_UNMETERED,
         },
         repositories: {
           "sample-app": {
@@ -510,14 +490,11 @@ integration("installation limits on PostgreSQL", () => {
       expect(await sessionCost(other.session.session_id)).toBe(0);
     });
 
-    test("a session on a billing none profile records its calls at no cost and never reaches the limit", async () => {
+    test("an unmetered session records its calls at no cost and never reaches the limit", async () => {
       const { session, claimed } = await bound();
       await db
         .update(sessions)
-        .set({
-          profileId: "local-unmetered",
-          profileFingerprint: profileFingerprint(LOCAL_UNMETERED),
-        })
+        .set({ unmetered: true })
         .where(eq(sessions.id, session.session_id));
       const priced = await gateway.recordProviderUsage({
         exchangeId: crypto.randomUUID(),

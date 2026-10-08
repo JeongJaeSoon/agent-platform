@@ -5,6 +5,7 @@ import {
   catalogRevision,
   describeConfigError,
   environmentCredentials,
+  isUnmetered,
   profileFingerprint,
   providerUpstreamOf,
   repositoryBinding,
@@ -12,7 +13,6 @@ import {
   resolveSessionCatalog,
   runtimeProviderOf,
   sessionCatalogConfigSchema,
-  unmeteredSession,
 } from "./catalog.ts";
 
 // What an operator writes: the credential is a reference, never a value.
@@ -384,15 +384,11 @@ describe("billing", () => {
   test("none is kept on the profile; per_token, the default, is dropped", () => {
     const none = load(billed("none", "http://litellm:4000")).profiles.p;
     expect(none?.provider.billing).toBe("none");
-    expect(
-      unmeteredSession(load(billed("none", "http://litellm:4000")), {
-        profileId: "p",
-        profileFingerprint: profileFingerprint(none as CatalogProfile),
-      }),
-    ).toBe(true);
+    expect(isUnmetered(none as CatalogProfile)).toBe(true);
     const perToken = load(billed("per_token", "https://api.anthropic.invalid"))
       .profiles.p;
     expect(perToken?.provider).not.toHaveProperty("billing");
+    expect(isUnmetered(perToken as CatalogProfile)).toBe(false);
     expect(perToken).toEqual(load(config()).profiles.p);
   });
 

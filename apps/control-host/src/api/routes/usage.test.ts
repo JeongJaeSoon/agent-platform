@@ -16,7 +16,6 @@ const app = createApiApp({
       router,
       createUsageService({
         authorization: allowAllPolicy,
-        catalog: { profiles: {}, repositories: {} },
         limits: {
           executionSlotLimit: 1,
           queuedInputLimitPerSession: 3,

@@ -13,7 +13,6 @@ import {
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
 import type { UsageReader } from "../ports/usage-reader.ts";
-import { type SessionCatalog, unmeteredSession } from "../sessions/catalog.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -36,9 +35,8 @@ export function createUsageService(deps: {
   authorization: AuthorizationPolicy;
   reader: UsageReader;
   limits: InstallationLimits;
-  catalog: SessionCatalog;
 }) {
-  const { authorization, reader, limits, catalog } = deps;
+  const { authorization, reader, limits } = deps;
 
   return {
     // Any principal holding sessions:read may read it, whoever's sessions
@@ -88,9 +86,7 @@ export function createUsageService(deps: {
         refreshed_at: usage.readAt.toISOString(),
         cost: {
           amount_usd: usage.costUsd,
-          // The same predicate pricing uses, so a session reads unmetered
-          // exactly when its calls were recorded at no cost.
-          kind: unmeteredSession(catalog, usage) ? "unmetered" : "estimated",
+          kind: usage.unmetered ? "unmetered" : "estimated",
           source: "provider_usage",
           completeness_scope: "turn_reports",
           complete:
