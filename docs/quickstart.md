@@ -144,7 +144,7 @@ grep -A1 '^event: question' /tmp/quickstart-events.txt
 
 SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment keepalive). 사람이 볼 때는 `--max-time` 없이 열어 두고 Ctrl-C로 닫는다. 연결이 끊기면 backoff 뒤 마지막으로 완전히 받은 이벤트의 `id`를 `Last-Event-ID` 헤더로 보내 재연결한다. 서버는 그 이벤트 **다음**부터 재생한다. `410 CURSOR_EXPIRED`는 cursor가 보존 범위 밖이라는 뜻이므로 세션·turn 상태를 다시 읽어 동기화해야 한다. 알파는 이벤트를 지우지 않아 410을 내지 않지만 클라이언트 계약에는 미리 포함한다.
 
-이벤트 이름은 `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error`다. `result` 이벤트의 `data.session_id`는 플랫폼 세션 id가 아니라 **engine(Claude Code) 세션 id**이며 durable 완료 판정이 아니다. turn 조회(`GET /v1/sessions/{id}/turns/{turn_id}`)의 `status`가 `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown` 중 하나일 때만 terminal로 판정한다.
+이벤트 이름은 `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error`다. `result` 이벤트의 `data.session_id`는 플랫폼 세션 id가 아니라 **engine(Claude Code) 세션 id**이며 durable 완료 판정이 아니다. turn 조회(`GET /v1/sessions/{id}/turns/{turn_id}`)의 `status`가 `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown` 중 하나일 때만 terminal로 판정한다. `completed`는 engine이 turn을 정상 종료했다는 뜻이고 요청한 일을 다 했다는 뜻은 아니다([api-guide 4절](api-guide.md#4-메시지-보내기와-turn-상태-보기)).
 
 ### ③ 대기 중인 요청
 
