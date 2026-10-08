@@ -116,30 +116,61 @@ describe("local-model compose overlay", () => {
       expect(proxy.credential?.allowPrivate).toContainEqual(destination);
       expect(forward).not.toContainEqual(destination);
     }
-    // What the local stack's own catalog needs stays on the list.
+    // The repository and the object store stay; the fake Messages API,
+    // which this catalog never calls, does not.
     for (const kept of [
-      "gitea:3000",
-      "fake-messages:4010",
-      "localstack:4566",
+      { host: "gitea", port: 3000 },
+      { host: "localstack", port: 4566 },
     ]) {
-      const [host, port] = kept.split(":");
-      expect(proxy.credential?.allowPrivate).toContainEqual({
-        host,
-        port: Number(port),
-      });
+      expect(proxy.credential?.allowPrivate).toContainEqual(kept);
+    }
+    expect(proxy.credential?.allowPrivate).not.toContainEqual({
+      host: "fake-messages",
+      port: 4010,
+    });
+  });
+
+  test("the proxy's private credential list takes the caller's override", async () => {
+    const value = (await overlay())["egress-proxy"]?.environment
+      ?.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST;
+    expect(value).toMatch(/^\$\{EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-[^}]+\}$/);
+  });
+
+  test("the API waits for a healthy relay and LiteLLM", async () => {
+    const services = await overlay();
+    const api = services.api as Service & {
+      depends_on?: Record<string, { condition: string }>;
+    };
+    for (const name of ["ollama", "litellm"]) {
+      expect(api.depends_on?.[name]).toEqual({ condition: "service_healthy" });
+      expect(
+        (services[name] as { healthcheck?: { test?: unknown } }).healthcheck
+          ?.test,
+      ).toBeDefined();
     }
   });
 });
 
 describe("run.sh --local-model", () => {
   let dir: string;
+  const TAGS = (...names: string[]) =>
+    JSON.stringify({ models: names.map((name) => ({ name, model: name })) });
+
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "local-model-run-"));
     const stubs = join(dir, "bin");
     Bun.spawnSync(["mkdir", "-p", stubs]);
     for (const [name, text] of [
-      ["docker", `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >>"$STUB_ARGV"\n`],
-      ["curl", "#!/usr/bin/env bash\nexit 7\n"],
+      [
+        "docker",
+        `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >>"$STUB_ARGV"\nexit 1\n`,
+      ],
+      // No Ollama unless STUB_TAGS is set; then /api/tags answers with it.
+      [
+        "curl",
+        `#!/usr/bin/env bash\n[ -n "\${STUB_TAGS:-}" ] || exit 7\ncase "$*" in *api/tags*) printf '%s' "$STUB_TAGS" ;; *) printf '{"version":"0.40.0"}' ;; esac\n`,
+      ],
+      ["openssl", "#!/usr/bin/env bash\nexit 1\n"],
     ] as const) {
       await Bun.write(join(stubs, name), text);
       chmodSync(join(stubs, name), 0o755);
@@ -147,8 +178,8 @@ describe("run.sh --local-model", () => {
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  test("without Ollama it stops before touching Docker", async () => {
-    const argv = join(dir, "argv");
+  const run = (env: Record<string, string> = {}) => {
+    const argv = join(dir, `argv-${crypto.randomUUID()}`);
     const result = Bun.spawnSync(["bash", RUN, "--local-model"], {
       cwd: ROOT,
       env: {
@@ -157,12 +188,48 @@ describe("run.sh --local-model", () => {
         TMPDIR: dir,
         E2E_OUT: join(dir, "out"),
         STUB_ARGV: argv,
+        ...env,
       },
     });
+    return { result, stderr: result.stderr.toString(), argv };
+  };
+
+  test("without Ollama it stops before touching Docker", async () => {
+    const { result, stderr, argv } = run();
     expect(result.exitCode).toBe(2);
-    expect(result.stderr.toString()).toContain(
+    expect(stderr).toContain(
       "no Ollama on 127.0.0.1:11434; nothing was started",
     );
     expect(await Bun.file(argv).exists()).toBe(false);
+  });
+
+  test("without the catalog's model pulled it says what to pull and stops before Docker", async () => {
+    const { result, stderr, argv } = run({
+      STUB_TAGS: TAGS("qwen3.6:27b-mlx"),
+    });
+    expect(result.exitCode).toBe(2);
+    expect(stderr).toContain(
+      "gemma4:26b-mlx is not pulled in Ollama; run `ollama pull gemma4:26b-mlx`; nothing was started",
+    );
+    expect(await Bun.file(argv).exists()).toBe(false);
+  });
+
+  test("when openssl cannot make LiteLLM's key it stops before Docker", async () => {
+    const { result, stderr, argv } = run({ STUB_TAGS: TAGS("gemma4:26b-mlx") });
+    expect(result.exitCode).toBe(2);
+    expect(stderr).toContain(
+      "could not generate LITELLM_MASTER_KEY with openssl; nothing was started",
+    );
+    expect(await Bun.file(argv).exists()).toBe(false);
+  });
+
+  test("with the model pulled and a key set it goes on to Docker", async () => {
+    const { result, argv } = run({
+      STUB_TAGS: TAGS("gemma4:26b-mlx"),
+      LITELLM_MASTER_KEY: "sk-test",
+    });
+    // The docker stub fails its first call, so the run ends there.
+    expect(result.exitCode).not.toBe(0);
+    expect(await Bun.file(argv).text()).toStartWith("version");
   });
 });
