@@ -1695,6 +1695,7 @@ describe("unmetered sessions", () => {
               },
               restore: null,
               costUsd: 0.25,
+              providerTokens: 0,
             },
           }),
         }),
