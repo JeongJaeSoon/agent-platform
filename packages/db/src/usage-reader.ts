@@ -69,6 +69,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         .select({
           readAt: sql<Date>`now()`.mapWith((value) => new Date(value)),
           sessionId: sessions.id,
+          unmetered: sessions.unmetered,
           costUsd: sql<string>`${sessions.costUsd}::text`,
           providerTokens: sessions.providerTokens,
           reportedTurnCount: counted(

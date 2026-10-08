@@ -379,6 +379,10 @@ export const sessions = pgTable(
     // hashes to it. Null on rows from before it, pinned by their
     // next claim.
     profileFingerprint: text("profile_fingerprint"),
+    // The profile declared `billing: none` when the session was accepted.
+    // Fixed on the row, not read from each API's catalog: during a rollout
+    // a replica that does not know the profile must not price its calls.
+    unmetered: boolean().notNull().default(false),
     repositoryId: text("repository_id"),
     checkpointRevision: integer("checkpoint_revision"),
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
@@ -951,8 +955,11 @@ export const providerUsage = pgTable(
       mode: "number",
     }).notNull(),
     // `fallback`: the model was not in the price table and every part was
-    // charged at the highest known rate.
-    pricedBy: text("priced_by").$type<"table" | "fallback">().notNull(),
+    // charged at the highest known rate. `unmetered`: the session's profile
+    // declared `billing: none`, so the call cost nothing.
+    pricedBy: text("priced_by")
+      .$type<"table" | "fallback" | "unmetered">()
+      .notNull(),
     recordedAt: timestamp("recorded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -961,7 +968,7 @@ export const providerUsage = pgTable(
     index("provider_usage_session_idx").on(table.sessionId),
     check(
       "provider_usage_priced_by_check",
-      sql`${table.pricedBy} IN ('table', 'fallback')`,
+      sql`${table.pricedBy} IN ('table', 'fallback', 'unmetered')`,
     ),
     check("provider_usage_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
   ],

@@ -68,8 +68,11 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   /** The workspace's, read only when the profile lets the file in. */
   committedClaudeMd: () => string | null;
   correlationId: string;
-  /** The claim's remaining_budget_usd: this run counts its spend from zero. */
-  maxBudgetUsd: number;
+  /**
+   * The claim's remaining_budget_usd: this run counts its spend from zero.
+   * Absent for a profile that is not billed, whose engine runs with no budget.
+   */
+  maxBudgetUsd?: number;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
 };
@@ -404,7 +407,9 @@ export class WorkerHost {
                   ? plan.committedClaudeMd
                   : () => this.options.workspace.committedClaudeMd(),
               correlationId: `${claim.session_id}:${claim.attempt_id}`,
-              maxBudgetUsd: claim.remaining_budget_usd,
+              ...(claim.remaining_budget_usd === null
+                ? {}
+                : { maxBudgetUsd: claim.remaining_budget_usd }),
               principal: claim.principal,
               runtimeConfig: claim.runtime_config,
             },

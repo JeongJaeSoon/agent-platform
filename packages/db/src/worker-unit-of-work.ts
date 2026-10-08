@@ -820,6 +820,7 @@ async function bindingOf(
     leaseExpiresAt: attempt.leaseExpiresAt,
     leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
+    unmetered: session.unmetered,
     ownerScope: session.ownerId,
     repository: {
       id: session.repositoryId,
@@ -1298,7 +1299,7 @@ export function createPostgresWorkerUnitOfWork(
         // them. No fence beyond the pair: an attempt that has lost its
         // session since the call still made it.
         const [pair] = await tx
-          .select({ sessionId: sessions.id })
+          .select({ unmetered: sessions.unmetered })
           .from(sessions)
           .innerJoin(attempts, eq(attempts.sessionId, sessions.id))
           .where(
@@ -1310,6 +1311,7 @@ export function createPostgresWorkerUnitOfWork(
           .limit(1)
           .for("update");
         if (!pair) return { outcome: "unknown_attempt" };
+        const priced = input.priceFor(pair);
         // What makes two reports the same call. The price is left out: it
         // may have moved between them.
         const call = {
@@ -1336,8 +1338,8 @@ export function createPostgresWorkerUnitOfWork(
           .insert(providerUsage)
           .values({
             ...call,
-            costUsd: sql`LEAST(ceil(${input.costUsd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
-            pricedBy: input.pricedBy,
+            costUsd: sql`LEAST(ceil(${priced.costUsd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
+            pricedBy: priced.pricedBy,
           })
           .onConflictDoNothing({ target: providerUsage.exchangeId })
           .returning({

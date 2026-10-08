@@ -17,6 +17,7 @@ export type InstallationUsage = {
 export type SessionUsageRecord = {
   readAt: Date;
   sessionId: string;
+  unmetered: boolean;
   /** `sessions.cost_usd` as the database prints the numeric. */
   costUsd: string;
   providerTokens: number;

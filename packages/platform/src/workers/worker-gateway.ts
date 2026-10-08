@@ -40,6 +40,7 @@ import {
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
 import { budgetExceeded } from "../limits/installation-limits.ts";
 import {
+  type PricedBy,
   type ProviderUsage,
   priceProviderUsage,
 } from "../limits/model-prices.ts";
@@ -774,10 +775,12 @@ export function createWorkerGateway(deps: {
             restore: binding.restore,
             // A replay can bind a session that has since spent its budget;
             // its engine gets nothing to spend, and nextInput hands it no turn.
-            remaining_budget_usd: Math.max(
-              0,
-              deps.options.sessionCostLimitUsd - binding.costUsd,
-            ),
+            // An unmetered session gets no budget at all: the engine would
+            // price a model it does not know at a guessed rate and cut the
+            // turn on it.
+            remaining_budget_usd: binding.unmetered
+              ? null
+              : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
           };
         }
       }
@@ -874,11 +877,16 @@ export function createWorkerGateway(deps: {
       sessionId: string;
       attemptId: string;
       usage: ProviderUsage;
-    }): Promise<{ costUsd: number; pricedBy: "table" | "fallback" }> {
-      const priced = priceProviderUsage(report.usage);
+    }): Promise<{ costUsd: number; pricedBy: PricedBy }> {
+      // Decided by the session row, never by the model the answer names
+      // (the upstream's to pick) or by this API's catalog (another replica's
+      // may differ mid-rollout).
       const result = await work.recordProviderUsageAtomic({
         ...report,
-        ...priced,
+        priceFor: (session) =>
+          session.unmetered
+            ? { costUsd: 0, pricedBy: "unmetered" }
+            : priceProviderUsage(report.usage),
       });
       if (result.outcome === "unknown_attempt") {
         throw new WorkerGatewayError(

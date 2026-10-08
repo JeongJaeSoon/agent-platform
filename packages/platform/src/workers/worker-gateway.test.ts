@@ -400,6 +400,7 @@ describe("WorkerGateway", () => {
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
       leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
+      unmetered: false,
       ownerScope: "owner-a",
       repository: {
         id: "gone-from-catalog",
@@ -1596,5 +1597,132 @@ describe("authorizeEgress", () => {
         }).instance.authorizeEgress({ token: "wer_x", purpose: "repository" }),
       ).rejects.toMatchObject({ status: 409 });
     }
+  });
+});
+
+describe("unmetered sessions", () => {
+  const local: CatalogProfile = {
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    model: "gemma4-local",
+    tools: ["Read"],
+    permission_mode: "default",
+    provider: {
+      kind: "litellm",
+      endpoint: "http://litellm:4000",
+      auth: {
+        kind: "bearer",
+        value: "master-key",
+        ref: { value_env: "LITELLM_MASTER_KEY" },
+      },
+      billing: "none",
+    },
+  };
+  const usage = {
+    // A name the table knows, so a billed session prices it from the table.
+    model: "claude-sonnet-5",
+    inputTokens: 1_000_000,
+    outputTokens: 1_000,
+    cacheCreationInputTokens: 0,
+    cacheCreation1hInputTokens: 0,
+    cacheReadInputTokens: 0,
+    speed: "standard",
+    inferenceGeo: "global",
+    webSearchRequests: 0,
+    webFetchRequests: 0,
+    codeExecutionRequests: 0,
+    estimated: false,
+  };
+
+  // The catalog is empty on purpose: a replica that does not know the
+  // session's profile prices its calls from the row all the same.
+  function priced(unmetered: boolean, reported = usage) {
+    const instance = createWorkerGateway({
+      work: work({
+        recordProviderUsageAtomic: async (input) => ({
+          outcome: "recorded",
+          ...input.priceFor({ unmetered }),
+        }),
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: { sessionCostLimitUsd: 1, leaseTtlMs: 30_000 },
+    });
+    return instance.recordProviderUsage({
+      exchangeId: "ex_1",
+      sessionId: scope.session_id,
+      attemptId: "att_1",
+      usage: reported,
+    });
+  }
+
+  test("a call on an unmetered session costs nothing, whatever model the answer names", async () => {
+    expect(await priced(true)).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+    expect(await priced(true, { ...usage, model: "gemma4-local" })).toEqual({
+      costUsd: 0,
+      pricedBy: "unmetered",
+    });
+  });
+
+  test("a call on a billed session prices as before: the table, or the fallback", async () => {
+    expect((await priced(false)).pricedBy).toBe("table");
+    expect(
+      (await priced(false, { ...usage, model: "gemma4-local" })).pricedBy,
+    ).toBe("fallback");
+  });
+
+  test("the claim gives an unmetered session no budget and a billed one what is left", async () => {
+    const claim = async (unmetered: boolean) => {
+      const instance = createWorkerGateway({
+        work: work({
+          claimAtomic: async () => ({
+            outcome: "claimed",
+            binding: {
+              sessionId: scope.session_id,
+              attemptId: "att_1",
+              leaseEpoch: 1,
+              executionGeneration: 1,
+              authRevision: 0,
+              leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+              leaseRemainingMs: 30_000,
+              profileId: "local",
+              unmetered,
+              ownerScope: "owner-a",
+              repository: {
+                id: "app",
+                url: "https://example.invalid/app.git",
+                branch: "main",
+              },
+              restore: null,
+              costUsd: 0.25,
+              providerTokens: 0,
+            },
+          }),
+        }),
+        catalog: {
+          profiles: { local },
+          repositories: {
+            app: {
+              url: "https://example.invalid/app.git",
+              branch: "main",
+              profiles: ["local"],
+            },
+          },
+        },
+        checkpoints: acceptAllCheckpoints,
+        options: { sessionCostLimitUsd: 1, leaseTtlMs: 30_000 },
+      });
+      const response = await instance.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      );
+      return bootstrapClaimResponseSchema.parse(response).remaining_budget_usd;
+    };
+    expect(await claim(true)).toBeNull();
+    expect(await claim(false)).toBe(0.75);
   });
 });

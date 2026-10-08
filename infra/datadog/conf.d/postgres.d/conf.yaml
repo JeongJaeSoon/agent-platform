@@ -60,11 +60,17 @@ instances:
           SELECT
             COALESCE(SUM(cost_usd), 0)::double precision AS cost_usd_1h,
             COUNT(*) FILTER (WHERE priced_by = 'fallback')::double precision
-              AS fallback_pricing_count_1h
+              AS fallback_pricing_count_1h,
+            COALESCE(SUM(input_tokens + output_tokens
+                + cache_creation_input_tokens + cache_read_input_tokens)
+              FILTER (WHERE priced_by = 'unmetered'), 0)::double precision
+              AS unmetered_tokens_1h
           FROM provider_usage
           WHERE recorded_at >= clock_timestamp() - interval '1 hour'
         columns:
           - name: provider.cost_usd_1h
             type: gauge
           - name: provider.fallback_pricing_count_1h
+            type: gauge
+          - name: provider.unmetered_tokens_1h
             type: gauge

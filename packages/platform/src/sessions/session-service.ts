@@ -38,6 +38,7 @@ import type {
 } from "../ports/session-unit-of-work.ts";
 import {
   allowedPair,
+  isUnmetered,
   profileFingerprint,
   type SessionCatalog,
 } from "./catalog.ts";
@@ -270,7 +271,10 @@ export function createSessionService(deps: {
             }
           : null,
         ...(pair
-          ? { profileFingerprint: profileFingerprint(pair.profile) }
+          ? {
+              profileFingerprint: profileFingerprint(pair.profile),
+              unmetered: isUnmetered(pair.profile),
+            }
           : {}),
         message: input.body.message,
         limits: inputLimits,

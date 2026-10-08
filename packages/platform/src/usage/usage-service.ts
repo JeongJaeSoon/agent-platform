@@ -86,7 +86,7 @@ export function createUsageService(deps: {
         refreshed_at: usage.readAt.toISOString(),
         cost: {
           amount_usd: usage.costUsd,
-          kind: "estimated",
+          kind: usage.unmetered ? "unmetered" : "estimated",
           source: "provider_usage",
           completeness_scope: "turn_reports",
           complete:

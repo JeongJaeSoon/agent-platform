@@ -490,6 +490,31 @@ integration("installation limits on PostgreSQL", () => {
       expect(await sessionCost(other.session.session_id)).toBe(0);
     });
 
+    test("an unmetered session records its calls at no cost and never reaches the limit", async () => {
+      const { session, claimed } = await bound();
+      await db
+        .update(sessions)
+        .set({ unmetered: true })
+        .where(eq(sessions.id, session.session_id));
+      const priced = await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        // Far past the limit at the table's rates, were it priced.
+        usage: usage({ inputTokens: 10_000_000, outputTokens: 1_000_000 }),
+      });
+      expect(priced).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+      const [row] = await db
+        .select({
+          pricedBy: providerUsage.pricedBy,
+          inputTokens: providerUsage.inputTokens,
+        })
+        .from(providerUsage)
+        .where(eq(providerUsage.sessionId, session.session_id));
+      expect(row).toEqual({ pricedBy: "unmetered", inputTokens: 10_000_000 });
+      expect(await sessionCost(session.session_id)).toBe(0);
+    });
+
     test("a model the table does not know is charged at the highest known rates", async () => {
       const { session, claimed } = await bound();
       const priced = await gateway.recordProviderUsage({
@@ -857,6 +882,44 @@ integration("installation limits on PostgreSQL", () => {
       await finalize(claimed, "1");
       await append(session, "second");
       await spend(session.session_id, 0);
+
+      expect(
+        await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed)),
+      ).toMatchObject({
+        input: null,
+        draining: true,
+        reason: "BUDGET_EXCEEDED",
+      });
+      expect(
+        await failure(
+          tokenGateway.authorizeEgress({
+            token: claimed.runtime_config.provider.auth.token,
+            purpose: "provider",
+          }),
+        ),
+      ).toEqual({ status: 403, code: "BUDGET_EXCEEDED" });
+    });
+
+    test("an unmetered session still counts its tokens and stops at the token limit", async () => {
+      const { session, claimed } = await bound();
+      await db
+        .update(sessions)
+        .set({ unmetered: true })
+        .where(eq(sessions.id, session.session_id));
+      expect(
+        (await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed)))
+          .input?.turn_id,
+      ).toBe("1");
+      const priced = await tokenGateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ inputTokens: TOKEN_LIMIT, outputTokens: 1 }),
+      });
+      expect(priced).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+      expect(await sessionTokens(session.session_id)).toBe(TOKEN_LIMIT + 1);
+      await finalize(claimed, "1");
+      await append(session, "second");
 
       expect(
         await tokenGateway.nextInput(principalOf(claimed), scopeOf(claimed)),

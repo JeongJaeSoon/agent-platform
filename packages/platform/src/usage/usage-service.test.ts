@@ -22,6 +22,7 @@ const readAt = new Date("2026-09-23T10:00:00.000Z");
 const record: SessionUsageRecord = {
   readAt,
   sessionId: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+  unmetered: false,
   costUsd: "0.000000",
   providerTokens: 0,
   reportedTurnCount: 0,
@@ -104,5 +105,19 @@ describe("usage service", () => {
       costUsd: "0.000001",
     }).getSessionUsage({ ownerId: "owner-a" }, record.sessionId);
     expect(spent.budget_exceeded).toBe(true);
+  });
+
+  test("a session accepted on a billing none profile reads unmetered", async () => {
+    for (const [unmetered, kind] of [
+      [true, "unmetered"],
+      [false, "estimated"],
+    ] as const) {
+      const usage = await service({ ...record, unmetered }).getSessionUsage(
+        { ownerId: "owner-a" },
+        record.sessionId,
+      );
+      expect(sessionUsageResponseSchema.parse(usage).cost.kind).toBe(kind);
+      expect(usage.budget_exceeded).toBe(false);
+    }
   });
 });

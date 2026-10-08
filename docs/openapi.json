@@ -3492,7 +3492,10 @@
               },
               "kind": {
                 "type": "string",
-                "const": "estimated"
+                "enum": [
+                  "estimated",
+                  "unmetered"
+                ]
               },
               "source": {
                 "type": "string",

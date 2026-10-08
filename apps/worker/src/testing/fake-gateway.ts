@@ -63,8 +63,8 @@ export type FakeWorkerGatewayOptions = {
   leaseTtlMs?: number;
   /** The owner partition the claim names as the checkpoint principal. */
   ownerScope?: string;
-  /** What the claim says the session has left to spend. */
-  remainingBudgetUsd?: number;
+  /** What the claim says the session has left to spend; null for none. */
+  remainingBudgetUsd?: number | null;
   restore?: CheckpointRef | null;
   runtime?: SessionRuntime;
   runtimeConfig?: RuntimeConfig;
@@ -155,7 +155,10 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       firstTurn: options.firstTurn ?? 1,
       leaseTtlMs: options.leaseTtlMs ?? 30_000,
       ownerScope: options.ownerScope ?? "fake-owner",
-      remainingBudgetUsd: options.remainingBudgetUsd ?? 25,
+      remainingBudgetUsd:
+        options.remainingBudgetUsd === undefined
+          ? 25
+          : options.remainingBudgetUsd,
       restore: options.restore ?? null,
       runtime: options.runtime ?? {
         kind: "claude_agent_sdk",

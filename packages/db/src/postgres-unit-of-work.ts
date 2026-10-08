@@ -188,6 +188,7 @@ export function createPostgresSessionUnitOfWork(
           branch: input.repository.branch,
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
+          unmetered: input.unmetered ?? false,
           repositoryId: input.repository.id,
         });
         await insertQueuedTurn(tx, {
