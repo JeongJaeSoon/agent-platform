@@ -124,6 +124,10 @@ export async function loadSessionCatalog(options: {
   }
   const config = await readCatalogConfig(options.dir);
   const secrets = new Map<string, string>();
+  // An endpoint that is not up, like the local stack's secrets service
+  // without --fake-model, fails on DNS or a refused connection; naming it says which.
+  const endpoint = options.env.AWS_ENDPOINT_URL_SECRETS_MANAGER;
+  const from = endpoint === undefined ? "" : ` from ${endpoint}`;
   for (const { path, ref } of catalogCredentialRefs(config)) {
     if (!("secret_id" in ref) || secrets.has(ref.secret_id)) continue;
     let value: string | undefined;
@@ -133,7 +137,7 @@ export async function loadSessionCatalog(options: {
       throw new CatalogCredentialError(
         path,
         ref,
-        `could not be read (${error instanceof Error ? error.name : "error"})`,
+        `could not be read${from} (${error instanceof Error ? error.name : "error"})`,
       );
     }
     if (value) secrets.set(ref.secret_id, value);

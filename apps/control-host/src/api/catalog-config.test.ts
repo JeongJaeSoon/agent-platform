@@ -152,6 +152,26 @@ describe("loadSessionCatalog", () => {
     expect(thrown).not.toContain(SECRET_VALUE);
   });
 
+  test("an unreadable secret names the endpoint it was read from", async () => {
+    const thrown = await failure(
+      loadSessionCatalog({
+        dir: await dirWith(),
+        env: {
+          PROVIDER_KEY: ENV_VALUE,
+          AWS_ENDPOINT_URL_SECRETS_MANAGER: "http://secrets:4566",
+        },
+        readSecret: async () => {
+          const error = new Error("getaddrinfo ENOTFOUND secrets");
+          error.name = "DNSException";
+          throw error;
+        },
+      }),
+    );
+    expect(thrown).toBe(
+      "profiles.from-secrets.provider.auth.secret_id: agent-platform/provider could not be read from http://secrets:4566 (DNSException)",
+    );
+  });
+
   test("an empty environment value is not a credential", async () => {
     expect(
       await failure(
