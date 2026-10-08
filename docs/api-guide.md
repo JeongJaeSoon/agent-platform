@@ -84,7 +84,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 **기대 응답.** 201과 함께 `session_id`, `turn_id: "1"`, `receipt_id`, `receipt_status: "accepted"`, `status: "queued"`가 온다. 실제 완료 결과는 생성 receipt의 옛 acceptance body가 아니라 turn 조회로 판정한다.
 
-**흔한 오류.** 422는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
+**흔한 오류.** 422는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
 
 ## 3. pending-requests의 승인·질문에 답하기
 
@@ -279,7 +279,7 @@ echo "$limits" | jq .
 echo "$limits" | jq -e '.scope == "installation" and .limits.execution_slot_limit >= 0 and .usage.execution_slots_used >= 0'
 ```
 
-**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한과 queued input 수를 준다. 설치 응답은 설정된 상한과 현재 execution slot·queued input·저장소 사용량을 준다.
+**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
 
 **흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
 
