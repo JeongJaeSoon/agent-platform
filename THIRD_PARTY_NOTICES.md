@@ -86,7 +86,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @hono/node-server | 2.1.1 | MIT | worker |
 | @hono/zod-openapi | 1.6.3 | MIT | control-host, worker |
 | @hono/zod-validator | 0.9.1 | MIT | control-host, worker |
-| @modelcontextprotocol/sdk | 1.30.0 | MIT | worker |
+| @modelcontextprotocol/sdk | 1.31.0 | MIT | worker |
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT | worker |
@@ -205,7 +205,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | postgres-bytea | 1.0.1 | MIT | control-host, worker |
 | postgres-date | 1.0.7 | MIT | control-host, worker |
 | postgres-interval | 1.2.0 | MIT | control-host, worker |
-| proxy-addr | 2.0.7 | MIT | worker |
+| proxy-addr | 2.0.8 | MIT | worker |
 | qs | 6.16.0 | BSD-3-Clause | worker |
 | range-parser | 1.3.0 | MIT | worker |
 | raw-body | 3.0.2 | MIT | worker |
