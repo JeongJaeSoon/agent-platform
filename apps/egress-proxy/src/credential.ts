@@ -74,7 +74,6 @@ const DEFAULT_MAX_EXCHANGES_PER_CLIENT = 32;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 /** How much of a refusing provider's error body the warn log keeps. */
 const REFUSAL_EXCERPT_CHARS = 512;
-/** The authorizer's code for a session past its cost or token limit. */
 const BUDGET_EXCEEDED = "BUDGET_EXCEEDED";
 /**
  * The Messages API's own request limit (32 MB), with the upstream left to

@@ -118,7 +118,6 @@ describe("usage service", () => {
       );
       const parsed = sessionUsageResponseSchema.parse(usage);
       expect(parsed.cost.kind).toBe(kind);
-      // The cost limit does not apply to an unmetered session.
       expect(parsed.cost_limit_usd).toBe(costLimit);
       expect(usage.budget_exceeded).toBe(false);
     }

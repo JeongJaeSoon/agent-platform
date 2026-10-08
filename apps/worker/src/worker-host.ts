@@ -243,7 +243,6 @@ export class WorkerHost {
   private attemptState: AttemptState = "starting";
   private heartbeat: Heartbeat | undefined;
   private mirrorError: string | undefined;
-  /** Whether the engine runs under a spending budget; unmetered ones do not. */
   private engineBudgeted = false;
   private pending: PendingRequestRegistry | undefined;
   private publisher: EventPublisher | undefined;
