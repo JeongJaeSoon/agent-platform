@@ -38,7 +38,8 @@ awk -v document="$document" '
 ' "$document" >"$script"
 grep -q QUICKSTART_BLOCK "$script" || { echo "no bash blocks in $document" >&2; exit 1; }
 
-trap 'docker compose --profile apps logs --no-color --timestamps >"$out/compose.log" 2>&1 || true; echo "quickstart record: $out" >&2' EXIT
+# fake-model too: the guides start the stack with --fake-model.
+trap 'docker compose --profile apps --profile fake-model logs --no-color --timestamps >"$out/compose.log" 2>&1 || true; echo "quickstart record: $out" >&2' EXIT
 echo "== $document: $(grep -c '^```bash' "$document") bash blocks" >&2
 bash -euo pipefail "$script"
 echo "== $document: every block ran" >&2

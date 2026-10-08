@@ -14,6 +14,7 @@ import {
   COMPOSE_RENDER_TIMEOUT_MS,
   CORE,
   DATADOG_OVERLAY,
+  FAKE_MODEL,
   LOCAL_LAYERS,
   layeredServices,
   REAL_MODEL,
@@ -883,6 +884,7 @@ describe("compose layers", () => {
         "AWS_ENDPOINT_URL_SECRETS_MANAGER",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
+        "ANTHROPIC_API_KEY",
       ],
     ],
     [
@@ -899,12 +901,12 @@ describe("compose layers", () => {
     [
       REAL_MODEL,
       ["environment"],
-      [
-        "ANTHROPIC_API_KEY",
-        "PLATFORM_CONFIG_DIR",
-        "SESSION_COST_LIMIT_USD",
-        "MAX_TURN_SECONDS",
-      ],
+      ["SESSION_COST_LIMIT_USD", "MAX_TURN_SECONDS"],
+    ],
+    [
+      FAKE_MODEL,
+      ["environment", "depends_on"],
+      ["PLATFORM_CONFIG_DIR", "ANTHROPIC_API_KEY"],
     ],
     [TEST_OPS_STORE_LAYERS.s3, ["environment"], S3_ONLY],
     [
@@ -1006,7 +1008,12 @@ describe("compose layers", () => {
       });
       const { exitCode, stderr, model } = render(LOCAL_LAYERS);
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-      const merged = localStack();
+      // Without its overlay, the fake Messages API stays behind its profile.
+      const merged = Object.fromEntries(
+        Object.entries(localStack()).filter(
+          ([, service]) => !service.profiles?.includes("fake-model"),
+        ),
+      );
       const services = model?.services ?? {};
       expect(Object.keys(services).sort()).toEqual(Object.keys(merged).sort());
       /** A value as compose resolves it with nothing set. */
@@ -1042,9 +1049,10 @@ describe("compose layers", () => {
           environment:
             layered?.environment &&
             Object.fromEntries(
+              // A variable passed through by name stays unset.
               Object.entries(layered.environment).map(([key, value]) => [
                 key,
-                resolved(String(value)),
+                value === null ? null : resolved(String(value)),
               ]),
             ),
         });
@@ -1180,13 +1188,13 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  // the files scripts/local.sh and tests/e2e/run.sh start with
-  // --real-model, each rendered with a key in the caller's environment.
+  // the files `scripts/local.sh up` and `tests/e2e/run.sh --real-model`
+  // start with, each rendered with a key in the caller's environment.
   test.each([
     [["compose.yaml", REAL_MODEL]],
     [[...LOCAL_LAYERS, "tests/e2e/compose.yml", REAL_MODEL]],
   ])(
-    "%p hands the key to the API alone, with the real catalog and the e2e limits",
+    "%p hands the key to the API alone, with the default catalog and the e2e limits",
     (files) => {
       const probe = `key-probe-${crypto.randomUUID()}`;
       const { exitCode, stderr, model } = render(files, {
@@ -1196,9 +1204,8 @@ describe("compose layers", () => {
       const services = model?.services ?? {};
       const api = services.api;
       expect(api?.environment?.ANTHROPIC_API_KEY).toBe(probe);
-      expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe(
-        "/app/config/real-model",
-      );
+      expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe("/app/config");
+      expect(services["fake-messages"]).toBeUndefined();
       expect(
         api?.volumes?.find((volume) => volume.target === "/app/config")?.source,
       ).toBe(join(root, "config"));
@@ -1218,6 +1225,37 @@ describe("compose layers", () => {
           cost: services[name]?.environment?.SESSION_COST_LIMIT_USD,
           turn: services[name]?.environment?.MAX_TURN_SECONDS,
         }).toEqual({ name, cost: "1", turn: "600" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  // `scripts/local.sh up --fake-model` and the free runs: with no key the
+  // API reads the fake catalog and waits on the fake Messages API, whose
+  // checkout mount resolves to the repository from either project directory.
+  test.each([
+    [["compose.yaml", FAKE_MODEL]],
+    [[...LOCAL_LAYERS, FAKE_MODEL, "tests/e2e/compose.yml"]],
+  ])(
+    "%p runs the fake Messages API with the fake catalog, and no key",
+    (files) => {
+      const probe = `key-probe-${crypto.randomUUID()}`;
+      const { exitCode, stderr, model } = render(files, {
+        ANTHROPIC_API_KEY: probe,
+      });
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(JSON.stringify(model)).not.toContain(probe);
+      const services = model?.services ?? {};
+      expect(services.api?.environment?.PLATFORM_CONFIG_DIR).toBe(
+        "/app/config/fake-model",
+      );
+      expect(services.api?.depends_on?.["fake-messages"]).toMatchObject({
+        condition: "service_healthy",
+      });
+      expect(
+        services["fake-messages"]?.volumes?.map(
+          (volume) => `${volume.source}:${volume.target}`,
+        ),
+      ).toEqual([`${root}:/app`]);
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

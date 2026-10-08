@@ -497,7 +497,7 @@ describe("checkpoint objects present at startup", () => {
       manifestSha256: "sha256",
     });
     const refusal =
-      /^Checkpoint bucket claude-sessions holds no object version, but the database still has checkpoints that restores read: .*`scripts\/local\.sh reset`/;
+      /^Checkpoint bucket claude-sessions holds no object version, but the database still has checkpoints that restores read: .*`scripts\/local\.sh reset` or `scripts\/local\.sh reset --fake-model`/;
     await expect(run({})).rejects.toThrow(refusal);
     await expect(
       run({ DeleteMarkers: [{ Key: "manifest.json", VersionId: "dm" }] }),

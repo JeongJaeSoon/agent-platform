@@ -9,7 +9,7 @@ not run as-is is ```sh or ```text.
 
 저장소를 clone한 머신에서 `scripts/local.sh`로 스택을 띄우고, curl만으로 세션의 전체 경로를 한 번 돈다: 생성 → 이벤트 관찰 → 권한 요청 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume.
 
-모델 계정은 필요 없다. 예시 카탈로그(`config/`)는 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 확인하는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
+로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실행하는 사람의 `ANTHROPIC_API_KEY`로 실제 Messages API를 부르고, key가 없으면 아무것도 띄우지 않는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 API가 `config/fake-model`의 카탈로그를 읽고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
 
 이 문서의 `bash` 블록은 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다. `jq -e`로 시작하는 줄은 `true`를 출력해야 한다. `false`가 나오면 그 단계가 기대와 다르게 끝난 것이고, CI에서는 그 자리에서 실패한다. 같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돈다.
 
@@ -27,7 +27,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | 항목 | 버전 | 왜 |
 |---|---|---|
 | Docker Engine | **28 이상** | 워커 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다. 28보다 낮은 daemon에서는 scheduler가 기동을 거부한다([94S-274](https://linear.app/94soon/issue/94S-274)) |
-| Docker Compose | 2.24 이상(Docker Desktop의 5.x도 된다) | compose의 `include`와 `env_file`의 `required`를 쓴다. 5장의 실제 Claude와 6장의 백업·복원까지 해 보려면 2.24.6 이상(`include`로 합친 스택 위에 overlay를 겹친다) |
+| Docker Compose | 2.24.6 이상(Docker Desktop의 5.x도 된다) | compose의 `include`와 `env_file`의 `required`를 쓰고, `local.sh up`이 `include`로 합친 스택 위에 overlay를 겹친다 |
 | curl, jq, uuidgen | 아무 버전 | `local.sh`와 3장의 수동 확인 |
 | lsof | 아무 버전 | 0장의 포트 점검. 없으면 점검 블록이 아무것도 출력하지 않는다(`local.sh up`이 다시 확인한다) |
 | git | 아무 버전 | clone |
@@ -56,16 +56,16 @@ cd agent-platform
 ```
 
 ```bash
-scripts/local.sh up
+scripts/local.sh up --fake-model
 KEY=$(scripts/local.sh key quickstart \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
 echo "${KEY:0:12}…"
 scripts/local.sh status
 ```
 
-`up`은 compose project `agent-platform`을 띄운다. 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
+`up --fake-model`은 compose project `agent-platform`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(S3), secrets(API 전용 Secrets Manager), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages, egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(S3), secrets(API 전용 Secrets Manager), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages(`--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
@@ -74,11 +74,11 @@ scripts/local.sh status
 
 `status`는 컨테이너 목록과 `/readyz` 응답을 보여 준다. api·scheduler·reconciler가 running이면 다음 장으로 넘어간다.
 
-로컬 스택은 머신마다 하나로 쓴다. project 이름 `agent-platform`, 0장의 포트, worker label `agent-platform.installation=local`이 기본값이다. `local.sh`는 이 값을 스스로 정하지 않고 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`·`EXECUTION_INSTALLATION_ID`를 compose가 해석한 그대로의 스택(`docker compose config`)을 따른다. `up`은 그 스택이 여는 포트를 점검하고 `docker compose port api 3000`이 알려 주는 주소의 `/readyz`를 기다린다. `down`은 떠 있는 스택의 egress proxy가 가진 installation id(컨테이너가 하나도 없으면 compose가 해석한 `EXECUTION_INSTALLATION_ID`)의 label이 붙은 worker 자원을 지운다. `--real-model`은 환경 변수 `COMPOSE_FILE`의 파일들(없으면 `compose.yaml`) 위에 overlay를 얹는다. 이 문서의 명령(`API=http://127.0.0.1:3000`, 3장의 `installation=local` label)은 기본값 기준이다. compose의 포트는 `infra/`에 고정돼 있어서, project만 바꾼 두 번째 스택은 `up`의 포트 점검에서 멈춘다. 다른 스택 옆에서 돌려야 하면 자기 project와 임시 포트로 뜨는 `tests/e2e/run.sh`를 쓴다(4장).
+로컬 스택은 머신마다 하나로 쓴다. project 이름 `agent-platform`, 0장의 포트, worker label `agent-platform.installation=local`이 기본값이다. `local.sh`는 이 값을 스스로 정하지 않고 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`·`EXECUTION_INSTALLATION_ID`를 compose가 해석한 그대로의 스택(`docker compose config`)을 따른다. `up`은 그 스택이 여는 포트를 점검하고 `docker compose port api 3000`이 알려 주는 주소의 `/readyz`를 기다린다. `down`은 떠 있는 스택의 egress proxy가 가진 installation id(컨테이너가 하나도 없으면 compose가 해석한 `EXECUTION_INSTALLATION_ID`)의 label이 붙은 worker 자원을 지운다. `up`과 `reset`은 환경 변수 `COMPOSE_FILE`의 파일들(없으면 `compose.yaml`) 위에 overlay를 얹는다. 옵션이 없으면 `infra/compose.real-model.yml`(세션 비용 상한), `--fake-model`이면 `infra/compose.fake-model.yml`이다. 이 문서의 명령(`API=http://127.0.0.1:3000`, 3장의 `installation=local` label)은 기본값 기준이다. compose의 포트는 `infra/`에 고정돼 있어서, project만 바꾼 두 번째 스택은 `up`의 포트 점검에서 멈춘다. 다른 스택 옆에서 돌려야 하면 자기 project와 임시 포트로 뜨는 `tests/e2e/run.sh`를 쓴다(4장).
 
-코드를 새로 pull했으면 `scripts/local.sh up`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
+코드를 새로 pull했으면 `scripts/local.sh up --fake-model`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
-**로컬 설치는 휘발성이다.** LocalStack은 S3를 메모리에만 두므로 `docker compose down`이나 Docker 재시작 한 번에 checkpoint 객체가 모두 사라진다. postgres는 volume에 남아 그 객체를 가리키는 행을 그대로 갖고 있으므로, GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 그 상태로 다시 띄울 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 스택을 내릴 때는 `scripts/local.sh down`(데이터까지 삭제)을, 처음부터 다시 할 때는 `scripts/local.sh reset`을 쓴다(7장).
+**로컬 설치는 휘발성이다.** LocalStack은 S3를 메모리에만 두므로 `docker compose down`이나 Docker 재시작 한 번에 checkpoint 객체가 모두 사라진다. postgres는 volume에 남아 그 객체를 가리키는 행을 그대로 갖고 있으므로, GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 그 상태로 다시 띄울 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 스택을 내릴 때는 `scripts/local.sh down`(데이터까지 삭제)을, 처음부터 다시 할 때는 `scripts/local.sh reset --fake-model`을 쓴다(7장).
 
 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다(6장).
 
@@ -300,7 +300,7 @@ bun install
 
 ## 5. 실제 Claude로 확인하기 (선택, 유료)
 
-본인의 Anthropic API key로 같은 스택을 실제 Claude에 붙인다. 유료 e2e 한 번과 `scripts/local.sh up --real-model`로 직접 대화하는 방법, 비용, key 취급은 [real-claude.md](real-claude.md)에 있다.
+옵션 없는 `scripts/local.sh up`이 본인의 Anthropic API key로 같은 스택을 실제 Claude에 붙인다. 유료 e2e 한 번과 그 스택에서 직접 대화하는 방법, 비용, key 취급은 [real-claude.md](real-claude.md)에 있다.
 
 ## 6. 운영 기능 둘러보기
 
@@ -334,7 +334,7 @@ get "/v1/sessions/$SID/usage" | jq .
 scripts/local.sh down
 ```
 
-`down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset`(= `down` 뒤 `up`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
+`down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`(= `down` 뒤 `up --fake-model`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
 데이터를 남긴 채 내리는 방법은 없다. LocalStack이 S3를 메모리에만 두기 때문에 `docker compose down`으로 내리면 postgres에는 세션이 남지만 그 checkpoint 객체는 사라진다. GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)).
 
@@ -343,19 +343,20 @@ scripts/local.sh down
 | 증상 | 원인과 조치 |
 |---|---|
 | `local.sh up`이 `Docker Engine … is too old`로 끝나거나, scheduler가 재시작을 반복하고 로그에 `GatewayModeUnsupportedError`가 있다 | Docker Engine이 28 미만이다. 엔진을 올린다 |
+| `local.sh up`이 `up needs ANTHROPIC_API_KEY exported or in .env`로 끝난다 | 옵션 없는 `up`은 실제 Claude를 쓴다. 이 문서대로 key 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 key를 준다 |
 | `local.sh up`이 `127.0.0.1 port(s) … already in use`로 끝나거나 `bind: address already in use`가 나온다 | 0장의 포트 중 하나를 다른 프로세스나 다른 스택이 쓰고 있다. 0장의 `lsof` 루프로 찾는다 |
-| API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | `docker compose down`이나 Docker 재시작으로 LocalStack의 S3 객체만 사라지고 postgres의 checkpoint 행은 남았다. `scripts/local.sh reset`으로 모두 지우고 새로 띄운다(세션도 지워진다) |
+| API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | `docker compose down`이나 Docker 재시작으로 LocalStack의 S3 객체만 사라지고 postgres의 checkpoint 행은 남았다. `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이)으로 모두 지우고 새로 띄운다(세션도 지워진다) |
 | scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다([94S-385](https://linear.app/94soon/issue/94S-385)). 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |
 | zsh에서 `readyz`나 다른 URL이 `NOT_FOUND`이고 `Could not resolve host: echo`가 함께 뜬다 | oh-my-zsh의 `url-quote-magic`이 URL 뒤에 붙여 넣은 `;` 앞에 `\`를 넣었다. 명령을 보면 `readyz\;`로 되어 있고, 요청은 `/readyz;`로 가며 `echo`는 curl의 호스트 이름이 된다. URL을 따옴표로 감싸도 막히지 않는다. 스택 문제가 아니다. 이 문서의 명령처럼 줄바꿈은 `curl -sS -w '\n' http://127.0.0.1:3000/readyz`로 붙인다. 이 동작을 아예 끄려면 `~/.zshrc`에서 `DISABLE_MAGIC_FUNCTIONS="true"`의 주석을 풀고 새 셸을 연다 |
 | `readyz`가 503 `NOT_READY`다 | DB나 migration이 아직 준비되지 않았다. `docker compose --profile apps ps -a`에서 `migrate`가 `Exited (0)`인지 보고 `docker compose logs api migrate`를 확인한다 |
-| `scripts/backup.sh`가 `checkpoint objects could not be backed up at the versions their checkpoints pin`으로 끝난다 | LocalStack의 S3 객체가 사라졌다(위 bucket 행과 같은 원인). `scripts/local.sh reset` 뒤 세션을 새로 만들고 idle이 된 다음 backup한다 |
+| `scripts/backup.sh`가 `checkpoint objects could not be backed up at the versions their checkpoints pin`으로 끝난다 | LocalStack의 S3 객체가 사라졌다(위 bucket 행과 같은 원인). `scripts/local.sh reset --fake-model` 뒤 세션을 새로 만들고 idle이 된 다음 backup한다 |
 | 세션이 `queued`에서 움직이지 않는다 | `docker compose logs scheduler`와 worker 로그(3장 끝의 루프)를 본다. `EXECUTION_SLOT_LIMIT`(기본 10)만큼 세션이 이미 실행 중일 수도 있다 |
 | POST가 401이다 | `Authorization` 헤더가 빠졌거나, key가 다른 스택의 DB에서 발급됐다. `reset`이나 `down` 뒤라면 key도 지워졌다. 1장의 `KEY=…`와 2장의 함수를 다시 설정한다 |
 | POST가 403이다 | key에 그 scope가 없다. `--scopes`를 1장과 같게 발급한다 |
 | ④의 allow가 409 `REQUEST_EXPIRED`다 | 권한 요청이 30분 안에 답을 받지 못해 거절로 끝났고 turn 1도 이미 끝났다([94S-425](https://linear.app/94soon/issue/94S-425)). `hello.txt`가 만들어지지 않았으니 ⑧에서 `alpha`가 나오지 않는다. ①부터 새 세션으로 다시 하고 ②–④를 30분 안에 진행한다 |
 | 409 `REVISION_CONFLICT` | 그 사이 세션이 바뀌었다. `$(revision)`으로 다시 읽어 보낸다 |
 | pause가 오래 `pausing`이고 `attention.code`가 `PAUSE_BLOCKED`다 | worker가 60초 안에 drain하지 못했다. 진행 중인 turn을 interrupt하거나 기다린다 |
-| pull한 코드가 반영되지 않은 것 같다 | `scripts/local.sh up`을 다시 실행한다. 이미지를 이 checkout에서 다시 빌드한다 |
+| pull한 코드가 반영되지 않은 것 같다 | `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 다시 실행한다. 이미지를 이 checkout에서 다시 빌드한다 |
 | 빌드 중 디스크가 부족하다 | `docker system df`로 확인하고, 필요 없는 이미지와 빌드 캐시를 지운다(예: `docker builder prune`) |
 
 ## 스크립트된 프롬프트

@@ -16,10 +16,10 @@ OpenAPI: [`getApiRoot`](api/index.html)
 
 **목적.** Bearer API key를 발급하고, 이후 유즈케이스에 필요한 최소 scope를 한 번에 확인한다. 읽기·세션 입력·승인·제어·복구는 각각 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`, `sessions:recover`로 나뉜다.
 
-**순서.** 로컬 fake-provider 스택을 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. 운영에서는 플랫폼 관리자가 발급한 key를 `KEY`에 넣고 `scripts/local.sh` 두 줄은 생략한다.
+**순서.** 로컬 스택을 key 없이 도는 fake 모델(`--fake-model`, [quickstart](quickstart.md))로 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. 운영에서는 플랫폼 관리자가 발급한 key를 `KEY`에 넣고 `scripts/local.sh` 두 줄은 생략한다.
 
 ```bash
-scripts/local.sh up
+scripts/local.sh up --fake-model
 KEY=$(scripts/local.sh key api-guide \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
 API=http://127.0.0.1:3000
@@ -69,7 +69,7 @@ OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
 
 **목적.** 실행 profile과 repository를 명시해 세션과 첫 turn을 내구적으로 접수한다.
 
-**순서.** `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다.
+**순서.** `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다.
 
 ```bash
 CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide > api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \

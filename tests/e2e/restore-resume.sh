@@ -70,7 +70,7 @@ export RESTORE_LOCALSTACK_PORT="$((port_base + 1))"
 export RESTORE_GITEA_HTTP_PORT="$((port_base + 2))"
 export RESTORE_GITEA_SSH_PORT="$((port_base + 3))"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
-src_files=(-f infra/docker-compose.yml -f tests/e2e/compose.yml)
+src_files=(-f infra/docker-compose.yml -f infra/compose.fake-model.yml -f tests/e2e/compose.yml)
 dst_files=("${src_files[@]}" -f infra/docker-compose.restore.yml)
 src() { docker compose -p "$project" "${src_files[@]}" --profile apps "$@"; }
 dst() { docker compose -p "$restored" "${dst_files[@]}" --profile apps "$@"; }
@@ -196,7 +196,7 @@ if [ -n "${RR_IMAGES_FROM:-}" ]; then
   done
 fi
 src up -d "$build" >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }
-api_key="$(COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="infra/docker-compose.yml:tests/e2e/compose.yml" \
+api_key="$(COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="infra/docker-compose.yml:infra/compose.fake-model.yml:tests/e2e/compose.yml" \
   bun run --silent keys create rr-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control)"
 export E2E_API_KEY="$api_key"

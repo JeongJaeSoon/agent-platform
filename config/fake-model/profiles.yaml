@@ -1,0 +1,26 @@
+# The format is config/profiles.yaml's.
+#
+# The catalog infra/compose.fake-model.yml points the API at, for running
+# without an Anthropic account: `scripts/local.sh up --fake-model` and the
+# free e2e, gate and restore runs. The compose `fake-messages` service
+# answers the Messages API from the script in each prompt
+# (packages/testkit/src/scripted-messages.ts), and the key is a placeholder
+# seeded into the local Secrets Manager (infra/localstack/secrets-init).
+#
+# Its own id rather than claude-coding-real, so a session made here can
+# only run against the fake.
+profiles:
+  claude-coding-local:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion]
+    permission_mode: default
+    provider:
+      kind: anthropic
+      endpoint: http://fake-messages:4010
+      auth:
+        kind: api_key
+        secret_id: agent-platform/local/fake-messages
+    project_settings:
+      claude_md: true

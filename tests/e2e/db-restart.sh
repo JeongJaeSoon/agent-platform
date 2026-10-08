@@ -35,7 +35,7 @@ record="$out/record.txt"
 export EXECUTION_INSTALLATION_ID="dbr${run_id}"
 export API_IMAGE="agent-platform-api:${project}"
 dc() {
-  docker compose -p "$project" -f infra/docker-compose.yml -f tests/e2e/compose.yml \
+  docker compose -p "$project" -f infra/docker-compose.yml -f infra/compose.fake-model.yml -f tests/e2e/compose.yml \
     --profile apps "$@"
 }
 

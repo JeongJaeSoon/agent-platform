@@ -368,7 +368,7 @@ export async function assertCheckpointObjectsPresent(
   const check = async (client: S3ClientLike) => {
     if (await bucketHoldsObjectVersion(client, config.bucket)) return;
     throw new Error(
-      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Start the local installation over with \`scripts/local.sh reset\` (it deletes every session)`,
+      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
     );
   };
   if (options.client !== undefined) return check(options.client);

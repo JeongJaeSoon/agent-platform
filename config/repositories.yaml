@@ -30,4 +30,4 @@ repositories:
   sample-app:
     url: http://gitea:3000/agent/sample-app.git
     branch: main
-    profiles: [claude-coding-local]
+    profiles: [claude-coding-real]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared by scripts/local.sh and tests/e2e/run.sh for --real-model's key.
+# Shared by scripts/local.sh (up) and tests/e2e/run.sh (--real-model) for the key.
 # The shell's export wins; else the ANTHROPIC_API_KEY line of the
 # repository's .env (git- and docker-ignored), parsed as compose would
 # (CRLF, `export `, matching quotes). Only that line is read: the rest of
