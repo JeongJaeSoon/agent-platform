@@ -711,6 +711,7 @@ export function createPostgresSessionReader(
               (await contextGapAttention(tx, row)) ??
               startupFailedAttention(row),
             cost_usd: row.costUsd,
+            provider_tokens: row.providerTokens,
             repo_url: row.repoUrl,
             branch: row.branch,
             profile_fingerprint: row.profileFingerprint,

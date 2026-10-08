@@ -23,6 +23,8 @@ x-installation-limits: &installation-limits
   STORAGE_LIMIT_BYTES: ${STORAGE_LIMIT_BYTES:-1073741824}
   MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-3600}
   SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-25}
+  # Provider tokens per session, whatever they cost; 0 sets none.
+  SESSION_TOKEN_LIMIT: ${SESSION_TOKEN_LIMIT:-0}
   PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
 
 # Keep the three listeners and the two internal URLs together. Service

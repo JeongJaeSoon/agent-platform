@@ -23,12 +23,25 @@ describe("installationLimitsFromEnv", () => {
       providerMaxRetries: 2,
       queuedInputLimitPerSession: 20,
       sessionCostLimitUsd: 25,
+      sessionTokenLimit: null,
       storageLimitBytes: 1073741824,
     });
     expect(
       installationLimitsFromEnv({ ...complete, PROVIDER_MAX_RETRIES: "0" })
         .providerMaxRetries,
     ).toBe(0);
+  });
+
+  test("an unset or zero token limit is none, so an existing install is unchanged", () => {
+    expect(installationLimitsFromEnv(complete).sessionTokenLimit).toBeNull();
+    expect(
+      installationLimitsFromEnv({ ...complete, SESSION_TOKEN_LIMIT: "0" })
+        .sessionTokenLimit,
+    ).toBeNull();
+    expect(
+      installationLimitsFromEnv({ ...complete, SESSION_TOKEN_LIMIT: "500000" })
+        .sessionTokenLimit,
+    ).toBe(500_000);
   });
 
   test("names every missing limit at once and has no defaults for them", () => {
@@ -57,6 +70,7 @@ describe("installationLimitsFromEnv", () => {
       MAX_TURN_SECONDS: ["0", "604801"],
       SESSION_COST_LIMIT_USD: ["0", "-5", "Infinity", "abc", "1000001"],
       PROVIDER_MAX_RETRIES: ["-1", "1.5", "11", ""],
+      SESSION_TOKEN_LIMIT: ["-1", "1.5", "", "lots", "9007199254740993"],
     };
     for (const [name, values] of Object.entries(rejected)) {
       for (const value of values) {
@@ -82,7 +96,17 @@ describe("installationLimitsFromEnv", () => {
 });
 
 test("the budget is spent once the cost reaches the limit", () => {
-  expect(budgetExceeded(24.999999, 25)).toBe(false);
-  expect(budgetExceeded(25, 25)).toBe(true);
-  expect(budgetExceeded(30, 25)).toBe(true);
+  const budget = { costUsd: 25, tokens: null };
+  const spend = (costUsd: number) => ({ costUsd, providerTokens: 10 ** 12 });
+  expect(budgetExceeded(spend(24.999999), budget)).toBe(false);
+  expect(budgetExceeded(spend(25), budget)).toBe(true);
+  expect(budgetExceeded(spend(30), budget)).toBe(true);
+});
+
+test("the budget is spent once the tokens reach the limit, whatever they cost", () => {
+  const budget = { costUsd: 25, tokens: 1000 };
+  const spend = (providerTokens: number) => ({ costUsd: 0, providerTokens });
+  expect(budgetExceeded(spend(999), budget)).toBe(false);
+  expect(budgetExceeded(spend(1000), budget)).toBe(true);
+  expect(budgetExceeded({ costUsd: 25, providerTokens: 0 }, budget)).toBe(true);
 });

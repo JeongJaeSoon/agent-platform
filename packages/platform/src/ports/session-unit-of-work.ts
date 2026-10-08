@@ -76,6 +76,7 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   // What the session has spent; the service turns it into `attention`
   // against the current limit, so a changed limit applies at once.
   cost_usd: number;
+  provider_tokens: number;
   // What the claim matches against the catalog, so the service can say the
   // catalog no longer allows it. Never exposed: the URL may embed
   // a credential.

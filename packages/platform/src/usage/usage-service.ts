@@ -10,6 +10,7 @@ import {
   budgetExceeded,
   type InstallationLimits,
   STORAGE_ACCOUNTED_CONTENT,
+  sessionBudgetOf,
 } from "../limits/installation-limits.ts";
 import type { UsageReader } from "../ports/usage-reader.ts";
 import {
@@ -53,6 +54,7 @@ export function createUsageService(deps: {
           storage_limit_bytes: limits.storageLimitBytes,
           max_turn_seconds: limits.maxTurnSeconds,
           session_cost_limit_usd: decimalUsd(limits.sessionCostLimitUsd),
+          session_token_limit: limits.sessionTokenLimit,
           provider_max_retries: limits.providerMaxRetries,
         },
         usage: {
@@ -94,10 +96,15 @@ export function createUsageService(deps: {
           open_turn_count: usage.openTurnCount,
         },
         cost_limit_usd: decimalUsd(limits.sessionCostLimitUsd),
+        token_count: usage.providerTokens,
+        token_limit: limits.sessionTokenLimit,
         // The predicate dispatch stops at, so this and the gate agree.
         budget_exceeded: budgetExceeded(
-          Number(usage.costUsd),
-          limits.sessionCostLimitUsd,
+          {
+            costUsd: Number(usage.costUsd),
+            providerTokens: usage.providerTokens,
+          },
+          sessionBudgetOf(limits),
         ),
         queued_input_count: usage.queuedInputCount,
         queued_input_limit: limits.queuedInputLimitPerSession,

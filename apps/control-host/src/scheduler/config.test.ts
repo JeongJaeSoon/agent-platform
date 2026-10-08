@@ -65,6 +65,7 @@ describe("schedulerConfigFromEnv", () => {
       providerMaxRetries: 2,
       queuedInputLimitPerSession: 20,
       sessionCostLimitUsd: 25,
+      sessionTokenLimit: null,
       storageLimitBytes: 1073741824,
     });
     expect(config.docker.workerLimits).toEqual({

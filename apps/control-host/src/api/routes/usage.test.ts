@@ -22,6 +22,7 @@ const app = createApiApp({
           storageLimitBytes: 1e15,
           maxTurnSeconds: 60,
           sessionCostLimitUsd: 1,
+          sessionTokenLimit: null,
           providerMaxRetries: 0,
         },
         reader: {

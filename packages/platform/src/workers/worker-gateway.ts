@@ -124,6 +124,8 @@ export type WorkerGatewayOptions = {
   leaseTtlMs: number;
   /** SESSION_COST_LIMIT_USD: past it a session is dispatched nothing new. */
   sessionCostLimitUsd: number;
+  /** SESSION_TOKEN_LIMIT, held the same way; absent or null, none. */
+  sessionTokenLimit?: number | null;
   /** Lifetime of the session token handed out by bootstrapClaim. */
   sessionTokenTtlMs?: number;
   /** Lifetime of a launch nonce registered through registerLaunch. */
@@ -414,6 +416,7 @@ export function createWorkerGateway(deps: {
   const sessionTokenTtlMs =
     deps.options.sessionTokenTtlMs ?? DEFAULT_SESSION_TOKEN_TTL_MS;
   const nonceTtlMs = deps.options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
+  const tokenLimit = deps.options.sessionTokenLimit ?? null;
   const pendingTtlMs = deps.options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
   const pollIntervalMs =
@@ -692,6 +695,7 @@ export function createWorkerGateway(deps: {
         runnable,
         catalogRevision: revision,
         costLimitUsd: deps.options.sessionCostLimitUsd,
+        tokenLimit,
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
@@ -825,11 +829,16 @@ export function createWorkerGateway(deps: {
         // with the engine's token included; a session past its
         // limit gets no new provider exchange, and the proxy's regrant cuts
         // an open one.
-        if (budgetExceeded(result.costUsd, deps.options.sessionCostLimitUsd)) {
+        if (
+          budgetExceeded(result, {
+            costUsd: deps.options.sessionCostLimitUsd,
+            tokens: tokenLimit,
+          })
+        ) {
           throw new WorkerGatewayError(
             403,
             "BUDGET_EXCEEDED",
-            "The session has spent its cost limit",
+            "The session has reached its cost or token limit",
           );
         }
         const profile = result.profileId
@@ -900,6 +909,7 @@ export function createWorkerGateway(deps: {
           fence,
           now: now(),
           costLimitUsd: deps.options.sessionCostLimitUsd,
+          tokenLimit,
         });
         if (result.outcome !== "ok") rejected(result);
         // A draining attempt is never handed new input, and neither is a

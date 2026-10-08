@@ -35,7 +35,6 @@ import {
   inArray,
   isNotNull,
   isNull,
-  lt,
   lte,
   max,
   notExists,
@@ -46,6 +45,7 @@ import {
 import {
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
+  withinBudget,
 } from "./control-shared.ts";
 import { expireOverdueTerminations } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
@@ -86,6 +86,8 @@ export type PostgresSchedulerStoreOptions = {
    * would launch another, round and round.
    */
   sessionCostLimitUsd: number;
+  /** SESSION_TOKEN_LIMIT, for the same reason; absent or null, none. */
+  sessionTokenLimit?: number | null;
   logger?: StructuredLogger;
 };
 
@@ -136,6 +138,10 @@ export function createPostgresSchedulerStore(
   options: PostgresSchedulerStoreOptions,
 ): SchedulerStore {
   const nonceTtlMs = options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
+  const budget = {
+    costUsd: options.sessionCostLimitUsd,
+    tokens: options.sessionTokenLimit ?? null,
+  };
   const work = createPostgresWorkerUnitOfWork(db, {
     ...(options.logger ? { logger: options.logger } : {}),
   });
@@ -226,7 +232,7 @@ export function createPostgresSchedulerStore(
             // Before the LIMIT, so a backlog of spent sessions cannot crowd
             // out the ones that can still run, nor sessions waiting out a
             // restore backoff.
-            lt(sessions.costUsd, options.sessionCostLimitUsd),
+            withinBudget(budget),
             restoreRetryDue(),
             notExists(
               db
@@ -268,6 +274,7 @@ export function createPostgresSchedulerStore(
           .select({
             admissionState: sessions.admissionState,
             costUsd: sessions.costUsd,
+            providerTokens: sessions.providerTokens,
             executionRevokedAt: sessions.executionRevokedAt,
             partition: sessions.partition,
             restoreRetryAt: sessions.restoreRetryAt,
@@ -285,7 +292,7 @@ export function createPostgresSchedulerStore(
         ) {
           return null;
         }
-        if (budgetExceeded(session.costUsd, options.sessionCostLimitUsd)) {
+        if (budgetExceeded(session, budget)) {
           return null;
         }
         const [signal] = await tx

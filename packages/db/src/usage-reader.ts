@@ -70,6 +70,7 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           readAt: sql<Date>`now()`.mapWith((value) => new Date(value)),
           sessionId: sessions.id,
           costUsd: sql<string>`${sessions.costUsd}::text`,
+          providerTokens: sessions.providerTokens,
           reportedTurnCount: counted(
             and(inArray(turns.status, ENDED), costReported),
           ),

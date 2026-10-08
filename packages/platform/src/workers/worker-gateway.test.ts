@@ -408,6 +408,7 @@ describe("WorkerGateway", () => {
       },
       restore: null,
       costUsd: 250.5,
+      providerTokens: 0,
     };
     const profile = {
       runtime_kind: "claude_agent_sdk" as const,
@@ -1399,6 +1400,7 @@ describe("authorizeEgress", () => {
     binding,
     profileId: "p",
     costUsd,
+    providerTokens: 0,
     repository: { id: "app", url: repository.url, branch: "main" },
   });
 

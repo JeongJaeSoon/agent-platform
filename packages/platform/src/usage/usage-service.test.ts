@@ -15,6 +15,7 @@ const limits: InstallationLimits = {
   storageLimitBytes: Number.MAX_SAFE_INTEGER,
   maxTurnSeconds: 60,
   sessionCostLimitUsd: 0.0000005,
+  sessionTokenLimit: null,
   providerMaxRetries: 0,
 };
 const readAt = new Date("2026-09-23T10:00:00.000Z");
@@ -22,6 +23,7 @@ const record: SessionUsageRecord = {
   readAt,
   sessionId: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
   costUsd: "0.000000",
+  providerTokens: 0,
   reportedTurnCount: 0,
   unreportedTurnCount: 0,
   openTurnCount: 0,

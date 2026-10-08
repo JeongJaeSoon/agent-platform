@@ -119,6 +119,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "profile_fingerprint",
     // arrives as 'default'
     "partition",
+    // arrives as 0
+    "provider_tokens",
   ],
   turns: ["actor_id"],
   api_keys: ["workspace_id", "scopes"],
@@ -187,8 +189,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 27, total: 36 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 36 });
+      expect(first).toEqual({ adopted: 0, applied: 28, total: 37 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 37 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

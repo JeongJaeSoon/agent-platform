@@ -1,5 +1,8 @@
-import { storedPendingReasonHoldsWork } from "@agent-platform/platform";
-import { and, eq, inArray, min, type SQL, sql } from "drizzle-orm";
+import {
+  type SessionBudget,
+  storedPendingReasonHoldsWork,
+} from "@agent-platform/platform";
+import { and, eq, inArray, lt, min, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   idempotencyKeys,
@@ -33,6 +36,14 @@ export const ENDED_ATTEMPT_STATES = ["exited", "lost"];
 export const LAUNCHABLE_ADMISSION_STATES: Array<
   (typeof sessions.admissionState.enumValues)[number]
 > = ["active", "resuming"];
+
+// budgetExceeded's negation as a condition on `sessions`, for queries that
+// pick sessions that may still run.
+export function withinBudget(budget: SessionBudget): SQL {
+  const cost = lt(sessions.costUsd, budget.costUsd);
+  if (budget.tokens === null) return cost;
+  return and(cost, lt(sessions.providerTokens, budget.tokens)) as SQL;
+}
 
 // Receipts written for the inputs a decision or a cancellation settles.
 export const INPUT_RECEIPT_OPERATIONS = ["create_session", "append_message"];
