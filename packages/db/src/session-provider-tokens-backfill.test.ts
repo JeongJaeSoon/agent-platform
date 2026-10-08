@@ -131,4 +131,25 @@ describe("session provider token backfill", () => {
     expect((await tokensOf(other.sessionId)).tokens).toBe(7);
     expect((await tokensOf(unmetered.sessionId)).tokens).toBe(0);
   });
+
+  test("a call any API build records after the migration counts, the old one's included", async () => {
+    const session = await seedAttempt();
+    await seedUsage(session, {
+      input: 10,
+      cacheWrite: 0,
+      cacheRead: 0,
+      output: 0,
+    });
+    await apply(backfill);
+
+    // An API from before 0127 writes the ledger row and the cost, nothing else.
+    await seedUsage(session, {
+      input: 1,
+      cacheWrite: 2,
+      cacheRead: 3,
+      output: 4,
+    });
+
+    expect((await tokensOf(session.sessionId)).tokens).toBe(20);
+  });
 });

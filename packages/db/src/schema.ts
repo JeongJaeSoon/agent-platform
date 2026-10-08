@@ -455,8 +455,10 @@ export const sessions = pgTable(
       .notNull()
       .default(0),
     // Every token of those same calls (input, cache writes and reads,
-    // output), whatever they cost. Compared against SESSION_TOKEN_LIMIT
-    // wherever cost_usd is compared against its limit.
+    // output), whatever they cost. A provider_usage insert trigger
+    // (migration 0127) adds them, so every API build counts them. Compared
+    // against SESSION_TOKEN_LIMIT wherever cost_usd is compared against its
+    // limit.
     providerTokens: bigint("provider_tokens", { mode: "number" })
       .notNull()
       .default(0),

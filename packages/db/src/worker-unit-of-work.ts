@@ -1378,12 +1378,6 @@ export function createPostgresWorkerUnitOfWork(
           .update(sessions)
           .set({
             costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
-            providerTokens: sql`${sessions.providerTokens} + ${
-              call.inputTokens +
-              call.cacheCreationInputTokens +
-              call.cacheReadInputTokens +
-              call.outputTokens
-            }`,
           })
           .where(eq(sessions.id, input.sessionId));
         return {
