@@ -243,6 +243,7 @@ export class WorkerHost {
   private attemptState: AttemptState = "starting";
   private heartbeat: Heartbeat | undefined;
   private mirrorError: string | undefined;
+  private engineBudgeted = false;
   private pending: PendingRequestRegistry | undefined;
   private publisher: EventPublisher | undefined;
   private pumping: Promise<void> | undefined;
@@ -399,6 +400,7 @@ export class WorkerHost {
       try {
         const plan = await this.startUp(claim);
         if (plan !== undefined && this.stopping === undefined) {
+          this.engineBudgeted = claim.remaining_budget_usd !== null;
           run = launcher.start(
             {
               ...plan,
@@ -1749,7 +1751,7 @@ export class WorkerHost {
    */
   private observe(native: NativeSdkMessage): Promise<void> | undefined {
     this.accounting.observe(native);
-    if (this.accounting.restarted) {
+    if (this.accounting.restarted && this.engineBudgeted) {
       // `/clear` starts the engine's count over, and the budget the claim
       // gave it with it: left running, the next turn could spend the whole
       // remainder again. The turn in flight is finalized; the next one waits
@@ -2301,6 +2303,17 @@ function failureReason(native: NativeSdkMessage, subtype: string): string {
   // limit the gateway enforces between turns, reached inside one.
   if (subtype === "error_max_budget_usd") return TURN_BUDGET_EXCEEDED_REASON;
   if (subtype !== "success") return subtype;
+  // The proxy refuses a session past its limit with a 403 whose message
+  // starts with the code, and the result text is the only place the engine
+  // repeats it.
+  if (
+    native.terminal_reason === "api_error" &&
+    native.api_error_status === 403 &&
+    typeof native.result === "string" &&
+    native.result.includes("403 BUDGET_EXCEEDED:")
+  ) {
+    return TURN_BUDGET_EXCEEDED_REASON;
+  }
   return typeof native.terminal_reason === "string" &&
     native.terminal_reason.length > 0
     ? native.terminal_reason

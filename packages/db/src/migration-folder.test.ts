@@ -81,12 +81,28 @@ describe("migration folder", () => {
 
   test("schema.ts ahead of the newest snapshot is caught", async () => {
     const folder = copyOfMigrations();
-    const [newest] = lastEntries(folder, 1) as [JournalEntry];
-    rmSync(join(folder, `${newest.tag}.sql`));
-    rmSync(snapshotPath(folder, newest));
-    editJson<Journal>(join(folder, "meta/_journal.json"), (journal) => {
-      journal.entries.pop();
-    });
+    // Back to before the newest migration that changed the schema: one that
+    // only replaces SQL, a trigger function say, leaves the snapshot as is.
+    const shapeOf = (entry: JournalEntry) => {
+      const snapshot = JSON.parse(
+        readFileSync(snapshotPath(folder, entry), "utf8"),
+      ) as Record<string, unknown>;
+      delete snapshot.id;
+      delete snapshot.prevId;
+      return snapshot;
+    };
+    for (let changed = false; !changed; ) {
+      const [previous, newest] = lastEntries(folder, 2) as [
+        JournalEntry,
+        JournalEntry,
+      ];
+      changed = !Bun.deepEquals(shapeOf(newest), shapeOf(previous));
+      rmSync(join(folder, `${newest.tag}.sql`));
+      rmSync(snapshotPath(folder, newest));
+      editJson<Journal>(join(folder, "meta/_journal.json"), (journal) => {
+        journal.entries.pop();
+      });
+    }
 
     const problems = await migrationFolderProblems(folder, schema);
     expect(problems).toHaveLength(1);

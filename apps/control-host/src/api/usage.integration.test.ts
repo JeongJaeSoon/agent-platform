@@ -348,6 +348,39 @@ integration("usage API on PostgreSQL", () => {
     ).toBe(1_000);
   });
 
+  test("the token count stops at the largest safe integer however much is recorded", async () => {
+    const owner = `owner-${crypto.randomUUID()}`;
+    const id = await session(owner, ["huge usage"]);
+    const executionId = `exec-${crypto.randomUUID()}`;
+    const attemptId = `att-${crypto.randomUUID()}`;
+    await pool.query(
+      `INSERT INTO executions (id, session_id, backend, generation, desired_state, observed_state)
+       VALUES ($1, $2, 'local_docker', 1, 'running', 'running')`,
+      [executionId, id],
+    );
+    await pool.query(
+      `INSERT INTO attempts (id, session_id, execution_id, lease_epoch, execution_generation, auth_revision, state, lease_expires_at)
+       VALUES ($1, $2, $3, 1, 1, 1, 'exited', now())`,
+      [attemptId, id, executionId],
+    );
+    const huge = Number.MAX_SAFE_INTEGER;
+    for (let call = 0; call < 3; call++) {
+      await pool.query(
+        `INSERT INTO provider_usage (exchange_id, session_id, attempt_id, model, input_tokens, output_tokens, cache_creation_input_tokens, cache_creation_1h_input_tokens, cache_read_input_tokens, estimated, cost_usd, priced_by)
+         VALUES ($1, $2, $3, 'claude-sonnet-4-5', $4, $4, $4, $4, $4, false, 0.5, 'table')`,
+        [crypto.randomUUID(), id, attemptId, huge],
+      );
+    }
+
+    const usage = await usageOf(id, owner);
+    expect(usage.token_count).toBe(huge);
+    const ledger = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM provider_usage WHERE session_id = $1",
+      [id],
+    );
+    expect(ledger.rows[0]?.count).toBe("3");
+  });
+
   test("another owner's session, a missing one and a malformed id all answer 404", async () => {
     const owner = `owner-${crypto.randomUUID()}`;
     const id = await session(owner, ["mine"]);

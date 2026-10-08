@@ -267,6 +267,13 @@
       "when": 1791425691250,
       "tag": "0128_session_unmetered_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1791428394897,
+      "tag": "0129_session_provider_tokens_cap",
+      "breakpoints": true
     }
   ]
 }

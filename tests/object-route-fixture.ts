@@ -89,7 +89,11 @@ export async function startObjectRouteFixture(options: {
       },
     },
     checkpoints: acceptAllCheckpoints,
-    options: { sessionCostLimitUsd: 1_000, leaseTtlMs: 60_000 },
+    options: {
+      sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
+      leaseTtlMs: 60_000,
+    },
   });
   const authorizerToken = `object-route-fixture-${crypto.randomUUID()}`;
   const authorizer = Bun.serve({

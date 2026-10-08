@@ -496,7 +496,7 @@ receipt는 execution이 사라진 것이 관측될 때까지 `accepted`로 남�
 
 ## 설치 상한 (94S-131)
 
-API와 scheduler는 아래 값 중 `SESSION_TOKEN_LIMIT`를 뺀 여섯 값이 없거나, 어느 값이든 형식이 틀리면 문제를 한 줄에 모두 로그로 남기고 기동하지 않는다. `SESSION_TOKEN_LIMIT`는 나중에 더한 값이라 없으면 0(상한 없음)으로 읽는다(94S-540). 두 프로세스는 같은 parser(`packages/platform/src/limits/installation-limits.ts`)를 쓴다. 코드에는 기본값이 없고, compose의 `x-installation-limits` 블록이 로컬 기본값을 준다. 떠 있는 API의 `/readyz`는 같은 검증을 `config` 체크로 다시 수행한다.
+API와 scheduler는 아래 값 중 `SESSION_TOKEN_LIMIT`를 뺀 여섯 값이 없거나, 어느 값이든 형식이 틀리면 문제를 한 줄에 모두 로그로 남기고 기동하지 않는다. `SESSION_TOKEN_LIMIT`는 나중에 더한 값이라 없으면 0(상한 없음)으로 읽는다(94S-540). 두 프로세스는 같은 parser(`packages/platform/src/limits/installation-limits.ts`)를 쓴다. `SESSION_TOKEN_LIMIT`의 0 말고는 코드에 기본값이 없고, compose의 `x-installation-limits` 블록이 로컬 기본값을 준다. 떠 있는 API의 `/readyz`는 같은 검증을 `config` 체크로 다시 수행한다.
 
 | 변수 | 의미 | 넘었을 때 |
 |---|---|---|
@@ -505,7 +505,7 @@ API와 scheduler는 아래 값 중 `SESSION_TOKEN_LIMIT`를 뺀 여섯 값이 �
 | `STORAGE_LIMIT_BYTES` | 설치 전체가 보존하는 입력 message의 UTF-8 bytes. event·checkpoint object·worker 디스크는 세지 않는다(디스크는 workspace quota가 맡는다) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
 | `MAX_TURN_SECONDS` | turn 하나의 벽시계 상한. 승인 대기도 포함한다. worker env `WORKER_MAX_TURN_SEC`로 전달된다 | turn `failed(turn_timeout)`. 엔진이 응답하지 않으면 `outcome_unknown(turn_timeout)` |
 | `SESSION_COST_LIMIT_USD` | 세션 누적 비용(egress proxy가 계측한 Messages 호출별 usage를 플랫폼 가격표로 환산한 합, 추정치. 94S-409) | 새 turn을 dispatch하지 않는다. 세션 상세 `attention.code=BUDGET_EXCEEDED`가 뜨고 worker는 슬롯을 반납한다. 입력은 계속 `queued`로 받는다 |
-| `SESSION_TOKEN_LIMIT` | 세션 누적 provider token 수. 비용 상한과 같은 호출을 세되 단가와 무관하다. 0이면 상한이 없다(기본) | `SESSION_COST_LIMIT_USD`와 같다. 두 상한은 같은 판정(`budgetExceeded`)을 지나며 어느 쪽이 먼저 닿아도 `BUDGET_EXCEEDED`다 |
+| `SESSION_TOKEN_LIMIT` | 세션 누적 provider token 수. 비용 상한과 같은 호출을 세되 단가와 무관하다. 0이면 상한이 없다(기본) | `SESSION_COST_LIMIT_USD`와 같다. 두 상한은 같은 판정(`budgetExceeded`)을 지나며 어느 쪽이 먼저 닿아도 `BUDGET_EXCEEDED`다. `attention.reason`은 닿은 상한만 적는다 |
 | `PROVIDER_MAX_RETRIES` | 실패한 Messages 요청을 다시 보내는 횟수. worker env `WORKER_PROVIDER_MAX_RETRIES`를 거쳐 SDK `CLAUDE_CODE_MAX_RETRIES`로 전달된다. 0이면 첫 실패에서 turn이 끝난다 | turn `failed(api_error)`. turn 상세 `result`에 `api_error_status`·`provider_error`·`last_retry_status`가 남는다 |
 
 - 세션 비용은 credential route가 센다(94S-409). proxy는 2xx `/v1/messages` 응답(JSON과 SSE 모두)에서 usage를 읽는다. 응답이 끝나거나 끊기면 authorizer listener의 `POST /usage`로 보고한다. `count_tokens`와 오류 응답은 세지 않는다.
@@ -521,8 +521,8 @@ API와 scheduler는 아래 값 중 `SESSION_TOKEN_LIMIT`를 뺀 여섯 값이 �
   - 4.6 이후 모델은 US 전용 추론(`inference_geo: "us"`)이면 token 단가 전부(fast·cache 포함)에 1.1배를 곱한다(94S-454). web search 요금에는 곱하지 않는다. geo는 응답의 `usage.inference_geo`를 따르고, 응답이 말하지 않으면 요청의 `inference_geo`를 따른다. 둘 다 없으면 `unknown`이다. workspace 기본값이 `us`일 수 있어서다. `global`과 `us`가 아닌 값은 최고 단가에 1.1배로 센다(`priced_by=fallback`). geo는 ledger에 `inference_geo`로 적힌다. 94S-454 이전 API는 이 필드가 붙은 보고를 `400`으로 거절하고, proxy는 그 교환을 세지 못한다(`Provider usage went unreported`). 그래서 업그레이드할 때는 API(migration 포함)를 egress proxy보다 먼저 올린다. 한 번의 `up -d`는 이 순서를 지키지 않으므로 compose 설치는 `docker compose -f infra/docker-compose.yml --profile apps up -d api`(migrate가 먼저 돈다)로 API를 올리고, `curl -s http://127.0.0.1:3000/readyz`가 ready인 것을 본 뒤 `docker compose -f infra/docker-compose.yml --profile apps up -d egress-proxy`로 proxy를 올린다. 새 API는 이 필드가 없는 옛 proxy의 보고도 받는다.
   - 4.6 이전 모델(Opus 4.5·4, Sonnet 4.5·4, Haiku 4.5)은 `inference_geo`를 받지 않으므로 geo와 상관없이 표준 단가로 센다. 이 모델들의 창은 200K이고 공개된 long-context 단가가 없다. 그래서 input·cache write·cache read 합이 200K를 넘는 호출은 최고 단가로 센다(`priced_by=fallback`). 4.6 이후 모델은 1M 전체가 표준 단가다.
   - batch는 credential route가 `/v1/messages/batches`를 열지 않아서 해당이 없다.
-- 토큰 상한은 `provider_usage` 한 줄의 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens`를 `sessions.provider_tokens`에 더해 센다. 더하는 일은 `provider_usage` insert trigger가 같은 트랜잭션에서 한다. 그래서 rollout 중이나 롤백 뒤에 0127 이전 API가 기록한 호출도 빠지지 않는다. cache read도 모델이 처리한 token이라 센다. 많게 추정한 보고는 추정치 그대로 더한다. 94S-540 migration은 기존 세션의 값을 `provider_usage` 합으로 채운다. 그 전에 SDK 값으로만 비용을 셌던 세션의 token은 채울 수 없다.
-  - SDK에는 token 예산 옵션이 없다. 그래서 turn 도중의 토큰 상한은 아래 egress 거절과 재인가만 맡는다. 상한에 닿은 뒤 열린 Messages 호출은 거절되어 turn이 실패하고(`api_error`), 다음 turn부터는 `BUDGET_EXCEEDED`로 dispatch되지 않는다.
+- 토큰 상한은 `provider_usage` 한 줄의 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens`를 `sessions.provider_tokens`에 더해 센다. 더하는 일은 `provider_usage` insert trigger가 같은 트랜잭션에서 한다. 그래서 rollout 중이나 롤백 뒤에 0127 이전 API가 기록한 호출도 빠지지 않는다. cache read도 모델이 처리한 token이라 센다. 많게 추정한 보고는 추정치 그대로 더한다. 94S-540 migration은 기존 세션의 값을 `provider_usage` 합으로 채운다. 그 전에 SDK 값으로만 비용을 셌던 세션의 token은 채울 수 없다. 누계는 2^53-1(`Number.MAX_SAFE_INTEGER`)에서 멈춘다(0129, 94S-543). trigger는 numeric으로 더하므로 비정상적으로 큰 token 값이 와도 오류로 usage 기록과 비용을 되돌리지 않는다.
+  - SDK에는 token 예산 옵션이 없다. 그래서 turn 도중의 토큰 상한은 아래 egress 거절과 재인가만 맡는다. 상한에 닿은 뒤 열린 Messages 호출은 거절되어 turn이 `failed(budget_exceeded)`로 끝나고, 다음 turn부터는 `BUDGET_EXCEEDED`로 dispatch되지 않는다(94S-543). proxy는 authorizer의 `BUDGET_EXCEEDED` 거절만 Messages 오류 형식(`message`가 `BUDGET_EXCEEDED:`로 시작)으로 전하고, worker는 엔진이 turn 결과 텍스트에 옮긴 그 코드를 보고 사유를 정한다. 다른 403은 지금처럼 `api_error`다. 재인가에서 끊긴 교환은 엔진이 다시 보낸 요청이 이 403을 받는다. 재시도가 남지 않았으면(`PROVIDER_MAX_RETRIES=0`) 끊긴 연결 그대로 `api_error`로 남는다.
 - 비용 상한과 토큰 상한은 호출이 끝난 뒤에 판정한다. 동시에 열린 호출은 모두 인가를 통과할 수 있고, 진행 중인 turn은 상한을 넘을 수 있다.
 - 누적 비용이나 누적 token이 상한 이상인 세션의 provider egress token은 authorizer가 403 `BUDGET_EXCEEDED`로 거절한다(94S-394). 새 provider 교환은 곧바로 거절되고, 이미 열린 교환은 다음 재인가(30초 주기)에서 끊긴다. repository·object store route는 거절하지 않는다.
 
@@ -542,8 +542,8 @@ provider:
 
 - 생략하면 `per_token`이다. 생략한 profile과 `per_token`이라고 적은 profile은 fingerprint가 같고, 지금과 똑같이 가격표·fallback으로 계산한다.
 - `none` profile로 만든 세션의 provider 호출은 응답이 어떤 model 이름을 대든 비용 0, ledger `priced_by=unmetered`로 적힌다. 토큰은 그대로 적힌다. 세션 비용이 늘지 않으므로 비용 상한 판정 네 곳(egress 인가, `nextInput`, 메시지 접수, 엔진)에 걸리지 않는다.
-- claim의 `remaining_budget_usd`는 `null`이고 worker는 SDK에 `maxBudgetUsd`를 넘기지 않는다. SDK는 모르는 model을 자체 추정 단가로 계산해 예산에서 turn을 끊기 때문이다.
-- `GET /v1/sessions/{id}/usage`는 `cost.kind: "unmetered"`로 답한다. `amount_usd`는 `"0.000000"`이다. `cost_limit_usd`는 설치 값을 그대로 보여 주지만 이 세션에는 적용되지 않는다. `budget_exceeded`는 토큰 상한에 닿았을 때만 `true`가 된다.
+- claim의 `remaining_budget_usd`는 `null`이고 worker는 SDK에 `maxBudgetUsd`를 넘기지 않는다. SDK는 모르는 model을 자체 추정 단가로 계산해 예산에서 turn을 끊기 때문이다. 묶을 예산이 없으므로 `/clear` 등으로 SDK의 비용 집계가 다시 시작돼도 worker는 drain하지 않는다(94S-543).
+- `GET /v1/sessions/{id}/usage`는 `cost.kind: "unmetered"`로 답한다. `amount_usd`는 `"0.000000"`이다. 이 세션에는 비용 상한이 적용되지 않으므로 `cost_limit_usd`는 `null`이다(94S-543). 상한 도달 안내(`attention.reason`)에도 달러 상한은 나오지 않는다. `budget_exceeded`는 토큰 상한에 닿았을 때만 `true`가 된다.
 - 과금 여부는 세션을 만들 때 세션 행(`sessions.unmetered`)에 고정된다. 가격·claim 예산·usage 표시는 이 값을 읽고, 보고를 받은 API의 카탈로그는 보지 않는다. 그래서 rolling update 중 그 profile을 모르는 replica가 보고를 받아도 비용이 붙지 않는다. `billing`을 바꾸면 fingerprint가 바뀌므로 새 id로 추가한다(같은 id를 고치면 기존 세션은 `CATALOG_MISMATCH`가 된다).
 - `none` profile로 세션을 만드는 것은 모든 API replica와 모든 scheduler의 `WORKER_IMAGE`를 이 버전으로 올린 뒤에 한다. 옛 API는 `unmetered` 세션의 보고도 가격표로 계산하고, 옛 worker는 claim의 `remaining_budget_usd: null`을 계약 위반으로 거절해 엔진을 띄우지 못한다. 같은 이유로 `unmetered` 세션이 남아 있는 동안에는 API·worker를 옛 버전으로 되돌리지 않는다.
 - 토큰 상한(`SESSION_TOKEN_LIMIT`)과 시간·동시성 상한(`MAX_TURN_SECONDS`, `EXECUTION_SLOT_LIMIT`, `QUEUED_INPUT_LIMIT_PER_SESSION`)은 그대로 걸린다. `unmetered` 행의 토큰도 `sessions.provider_tokens`에 더해진다.

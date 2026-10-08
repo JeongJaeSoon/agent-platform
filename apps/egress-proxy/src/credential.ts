@@ -74,6 +74,7 @@ const DEFAULT_MAX_EXCHANGES_PER_CLIENT = 32;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 /** How much of a refusing provider's error body the warn log keeps. */
 const REFUSAL_EXCERPT_CHARS = 512;
+const BUDGET_EXCEEDED = "BUDGET_EXCEEDED";
 /**
  * The Messages API's own request limit (32 MB), with the upstream left to
  * judge the last few bytes. Held whole, so it is also this route's share of
@@ -532,7 +533,15 @@ export type CredentialProxyServer = {
 
 type Authorized =
   | { kind: "granted"; grant: EgressGrant }
-  | { kind: "refused"; status: number };
+  | { kind: "refused"; status: number; budgetExceeded?: true };
+
+function isBudgetRefusal(body: unknown): boolean {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    (body as { code?: unknown }).code === BUDGET_EXCEEDED
+  );
+}
 
 export function startCredentialProxy(
   options: CredentialProxyOptions,
@@ -569,6 +578,22 @@ export function startCredentialProxy(
     });
   }
 
+  // In the Messages API's error shape, whose message the engine puts in the
+  // turn's result text: that text is how the worker tells this refusal from
+  // any other 403.
+  function budgetExceededReply(): Response {
+    return Response.json(
+      {
+        type: "error",
+        error: {
+          type: "permission_error",
+          message: `${BUDGET_EXCEEDED}: the session has reached its cost or token limit`,
+        },
+      },
+      { status: 403 },
+    );
+  }
+
   async function authorize(
     token: string,
     purpose: EgressPurpose,
@@ -599,15 +624,21 @@ export function startCredentialProxy(
       return { kind: "refused", status: 503 };
     }
     if (response.status !== 200) {
-      await response.body?.cancel();
-      // Its reasons stay with it: the worker learns only that it was refused.
+      // Its reasons stay with it: the worker learns only that it was refused,
+      // and whether the session's budget is spent, which its turn reports.
+      const refusal: unknown =
+        response.status === 403
+          ? await response.json().catch(() => null)
+          : await response.body?.cancel();
       const status = [401, 403, 409].includes(response.status)
         ? response.status
         : 503;
       if (status === 503) {
         logger.warn("Egress authorizer failed", { status: response.status });
       }
-      return { kind: "refused", status };
+      return isBudgetRefusal(refusal)
+        ? { kind: "refused", status, budgetExceeded: true }
+        : { kind: "refused", status };
     }
     const grant = parseGrant(await response.json().catch(() => null));
     if (grant === null) {
@@ -1082,6 +1113,9 @@ export function startCredentialProxy(
         const authorized = await authorize(token, route.purpose, objectRequest);
         if (authorized.kind === "refused") {
           release();
+          if (authorized.budgetExceeded && route.purpose === "provider") {
+            return budgetExceededReply();
+          }
           return reply(
             authorized.status,
             "egress token refused",

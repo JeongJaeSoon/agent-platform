@@ -108,15 +108,17 @@ describe("usage service", () => {
   });
 
   test("a session accepted on a billing none profile reads unmetered", async () => {
-    for (const [unmetered, kind] of [
-      [true, "unmetered"],
-      [false, "estimated"],
+    for (const [unmetered, kind, costLimit] of [
+      [true, "unmetered", null],
+      [false, "estimated", "0.0000005"],
     ] as const) {
       const usage = await service({ ...record, unmetered }).getSessionUsage(
         { ownerId: "owner-a" },
         record.sessionId,
       );
-      expect(sessionUsageResponseSchema.parse(usage).cost.kind).toBe(kind);
+      const parsed = sessionUsageResponseSchema.parse(usage);
+      expect(parsed.cost.kind).toBe(kind);
+      expect(parsed.cost_limit_usd).toBe(costLimit);
       expect(usage.budget_exceeded).toBe(false);
     }
   });

@@ -26,7 +26,10 @@ import type {
   Principal,
   SessionAction,
 } from "../authorization/policy.ts";
-import { budgetExceeded } from "../limits/installation-limits.ts";
+import {
+  budgetExceeded,
+  type SessionSpend,
+} from "../limits/installation-limits.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
   EventPage,
@@ -180,19 +183,27 @@ export function createSessionService(deps: {
   catalog: SessionCatalog;
   limits: InputLimits & {
     sessionCostLimitUsd: number;
-    sessionTokenLimit?: number | null;
+    sessionTokenLimit: number | null;
   };
   now?: () => Date;
 }) {
   const { authorization, inputs, controls, reader, catalog } = deps;
   const budget = {
     costUsd: deps.limits.sessionCostLimitUsd,
-    tokens: deps.limits.sessionTokenLimit ?? null,
+    tokens: deps.limits.sessionTokenLimit,
   };
-  const budgetText =
-    budget.tokens === null
-      ? `${budget.costUsd} USD`
-      : `${budget.costUsd} USD or ${budget.tokens} token`;
+  // Names only the limits reached: an unmetered session spends no dollars,
+  // so its message never shows a dollar limit it cannot reach.
+  function reachedLimits(spend: SessionSpend): string {
+    const reached: string[] = [];
+    if (spend.costUsd >= budget.costUsd) {
+      reached.push(`${budget.costUsd} USD cost limit`);
+    }
+    if (budget.tokens !== null && spend.providerTokens >= budget.tokens) {
+      reached.push(`${budget.tokens} token limit`);
+    }
+    return reached.join(" and its ");
+  }
   const inputLimits: InputLimits = {
     queuedInputLimitPerSession: deps.limits.queuedInputLimitPerSession,
     storageLimitBytes: deps.limits.storageLimitBytes,
@@ -579,6 +590,7 @@ export function createSessionService(deps: {
         profile_fingerprint,
         ...detail
       } = record;
+      const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
       return {
         ...detail,
         attention:
@@ -594,13 +606,10 @@ export function createSessionService(deps: {
               }) ??
           // Dispatch stops at the same predicate (nextInputAtomic), so what
           // this says and what the gateway does come from one comparison.
-          (budgetExceeded(
-            { costUsd: cost_usd, providerTokens: provider_tokens },
-            budget,
-          )
+          (budgetExceeded(spend, budget)
             ? {
                 code: "BUDGET_EXCEEDED",
-                reason: `The session has reached its ${budgetText} budget; queued messages will not run and a pending resume will not launch`,
+                reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
               }
             : null),
         runtime: runtimeFor(profile_id),

@@ -103,6 +103,7 @@ integration("worker gateway on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: LEASE_TTL_MS,
         now,
         sleep: async () => {},
@@ -152,6 +153,7 @@ integration("worker gateway on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs,
         now: () => clock,
         sleep: async () => {},
@@ -268,6 +270,7 @@ integration("worker gateway on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs,
         now: () => new Date(Date.now() + offsetMs),
         sleep: async () => {},
@@ -1518,6 +1521,7 @@ integration("worker gateway on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: 400,
         now: () => clock,
         sleep: async () => {},
@@ -1570,6 +1574,7 @@ integration("worker gateway on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -1703,6 +1708,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
         options: {
           sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
           leaseTtlMs: LEASE_TTL_MS,
           sessionTokenTtlMs,
           now: () => clock,
@@ -1963,6 +1969,7 @@ integration("worker gateway on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},
@@ -2763,6 +2770,7 @@ integration("worker gateway on PostgreSQL", () => {
         },
         options: {
           sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
           leaseTtlMs: LEASE_TTL_MS,
           now,
           sleep: async () => {},

@@ -117,6 +117,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
         queuedInputLimitPerSession: 1_000,
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
       },
       authorization: allowAllPolicy,
       inputs: createPostgresSessionUnitOfWork(db),

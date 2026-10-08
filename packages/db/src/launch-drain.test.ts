@@ -76,6 +76,7 @@ beforeEach(async () => {
     },
     options: {
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
       leaseTtlMs: 60_000,
       sleep: async () => {},
     },
@@ -89,6 +90,7 @@ afterEach(async () => {
 function schedulerStore() {
   return createPostgresSchedulerStore(db, {
     sessionCostLimitUsd: 1_000,
+    sessionTokenLimit: null,
     connectForLock: async () => {
       throw new Error("not used");
     },
@@ -103,7 +105,7 @@ async function claimedSession() {
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),
     catalog: CATALOG,
-    limits: { ...LIMITS, sessionCostLimitUsd: 1_000 },
+    limits: { ...LIMITS, sessionCostLimitUsd: 1_000, sessionTokenLimit: null },
   });
   const created = await service.createSession(OWNER, {
     idempotencyKey: crypto.randomUUID(),

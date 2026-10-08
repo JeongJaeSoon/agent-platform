@@ -92,6 +92,7 @@ integration("context gap on PostgreSQL", () => {
       checkpoints: { verify: async () => ({ status: "verified" }) },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: 30_000,
         now,
         sleep: async () => {},

@@ -156,6 +156,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       checkpointProtocol: checkpoints.protocol,
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: 30_000,
         now: () => clock,
         sleep: async () => {},

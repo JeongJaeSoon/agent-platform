@@ -330,6 +330,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
       },
       options: {
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
         leaseTtlMs: LEASE_TTL_MS,
         now: () => clock,
         sleep: async () => {},

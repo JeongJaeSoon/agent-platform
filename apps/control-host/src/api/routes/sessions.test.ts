@@ -63,6 +63,7 @@ function app(
       queuedInputLimitPerSession: 1_000,
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
     },
     authorization: allowAllPolicy,
     catalog,
@@ -812,6 +813,7 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         queuedInputLimitPerSession: 1_000,
         storageLimitBytes: 1e15,
         sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
       },
       authorization: {
         authorize: (_actor, action) => action !== "sessions:recover",
