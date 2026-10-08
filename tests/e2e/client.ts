@@ -8,14 +8,18 @@
 
 export type E2eEnv = { apiKey: string; apiUrl: string; messagesUrl: string };
 
-/** The stack tests/e2e/run.sh started; the suite never starts one. */
-export function e2eEnv(): E2eEnv {
+/**
+ * The stack tests/e2e/run.sh started; the suite never starts one. A stack on
+ * a real or local model runs no fake Messages API, so its suite passes
+ * `needsMessages: false` and gets an empty messagesUrl.
+ */
+export function e2eEnv({ needsMessages = true } = {}): E2eEnv {
   const apiUrl = process.env.E2E_API_URL;
   const apiKey = process.env.E2E_API_KEY;
-  const messagesUrl = process.env.E2E_MESSAGES_URL;
-  if (!apiUrl || !apiKey || !messagesUrl) {
+  const messagesUrl = process.env.E2E_MESSAGES_URL ?? "";
+  if (!apiUrl || !apiKey || (needsMessages && !messagesUrl)) {
     throw new Error(
-      "E2E_API_URL, E2E_API_KEY and E2E_MESSAGES_URL are unset: run tests/e2e/run.sh, or source its vars.sh (E2E_UP_ONLY=1)",
+      `E2E_API_URL, E2E_API_KEY${needsMessages ? " and E2E_MESSAGES_URL" : ""} are unset: run tests/e2e/run.sh, or source its vars.sh (E2E_UP_ONLY=1)`,
     );
   }
   return { apiKey, apiUrl, messagesUrl };

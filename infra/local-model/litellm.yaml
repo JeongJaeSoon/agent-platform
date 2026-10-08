@@ -1,0 +1,12 @@
+# LiteLLM in front of the host's Ollama, for the local-litellm profile
+# (config/local-model). `gemma4-local` is the model the profile names.
+model_list:
+  - model_name: gemma4-local
+    litellm_params:
+      model: ollama_chat/gemma4:26b-mlx
+      api_base: http://host.docker.internal:11434
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+litellm_settings:
+  # Claude Code sends Anthropic-only parameters Ollama has no use for.
+  drop_params: true

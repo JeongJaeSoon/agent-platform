@@ -1,0 +1,42 @@
+# The catalog infra/compose.local-model.yml points the API at: the example
+# profile on a model served from this machine instead of the Messages API.
+# Two routes to the same Ollama model, one profile each:
+#
+#   local-ollama   Ollama's own Anthropic-compatible /v1/messages, through
+#                  the overlay's TCP relay. Ollama takes any key, so
+#                  LOCAL_OLLAMA_API_KEY only has to be set.
+#   local-litellm  The overlay's LiteLLM proxy in front of Ollama
+#                  (infra/local-model/litellm.yaml); LITELLM_MASTER_KEY is
+#                  its master key.
+#
+# The model table has no price for them: usage is charged at the fallback,
+# the highest rate the table knows, so the reported cost is not a real one.
+profiles:
+  local-ollama:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: gemma4:26b-mlx
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    permission_mode: default
+    provider:
+      kind: anthropic
+      endpoint: http://ollama.internal:11434
+      auth:
+        kind: api_key
+        value_env: LOCAL_OLLAMA_API_KEY
+    project_settings:
+      claude_md: true
+  local-litellm:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: gemma4-local
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    permission_mode: default
+    provider:
+      kind: litellm
+      endpoint: http://litellm:4000
+      auth:
+        kind: bearer
+        value_env: LITELLM_MASTER_KEY
+    project_settings:
+      claude_md: true

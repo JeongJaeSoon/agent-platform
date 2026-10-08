@@ -1,0 +1,44 @@
+# The local-model overlay: the stack against the Ollama model on this
+# machine (config/local-model), for `tests/e2e/run.sh --local-model`. Its
+# one path, ./local-model/litellm.yaml, is relative to infra/, the project
+# directory of run.sh's base file.
+#
+# Ollama listens on the host, but the egress proxy never connects to a
+# host-gateway address on OrbStack: host.docker.internal resolves there to
+# 0.250.250.254, in 0.0.0.0/8, which its policy always denies. So both routes
+# reach the host from a container on the compose network instead, which the
+# proxy reaches by name on a private address: `ollama` relays TCP to the
+# host's Ollama unchanged, and `litellm` is the LiteLLM proxy in front of it.
+# The relay is called by ollama.internal: Ollama on loopback answers 403 to a
+# Host header that is not loopback, *.localhost, *.local or *.internal.
+# The keys are passed through by name: both to the API, LiteLLM's master key
+# also to LiteLLM.
+services:
+  api:
+    environment:
+      LOCAL_OLLAMA_API_KEY:
+      LITELLM_MASTER_KEY:
+      PLATFORM_CONFIG_DIR: /app/config/local-model
+      # The local catalog reads no Anthropic key: a real one exported in the
+      # shell or .env stays out of this container.
+      ANTHROPIC_API_KEY: ""
+  egress-proxy:
+    environment:
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: gitea:3000,fake-messages:4010,localstack:4566,ollama.internal:11434,litellm:4000
+  ollama:
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    command: ["TCP-LISTEN:11434,fork,reuseaddr", "TCP:host.docker.internal:11434"]
+    networks:
+      default:
+        aliases: [ollama.internal]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable@sha256:625981c83410a3ea68eb0697590a57ec1d764d634514d54fa5db0591077ee839
+    command: ["--config", "/app/litellm.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY:
+    volumes:
+      - ./local-model/litellm.yaml:/app/litellm.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
