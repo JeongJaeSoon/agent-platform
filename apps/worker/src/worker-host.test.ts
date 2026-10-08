@@ -1066,6 +1066,55 @@ describe("WorkerHost cost and provider failures", () => {
     });
   });
 
+  test("a proxy refusal for a spent budget fails the turn as budget_exceeded, not api_error", async () => {
+    // What the engine emitted when the proxy answered 403 with a
+    // BUDGET_EXCEEDED Messages error (probed against SDK 0.3.270).
+    const refused =
+      "Failed to authenticate. API Error: 403 BUDGET_EXCEEDED: the session has reached its cost or token limit";
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: {
+          ...assistantMessage(refused),
+          error: "authentication_failed",
+        },
+      },
+      {
+        type: "emit",
+        message: {
+          ...resultMessage(uuidForTurn(1)),
+          is_error: true,
+          terminal_reason: "api_error",
+          api_error_status: 403,
+          result: refused,
+          total_cost_usd: 0,
+        },
+      },
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: {
+          ...resultMessage(uuidForTurn(2)),
+          is_error: true,
+          terminal_reason: "api_error",
+          api_error_status: 403,
+          result: "Failed to authenticate. API Error: 403 egress token refused",
+          total_cost_usd: 0,
+        },
+      },
+    ]);
+    gateway.enqueue("one message");
+    gateway.enqueue("two message");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: "budget_exceeded" },
+      { turnId: "2", status: "failed", reason: "api_error" },
+    ]);
+  });
+
   test("a claim with no budget starts the engine with none", async () => {
     const gateway = new FakeWorkerGateway({ remainingBudgetUsd: null });
     const { budgets, host } = harness(
@@ -1177,6 +1226,44 @@ describe("WorkerHost cost and provider failures", () => {
       3, 0,
     ]);
     expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("an engine with no budget keeps running when its cost count starts over", async () => {
+    const gateway = new FakeWorkerGateway({ remainingBudgetUsd: null });
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: { ...resultMessage(uuidForTurn(1)), total_cost_usd: 3 },
+        },
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: {
+            ...resultMessage(uuidForTurn(2)),
+            session_id: "after-clear",
+            total_cost_usd: 0,
+          },
+        },
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(3)) },
+        { type: "await-input" },
+      ],
+      { gateway },
+    );
+    gateway.enqueue("spend something");
+    gateway.enqueue("/clear");
+    gateway.enqueue("nothing to bound, so this runs here");
+
+    const summary = await host.runLoop();
+
+    expect(summary.reason ?? "").not.toContain("cost count over");
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+      { turnId: "2", status: "completed", reason: null },
+      { turnId: "3", status: "completed", reason: null },
+    ]);
   });
 
   test("gives the slot back as soon as the gateway says the budget is spent", async () => {

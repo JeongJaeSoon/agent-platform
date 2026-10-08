@@ -776,6 +776,41 @@ describe("startCredentialProxy", () => {
     }
   });
 
+  test("a spent budget is named to the engine in the Messages error shape, and no other 403 is", async () => {
+    const up = upstream(() => new Response("ok"));
+    const spent = proxy(
+      authorizer(() =>
+        Response.json(
+          { code: "BUDGET_EXCEEDED", message: "limit reached" },
+          { status: 403 },
+        ),
+      ).url,
+      up.port,
+    );
+    const refused = await messages(spent.port);
+    expect(refused.status).toBe(403);
+    const body = (await refused.json()) as {
+      type: string;
+      error: { type: string; message: string };
+    };
+    expect(body.type).toBe("error");
+    expect(body.error.message).toStartWith("BUDGET_EXCEEDED:");
+
+    const forbidden = proxy(
+      authorizer(() =>
+        Response.json(
+          { code: "FORBIDDEN", message: "BUDGET_EXCEEDED" },
+          { status: 403 },
+        ),
+      ).url,
+      up.port,
+    );
+    const other = await messages(forbidden.port);
+    expect(other.status).toBe(403);
+    expect(await other.text()).toBe("egress token refused\n");
+    expect(up.seen).toEqual([]);
+  });
+
   test("an unrouted operation never reaches the authorizer", async () => {
     const up = upstream(() => new Response("ok"));
     const auth = authorizer(
