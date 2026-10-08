@@ -930,12 +930,111 @@ describe("startCredentialProxy", () => {
       expect(record?.fields).toMatchObject({
         status: 401,
         upstream_error_withheld: true,
+        upstream_error_withheld_reason: "secret_match",
       });
       expect(record?.fields).not.toHaveProperty("upstream_error");
       const all = lines.join("\n");
       expect(all).not.toContain(PROVIDER_KEY);
       expect(all).not.toContain("invalid key");
       expect(all).not.toContain(WORKER_TOKEN);
+    });
+
+    test("says why an excerpt was withheld", async () => {
+      // A secret shape other than the grant's own key, which only the
+      // logger's patterns would catch.
+      const OTHER = "sk-another-key-the-upstream-printed";
+      const cases: Array<[string, () => Response]> = [
+        [
+          "redacted_pattern",
+          () => new Response(`rejected ${OTHER}`, { status: 401 }),
+        ],
+        [
+          "encoded",
+          () =>
+            new Response("\x1f\x8b....", {
+              status: 403,
+              headers: { "content-encoding": "gzip" },
+            }),
+        ],
+        [
+          "too_large_or_unreadable",
+          () => new Response("x".repeat(64 * 1024 + 1), { status: 403 }),
+        ],
+      ];
+      let answer = cases[0]?.[1] ?? (() => new Response(null));
+      const up = upstream(() => answer());
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}`, [
+          ["x-api-key", PROVIDER_KEY],
+        ]),
+      );
+      const lines: string[] = [];
+      const server = proxy(auth.url, up.port, {
+        logger: createProxyLogger("warn", (line) => lines.push(line)),
+      });
+      for (const [reason, respond] of cases) {
+        answer = respond;
+        lines.length = 0;
+        await (await messages(server.port)).text();
+        const [record, ...rest] = refusals(lines);
+        expect(rest).toHaveLength(0);
+        expect(record?.fields).toMatchObject({
+          upstream_error_withheld: true,
+          upstream_error_withheld_reason: reason,
+        });
+        expect(record?.fields).not.toHaveProperty("upstream_error");
+        expect(lines.join("\n")).not.toContain(OTHER);
+      }
+    });
+
+    test("is not logged for the repository or object store routes", async () => {
+      let status = 401;
+      const up = upstream(() => new Response("denied", { status }));
+      const auth = authorizer((body) =>
+        body.token === WORKER_TOKEN
+          ? Response.json({
+              session_id: "s",
+              attempt_id: "a",
+              upstream: {
+                url: `http://upstream.test:${up.port}/base`,
+                headers: [["authorization", "Basic cmVhZGVyOnBhc3M="]],
+                ...(body.purpose === "object_store"
+                  ? { target: "/bucket/key" }
+                  : {}),
+              },
+            })
+          : new Response("no", { status: 401 }),
+      );
+      const lines: string[] = [];
+      const server = proxy(auth.url, up.port, {
+        logger: createProxyLogger("debug", (line) => lines.push(line)),
+      });
+      const requests: Array<[string, Record<string, string>]> = [
+        [
+          "/repository/info/refs?service=git-upload-pack",
+          { authorization: `Bearer ${WORKER_TOKEN}` },
+        ],
+        [
+          "/object-store/bucket/key",
+          {
+            authorization: `AWS4-HMAC-SHA256 Credential=${WORKER_TOKEN}/20261008/auto/s3/aws4_request, SignedHeaders=host, Signature=0`,
+          },
+        ],
+      ];
+      for (status of [401, 403]) {
+        for (const [path, headers] of requests) {
+          const response = await fetch(
+            `http://127.0.0.1:${server.port}${path}`,
+            {
+              headers,
+            },
+          );
+          expect(response.status).toBe(status);
+          await response.text();
+        }
+      }
+      expect(up.seen).toHaveLength(4);
+      expect(refusals(lines)).toHaveLength(0);
     });
 
     test("is the only status logged that way", async () => {
