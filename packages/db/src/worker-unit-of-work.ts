@@ -664,6 +664,39 @@ function budgetOf(input: {
 }
 
 /**
+ * The proxy refuses a spent session's calls, and the engine reports that as
+ * whatever the refusal looked like to it: a 403 it calls an authentication
+ * failure, or a connection error when the regrant cut the exchange. The
+ * session's own spend is what says the budget ended the turn, so the reason
+ * and the receipt follow it, and the engine's diagnosis is dropped rather
+ * than left to read as a credential fault.
+ */
+function budgetEnded(
+  terminal: FinalizeInput["terminal"],
+  session: SessionRow,
+  budget: SessionBudget,
+): FinalizeInput["terminal"] {
+  if (
+    terminal.status !== "failed" ||
+    terminal.reason !== "api_error" ||
+    !budgetExceeded(session, budget)
+  ) {
+    return terminal;
+  }
+  const { result } = terminal;
+  return {
+    ...terminal,
+    reason: TURN_BUDGET_EXCEEDED_REASON,
+    result:
+      typeof result === "object" &&
+      result !== null &&
+      "provider_error" in result
+        ? { ...result, provider_error: null }
+        : result,
+  };
+}
+
+/**
  * A launch reserved for one session whose pair the catalog has since dropped
  * would wait out the worker's claim timeout, exit unclaimed, and be rebuilt
  * until the scheduler's failure limit gave it up — holding a slot
@@ -1849,18 +1882,23 @@ export function createPostgresWorkerUnitOfWork(
           checkpointRevision = advanced.revision;
         }
 
+        const ended = budgetEnded(
+          input.terminal,
+          fenced.session,
+          budgetOf(input),
+        );
         const unknownOutcome = input.terminal.status === "outcome_unknown";
         const [terminal] = await tx
           .update(turns)
           .set({
             status: input.terminal.status,
             endedAt: now,
-            terminalReason: input.terminal.reason,
+            terminalReason: ended.reason,
             outcomeUnknown: unknownOutcome,
             resultJson: {
               finalize_key: input.finalizeKey,
               finalize_hash: terminalHash,
-              result: input.terminal.result,
+              result: ended.result,
               usage: input.terminal.usage,
               // Only when reported, so a turn that said nothing reads as
               // before and not as a cost of zero.
@@ -1885,7 +1923,7 @@ export function createPostgresWorkerUnitOfWork(
               turnRowId: terminal.id,
               turnSequence: terminal.sequence,
               terminal: input.terminal.status,
-              terminalReason: input.terminal.reason,
+              terminalReason: ended.reason,
               at: now,
             })),
           );
@@ -1905,10 +1943,10 @@ export function createPostgresWorkerUnitOfWork(
                   code: unknownOutcome
                     ? "RECOVERY_REQUIRED"
                     : input.terminal.status === "failed" &&
-                        input.terminal.reason === TURN_BUDGET_EXCEEDED_REASON
+                        ended.reason === TURN_BUDGET_EXCEEDED_REASON
                       ? "BUDGET_EXCEEDED"
                       : "INTERNAL_ERROR",
-                  message: input.terminal.reason ?? input.terminal.status,
+                  message: ended.reason ?? ended.status,
                 },
             updatedAt: now,
           })

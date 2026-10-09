@@ -1066,9 +1066,10 @@ describe("WorkerHost cost and provider failures", () => {
     });
   });
 
-  test("a proxy refusal for a spent budget fails the turn as budget_exceeded, not api_error", async () => {
+  test("a proxy refusal for a spent budget goes to finalize as the engine reported it", async () => {
     // What the engine emitted when the proxy answered 403 with a
-    // BUDGET_EXCEEDED Messages error (probed against SDK 0.3.270).
+    // BUDGET_EXCEEDED Messages error (probed against SDK 0.3.270). Finalize,
+    // not the worker, decides it from the session's spend.
     const refused =
       "Failed to authenticate. API Error: 403 BUDGET_EXCEEDED: the session has reached its cost or token limit";
     const { gateway, host } = harness([
@@ -1091,28 +1092,22 @@ describe("WorkerHost cost and provider failures", () => {
           total_cost_usd: 0,
         },
       },
-      { type: "await-input" },
-      {
-        type: "emit",
-        message: {
-          ...resultMessage(uuidForTurn(2)),
-          is_error: true,
-          terminal_reason: "api_error",
-          api_error_status: 403,
-          result: "Failed to authenticate. API Error: 403 egress token refused",
-          total_cost_usd: 0,
-        },
-      },
     ]);
     gateway.enqueue("one message");
-    gateway.enqueue("two message");
 
     const summary = await host.runLoop();
 
     expect(summary.turns).toEqual([
-      { turnId: "1", status: "failed", reason: "budget_exceeded" },
-      { turnId: "2", status: "failed", reason: "api_error" },
+      { turnId: "1", status: "failed", reason: "api_error" },
     ]);
+    expect(gateway.finalized[0]?.terminal).toMatchObject({
+      status: "failed",
+      reason: "api_error",
+      result: {
+        api_error_status: 403,
+        provider_error: "authentication_failed",
+      },
+    });
   });
 
   test("a claim with no budget starts the engine with none", async () => {

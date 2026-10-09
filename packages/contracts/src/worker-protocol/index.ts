@@ -567,9 +567,10 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
 ]);
 
 /**
- * The terminal reason of a turn the engine ended because the budget the claim
- * gave it (`remaining_budget_usd`) ran out mid-turn. Its receipt fails with
- * BUDGET_EXCEEDED rather than INTERNAL_ERROR.
+ * The terminal reason of a turn the budget ended mid-turn: the engine ran out
+ * of what the claim gave it (`remaining_budget_usd`), or finalize found the
+ * session already spent when the engine reported a provider failure. Its
+ * receipt fails with BUDGET_EXCEEDED rather than INTERNAL_ERROR.
  */
 export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 

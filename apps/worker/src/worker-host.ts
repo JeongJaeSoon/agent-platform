@@ -2302,18 +2302,10 @@ function failureReason(native: NativeSdkMessage, subtype: string): string {
   // The engine's budget is the session's remaining one, so this is the same
   // limit the gateway enforces between turns, reached inside one.
   if (subtype === "error_max_budget_usd") return TURN_BUDGET_EXCEEDED_REASON;
+  // The proxy's refusal of a spent session stays the engine's `api_error`:
+  // finalize judges it against the session's spend, which no wording of
+  // the refusal can get wrong.
   if (subtype !== "success") return subtype;
-  // The proxy refuses a session past its limit with a 403 whose message
-  // starts with the code, and the result text is the only place the engine
-  // repeats it.
-  if (
-    native.terminal_reason === "api_error" &&
-    native.api_error_status === 403 &&
-    typeof native.result === "string" &&
-    native.result.includes("403 BUDGET_EXCEEDED:")
-  ) {
-    return TURN_BUDGET_EXCEEDED_REASON;
-  }
   return typeof native.terminal_reason === "string" &&
     native.terminal_reason.length > 0
     ? native.terminal_reason
