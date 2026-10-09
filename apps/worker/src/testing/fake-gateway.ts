@@ -1,36 +1,37 @@
-import type {
-  ApiErrorCode,
-  AppendEventsRequest,
-  AppendEventsResponse,
-  BootstrapClaimRequest,
-  BootstrapClaimResponse,
-  CheckpointRef,
-  CheckpointRequest,
-  CheckpointRequestResponse,
-  ControlIntent,
-  FinalizeRequest,
-  FinalizeResponse,
-  HeartbeatRequest,
-  HeartbeatResponse,
-  NextInputRequest,
-  NextInputResponse,
-  PendingControlRequest,
-  PendingControlResponse,
-  PendingSettlement,
-  PostSessionAnswerRequest,
-  RegisterPendingRequest,
-  RegisterPendingResponse,
-  ReleaseRequest,
-  ReleaseResponse,
-  RestorePlanRequest,
-  RestorePlanResponse,
-  RuntimeConfig,
-  SessionEventPayload,
-  SessionRuntime,
-  WorkerEvent,
-  WorkerReadyRequest,
-  WorkerReadyResponse,
-  WorkspaceDescriptor,
+import {
+  type ApiErrorCode,
+  type AppendEventsRequest,
+  type AppendEventsResponse,
+  type BootstrapClaimRequest,
+  type BootstrapClaimResponse,
+  budgetEndedTerminal,
+  type CheckpointRef,
+  type CheckpointRequest,
+  type CheckpointRequestResponse,
+  type ControlIntent,
+  type FinalizeRequest,
+  type FinalizeResponse,
+  type HeartbeatRequest,
+  type HeartbeatResponse,
+  type NextInputRequest,
+  type NextInputResponse,
+  type PendingControlRequest,
+  type PendingControlResponse,
+  type PendingSettlement,
+  type PostSessionAnswerRequest,
+  type RegisterPendingRequest,
+  type RegisterPendingResponse,
+  type ReleaseRequest,
+  type ReleaseResponse,
+  type RestorePlanRequest,
+  type RestorePlanResponse,
+  type RuntimeConfig,
+  type SessionEventPayload,
+  type SessionRuntime,
+  type WorkerEvent,
+  type WorkerReadyRequest,
+  type WorkerReadyResponse,
+  type WorkspaceDescriptor,
 } from "@agent-platform/contracts";
 import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
 
@@ -108,7 +109,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
    * heartbeat committed.
    */
   refuseDraining = true;
-  /** Set to answer every poll the way the gateway does a session past its cost limit. */
+  /** Set to answer every poll, and record each finalize, the way the gateway does for a session past its cost limit. */
   overBudget = false;
   private draining = false;
   /** Set by an `outcome_unknown` terminal: the real gateway holds input back then. */
@@ -468,7 +469,11 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
           checkpoint: request.checkpoint,
         });
       }
-      this.finalized.push(request);
+      this.finalized.push(
+        this.overBudget
+          ? { ...request, terminal: budgetEndedTerminal(request.terminal) }
+          : request,
+      );
       if (request.terminal.status === "outcome_unknown") {
         this.recoveryRequired = true;
       }

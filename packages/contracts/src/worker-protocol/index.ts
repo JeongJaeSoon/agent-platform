@@ -680,6 +680,46 @@ export type PendingControlResponse = z.infer<
   typeof pendingControlResponseSchema
 >;
 export type FinalizeRequest = z.infer<typeof finalizeRequestSchema>;
+
+// What the engine made of the proxy's refusal: a 403 it calls an
+// authentication failure, the refusal text, the last retry's status.
+const PROVIDER_DIAGNOSIS = [
+  "api_error_status",
+  "provider_error",
+  "last_retry_status",
+  "result",
+] as const;
+
+/**
+ * A provider failure on a session already spent, recorded as the budget
+ * ending the turn. The caller decides from the session's spend; this only
+ * rewrites, nulling the engine's diagnosis so the stored result does not
+ * read as a credential fault.
+ */
+export function budgetEndedTerminal(
+  terminal: FinalizeRequest["terminal"],
+): FinalizeRequest["terminal"] {
+  if (terminal.status !== "failed" || terminal.reason !== "api_error") {
+    return terminal;
+  }
+  const { result } = terminal;
+  return {
+    ...terminal,
+    reason: TURN_BUDGET_EXCEEDED_REASON,
+    result:
+      typeof result === "object" && result !== null
+        ? {
+            ...result,
+            ...Object.fromEntries(
+              PROVIDER_DIAGNOSIS.filter((key) => key in result).map((key) => [
+                key,
+                null,
+              ]),
+            ),
+          }
+        : result,
+  };
+}
 export type FinalizeResponse = z.infer<typeof finalizeResponseSchema>;
 export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
 export type ReleaseResponse = z.infer<typeof releaseResponseSchema>;
