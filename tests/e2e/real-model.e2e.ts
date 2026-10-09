@@ -15,6 +15,8 @@ const api = new Api(e2eEnv({ needsMessages: false }));
 const PROFILE_IDS = (process.env.E2E_PROFILE_IDS ?? "claude-coding-real").split(
   ",",
 );
+// `real` or `local`, for the test's name and the run record's key.
+const MODE = process.env.E2E_MODEL_MODE ?? "real";
 const TURN_TIMEOUT = 300_000;
 
 const nonce = crypto.randomUUID().slice(0, 8);
@@ -108,7 +110,7 @@ function commitSeen(events: SseEvent[]): string {
 }
 
 test.each(PROFILE_IDS)(
-  "two turns, a checkpoint and a resume on a new worker, against the real model (%s)",
+  `two turns, a checkpoint and a resume on a new worker, against the ${MODE} model (%s)`,
   async (profileId) => {
     // 1. The model writes and commits a file; every write asks permission.
     const created = await api.createSession(
@@ -188,7 +190,7 @@ test.each(PROFILE_IDS)(
     // One line for the run record.
     console.log(
       JSON.stringify({
-        real_model: {
+        [`${MODE}_model`]: {
           profile_id: profileId,
           session_id: sessionId,
           commit,

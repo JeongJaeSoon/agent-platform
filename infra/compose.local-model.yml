@@ -12,7 +12,8 @@
 # The relay is called by ollama.internal: Ollama on loopback answers 403 to a
 # Host header that is not loopback, *.localhost, *.local or *.internal.
 # The keys are passed through by name: both to the API, LiteLLM's master key
-# also to LiteLLM.
+# also to LiteLLM. The API starts only once both routes answer, so a session
+# made the moment `up` returns reaches the model on either profile.
 services:
   api:
     environment:
@@ -22,9 +23,15 @@ services:
       # The local catalog reads no Anthropic key: a real one exported in the
       # shell or .env stays out of this container.
       ANTHROPIC_API_KEY: ""
+    depends_on:
+      ollama:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
   egress-proxy:
     environment:
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: gitea:3000,fake-messages:4010,localstack:4566,ollama.internal:11434,litellm:4000
+      # No fake-messages:4010: the local catalog never calls it.
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,localstack:4566,ollama.internal:11434,litellm:4000}
   ollama:
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     command: ["TCP-LISTEN:11434,fork,reuseaddr", "TCP:host.docker.internal:11434"]
@@ -33,6 +40,13 @@ services:
         aliases: [ollama.internal]
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      # Through the relay itself, so healthy means the host's Ollama answers.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:11434/api/version"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
   litellm:
     image: ghcr.io/berriai/litellm:main-stable@sha256:625981c83410a3ea68eb0697590a57ec1d764d634514d54fa5db0591077ee839
     command: ["--config", "/app/litellm.yaml", "--port", "4000"]
@@ -42,3 +56,10 @@ services:
       - ./local-model/litellm.yaml:/app/litellm.yaml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      # The image has python but neither curl nor wget.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s

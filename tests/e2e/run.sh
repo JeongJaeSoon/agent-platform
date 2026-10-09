@@ -63,10 +63,33 @@ if [ -n "$local_model" ]; then
     echo "e2e --local-model: no Ollama on 127.0.0.1:11434; nothing was started" >&2
     exit 2
   fi
+  # Every Ollama model the two routes call: the catalog's models less the
+  # names LiteLLM serves, and what LiteLLM maps those to.
+  tags="$(curl -sf -m 5 http://127.0.0.1:11434/api/tags)" || tags=""
+  litellm_names="$(sed -n 's/^ *- model_name: //p' infra/local-model/litellm.yaml)"
+  for model in $(
+    {
+      sed -n 's/^ *model: //p' config/local-model/profiles.yaml | grep -vxF "$litellm_names"
+      sed -n 's/^ *model: ollama_chat\///p' infra/local-model/litellm.yaml
+    } | sort -u
+  ); do
+    case "$model" in *:*) pulled="$model" ;; *) pulled="$model:latest" ;; esac
+    case "$tags" in *"\"name\":\"$pulled\""*) ;; *)
+      echo "e2e --local-model: $model is not pulled in Ollama; run \`ollama pull $model\`; nothing was started" >&2
+      exit 2 ;;
+    esac
+  done
   # Ollama takes any key; LiteLLM's master key only has to match between the
   # proxy and the API, so a fresh one per run unless the caller set one.
   export LOCAL_OLLAMA_API_KEY="${LOCAL_OLLAMA_API_KEY:-ollama-local}"
-  export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-local-$(openssl rand -hex 16)}"
+  if [ -z "${LITELLM_MASTER_KEY:-}" ]; then
+    master_key="$(openssl rand -hex 16 2>/dev/null)" || master_key=""
+    if [ -z "$master_key" ]; then
+      echo "e2e --local-model: could not generate LITELLM_MASTER_KEY with openssl; nothing was started" >&2
+      exit 2
+    fi
+    export LITELLM_MASTER_KEY="sk-local-${master_key}"
+  fi
 fi
 if [ -n "$real_model" ]; then
   key_status=0
@@ -198,7 +221,7 @@ export E2E_API_KEY="$api_key"
 [ -n "$real_model$local_model" ] ||
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
 # Before the E2E_UP_ONLY exit, so vars.sh carries it too.
-[ -z "$local_model" ] || export E2E_PROFILE_IDS=local-ollama,local-litellm
+[ -z "$local_model" ] || export E2E_PROFILE_IDS=local-ollama,local-litellm E2E_MODEL_MODE=local
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
@@ -209,9 +232,7 @@ fi
 
 echo "== tests/e2e" >&2
 set +e
-if [ -n "$real_model" ]; then
-  suites=(./tests/e2e/real-model.e2e.ts)
-elif [ -n "$local_model" ]; then
+if [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
   suites=(./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts)
