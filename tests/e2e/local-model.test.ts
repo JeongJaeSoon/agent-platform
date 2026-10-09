@@ -135,7 +135,7 @@ describe("local-model compose overlay", () => {
   });
 
   test(
-    "a caller's private credential list keeps both routes to the model",
+    "a caller's private credential list does not change the overlay's",
     () => {
       // The default stack's value, as .env.example exports it: without the
       // two routes the stack comes up healthy and every model call gets 403.
@@ -163,17 +163,23 @@ describe("local-model compose overlay", () => {
         { env: { PATH, HOME, ...variables } },
       );
       expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
       const proxy = egressProxyConfigFromEnv(
         JSON.parse(result.stdout.toString()).services["egress-proxy"]
           .environment,
       );
       for (const kept of [
         { host: "gitea", port: 3000 },
+        { host: "localstack", port: 4566 },
         { host: "ollama.internal", port: 11434 },
         { host: "litellm", port: 4000 },
       ]) {
         expect(proxy.credential?.allowPrivate).toContainEqual(kept);
       }
+      expect(proxy.credential?.allowPrivate).not.toContainEqual({
+        host: "fake-messages",
+        port: 4010,
+      });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

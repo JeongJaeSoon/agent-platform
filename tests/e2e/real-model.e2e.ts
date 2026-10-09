@@ -16,7 +16,7 @@ const PROFILES = {
   real: ["claude-coding-real"],
   local: ["local-ollama", "local-litellm"],
 } as const;
-const MODE = process.env.E2E_MODEL_MODE ?? "real";
+const MODE = process.env.E2E_MODEL_MODE || "real";
 if (!Object.hasOwn(PROFILES, MODE)) {
   throw new Error(`E2E_MODEL_MODE ${MODE} is neither real nor local`);
 }
