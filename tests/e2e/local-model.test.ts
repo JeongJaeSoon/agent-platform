@@ -250,7 +250,7 @@ describe("run.sh --local-model", () => {
     const { result, stderr, argv } = run({ STUB_TAGS_FAIL: "1" });
     expect(result.exitCode).toBe(2);
     expect(stderr).toContain(
-      "Ollama on 127.0.0.1:11434 did not answer /api/tags; nothing was started",
+      "Ollama on 127.0.0.1:11434 did not answer /api/tags (curl exit 22); nothing was started",
     );
     expect(stderr).not.toContain("is not pulled");
     expect(await Bun.file(argv).exists()).toBe(false);

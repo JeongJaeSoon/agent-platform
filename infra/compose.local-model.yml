@@ -30,8 +30,10 @@ services:
         condition: service_healthy
   egress-proxy:
     environment:
-      # No fake-messages:4010: the local catalog never calls it.
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,localstack:4566,ollama.internal:11434,litellm:4000}
+      # No fake-messages:4010: the local catalog never calls it. A caller's
+      # list (the shell or an .env, say the default stack's) still gets both
+      # routes to the model appended, or every model call would get 403.
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,localstack:4566},ollama.internal:11434,litellm:4000
   ollama:
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     command: ["TCP-LISTEN:11434,fork,reuseaddr", "TCP:host.docker.internal:11434"]
