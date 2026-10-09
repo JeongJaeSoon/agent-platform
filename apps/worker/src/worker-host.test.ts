@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  ClaimPrincipal,
-  FinalizeRequest,
-  FinalizeResponse,
-  HeartbeatRequest,
-  NextInputRequest,
-  ReleaseRequest,
-  RuntimeConfig,
+import {
+  type ClaimPrincipal,
+  type FinalizeRequest,
+  type FinalizeResponse,
+  type HeartbeatRequest,
+  type NextInputRequest,
+  type ReleaseRequest,
+  type RuntimeConfig,
+  TURN_BUDGET_EXCEEDED_REASON,
 } from "@agent-platform/contracts";
 import {
   FakeAgentRuntime,
@@ -1106,6 +1107,52 @@ describe("WorkerHost cost and provider failures", () => {
       result: {
         api_error_status: 403,
         provider_error: "authentication_failed",
+      },
+    });
+  });
+
+  test("the gateway records the refusal of a session spent mid-turn as budget_exceeded", async () => {
+    const refused =
+      "Failed to authenticate. API Error: 403 BUDGET_EXCEEDED: the session has reached its cost or token limit";
+    const { gateway, host } = harness([
+      { type: "await-input" },
+      {
+        type: "emit",
+        message: {
+          ...assistantMessage(refused),
+          error: "authentication_failed",
+        },
+      },
+      {
+        type: "emit",
+        message: {
+          ...resultMessage(uuidForTurn(1)),
+          is_error: true,
+          terminal_reason: "api_error",
+          api_error_status: 403,
+          result: refused,
+          total_cost_usd: 0,
+        },
+      },
+    ]);
+    const nextInput = gateway.nextInput.bind(gateway);
+    gateway.nextInput = async (request) => {
+      const response = await nextInput(request);
+      if (response.input !== null) gateway.overBudget = true;
+      return response;
+    };
+    gateway.enqueue("one message");
+
+    await host.runLoop();
+
+    expect(gateway.finalized[0]?.terminal).toMatchObject({
+      status: "failed",
+      reason: TURN_BUDGET_EXCEEDED_REASON,
+      result: {
+        terminal_reason: "api_error",
+        api_error_status: null,
+        provider_error: null,
+        last_retry_status: null,
       },
     });
   });

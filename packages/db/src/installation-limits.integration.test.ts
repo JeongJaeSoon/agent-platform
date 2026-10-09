@@ -712,7 +712,12 @@ integration("installation limits on PostgreSQL", () => {
         expect(turn?.status).toBe("failed");
         expect(turn?.reason).toBe(TURN_BUDGET_EXCEEDED_REASON);
         expect(turn?.result).toMatchObject({
-          result: { terminal_reason: "api_error", provider_error: null },
+          result: {
+            terminal_reason: "api_error",
+            api_error_status: null,
+            provider_error: null,
+            result: null,
+          },
         });
         const [receipt] = await db
           .select({ error: receipts.error })
@@ -745,7 +750,11 @@ integration("installation limits on PostgreSQL", () => {
         .where(eq(turns.sessionId, session.session_id));
       expect(turn?.reason).toBe("api_error");
       expect(turn?.result).toMatchObject({
-        result: { provider_error: "authentication_failed" },
+        result: {
+          api_error_status: 403,
+          provider_error: "authentication_failed",
+          result: "API Error: 403 egress token refused",
+        },
       });
       const [receipt] = await db
         .select({ error: receipts.error })
