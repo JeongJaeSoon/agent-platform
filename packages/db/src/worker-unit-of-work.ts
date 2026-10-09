@@ -1,4 +1,5 @@
 import {
+  budgetEndedTerminal,
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
@@ -668,32 +669,16 @@ function budgetOf(input: {
  * whatever the refusal looked like to it: a 403 it calls an authentication
  * failure, or a connection error when the regrant cut the exchange. The
  * session's own spend is what says the budget ended the turn, so the reason
- * and the receipt follow it, and the engine's diagnosis is dropped rather
- * than left to read as a credential fault.
+ * and the receipt follow it.
  */
 function budgetEnded(
   terminal: FinalizeInput["terminal"],
   session: SessionRow,
   budget: SessionBudget,
 ): FinalizeInput["terminal"] {
-  if (
-    terminal.status !== "failed" ||
-    terminal.reason !== "api_error" ||
-    !budgetExceeded(session, budget)
-  ) {
-    return terminal;
-  }
-  const { result } = terminal;
-  return {
-    ...terminal,
-    reason: TURN_BUDGET_EXCEEDED_REASON,
-    result:
-      typeof result === "object" &&
-      result !== null &&
-      "provider_error" in result
-        ? { ...result, provider_error: null }
-        : result,
-  };
+  return budgetExceeded(session, budget)
+    ? budgetEndedTerminal(terminal)
+    : terminal;
 }
 
 /**
