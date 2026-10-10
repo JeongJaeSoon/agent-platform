@@ -4,12 +4,12 @@
 
 ## 한눈에
 
-이 저장소에서 동작하는 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)이다. 모듈 구성과 개발 순서는 [README](../README.md)의 이름 범위 문단이 정본이다. 아래 control host·worker·egress proxy와 공개 `/v1` API의 세션 경로가 Kiel에 속한다. 다른 모듈의 코드도 일부 먼저 들어와 있다. Musterrolle 쪽은 이미 동작한다. 웹 콘솔 로그인과 첫 owner bootstrap(`/v1/auth/*`), API 키, 권한 판정이 control host 안에서 Kiel과 함께 돈다. 계약과 policy는 이미 `musterrolle` 디렉터리에 있고, control host에 있는 route와 저장소 구현은 Musterrolle 모듈로 옮겨 갈 대상이다. Kollegium 쪽은 쓰는 앱이 없는 선행 코드다(`packages/contracts`의 `kollegium`: 에이전트 정의·채널 연결·chat envelope 계약). 웹 콘솔 화면 부품 `packages/ui`도 쓰는 앱이 아직 없다. `packages/contracts`의 `domain`은 소속 모듈이 정해지지 않았다. 그 가운데 기억 계약은 쓰는 곳이 없는 선행 코드이고, digest의 비용 형식은 `/v1` 사용량 응답이 쓴다.
+이 저장소에서 동작하는 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)이다. 모듈 구성과 개발 순서는 [README](../README.md)의 이름 범위 문단이 정본이다. 아래 control host·worker·egress proxy가 Kiel의 구성요소이고, 공개 `/v1` API도 Kiel이 서빙한다. 다른 모듈의 코드도 일부 먼저 들어와 있다. Musterrolle 쪽은 인증이 이미 동작한다. cookie 로그인·첫 owner bootstrap API(`/v1/auth/*`)와 API 키다. 이 코드는 `packages/contracts/src/musterrolle`, `packages/db`, control host에 나뉘어 있고 Musterrolle 모듈로 옮겨 갈 대상이다. `packages/platform/src/musterrolle`의 권한 policy 자리는 지금 모두 허용하는 기본값이고, API 키 scope 검사는 control host에 있다. Kollegium 쪽은 쓰는 앱이 없는 선행 코드다(`packages/contracts`의 `kollegium`: 에이전트 정의·채널 연결·chat envelope 계약). 웹 콘솔 화면 부품 `packages/ui`도 쓰는 앱이 아직 없다. `packages/contracts`의 `domain`은 소속 모듈이 정해지지 않았다. 그 가운데 기억 계약은 쓰는 곳이 없는 선행 코드이고, digest의 비용 형식은 `/v1` 사용량 응답이 쓴다.
 
-- **control host**(`apps/control-host`)가 세션 런타임의 제어 영역이다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API(Musterrolle의 `/v1/auth/*` 포함)와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
+- **control host**(`apps/control-host`)가 Kiel의 제어 영역이고, 먼저 들어온 Musterrolle 인증 코드도 여기서 돈다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API(Musterrolle의 `/v1/auth/*` 포함)와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
 - **egress proxy**(`apps/egress-proxy`)가 worker 네트워크에서 바깥으로 나가는 유일한 길이다. provider key와 저장소·object store 자격 증명은 worker에 가지 않는다([operations.md § provider 키와 저장소 자격 증명](operations.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다-94s-252)).
-- 상태는 PostgreSQL(세션·turn·lease·checkpoint pointer)과 S3 호환 object store(transcript·workspace bundle·checkpoint manifest)에 있다. 저장소 원본은 Gitea(로컬)나 카탈로그에 등록한 git 서버다.
+- 상태는 PostgreSQL(세션·turn·lease·checkpoint pointer, Musterrolle의 사용자·워크스페이스·API 키)과 S3 호환 object store(transcript·workspace bundle·checkpoint manifest)에 있다. 저장소 원본은 Gitea(로컬)나 카탈로그에 등록한 git 서버다.
 
 ## 저장소 구성
 

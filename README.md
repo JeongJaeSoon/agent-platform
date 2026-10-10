@@ -2,7 +2,7 @@
 
 이 저장소 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)과 그 공개 `/v1` 세션 API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. Werft의 다른 모듈과 개발 순서는 아래 이름 범위 문단에, 어떤 코드가 어느 모듈인지는 [architecture.md](docs/architecture.md)에 있다.
 
-이름 범위: 제품 이름은 Agent Platform이고 저장소 이름은 agent-platform이다. Werft는 Agent Platform을 이루는 에이전트 기반 전체의 설계상 이름이고, 제품 이름을 대신하지 않는다. Werft는 네 모듈로 나뉜다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. 지금 구현된 것은 Kiel과 Musterrolle의 일부(웹 콘솔 로그인, API 키, 권한 판정)다. 개발 순서는 Musterrolle → Kollegium → Lotse다. 지금의 `/v1` API는 로그인 경로 `/v1/auth/*`(Musterrolle)를 빼면 Kiel의 API이고, Kollegium의 API 채널은 앞으로 만들 에이전트 호출 입구다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
+이름 범위: 제품 이름은 Agent Platform이고 저장소 이름은 agent-platform이다. Werft는 Agent Platform을 이루는 에이전트 기반 전체의 설계상 이름이고, 제품 이름을 대신하지 않는다. Werft는 네 모듈로 나뉜다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. 지금 구현된 것은 Kiel과, Musterrolle 가운데 먼저 들어온 인증(cookie 로그인·첫 owner bootstrap API와 API 키)이다. 개발 순서는 Musterrolle → Kollegium → Lotse다. 지금의 `/v1` API는 Kiel이 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. Kollegium의 API 채널은 앞으로 만들 에이전트 호출 입구다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
 
 ## 현재 상태
 
