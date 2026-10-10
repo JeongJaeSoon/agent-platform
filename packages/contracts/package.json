@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/contracts",
+  "description": "Shared contracts: Kiel session API and worker protocol, with Musterrolle and Kollegium contracts under their directories",
   "version": "0.0.0",
   "private": true,
   "type": "module",

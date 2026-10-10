@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/db",
+  "description": "Kiel session runtime: Drizzle schema, migrations and session queries",
   "version": "0.0.0",
   "private": true,
   "type": "module",

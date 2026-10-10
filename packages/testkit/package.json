@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/testkit",
+  "description": "Kiel session runtime: test fakes and fixtures (Postgres, LocalStack, fake Messages API, git)",
   "version": "0.0.0",
   "private": true,
   "type": "module",

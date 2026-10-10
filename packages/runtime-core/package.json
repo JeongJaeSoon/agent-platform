@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/runtime-core",
+  "description": "Kiel session runtime: agent run, workspace and checkpoint bundle logic shared by the worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",

@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/platform",
+  "description": "Kiel session runtime services; Musterrolle authorization and identity ports live under src/musterrolle",
   "version": "0.0.0",
   "private": true,
   "type": "module",

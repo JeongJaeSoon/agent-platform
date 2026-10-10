@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/worker",
+  "description": "Kiel session runtime: one container per session running the Claude Agent SDK",
   "version": "0.0.0",
   "private": true,
   "type": "module",

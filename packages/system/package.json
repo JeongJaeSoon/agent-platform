@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/system",
+  "description": "Kiel session runtime: Bun and OS helpers with no domain meaning (uncached DNS lookup, bounded git process)",
   "version": "0.0.0",
   "private": true,
   "type": "module",

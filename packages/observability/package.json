@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/observability",
+  "description": "Kiel session runtime: structured logger and log redaction",
   "version": "0.0.0",
   "private": true,
   "type": "module",
