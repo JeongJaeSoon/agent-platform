@@ -11,7 +11,7 @@ export interface ConfirmDialogProps {
   /**
    * What actually happens if they go through with it — stated in the user's
    * own terms. Required, because a confirmation without a consequence is a
-   * speed bump, not a decision (Kollegium §12.4).
+   * speed bump, not a decision (Kollegium v1 §12.4).
    */
   readonly consequence: ReactNode;
   readonly onConfirm: () => void;

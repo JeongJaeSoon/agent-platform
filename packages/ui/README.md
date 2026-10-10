@@ -5,7 +5,7 @@
 
 ## 경계
 
-이 패키지는 **서버가 준 상태를 그리는 일만 한다**(Kollegium §12.4).
+이 패키지는 **서버가 준 상태를 그리는 일만 한다**(옛 Kollegium v1 §12.4).
 
 - fetch·권한 판정·상태 전이 정책을 넣지 않는다. URL도 만들지 않는다(`href`는 화면이 준다).
 - 런타임 의존성은 `react`·`react-dom`·`@radix-ui/react-dialog`·`clsx`·`@agent-platform/contracts`(타입 전용)뿐이다.

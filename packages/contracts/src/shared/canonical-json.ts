@@ -1,7 +1,7 @@
 /**
  * Deterministic JSON for content-addressed identity.
  *
- * Ported from Kollegium `packages/core/src/ids.ts` (Apache-2.0,
+ * Ported from Kollegium v1 `packages/core/src/ids.ts` (Apache-2.0,
  * JeongJaeSoon/kollegium @ d711706). Two rules make a hash trustworthy:
  * object keys sort, array order is data and never sorts. Anything JSON cannot
  * represent the same way twice throws instead of serialising to `null` or
