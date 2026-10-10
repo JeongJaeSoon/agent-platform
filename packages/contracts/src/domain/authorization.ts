@@ -327,7 +327,7 @@ export type ResourceRef = z.infer<typeof resourceRefSchema>;
 export type AudienceRef = z.infer<typeof audienceRefSchema>;
 export type AuthorizationAction = z.infer<typeof authorizationActionSchema>;
 
-// Ported from Kollegium `core/src/schema.ts`: an action can only ever be
+// Ported from Kollegium v1 `core/src/schema.ts`: an action can only ever be
 // granted on a resource type it makes sense for, so a `session.read` grant
 // cannot be widened into workspace-wide reads by swapping the resource.
 const ACTION_RESOURCE_KINDS: Record<

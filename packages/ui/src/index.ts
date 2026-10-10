@@ -1,6 +1,6 @@
 /*
  * packages/ui draws what the server said and nothing else: no fetch, no
- * permission judgement, no state-transition policy (Kollegium §12.4). If a
+ * permission judgement, no state-transition policy (Kollegium v1 §12.4). If a
  * component here needs to know whether something is allowed, the prop is wrong.
  */
 
