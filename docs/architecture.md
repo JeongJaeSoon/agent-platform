@@ -4,7 +4,7 @@
 
 ## 한눈에
 
-이 저장소에서 동작하는 코드는 Werft의 세 층 가운데 세션 런타임뿐이다([README](../README.md)의 이름 범위 문단). 아래 구성요소와 공개 `/v1` API가 모두 세션 런타임에 속한다. 에이전트 정의·런치·호출 채널을 맡을 Kollegium과 세션 연결·협업을 맡을 Lotse는 아직 없는 층이다. `packages/contracts`의 `domain`·`chat`에 있는 선행 계약만 그 층을 위해 먼저 들어와 있다.
+이 저장소에서 동작하는 코드는 Werft의 세 층 가운데 세션 런타임뿐이다([README](../README.md)의 이름 범위 문단). 아래 구성요소와 공개 `/v1` API가 모두 세션 런타임에 속한다. 에이전트 정의·런치·호출 채널을 맡을 Kollegium과 세션 연결·협업을 맡을 Lotse는 아직 없는 층이다. `packages/contracts`의 `kollegium`·`domain`에 있는 선행 계약만 그 층을 위해 먼저 들어와 있다.
 
 - **control host**(`apps/control-host`)가 세션 런타임의 제어 영역이다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
@@ -31,12 +31,12 @@
 
 | 경로 | 구현된 기반 |
 |---|---|
-| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`domain`(agent·auth·authorization·workspace, 기억·digest 선행 계약)·`chat`(chat 표면 envelope 선행 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
+| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`musterrolle`(auth·authorization·workspace)·`kollegium`(agent 정의, 채널 연결 surface, chat 표면 envelope 선행 계약)·`domain`(기억·digest 선행 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
 | `packages/storage` | content-addressed checkpoint object store, 요청·body 읽기에 상한을 건 S3 client, worker가 egress proxy의 object route로 쓰는 client, scope 밖 key를 막는 object store, 자원 상한을 건 git 실행기, git workspace bundle 검증 |
 | `packages/observability` | 구조화 로거(`createLogger`, `LOG_LEVEL`)와 로그 redaction 규칙. 메트릭과 트레이싱은 없다 |
 | `packages/system` | 업무 의미가 없는 Bun·OS 도구: 캐시 없이 매번 묻는 DNS 조회(`lookupEveryTime`), 자원 상한을 건 git 실행(`gitCommand`)·process group 종료. db·storage·worker가 쓰고, 이 패키지는 아무것에도 의존하지 않는다(94S-403) |
-| `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog·policy |
+| `packages/platform` | 저장소·실행 backend를 port로만 아는 도메인 층. `SessionService`(접수·조회·권한), `WorkerGateway`(epoch/lease fencing), `runScheduler`(슬롯·launch intent·orphan 회수), `CheckpointService`(manifest·pointer CAS·복원 계획), catalog. 권한 policy는 `src/musterrolle`에 있다 |
 | `apps/control-host` | 세션 런타임의 제어 영역 배포 단위(94S-117). 실행물 하나(`src/main.ts <api\|scheduler\|reconciler>`)가 role을 인자로 받고 기본값은 없다. `src/api`는 `@hono/zod-openapi` route 선언에서 `/v1` handler와 OpenAPI를 함께 등록하고, `/internal` Worker Gateway·API 키·키 발급 CLI도 제공한다. `bun run --cwd apps/control-host openapi:generate`가 `docs/openapi.json`과 로컬 Scalar HTML을 함께 만들며 API는 인증 전 `GET /v1/openapi.json`과 읽기 전용 `GET /docs`를 제공한다. `/docs/scalar.js`는 외부 CDN 없이 같은 origin에서 서빙하고 두 문서 UI 경로는 OpenAPI operation에 넣지 않는다. `src/scheduler`는 launch intent를 커밋하고 LocalDockerBackend로 worker 컨테이너를 보장하는 pass, `src/reconciler`는 만료된 lease를 회수하는 pass다. Docker backend는 scheduler role만 로드한다 |
 | `packages/runtime-core` | 엔진 중립 실행 계약(`AgentRuntime.start(config, hooks)`, `AgentRun`, `RuntimeCapabilities`, checkpoint 준비 결과). `mode: "new" | "resume"`를 config가 들고 다니며 별도 open 진입점이 없다. worker와 control plane이 함께 지키는 checkpoint 상한(manifest 크기·object 수, bundle 크기·사슬 길이)도 여기 한 곳에서 export한다. worker가 쓰는 port(`WorkerGatewayClient`, workspace 준비 계획)도 여기 있다(94S-340) |
 | `packages/adapters/runtimes/claude` | Claude Agent SDK 0.3.270 adapter(`ClaudeSdkRuntime`·`ClaudeSdkRun`), 승인 profile·최소 환경, native envelope·SSE projection, 제어 가능한 fake |

@@ -2,16 +2,13 @@ import type {
   InstallationLimitsResponse,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
-import type {
-  AuthorizationPolicy,
-  Principal,
-} from "../authorization/policy.ts";
 import {
   budgetExceeded,
   type InstallationLimits,
   STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
+import type { AuthorizationPolicy, Principal } from "../musterrolle/policy.ts";
 import type { UsageReader } from "../ports/usage-reader.ts";
 import {
   requirePermitted,

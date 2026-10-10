@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/control-host",
+  "description": "Kiel session runtime: control host (api, scheduler and reconciler roles) serving the public /v1 API and the worker gateway",
   "version": "0.0.0",
   "private": true,
   "type": "module",

@@ -3,8 +3,8 @@ import {
   installationLimitsResponseSchema,
   sessionUsageResponseSchema,
 } from "@agent-platform/contracts";
-import { allowAllPolicy } from "../authorization/policy.ts";
 import type { InstallationLimits } from "../limits/installation-limits.ts";
+import { allowAllPolicy } from "../musterrolle/policy.ts";
 import type { SessionUsageRecord } from "../ports/usage-reader.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createUsageService, decimalUsd } from "./usage-service.ts";

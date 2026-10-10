@@ -3,10 +3,7 @@ import type {
   PostSessionAnswerRequest,
   PostSessionAnswerResponse,
 } from "@agent-platform/contracts";
-import type {
-  AuthorizationPolicy,
-  Principal,
-} from "../authorization/policy.ts";
+import type { AuthorizationPolicy, Principal } from "../musterrolle/policy.ts";
 import type { PendingRequestStore } from "../ports/pending-requests.ts";
 import {
   idempotencyConflict,

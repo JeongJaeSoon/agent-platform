@@ -1,5 +1,6 @@
 {
   "name": "@agent-platform/egress-proxy",
+  "description": "Kiel session runtime: the only egress path out of the worker network",
   "version": "0.0.0",
   "private": true,
   "type": "module",
