@@ -1,6 +1,6 @@
 {
   "name": "@agent-platform/runtime-core",
-  "description": "Kiel session runtime: engine-neutral run contract (AgentRuntime, AgentRun), checkpoint limits, object store and worker gateway ports, workspace and bundle logic",
+  "description": "Kiel session runtime: engine-neutral run contract, checkpoint limits and ports, workspace and bundle logic",
   "version": "0.0.0",
   "private": true,
   "type": "module",
