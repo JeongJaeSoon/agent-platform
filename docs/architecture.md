@@ -4,7 +4,7 @@
 
 ## 한눈에
 
-이 저장소에서 동작하는 코드는 Werft의 세 층 가운데 세션 런타임뿐이다([README](../README.md)의 이름 범위 문단). 아래 구성요소와 공개 `/v1` API가 모두 세션 런타임에 속한다. 에이전트 정의·런치·호출 채널을 맡을 Kollegium과 세션 연결·협업을 맡을 Lotse는 아직 없는 층이다. `packages/contracts`의 `kollegium`·`domain`에 있는 선행 계약만 그 층을 위해 먼저 들어와 있다.
+이 저장소에서 동작하는 코드는 Werft 모듈 가운데 Kiel(세션 런타임)뿐이다. 모듈 구성과 개발 순서는 [README](../README.md)의 이름 범위 문단이 정본이다. 아래 control host·worker·egress proxy와 공개 `/v1` 세션 API가 Kiel에 속한다. 웹 콘솔 cookie 인증(`/v1/auth/*`)과 권한 판정도 지금은 control host에서 돌고, 계약은 `packages/contracts/src/musterrolle`, policy는 `packages/platform/src/musterrolle`에 있다. 이들은 Musterrolle로 옮겨 갈 대상이다. 쓰는 앱이 아직 없는 선행 코드도 있다. 웹 콘솔 화면 부품 `packages/ui`, `packages/contracts`의 `kollegium`(에이전트 정의·채널 연결·chat envelope)과 `domain`(기억·digest) 계약이다.
 
 - **control host**(`apps/control-host`)가 세션 런타임의 제어 영역이다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
