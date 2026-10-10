@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-
-import { formatSurfaceRef, sessionLinkSchema } from "../domain/index.ts";
 import {
   CHAT_ENVELOPE_VERSION,
   type ChatInboundEnvelope,
@@ -11,6 +9,7 @@ import {
   type ScopedSessionBinding,
   scopedSessionBindingSchema,
 } from "./envelope.ts";
+import { formatSurfaceRef, sessionLinkSchema } from "./surfaces.ts";
 
 const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000f1";
 const INSTALLATION_ID = "019a0000-0000-7000-8000-0000000000f2";

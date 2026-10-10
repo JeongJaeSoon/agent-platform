@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-
-import { MEMORY_VISIBILITY_VALUES, memoryRecordSchema } from "./memory.ts";
 import {
   formatSurfaceRef,
   sessionLinkSchema,
   surfaceBindingSchema,
-} from "./surfaces.ts";
+} from "../kollegium/surfaces.ts";
+import { MEMORY_VISIBILITY_VALUES, memoryRecordSchema } from "./memory.ts";
 
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000e1";
 const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000e2";

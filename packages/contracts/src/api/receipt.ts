@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   receiptActorSchema,
   resourceRefSchema,
-} from "../domain/authorization.ts";
+} from "../musterrolle/authorization.ts";
 import {
   apiErrorCodeSchema,
   receiptIdSchema,

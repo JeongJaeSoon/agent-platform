@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { messageTextSchema } from "../api/index.ts";
-import { humanActorSchema, serviceActorSchema } from "../domain/index.ts";
+import { humanActorSchema, serviceActorSchema } from "../musterrolle/index.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
