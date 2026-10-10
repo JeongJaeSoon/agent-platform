@@ -1,8 +1,8 @@
 # Agent Platform
 
-공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고 HTTP API, 이벤트, 승인, 제어, checkpoint 복구로 다루는 세션 컨트롤 플레인이다.
+이 저장소의 코드는 Werft의 세션 런타임 층과 그 공개 `/v1` API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. 에이전트 정의·런치·호출 채널을 맡는 Kollegium과 세션 연결·협업을 맡는 Lotse는 이 위에 올릴 다음 단계 모듈이다. 일부 선행 계약 말고는 아직 동작하는 구현이 없다.
 
-이름 범위: 제품 전체의 이름은 Agent Platform이다. Kollegium은 에이전트 정의·버전·런치와 웹·API·Slack 호출 채널을 맡는 모듈의 이름이다. 세션을 격리해 실행하고 제어하는 층은 세션 런타임이라 부른다.
+이름 범위: 제품 이름은 Agent Platform이고 저장소 이름은 agent-platform이다. Werft는 에이전트 기반 전체를 묶는 이름이고, 그 아래에 세 층이 있다. Kollegium은 에이전트 정의·버전·런치와 웹·API·Slack 호출 채널, Lotse는 세션 연결과 협업, 세션 런타임은 격리 실행·제어·승인·복구를 맡는다.
 
 ## 현재 상태
 
