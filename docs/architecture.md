@@ -4,12 +4,12 @@
 
 ## 한눈에
 
-이 저장소에서 동작하는 코드는 Werft의 세 층 가운데 세션 런타임뿐이다([README](../README.md)의 이름 범위 문단). 아래 구성요소와 공개 `/v1` API가 모두 세션 런타임에 속한다. 에이전트 정의·런치·호출 채널을 맡을 Kollegium과 세션 연결·협업을 맡을 Lotse는 아직 없는 층이다. `packages/contracts`의 `kollegium`·`domain`에 있는 선행 계약만 그 층을 위해 먼저 들어와 있다.
+이 저장소에서 동작하는 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)이다. 모듈 구성과 개발 순서, 지금 무엇이 구현됐는지는 [README](../README.md)의 이름 범위 문단이 정본이고, 여기서는 코드가 어디 있는지를 적는다. 아래 control host·worker·egress proxy가 Kiel의 구성요소이고, 공개 `/v1` API도 Kiel이 서빙한다. Musterrolle 코드는 `packages/contracts`·`packages/platform`의 `musterrolle` 디렉터리에 일부 모였고, 나머지는 control host(인증 route `/v1/auth/*`, API 키), `packages/db`(사용자·워크스페이스·인증·권한 테이블과 그 쿼리), `packages/platform/src/ports/identity-store.ts`에 있다. Kiel의 계약과 port도 이 계약과 policy 타입을 import한다. `packages/platform/src/musterrolle`의 policy는 지금 모두 허용하는 기본값이고, 요청마다의 scope 검사(역할에서 나온 scope 포함)는 control host에 있다. 흩어진 코드는 Musterrolle 모듈로 옮겨 갈 대상이다. Kollegium의 선행 계약은 `packages/contracts/src/kollegium`(에이전트 정의·채널 연결·chat envelope)에 있고, 쓰는 앱이 없다. 소속 모듈을 정하지 않은 코드는 웹 콘솔 화면 부품 `packages/ui`(쓰는 앱 없음)와 `packages/contracts/src/domain`(기억·digest. digest의 비용 형식은 `/v1` 사용량 응답이 쓴다)이다.
 
-- **control host**(`apps/control-host`)가 세션 런타임의 제어 영역이다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
+- **control host**(`apps/control-host`)가 Kiel의 제어 영역이고, 먼저 들어온 Musterrolle 인증 코드도 여기서 돈다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API(Musterrolle의 `/v1/auth/*` 포함)와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
 - **egress proxy**(`apps/egress-proxy`)가 worker 네트워크에서 바깥으로 나가는 유일한 길이다. provider key와 저장소·object store 자격 증명은 worker에 가지 않는다([operations.md § provider 키와 저장소 자격 증명](operations.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다-94s-252)).
-- 상태는 PostgreSQL(세션·turn·lease·checkpoint pointer)과 S3 호환 object store(transcript·workspace bundle·checkpoint manifest)에 있다. 저장소 원본은 Gitea(로컬)나 카탈로그에 등록한 git 서버다.
+- 상태는 PostgreSQL(세션·turn·lease·checkpoint pointer, Musterrolle의 사용자·워크스페이스·인증·권한 데이터)과 S3 호환 object store(transcript·workspace bundle·checkpoint manifest)에 있다. 저장소 원본은 Gitea(로컬)나 카탈로그에 등록한 git 서버다.
 
 ## 저장소 구성
 
@@ -31,7 +31,7 @@
 
 | 경로 | 구현된 기반 |
 |---|---|
-| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`musterrolle`(auth·authorization·workspace)·`kollegium`(agent 정의, 채널 연결 surface, chat 표면 envelope 선행 계약)·`domain`(기억·digest 선행 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
+| `packages/contracts` | 재사용 가능한 Zod payload 계약을 `api`(공개 REST·SSE)·`worker-protocol`(Gateway DTO)·`musterrolle`(auth·authorization·workspace)·`kollegium`(agent 정의, 채널 연결 surface, chat 표면 envelope 선행 계약)·`domain`(소속 미정인 기억·digest 계약)·`shared`(ID·error·canonical JSON·숫자 설정 parser)로 분리한다. HTTP method·path·인증·scope 같은 transport 메타데이터는 실행 어댑터인 `apps/control-host`가 소유한다 |
 | `packages/db` | Drizzle 스키마·migration·세션 claim 및 상태 쿼리 |
 | `packages/storage` | content-addressed checkpoint object store, 요청·body 읽기에 상한을 건 S3 client, worker가 egress proxy의 object route로 쓰는 client, scope 밖 key를 막는 object store, 자원 상한을 건 git 실행기, git workspace bundle 검증 |
 | `packages/observability` | 구조화 로거(`createLogger`, `LOG_LEVEL`)와 로그 redaction 규칙. 메트릭과 트레이싱은 없다 |
@@ -83,4 +83,4 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 - 통합 설계 정본: Obsidian `Private/Project/agent-platform`의 `final-design.md`·`module-design.md`·`api.md`·`deployment.md`·`delivery-plan.md`(비공개). rename 이전 설계서(`DESIGN.md`)는 지금의 계약·티켓 번호와 맞지 않아 저장소에서 지웠다(94S-433).
 - 작업 순서·상태·인수 조건: [Linear P-94S-5](https://linear.app/94soon/project/agent-platform-9c503b0fad62)의 D0~D4 티켓(94S-108~147)과 native blocked-by 관계. [옛 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)(94S-7~94)는 rename 이전 이력이다.
 - 완료된 SDK gate: [94S-91](https://linear.app/94soon/issue/94S-91), 저장 backend 선택: [94S-92](https://linear.app/94soon/issue/94S-92). process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](../spikes/94s-91/README.md), [`spikes/94s-92`](../spikes/94s-92/README.md)에 둔다.
-- 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓은 [Linear P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)(94S-148~195)다. 작성 시점 코드에 묶인 조사 초안과 리뷰 원문은 저장소에서 제거했다. alpha D0~D4 실행 계층은 바꾸지 않고 그 위에 올린다.
+- 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓은 [Linear P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)(94S-148~195)다. 작성 시점 코드에 묶인 조사 초안과 리뷰 원문은 저장소에서 제거했다. alpha D0~D4의 Kiel 실행 경로는 바꾸지 않고 그 위에 올린다.
