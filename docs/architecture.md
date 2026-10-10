@@ -4,7 +4,7 @@
 
 ## 한눈에
 
-이 저장소에서 동작하는 코드는 Werft 모듈 가운데 Kiel(세션 런타임)뿐이다. 모듈 구성과 개발 순서는 [README](../README.md)의 이름 범위 문단이 정본이다. 아래 control host·worker·egress proxy와 공개 `/v1` 세션 API가 Kiel에 속한다. 웹 콘솔 cookie 인증(`/v1/auth/*`)과 권한 판정도 지금은 control host에서 돌고, 계약은 `packages/contracts/src/musterrolle`, policy는 `packages/platform/src/musterrolle`에 있다. 이들은 Musterrolle로 옮겨 갈 대상이다. 쓰는 앱이 아직 없는 선행 코드도 있다. 웹 콘솔 화면 부품 `packages/ui`, `packages/contracts`의 `kollegium`(에이전트 정의·채널 연결·chat envelope)과 `domain`(기억·digest) 계약이다.
+이 저장소에서 동작하는 코드는 대부분 Werft의 Kiel 모듈(세션 런타임)이다. 모듈 구성과 개발 순서는 [README](../README.md)의 이름 범위 문단이 정본이다. 아래 control host·worker·egress proxy와 공개 `/v1` API가 Kiel에 속한다. 예외로 Musterrolle 코드 일부가 먼저 들어와 control host 안에서 돈다. 웹 콘솔 cookie 인증(`/v1/auth/*`)과 권한 판정이고, 계약은 `packages/contracts/src/musterrolle`, policy는 `packages/platform/src/musterrolle`, identity port는 `packages/platform/src/ports/identity-store.ts`에 있다. 이들은 Musterrolle 모듈로 옮겨 갈 대상이다. 쓰는 앱이 아직 없는 선행 코드도 있다. 웹 콘솔 화면 부품 `packages/ui`, `packages/contracts`의 `kollegium`(에이전트 정의·채널 연결·chat envelope) 계약과 `domain`의 기억·digest 계약이다. `domain/digest.ts`의 비용 형식(`costUsdSchema`) 하나만 `/v1/limits`가 이미 쓴다.
 
 - **control host**(`apps/control-host`)가 세션 런타임의 제어 영역이다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
