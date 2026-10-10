@@ -3,7 +3,7 @@ import {
   formatSurfaceRef,
   sessionLinkSchema,
   surfaceBindingSchema,
-} from "../kollegium/surfaces.ts";
+} from "../kollegium/index.ts";
 import { MEMORY_VISIBILITY_VALUES, memoryRecordSchema } from "./memory.ts";
 
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000e1";
