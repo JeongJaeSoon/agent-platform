@@ -11,7 +11,7 @@ import type {
   TurnDetail,
   TurnSummary,
 } from "@agent-platform/contracts";
-import type { Principal } from "../authorization/policy.ts";
+import type { Principal } from "../musterrolle/policy.ts";
 
 // Checked inside the acceptance transaction, after an idempotent replay has
 // been answered: a replay is never refused for a limit.

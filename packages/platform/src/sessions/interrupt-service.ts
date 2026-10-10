@@ -2,10 +2,7 @@ import type {
   ControlAcceptedResponse,
   InterruptSessionRequest,
 } from "@agent-platform/contracts";
-import type {
-  AuthorizationPolicy,
-  Principal,
-} from "../authorization/policy.ts";
+import type { AuthorizationPolicy, Principal } from "../musterrolle/policy.ts";
 import type { TurnInterrupts } from "../ports/turn-interrupts.ts";
 import { TERMINATE_DEADLINE_MS } from "../scheduler/session-scheduler.ts";
 import {

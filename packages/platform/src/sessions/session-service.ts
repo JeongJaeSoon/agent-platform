@@ -21,15 +21,15 @@ import type {
   TerminateSessionResponse,
   TurnDetail,
 } from "@agent-platform/contracts";
-import type {
-  AuthorizationPolicy,
-  Principal,
-  SessionAction,
-} from "../authorization/policy.ts";
 import {
   budgetExceeded,
   type SessionSpend,
 } from "../limits/installation-limits.ts";
+import type {
+  AuthorizationPolicy,
+  Principal,
+  SessionAction,
+} from "../musterrolle/policy.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
   EventPage,

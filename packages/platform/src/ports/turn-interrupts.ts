@@ -1,5 +1,5 @@
 import type { ControlAcceptedResponse } from "@agent-platform/contracts";
-import type { Principal } from "../authorization/policy.ts";
+import type { Principal } from "../musterrolle/policy.ts";
 
 export type InterruptTurnInput = {
   principal: Principal;
