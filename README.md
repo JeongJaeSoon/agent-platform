@@ -1,8 +1,8 @@
 # Agent Platform
 
-이 저장소의 코드는 Werft의 세션 런타임 층과 그 공개 `/v1` API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. 에이전트 정의·런치·호출 채널을 맡는 Kollegium과 세션 연결·협업을 맡는 Lotse는 이 위에 올릴 다음 단계 모듈이다. 일부 선행 계약 말고는 아직 동작하는 구현이 없다.
+이 저장소의 코드는 Werft의 Kiel 모듈(세션 런타임)과 그 공개 `/v1` 세션 API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. Werft의 다른 모듈과 개발 순서는 아래 이름 범위 문단에 있다.
 
-이름 범위: 제품 이름은 Agent Platform이고 저장소 이름은 agent-platform이다. Werft는 에이전트 기반 전체를 묶는 이름이고, 그 아래에 세 층이 있다. Kollegium은 에이전트 정의·버전·런치와 웹·API·Slack 호출 채널, Lotse는 세션 연결과 협업, 세션 런타임은 격리 실행·제어·승인·복구를 맡는다.
+이름 범위: 제품 이름은 Agent Platform이고 저장소 이름은 agent-platform이다. Werft는 Agent Platform을 이루는 에이전트 기반 전체의 설계상 이름이고, 제품 이름을 대신하지 않는다. Werft는 네 모듈로 나뉜다. Musterrolle은 사용자·로그인·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. 지금 구현된 모듈은 Kiel이고, 나머지는 Musterrolle → Kollegium → Lotse 순서로 Kiel 위에 만든다. 지금 있는 `/v1` API는 세션을 직접 다루는 Kiel의 API이고, Kollegium의 API 채널은 앞으로 만들 에이전트 호출 입구다. 외부 도구는 Werft 밖의 remote MCP server에 연결해 쓴다.
 
 ## 현재 상태
 
