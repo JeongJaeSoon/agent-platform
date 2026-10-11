@@ -10,8 +10,11 @@ import {
   type Caller,
   type CatalogProfile,
   callerFor,
+  cardContentSha256,
   createAgentService,
   createAuthorizationPolicy,
+  deriveReleaseId,
+  resolveReleaseContent,
   type SessionCatalog,
   SessionServiceError,
 } from "@agent-platform/platform";
@@ -712,7 +715,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       { version_id: v2.id, runtime_profile_id: "coding" },
     );
     expect(r2.id).not.toBe(r1.id);
-    expect(r2.policy_pins.tools.per_tool.Bash).toBe("deny");
+    expect(r2.policy_pins.tools?.per_tool.Bash).toBe("deny");
     await agentsService.activateAgent(owner, created.agent.id, {
       release_id: r2.id,
       expected_revision: 0,
@@ -727,7 +730,56 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       workspaceId,
       session?.agentReleaseId ?? "",
     );
-    expect(pinned.policy_pins.tools.per_tool.Bash).toBe("ask");
+    expect(pinned.policy_pins.tools?.per_tool.Bash).toBe("ask");
+  });
+
+  test("a release stored before tool policies still reads, verifies and activates", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const created = await newAgent(agentsService, owner, cardWith("legacy"));
+    const v1 = created.versions[0];
+    if (!v1) throw new Error("no version");
+    const resolved = resolveReleaseContent(v1.card, "coding", PROFILE);
+    if (!resolved.ok) throw new Error(resolved.error.message);
+    // What 94S-154 wrote: the same content with the `{}` placeholder.
+    const identity = {
+      ...resolved.content,
+      agent_id: created.agent.id,
+      card_sha256: cardContentSha256(v1.card),
+      policy_pins: {},
+    };
+    const legacyId = deriveReleaseId(identity);
+    await db.insert(agentReleases).values({
+      id: legacyId,
+      agentId: identity.agent_id,
+      versionId: v1.id,
+      cardSha256: identity.card_sha256,
+      runtimeProfileId: identity.runtime_profile_id,
+      profileDigest: identity.profile_digest,
+      runtimeConfigSnapshot: identity.runtime_config_snapshot,
+      effectiveTools: identity.effective_tools,
+      policyPins: {},
+      createdBy: owner.actor?.userId ?? null,
+    });
+
+    const detail = await agentsService.getAgent(owner, created.agent.id);
+    expect(detail.releases.map((release) => release.policy_pins)).toEqual([{}]);
+    expect(
+      (await agentsService.resolveRelease(workspaceId, legacyId)).policy_pins,
+    ).toEqual({});
+    await agentsService.activateAgent(owner, created.agent.id, {
+      release_id: legacyId,
+      expected_revision: -1,
+    });
+    // Releasing the same version now pins a policy, so it is another release.
+    const { release } = await agentsService.createRelease(
+      owner,
+      created.agent.id,
+      { version_id: v1.id, runtime_profile_id: "coding" },
+    );
+    expect(release.id).not.toBe(legacyId);
+    expect(release.policy_pins.tools?.per_tool).toEqual({ Read: "allow" });
   });
 
   test("members and API keys cannot manage agents; a slug is taken once", async () => {
