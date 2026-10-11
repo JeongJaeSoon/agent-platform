@@ -438,6 +438,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       workspaceId,
       keyId: bound.key.id,
       receiptId: randomUUID(),
+      revokerRoles: SERVICE_ISSUERS,
     });
     expect(revoked).toMatchObject({ outcome: "revoked" });
     expect(
@@ -446,12 +447,17 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         workspaceId,
         keyId: bound.key.id,
         receiptId: randomUUID(),
+        revokerRoles: SERVICE_ISSUERS,
       }),
     ).toMatchObject({ outcome: "already_revoked" });
     expect(await read(pinned)).toBe("disabled");
 
     const written = await db
-      .select({ operation: receipts.operation, result: receipts.result })
+      .select({
+        operation: receipts.operation,
+        result: receipts.result,
+        requestId: receipts.requestId,
+      })
       .from(receipts)
       .where(
         and(
@@ -465,6 +471,11 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     expect(written.map((row) => row.operation).sort()).toEqual([
       "create_api_key",
       "revoke_api_key",
+    ]);
+    // Joins each receipt to the decision that let it through.
+    expect(written.map((row) => row.requestId)).toEqual([
+      member.requestId,
+      member.requestId,
     ]);
     expect(JSON.stringify(written)).not.toContain("csp_");
   });
@@ -552,5 +563,19 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       50,
     );
     expect(listed.map((key) => key.id)).toEqual([bound.key.id]);
+
+    if (workspaceWide.outcome !== "issued") throw new Error("not issued");
+    const revoke = (keyId: string) =>
+      store.revoke({
+        principal: demoted,
+        workspaceId,
+        keyId,
+        receiptId: randomUUID(),
+        revokerRoles: SERVICE_ISSUERS,
+      });
+    expect(await revoke(workspaceWide.key.id)).toEqual({
+      outcome: "outranked",
+    });
+    expect(await revoke(bound.key.id)).toMatchObject({ outcome: "revoked" });
   });
 });

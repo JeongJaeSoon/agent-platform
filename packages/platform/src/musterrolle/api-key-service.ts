@@ -29,6 +29,14 @@ import {
 
 const NOT_FOUND = () =>
   new SessionServiceError("NOT_FOUND", "Resource not found");
+// The caller's role fell between the decision and the write.
+const OUTRANKED = () =>
+  new SessionServiceError(
+    "FORBIDDEN",
+    "The caller no longer holds this right",
+    undefined,
+    { reason_code: "role" },
+  );
 const ACTOR_INACTIVE = () =>
   new SessionServiceError(
     "FORBIDDEN",
@@ -147,14 +155,8 @@ export function createApiKeyService(deps: {
           break;
         case "actor_inactive":
           throw ACTOR_INACTIVE();
-        // The issuer's role fell between the decision and the write.
         case "outranked":
-          throw new SessionServiceError(
-            "FORBIDDEN",
-            "The issuer no longer holds this right",
-            undefined,
-            { reason_code: "role" },
-          );
+          throw OUTRANKED();
         case "scope_not_grantable":
           throw new SessionServiceError(
             "SCOPE_NOT_GRANTABLE",
@@ -201,12 +203,15 @@ export function createApiKeyService(deps: {
         workspaceId: caller.ownerId,
         keyId: key.id,
         receiptId,
+        revokerRoles: MANAGEMENT_ROLES[action] ?? [],
       });
       switch (result.outcome) {
         case "not_found":
           throw NOT_FOUND();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
         case "already_revoked":
           return { key: viewOf(result.key), receipt_id: null };
         default:
