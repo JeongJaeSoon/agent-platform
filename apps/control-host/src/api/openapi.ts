@@ -7,6 +7,7 @@ import {
   activationCredentialUnboundDetailsSchema,
   addAgentAdminRequestSchema,
   addTeamMemberRequestSchema,
+  adminTerminateSessionRequestSchema,
   agentAdminChangeResponseSchema,
   agentAdminParamsSchema,
   agentAdminsViewSchema,
@@ -16,6 +17,8 @@ import {
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
+  auditReadRequestSchema,
+  auditReadResponseSchema,
   auditRetentionRequestSchema,
   auditRetentionResponseSchema,
   authMeResponseSchema,
@@ -49,6 +52,7 @@ import {
   linkAgentIdentityResponseSchema,
   linkedAccountParamsSchema,
   listAdministeredAgentsResponseSchema,
+  listAdminSessionsResponseSchema,
   listAgentIdentitiesResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
@@ -88,10 +92,13 @@ import {
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
+  sessionShareSchema,
   sessionSummarySchema,
   sessionUsageResponseSchema,
   setAccessRequestSchema,
   setAccessResponseSchema,
+  setSessionShareRequestSchema,
+  setSessionShareResponseSchema,
   slackGuestRequestSchema,
   slackGuestResponseSchema,
   slackLinkCallbackRequestSchema,
@@ -99,6 +106,7 @@ import {
   sseEventSchema,
   startGoogleLoginResponseSchema,
   startSlackLinkResponseSchema,
+  takeOverSessionRequestSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
   teamIdParamsSchema,
@@ -162,6 +170,10 @@ const requestComponents = {
   ActivateAgentRequest: activateAgentRequestSchema,
   CreateApiKeyRequest: createApiKeyRequestSchema,
   CreateTeamRequest: createTeamRequestSchema,
+  SetSessionShareRequest: setSessionShareRequestSchema,
+  AuditReadRequest: auditReadRequestSchema,
+  AdminTerminateSessionRequest: adminTerminateSessionRequestSchema,
+  TakeOverSessionRequest: takeOverSessionRequestSchema,
   UpdateTeamRequest: updateTeamRequestSchema,
   AddTeamMemberRequest: addTeamMemberRequestSchema,
   AddAgentAdminRequest: addAgentAdminRequestSchema,
@@ -184,6 +196,10 @@ const responseComponents = {
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
   ListTakeoversResponse: listTakeoversResponseSchema,
+  SessionShare: sessionShareSchema,
+  SetSessionShareResponse: setSessionShareResponseSchema,
+  AuditReadResponse: auditReadResponseSchema,
+  ListAdminSessionsResponse: listAdminSessionsResponseSchema,
   StartSlackLinkResponse: startSlackLinkResponseSchema,
   SlackLinkCallbackResponse: slackLinkCallbackResponseSchema,
   ListLinkedAccountsResponse: listLinkedAccountsResponseSchema,
@@ -658,6 +674,109 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/sessions/{id}/share",
+    operationId: "getSessionShare",
+    tag: "Sessions",
+    summary: "Who sees the session",
+    description:
+      "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0.",
+    scope: "read",
+    success: { status: 200, schema: "SessionShare" },
+    errors: [401, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/share",
+    operationId: "setSessionShare",
+    tag: "Sessions",
+    summary: "Change who sees the session",
+    description:
+      "`private` is the creator alone; `people` and `team` add the people or the current members of the teams named; `workspace` is every member. A person's session is changed only by its creator; a session an API key made, by owners, admins and the admins of its agent. Anyone else the session is visible to gets 403; anyone it is not visible to, 404. Open event streams that may no longer see the session end. Writes a `share_session` receipt unless the share was already as asked (`receipt_id` null).",
+    auth: "session",
+    body: "SetSessionShareRequest",
+    success: { status: 200, schema: "SetSessionShareResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/audit-read",
+    operationId: "auditReadSession",
+    tag: "Sessions",
+    summary: "Read a session outside its share, with a reason",
+    description:
+      "Owners and admins. The session detail and a page of its turns, whatever the share; nothing on the session changes and no other action is opened by it. Every read is recorded with its `justification`.",
+    auth: "session",
+    body: "AuditReadRequest",
+    success: { status: 200, schema: "AuditReadResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/admin/sessions",
+    operationId: "listAdminSessions",
+    tag: "Sessions",
+    summary: "Every session of the workspace, metadata only",
+    description:
+      "Owners and admins. Who made each session, its agent release, state and share scope, newest first; no content, title or summary.",
+    auth: "session",
+    success: { status: 200, schema: "ListAdminSessionsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/admin/sessions/{id}/terminate",
+    operationId: "adminTerminateSession",
+    tag: "Session control",
+    summary: "Stop any session of the workspace, with a reason",
+    description:
+      "Owners and admins, whatever the session's share. The `justification` is recorded with the decision and becomes the stop reason. Otherwise as `POST /v1/sessions/{id}/terminate`.",
+    auth: "session",
+    body: "AdminTerminateSessionRequest",
+    success: { status: 202, schema: "TerminateSessionResponse" },
+    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+      ],
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/admin/sessions/{id}/recovery-decisions",
+    operationId: "adminDecideSessionRecovery",
+    tag: "Recovery",
+    summary: "Decide recovery for any session of the workspace",
+    description:
+      "Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.",
+    auth: "session",
+    body: "RecoveryDecisionRequest",
+    success: { status: 202, schema: "ReceiptAcceptedResponse" },
+    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "REQUEST_STALE",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+    },
+  },
+  {
+    method: "get",
     path: "/v1/sessions/{id}/usage",
     operationId: "getSessionUsage",
     tag: "Sessions",
@@ -1082,10 +1201,11 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Become the requester of an offboarded member's session",
     description:
-      "The caller becomes the session's requester and its queued input runs again. API keys are refused.",
+      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
     auth: "session",
+    body: "TakeOverSessionRequest",
     success: { status: 200, schema: "ReceiptAcceptedResponse" },
-    errors: [401, 403, 404, 409, 503],
+    errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["REQUEST_STALE"] },
     idempotent: false,
   },
@@ -1690,7 +1810,12 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
-  if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
+  if (
+    path.startsWith("/v1/sessions/{id}") ||
+    path.startsWith("/v1/admin/sessions/{id}")
+  ) {
+    return sessionIdParamsSchema;
+  }
   if (path.startsWith("/v1/linked-accounts/{id}"))
     return linkedAccountParamsSchema;
   throw new Error(`No params schema registered for ${path}`);

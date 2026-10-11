@@ -37,6 +37,8 @@ const NOTICE_FOR: Record<
   guest_disabled: "guestDisabled",
   external_user: "membersOnly",
   not_found: "outOfShare",
+  // Slack has no field for a reason, so a reason-gated action is out of reach.
+  justification_required: "noRight",
   credential_unbound: "credentialUnbound",
   no_requester: "failed",
   error: "failed",

@@ -341,6 +341,13 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "session.approve",
   "session.control",
   "session.recover",
+  // Changing who sees a session: its creator, or for a key's session the
+  // workspace's managers and the agent's admins (D21).
+  "session.share",
+  // Reading a session outside its share, read-only and with a reason (D22).
+  "session.audit_read",
+  // Every session's metadata, none of its content (design 4.6).
+  "session.admin_list",
   "memory.read",
   "memory.write",
   "artifact.read",
@@ -383,6 +390,9 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.approve": new Set(["session", "session_link"]),
   "session.control": new Set(["session", "session_link"]),
   "session.recover": new Set(["session"]),
+  "session.share": new Set(["session"]),
+  "session.audit_read": new Set(["session"]),
+  "session.admin_list": new Set(["workspace"]),
   "memory.read": new Set(["workspace", "agent", "memory"]),
   "memory.write": new Set(["workspace", "agent", "memory"]),
   "artifact.read": new Set(["artifact", "session"]),
@@ -514,6 +524,9 @@ export const AUTHORIZATION_REASON_VALUES = [
   // A Slack Connect user from another organization, whatever the guest
   // setting says: they are no member of this workspace to link.
   "external_user",
+  // An audit read, or a manager's action on a session outside its share,
+  // that gave no reason.
+  "justification_required",
   // Fail-closed: a throw, a storage error, a malformed request or an
   // action/resource pair the policy has no rule for.
   "error",

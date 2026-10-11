@@ -87,7 +87,12 @@ const entryPoints: [
   [
     "terminateSession",
     "session.control",
-    (s, actor) => s.sessions.terminateSession(actor, id, input),
+    // `input` answers every property; a justification would ride along.
+    (s, actor) =>
+      s.sessions.terminateSession(actor, id, {
+        idempotencyKey: "key-1",
+        body: input,
+      }),
   ],
   [
     "pauseSession",
@@ -102,7 +107,11 @@ const entryPoints: [
   [
     "decideRecovery",
     "session.recover",
-    (s, actor) => s.sessions.decideRecovery(actor, id, input),
+    (s, actor) =>
+      s.sessions.decideRecovery(actor, id, {
+        idempotencyKey: "key-1",
+        body: input,
+      }),
   ],
   [
     "listSessions",
@@ -283,7 +292,7 @@ describe("authorize", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: without("sessions:recover"),
-      policy_version: "m14",
+      policy_version: "m15",
     });
   });
 
@@ -891,7 +900,7 @@ describe("decision log", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: [],
-      policy_version: "m14",
+      policy_version: "m15",
       decision_id: crypto.randomUUID(),
     };
     expect(

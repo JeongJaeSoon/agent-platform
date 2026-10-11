@@ -46,6 +46,12 @@ describe("slackNoticeFor", () => {
     ],
     ["not_found", "session.approve", SLACK_NOTICE_MESSAGES.outOfShare, false],
     [
+      "justification_required",
+      "session.read",
+      SLACK_NOTICE_MESSAGES.noRequestRight,
+      false,
+    ],
+    [
       "credential_unbound",
       "session.submit",
       SLACK_NOTICE_MESSAGES.credentialUnbound,

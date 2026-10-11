@@ -13,6 +13,7 @@ import type {
   MemberService,
   PendingRequestService,
   SessionService,
+  SessionShareService,
   TeamService,
   UsageService,
 } from "@agent-platform/platform";
@@ -36,6 +37,7 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -70,6 +72,11 @@ function apiApp() {
       registerAuthRoutes(router, auth);
       registerInviteRoutes(router, {} as InviteService);
       registerSessionRoutes(router, {} as SessionService);
+      registerSessionShareRoutes(
+        router,
+        {} as SessionShareService,
+        {} as SessionService,
+      );
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
       registerInterruptRoutes(router, {} as InterruptService);

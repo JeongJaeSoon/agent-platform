@@ -90,6 +90,8 @@ describe("database schema", () => {
       "pull_requests",
       "queue_messages",
       "receipts",
+      "session_share_targets",
+      "session_shares",
       "sessions",
       "slack_installations",
       "storage_usage",
