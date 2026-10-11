@@ -47,6 +47,11 @@ export const RECEIPT_OPERATION_VALUES = [
   "accept_invite",
   "revoke_invite",
   "change_member_role",
+  // Turning a membership or a whole account off and back on (94S-464).
+  "disable_member",
+  "enable_member",
+  "disable_user",
+  "enable_user",
   "create_agent",
   "update_agent",
   "create_agent_release",

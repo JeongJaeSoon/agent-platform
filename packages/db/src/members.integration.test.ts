@@ -277,14 +277,51 @@ integration("members, identity and takeover on PostgreSQL", () => {
     throw new Error("the write never waited on the membership");
   }
 
+  function setAccess(
+    workspaceId: string,
+    actingUserId: string,
+    userId: string,
+    change: {
+      scope?: "membership" | "account";
+      disabled?: boolean;
+      reason?: string | null;
+    } = {},
+  ) {
+    return createPostgresMemberStore(db).setAccess({
+      actor: {
+        principal: { ...asUser(workspaceId, actingUserId), requestId: "req-1" },
+        workspaceId,
+        userId: actingUserId,
+      },
+      userId,
+      scope: change.scope ?? "membership",
+      disabled: change.disabled ?? true,
+      reason: change.reason ?? null,
+      receiptId: randomUUID(),
+    });
+  }
+
   // Offboarding as a fresh owner of the workspace.
   async function offboardBy(workspaceId: string, userId: string) {
-    const actingUserId = await member(workspaceId, "owner");
-    return createPostgresMemberStore(db).offboard({
-      workspaceId,
-      userId,
-      actingUserId,
-    });
+    return setAccess(workspaceId, await member(workspaceId, "owner"), userId);
+  }
+
+  async function membershipDisabledAt(ws: string, userId: string) {
+    const [row] = await db
+      .select({ disabledAt: memberships.disabledAt })
+      .from(memberships)
+      .where(
+        and(eq(memberships.workspaceId, ws), eq(memberships.userId, userId)),
+      );
+    return row?.disabledAt;
+  }
+
+  async function cookieRevoked(id: string) {
+    const [row] = await db
+      .select({ revokedAt: webSessions.revokedAt })
+      .from(webSessions)
+      .where(eq(webSessions.id, id));
+    return row?.revokedAt !== null;
   }
 
   describe("who acts is recorded", () => {
@@ -443,6 +480,27 @@ integration("members, identity and takeover on PostgreSQL", () => {
       expect(await appending).toEqual({ outcome: "actor_inactive" });
     });
 
+    test("a message sent while the account is suspended is refused", async () => {
+      const ws = await workspace();
+      const leaver = await member(ws, "member");
+      const created = await createSession(asUser(ws, leaver));
+      const client = await pool.connect();
+      await client.query("BEGIN");
+      // An account suspension's order: the user row, then its memberships.
+      await client.query("UPDATE users SET disabled_at = now() WHERE id = $1", [
+        leaver,
+      ]);
+      await client.query(
+        "SELECT 1 FROM memberships WHERE user_id = $1 FOR UPDATE",
+        [leaver],
+      );
+      const appending = append(asUser(ws, leaver), created.session_id);
+      await lockWaiter();
+      await client.query("COMMIT");
+      client.release();
+      expect(await appending).toEqual({ outcome: "actor_inactive" });
+    });
+
     test("one transaction disables the member, ends their web sessions and personal keys, and marks what they asked for", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");
@@ -455,11 +513,15 @@ integration("members, identity and takeover on PostgreSQL", () => {
       const ownersOwn = await createSession(asUser(ws, owner));
 
       const result = await offboardBy(ws, leaver);
-      expect(result).toEqual({
-        outcome: "offboarded",
-        revokedWebSessions: 1,
-        revokedPersonalKeys: 1,
-        sessionsAwaitingTakeover: 1,
+      expect(result).toMatchObject({
+        outcome: "changed",
+        member: { userId: leaver, disabledAt: expect.any(Date) },
+        effects: {
+          disabled: true,
+          revokedWebSessions: 1,
+          revokedPersonalKeys: 1,
+          sessionsAwaitingTakeover: 1,
+        },
       });
 
       const [membership] = await db
@@ -498,7 +560,9 @@ integration("members, identity and takeover on PostgreSQL", () => {
         (await sessionRow(ownersOwn.session_id)).takeoverRequiredAt,
       ).toBeNull();
 
-      expect(await offboardBy(ws, leaver)).toEqual({ outcome: "not_found" });
+      expect(await offboardBy(ws, leaver)).toMatchObject({
+        outcome: "unchanged",
+      });
     });
 
     test("two owners offboarding each other leave one owner standing", async () => {
@@ -507,11 +571,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
       const second = await member(ws, "owner");
       // The first owner's offboarding of the second is under way.
       const commit = await offboardingInFlight(ws, second);
-      const reverse = createPostgresMemberStore(db).offboard({
-        workspaceId: ws,
-        userId: first,
-        actingUserId: second,
-      });
+      const reverse = setAccess(ws, second, first);
       await lockWaiter();
       await commit();
       expect(await reverse).toEqual({ outcome: "actor_inactive" });
@@ -559,6 +619,290 @@ integration("members, identity and takeover on PostgreSQL", () => {
       expect(await reader().reread(keySubject(personal, ws))).toEqual({
         status: "disabled",
       });
+    });
+  });
+
+  describe("disabling and enabling", () => {
+    test("each change leaves a receipt naming its actor, target, request and reason; a no-op leaves none", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const target = await member(ws, "member");
+      const off = await setAccess(ws, owner, target, { reason: "left" });
+      if (off.outcome !== "changed") throw new Error(off.outcome);
+      const receipt = await receiptRow(off.receiptId);
+      expect(receipt).toMatchObject({
+        ownerId: ws,
+        operation: "disable_member",
+        requestId: "req-1",
+        status: "succeeded",
+        targetRef: { user_id: target, workspace_id: ws },
+        actor: {
+          principal: { kind: "user", id: owner },
+          actor_user_id: owner,
+          agent_id: null,
+        },
+        result: {
+          reason: "left",
+          revoked_web_sessions: 0,
+          revoked_personal_keys: 0,
+          sessions_awaiting_takeover: 0,
+        },
+      });
+      const before = await db.$count(receipts);
+      expect(await setAccess(ws, owner, target)).toMatchObject({
+        outcome: "unchanged",
+      });
+      expect(await db.$count(receipts)).toBe(before);
+
+      const on = await setAccess(ws, owner, target, { disabled: false });
+      if (on.outcome !== "changed") throw new Error(on.outcome);
+      expect(await receiptRow(on.receiptId)).toMatchObject({
+        operation: "enable_member",
+        result: { reason: null, sessions_released: 0 },
+      });
+      for (const [disabled, operation] of [
+        [true, "disable_user"],
+        [false, "enable_user"],
+      ] as const) {
+        const done = await setAccess(ws, owner, target, {
+          scope: "account",
+          disabled,
+        });
+        if (done.outcome !== "changed") throw new Error(done.outcome);
+        expect((await receiptRow(done.receiptId)).operation).toBe(operation);
+      }
+    });
+
+    test("enabling brings back neither the cookie nor the personal key, but hands back sessions nobody took over", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const target = await member(ws, "member");
+      const cookie = await webSession(target);
+      const personal = await key(ws, { personalFor: target });
+      const asked = await createSession(asUser(ws, target));
+      await setAccess(ws, owner, target);
+
+      const on = await setAccess(ws, owner, target, { disabled: false });
+      expect(on).toMatchObject({
+        outcome: "changed",
+        member: { userId: target, disabledAt: null },
+        effects: { disabled: false, sessionsReleased: 1 },
+      });
+      expect(await membershipDisabledAt(ws, target)).toBeNull();
+      expect(await cookieRevoked(cookie)).toBe(true);
+      expect(await reader().reread(keySubject(personal, ws))).toEqual({
+        status: "disabled",
+      });
+      expect(await reader().reread(userSubject(target, ws))).toMatchObject({
+        status: "ok",
+      });
+      expect(
+        (await sessionRow(asked.session_id)).takeoverRequiredAt,
+      ).toBeNull();
+    });
+
+    test("a session stays parked while the account is still disabled", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const target = await member(ws, "member");
+      const asked = await createSession(asUser(ws, target));
+      await setAccess(ws, owner, target);
+      await setAccess(ws, owner, target, { scope: "account" });
+      expect(
+        await setAccess(ws, owner, target, { disabled: false }),
+      ).toMatchObject({ effects: { sessionsReleased: 0 } });
+      expect(
+        (await sessionRow(asked.session_id)).takeoverRequiredAt,
+      ).not.toBeNull();
+      expect(
+        await setAccess(ws, owner, target, {
+          scope: "account",
+          disabled: false,
+        }),
+      ).toMatchObject({ effects: { sessionsReleased: 1 } });
+    });
+
+    test("enabling one membership hands back only that workspace's sessions", async () => {
+      const ws = await workspace();
+      const other = await workspace();
+      const owner = await member(ws, "owner");
+      const otherOwner = await member(other, "owner");
+      const target = await member(ws, "member");
+      await db
+        .insert(memberships)
+        .values({ workspaceId: other, userId: target, role: "member" });
+      const here = await createSession(asUser(ws, target));
+      const there = await createSession(asUser(other, target));
+      await setAccess(ws, owner, target);
+      await setAccess(other, otherOwner, target);
+      // Live again there without a release, as an accepted invite leaves it.
+      await db
+        .update(memberships)
+        .set({ disabledAt: null })
+        .where(
+          and(
+            eq(memberships.workspaceId, other),
+            eq(memberships.userId, target),
+          ),
+        );
+      expect(
+        await setAccess(ws, owner, target, { disabled: false }),
+      ).toMatchObject({ effects: { sessionsReleased: 1 } });
+      expect((await sessionRow(here.session_id)).takeoverRequiredAt).toBeNull();
+      expect(
+        (await sessionRow(there.session_id)).takeoverRequiredAt,
+      ).not.toBeNull();
+    });
+
+    test("the only live owner cannot be turned off", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      expect(await setAccess(ws, owner, owner)).toEqual({
+        outcome: "last_owner",
+      });
+      expect(await membershipDisabledAt(ws, owner)).toBeNull();
+    });
+
+    test("a member, a disabled owner and a stranger's workspace are refused", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const plain = await member(ws, "member");
+      const target = await member(ws, "member");
+      expect(await setAccess(ws, plain, target)).toEqual({
+        outcome: "actor_inactive",
+      });
+      const other = await workspace();
+      const stranger = await member(other, "member");
+      for (const scope of ["membership", "account"] as const) {
+        expect(await setAccess(ws, owner, stranger, { scope })).toEqual({
+          outcome: "not_found",
+        });
+      }
+      const gone = await member(ws, "owner");
+      await setAccess(ws, owner, gone, { scope: "account" });
+      expect(await setAccess(ws, gone, target)).toEqual({
+        outcome: "actor_inactive",
+      });
+    });
+
+    test("an admin manages members but never an owner", async () => {
+      // The admin role arrives with M4's migration; this database stands in.
+      await pool.query(
+        "ALTER TABLE memberships DROP CONSTRAINT IF EXISTS memberships_role_check",
+      );
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const admin = await member(ws, "member");
+      await db
+        .update(memberships)
+        .set({ role: "admin" })
+        .where(
+          and(eq(memberships.workspaceId, ws), eq(memberships.userId, admin)),
+        );
+      const target = await member(ws, "member");
+      for (const scope of ["membership", "account"] as const) {
+        expect(await setAccess(ws, admin, target, { scope })).toMatchObject({
+          outcome: "changed",
+        });
+        expect(await setAccess(ws, admin, owner, { scope })).toEqual({
+          outcome: "outranked",
+        });
+      }
+      expect(await setAccess(ws, owner, admin)).toMatchObject({
+        outcome: "changed",
+      });
+      expect(await setAccess(ws, admin, target)).toEqual({
+        outcome: "actor_inactive",
+      });
+    });
+
+    test("an account in a workspace the actor does not own is refused; one in two they own is cut off in both", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const target = await member(ws, "member");
+      const other = await workspace();
+      await db
+        .insert(memberships)
+        .values({ workspaceId: other, userId: target, role: "member" });
+      const cookie = await webSession(target);
+      expect(await setAccess(ws, owner, target, { scope: "account" })).toEqual({
+        outcome: "elsewhere",
+      });
+      expect(await cookieRevoked(cookie)).toBe(false);
+
+      // An owner there too, the account is theirs to stop.
+      await db
+        .insert(memberships)
+        .values({ workspaceId: other, userId: owner, role: "owner" });
+      const here = await key(ws, { personalFor: target });
+      const there = await key(other, { personalFor: target });
+      const asked = await createSession(asUser(other, target));
+      expect(
+        await setAccess(ws, owner, target, { scope: "account" }),
+      ).toMatchObject({
+        outcome: "changed",
+        member: { disabledAt: expect.any(Date) },
+        effects: {
+          revokedWebSessions: 1,
+          revokedPersonalKeys: 2,
+          sessionsAwaitingTakeover: 1,
+        },
+      });
+      const [account] = await db
+        .select({ disabledAt: users.disabledAt })
+        .from(users)
+        .where(eq(users.id, target));
+      expect(account?.disabledAt).not.toBeNull();
+      expect(await membershipDisabledAt(ws, target)).toBeNull();
+      for (const [keyId, keyWs] of [
+        [here, ws],
+        [there, other],
+      ] as const) {
+        expect(await reader().reread(keySubject(keyId, keyWs))).toEqual({
+          status: "disabled",
+        });
+      }
+      expect(
+        (await sessionRow(asked.session_id)).takeoverRequiredAt,
+      ).not.toBeNull();
+      // A disabled membership elsewhere does not count against the actor.
+      const third = await workspace();
+      await db.insert(memberships).values({
+        workspaceId: third,
+        userId: target,
+        role: "member",
+        disabledAt: new Date(),
+      });
+      expect(
+        await setAccess(ws, owner, target, {
+          scope: "account",
+          disabled: false,
+        }),
+      ).toMatchObject({ outcome: "changed" });
+    });
+
+    test("an account turned off while its owner disables someone stops that write", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const other = await member(ws, "owner");
+      const target = await member(ws, "member");
+      const client = await pool.connect();
+      await client.query("BEGIN");
+      // An account disable's own order: the user, then their memberships.
+      await client.query("UPDATE users SET disabled_at = now() WHERE id = $1", [
+        owner,
+      ]);
+      await client.query(
+        "SELECT 1 FROM memberships WHERE user_id = $1 FOR UPDATE",
+        [owner],
+      );
+      const writing = setAccess(ws, owner, target);
+      await lockWaiter();
+      await client.query("COMMIT");
+      client.release();
+      expect(await writing).toEqual({ outcome: "actor_inactive" });
+      expect(await membershipDisabledAt(ws, target)).toBeNull();
+      expect(other).toBeDefined();
     });
   });
 

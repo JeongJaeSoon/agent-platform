@@ -61,6 +61,8 @@ import {
   sessionIdParamsSchema,
   sessionSummarySchema,
   sessionUsageResponseSchema,
+  setAccessRequestSchema,
+  setAccessResponseSchema,
   sseEventSchema,
   startGoogleLoginResponseSchema,
   terminateSessionRequestSchema,
@@ -100,6 +102,7 @@ const requestComponents = {
   CreateInviteRequest: createInviteRequestSchema,
   AcceptInviteRequest: acceptInviteRequestSchema,
   UpdateMemberRequest: updateMemberRequestSchema,
+  SetAccessRequest: setAccessRequestSchema,
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   CreateAgentRequest: createAgentRequestSchema,
@@ -129,6 +132,7 @@ const responseComponents = {
   AcceptInviteResponse: acceptInviteResponseSchema,
   ListMembersResponse: listMembersResponseSchema,
   MemberView: memberViewSchema,
+  SetAccessResponse: setAccessResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
@@ -745,6 +749,64 @@ const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/members/{user_id}/disable",
+    operationId: "disableMember",
+    tag: "Members",
+    summary: "Disable a member of the workspace",
+    description:
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["LAST_OWNER"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/members/{user_id}/enable",
+    operationId: "enableMember",
+    tag: "Members",
+    summary: "Enable a disabled member again",
+    description:
+      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/users/{user_id}/disable",
+    operationId: "disableUser",
+    tag: "Members",
+    summary: "Suspend an account",
+    description:
+      "Allowed only when every live membership of the account is in a workspace the caller owns; otherwise 403. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["LAST_OWNER"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/users/{user_id}/enable",
+    operationId: "enableUser",
+    tag: "Members",
+    summary: "Lift an account suspension",
+    description:
+      "The same ownership rule as suspending. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
     method: "get",
     path: "/v1/takeovers",
     operationId: "listTakeovers",
@@ -976,7 +1038,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path === "/v1/invites/{id}") return inviteIdParamsSchema;
-  if (path === "/v1/members/{user_id}") return memberUserParamsSchema;
+  if (path.startsWith("/v1/members/{user_id}")) return memberUserParamsSchema;
+  if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;

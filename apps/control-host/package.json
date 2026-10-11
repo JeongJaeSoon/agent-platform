@@ -12,7 +12,6 @@
     "reconciler": "bun run src/main.ts reconciler --once",
     "keys": "bun run src/api/keys.ts",
     "grants": "bun run src/api/grants.ts",
-    "members": "bun run src/api/members.ts",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },

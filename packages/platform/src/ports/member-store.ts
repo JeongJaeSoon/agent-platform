@@ -1,14 +1,33 @@
 import type { SessionStatus } from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
+import type { ActingOwner, MemberRecord } from "./identity-store.ts";
 
-export type OffboardResult =
+/** A workspace membership, or the account across every workspace. */
+export type AccessScope = "membership" | "account";
+
+export type AccessEffects =
   | {
-      outcome: "offboarded";
+      disabled: true;
       revokedWebSessions: number;
       revokedPersonalKeys: number;
       sessionsAwaitingTakeover: number;
     }
+  | { disabled: false; sessionsReleased: number };
+
+export type SetAccessResult =
+  | {
+      outcome: "changed";
+      member: MemberRecord;
+      receiptId: string;
+      effects: AccessEffects;
+    }
+  | { outcome: "unchanged"; member: MemberRecord }
   | { outcome: "not_found" }
+  | { outcome: "last_owner" }
+  /** The account also belongs to a workspace the actor does not manage. */
+  | { outcome: "elsewhere" }
+  /** The target is an owner where the actor is not. */
+  | { outcome: "outranked" }
   | { outcome: "actor_inactive" };
 
 export type TakeoverRecord = {
@@ -27,16 +46,21 @@ export type TakeOverResult =
 
 export interface MemberStore {
   /**
-   * In one transaction: the membership disabled, every web session of the
-   * user revoked, their personal keys in the workspace revoked, and every
-   * open session they asked for marked as awaiting takeover.
+   * Disabling, in one transaction with its receipt: the membership (or the
+   * account) disabled, every web session of the user revoked, their personal
+   * keys revoked, and every open session they asked for marked as awaiting
+   * takeover. Enabling restores none of the sessions or keys; it only
+   * releases the sessions still waiting for them. The actor is re-checked as
+   * a member manager under the same locks.
    */
-  offboard(input: {
-    workspaceId: string;
+  setAccess(input: {
+    actor: ActingOwner;
     userId: string;
-    /** Re-checked as a live owner under the same locks. */
-    actingUserId: string;
-  }): Promise<OffboardResult>;
+    scope: AccessScope;
+    disabled: boolean;
+    reason: string | null;
+    receiptId: string;
+  }): Promise<SetAccessResult>;
   listAwaitingTakeover(
     workspaceId: string,
     limit: number,

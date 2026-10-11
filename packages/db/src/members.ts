@@ -2,105 +2,281 @@ import { randomUUID } from "node:crypto";
 import type { SessionStatus } from "@agent-platform/contracts";
 import type {
   MemberStore,
-  OffboardResult,
+  SetAccessResult,
   TakeOverResult,
   TakeoverRecord,
 } from "@agent-platform/platform";
-import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { memberColumns, memberRecord } from "./invites.ts";
 import type { Database } from "./queries.ts";
 import {
   apiKeys,
   memberships,
   receipts,
   sessions,
+  users,
   webSessions,
 } from "./schema.ts";
 
 const TAKEOVER = "takeover";
 
-async function offboard(
+type SetAccessInput = Parameters<MemberStore["setAccess"]>[0];
+
+// Roles that hold member.manage; which of them may act is the policy's call,
+// this only re-checks it under the locks.
+const MANAGERS: ReadonlySet<string> = new Set(["owner", "admin"]);
+
+const OPERATIONS = {
+  membership: { true: "disable_member", false: "enable_member" },
+  account: { true: "disable_user", false: "enable_user" },
+} as const;
+
+// Every web session of the user ends, whichever scope: a cookie resolves to
+// the oldest live membership, so one kept alive could carry on elsewhere.
+// `workspaceId` null means every workspace the account is in.
+async function cutOff(
+  tx: Database,
+  userId: string,
+  workspaceId: string | null,
+) {
+  const inWorkspace = (
+    column: typeof apiKeys.workspaceId | typeof sessions.workspaceId,
+  ) => (workspaceId === null ? undefined : eq(column, workspaceId));
+  const sessionsRevoked = await tx
+    .update(webSessions)
+    .set({ revokedAt: DB_NOW })
+    .where(and(eq(webSessions.userId, userId), isNull(webSessions.revokedAt)))
+    .returning({ id: webSessions.id });
+  const keysRevoked = await tx
+    .update(apiKeys)
+    .set({ revokedAt: DB_NOW })
+    .where(
+      and(
+        eq(apiKeys.kind, "personal"),
+        eq(apiKeys.createdByUserId, userId),
+        inWorkspace(apiKeys.workspaceId),
+        isNull(apiKeys.revokedAt),
+      ),
+    )
+    .returning({ id: apiKeys.id });
+  const awaiting = await tx
+    .update(sessions)
+    .set({ takeoverRequiredAt: DB_NOW, updatedAt: new Date() })
+    .where(
+      and(
+        eq(sessions.createdByUserId, userId),
+        inWorkspace(sessions.workspaceId),
+        ne(sessions.admissionState, "closed"),
+        isNull(sessions.takeoverRequiredAt),
+      ),
+    )
+    .returning({ id: sessions.id });
+  return {
+    disabled: true as const,
+    revokedWebSessions: sessionsRevoked.length,
+    revokedPersonalKeys: keysRevoked.length,
+    sessionsAwaitingTakeover: awaiting.length,
+  };
+}
+
+// Sessions no owner has taken over yet go back to the person who asked for
+// them, wherever they are live again; the cookies and keys stay revoked. Only
+// in the workspaces whose memberships this transaction holds: elsewhere a
+// disable could commit after the liveness read below.
+async function release(
+  tx: Database,
+  userId: string,
+  workspaceId: string | null,
+) {
+  const released = await tx
+    .update(sessions)
+    .set({ takeoverRequiredAt: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(sessions.createdByUserId, userId),
+        workspaceId === null
+          ? undefined
+          : eq(sessions.workspaceId, workspaceId),
+        isNotNull(sessions.takeoverRequiredAt),
+        sql`exists (select 1 from ${memberships} join ${users} on ${users.id} = ${memberships.userId} where ${memberships.workspaceId} = ${sessions.workspaceId} and ${memberships.userId} = ${userId} and ${memberships.disabledAt} is null and ${users.disabledAt} is null)`,
+      ),
+    )
+    .returning({ id: sessions.id });
+  return { disabled: false as const, sessionsReleased: released.length };
+}
+
+async function setAccess(
   db: Database,
-  input: { workspaceId: string; userId: string; actingUserId: string },
-): Promise<OffboardResult> {
+  input: SetAccessInput,
+): Promise<SetAccessResult> {
+  const { actor, scope, disabled } = input;
   const userId = input.userId.toLowerCase();
-  const actingUserId = input.actingUserId.toLowerCase();
+  const workspaceId = actor.workspaceId;
   return db.transaction(async (tx) => {
-    // Both rows, in one order, so two owners offboarding each other queue
-    // instead of each passing a check the other is about to void.
+    // Lock order: user, then membership, then web session. The user rows
+    // come first even when only a membership changes: re-checked after a
+    // membership lock wait, a joined row is still the old snapshot's, so an
+    // account disabled meanwhile would read as live.
+    const accounts = await tx
+      .select({ id: users.id, disabledAt: users.disabledAt })
+      .from(users)
+      .where(inArray(users.id, [userId, actor.userId]))
+      .orderBy(asc(users.id))
+      .for(scope === "account" ? "update" : "share");
+    // In user_id order, as a role change and an invite take them, so two
+    // owners turning each other off queue and the second sees the first.
+    // The membership scope takes every owner row of the workspace to count
+    // them; the account scope takes both people's rows in every workspace.
     const locked = await tx
       .select({
-        userId: memberships.userId,
-        role: memberships.role,
-        disabledAt: memberships.disabledAt,
+        ...memberColumns,
+        workspaceId: memberships.workspaceId,
+        membershipDisabledAt: memberships.disabledAt,
+        userDisabledAt: users.disabledAt,
       })
       .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
       .where(
-        and(
-          eq(memberships.workspaceId, input.workspaceId),
-          inArray(memberships.userId, [userId, actingUserId]),
-        ),
+        scope === "membership"
+          ? and(
+              eq(memberships.workspaceId, workspaceId),
+              or(
+                eq(memberships.role, "owner"),
+                inArray(memberships.userId, [userId, actor.userId]),
+              ),
+            )
+          : inArray(memberships.userId, [userId, actor.userId]),
       )
-      .orderBy(asc(memberships.userId))
-      .for("update");
-    const acting = locked.find((row) => row.userId === actingUserId);
-    if (!acting || acting.disabledAt !== null || acting.role !== "owner") {
-      return { outcome: "actor_inactive" };
+      .orderBy(asc(memberships.userId), asc(memberships.workspaceId))
+      .for("update", { of: memberships });
+    const live = (row: (typeof locked)[number]) =>
+      row.membershipDisabledAt === null && row.userDisabledAt === null;
+    // The actor's role in each workspace where they may manage members.
+    const managing = new Map(
+      locked
+        .filter(
+          (row) =>
+            row.userId === actor.userId && MANAGERS.has(row.role) && live(row),
+        )
+        .map((row) => [row.workspaceId, row.role]),
+    );
+    if (!managing.has(workspaceId)) return { outcome: "actor_inactive" };
+    const target = locked.find(
+      (row) => row.userId === userId && row.workspaceId === workspaceId,
+    );
+    if (!target) return { outcome: "not_found" };
+    // Only an owner changes an owner's access, wherever the change reaches.
+    const reached = locked.filter(
+      (row) =>
+        row.userId === userId &&
+        (scope === "account"
+          ? row.membershipDisabledAt === null
+          : row.workspaceId === workspaceId),
+    );
+    const outranked = reached.some((row) => {
+      const role = managing.get(row.workspaceId);
+      return row.role === "owner" && role !== undefined && role !== "owner";
+    });
+    if (outranked) return { outcome: "outranked" };
+
+    let current: Date | null;
+    if (scope === "membership") {
+      current = target.membershipDisabledAt;
+      const otherLiveOwners = locked.filter(
+        (row) =>
+          row.workspaceId === workspaceId &&
+          row.role === "owner" &&
+          live(row) &&
+          row.userId !== userId,
+      );
+      if (
+        disabled &&
+        current === null &&
+        target.role === "owner" &&
+        otherLiveOwners.length === 0
+      ) {
+        return { outcome: "last_owner" };
+      }
+    } else {
+      current = accounts.find((row) => row.id === userId)?.disabledAt ?? null;
+      const elsewhere = reached.some((row) => !managing.has(row.workspaceId));
+      if (elsewhere) return { outcome: "elsewhere" };
     }
-    const disabled = await tx
-      .update(memberships)
-      .set({ disabledAt: DB_NOW })
+    if ((current !== null) === disabled) {
+      return { outcome: "unchanged", member: memberRecord(target) };
+    }
+
+    if (scope === "membership") {
+      await tx
+        .update(memberships)
+        .set({ disabledAt: disabled ? DB_NOW : null })
+        .where(
+          and(
+            eq(memberships.workspaceId, workspaceId),
+            eq(memberships.userId, userId),
+          ),
+        );
+    } else {
+      await tx
+        .update(users)
+        .set({ disabledAt: disabled ? DB_NOW : null })
+        .where(eq(users.id, userId));
+    }
+    const effects = disabled
+      ? await cutOff(tx, userId, scope === "membership" ? workspaceId : null)
+      : await release(tx, userId, scope === "membership" ? workspaceId : null);
+    const [member] = await tx
+      .select(memberColumns)
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
       .where(
         and(
-          eq(memberships.workspaceId, input.workspaceId),
+          eq(memberships.workspaceId, workspaceId),
           eq(memberships.userId, userId),
-          isNull(memberships.disabledAt),
         ),
-      )
-      .returning({ userId: memberships.userId });
-    if (disabled.length === 0) return { outcome: "not_found" };
-    const sessionsRevoked = await tx
-      .update(webSessions)
-      .set({ revokedAt: DB_NOW })
-      .where(and(eq(webSessions.userId, userId), isNull(webSessions.revokedAt)))
-      .returning({ id: webSessions.id });
-    const keysRevoked = await tx
-      .update(apiKeys)
-      .set({ revokedAt: DB_NOW })
-      .where(
-        and(
-          eq(apiKeys.kind, "personal"),
-          eq(apiKeys.createdByUserId, userId),
-          eq(apiKeys.workspaceId, input.workspaceId),
-          isNull(apiKeys.revokedAt),
-        ),
-      )
-      .returning({ id: apiKeys.id });
-    const awaiting = await tx
-      .update(sessions)
-      .set({ takeoverRequiredAt: DB_NOW, updatedAt: new Date() })
-      .where(
-        and(
-          eq(sessions.workspaceId, input.workspaceId),
-          eq(sessions.createdByUserId, userId),
-          ne(sessions.admissionState, "closed"),
-          isNull(sessions.takeoverRequiredAt),
-        ),
-      )
-      .returning({ id: sessions.id });
+      );
+    if (!member) throw new Error("membership vanished under its lock");
+    await tx.insert(receipts).values({
+      id: input.receiptId,
+      ownerId: actor.principal.ownerId,
+      actor: receiptActorOf(actor.principal),
+      requestId: actor.principal.requestId ?? null,
+      operation: OPERATIONS[scope][`${disabled}`],
+      targetRef: { user_id: userId, workspace_id: workspaceId },
+      status: "succeeded",
+      result: effects.disabled
+        ? {
+            reason: input.reason,
+            revoked_web_sessions: effects.revokedWebSessions,
+            revoked_personal_keys: effects.revokedPersonalKeys,
+            sessions_awaiting_takeover: effects.sessionsAwaitingTakeover,
+          }
+        : { reason: input.reason, sessions_released: effects.sessionsReleased },
+    });
     return {
-      outcome: "offboarded",
-      revokedWebSessions: sessionsRevoked.length,
-      revokedPersonalKeys: keysRevoked.length,
-      sessionsAwaitingTakeover: awaiting.length,
+      outcome: "changed",
+      member: memberRecord(member),
+      receiptId: input.receiptId,
+      effects,
     };
   });
 }
 
 export function createPostgresMemberStore(db: Database): MemberStore {
   return {
-    offboard: (input) => offboard(db, input),
+    setAccess: (input) => setAccess(db, input),
 
     async listAwaitingTakeover(
       workspaceId: string,
