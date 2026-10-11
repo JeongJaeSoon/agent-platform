@@ -48,6 +48,7 @@ export const en: Record<MessageKey, string> = {
   "home.checklist.invite": "Invite members",
   "home.checklist.agent": "Set up an agent",
   "home.checklist.session": "Start the first session",
+  "home.checklist.unknown": "Cannot tell",
 
   "status.loading.title": "Checking your sign-in",
   "status.loginRequired.title": "Log in again",
@@ -198,6 +199,14 @@ export const en: Record<MessageKey, string> = {
     "Saved. The same card already exists as version {version}, so no new version was made.",
   "agent.savedNoChange":
     "Saved. The card is unchanged, so no new version was made.",
+  "agent.activated": "Activated — new sessions now start with {release}.",
+  "agent.alreadyActive": "That release is already active. Nothing changed.",
+  "agent.conflict.title": "The activation was changed elsewhere first",
+  "agent.conflict.body":
+    "Someone else, or another tab, changed the active release after this page loaded, so nothing was overwritten. Load the latest state, check what changed, then decide again.",
+  "agent.conflict.reload": "Load the latest state",
+  "agent.conflict.reloaded":
+    "This page showed {seen} as active; it is now {now}. Check the difference below and activate again if you still want to.",
   "agent.card.title": "Card",
   "agent.card.intro":
     "Saving makes a new version. The active release stays as it is.",
@@ -210,11 +219,34 @@ export const en: Record<MessageKey, string> = {
   "agent.versions.active": "active",
   "agent.versions.before": "Compare from",
   "agent.versions.after": "Compare to",
+  "agent.releases.title": "Releases",
+  "agent.releases.intro":
+    "A release pins a version to a runtime profile. Creating one changes nothing until you activate it.",
+  "agent.releases.version": "Version",
+  "agent.releases.profile": "Runtime profile",
+  "agent.releases.profileHint":
+    "A profile id from the platform settings (profiles.yaml)",
+  "agent.releases.create": "Create release",
+  "agent.releases.creating": "Creating…",
+  "agent.releases.empty": "No releases yet.",
+  "agent.releases.approved": "approved {at}",
+  "agent.releases.notApproved": "never activated",
+  "agent.releases.active": "Active",
+  "agent.releases.activate": "Activate",
+  "agent.releases.activating": "Activating…",
+  "agent.releases.activateFor": "Activate {release}",
+  "agent.releaseCreated":
+    "Release created (version {version}). It is not active yet.",
+  "agent.releaseExisted":
+    "A release with the same content already exists and is used. Activate it if it is not active.",
   "diff.caption": "{before} → {after}",
   "diff.added": "added: ",
   "diff.removed": "removed: ",
   "diff.same": "The two versions have the same card.",
   "error.UNSUPPORTED_CAPABILITY":
     "The card names a model or tool this runtime profile does not allow, or the profile is unknown.",
+  "error.REVISION_CONFLICT": "It was changed elsewhere first — reload.",
+  "error.PROFILE_DIGEST_MISMATCH":
+    "The runtime profile changed after this release — create a new release.",
   "error.ALREADY_EXISTS": "That short name is already taken.",
 };
