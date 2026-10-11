@@ -93,8 +93,18 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 4. [배포 절차의 Gitea 단계](test-ops.md#배포)대로 owner와 public sample repository를 만든다. 무작위 password는 화면이나 evidence에 기록하지 않는다.
 5. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
 6. [quickstart의 curl 준비](quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `profile_id`는 배포 catalog의 `claude-coding`을 쓴다.
-7. [실제 Claude 직접 대화](real-claude.md#b-실제-claude와-직접-대화하기)의 첫 요청처럼 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 turn이 `idle`이 될 때까지 기다린 뒤 SSE event, 완료된 turn, Gitea의 commit과 파일 내용을 확인한다.
-8. 그 세션을 pause하고 checkpoint revision이 생긴 뒤 resume하여 admission state가 `active`가 되는 데까지만 확인한다. 첫 사용 smoke에서는 추가 메시지를 보내지 않아 실제 provider turn을 하나로 제한한다. 성공 판정은 응답 문장이 아니라 API·turn·admission 상태, checkpoint revision, Gitea 작업공간 결과로 한다.
+7. [실제 Claude 직접 대화](real-claude.md#b-실제-claude와-직접-대화하기)의 첫 요청처럼 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 세션이 `idle`이 될 때까지 기다린 뒤 turn 1이 `completed`인지와 SSE에 남은 `git commit` 실행 결과를 확인한다. worker는 push하지 않으므로 commit은 Gitea가 아니라 worker의 작업 트리와 checkpoint에 있다([실제 Claude 직접 대화](real-claude.md#b-실제-claude와-직접-대화하기)의 커밋 작성자 설명). 아래 명령은 turn 1에서 `git commit`을 실행한 `tool_use`의 짝인 `tool_result`만 뽑는다. `is_error`가 `false`이고 `content`가 `[<branch> <hash>] <message>`로 시작하면 commit이 만들어진 것이다. 결과가 비어 있으면 Claude가 commit하지 않은 것이므로 실패로 판정한다. `curl: (28)`은 [quickstart ②](quickstart.md#-이벤트-관찰)와 같이 정상이다.
+
+   ```sh
+   curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
+     >/tmp/first-session-events.txt || true
+   sed -n 's/^data: *//p' /tmp/first-session-events.txt |
+     jq -s -c '[.[] | select(.turn_id == "1")] as $t
+       | [$t[] | .data.message.content[]? | select(.type == "tool_use" and ((.input.command // "") | test("git commit"))) | .id] as $ids
+       | $t[] | .data | select(.type == "tool_result" and (.tool_use_id as $u | $ids | index($u))) | {is_error, content}'
+   ```
+
+8. 그 세션을 pause하고 checkpoint revision이 생긴 뒤 resume하여 admission state가 `active`가 되는 데까지만 확인한다. 첫 사용 smoke에서는 추가 메시지를 보내지 않아 실제 provider turn을 하나로 제한한다. 성공 판정은 응답 문장이 아니라 API·turn·admission 상태, 7단계의 `git commit` `tool_result`, checkpoint revision으로 한다. pause가 끝난 뒤 `checkpoint_revision`이 `null`이 아니면 그 commit을 담은 작업 트리가 checkpoint에 저장된 것이다.
 9. 세션 usage와 Anthropic Console의 실제 비용을 함께 기록한다. key 취급과 비용 판정 기준은 [실제 Claude 확인 문서](real-claude.md#key-입력과-폐기)와 [비용 절](real-claude.md#비용)을 따른다. 이 서버에서는 그 문서의 로컬 `local.sh` 명령을 실행하지 않는다.
 
 알파 owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용자마다 다른 owner/API key를 발급하며, 한 사용자의 key를 다른 사용자에게 공유하지 않는다.
