@@ -16,6 +16,7 @@ import {
   type BootstrapInput,
   BootstrapTokenSpentError,
   type ConsumePasswordResetInput,
+  type ExternalSignInResult,
   type IdentityStore,
   type IdentityUser,
   type IdentityWorkspace,
@@ -83,6 +84,9 @@ class MemoryIdentityStore implements IdentityStore {
   }> = [];
   now = () => Date.now();
 
+  async signInWithExternalIdentity(): Promise<ExternalSignInResult> {
+    throw new Error("google-login.test.ts covers external sign-in");
+  }
   async countLiveOwners() {
     return this.memberships.filter(
       (m) =>
@@ -1025,6 +1029,21 @@ describe("login, logout, me", () => {
     const b = await unknown.json();
     expect(a.error.message).toBe(b.error.message);
     expect(wrong.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  test("an account with no password fails password login like a wrong password", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const owner = h.identity.users[0];
+    if (!owner) throw new Error("bootstrap left no rows");
+    const wrong = await h.login("owner@example.com", "not the password");
+    owner.passwordHash = null;
+    const passwordless = await h.login("owner@example.com", PASSWORD);
+    expect(passwordless.status).toBe(401);
+    expect((await passwordless.json()).error.message).toBe(
+      (await wrong.json()).error.message,
+    );
+    expect(passwordless.headers.get("Set-Cookie")).toBeNull();
   });
 
   test("a malformed body is 400 and an oversized one 413", async () => {

@@ -61,6 +61,7 @@ describe("database schema", () => {
       "grants",
       "idempotency_keys",
       "invites",
+      "login_methods",
       "memberships",
       "owner_workspace_map",
       "password_resets",
