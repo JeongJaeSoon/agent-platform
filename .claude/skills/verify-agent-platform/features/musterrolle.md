@@ -1,12 +1,13 @@
 # 멤버·팀·권한 (Musterrolle)
 
-**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위, 에이전트 자격 연결을 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 c(Slack 계정 연결), d(권한별 key), e의 판정 기록·보존 기간, f(자격 연결), g(에이전트의 Slack 앱 연결)다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
+**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위, 에이전트 자격 연결을 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 c(Slack 계정 연결과 멘션·승인 판정), d(권한별 key), e의 판정 기록·보존 기간, f(자격 연결), g(에이전트의 Slack 앱 연결)다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
 
 ## Sub-features
 
 - `a-member-lifecycle` (아직 없음) owner 웹 로그인 → member 초대 → 수락·로그인 → 역할 변경 → 비활성화하면 웹과 key가 모두 막힌다.
 - `b-teams` (아직 없음) 팀 생성 → 구성원 추가·제거(수락 없이, 알림만) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리할 수 있고 팀 밖 member는 못 한다.
 - `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정(94S-577). 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
+- `c-slack-decision` 연결한 사람만 Slack에서 쓴다(94S-579): 멘션·승인 버튼의 판정(`authorizeSlackInput`), 거절 안내 문구, guest 사용 설정(`POST /v1/workspaces/{id}/slack-guest`), Slack Connect 거절, 요약 상한 채널의 `redact`. Slack 채널(이벤트 수신)이 없어 판정은 api 컨테이너에서 함수로 부른다.
 - `d-scoped-keys` member는 개인 key만, owner·admin은 서비스 key, 에이전트 관리자(그 에이전트를 만든 사람)는 그 에이전트 전용 서비스 key를 `POST /v1/api-keys`로 발급한다. 권한이 없으면 403과 `details.reason_code`. 에이전트 전용 key는 그 에이전트의 세션만 만들고 읽는다. 발급자의 지금 scope를 넘는 key는 403 `SCOPE_NOT_GRANTABLE`. API key로는 발급하지 못한다. 발급자를 내보내면 개인 key는 멈추고 서비스 key는 계속 동작한다.
 - `f-credential-bindings` 에이전트 관리자가 card의 `credential_refs` 이름을 그 에이전트에 연결(`POST /v1/agents/{id}/credential-bindings`)해야 활성화가 된다. 해제하면 실행 중 세션은 그대로 두고(`running_sessions`, `revoke_notice`) 다음 세션 생성이 `409 CREDENTIAL_UNBOUND`(안내 문구·관리자·`mailto:` 링크)다(94S-581).
 - `g-agent-identity` 에이전트를 자기 Slack 앱 설치에 연결·목록·회수하고(94S-578), Slack 이벤트의 `(app_id, team_id)`가 그 에이전트로 정해지는지, 회수 뒤·다른 앱의 이벤트는 버려지는지. Slack ingress(94S-179)가 없어 해석은 api 컨테이너에서 함수로 부른다.
@@ -18,7 +19,7 @@
 - (아직 없음) 같은 동작의 HTTP API.
 - f: `GET`·`POST /v1/agents/{id}/credential-bindings`, `DELETE /v1/agents/{id}/credential-bindings/{binding_id}`, 활성화 `POST /v1/agents/{id}/activate`, 세션 `POST /v1/sessions`(`agent_release_id`). 연결 화면(M10)은 아직 없다.
 - g: `POST·GET /v1/agents/{id}/identities`, `DELETE /v1/agents/{id}/identities/{identity_id}`. 화면은 아직 없다.
-- c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다.
+- c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다. guest 설정은 `POST /v1/workspaces/{id}/slack-guest`이고 지금 값은 `GET /v1/auth/me`의 `workspace.settings.slack_guest_enabled`다.
 
 ## Driving it with lib.sh
 
@@ -55,6 +56,39 @@ Preconditions:
   ```
 
   기대: callback `201`과 `receipt_id`, 목록에 `active` 한 줄, 해제 `200`(`receipt_status: succeeded`) 뒤 목록이 비고 DB는 `revoked | unlinked | 2`. `mock_team=T0OTHER`를 붙인 authorize URL로 다시 하면 `409 LINK_TEAM_MISMATCH`. 해제 뒤 `resolveLinkedSubject`는 `{"status":"unlinked"}`다. 대기 중이던 입력의 처리 시점 재판정(`createDatabaseIdentityReader(db).reread`에 `linked_account: {id, revision}`)도 `unlinked`로 거절한다. Slack 입력(M9) 전까지는 사용자 경로가 없어 위처럼 api 컨테이너에서 부른다. 초대(`POST /v1/invites`)·수락한 member가 같은 방법으로 연결한 뒤 owner가 `POST /v1/members/{user_id}/disable`로 비활성화하면 receipt `result.revoked_linked_accounts`가 `1`이고 DB 행은 `revoked | offboarded`다. 2026-10-11 run `20261011-184057-50543`에서 이 순서대로 확인했다.
+- **c. 멘션·승인 판정.** 위 c처럼 mock overlay로 띄운다. owner bootstrap·login, member 초대·수락(d의 1), 설치 행(c), owner가 에이전트(`research`→`AID`)를 만들고 `POST /v1/agents/$AID/identities '{"provider":"slack_bot","app_id":"A0VERIFY","team_id":"T0MOCK","credential_ref":"slack/research-bot-token"}'`로 그 앱을 연결한다. member가 위 c의 시작·callback으로 `U0MOCK`을 연결한다(`LAID` = `linked_account.id`). 판정은 Slack 채널이 할 호출을 그대로 한다. 채널 상한은 binding 테이블(94S-177) 전까지 입력으로 넘긴다.
+
+  ```sh
+  DECIDE='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@agent-platform/db"; import * as platform from "@agent-platform/platform";
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL }); const db = drizzle(pool, { schema });
+  const authorization = platform.createAuthorizationPolicy({
+    identity: schema.createDatabaseIdentityReader(db), agents: schema.createDatabaseAgentAuthority(db),
+    credentials: schema.createPostgresCredentialBindingStore(db), slackGuests: schema.createPostgresSlackGuestSetting(db),
+    decisions: schema.createPostgresDecisionLog(db) });
+  const i = JSON.parse(process.argv[1]); const all = ["session.read","session.submit","session.control","session.approve"];
+  const r = await platform.authorizeSlackInput({ authorization, agents: schema.createPostgresAgentIdentityStore(db), links: schema.createPostgresLinkedAccountStore(db) }, {
+    event: { appId: "A0VERIFY", teamId: "T0MOCK", agentId: process.argv[2] }, user: { id: i.user, team_id: "T0MOCK", ...(i.flags ?? {}) },
+    action: i.action ?? "session.submit", resource: i.session ? { kind: "session", id: i.session } : { kind: "surface_binding", id: null },
+    binding: { channelKind: "public_channel", ceiling: { actions: i.actions ?? all, disclosure: i.disclosure ?? "full" } },
+    requestId: crypto.randomUUID(), connectUrl: "http://127.0.0.1:3000/settings/linked-accounts" });
+  console.log(JSON.stringify(r.status === "decided" ? { outcome: r.decision.outcome, reason_code: r.decision.reason_code, effective_scopes: r.decision.effective_scopes, actorUserId: r.actorUserId, notice: r.notice } : r)); await pool.end();'
+  decide() { ap_compose exec -T -w /app/apps/control-host api bun -e "$DECIDE" "$1" "$AID"; }
+  S=019a0000-0000-7000-8000-00000000e2e1   # 승인 판정은 세션의 존재를 묻지 않는다
+  decide '{"user":"U0MOCK"}'                                                           # 1
+  decide "{\"user\":\"U0MOCK\",\"action\":\"session.approve\",\"session\":\"$S\"}"     # 2
+  decide "{\"user\":\"U0MOCK\",\"action\":\"session.approve\",\"session\":\"$S\",\"actions\":[\"session.read\",\"session.submit\"]}"  # 3
+  decide "{\"user\":\"U0NOBODY\",\"action\":\"session.approve\",\"session\":\"$S\"}"   # 4
+  decide "{\"user\":\"U0MOCK\",\"action\":\"session.read\",\"session\":\"$S\",\"disclosure\":\"summary\"}"  # 5
+  decide '{"user":"U0GUEST","flags":{"is_restricted":true}}'                          # 6
+  decide '{"user":"U0EXT","flags":{"is_stranger":true}}'                              # 7
+  ap_web POST "/v1/workspaces/$WS/slack-guest" '{"slack_guest_enabled":true}'          # 8: member cookie, 9: owner cookie
+  decide '{"user":"U0GUEST","flags":{"is_restricted":true}}'                          # 10
+  ap_web DELETE "/v1/linked-accounts/$LAID"                                            # member cookie
+  decide '{"user":"U0MOCK"}'                                                           # 11
+  ap_compose exec -T postgres psql -U postgres -d sessions -c "select action, outcome, reason_code, surface->>'slack_user_kind' from authz_decisions where surface->>'kind' = 'slack' order by at"
+  ```
+
+  기대: 1·2 `allow`, `actorUserId`가 member, `notice: null`. 3 `deny surface_ceiling`, 안내 "이 요청을 승인할 권한이 없어요". 4 `deny unlinked`, 안내 "웹에서 Slack 계정을 연결해 주세요"와 `link_url`. 5 `redact`(`reason_code: surface_ceiling`, 안내 없음). 6 `guest_disabled`, "이 워크스페이스는 guest의 에이전트 사용을 허용하지 않아요". 7 `external_user`, "이 에이전트는 이 워크스페이스 멤버만 쓸 수 있어요". 8 member는 `403`과 `details.reason_code: role`, 9 owner는 `200`이고 `GET /v1/auth/me`의 `workspace.settings.slack_guest_enabled: true`. 10 같은 guest는 이제 `unlinked`(켜도 연결해야 쓴다), Slack Connect 사용자는 여전히 `external_user`. 해제 `200` 뒤 11은 `unlinked`와 연결 링크. 판정 행은 Slack 판정마다 하나씩(허용 포함)이고 `principal_kind`는 `installation`, 연결된 사람이 있을 때만 `actor_user_id`가 찬다. 2026-10-11 run `20261011-225705-63827`에서 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-c-decision.txt`.
 - **d.** (아직 없음) 역할별 key 발급 요청과 403 이유, 서비스 key로 다른 에이전트 API 403, 발급자 비활성화 뒤 개인 key 401·서비스 key 200.
 - **d. 권한별 key.** 사람마다 cookie 파일을 따로 둔다: `ap_web`은 `$VERIFY_RUN/cookie` 하나만 읽고 쓰므로 로그인·수락 직후 `cp "$VERIFY_RUN/cookie" "$VERIFY_RUN/cookie.<이름>"`, 그 사람으로 부르기 전에 거꾸로 복사한다. 비밀값(`secret`, `invite_token`)은 변수에만 담는다.
   1. owner bootstrap·login([web-login.md](./web-login.md)). owner가 `ap_web POST /v1/invites '{"email":"member@example.test","role":"member"}'` → `201`, 같은 식으로 `other`(member)와 `admin`(admin). cookie를 비우고 `ap_web POST /v1/invites/accept "{\"token\":\"$TOKEN\",\"password\":\"verify-member-pass-1\"}"` → `200`(cookie가 생긴다).
@@ -114,6 +148,7 @@ Preconditions:
 ## Gotchas
 
 - (구현 티켓이 채운다)
+- c 판정: 함수가 받는 Slack user는 Slack이 보낸 객체 그대로다. `team_id`가 설치(`T0MOCK`)와 다르면 guest 표시와 상관없이 `external_user`다. 실제 Slack 이벤트 수신(Kollegium Slack 채널)이 붙으면 이 함수 호출을 그 경로로 바꾼다.
 - c: mock overlay 없이 띄운 스택은 `SLACK_OIDC_*`가 비어 있어 시작 요청이 `503 BACKEND_UNAVAILABLE`이다. state는 10분, 한 번만 쓴다. 같은 code·state를 다시 보내면 `400`.
 - d의 8은 판정이 `allow`인 채로 거절된다. 권한(`api_key.manage`)은 있고 scope만 넘친 것이라, 판정 행은 `allow`이고 응답은 `SCOPE_NOT_GRANTABLE`이다.
 - 에이전트 전용 key는 receipt를 읽지 못한다. receipt 조회는 세션을 가리키지 않아 에이전트를 확인할 수 없기 때문이다.
