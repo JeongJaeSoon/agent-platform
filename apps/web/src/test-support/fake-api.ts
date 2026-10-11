@@ -71,6 +71,30 @@ const OWNER_SCOPES: AuthMeResponse["scopes"] = [
   "sessions:recover",
 ];
 
+const MEMBER_PERMISSIONS: AuthMeResponse["permissions"] = [
+  "api_key.manage_own",
+  "account.link",
+  "agent.create",
+];
+const ADMIN_PERMISSIONS: AuthMeResponse["permissions"] = [
+  ...MEMBER_PERMISSIONS,
+  "workspace.manage",
+  "member.manage",
+  "team.manage",
+  "api_key.manage",
+  "agent.manage",
+  "agent.admin.manage",
+  "credential.bind",
+  "binding.manage",
+];
+/** What the server's role table gives each role on its workspace. */
+export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
+  {
+    member: MEMBER_PERMISSIONS,
+    admin: ADMIN_PERMISSIONS,
+    owner: [...ADMIN_PERMISSIONS, "audit_retention.manage", "agent.restore"],
+  };
+
 export function me(
   scopes: AuthMeResponse["scopes"] = OWNER_SCOPES,
   role: WorkspaceRole = "owner",
@@ -98,6 +122,7 @@ export function me(
       created_at: "2026-10-01T00:00:00.000Z",
     },
     scopes,
+    permissions: PERMISSIONS[role],
   };
 }
 

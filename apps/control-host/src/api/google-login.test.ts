@@ -3,6 +3,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   GOOGLE_LOGIN_COOKIE_NAME,
+  loginMethodsResponseSchema,
   loginResponseSchema,
   startGoogleLoginResponseSchema,
   WEB_SESSION_COOKIE_NAME,
@@ -316,6 +317,10 @@ describe("Google sign-in routes", () => {
         },
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       });
+    const methods = async () =>
+      loginMethodsResponseSchema.parse(
+        await (await app.request("/v1/auth/login-methods")).json(),
+      ).methods;
     const signIn = async (claims: MockOidcClaims) => {
       const started = await post("/v1/auth/google/start");
       expect(started.status).toBe(200);
@@ -330,7 +335,7 @@ describe("Google sign-in routes", () => {
         cookie: flowCookie,
       });
     };
-    return { app, post, signIn, calls };
+    return { app, post, signIn, calls, methods };
   }
 
   test("start sets a flow cookie scoped like the session cookie", async () => {
@@ -436,6 +441,11 @@ describe("Google sign-in routes", () => {
       body: { code: "x".repeat(65 * 1024), state: "s" },
     });
     expect(oversized.status).toBe(413);
+  });
+
+  test("the login page is offered Google only where it is configured", async () => {
+    expect(await harness().methods()).toEqual(["password", "google"]);
+    expect(await harness({ google: null }).methods()).toEqual(["password"]);
   });
 
   test("both routes answer 404 when Google sign-in is not configured", async () => {
