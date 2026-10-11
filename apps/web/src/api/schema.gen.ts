@@ -11,7 +11,9 @@ export interface paths {
         };
         /**
          * Process liveness
-         * @description **Auth:** public; no credential.
+         * @description Answers 200 while the process serves HTTP; it checks nothing else, not even the database. Use it as a liveness probe, and `/readyz` to decide whether to send traffic.
+         *
+         *     **Auth:** public; no credential.
          */
         get: operations["getHealth"];
         put?: never;
@@ -31,7 +33,9 @@ export interface paths {
         };
         /**
          * DB, schema and config readiness
-         * @description **Auth:** public; no credential.
+         * @description Runs the readiness checks in order and stops at the first failure: `database` (the database answers), `schema` (the applied migrations include every migration of this build) and `config` (required settings and limits are valid). Use it as a readiness probe: a 503 means do not route traffic here. The execution backend is not checked. From the moment the process starts shutting down it answers 503 too.
+         *
+         *     **Auth:** public; no credential.
          */
         get: operations["getReady"];
         put?: never;
@@ -72,8 +76,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Authenticated principal
-         * @description Checks a credential: answers 200 with the owner it authenticates as, or 401.
+         * Check a credential and return its owner
+         * @description Checks a credential: answers 200 with the owner it authenticates as, or 401. It changes nothing; use it to test an API key before other calls.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -141,7 +145,9 @@ export interface paths {
         put?: never;
         /**
          * Email/password login; sets the session cookie
-         * @description **Auth:** public; no credential. **Idempotency-Key:** ignored.
+         * @description Checks an email and password and starts a browser session: the response sets the `__Host-ap_session` cookie (HttpOnly, Secure, SameSite=Lax) for 14 days, and the expiry slides forward while the session is used. A user keeps at most 10 live sessions; a new login drops the oldest. This is for the web app; scripts and servers use an API key.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["login"];
         delete?: never;
@@ -293,7 +299,9 @@ export interface paths {
         put?: never;
         /**
          * Revoke the session cookie
-         * @description **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         * @description Revokes the cookie session that sent the request and clears the cookie. The user's other sessions stay signed in.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["logout"];
         delete?: never;
@@ -311,7 +319,9 @@ export interface paths {
         };
         /**
          * The authenticated principal, user and workspace
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. The web app boots from this. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getAuthMe"];
         put?: never;
@@ -330,14 +340,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List sessions visible to the principal
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * List the owner's sessions, newest first
+         * @description Lists the sessions of the credential's owner, newest `created_at` first, closed ones included, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. `status` keeps only sessions reporting that status, `needs_input` included. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["listSessions"];
         put?: never;
         /**
          * Durably accept a session and its first input
-         * @description Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names.
+         * @description Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -357,7 +369,9 @@ export interface paths {
         };
         /**
          * Session detail with projection, execution and durability
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Reads one session: its `admission_state` (whether it takes input and controls: `active`, `pausing`, `paused`, `resuming`, `stopping`, `stopped`, `recovery_required`, `closed`), its `status`, the current `revision`, the execution as last observed, the number of pending requests, `attention` (why the session is held or slowed, if it is) and checkpoint `durability`. Read `revision` here and send it as `expected_revision` to pause, resume, terminate or decide recovery. `status: needs_input` and `attention` are computed on each read; reading changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getSession"];
         put?: never;
@@ -493,7 +507,9 @@ export interface paths {
         };
         /**
          * Estimated cost of a session and whether every turn reported it
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Reads the session's estimated provider cost and token count over its lifetime, its cost and token limits, and its queued input against the per-session limit. The cost is the platform's estimate from the model calls it saw, not a bill. `cost.complete: false` means a turn is still open or ended without reporting, so the true total is unknown; do not read it as zero. `budget_exceeded: true` means either limit is reached: no new turn is dispatched, but input is still accepted and queued. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getSessionUsage"];
         put?: never;
@@ -515,7 +531,9 @@ export interface paths {
         put?: never;
         /**
          * Enqueue the next input after the current turn
-         * @description **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
+         * @description Queues `message` as the session's next turn in the same engine conversation, after every turn already queued. Only an `active` session takes input; the other admission states answer the 409 codes below. The 202 means the input is stored under a new sequential `turn_id`, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or on the event stream. A session over its budget still queues input but runs no new turn (`attention.code: BUDGET_EXCEEDED`). The receipt settles with the turn: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
+         *
+         *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["appendSessionMessage"];
         delete?: never;
@@ -533,7 +551,9 @@ export interface paths {
         };
         /**
          * Queued and finished turns
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Lists the session's turns oldest first, in `turn_id` order: queued, running and finished, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. Items are summaries; read one turn for its result, usage and attempts. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["listSessionTurns"];
         put?: never;
@@ -553,7 +573,9 @@ export interface paths {
         };
         /**
          * Committed result of one turn
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Reads one turn: its status, terminal reason, the engine's committed `result` and `usage`, and the worker attempts that ran it. This is the durable answer to whether a turn finished: `completed`, `failed`, `interrupted`, `cancelled` and `outcome_unknown` are terminal. `completed` means the engine ended the turn normally, not that the requested work is done. `result` and `usage` are null until the turn ends, and their shape is the runtime's. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getSessionTurn"];
         put?: never;
@@ -573,7 +595,9 @@ export interface paths {
         };
         /**
          * Durable event replay and live stream (SSE)
-         * @description Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds and normally remains open. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.
+         * @description Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.
+         *
+         *     Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -595,7 +619,9 @@ export interface paths {
         };
         /**
          * Open permission and question requests
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Lists the permission and question requests the session's running turn waits on that a client can still answer: open, unexpired, and raised by the worker attempt that holds the turn, oldest first. A `permission` item names the `tool` and its `input`; a `question` item carries the questions and their option ids. Answer before `expires_at` with `POST /v1/sessions/{id}/answers`. New requests also arrive as `question` events on the event stream. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["listPendingRequests"];
         put?: never;
@@ -617,7 +643,9 @@ export interface paths {
         put?: never;
         /**
          * Answer a pending permission or question request
-         * @description **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
+         * @description Answers one pending request by `request_id`: a permission with `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`) first, `unknown` if the execution ended before it reported.
+         *
+         *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["answerPendingRequest"];
         delete?: never;
@@ -637,7 +665,9 @@ export interface paths {
         put?: never;
         /**
          * Interrupt the targeted turn only
-         * @description Accepted while the turn runs: the receipt settles when the turn ends, with a result of `{turn_id, terminal, no_op}`. A new request for a turn that has already ended answers `receipt_status: succeeded` at once, and its receipt says `no_op: true` with the terminal the turn reached on its own: the interrupt did nothing. An interrupt accepted while the turn ran is `no_op: true` too when the turn got to another terminal first; when the turn's outcome is unknown, so is the receipt (`status: unknown`, `no_op: false`). A replayed Idempotency-Key answers the receipt's current status instead.
+         * @description Asks the worker to stop turn `target_turn_id` while it runs; the session's admission state and its other turns are left alone. The event stream shows a `status` event with phase `interrupting` when the worker takes the request and `engine_stopped` when the engine has stopped the turn; the turn reads `interrupted` once its checkpoint commits. If the turn has not ended 60 seconds after acceptance, its execution is killed.
+         *
+         *     Accepted while the turn runs: the receipt settles when the turn ends, with a result of `{turn_id, terminal, no_op}`. A new request for a turn that has already ended answers `receipt_status: succeeded` at once, and its receipt says `no_op: true` with the terminal the turn reached on its own: the interrupt did nothing. An interrupt accepted while the turn ran is `no_op: true` too when the turn got to another terminal first; when the turn's outcome is unknown, so is the receipt (`status: unknown`, `no_op: false`). A replayed Idempotency-Key answers the receipt's current status instead.
          *
          *     **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -659,7 +689,9 @@ export interface paths {
         put?: never;
         /**
          * Drain the current turn, checkpoint, stop the execution
-         * @description **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
+         * @description Pauses an `active` session so it holds no worker: the running turn, if any, is drained, its checkpoint commits and the execution stops. Queued input is kept and runs after a resume. The session goes `pausing` and the receipt stays `accepted` until the execution is observed gone; then the session is `paused` and the receipt `succeeded` with result `{resulting_admission_state, checkpoint_revision, queued_turn_count}`. A session with no execution goes `paused` at once. A drain that takes over 60 seconds shows `attention.code: PAUSE_BLOCKED` with the reason; nothing is killed for it, and terminating is the caller's choice. The receipt fails if the pause cannot commit, a resume cancels it, or a terminate overtakes it. Each step is a `status` event with `admission_state` on the stream.
+         *
+         *     **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["pauseSession"];
         delete?: never;
@@ -679,7 +711,9 @@ export interface paths {
         put?: never;
         /**
          * Block dispatch and force the execution down
-         * @description **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
+         * @description Stops the session by force, in any admission state but `closed`: dispatch is blocked, queued input is cancelled (each input's receipt fails with `SESSION_STOPPED`), open requests close and the execution is killed. The session goes `stopping` until the kill is observed, then `stopped`; with nothing to kill it is `stopped` at once and the receipt is `succeeded` in the response. A `recovery_required` session keeps that state. A turn the kill cut short may end `outcome_unknown`, which holds the session in `recovery_required` until `POST /v1/sessions/{id}/recovery-decisions`. The kill reverts nothing the execution already did outside (commits, pushes, API calls): the response and the receipt say `external_effects_reverted: false`. The receipt result is `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`. Resume a `stopped` session from its last checkpoint with `POST /v1/sessions/{id}/resume`.
+         *
+         *     **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["terminateSession"];
         delete?: never;
@@ -699,7 +733,15 @@ export interface paths {
         put?: never;
         /**
          * Restore from the last committed checkpoint or cancel a pause
-         * @description **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
+         * @description Brings a `stopped` or `paused` session back to `active`, or cancels a pause that is still draining. The receipt result is `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.
+         *
+         *     - **From `stopped`:** the session is `active` at once, the next worker restores the last committed checkpoint, queued input is dispatched, and the receipt is `succeeded` in the response.
+         *     - **From `paused`:** the session goes `resuming` and a new worker restores the pause's checkpoint. The receipt stays `accepted` until that worker reports ready; then the session is `active` and the receipt `succeeded`. If the restore keeps failing, the receipt fails and the session goes `recovery_required`.
+         *     - **From `pausing`, before the stop is committed:** the pause is cancelled (its receipt fails), the session is `active` again, and this receipt is `succeeded`. Once the stop is committed the answer is `409 PAUSE_COMMITTING`.
+         *
+         *     Each change is a `status` event with `admission_state` on the stream.
+         *
+         *     **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["resumeSession"];
         delete?: never;
@@ -719,7 +761,17 @@ export interface paths {
         put?: never;
         /**
          * Operator decision for an unknown outcome or a context no checkpoint covers
-         * @description **Scope:** `sessions:recover` (API key or cookie session). **Idempotency-Key:** required.
+         * @description Records an operator's decision where the platform will not guess: a turn whose outcome is unknown, or context no checkpoint covers. Nothing the execution did outside is reverted.
+         *
+         *     - `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.
+         *     - `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.
+         *     - `close`: ends the session for good.
+         *     - `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs.
+         *     - `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.
+         *
+         *     The decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.
+         *
+         *     **Scope:** `sessions:recover` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["decideSessionRecovery"];
         delete?: never;
@@ -1493,7 +1545,9 @@ export interface paths {
         };
         /**
          * Installation limits and installation-wide usage
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getInstallationLimits"];
         put?: never;
@@ -1513,7 +1567,18 @@ export interface paths {
         };
         /**
          * Current outcome of an accepted command
-         * @description **Scope:** `sessions:read` (API key or cookie session).
+         * @description Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:
+         *
+         *     - `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.
+         *     - `interrupt`: `{turn_id, terminal, no_op}` once settled.
+         *     - `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.
+         *     - `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.
+         *     - `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.
+         *     - `answer`: null; only `status` and `error` change.
+         *
+         *     Any credential of the same owner can read a receipt. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getReceipt"];
         put?: never;
@@ -3179,13 +3244,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The process is up. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "status": "ok"
+                     *     }
+                     */
                     "application/json": components["schemas"]["HealthResponse"];
                 };
             };
@@ -3201,18 +3271,28 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Every check passed. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "status": "ready",
+                     *       "checks": {
+                     *         "database": "ok",
+                     *         "schema": "ok",
+                     *         "config": "ok"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["ReadyResponse"];
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `NOT_READY`: A readiness check failed; `error.details.check` names it (`database`, `schema` or `config`). */
+            /** @description - `NOT_READY`: A readiness check failed; `error.details.check` names it (`database`, `schema` or `config`), or is `shutdown` while the process is shutting down. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -3343,17 +3423,47 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "bootstrap_token": "bt_4f9c2a7e1d8b6c3a5e0f9d2b7c4a1e8f6d3b0c9a",
+                 *       "email": "owner@example.com",
+                 *       "password": "correct horse battery staple",
+                 *       "display_name": "Ada Owner",
+                 *       "workspace_name": "Acme",
+                 *       "workspace_slug": "acme"
+                 *     }
+                 */
                 "application/json": components["schemas"]["BootstrapRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The owner, the workspace and the membership are created, or the owner is restored in the existing workspace. */
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *       "workspace": {
+                     *         "id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *         "slug": "acme",
+                     *         "name": "Acme",
+                     *         "settings": {
+                     *           "dispatch_model": null,
+                     *           "kill_switch": false,
+                     *           "daily_cost_limit_usd": null,
+                     *           "idle_pause_minutes": 30,
+                     *           "audit_retention_days": 90,
+                     *           "slack_guest_enabled": false
+                     *         },
+                     *         "created_at": "2026-10-01T09:00:00Z"
+                     *       },
+                     *       "role": "owner"
+                     *     }
+                     */
                     "application/json": components["schemas"]["BootstrapResponse"];
                 };
             };
@@ -3372,7 +3482,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. `bootstrap_token` is missing or does not match the installation's token; checked before the rest of the body. */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. `bootstrap_token` is missing, does not match the installation's token, or was already used; checked first, before the owner state and the rest of the body. */
             401: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -3402,7 +3512,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `BOOTSTRAP_DONE`: An owner already exists; bootstrap runs once. Checked before the token, and also the answer to the loser of two concurrent bootstraps. */
+            /** @description - `BOOTSTRAP_DONE`: An owner already exists; bootstrap runs once. A live owner exists, checked only after the token matched (the token is then spent); also the answer to the loser of two concurrent bootstraps. */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -3485,17 +3595,38 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "email": "owner@example.com",
+                 *       "password": "correct horse battery staple"
+                 *     }
+                 */
                 "application/json": components["schemas"]["LoginRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description Signed in; the response sets the session cookie. `scopes` are the ones the workspace role holds. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *       "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *       "role": "owner",
+                     *       "scopes": [
+                     *         "sessions:read",
+                     *         "sessions:write",
+                     *         "sessions:approve",
+                     *         "sessions:control",
+                     *         "sessions:recover"
+                     *       ],
+                     *       "expires_at": "2026-10-25T09:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["LoginResponse"];
                 };
             };
@@ -4403,7 +4534,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description No content */
+            /** @description The session is revoked and the cookie cleared. */
             204: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -4484,13 +4615,73 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The authenticated principal; `scopes` is what it may do. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "principal": {
+                     *         "kind": "user",
+                     *         "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *         "role": "owner",
+                     *         "scopes": [
+                     *           "sessions:read",
+                     *           "sessions:write",
+                     *           "sessions:approve",
+                     *           "sessions:control",
+                     *           "sessions:recover"
+                     *         ]
+                     *       },
+                     *       "user": {
+                     *         "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "email": "owner@example.com",
+                     *         "display_name": "Ada Owner"
+                     *       },
+                     *       "workspace": {
+                     *         "id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *         "slug": "acme",
+                     *         "name": "Acme",
+                     *         "settings": {
+                     *           "dispatch_model": null,
+                     *           "kill_switch": false,
+                     *           "daily_cost_limit_usd": null,
+                     *           "idle_pause_minutes": 30,
+                     *           "audit_retention_days": 90,
+                     *           "slack_guest_enabled": false
+                     *         },
+                     *         "created_at": "2026-10-01T09:00:00Z"
+                     *       },
+                     *       "scopes": [
+                     *         "sessions:read",
+                     *         "sessions:write",
+                     *         "sessions:approve",
+                     *         "sessions:control",
+                     *         "sessions:recover"
+                     *       ],
+                     *       "permissions": [
+                     *         "workspace.manage",
+                     *         "audit_retention.manage",
+                     *         "member.manage",
+                     *         "team.manage",
+                     *         "api_key.manage",
+                     *         "api_key.manage_own",
+                     *         "account.link",
+                     *         "agent.create",
+                     *         "agent.manage",
+                     *         "agent.restore",
+                     *         "agent.admin.manage",
+                     *         "credential.bind",
+                     *         "binding.manage",
+                     *         "session.audit_read",
+                     *         "session.admin_list"
+                     *       ]
+                     *     }
+                     */
                     "application/json": components["schemas"]["AuthMeResponse"];
                 };
             };
@@ -4556,13 +4747,37 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description One page of session summaries. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *           "revision": 7,
+                     *           "admission_state": "active",
+                     *           "status": "running",
+                     *           "runtime": {
+                     *             "kind": "claude_agent_sdk",
+                     *             "version": "0.2.1",
+                     *             "profile_id": "claude-coding-real"
+                     *           },
+                     *           "repository_id": "sample-app",
+                     *           "current_turn_id": "3",
+                     *           "queued_turn_count": 1,
+                     *           "last_event_at": "2026-10-11T08:15:42Z",
+                     *           "created_at": "2026-10-11T08:00:00Z",
+                     *           "updated_at": "2026-10-11T08:15:40Z"
+                     *         }
+                     *       ],
+                     *       "next_cursor": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["ListSessionsResponse"];
                 };
             };
@@ -4802,7 +5017,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Reserved here: the per-session input queue limit applies to later messages, not to the first. */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Reserved here: the per-session input queue limit applies to later messages, not to the first, so this operation does not currently return it. */
             429: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -4848,13 +5063,50 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The session as it stands now. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "revision": 7,
+                     *       "admission_state": "active",
+                     *       "status": "running",
+                     *       "runtime": {
+                     *         "kind": "claude_agent_sdk",
+                     *         "version": "0.2.1",
+                     *         "profile_id": "claude-coding-real"
+                     *       },
+                     *       "repository_id": "sample-app",
+                     *       "current_turn_id": "3",
+                     *       "queued_turn_count": 1,
+                     *       "last_event_at": "2026-10-11T08:15:42Z",
+                     *       "created_at": "2026-10-11T08:00:00Z",
+                     *       "updated_at": "2026-10-11T08:15:40Z",
+                     *       "execution": {
+                     *         "backend": "local_docker",
+                     *         "state": "running",
+                     *         "observed_at": "2026-10-11T08:15:38Z"
+                     *       },
+                     *       "checkpoint_revision": 2,
+                     *       "pending_request_count": 0,
+                     *       "attention": null,
+                     *       "durability": {
+                     *         "last_transcript_persisted_at": "2026-10-11T08:15:41Z",
+                     *         "checkpoint_committed_at": "2026-10-11T08:10:02Z",
+                     *         "checkpoint_revision": 2,
+                     *         "last_completed_turn_id": "2",
+                     *         "last_checkpointed_turn_id": "2",
+                     *         "checkpoint_pending_reason": null,
+                     *         "checkpoint_fallback_revision": null,
+                     *         "context_reset_turn_id": null
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["SessionDetail"];
                 };
             };
@@ -5731,13 +5983,36 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The session's usage as of `refreshed_at`. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "period": "session_lifetime",
+                     *       "refreshed_at": "2026-10-11T08:15:43Z",
+                     *       "cost": {
+                     *         "amount_usd": "0.4231",
+                     *         "kind": "estimated",
+                     *         "source": "provider_usage",
+                     *         "completeness_scope": "turn_reports",
+                     *         "complete": false,
+                     *         "reported_turn_count": 2,
+                     *         "unreported_turn_count": 0,
+                     *         "open_turn_count": 1
+                     *       },
+                     *       "cost_limit_usd": "20",
+                     *       "token_count": 182450,
+                     *       "token_limit": null,
+                     *       "budget_exceeded": false,
+                     *       "queued_input_count": 1,
+                     *       "queued_input_limit": 20
+                     *     }
+                     */
                     "application/json": components["schemas"]["SessionUsageResponse"];
                 };
             };
@@ -5821,17 +6096,29 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "message": "Now add the endpoint to the README."
+                 *     }
+                 */
                 "application/json": components["schemas"]["PostSessionMessageRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The input is stored as a queued turn. */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "turn_id": "4",
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "accepted"
+                     *     }
+                     */
                     "application/json": components["schemas"]["PostSessionMessageResponse"];
                 };
             };
@@ -6001,13 +6288,42 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description One page of turn summaries. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "turn_id": "1",
+                     *           "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *           "status": "completed",
+                     *           "message": "Add a health check endpoint and a test for it.",
+                     *           "terminal_reason": null,
+                     *           "checkpoint_revision": 2,
+                     *           "created_at": "2026-10-11T08:00:00Z",
+                     *           "started_at": "2026-10-11T08:00:05Z",
+                     *           "ended_at": "2026-10-11T08:03:12Z"
+                     *         },
+                     *         {
+                     *           "turn_id": "2",
+                     *           "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *           "status": "running",
+                     *           "message": "Now add the endpoint to the README.",
+                     *           "terminal_reason": null,
+                     *           "checkpoint_revision": null,
+                     *           "created_at": "2026-10-11T08:14:00Z",
+                     *           "started_at": "2026-10-11T08:14:02Z",
+                     *           "ended_at": null
+                     *         }
+                     *       ],
+                     *       "next_cursor": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["ListTurnsResponse"];
                 };
             };
@@ -6102,13 +6418,45 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The turn as it stands now. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "turn_id": "1",
+                     *       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "status": "completed",
+                     *       "message": "Add a health check endpoint and a test for it.",
+                     *       "terminal_reason": null,
+                     *       "checkpoint_revision": 2,
+                     *       "created_at": "2026-10-11T08:00:00Z",
+                     *       "started_at": "2026-10-11T08:00:05Z",
+                     *       "ended_at": "2026-10-11T08:03:12Z",
+                     *       "result": {
+                     *         "type": "result",
+                     *         "subtype": "success",
+                     *         "result": "Added GET /health and a test for it."
+                     *       },
+                     *       "usage": {
+                     *         "input_tokens": 48210,
+                     *         "output_tokens": 3120
+                     *       },
+                     *       "attempts": [
+                     *         {
+                     *           "attempt_id": "att_01",
+                     *           "state": "exited",
+                     *           "lease_epoch": 1,
+                     *           "execution_generation": 1,
+                     *           "started_at": "2026-10-11T08:00:05Z",
+                     *           "ended_at": "2026-10-11T08:03:12Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": components["schemas"]["TurnDetail"];
                 };
             };
@@ -6142,7 +6490,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. Also when `turn_id` names no turn of the session. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -6190,13 +6538,29 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Event stream */
+            /** @description `text/event-stream`: one frame per event, each an `id:`, an `event:` and a `data:` line, with the envelope as JSON on the `data:` line. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "ev_2s",
+                     *       "event": "status",
+                     *       "data": {
+                     *         "schema_version": 1,
+                     *         "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *         "turn_id": "2",
+                     *         "attempt_id": "att_01",
+                     *         "occurred_at": "2026-10-11T08:14:02Z",
+                     *         "data": {
+                     *           "phase": "running"
+                     *         }
+                     *       }
+                     *     }
+                     */
                     "text/event-stream": components["schemas"]["SseEvent"];
                 };
             };
@@ -6321,13 +6685,32 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Every request that can be answered now; empty when none. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "request_id": "req_7f3a",
+                     *           "turn_id": "2",
+                     *           "attempt_id": "att_01",
+                     *           "created_at": "2026-10-11T08:14:30Z",
+                     *           "expires_at": "2026-10-11T08:44:30Z",
+                     *           "kind": "permission",
+                     *           "tool": "Bash",
+                     *           "input": {
+                     *             "command": "npm test",
+                     *             "description": "Run the tests"
+                     *           }
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": components["schemas"]["ListPendingRequestsResponse"];
                 };
             };
@@ -6411,17 +6794,42 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "request_id": "req_7f3a",
+                 *       "kind": "permission",
+                 *       "decision": "allow"
+                 *     }
+                 */
                 "application/json": components["schemas"]["PostSessionAnswerRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The answer is stored; the receipt tracks its delivery, and `approval` records who answered and the decision that let them. */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "accepted",
+                     *       "approval": {
+                     *         "answered_by": {
+                     *           "principal": {
+                     *             "kind": "user",
+                     *             "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *           },
+                     *           "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "agent_id": null
+                     *         },
+                     *         "surface": "web",
+                     *         "decision_id": "5b9e2d7a-1c4f-4a83-b6e0-8d3f7a2c1e94"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["PostSessionAnswerResponse"];
                 };
             };
@@ -6470,7 +6878,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. Also when `request_id` names no request of the session. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -6569,17 +6977,28 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "target_turn_id": "2"
+                 *     }
+                 */
                 "application/json": components["schemas"]["InterruptSessionRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The interrupt is stored (`accepted`), or the turn had already ended (`succeeded`, `no_op: true` on the receipt). */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "accepted"
+                     *     }
+                     */
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
@@ -6628,7 +7047,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. Also when `target_turn_id` names no turn of the session. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -6741,17 +7160,29 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "expected_revision": 7,
+                 *       "reason": "Done for the day"
+                 *     }
+                 */
                 "application/json": components["schemas"]["PauseSessionRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The pause is stored (`accepted`), or the session had no execution and is `paused` already (`succeeded`). */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "accepted"
+                     *     }
+                     */
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
@@ -6832,7 +7263,7 @@ export interface operations {
             };
             /**
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
-             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Checked before the admission state, so a stale revision answers this even on a session that is already paused.
              *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
              *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
              *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
@@ -6919,17 +7350,30 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "expected_revision": 7,
+                 *       "reason": "Runaway tool loop"
+                 *     }
+                 */
                 "application/json": components["schemas"]["TerminateSessionRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The terminate is stored (`accepted`), or there was nothing to kill and the session is `stopped` (`succeeded`). */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "accepted",
+                     *       "external_effects_reverted": false
+                     *     }
+                     */
                     "application/json": components["schemas"]["TerminateSessionResponse"];
                 };
             };
@@ -7011,10 +7455,10 @@ export interface operations {
             /**
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
              *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
-             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
-             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
-             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
-             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt. Reserved: this operation does not currently return it, because it accepts a session in that state.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). Reserved: this operation does not currently return it, because it accepts a session in that state.
              *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
              */
             409: {
@@ -7096,17 +7540,28 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "expected_revision": 8
+                 *     }
+                 */
                 "application/json": components["schemas"]["ResumeSessionRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The resume is stored: `accepted` while a worker restores a paused session, `succeeded` when it took effect in the request. */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "accepted"
+                     *     }
+                     */
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
@@ -7274,17 +7729,31 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "decision": "abandon",
+                 *       "expected_revision": 9,
+                 *       "target_turn_id": "3",
+                 *       "reason": "The call had no external effect."
+                 *     }
+                 */
                 "application/json": components["schemas"]["RecoveryDecisionRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The decision is applied; the receipt is `succeeded`. */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "succeeded"
+                     *     }
+                     */
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
@@ -7367,9 +7836,9 @@ export interface operations {
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
              *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
              *     - `REQUEST_STALE`: The request was made against state that has since moved on. The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.
-             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
-             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
-             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.
              *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.
              *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. `confirm_completed` with no committed checkpoint that reaches the target turn.
@@ -12260,13 +12729,39 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The limits and usage as of `refreshed_at`. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "scope": "installation",
+                     *       "refreshed_at": "2026-10-11T08:15:43Z",
+                     *       "limits": {
+                     *         "execution_slot_limit": 4,
+                     *         "queued_input_limit_per_session": 20,
+                     *         "storage_limit_bytes": 1073741824,
+                     *         "max_turn_seconds": 3600,
+                     *         "session_cost_limit_usd": "20",
+                     *         "session_token_limit": null,
+                     *         "provider_max_retries": 2
+                     *       },
+                     *       "usage": {
+                     *         "execution_slots_used": 1,
+                     *         "queued_input_count": 3,
+                     *         "storage": {
+                     *           "used_bytes": 524288,
+                     *           "accounted_content": [
+                     *             "input_messages"
+                     *           ],
+                     *           "updated_at": "2026-10-11T08:14:00Z"
+                     *         }
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["InstallationLimitsResponse"];
                 };
             };
@@ -12330,13 +12825,33 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The receipt as it stands now. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "operation": "pause",
+                     *       "target_ref": {
+                     *         "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *         "turn_id": null,
+                     *         "request_id": null
+                     *       },
+                     *       "status": "succeeded",
+                     *       "result": {
+                     *         "resulting_admission_state": "paused",
+                     *         "checkpoint_revision": 3,
+                     *         "queued_turn_count": 1
+                     *       },
+                     *       "error": null,
+                     *       "created_at": "2026-10-11T08:20:00Z",
+                     *       "updated_at": "2026-10-11T08:20:09Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Receipt"];
                 };
             };

@@ -143,7 +143,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   BACKEND_UNAVAILABLE:
     "Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
   NOT_READY:
-    "A readiness check failed; `error.details.check` names it (`database`, `schema` or `config`).",
+    "A readiness check failed; `error.details.check` names it (`database`, `schema` or `config`), or is `shutdown` while the process is shutting down.",
   CURSOR_EXPIRED:
     "The cursor fell outside retained history; reread the resource state and start a new stream. Reserved: alpha does not trim events.",
   IDEMPOTENCY_CONFLICT:
