@@ -314,6 +314,7 @@ async function change(
         },
         result: { subject: { kind: subject.kind, id: subjectId } },
         status: "succeeded",
+        requestId: actor.principal.requestId ?? null,
       });
     }
     return {
