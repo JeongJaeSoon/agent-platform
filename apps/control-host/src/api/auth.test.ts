@@ -215,11 +215,16 @@ class MemoryIdentityStore implements IdentityStore {
   async createWebSession(input: {
     id: string;
     userId: string;
+    verifiedPasswordHash: string;
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
     maxLive: number;
   }) {
+    const current = this.users.find(
+      (u) => u.id === input.userId && u.disabledAt === null,
+    );
+    if (current?.passwordHash !== input.verifiedPasswordHash) return null;
     const expiresAt = new Date(this.now() + input.ttlMs);
     const mine = this.sessions.filter(
       (s) =>

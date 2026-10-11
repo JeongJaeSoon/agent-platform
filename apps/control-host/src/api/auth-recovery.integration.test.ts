@@ -316,6 +316,47 @@ integration("account recovery on PostgreSQL", () => {
     });
   }
 
+  test("a login that checked the old password before a reset lands gets no session", async () => {
+    const { db, first, ownerId, memberId, workspace } = await install();
+    const ownerCookie = cookieOf(await first.login("owner@example.com"));
+    const [before] = await db
+      .select({ passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, memberId));
+    const { token } = issuePasswordResetResponseSchema.parse(
+      await (
+        await first.app.request(
+          `/v1/workspaces/${workspace.id}/members/${memberId}/password-reset`,
+          { method: "POST", headers: { Cookie: ownerCookie, ...BROWSER } },
+        )
+      ).json(),
+    );
+    expect(
+      (
+        await first.json("/v1/auth/password-reset", {
+          token,
+          password: NEW_PASSWORD,
+        })
+      ).status,
+    ).toBe(200);
+    // What the in-flight login would do next, with the hash it verified.
+    const identity = new DatabaseIdentityStore(db);
+    const late = await identity.createWebSession({
+      id: randomUUID(),
+      userId: memberId,
+      verifiedPasswordHash: before?.passwordHash ?? "",
+      tokenHash: hashWebSessionToken("aps_late"),
+      ttlMs: 60_000,
+      userAgent: null,
+      maxLive: 10,
+    });
+    expect(late).toBeNull();
+    expect(await db.$count(webSessions, eq(webSessions.userId, memberId))).toBe(
+      0,
+    );
+    expect(ownerId).not.toBe(memberId);
+  });
+
   test("recovery revokes a reset link issued before it", async () => {
     const { db, start, first, ownerId, workspace } = await install();
     const ownerCookie = cookieOf(await first.login("owner@example.com"));

@@ -340,16 +340,22 @@ export function registerPublicAuthRoutes(
     }
     lockout.clear(email);
     const token = generateWebSessionToken();
-    const { expiresAt } = await storageMapped(() =>
+    const created = await storageMapped(() =>
       deps.identity.createWebSession({
         id: randomUUID(),
         userId: user.id,
+        verifiedPasswordHash: user.passwordHash,
         tokenHash: hashWebSessionToken(token),
         ttlMs: WEB_SESSION_TTL_MS,
         userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
         maxLive: WEB_SESSIONS_PER_USER,
       }),
     );
+    if (!created) {
+      // A reset or a disable landed after the password was checked.
+      throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
+    }
+    const { expiresAt } = created;
     setWebSessionCookie(context, token, expiresAt);
     return jsonWithSchema(context, loginResponseSchema, {
       user_id: user.id,

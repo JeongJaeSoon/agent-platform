@@ -86,14 +86,19 @@ export interface IdentityStore {
   findUserForLogin(email: string): Promise<IdentityUser | null>;
   findLiveMembership(userId: string): Promise<LiveMembership | null>;
   findWorkspace(workspaceId: string): Promise<IdentityWorkspace | null>;
+  /**
+   * Null when the account was disabled or its password changed after
+   * `verifiedPasswordHash` was checked.
+   */
   createWebSession(input: {
     id: string;
     userId: string;
+    verifiedPasswordHash: string;
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
     maxLive: number;
-  }): Promise<{ expiresAt: Date }>;
+  }): Promise<{ expiresAt: Date } | null>;
   resolveWebSession(tokenHash: Uint8Array): Promise<ResolvedWebSession | null>;
   renewWebSession(
     sessionId: string,

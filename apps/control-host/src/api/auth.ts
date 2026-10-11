@@ -76,6 +76,7 @@ export class DatabaseIdentityStore implements IdentityStore {
   createWebSession(input: {
     id: string;
     userId: string;
+    verifiedPasswordHash: string;
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;

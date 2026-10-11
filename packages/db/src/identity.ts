@@ -371,23 +371,31 @@ export async function findWorkspace(
  * transaction: expired and revoked rows are deleted, and only the newest
  * `maxLive` live sessions survive, so the table holds at most users x
  * maxLive rows however often anyone logs in. The user row is locked first
- * so two concurrent logins cannot both leave maxLive + 1.
+ * so two concurrent logins cannot both leave maxLive + 1, and so a password
+ * reset that lands between the login's check and this insert is seen here:
+ * the verified hash must still be the stored one, or no session is made.
  */
 export async function createWebSession(
   db: Database,
   input: {
     id: string;
     userId: string;
+    verifiedPasswordHash: string;
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
     maxLive: number;
   },
-): Promise<{ expiresAt: Date }> {
+): Promise<{ expiresAt: Date } | null> {
   return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT 1 FROM ${users} WHERE ${users.id} = ${input.userId} FOR UPDATE`,
-    );
+    const [current] = await tx
+      .select({ passwordHash: users.passwordHash })
+      .from(users)
+      .where(and(eq(users.id, input.userId), isNull(users.disabledAt)))
+      .for("update");
+    if (current?.passwordHash !== input.verifiedPasswordHash) {
+      return null;
+    }
     await tx
       .delete(webSessions)
       .where(
