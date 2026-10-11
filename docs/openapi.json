@@ -4529,6 +4529,25 @@
         ],
         "additionalProperties": false
       },
+      "LoginMethodsResponse": {
+        "type": "object",
+        "properties": {
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "password",
+                "google"
+              ]
+            }
+          }
+        },
+        "required": [
+          "methods"
+        ],
+        "additionalProperties": false
+      },
       "StartGoogleLoginResponse": {
         "type": "object",
         "properties": {
@@ -4904,13 +4923,46 @@
                 "sessions:recover"
               ]
             }
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "workspace.read",
+                "workspace.manage",
+                "audit_retention.manage",
+                "member.manage",
+                "team.manage",
+                "api_key.manage",
+                "api_key.manage_own",
+                "account.link",
+                "agent.create",
+                "agent.manage",
+                "agent.restore",
+                "agent.admin.manage",
+                "credential.bind",
+                "binding.manage",
+                "routine.manage",
+                "session.read",
+                "session.submit",
+                "session.approve",
+                "session.control",
+                "session.recover",
+                "memory.read",
+                "memory.write",
+                "artifact.read",
+                "delivery.send"
+              ]
+            }
           }
         },
         "required": [
           "principal",
           "user",
           "workspace",
-          "scopes"
+          "scopes",
+          "permissions"
         ],
         "additionalProperties": false
       },
@@ -8319,6 +8371,38 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/auth/login-methods": {
+      "get": {
+        "operationId": "listLoginMethods",
+        "tags": [
+          "Auth"
+        ],
+        "summary": "How a person can sign in on this installation",
+        "description": "`password` always; `google` when Google sign-in is configured. The login page offers these.\n\n**Auth:** public; no credential.",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginMethodsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           }
         }
       }
