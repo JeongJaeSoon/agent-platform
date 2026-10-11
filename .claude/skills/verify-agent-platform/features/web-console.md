@@ -11,6 +11,7 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 - `bootstrap-done` 관리자가 이미 있으면 제출 결과가 409라 `/login?notice=bootstrap_done`.
 - `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>)으로 로그인했습니다", checklist 넷(첫째만 완료).
 - `logout` 로그아웃하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
+- `session-ended` 로그인한 채 다른 곳에서 세션이 끝나면(다른 탭 로그아웃), 다음 `me` 재조회가 401을 받아 `/login?redirect=…`로 간다.
 - `locale` 오른쪽 아래 언어 선택(한국어·English).
 
 ## How to get to it (user POV)
@@ -20,7 +21,7 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 
 ## Driving it with lib.sh
 
-Preconditions: 새 `up.sh` 직후(bootstrap 전). 다른 세션도 같은 `latest`를 쓰므로 **run 디렉터리를 인자로 준다**(`. …/lib.sh <run>`, `down.sh <run>`).
+Preconditions: 새 `up.sh` 직후(bootstrap 전). `$RUN`은 `up.sh`가 출력한 run id다.
 
 서빙은 curl로 본다.
 
@@ -51,4 +52,5 @@ orca eval --expression "location.pathname+location.search"   # /login?notice=cre
 
 - headless Chrome의 `--window-size=360,…`은 최소 창 폭(약 500px) 때문에 360px로 그려지지 않는다. 그 스크린샷으로 넘침을 판정하지 않는다.
 - `__Host-ap_session`은 `Secure`지만 Chromium은 `http://127.0.0.1`을 안전한 origin으로 보아 cookie를 저장한다.
+- `session-ended`를 몰려면 페이지에서 `fetch('/v1/auth/logout',{method:'POST',headers:{'x-requested-with':'agent-platform-web'}})`로 세션을 끝내고, 30초(`me`의 staleTime) 뒤 `window.dispatchEvent(new Event('visibilitychange'))`로 포커스 복귀를 흉내 낸다. `document`에 보내면 React Query가 듣지 않는다.
 - bootstrap 완료 여부를 읽는 공개 GET이 없다. `/bootstrap`은 관리자가 있어도 "아직 관리자가 없습니다"로 열리고, 제출해야 409로 안다.
