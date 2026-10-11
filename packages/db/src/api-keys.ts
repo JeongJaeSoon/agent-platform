@@ -18,11 +18,7 @@ import {
   isNull,
   or,
 } from "drizzle-orm";
-import {
-  actorStillMember,
-  lockActorAccount,
-  receiptActorOf,
-} from "./control-shared.ts";
+import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -99,6 +95,35 @@ function keyOf(row: {
   };
 }
 
+// One of the roles that take the right, or, for a key bound to an agent, an
+// admin of that agent; the admin row is share-locked like the membership.
+async function holdsRight(
+  tx: Database,
+  workspaceId: string,
+  userId: string,
+  need: {
+    role: WorkspaceRole;
+    roles: readonly WorkspaceRole[];
+    agentId: string | null;
+  },
+): Promise<boolean> {
+  if (need.roles.includes(need.role)) return true;
+  if (need.agentId === null) return false;
+  const rows = await tx
+    .select({ agentId: agentAdmins.agentId })
+    .from(agentAdmins)
+    .where(
+      and(
+        eq(agentAdmins.workspaceId, workspaceId),
+        eq(agentAdmins.agentId, need.agentId),
+        eq(agentAdmins.userId, userId),
+      ),
+    )
+    .limit(1)
+    .for("share");
+  return rows.length > 0;
+}
+
 async function writeReceipt(
   tx: Database,
   principal: Principal,
@@ -112,6 +137,7 @@ async function writeReceipt(
     id: input.id,
     ownerId: principal.ownerId,
     actor: receiptActorOf(principal),
+    requestId: principal.requestId ?? null,
     operation: input.operation,
     targetRef: {
       resource: { kind: "api_key", id: input.key.id },
@@ -174,24 +200,14 @@ export function createPostgresWorkspaceKeyStore(
             .for("key share");
           if (!agent) return { outcome: "agent_not_found" };
         }
-        if (!input.issuerRoles.includes(role)) {
-          const administers =
-            input.agentId !== null &&
-            (
-              await tx
-                .select({ agentId: agentAdmins.agentId })
-                .from(agentAdmins)
-                .where(
-                  and(
-                    eq(agentAdmins.workspaceId, input.workspaceId),
-                    eq(agentAdmins.agentId, input.agentId),
-                    eq(agentAdmins.userId, input.createdByUserId),
-                  ),
-                )
-                .limit(1)
-                .for("share")
-            ).length > 0;
-          if (!administers) return { outcome: "outranked" };
+        if (
+          !(await holdsRight(tx, input.workspaceId, input.createdByUserId, {
+            role,
+            roles: input.issuerRoles,
+            agentId: input.agentId,
+          }))
+        ) {
+          return { outcome: "outranked" };
         }
         const ceiling = new Set(scopesForRole(role));
         if (input.scopes.some((scope) => !ceiling.has(scope))) {
@@ -273,11 +289,23 @@ export function createPostgresWorkspaceKeyStore(
 
     revoke(input) {
       return db.transaction(async (tx) => {
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
+        const userId = input.principal.actor?.userId;
+        const role =
+          userId === undefined || userId === null
+            ? null
+            : await lockedRole(tx, input.workspaceId, userId);
+        if (role === null || !userId) return { outcome: "actor_inactive" };
         const key = await find(tx, input.workspaceId, input.keyId, true);
         if (!key) return { outcome: "not_found" };
+        if (
+          !(await holdsRight(tx, input.workspaceId, userId, {
+            role,
+            roles: input.revokerRoles,
+            agentId: key.kind === "service" ? key.agentId : null,
+          }))
+        ) {
+          return { outcome: "outranked" };
+        }
         if (key.revokedAt !== null) {
           return { outcome: "already_revoked", key };
         }

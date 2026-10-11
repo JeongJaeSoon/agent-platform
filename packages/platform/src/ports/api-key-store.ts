@@ -46,7 +46,7 @@ export type IssueKeyResult =
 
 export type RevokeKeyResult =
   | { outcome: "revoked" | "already_revoked"; key: WorkspaceKey }
-  | { outcome: "not_found" | "actor_inactive" };
+  | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 /**
  * Which keys a list shows: the caller's own personal keys, plus every
@@ -71,5 +71,10 @@ export interface WorkspaceKeyStore {
     workspaceId: string;
     keyId: string;
     receiptId: string;
+    /**
+     * The roles that may revoke this key, re-read as on issue; a key bound
+     * to an agent may also go by its admins.
+     */
+    revokerRoles: readonly WorkspaceRole[];
   }): Promise<RevokeKeyResult>;
 }
