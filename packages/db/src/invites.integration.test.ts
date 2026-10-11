@@ -372,6 +372,45 @@ integration("invite store on PostgreSQL", () => {
     expect((await store.peekInvite(hashOf(token))).outcome).toBe("pending");
   });
 
+  test("an invite that expires while the accept waits on a lock is not accepted", async () => {
+    const ws = await workspace();
+    const actor = acting(ws, await member(ws, "owner"));
+    const existing = await account();
+    const { token } = await issue(actor, existing.email, { ttlMs: 1_000 });
+    const other = await pool.connect();
+    let pending: Promise<unknown> | undefined;
+    try {
+      await other.query("BEGIN");
+      await other.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        existing.userId,
+      ]);
+      // Takes the invite while it is live, then waits on the user row.
+      pending = store.acceptInvite({
+        ...newAccount(token),
+        account: {
+          kind: "existing",
+          userId: existing.userId,
+          verifiedPasswordHash: existing.passwordHash,
+        },
+      });
+      await Bun.sleep(1_500);
+      await other.query("COMMIT");
+      expect(await pending).toEqual({ outcome: "expired" });
+    } finally {
+      other.release();
+    }
+    const joined = await db
+      .select()
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.workspaceId, ws),
+          eq(memberships.userId, existing.userId),
+        ),
+      );
+    expect(joined).toHaveLength(0);
+  });
+
   test("roles: the last live owner stays, and two owners demoting each other leave one", async () => {
     const ws = await workspace();
     const first = await member(ws, "owner");
