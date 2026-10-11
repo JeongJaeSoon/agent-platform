@@ -374,6 +374,14 @@ export const ko = {
     "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
   "workspace.retentionSaved": "감사 기록을 {days}일 보존합니다.",
   "workspace.save": "저장",
+  "workspace.guest": "Slack 게스트",
+  "workspace.guestLabel": "Slack 게스트가 에이전트를 부를 수 있게 합니다",
+  "workspace.guestOn": "켜짐",
+  "workspace.guestOff": "꺼짐",
+  "workspace.guestHint":
+    "켜도 게스트는 웹에서 자기 Slack 계정을 연결해야 쓸 수 있습니다. 다른 조직에서 Slack Connect로 들어온 사람은 켜져 있어도 부를 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다.",
+  "workspace.guestSavedOn": "Slack 게스트가 에이전트를 부를 수 있습니다.",
+  "workspace.guestSavedOff": "Slack 게스트는 에이전트를 부를 수 없습니다.",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",

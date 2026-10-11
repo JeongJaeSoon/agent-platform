@@ -12,7 +12,16 @@ import { appHarness } from "../test-support/render-app.tsx";
 const { renderAt, screen, waitFor } = await appHarness();
 
 const RETENTION = `/v1/workspaces/${WORKSPACE_ID}/audit-retention`;
+const GUEST = `/v1/workspaces/${WORKSPACE_ID}/slack-guest`;
 const adminMe = () => me(undefined, "admin");
+const withGuest = (body: ReturnType<typeof me>, enabled: boolean) => ({
+  ...body,
+  workspace: body.workspace && {
+    ...body.workspace,
+    settings: { ...body.workspace.settings, slack_guest_enabled: enabled },
+  },
+});
+const GUEST_SWITCH = { name: "Slack 게스트가 에이전트를 부를 수 있게 합니다" };
 
 describe("워크스페이스 설정", () => {
   test("소유자는 보존 기간을 바꾸고, 저장한 값으로 다시 읽는다", async () => {
@@ -156,6 +165,82 @@ describe("워크스페이스 설정", () => {
     await user.click(await screen.findByRole("button", { name: "저장" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
       "audit_retention.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. Only an owner can change audit retention",
+    );
+  });
+
+  test("관리자가 게스트 사용을 켜면 서버에 저장하고 다시 읽은 값으로 켜짐이다", async () => {
+    let enabled = false;
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withGuest(adminMe(), enabled)),
+      [`POST ${GUEST}`]: async (request: Request) => {
+        enabled = ((await request.json()) as { slack_guest_enabled: boolean })
+          .slack_guest_enabled;
+        return json(200, { slack_guest_enabled: enabled });
+      },
+    });
+    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.textContent).toBe("꺼짐");
+    expect(
+      document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toContain("자기 Slack 계정을 연결해야");
+    const user = await setupUser();
+    await user.click(toggle);
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "Slack 게스트가 에이전트를 부를 수 있습니다.",
+    );
+    expect(
+      api.calls.filter((c) => c.path === GUEST).map((c) => c.body),
+    ).toEqual([{ slack_guest_enabled: true }]);
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(toggle.textContent).toBe("켜짐");
+  });
+
+  test("켜져 있으면 끄는 값을 보낸다", async () => {
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withGuest(me(), true)),
+      [`POST ${GUEST}`]: () => json(200, { slack_guest_enabled: false }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("switch", GUEST_SWITCH));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "Slack 게스트는 에이전트를 부를 수 없습니다.",
+    );
+    expect(
+      api.calls.filter((c) => c.path === GUEST).map((c) => c.body),
+    ).toEqual([{ slack_guest_enabled: false }]);
+  });
+
+  test("구성원은 게스트 토글이 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
+    expect(toggle.hasAttribute("disabled")).toBe(true);
+    expect(
+      document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("workspace.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    expect(api.calls.some((c) => c.path === GUEST)).toBe(false);
+  });
+
+  test("게스트 설정을 서버가 403으로 거절하면 같은 이유 문구와 서버 문구다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, adminMe()),
+      [`POST ${GUEST}`]: () =>
+        apiError(
+          403,
+          "FORBIDDEN",
+          "Only an owner or admin can change the Slack guest setting",
+        ),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("switch", GUEST_SWITCH));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "workspace.manage 권한이 있어야 할 수 있습니다. 지금 역할: 관리자. Only an owner or admin can change the Slack guest setting",
     );
   });
 

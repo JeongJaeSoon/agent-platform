@@ -1,4 +1,7 @@
-import type { AuditRetentionRequest } from "@agent-platform/contracts";
+import type {
+  AuditRetentionRequest,
+  SlackGuestRequest,
+} from "@agent-platform/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
 import { type ApiError, unwrap } from "../api/client.ts";
@@ -24,6 +27,7 @@ export function WorkspaceSettingsScreen() {
       <h1 className="web-page__title">{t("workspace.title")}</h1>
       <OutcomeLine outcome={outcome} />
       <AuditRetention onOutcome={setOutcome} />
+      <SlackGuest onOutcome={setOutcome} />
     </div>
   );
 }
@@ -118,6 +122,80 @@ function AuditRetention({
           {t("workspace.save")}
         </ReasonButton>
       </form>
+    </section>
+  );
+}
+
+/**
+ * Whether Slack guests may call agents. Owners and admins flip it; the switch
+ * sends the opposite of what the server last said, so a stale screen cannot
+ * undo a change it never saw.
+ */
+function SlackGuest({
+  onOutcome,
+}: {
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const me = useMe();
+  const role = useRole();
+  const workspaceId = me?.workspace?.id ?? "";
+  const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
+  const titleId = useId();
+  const labelId = useId();
+  const hintId = useId();
+  const reason = useHasPermission("workspace.manage")
+    ? undefined
+    : permissionReason(t, "workspace.manage", role);
+
+  const save = useMutation<SlackGuestRequest, ApiError, boolean>({
+    mutationFn: (value) =>
+      unwrap(
+        client.POST("/v1/workspaces/{id}/slack-guest", {
+          params: { path: { id: workspaceId } },
+          body: { slack_guest_enabled: value },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async ({ slack_guest_enabled }) => {
+      onOutcome({
+        kind: "notice",
+        text: t(
+          slack_guest_enabled
+            ? "workspace.guestSavedOn"
+            : "workspace.guestSavedOff",
+        ),
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+    onError: (error) =>
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "workspace.manage", role),
+      }),
+  });
+
+  return (
+    <section className="web-section" aria-labelledby={titleId}>
+      <h2 id={titleId}>{t("workspace.guest")}</h2>
+      <div className="web-check">
+        <span id={labelId}>{t("workspace.guestLabel")}</span>
+        <ReasonButton
+          role="switch"
+          aria-checked={enabled}
+          aria-labelledby={labelId}
+          aria-describedby={hintId}
+          reason={reason}
+          disabled={save.isPending || me?.workspace === undefined}
+          onClick={() => save.mutate(!enabled)}
+        >
+          {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
+        </ReasonButton>
+      </div>
+      <p id={hintId} className="web-field__hint">
+        {t("workspace.guestHint")}
+      </p>
     </section>
   );
 }
