@@ -9,7 +9,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Process liveness */
+        /**
+         * Process liveness
+         * @description **Auth:** public; no credential.
+         */
         get: operations["getHealth"];
         put?: never;
         post?: never;
@@ -26,7 +29,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** DB, schema and config readiness */
+        /**
+         * DB, schema and config readiness
+         * @description **Auth:** public; no credential.
+         */
         get: operations["getReady"];
         put?: never;
         post?: never;
@@ -43,7 +49,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Generated OpenAPI document */
+        /**
+         * Generated OpenAPI document
+         * @description This document as JSON, the same content as `docs/openapi.json` in the repository.
+         *
+         *     **Auth:** public; no credential.
+         */
         get: operations["getOpenApiDocument"];
         put?: never;
         post?: never;
@@ -60,7 +71,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Authenticated principal */
+        /**
+         * Authenticated principal
+         * @description Checks a credential: answers 200 with the owner it authenticates as, or 401.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["getApiRoot"];
         put?: never;
         post?: never;
@@ -82,8 +98,32 @@ export interface paths {
         /**
          * Create the first owner and default workspace, or recover an owner
          * @description Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation; a token presented while a live owner exists is spent. A wrong or spent token answers 401 before the owner state is looked at.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["bootstrap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/login-methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How a person can sign in on this installation
+         * @description `password` always; `google` when Google sign-in is configured. The login page offers these.
+         *
+         *     **Auth:** public; no credential.
+         */
+        get: operations["listLoginMethods"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -99,7 +139,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Email/password login; sets the session cookie */
+        /**
+         * Email/password login; sets the session cookie
+         * @description **Auth:** public; no credential. **Idempotency-Key:** ignored.
+         */
         post: operations["login"];
         delete?: never;
         options?: never;
@@ -119,6 +162,8 @@ export interface paths {
         /**
          * Begin Google sign-in; answers the Google URL to open
          * @description Sets a short-lived cookie that binds the flow (state, nonce, PKCE verifier) to this browser. 404 when Google sign-in is not configured.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["startGoogleLogin"];
         delete?: never;
@@ -139,6 +184,8 @@ export interface paths {
         /**
          * Finish Google sign-in; sets the session cookie
          * @description Posts the `code` and `state` Google returned to the redirect URI. The first matching rule decides: an already linked Google account signs in as its user; an address that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for the address, or JIT for an allowed domain, creates the account. Anything else answers 401 without saying whether an account exists. A Google account outside the allowed domains answers 403.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["googleLoginCallback"];
         delete?: never;
@@ -159,6 +206,8 @@ export interface paths {
         /**
          * Set a new password with a one-time reset link
          * @description Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["resetPassword"];
         delete?: never;
@@ -179,6 +228,8 @@ export interface paths {
         /**
          * Issue a one-time password reset link for a member (owner only)
          * @description Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["issuePasswordReset"];
         delete?: never;
@@ -199,6 +250,8 @@ export interface paths {
         /**
          * Set how many days authorization decisions are kept (owner only)
          * @description At least 30 days; the default is 90. Rows older than this are deleted by the reconciler. The current value is `workspace.settings.audit_retention_days` in GET /v1/auth/me.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["setAuditRetention"];
         delete?: never;
@@ -216,7 +269,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revoke the session cookie */
+        /**
+         * Revoke the session cookie
+         * @description **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
         post: operations["logout"];
         delete?: never;
         options?: never;
@@ -231,7 +287,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The authenticated principal, user and workspace */
+        /**
+         * The authenticated principal, user and workspace
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["getAuthMe"];
         put?: never;
         post?: never;
@@ -248,12 +307,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List sessions visible to the principal */
+        /**
+         * List sessions visible to the principal
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["listSessions"];
         put?: never;
         /**
          * Durably accept a session and its first input
-         * @description `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names.
+         * @description Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names.
+         *
+         *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["createSession"];
         delete?: never;
@@ -269,7 +333,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Session detail with projection, execution and durability */
+        /**
+         * Session detail with projection, execution and durability
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["getSession"];
         put?: never;
         post?: never;
@@ -289,12 +356,16 @@ export interface paths {
         /**
          * Who sees the session
          * @description Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getSessionShare"];
         put?: never;
         /**
          * Change who sees the session
          * @description `private` is the creator alone; `people` and `team` add the people or the current members of the teams named; `workspace` is every member. A person's session is changed only by its creator; a session an API key made, by owners, admins and the admins of its agent. Anyone else the session is visible to gets 403; anyone it is not visible to, 404. Open event streams that may no longer see the session end. Writes a `share_session` receipt unless the share was already as asked (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["setSessionShare"];
         delete?: never;
@@ -315,6 +386,8 @@ export interface paths {
         /**
          * Read a session outside its share, with a reason
          * @description Owners and admins. The session detail and a page of its turns, whatever the share; nothing on the session changes and no other action is opened by it. Every read is recorded with its `justification`.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["auditReadSession"];
         delete?: never;
@@ -333,6 +406,8 @@ export interface paths {
         /**
          * Every session of the workspace, metadata only
          * @description Owners and admins. Who made each session, its agent release, state and share scope, newest first; no content, title or summary.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listAdminSessions"];
         put?: never;
@@ -355,6 +430,8 @@ export interface paths {
         /**
          * Stop any session of the workspace, with a reason
          * @description Owners and admins, whatever the session's share. The `justification` is recorded with the decision and becomes the stop reason. Otherwise as `POST /v1/sessions/{id}/terminate`.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
         post: operations["adminTerminateSession"];
         delete?: never;
@@ -375,6 +452,8 @@ export interface paths {
         /**
          * Decide recovery for any session of the workspace
          * @description Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
         post: operations["adminDecideSessionRecovery"];
         delete?: never;
@@ -390,7 +469,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Estimated cost of a session and whether every turn reported it */
+        /**
+         * Estimated cost of a session and whether every turn reported it
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["getSessionUsage"];
         put?: never;
         post?: never;
@@ -409,7 +491,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Enqueue the next input after the current turn */
+        /**
+         * Enqueue the next input after the current turn
+         * @description **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
+         */
         post: operations["appendSessionMessage"];
         delete?: never;
         options?: never;
@@ -424,7 +509,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Queued and finished turns */
+        /**
+         * Queued and finished turns
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["listSessionTurns"];
         put?: never;
         post?: never;
@@ -441,7 +529,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Committed result of one turn */
+        /**
+         * Committed result of one turn
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["getSessionTurn"];
         put?: never;
         post?: never;
@@ -461,6 +552,8 @@ export interface paths {
         /**
          * Durable event replay and live stream (SSE)
          * @description Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds and normally remains open. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["streamSessionEvents"];
         put?: never;
@@ -478,7 +571,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Open permission and question requests */
+        /**
+         * Open permission and question requests
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["listPendingRequests"];
         put?: never;
         post?: never;
@@ -497,7 +593,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Answer a pending permission or question request */
+        /**
+         * Answer a pending permission or question request
+         * @description **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
+         */
         post: operations["answerPendingRequest"];
         delete?: never;
         options?: never;
@@ -517,6 +616,8 @@ export interface paths {
         /**
          * Interrupt the targeted turn only
          * @description Accepted while the turn runs: the receipt settles when the turn ends, with a result of `{turn_id, terminal, no_op}`. A new request for a turn that has already ended answers `receipt_status: succeeded` at once, and its receipt says `no_op: true` with the terminal the turn reached on its own: the interrupt did nothing. An interrupt accepted while the turn ran is `no_op: true` too when the turn got to another terminal first; when the turn's outcome is unknown, so is the receipt (`status: unknown`, `no_op: false`). A replayed Idempotency-Key answers the receipt's current status instead.
+         *
+         *     **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["interruptSession"];
         delete?: never;
@@ -534,7 +635,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Drain the current turn, checkpoint, stop the execution */
+        /**
+         * Drain the current turn, checkpoint, stop the execution
+         * @description **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
+         */
         post: operations["pauseSession"];
         delete?: never;
         options?: never;
@@ -551,7 +655,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Block dispatch and force the execution down */
+        /**
+         * Block dispatch and force the execution down
+         * @description **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
+         */
         post: operations["terminateSession"];
         delete?: never;
         options?: never;
@@ -568,7 +675,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Restore from the last committed checkpoint or cancel a pause */
+        /**
+         * Restore from the last committed checkpoint or cancel a pause
+         * @description **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
+         */
         post: operations["resumeSession"];
         delete?: never;
         options?: never;
@@ -585,7 +695,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Operator decision for an unknown outcome or a context no checkpoint covers */
+        /**
+         * Operator decision for an unknown outcome or a context no checkpoint covers
+         * @description **Scope:** `sessions:recover` (API key or cookie session). **Idempotency-Key:** required.
+         */
         post: operations["decideSessionRecovery"];
         delete?: never;
         options?: never;
@@ -603,12 +716,16 @@ export interface paths {
         /**
          * Invites of the workspace, newest first
          * @description Each invite's status is pending, accepted, revoked or expired. Tokens are never returned.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listInvites"];
         put?: never;
         /**
          * Invite a person to the workspace
          * @description The token is returned once and expires in seven days; only its sha256 is stored. Inviting an address that already has a live invite revokes that invite. An address that is already a live member answers 400. Every invite writes an `invite_member` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["createInvite"];
         delete?: never;
@@ -630,6 +747,8 @@ export interface paths {
         /**
          * Revoke an invite
          * @description Writes a `revoke_invite` receipt. Revoking an invite that was already revoked does nothing; an accepted one answers 409.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["revokeInvite"];
         options?: never;
@@ -649,6 +768,8 @@ export interface paths {
         /**
          * Redeem an invite; sets the session cookie
          * @description An address with no account gets one with this password. An existing account joins with its current password, which is never changed. The token is spent once; a revoked, replaced or expired token answers 410, an accepted one 409. Writes an `accept_invite` receipt.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["acceptInvite"];
         delete?: never;
@@ -664,7 +785,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Members of the workspace, oldest first */
+        /**
+         * Members of the workspace, oldest first
+         * @description **Auth:** cookie session only; no scope.
+         */
         get: operations["listMembers"];
         put?: never;
         post?: never;
@@ -690,6 +814,8 @@ export interface paths {
         /**
          * Change a member's role
          * @description Demoting the workspace's last live owner answers 409 LAST_OWNER. Writes a `change_member_role` receipt when the role changes.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         patch: operations["updateMember"];
         trace?: never;
@@ -706,6 +832,8 @@ export interface paths {
         /**
          * Disable a member of the workspace
          * @description In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["disableMember"];
         delete?: never;
@@ -726,6 +854,8 @@ export interface paths {
         /**
          * Enable a disabled member again
          * @description Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["enableMember"];
         delete?: never;
@@ -746,6 +876,8 @@ export interface paths {
         /**
          * Suspend an account
          * @description Allowed only when every live membership of the account is in a workspace the caller owns; otherwise 403. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["disableUser"];
         delete?: never;
@@ -766,6 +898,8 @@ export interface paths {
         /**
          * Lift an account suspension
          * @description The same ownership rule as suspending. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["enableUser"];
         delete?: never;
@@ -784,6 +918,8 @@ export interface paths {
         /**
          * Sessions waiting for an owner to take them over
          * @description Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listTakeovers"];
         put?: never;
@@ -806,6 +942,8 @@ export interface paths {
         /**
          * Become the requester of an offboarded member's session
          * @description The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["takeOverSession"];
         delete?: never;
@@ -826,6 +964,8 @@ export interface paths {
         /**
          * Start linking the caller's Slack account
          * @description Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. Refused with 409 when the workspace has no verified Slack install. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["startSlackLink"];
         delete?: never;
@@ -846,6 +986,8 @@ export interface paths {
         /**
          * Finish linking with the code Slack returned
          * @description Spends the state cookie, exchanges the code and verifies the id_token, then links the Slack account to the caller and writes a `link_account` receipt. Refused when the account's Slack team is not installed for the workspace, when the account is linked to someone else (never overwritten), or when the caller already linked another account in that team. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["slackLinkCallback"];
         delete?: never;
@@ -864,6 +1006,8 @@ export interface paths {
         /**
          * The caller's linked accounts that are active or stale
          * @description API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listLinkedAccounts"];
         put?: never;
@@ -887,6 +1031,8 @@ export interface paths {
         /**
          * Unlink one of the caller's accounts
          * @description Revokes the link and writes an `unlink_account` receipt. Input from that Slack account is refused from then on, including input that was already waiting to be processed. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["unlinkAccount"];
         options?: never;
@@ -904,12 +1050,16 @@ export interface paths {
         /**
          * The workspace's agents
          * @description Up to 500, oldest first. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listAgents"];
         put?: never;
         /**
          * Create an agent and its first card version
          * @description Nothing is released or activated. A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["createAgent"];
         delete?: never;
@@ -925,7 +1075,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** An agent with its versions, releases and active release */
+        /**
+         * An agent with its versions, releases and active release
+         * @description **Auth:** cookie session only; no scope.
+         */
         get: operations["getAgent"];
         put?: never;
         post?: never;
@@ -935,6 +1088,8 @@ export interface paths {
         /**
          * Rename an agent or add a card version
          * @description A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         patch: operations["updateAgent"];
         trace?: never;
@@ -951,6 +1106,8 @@ export interface paths {
         /**
          * Release a version against a runtime profile
          * @description The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["createAgentRelease"];
         delete?: never;
@@ -971,6 +1128,8 @@ export interface paths {
         /**
          * Point the agent at a release (compare-and-swap)
          * @description `expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["activateAgent"];
         delete?: never;
@@ -989,12 +1148,16 @@ export interface paths {
         /**
          * The credential names bound to an agent
          * @description Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listCredentialBindings"];
         put?: never;
         /**
          * Bind a credential name to an agent
          * @description Owners, admins and the agent's admins; never an API key. `credential_ref` names a credential held outside Werft (a secret store entry, a remote MCP server connection). Binding a name already bound answers `created: false` and a null `receipt_id`; otherwise writes a `bind_credential` receipt. A name an agent identity holds answers 409 CREDENTIAL_REF_IN_USE.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["createCredentialBinding"];
         delete?: never;
@@ -1016,6 +1179,8 @@ export interface paths {
         /**
          * Unbind a credential name from an agent
          * @description Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["revokeCredentialBinding"];
         options?: never;
@@ -1033,12 +1198,16 @@ export interface paths {
         /**
          * The agent's Slack app identities
          * @description Active first, then revoked, newest first within each; up to 50. Owners, admins and the agent's admins.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listAgentIdentities"];
         put?: never;
         /**
          * Pin the agent to its Slack app's install in one team
          * @description Slack events from that app and team then resolve to this agent and no other; events from another app, or after the identity or the install is revoked, are dropped. The install must be verified for the workspace (409 SLACK_NOT_INSTALLED); one already pinned to another agent answers 409 AGENT_IDENTITY_TAKEN, and to this agent 409 ALREADY_EXISTS. `credential_ref` names the bot token in the secret store, never its value, and is this identity's alone: a name bound to an agent or another identity answers 409 CREDENTIAL_REF_IN_USE, and the name is freed when the identity is revoked. Owners, admins and the agent's admins; API keys are refused. Writes a `link_agent_identity` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["linkAgentIdentity"];
         delete?: never;
@@ -1060,6 +1229,8 @@ export interface paths {
         /**
          * Revoke an agent identity
          * @description Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. Linking again makes a new identity.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["revokeAgentIdentity"];
         options?: never;
@@ -1077,12 +1248,16 @@ export interface paths {
         /**
          * The caller's personal keys and the service keys they manage
          * @description Owners and admins see every service key; an agent's admin sees that agent's keys. Secrets are never returned.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listApiKeys"];
         put?: never;
         /**
          * Issue a personal key, a service key, or one bound to an agent
          * @description A personal key is the caller's own; a service key takes an owner or an admin, and one with `agent_id` also that agent's admin. `scopes` may not exceed what the caller holds now, and a key with `agent_id` never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["createApiKey"];
         delete?: never;
@@ -1104,6 +1279,8 @@ export interface paths {
         /**
          * Revoke a key
          * @description Takes the right issuing that kind of key takes. Revoking a key already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_api_key` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["revokeApiKey"];
         options?: never;
@@ -1118,12 +1295,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The workspace's teams, by name */
+        /**
+         * The workspace's teams, by name
+         * @description **Auth:** cookie session only; no scope.
+         */
         get: operations["listTeams"];
         put?: never;
         /**
          * Create a team
          * @description Owners and admins (`team.manage`). A live team's name is unique in its workspace (409 ALREADY_EXISTS). Writes a `create_team` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["createTeam"];
         delete?: never;
@@ -1139,13 +1321,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A team and its members */
+        /**
+         * A team and its members
+         * @description **Auth:** cookie session only; no scope.
+         */
         get: operations["getTeam"];
         put?: never;
         post?: never;
         /**
          * Delete a team
          * @description Every agent the team administered loses it from the next request on; its members keep whatever they hold on their own. Writes a `delete_team` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["deleteTeam"];
         options?: never;
@@ -1153,6 +1340,8 @@ export interface paths {
         /**
          * Rename a team
          * @description Writes a `rename_team` receipt unless the name is unchanged (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         patch: operations["updateTeam"];
         trace?: never;
@@ -1169,6 +1358,8 @@ export interface paths {
         /**
          * Add a member of the workspace to a team
          * @description No invite and no acceptance: the person is a member of the team at once. A disabled member is not found. Writes an `add_team_member` receipt naming the person, unless they already were in (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["addTeamMember"];
         delete?: never;
@@ -1190,6 +1381,8 @@ export interface paths {
         /**
          * Take a member out of a team
          * @description What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["removeTeamMember"];
         options?: never;
@@ -1207,12 +1400,16 @@ export interface paths {
         /**
          * The people and teams who administer an agent
          * @description Owners, admins and the agent's own admins (`agent.admin.manage`).
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listAgentAdmins"];
         put?: never;
         /**
          * Name a person or a team an agent's admin
          * @description Owners, admins and the agent's own admins. A team's members administer the agent while they are in it. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["addAgentAdmin"];
         delete?: never;
@@ -1234,6 +1431,8 @@ export interface paths {
         /**
          * Stop a person or a team administering an agent
          * @description `kind` is `users` or `teams`. Writes a `remove_agent_admin` receipt unless they were not one (`receipt_id` null).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         delete: operations["removeAgentAdmin"];
         options?: never;
@@ -1251,6 +1450,8 @@ export interface paths {
         /**
          * The agents the caller administers
          * @description Directly or through a team, as of this request: what an agent's admin needs to issue that agent's own key.
+         *
+         *     **Auth:** cookie session only; no scope.
          */
         get: operations["listAdministeredAgents"];
         put?: never;
@@ -1268,7 +1469,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Installation limits and installation-wide usage */
+        /**
+         * Installation limits and installation-wide usage
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["getInstallationLimits"];
         put?: never;
         post?: never;
@@ -1285,7 +1489,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Current outcome of an accepted command */
+        /**
+         * Current outcome of an accepted command
+         * @description **Scope:** `sessions:read` (API key or cookie session).
+         */
         get: operations["getReceipt"];
         put?: never;
         post?: never;
@@ -2266,6 +2473,9 @@ export interface components {
             /** Format: date-time */
             expires_at: string;
         };
+        LoginMethodsResponse: {
+            methods: ("password" | "google")[];
+        };
         StartGoogleLoginResponse: {
             /** Format: uri */
             authorization_url: string;
@@ -2345,6 +2555,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.audit_read" | "session.admin_list" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         InstallationLimitsResponse: {
             /** @constant */
@@ -2897,9 +3108,10 @@ export interface components {
         };
     };
     responses: {
-        /** @description Unexpected server error (INTERNAL_ERROR) */
+        /** @description - `INTERNAL_ERROR`: An unexpected server failure. Report it with the `X-Request-Id`. */
         InternalError: {
             headers: {
+                "X-Request-Id": components["headers"]["RequestId"];
                 [name: string]: unknown;
             };
             content: {
@@ -2914,7 +3126,12 @@ export interface components {
     };
     parameters: never;
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description A fresh id for this request, on every response; an error body's `request_id` carries the same value. */
+        RequestId: string;
+        /** @description Seconds to wait before sending the same request again. */
+        RetryAfter: number;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -2931,6 +3148,7 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2952,6 +3170,7 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2959,9 +3178,10 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: NOT_READY */
+            /** @description - `NOT_READY`: A readiness check failed; `error.details.check` names it (`database`, `schema` or `config`). */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2984,12 +3204,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The OpenAPI 3.1 document. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "openapi": "3.1.0",
+                     *       "info": {
+                     *         "title": "Agent Platform API",
+                     *         "version": "0.1.0-alpha"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["OpenApiDocument"];
                 };
             };
@@ -3005,18 +3235,26 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The credential is valid. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "status": "ok",
+                     *       "owner_id": "7b0e5c1e-2f4a-4d7e-9a51-3c6f0b8d2e14"
+                     *     }
+                     */
                     "application/json": components["schemas"]["ApiRootResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3028,9 +3266,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3043,9 +3282,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3075,15 +3316,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["BootstrapResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3095,9 +3338,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. `bootstrap_token` is missing or does not match the installation's token; checked before the rest of the body. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3109,9 +3353,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3123,9 +3368,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: BOOTSTRAP_DONE */
+            /** @description - `BOOTSTRAP_DONE`: An owner already exists; bootstrap runs once. Checked before the token, and also the answer to the loser of two concurrent bootstraps. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3137,9 +3383,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3152,9 +3399,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3166,6 +3415,28 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    listLoginMethods: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginMethodsResponse"];
+                };
+            };
+            500: components["responses"]["InternalError"];
         };
     };
     login: {
@@ -3187,15 +3458,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["LoginResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3207,9 +3480,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. Unknown email, wrong password, or a user with no live workspace membership. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3221,9 +3495,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3235,9 +3510,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3249,9 +3525,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3263,9 +3540,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Five failed logins for this email within 15 minutes lock it until the window ends (`Retry-After` is the time left), or too many logins are being checked at once (`Retry-After: 1`). */
             429: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3278,9 +3557,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3309,15 +3590,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StartGoogleLoginResponse"];
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3329,9 +3612,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3343,9 +3627,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3358,9 +3643,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3393,15 +3680,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["LoginResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3413,9 +3702,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3427,9 +3717,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3441,9 +3732,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3455,9 +3747,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3469,9 +3762,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: LOGIN_LINK_REQUIRED */
+            /** @description - `LOGIN_LINK_REQUIRED`: The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3483,9 +3777,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3498,9 +3793,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3530,15 +3827,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["PasswordResetResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3550,9 +3849,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3564,9 +3864,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3578,9 +3879,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3592,9 +3894,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
             429: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3607,9 +3911,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3645,15 +3951,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["IssuePasswordResetResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3665,9 +3973,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3679,9 +3988,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3693,9 +4003,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3707,9 +4018,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3721,9 +4033,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3735,9 +4048,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
             429: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3750,9 +4065,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3787,15 +4104,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AuditRetentionResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3807,9 +4126,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3821,9 +4141,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3835,9 +4156,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3849,9 +4171,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3863,9 +4186,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3878,9 +4202,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3909,13 +4235,15 @@ export interface operations {
             /** @description No content */
             204: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3927,9 +4255,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. Also when the caller is not a cookie session (an API key). */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3941,9 +4270,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3956,9 +4286,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -3984,15 +4316,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AuthMeResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. Also when the session's workspace no longer exists. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4004,9 +4338,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4019,9 +4354,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4051,15 +4388,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListSessionsResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4071,9 +4410,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4085,9 +4425,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4100,9 +4441,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4120,6 +4463,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -4129,22 +4473,40 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "profile_id": "claude-coding-real",
+                 *       "repository_id": "sample-app",
+                 *       "message": "Add a health check endpoint and a test for it."
+                 *     }
+                 */
                 "application/json": components["schemas"]["CreateSessionRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The session and its first turn are stored; `receipt_id` tracks the acceptance. */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "turn_id": "1",
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "receipt_status": "accepted",
+                     *       "status": "queued"
+                     *     }
+                     */
                     "application/json": components["schemas"]["CreateSessionResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4156,9 +4518,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4170,9 +4533,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4184,9 +4548,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4198,9 +4563,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4212,9 +4578,15 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, RELEASE_PROFILE_MISMATCH, PROFILE_DIGEST_MISMATCH, CREDENTIAL_UNBOUND */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `RELEASE_PROFILE_MISMATCH`: The release was made for another runtime profile than the one named.
+             *     - `PROFILE_DIGEST_MISMATCH`: The runtime profile's settings changed since the release was made; release the agent again.
+             *     - `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4226,9 +4598,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE, STORAGE_LIMIT_EXCEEDED */
+            /**
+             * @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8.
+             *     - `STORAGE_LIMIT_EXCEEDED`: Accepting this message would exceed the installation's storage limit (`GET /v1/limits`). Retrying does not free space.
+             */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4240,9 +4616,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. `profile_id` or `repository_id` is not in the catalog, or the catalog does not allow the pair. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4254,9 +4631,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Reserved here: the per-session input queue limit applies to later messages, not to the first. */
             429: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4269,9 +4648,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4299,15 +4680,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SessionDetail"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4319,9 +4702,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4333,9 +4717,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4348,9 +4733,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4378,15 +4765,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SessionShare"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4398,9 +4787,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4412,9 +4802,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4427,9 +4818,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4464,15 +4857,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SetSessionShareResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4484,9 +4879,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4498,9 +4894,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4512,9 +4909,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4526,9 +4924,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4540,9 +4939,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REVISION_CONFLICT */
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4554,9 +4954,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4569,9 +4970,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4606,15 +5009,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AuditReadResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4626,9 +5031,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4640,9 +5046,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4654,9 +5061,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4668,9 +5076,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4682,9 +5091,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4697,9 +5107,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4725,15 +5137,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListAdminSessionsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4745,9 +5159,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4760,9 +5175,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4780,6 +5197,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -4798,15 +5216,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TerminateSessionResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4818,9 +5238,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4832,9 +5253,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4846,9 +5268,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4860,9 +5283,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4874,9 +5298,18 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, REVISION_CONFLICT, SESSION_PAUSED, SESSION_RESUMING, SESSION_STOPPED, RECOVERY_REQUIRED, SESSION_CLOSED */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).
+             *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4888,9 +5321,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4902,9 +5336,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4917,9 +5352,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4937,6 +5374,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -4955,15 +5393,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4975,9 +5415,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4989,9 +5430,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5003,9 +5445,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5017,9 +5460,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5031,9 +5475,20 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, REVISION_CONFLICT, REQUEST_STALE, SESSION_PAUSED, SESSION_RESUMING, SESSION_STOPPED, RECOVERY_REQUIRED, SESSION_CLOSED, CHECKPOINT_UNAVAILABLE */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `REQUEST_STALE`: The request was made against state that has since moved on.
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).
+             *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
+             *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5045,9 +5500,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5059,9 +5515,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5074,9 +5531,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5104,15 +5563,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SessionUsageResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5124,9 +5585,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5138,9 +5600,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5153,9 +5616,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5173,6 +5638,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -5191,15 +5657,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["PostSessionMessageResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5211,9 +5679,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5225,9 +5694,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5239,9 +5709,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5253,9 +5724,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5267,9 +5739,19 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, SESSION_PAUSED, SESSION_RESUMING, SESSION_STOPPED, RECOVERY_REQUIRED, SESSION_CLOSED, CHECKPOINT_UNAVAILABLE, TAKEOVER_REQUIRED */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).
+             *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
+             *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.
+             *     - `TAKEOVER_REQUIRED`: The person who asked for the session was offboarded; it takes no input until an owner takes it over.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5281,9 +5763,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE, STORAGE_LIMIT_EXCEEDED */
+            /**
+             * @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8.
+             *     - `STORAGE_LIMIT_EXCEEDED`: Accepting this message would exceed the installation's storage limit (`GET /v1/limits`). Retrying does not free space.
+             */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5295,9 +5781,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. The session already holds the installation's maximum of queued inputs; `Retry-After` is 5. */
             429: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5310,9 +5798,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5343,15 +5833,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListTurnsResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5363,9 +5855,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5377,9 +5870,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5391,9 +5885,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5406,9 +5901,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5437,15 +5934,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TurnDetail"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5457,9 +5956,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5471,9 +5971,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5486,9 +5987,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5506,6 +6009,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The `id` of the last complete event received. Replay resumes strictly after it; omit it (or send it empty) to replay from the start. A malformed value answers `400 BAD_REQUEST`. */
                 "Last-Event-ID"?: string;
             };
             path: {
@@ -5518,15 +6022,17 @@ export interface operations {
             /** @description Event stream */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "text/event-stream": components["schemas"]["SseEvent"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: `Last-Event-ID` is malformed. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5538,9 +6044,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5552,9 +6059,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5566,9 +6074,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5580,9 +6089,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: CURSOR_EXPIRED */
+            /** @description - `CURSOR_EXPIRED`: The cursor fell outside retained history; reread the resource state and start a new stream. Reserved: alpha does not trim events. */
             410: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5594,9 +6104,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. This owner already has 8 open streams, or the process 256; `Retry-After` is 15. */
             429: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5609,9 +6121,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5639,15 +6153,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListPendingRequestsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5659,9 +6175,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5673,9 +6190,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5688,9 +6206,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5708,6 +6228,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -5726,15 +6247,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["PostSessionAnswerResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. Also when the answer does not fit the pending request (its kind, question or option ids); `message` says how. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5746,9 +6269,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5760,9 +6284,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5774,9 +6299,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5788,9 +6314,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5802,9 +6329,14 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, REQUEST_EXPIRED, REQUEST_STALE */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `REQUEST_EXPIRED`: The pending request was already answered, expired or closed.
+             *     - `REQUEST_STALE`: The request was made against state that has since moved on. The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5816,9 +6348,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5831,9 +6364,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5851,6 +6386,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -5869,15 +6405,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5889,9 +6427,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5903,9 +6442,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5917,9 +6457,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5931,9 +6472,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5945,9 +6487,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, TURN_NOT_STARTED */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `TURN_NOT_STARTED`: The target turn is still queued; there is nothing to interrupt yet.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5959,9 +6505,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5973,9 +6520,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The turn runs on a legacy pod binding, which no worker polls for control. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -5988,9 +6536,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6008,6 +6558,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -6026,15 +6577,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6046,9 +6599,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6060,9 +6614,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6074,9 +6629,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6088,9 +6644,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6102,9 +6659,19 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, REVISION_CONFLICT, SESSION_PAUSED, SESSION_RESUMING, SESSION_STOPPED, RECOVERY_REQUIRED, SESSION_CLOSED, CHECKPOINT_UNAVAILABLE */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).
+             *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
+             *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. No live worker can drain the turn and no committed checkpoint covers the last turn; terminate instead.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6116,9 +6683,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6130,9 +6698,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6145,9 +6714,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6165,6 +6736,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -6183,15 +6755,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TerminateSessionResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6203,9 +6777,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6217,9 +6792,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6231,9 +6807,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6245,9 +6822,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6259,9 +6837,18 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, REVISION_CONFLICT, SESSION_PAUSED, SESSION_RESUMING, SESSION_STOPPED, RECOVERY_REQUIRED, SESSION_CLOSED */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).
+             *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6273,9 +6860,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6287,9 +6875,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding with no kill path. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6302,9 +6891,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6322,6 +6913,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -6340,15 +6932,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6360,9 +6954,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6374,9 +6969,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6388,9 +6984,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6402,9 +6999,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6416,9 +7014,19 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, REVISION_CONFLICT, REQUEST_STALE, SESSION_RESUMING, SESSION_CLOSED, RECOVERY_REQUIRED, CHECKPOINT_UNAVAILABLE, PAUSE_COMMITTING */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `REQUEST_STALE`: The request was made against state that has since moved on. The session is already active.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
+             *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The session is stopping or needs recovery, or a turn's outcome is unknown.
+             *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. The stopped or paused session has no restore point it can resume from.
+             *     - `PAUSE_COMMITTING`: The pause has already committed its stop and can no longer be cancelled; wait for it, then resume.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6430,9 +7038,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6444,9 +7053,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6459,9 +7069,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6479,6 +7091,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
@@ -6497,15 +7110,17 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6517,9 +7132,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6531,9 +7147,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6545,9 +7162,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. Also when `target_turn_id` names no turn of the session. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6559,9 +7177,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6573,9 +7192,20 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT, REVISION_CONFLICT, REQUEST_STALE, SESSION_PAUSED, SESSION_RESUMING, SESSION_STOPPED, RECOVERY_REQUIRED, SESSION_CLOSED, CHECKPOINT_UNAVAILABLE */
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `REQUEST_STALE`: The request was made against state that has since moved on. The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.
+             *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first.
+             *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.
+             *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.
+             *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
+             *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. `confirm_completed` with no committed checkpoint that reaches the target turn.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6587,9 +7217,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6601,9 +7232,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6616,9 +7248,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6644,15 +7278,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListInvitesResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6664,9 +7300,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6679,9 +7316,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6714,15 +7353,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CreateInviteResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6734,9 +7375,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6748,9 +7390,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN, OWNER_PROTECTED */
+            /**
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's membership.
+             */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6762,9 +7408,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6776,9 +7423,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6791,9 +7439,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6824,13 +7474,15 @@ export interface operations {
             /** @description No content */
             204: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6842,9 +7494,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6856,9 +7509,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6870,9 +7524,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6884,9 +7539,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: INVITE_USED */
+            /** @description - `INVITE_USED`: The invite was already accepted and cannot be used again. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6899,9 +7555,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6934,15 +7592,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AcceptInviteResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6954,9 +7614,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6968,9 +7629,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6982,9 +7644,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6996,9 +7659,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: INVITE_USED */
+            /** @description - `INVITE_USED`: The invite was already accepted and cannot be used again. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7010,9 +7674,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: INVITE_EXPIRED */
+            /** @description - `INVITE_EXPIRED`: The invite was revoked, replaced by a newer one, or has expired. Ask for a new invite. */
             410: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7024,9 +7689,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7038,9 +7704,11 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
             429: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7053,9 +7721,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7081,15 +7751,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListMembersResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7101,9 +7773,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7116,9 +7789,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7153,15 +7828,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["MemberView"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7173,9 +7850,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7187,9 +7865,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN, OWNER_PROTECTED */
+            /**
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's membership.
+             */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7201,9 +7883,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7215,9 +7898,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7229,9 +7913,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: LAST_OWNER */
+            /** @description - `LAST_OWNER`: The change would leave the workspace with no live owner. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7243,9 +7928,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7258,9 +7944,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7295,15 +7983,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SetAccessResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7315,9 +8005,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7329,9 +8020,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7343,9 +8035,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7357,9 +8050,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7371,9 +8065,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: LAST_OWNER */
+            /** @description - `LAST_OWNER`: The change would leave the workspace with no live owner. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7385,9 +8080,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7400,9 +8096,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7437,15 +8135,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SetAccessResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7457,9 +8157,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7471,9 +8172,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7485,9 +8187,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7499,9 +8202,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7513,9 +8217,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7528,9 +8233,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7565,15 +8272,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SetAccessResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7585,9 +8294,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7599,9 +8309,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7613,9 +8324,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7627,9 +8339,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7641,9 +8354,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: LAST_OWNER */
+            /** @description - `LAST_OWNER`: The change would leave the workspace with no live owner. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7655,9 +8369,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7670,9 +8385,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7707,15 +8424,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SetAccessResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7727,9 +8446,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7741,9 +8461,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7755,9 +8476,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7769,9 +8491,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7783,9 +8506,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7798,9 +8522,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7826,15 +8552,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListTakeoversResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7846,9 +8574,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7861,9 +8590,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7898,15 +8629,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7918,9 +8651,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7932,9 +8666,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7946,9 +8681,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7960,9 +8696,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7974,9 +8711,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_STALE */
+            /** @description - `REQUEST_STALE`: The request was made against state that has since moved on. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -7988,9 +8726,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8003,9 +8742,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8034,15 +8775,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StartSlackLinkResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8054,9 +8797,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8068,9 +8812,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8082,9 +8827,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: SLACK_NOT_INSTALLED */
+            /** @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8097,9 +8843,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8132,15 +8880,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SlackLinkCallbackResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8152,9 +8902,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8166,9 +8917,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8180,9 +8932,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8194,9 +8947,15 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: SLACK_NOT_INSTALLED, LINK_TEAM_MISMATCH, LINK_TAKEN, LINK_EXISTS */
+            /**
+             * @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.
+             *     - `LINK_TEAM_MISMATCH`: The Slack account belongs to another Slack team than the workspace's install.
+             *     - `LINK_TAKEN`: The Slack account is already linked to another person.
+             *     - `LINK_EXISTS`: The caller already linked a different Slack account in this team; unlink it first.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8208,9 +8967,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8223,9 +8983,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8251,15 +9013,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListLinkedAccountsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8271,9 +9035,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8286,9 +9051,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8319,15 +9086,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptAcceptedResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8339,9 +9108,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8353,9 +9123,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8367,9 +9138,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8382,9 +9154,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8410,15 +9184,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListAgentsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8430,9 +9206,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8445,9 +9222,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8480,15 +9259,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgentDetail"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8500,9 +9281,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8514,9 +9296,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8528,9 +9311,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8542,9 +9326,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: ALREADY_EXISTS */
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8556,9 +9341,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8571,9 +9357,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8601,15 +9389,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgentDetail"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8621,9 +9411,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8635,9 +9426,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8650,9 +9442,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8669,8 +9463,7 @@ export interface operations {
     updateAgent: {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": string;
+            header?: {
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
             };
@@ -8688,15 +9481,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgentDetail"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8708,9 +9503,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8722,9 +9518,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8736,9 +9533,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8750,9 +9548,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8764,9 +9563,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8779,9 +9579,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8816,15 +9618,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CreateAgentReleaseResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8836,9 +9640,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8850,9 +9655,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8864,9 +9670,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8878,9 +9685,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8892,9 +9700,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8906,9 +9715,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNSUPPORTED_CAPABILITY */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. */
             422: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8921,9 +9731,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8958,15 +9770,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ActivateAgentResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8978,9 +9792,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -8992,9 +9807,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9006,9 +9822,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9020,9 +9837,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9034,9 +9852,14 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REVISION_CONFLICT, PROFILE_DIGEST_MISMATCH, CREDENTIAL_UNBOUND */
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `PROFILE_DIGEST_MISMATCH`: The runtime profile's settings changed since the release was made; release the agent again.
+             *     - `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9048,9 +9871,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9063,9 +9887,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9093,15 +9919,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListCredentialBindingsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9113,9 +9941,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9127,9 +9956,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9142,9 +9972,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9179,15 +10011,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CreateCredentialBindingResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9199,9 +10033,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9213,9 +10048,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9227,9 +10063,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9241,9 +10078,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9255,9 +10093,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: CREDENTIAL_REF_IN_USE */
+            /** @description - `CREDENTIAL_REF_IN_USE`: The credential name is already held by an agent identity, or bound to an agent an identity would take it from. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9269,9 +10108,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9284,9 +10124,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9318,15 +10160,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["RevokeCredentialBindingResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9338,9 +10182,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9352,9 +10197,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9366,9 +10212,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9381,9 +10228,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9411,15 +10260,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListAgentIdentitiesResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9431,9 +10282,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9445,9 +10297,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9460,9 +10313,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9497,15 +10352,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["LinkAgentIdentityResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9517,9 +10374,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9531,9 +10389,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9545,9 +10404,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9559,9 +10419,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9573,9 +10434,15 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: SLACK_NOT_INSTALLED, AGENT_IDENTITY_TAKEN, ALREADY_EXISTS, CREDENTIAL_REF_IN_USE */
+            /**
+             * @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.
+             *     - `AGENT_IDENTITY_TAKEN`: The Slack app and team are already pinned to another agent; revoke that identity first.
+             *     - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.
+             *     - `CREDENTIAL_REF_IN_USE`: The credential name is already held by an agent identity, or bound to an agent an identity would take it from.
+             */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9587,9 +10454,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9602,9 +10470,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9636,15 +10506,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["RevokeAgentIdentityResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9656,9 +10528,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9670,9 +10543,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9684,9 +10558,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9699,9 +10574,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9727,15 +10604,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListApiKeysResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9747,9 +10626,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9762,9 +10642,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9797,15 +10679,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CreateApiKeyResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9817,9 +10701,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9831,9 +10716,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN, SCOPE_NOT_GRANTABLE */
+            /**
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             *     - `SCOPE_NOT_GRANTABLE`: The key asks for a scope its issuer does not hold now, or an agent's key asks for `sessions:approve`.
+             */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9845,9 +10734,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9859,9 +10749,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9873,9 +10764,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9888,9 +10780,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9921,15 +10815,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["RevokeApiKeyResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9941,9 +10837,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9955,9 +10852,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9969,9 +10867,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -9984,9 +10883,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10012,15 +10913,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListTeamsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10032,9 +10935,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10047,9 +10951,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10082,15 +10988,17 @@ export interface operations {
             /** @description Success */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10102,9 +11010,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10116,9 +11025,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10130,9 +11040,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10144,9 +11055,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: ALREADY_EXISTS */
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10158,9 +11070,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10173,9 +11086,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10203,15 +11118,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TeamDetail"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10223,9 +11140,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10237,9 +11155,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10252,9 +11171,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10285,15 +11206,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeleteTeamResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10305,9 +11228,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10319,9 +11243,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10333,9 +11258,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10348,9 +11274,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10385,15 +11313,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10405,9 +11335,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10419,9 +11350,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10433,9 +11365,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10447,9 +11380,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10461,9 +11395,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: ALREADY_EXISTS */
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
             409: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10475,9 +11410,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10490,9 +11426,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10527,15 +11465,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10547,9 +11487,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10561,9 +11502,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10575,9 +11517,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10589,9 +11532,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10603,9 +11547,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10618,9 +11563,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10652,15 +11599,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10672,9 +11621,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10686,9 +11636,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10700,9 +11651,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10715,9 +11667,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10745,15 +11699,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgentAdmins"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10765,9 +11721,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10779,9 +11736,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10794,9 +11752,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10831,15 +11791,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgentAdminChangeResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10851,9 +11813,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10865,9 +11828,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10879,9 +11843,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10893,9 +11858,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10907,9 +11873,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10922,9 +11889,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10957,15 +11926,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgentAdminChangeResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10977,9 +11948,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10991,9 +11963,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11005,9 +11978,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11020,9 +11994,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11048,15 +12024,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ListAdministeredAgentsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11068,9 +12046,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11083,9 +12062,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11111,15 +12092,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["InstallationLimitsResponse"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11131,9 +12114,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11146,9 +12130,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11176,15 +12162,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Receipt"];
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11196,9 +12184,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11210,9 +12199,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11225,9 +12215,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {
