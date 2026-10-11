@@ -428,6 +428,18 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       "web_sessions_revoked=1 personal_keys_revoked=1 sessions_awaiting_takeover=2",
     );
     const offboardedAt = Date.now();
+    const kept = await db
+      .select({
+        outcome: schema.authzDecisions.outcome,
+        actor: schema.authzDecisions.actorUserId,
+      })
+      .from(schema.authzDecisions)
+      .where(eq(schema.authzDecisions.action, "member.manage"))
+      .orderBy(schema.authzDecisions.at);
+    expect(kept).toEqual([
+      { outcome: "deny", actor: memberId },
+      { outcome: "allow", actor: ownerId },
+    ]);
 
     expect(await endOf(cookieStream, offboardedAt)).toBeLessThan(
       KEEPALIVE_MS + 50,

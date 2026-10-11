@@ -1,6 +1,7 @@
 import * as schema from "@agent-platform/db";
 import {
   announceLapsedInputWaits,
+  expireAuthzDecisions,
   expireOverdueInterrupts,
   expireOverdueTerminations,
   reconcileExpiredLeases,
@@ -89,5 +90,6 @@ export function reconcileOnce(
         logger,
       }),
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
+    expireDecisions: (options) => expireAuthzDecisions(db, options),
   });
 }
