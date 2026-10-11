@@ -391,6 +391,36 @@ describe("편집 중 다른 곳의 저장", () => {
     expect(JSON.stringify(patch?.body)).not.toContain("결제 담당에게만");
   });
 
+  test("카드만 고쳤으면 다른 곳의 이름 변경을 되돌리지 않는다", async () => {
+    const server = agentServer();
+    let renamed = false;
+    const get = () => {
+      const detail = server.detail();
+      return json(200, {
+        ...detail,
+        agent: { ...detail.agent, name: renamed ? "청구 담당" : "결제 담당" },
+      });
+    };
+    const { api, services } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}`]: get,
+    });
+    const user = await setupUser();
+    const instructions = await screen.findByLabelText("지시");
+    await user.clear(instructions);
+    await user.type(instructions, "카드만 고친다.");
+    renamed = true;
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.agent(AGENT_ID),
+    });
+    await screen.findByRole("heading", { name: "청구 담당" });
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다/);
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect(patch?.body).not.toHaveProperty("name");
+  });
+
   test("고친 것이 없으면 최신 카드를 그대로 받아들인다", async () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });

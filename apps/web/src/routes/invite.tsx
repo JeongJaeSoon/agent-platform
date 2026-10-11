@@ -76,7 +76,7 @@ export function InviteScreen() {
         ) : null}
       </section>
     );
-  } else body = <AcceptForm token={token} />;
+  } else body = <AcceptForm key={token} token={token} />;
 
   return (
     <Main className="web-auth">

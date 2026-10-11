@@ -265,18 +265,19 @@ function CardEditor({
   const [edit, setEdit] = useState(() => startEdit(detail));
   const base = detail.versions.find((v) => v.id === edit.baseId);
   const dirty =
-    edit.name !== detail.agent.name ||
+    edit.name !== edit.baseName ||
     JSON.stringify(edit.draft) !==
       JSON.stringify(base ? draftFromCard(base.card) : null);
   const stale = (latest?.id ?? null) !== edit.baseId;
-  if (stale && !dirty) setEdit(startEdit(detail));
+  if ((stale || detail.agent.name !== edit.baseName) && !dirty)
+    setEdit(startEdit(detail));
   const setName = (name: string) => setEdit((e) => ({ ...e, name }));
   const setDraft = (draft: CardDraft) => setEdit((e) => ({ ...e, draft }));
   const { name, draft } = edit;
   const titleId = useId();
 
   const save = useMutation<AgentDetail, ApiError, Edit>({
-    mutationFn: ({ name, draft }) =>
+    mutationFn: ({ baseName, name, draft }) =>
       unwrap(
         client.PATCH("/v1/agents/{id}", {
           params: {
@@ -284,7 +285,9 @@ function CardEditor({
             header: { "Idempotency-Key": crypto.randomUUID() },
           },
           body: {
-            ...(name.trim() !== detail.agent.name ? { name: name.trim() } : {}),
+            // Only a name the user changed: sending the one the edit started
+            // from would undo a rename made elsewhere since.
+            ...(name.trim() !== baseName ? { name: name.trim() } : {}),
             ...(draft ? { card: cardFromDraft(draft, base?.card) } : {}),
           },
         }),
@@ -304,7 +307,11 @@ function CardEditor({
       setEdit((current) =>
         sameEdit(current, submitted)
           ? startEdit(updated)
-          : { ...current, baseId: saved?.id ?? null },
+          : {
+              ...current,
+              baseId: saved?.id ?? null,
+              baseName: updated.agent.name,
+            },
       );
       queryClient.setQueryData(queryKeys.agent(detail.agent.id), updated);
       await queryClient.invalidateQueries({
@@ -362,6 +369,7 @@ function CardEditor({
 
 interface Edit {
   readonly baseId: string | null;
+  readonly baseName: string;
   readonly name: string;
   readonly draft: CardDraft | null;
 }
@@ -373,6 +381,7 @@ function startEdit(detail: AgentDetail): Edit {
   const latest = latestVersion(detail);
   return {
     baseId: latest?.id ?? null,
+    baseName: detail.agent.name,
     name: detail.agent.name,
     draft: latest ? draftFromCard(latest.card) : null,
   };
