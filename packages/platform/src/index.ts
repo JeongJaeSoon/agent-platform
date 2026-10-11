@@ -13,6 +13,7 @@ export * from "./musterrolle/invite-service.ts";
 export * from "./musterrolle/linked-account-service.ts";
 export * from "./musterrolle/member-service.ts";
 export * from "./musterrolle/policy.ts";
+export * from "./musterrolle/session-share-service.ts";
 export * from "./musterrolle/team-service.ts";
 export * from "./ports/agent-admin-store.ts";
 export * from "./ports/agent-identity-store.ts";

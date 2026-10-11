@@ -1,4 +1,8 @@
-import type { SessionShareScope } from "@agent-platform/contracts";
+import type {
+  AdmissionState,
+  SessionShareScope,
+  SessionStatus,
+} from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 /**
@@ -52,6 +56,19 @@ export type SetSessionShareResult =
   | { outcome: "not_found" | "invalid_target" | "actor_inactive" }
   | { outcome: "revision_conflict"; currentRevision: number };
 
+/** A session as a manager lists it: metadata only, never content. */
+export type AdminSessionRow = {
+  sessionId: string;
+  createdByUserId: string | null;
+  createdByApiKeyId: string | null;
+  agentReleaseId: string | null;
+  status: SessionStatus;
+  admissionState: AdmissionState;
+  shareScope: SessionShareScope;
+  createdAt: Date;
+  takeoverRequiredAt: Date | null;
+};
+
 export interface SessionShareStore {
   /** Read now, never cached: a team's members are its members today. */
   visibleTo(
@@ -63,4 +80,6 @@ export interface SessionShareStore {
   get(ownerId: string, sessionId: string): Promise<SessionShare | null>;
   /** Wakes the session's open streams so each re-checks what it may see. */
   set(input: SetSessionShareInput): Promise<SetSessionShareResult>;
+  /** Newest first, whatever each session's share. */
+  listForAdmin(ownerId: string, limit: number): Promise<AdminSessionRow[]>;
 }

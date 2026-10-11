@@ -6,7 +6,16 @@ import type {
   SetSessionShareInput,
   SetSessionShareResult,
 } from "@agent-platform/platform";
-import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -282,5 +291,32 @@ export function createPostgresSessionShareStore(
     },
 
     set: (input) => setShare(db, input),
+
+    async listForAdmin(ownerId, limit) {
+      const rows = await db
+        .select({
+          sessionId: sessions.id,
+          createdByUserId: sessions.createdByUserId,
+          createdByApiKeyId: sessions.createdByApiKeyId,
+          agentReleaseId: sessions.agentReleaseId,
+          status: sessions.status,
+          admissionState: sessions.admissionState,
+          scope: sessionShares.scope,
+          revision: sessionShares.revision,
+          createdAt: sessions.createdAt,
+          takeoverRequiredAt: sessions.takeoverRequiredAt,
+        })
+        .from(sessions)
+        .leftJoin(sessionShares, eq(sessionShares.sessionId, sessions.id))
+        .where(eq(sessions.ownerId, ownerId))
+        .orderBy(desc(sessions.createdAt), desc(sessions.id))
+        .limit(limit);
+      return rows.map(({ scope, revision, ...row }) => ({
+        ...row,
+        shareScope: (revision !== null && revision > 0
+          ? scope
+          : "workspace") as SessionShareScope,
+      }));
+    },
   };
 }
