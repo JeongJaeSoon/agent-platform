@@ -1,7 +1,8 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "../api/client.ts";
+import { loginMethodsQuery } from "../api/queries.ts";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -26,6 +27,9 @@ export function safeRedirect(value: unknown): string | undefined {
   if (value.includes("\\")) return undefined;
   return value;
 }
+
+/** Where the Google round trip returns to after the callback; per tab. */
+export const POST_LOGIN_PATH_KEY = "ap.postLoginPath";
 
 export function loginSearch(search: Record<string, unknown>): LoginSearch {
   const redirect = safeRedirect(search.redirect);
@@ -119,10 +123,64 @@ export function LoginScreen() {
           {login.isPending ? t("login.submitting") : t("login.submit")}
         </button>
       </form>
+      <GoogleChoice redirect={search.redirect} />
       <p className="web-auth__aside">
         {t("login.bootstrapPrompt")}{" "}
         <Link to="/bootstrap">{t("login.bootstrapLink")}</Link>
       </p>
     </Main>
+  );
+}
+
+/**
+ * The other way in, offered only where the server says Google sign-in is
+ * configured. A failed lookup leaves the password form, which always works.
+ */
+function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
+  const { t } = useI18n();
+  const { client, leave } = useServices();
+  const methods = useQuery(loginMethodsQuery(client));
+
+  const start = useMutation<{ authorization_url: string }, ApiError>({
+    meta: { public: true },
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/auth/google/start", {
+          params: { header: { "X-Requested-With": CSRF_HEADER_VALUE } },
+        }),
+      ),
+    onSuccess: ({ authorization_url }) => {
+      try {
+        if (redirect) sessionStorage.setItem(POST_LOGIN_PATH_KEY, redirect);
+        else sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+      } catch {
+        // Without storage the callback lands on home; the sign-in still works.
+      }
+      leave(authorization_url);
+    },
+  });
+
+  if (!methods.data?.methods.includes("google")) return null;
+  return (
+    <section className="web-auth__alt" aria-label={t("login.alternatives")}>
+      <p className="web-auth__divider">{t("login.or")}</p>
+      {start.error ? (
+        <p className="web-form__error" role="alert">
+          {t(errorKey(start.error.code))}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="ap-button"
+        // Not held after success: back from Google (bfcache) must be able
+        // to start again.
+        disabled={start.isPending}
+        onClick={() => start.mutate()}
+      >
+        {start.isPending
+          ? t("login.google.starting")
+          : t("login.google.submit")}
+      </button>
+    </section>
   );
 }

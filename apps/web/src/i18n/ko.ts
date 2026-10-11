@@ -39,6 +39,19 @@ export const ko = {
   "login.notice.created":
     "소유자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
 
+  "login.or": "또는",
+  "login.alternatives": "다른 로그인 방법",
+  "login.google.submit": "Google로 로그인",
+  "login.google.starting": "Google로 이동하는 중…",
+  "login.google.title": "Google 로그인",
+  "login.google.rejected":
+    "Google 로그인을 받아들이지 못했습니다 — 초대받은 주소의 계정인지 확인하고 처음부터 다시 시도하세요.",
+  "login.google.forbidden":
+    "이 Google 계정으로는 들어올 수 없습니다 — 워크스페이스가 허용한 도메인의 계정으로 다시 시도하세요.",
+  "login.google.cancelled":
+    "Google 로그인이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
+  "login.google.backToLogin": "로그인 화면으로",
+
   "bootstrap.title": "첫 소유자 만들기",
   "bootstrap.intro":
     "설치할 때 한 번 출력된 bootstrap 토큰으로 첫 소유자와 워크스페이스를 만듭니다. 토큰은 한 번만 쓸 수 있습니다.",
@@ -248,6 +261,8 @@ export const ko = {
   "error.BACKEND_UNAVAILABLE":
     "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NETWORK_ERROR": "서버에 닿지 못했습니다 — 연결을 확인하세요.",
+  "error.LOGIN_LINK_REQUIRED":
+    "이미 이 이메일로 만든 계정이 있습니다 — 비밀번호로 로그인하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NOT_FOUND": "찾을 수 없습니다 — 목록을 다시 불러오세요.",
   "error.PAYLOAD_TOO_LARGE": "입력이 너무 깁니다 — 줄여서 다시 보내세요.",
