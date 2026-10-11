@@ -475,7 +475,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 
 `keys create <owner_id>`로 만든 기존 key는 모두 service key다. 응답과 partition은 이전과 같다. `keys create --workspace <workspace_id> --scopes …`로 만든 key는 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--personal <user_id>`를 더하면 그 멤버의 개인 key가 된다. 이 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. service key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수 등)을 할 수 없다(`403`). 관리 action은 owner의 cookie 세션으로만 한다.
 
-누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0132 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
+누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0133 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
 멤버를 내보내는 HTTP API는 아직 없다. 운영자 CLI가 `--by`로 지정한 owner로서 같은 `member.manage` 판정을 거쳐 실행한다. 자기 자신은 내보낼 수 없다. 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기한다(열린 SSE는 keepalive 주기 안에 끊긴다). 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 외부 디렉터리(SCIM 등)와의 동기화는 없다. 사내 SSO에서 사람을 내보내도 여기에는 반영되지 않으므로 이 CLI를 따로 실행해야 한다.
 
@@ -591,10 +591,13 @@ API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control
 | `PENDING_REQUEST_TTL_SEC` | 1800 | 정수 1–604800. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다린다. worker의 `QUESTION_TIMEOUT_SEC`는 gateway가 등록을 확인하기 전에만 적용된다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
 | `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다. worker는 scheduler의 값을 받는다 |
+| `WEB_DIST_DIR` | 없음(웹 콘솔을 서빙하지 않음). control-host 이미지는 `/app/apps/web/dist` | `index.html`이 있는 절대 경로. 웹 콘솔(`apps/web`)의 빌드 결과다 |
 
 모든 `/v1` 응답은 `api.request.completed`를 남긴다. 실제 id가 없는 Hono `route_template`, `method`, `status`, 인증과 route 처리를 포함한 `duration_ms`, `operation=api_request`, `outcome`, `reason_code`가 있고 `request_id`는 log context에 있다. request body·credential·provider key는 넣지 않는다. terminate 요청은 같은 `request_id`의 `Terminate control transaction completed`도 남기며, 여기에는 pool checkout, binding·launch·session lock, 각 SQL, commit 또는 rollback, control transaction 전체의 millisecond 계측이 들어간다. 배포 환경에서 수락 지연을 조사할 때는 두 로그를 `request_id`로 묶어 어느 단계가 느렸는지 판단한다.
 
 terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reconciler가 execution 부재를 확인하면 `control.result`가 `operation=terminate`, receipt id인 `control_id`, `outcome`, `reason_code`, durable 수락부터 확인까지의 `effect_ms`(`duration_ms`와 같음)를 남긴다. 기한을 넘긴 receipt는 먼저 `outcome=unknown`·`reason_code=deadline_exceeded`를 남기며, 이후 execution 부재를 확인해 receipt를 성공으로 올리면 `outcome=succeeded`·`reason_code=execution_gone` 결과를 추가로 남긴다.
+
+`WEB_DIST_DIR`가 있으면 API가 웹 콘솔을 같은 origin에서 서빙한다(94S-158). `/v1`·`/internal` 밖의 GET·HEAD는 그 디렉터리의 파일을 돌려주고, 파일이 없으면 `index.html`을 돌려준다(SPA fallback). 그래서 `/login`·`/bootstrap`을 새로고침해도 화면이 열린다. `/v1`·`/internal` 아래는 fallback하지 않는다. 인증된 `/v1/nope`는 전처럼 JSON `404 NOT_FOUND`다. `/assets/` 아래 파일은 content hash가 붙은 이름이라 `immutable`로 캐시하고, 없는 asset은 페이지 대신 404를 준다. `index.html`은 `no-cache`이며 inline script를 허용하지 않는 CSP(`script-src 'self'`)를 붙인다. control-host 이미지는 `web` build stage에서 `apps/web`을 빌드하고 `dist/`만 담는다. 별도 web 이미지는 없다. 로컬에서 웹만 고칠 때는 `bun run --cwd apps/web dev`(Vite, `/v1`을 `VITE_API_TARGET` 기본 `http://127.0.0.1:3000`으로 proxy)를 쓴다.
 
 `AUTH_MODE=none`은 egress authorizer(`EGRESS_AUTHORIZER_PORT`)와 함께 쓸 수 없다. authorizer가 켜져 있다는 것은 worker가 proxy를 거쳐 이 API에 닿는다는 뜻이다. `none` 모드에서는 worker 안의 코드가 `X-Owner-Id`로 아무 owner나 행세할 수 있으므로 기동을 거부한다. `AUTH_MODE` 값 자체(`none`|`api-key`)는 전처럼 readiness가 판정한다.
 

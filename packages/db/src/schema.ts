@@ -300,6 +300,49 @@ export const bootstrapTokenUses = pgTable("bootstrap_token_uses", {
   usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// The shared Slack app installed in one Slack team, owned by one workspace.
+// A row is registered `pending` from config, turns `verified` once
+// `auth.test` confirms the app, team and bot user, and is `revoked` rather
+// than deleted so that rows pointing at it keep their target. No secret is
+// stored here; credentials stay in the config's references.
+export const slackInstallations = pgTable(
+  "slack_installations",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    appId: text("app_id").notNull(),
+    teamId: text("team_id").notNull(),
+    /** Known only once `auth.test` has answered. */
+    botUserId: text("bot_user_id"),
+    status: text()
+      .$type<"pending" | "verified" | "revoked">()
+      .notNull()
+      .default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    unique("slack_installations_app_team_uniq").on(table.appId, table.teamId),
+    check(
+      "slack_installations_status_check",
+      sql`${table.status} IN ('pending', 'verified', 'revoked')`,
+    ),
+    check(
+      "slack_installations_verified_check",
+      sql`${table.status} <> 'verified' OR (${table.botUserId} IS NOT NULL AND ${table.verifiedAt} IS NOT NULL)`,
+    ),
+    check(
+      "slack_installations_revoked_check",
+      sql`(${table.status} = 'revoked') = (${table.revokedAt} IS NOT NULL)`,
+    ),
+  ],
+);
+
 // One Grant row per `grantSchema`; the refs are stored as
 // (kind, id) column pairs so the evaluator (I0-5a) matches them exactly in
 // SQL without unpacking JSON. `service_principal_id` is always a service

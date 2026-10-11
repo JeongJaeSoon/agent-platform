@@ -30,6 +30,7 @@ H1 제목과 사용자에게 보이는 동작 한 문단, 그다음 H2 넷을 �
 ## 기능
 
 - [웹 로그인](./web-login.md): 첫 owner bootstrap, 로그인, `me`, 로그아웃, CSRF·잘못된 비밀번호 거절.
+- [웹 콘솔](./web-console.md): 브라우저로 `/bootstrap` → `/login` → `/`(workspace shell) → 로그아웃, SPA fallback과 `/v1` JSON 404.
 - [API key](./api-keys.md): key CLI로 발급, scope 검사, 폐기 후 401.
 - [세션](./sessions.md): fake model 대본으로 세션 생성·turn 완료·권한 요청·pause/resume (전체 경로는 `docs/quickstart.md` 3장).
 - [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`, 세션 usage.

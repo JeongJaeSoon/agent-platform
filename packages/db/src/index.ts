@@ -18,6 +18,7 @@ export * from "./queries.ts";
 export * from "./scheduler-store.ts";
 export * from "./schema.ts";
 export * from "./session-events.ts";
+export * from "./slack-installations.ts";
 export { expireOverdueInterrupts } from "./turn-interrupts.ts";
 export * from "./usage-reader.ts";
 export * from "./worker-unit-of-work.ts";
