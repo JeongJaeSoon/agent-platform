@@ -71,6 +71,7 @@ export function agentServer() {
   const routes = {
     "GET /v1/agents": () => json(200, { items: [detail().agent] }),
     [`GET ${path}`]: () => json(200, detail()),
+    [`GET ${path}/admins`]: () => json(200, { users: [], teams: [] }),
     [`PATCH ${path}`]: async (request: Request) => {
       const body = (await request.json()) as { card?: AgentCard };
       const card = body.card;
