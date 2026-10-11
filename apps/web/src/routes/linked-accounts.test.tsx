@@ -79,16 +79,17 @@ describe("연동 계정", () => {
     expect(
       await screen.findByText("Slack 사용자 U0MOCK (워크스페이스 T0MOCK)"),
     ).toBeDefined();
+    // Another Slack workspace can be linked alongside this one.
     expect(
-      screen.queryByRole("button", { name: "Slack 계정 연결" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Slack 계정 연결" }),
+    ).toBeDefined();
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "연결 해제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "Slack 계정 연결을 해제했습니다.",
     );
     expect(
-      await screen.findByRole("button", { name: "Slack 계정 연결" }),
+      await screen.findByText("연결된 Slack 계정이 없습니다."),
     ).toBeDefined();
   });
 

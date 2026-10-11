@@ -96,7 +96,9 @@ export function LinkedAccountsScreen() {
             onUnlink={(account) => unlink.mutate(account)}
           />
         )}
-        {accounts.isSuccess && live.length === 0 ? (
+        {/* One link per Slack workspace, so another workspace can still
+            be added while one is linked. */}
+        {accounts.isSuccess ? (
           <button
             type="button"
             className="ap-button ap-button--primary"
