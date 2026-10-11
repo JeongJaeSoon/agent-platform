@@ -510,6 +510,31 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
       expect(live.length).toBe(accepted.status === 200 ? 0 : 1);
     });
 
+    test("an account created for the address mid-accept is not a server error", async () => {
+      const issued = await invite(ownerCookie, "late@example.com");
+      const other = await pool.connect();
+      try {
+        await other.query("BEGIN");
+        await other.query(
+          "INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, 'late@example.com', 'x', 'Late')",
+          [crypto.randomUUID()],
+        );
+        // The accept peeks no account, then waits on the uncommitted row.
+        const pending = accept(issued.invite_token);
+        await Bun.sleep(300);
+        await other.query("COMMIT");
+        const response = await pending;
+        expect(response.status).toBe(401);
+      } finally {
+        other.release();
+      }
+      const [row] = await db
+        .select()
+        .from(invites)
+        .where(eq(invites.id, issued.invite_id));
+      expect(row?.acceptedAt).toBeNull();
+    });
+
     test("two owners demoting each other or themselves: an owner remains", async () => {
       const issued = await invite(ownerCookie, "co-owner@example.com", "owner");
       const joined = await accept(issued.invite_token);

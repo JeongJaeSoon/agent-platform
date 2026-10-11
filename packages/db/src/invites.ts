@@ -296,12 +296,19 @@ async function acceptInvite(
       verifiedPasswordHash = account.passwordHash;
     } else {
       if (account) return { outcome: "account_changed" };
-      await tx.insert(users).values({
-        id: expected.userId,
-        email: invite.email,
-        passwordHash: expected.passwordHash,
-        displayName: expected.displayName,
-      });
+      // No row to lock yet: another path creating this address at the same
+      // time (a second workspace's invite, an external sign-in) wins here.
+      const created = await tx
+        .insert(users)
+        .values({
+          id: expected.userId,
+          email: invite.email,
+          passwordHash: expected.passwordHash,
+          displayName: expected.displayName,
+        })
+        .onConflictDoNothing({ target: users.email })
+        .returning({ id: users.id });
+      if (created.length === 0) return { outcome: "account_changed" };
       userId = expected.userId;
       verifiedPasswordHash = expected.passwordHash;
     }
