@@ -2,7 +2,7 @@ import type {
   PendingRequest,
   PendingSettlement,
   PostSessionAnswerRequest,
-  ReceiptAcceptedResponse,
+  PostSessionAnswerResponse,
   RegisterPendingRequest,
   SurfaceKind,
 } from "@agent-platform/contracts";
@@ -21,7 +21,7 @@ export type AnswerRequestInput = {
 };
 
 export type AnswerRequestResult =
-  | { outcome: "accepted" | "replayed"; response: ReceiptAcceptedResponse }
+  | { outcome: "accepted" | "replayed"; response: PostSessionAnswerResponse }
   | { outcome: "conflict" | "not_found" }
   // Already answered, given up on by the worker, or past its expiry.
   | { outcome: "expired" }

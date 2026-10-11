@@ -383,6 +383,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(await answer(owner, sessionId, body, key)).toEqual({
       receipt_id: accepted.receipt_id,
       receipt_status: "succeeded",
+      approval: accepted.approval,
     });
     expect(
       await failure(
@@ -420,9 +421,16 @@ integration("pending requests and answers on PostgreSQL", () => {
         apiKeyId: owner.ownerId,
       },
     };
+    const approvalKey = crypto.randomUUID();
+    // No reason: a denial's reason is optional.
+    const approvalBody = {
+      request_id: requestId,
+      kind: "permission" as const,
+      decision: "deny" as const,
+    };
     const accepted = await audited.answer(approver, sessionId, {
-      idempotencyKey: crypto.randomUUID(),
-      body: { request_id: requestId, kind: "permission", decision: "allow" },
+      idempotencyKey: approvalKey,
+      body: approvalBody,
     });
     const rows = await db
       .select()
@@ -446,6 +454,20 @@ integration("pending requests and answers on PostgreSQL", () => {
       answerSurface: "web",
       answerDecisionId: rows[0]?.id ?? "missing",
     });
+    expect(accepted.approval).toEqual({
+      answered_by: {
+        principal: { kind: "api_key", id: owner.ownerId },
+        actor_user_id: approver.actor.userId,
+        agent_id: null,
+      },
+      surface: "web",
+      decision_id: rows[0]?.id ?? "missing",
+    });
+    const replayed = await audited.answer(approver, sessionId, {
+      idempotencyKey: approvalKey,
+      body: approvalBody,
+    });
+    expect(replayed.approval).toEqual(accepted.approval);
     // A surface without the decision that admitted it is not a record.
     const orphaned = await db
       .update(pendingRequests)
