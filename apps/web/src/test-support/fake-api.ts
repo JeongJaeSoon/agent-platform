@@ -27,7 +27,16 @@ export function fakeApi(routes: Record<string, Handler>) {
     });
     const handler = routes[key];
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
-    return handler(input);
+    // The body was read for the record; a handler gets one it can read again.
+    return handler(
+      text
+        ? new Request(input.url, {
+            method: input.method,
+            headers: input.headers,
+            body: text,
+          })
+        : input,
+    );
   };
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
 }

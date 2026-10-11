@@ -1,0 +1,199 @@
+import type { AgentDetail } from "@agent-platform/contracts";
+import { formatTimestamp } from "@agent-platform/ui";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { type FormEvent, useId, useState } from "react";
+import { type ApiError, isApiError, unwrap } from "../api/client.ts";
+import { agentsQuery, queryKeys } from "../api/queries.ts";
+import {
+  permissionReason,
+  ReasonButton,
+  usePermissionReason,
+  useRole,
+} from "../auth/guard.tsx";
+import {
+  AgentCardFields,
+  type CardDraft,
+  cardFromDraft,
+  EMPTY_DRAFT,
+} from "../components/agent-card-form.tsx";
+import { TextField } from "../components/field.tsx";
+import { StatusScreen } from "../components/status-screen.tsx";
+import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
+import { useServices } from "../services.tsx";
+
+/**
+ * What a refused agent action says: a 403 in the words of the disabled
+ * button, a capability the profile does not have with the server's reason.
+ */
+export function agentRefusal(
+  t: Translate,
+  error: ApiError,
+  role: string | undefined,
+): string {
+  if (error.code === "FORBIDDEN")
+    return `${permissionReason(t, "agent.manage", role)} ${error.message}`;
+  if (error.code === "UNSUPPORTED_CAPABILITY" || error.code === "BAD_REQUEST")
+    return `${t(errorKey(error.code))} ${error.message}`;
+  return t(errorKey(error.code));
+}
+
+export function AgentsScreen() {
+  const { t } = useI18n();
+  const { client } = useServices();
+  const navigate = useNavigate();
+  const agents = useQuery(agentsQuery(client));
+  const reason = usePermissionReason("agent.manage", agents);
+
+  return (
+    <div className="web-page">
+      <div className="web-page__head">
+        <h1 className="web-page__title">{t("agents.title")}</h1>
+        <ReasonButton
+          className="ap-button ap-button--primary"
+          reason={reason}
+          onClick={() => void navigate({ to: "/agents/new" })}
+        >
+          {t("agents.new")}
+        </ReasonButton>
+      </div>
+      {agents.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : agents.error ? (
+        isApiError(agents.error, "FORBIDDEN") ? (
+          <StatusScreen kind="forbidden" detail={agents.error.message} />
+        ) : (
+          <p className="web-form__error" role="alert">
+            {t(errorKey((agents.error as ApiError).code))}
+          </p>
+        )
+      ) : agents.data.items.length === 0 ? (
+        <p className="web-page__empty">{t("agents.empty")}</p>
+      ) : (
+        <ul className="web-list">
+          {agents.data.items.map((agent) => (
+            <li key={agent.id} className="web-list__item">
+              <span>
+                <Link
+                  to="/agents/$id"
+                  params={{ id: agent.id }}
+                  className="web-table__primary"
+                >
+                  {agent.name}
+                </Link>
+                <span className="web-table__secondary">
+                  {agent.slug} ·{" "}
+                  {t("agents.updated", {
+                    at: formatTimestamp(agent.updated_at),
+                  })}
+                </span>
+              </span>
+              <span className="web-badge" data-tone={agentTone(agent)}>
+                {agent.active_release_id === null
+                  ? t("agents.state.notReleased")
+                  : t(`agents.status.${agent.status}`)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function agentTone(agent: {
+  status: string;
+  active_release_id: string | null;
+}): string {
+  if (agent.active_release_id === null) return "pending";
+  return agent.status === "active" ? "ok" : "muted";
+}
+
+/**
+ * A blank card. One-line hiring (a model drafting the card) is 94S-156's
+ * and adds its button here when it lands.
+ */
+export function NewAgentScreen() {
+  const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const navigate = useNavigate();
+  const role = useRole();
+  const [slug, setSlug] = useState("");
+  const [name, setName] = useState("");
+  const [draft, setDraft] = useState<CardDraft>(EMPTY_DRAFT);
+  const titleId = useId();
+
+  const create = useMutation<AgentDetail, ApiError>({
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/agents", {
+          body: {
+            slug: slug.trim(),
+            name: name.trim(),
+            card: cardFromDraft(draft),
+          },
+        }),
+      ) as Promise<AgentDetail>,
+    onSuccess: async (detail) => {
+      queryClient.setQueryData(queryKeys.agent(detail.agent.id), detail);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.agents,
+        exact: true,
+      });
+      await navigate({
+        to: "/agents/$id",
+        params: { id: detail.agent.id },
+        search: { notice: "created" },
+      });
+    },
+  });
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    create.mutate();
+  };
+
+  return (
+    <div className="web-page">
+      <h1 className="web-page__title" id={titleId}>
+        {t("agents.newTitle")}
+      </h1>
+      <p className="web-page__empty">{t("agents.newIntro")}</p>
+      <form
+        className="web-form web-form--wide"
+        aria-labelledby={titleId}
+        onSubmit={submit}
+      >
+        <TextField
+          label={t("agents.name")}
+          required
+          maxLength={120}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <TextField
+          label={t("agents.slug")}
+          hint={t("agents.slugHint")}
+          required
+          maxLength={64}
+          pattern="[a-z0-9][a-z0-9\-]*"
+          value={slug}
+          onChange={(event) => setSlug(event.target.value)}
+        />
+        <AgentCardFields draft={draft} onChange={setDraft} />
+        {create.error ? (
+          <p className="web-form__error" role="alert">
+            {agentRefusal(t, create.error, role)}
+          </p>
+        ) : null}
+        <button
+          type="submit"
+          className="ap-button ap-button--primary"
+          disabled={create.isPending}
+        >
+          {create.isPending ? t("agents.creating") : t("agents.create")}
+        </button>
+      </form>
+    </div>
+  );
+}

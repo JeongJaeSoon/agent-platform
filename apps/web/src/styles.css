@@ -372,43 +372,15 @@ select:focus-visible,
   margin-left: auto;
 }
 
-.web-footer {
-  margin-top: auto;
-  padding: var(--ap-space-4);
+.web-page__head {
   display: flex;
-  justify-content: flex-end;
-}
-.web-locale {
-  white-space: nowrap;
-  display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--ap-space-2);
-  font-size: var(--ap-text-sm);
+  justify-content: space-between;
+  gap: var(--ap-space-3);
 }
-
-@media (min-width: 48rem) {
-  .web-auth {
-    padding: var(--ap-space-10) var(--ap-space-6);
-  }
-  .web-shell__bar {
-    padding: var(--ap-space-3) var(--ap-space-6);
-  }
-  .web-shell__main {
-    padding: var(--ap-space-8) var(--ap-space-6);
-  }
-}
-
-@media (min-width: 90rem) {
-  .web-shell__main {
-    margin: 0 auto;
-    padding: var(--ap-space-10) var(--ap-space-8);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .web-spinner {
-    animation: none;
-  }
+.web-form--wide {
+  max-width: min(100%, 40rem);
 }
 .web-field__area {
   min-height: 8rem;
@@ -427,6 +399,21 @@ select:focus-visible,
   display: inline-flex;
   align-items: center;
   gap: var(--ap-space-2);
+}
+.web-badge {
+  display: inline-block;
+  padding: 0 var(--ap-space-2);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  font-size: var(--ap-text-xs);
+  white-space: nowrap;
+}
+.web-badge[data-tone="ok"] {
+  border-color: var(--ap-tone-progress-border);
+}
+.web-badge[data-tone="pending"],
+.web-badge[data-tone="muted"] {
+  color: var(--ap-color-muted-foreground);
 }
 .web-diff {
   margin: 0;
@@ -468,4 +455,43 @@ select:focus-visible,
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.web-footer {
+  margin-top: auto;
+  padding: var(--ap-space-4);
+  display: flex;
+  justify-content: flex-end;
+}
+.web-locale {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ap-space-2);
+  font-size: var(--ap-text-sm);
+}
+
+@media (min-width: 48rem) {
+  .web-auth {
+    padding: var(--ap-space-10) var(--ap-space-6);
+  }
+  .web-shell__bar {
+    padding: var(--ap-space-3) var(--ap-space-6);
+  }
+  .web-shell__main {
+    padding: var(--ap-space-8) var(--ap-space-6);
+  }
+}
+
+@media (min-width: 90rem) {
+  .web-shell__main {
+    margin: 0 auto;
+    padding: var(--ap-space-10) var(--ap-space-8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .web-spinner {
+    animation: none;
+  }
 }
