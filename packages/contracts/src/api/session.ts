@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  agentReleaseIdSchema,
   pageSchema,
   paginationQuerySchema,
   receiptIdSchema,
@@ -238,6 +239,10 @@ export const createSessionRequestSchema = z
     profile_id: z.string().min(1),
     repository_id: z.string().min(1),
     message: messageTextSchema,
+    // Pins the session to this release of an agent: the session then belongs
+    // to that agent, and an agent's key may create it. The run itself still
+    // follows profile_id, which has to be the release's profile.
+    agent_release_id: agentReleaseIdSchema.optional(),
   })
   .strict();
 export const createSessionResponseSchema = z.object({

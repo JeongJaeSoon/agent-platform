@@ -53,6 +53,11 @@ export const API_ERROR_CODE_VALUES = [
   "LAST_OWNER",
   // An admin granting the owner role or changing an owner's (design 4.1).
   "OWNER_PROTECTED",
+  // A key asked for more than its issuer holds now, or an agent's key asked
+  // to approve (design 4.1, D26).
+  "SCOPE_NOT_GRANTABLE",
+  // A session named a release made for another runtime profile.
+  "RELEASE_PROFILE_MISMATCH",
   // An external login whose verified address already has an account: it is
   // never joined by email, the owner links it after signing in (design 3.1).
   "LOGIN_LINK_REQUIRED",

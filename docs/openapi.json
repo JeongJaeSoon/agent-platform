@@ -48,7 +48,7 @@
     },
     {
       "name": "Agents",
-      "description": "Write agent cards, release a version against a runtime profile and activate a release. Owners only."
+      "description": "Write agent cards, release a version against a runtime profile and activate a release. Owners, admins, and each agent's own admins."
     },
     {
       "name": "Linked accounts",
@@ -87,6 +87,11 @@
             "type": "string",
             "minLength": 1,
             "description": "At most 32768 bytes of UTF-8"
+          },
+          "agent_release_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         },
         "required": [
@@ -1192,6 +1197,8 @@
                   "INVITE_USED",
                   "LAST_OWNER",
                   "OWNER_PROTECTED",
+                  "SCOPE_NOT_GRANTABLE",
+                  "RELEASE_PROFILE_MISMATCH",
                   "LOGIN_LINK_REQUIRED",
                   "PROFILE_DIGEST_MISMATCH",
                   "ALREADY_EXISTS",
@@ -4122,6 +4129,8 @@
                       "INVITE_USED",
                       "LAST_OWNER",
                       "OWNER_PROTECTED",
+                      "SCOPE_NOT_GRANTABLE",
+                      "RELEASE_PROFILE_MISMATCH",
                       "LOGIN_LINK_REQUIRED",
                       "PROFILE_DIGEST_MISMATCH",
                       "ALREADY_EXISTS",
@@ -8292,6 +8301,7 @@
           "Sessions"
         ],
         "summary": "Durably accept a session and its first input",
+        "description": "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`.",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -8436,6 +8446,36 @@
               }
             }
           },
+          "404": {
+            "description": "Error: NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "408": {
             "description": "Error: REQUEST_TIMEOUT",
             "content": {
@@ -8467,7 +8507,7 @@
             }
           },
           "409": {
-            "description": "Error: IDEMPOTENCY_CONFLICT",
+            "description": "Error: IDEMPOTENCY_CONFLICT, RELEASE_PROFILE_MISMATCH, PROFILE_DIGEST_MISMATCH",
             "content": {
               "application/json": {
                 "schema": {
@@ -8484,7 +8524,9 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "IDEMPOTENCY_CONFLICT"
+                                "IDEMPOTENCY_CONFLICT",
+                                "RELEASE_PROFILE_MISMATCH",
+                                "PROFILE_DIGEST_MISMATCH"
                               ]
                             }
                           }
@@ -12510,7 +12552,7 @@
             }
           },
           "403": {
-            "description": "Error: FORBIDDEN",
+            "description": "Error: FORBIDDEN, OWNER_PROTECTED",
             "content": {
               "application/json": {
                 "schema": {
@@ -12527,7 +12569,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "FORBIDDEN"
+                                "FORBIDDEN",
+                                "OWNER_PROTECTED"
                               ]
                             }
                           }
@@ -13540,7 +13583,7 @@
             }
           },
           "403": {
-            "description": "Error: FORBIDDEN",
+            "description": "Error: FORBIDDEN, OWNER_PROTECTED",
             "content": {
               "application/json": {
                 "schema": {
@@ -13557,7 +13600,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "FORBIDDEN"
+                                "FORBIDDEN",
+                                "OWNER_PROTECTED"
                               ]
                             }
                           }

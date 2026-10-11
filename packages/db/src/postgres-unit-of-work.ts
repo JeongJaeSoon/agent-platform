@@ -205,6 +205,7 @@ export function createPostgresSessionUnitOfWork(
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
           unmetered: input.unmetered ?? false,
+          agentReleaseId: input.agentReleaseId ?? null,
           repositoryId: input.repository.id,
           workspaceId: actor?.workspaceId ?? null,
           createdByUserId: actor?.userId ?? null,

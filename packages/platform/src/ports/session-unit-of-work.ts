@@ -40,6 +40,9 @@ export type AcceptSessionInput = {
   profileFingerprint?: string;
   // The profile declared `billing: none`; fixed on the session for good.
   unmetered?: boolean;
+  // The agent release the session belongs to, already checked against
+  // profileId.
+  agentReleaseId?: string;
   message: string;
   limits: InputLimits;
 };

@@ -106,7 +106,7 @@ test("an owner sets the retention and the change is recorded", async () => {
   expect(stored.get(WORKSPACE)).toBe(30);
   expect(recorded).toEqual([
     expect.objectContaining({
-      action: "workspace.manage",
+      action: "audit_retention.manage",
       resource: { kind: "workspace", id: WORKSPACE, owner_scope: WORKSPACE },
       request_id: response.headers.get("X-Request-Id"),
     }),

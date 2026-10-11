@@ -67,6 +67,11 @@ function app(
     },
     authorization: createAuthorizationPolicy(),
     catalog,
+    releases: {
+      resolveRelease: async () => {
+        throw new Error("not reached");
+      },
+    },
     inputs: {
       acceptInputAtomic: async () => {
         throw new Error("not reached");
@@ -164,6 +169,11 @@ describe("POST /v1/sessions validation", () => {
     const disallowed = await request({ ...valid, repository_id: "other-app" });
     expect(disallowed.status).toBe(422);
     expect(await errorCode(disallowed)).toBe("UNSUPPORTED_CAPABILITY");
+  });
+
+  test("a key from before workspaces names no agent release", async () => {
+    const response = await post({ ...valid, agent_release_id: "rel-1" });
+    expect(response.status).toBe(404);
   });
 
   test("replays an accepted receipt even when the catalog no longer lists the profile", async () => {
