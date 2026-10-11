@@ -4,6 +4,7 @@ import { SESSION_SCOPE_VALUES } from "@agent-platform/contracts";
 import {
   type AcceptInviteInput,
   type ActingOwner,
+  BootstrapDoneError,
   callerFor,
 } from "@agent-platform/platform";
 import {
@@ -569,5 +570,89 @@ integration("invites across owner recovery on PostgreSQL", () => {
       outcome: "expired",
     });
     expect((await store.listInvites(ws, 10))[0]?.status).toBe("revoked");
+  });
+});
+
+integration("owner recovery racing an owner invite on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "invites_recovery_race_it" });
+    pool = new Pool({ connectionString: database.url, max: 4 });
+    db = drizzle(pool, { schema });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  test("recovery stops when an accept it waited on created a live owner", async () => {
+    const ws = randomUUID();
+    await db.insert(workspaces).values({ id: ws, slug: "race", name: "r" });
+    const lost = randomUUID();
+    await db.insert(users).values({
+      id: lost,
+      email: "gone@example.invalid",
+      passwordHash: "old",
+      displayName: "Gone",
+    });
+    await db.insert(memberships).values({
+      workspaceId: ws,
+      userId: lost,
+      role: "owner",
+      disabledAt: new Date(),
+    });
+    const inviteId = randomUUID();
+    await db.insert(invites).values({
+      id: inviteId,
+      workspaceId: ws,
+      email: "heir@example.invalid",
+      role: "owner",
+      tokenHash: hashOf(`apv_${randomUUID()}`),
+      invitedBy: lost,
+      expiresAt: new Date(Date.now() + DAY_MS),
+    });
+    const heir = randomUUID();
+    const accept = await pool.connect();
+    try {
+      // What an accept holds and writes before it commits.
+      await accept.query("BEGIN");
+      await accept.query("SELECT 1 FROM invites WHERE id = $1 FOR UPDATE", [
+        inviteId,
+      ]);
+      await accept.query(
+        "INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, 'heir@example.invalid', 'x', 'Heir')",
+        [heir],
+      );
+      await accept.query(
+        "INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner')",
+        [ws, heir],
+      );
+      await accept.query(
+        "UPDATE invites SET accepted_at = clock_timestamp() WHERE id = $1",
+        [inviteId],
+      );
+      const recovery = bootstrapOwner(db, {
+        userId: randomUUID(),
+        email: "gone@example.invalid",
+        passwordHash: "recovered",
+        displayName: "Gone",
+        workspaceId: randomUUID(),
+        workspaceSlug: "unused",
+        workspaceName: "unused",
+        bootstrapTokenHash: hashOf("second recovery token"),
+        receiptId: randomUUID(),
+      });
+      await Bun.sleep(300);
+      await accept.query("COMMIT");
+      await expect(recovery).rejects.toBeInstanceOf(BootstrapDoneError);
+    } finally {
+      accept.release();
+    }
+    const [kept] = await db.select().from(users).where(eq(users.id, lost));
+    expect(kept?.passwordHash).toBe("old");
   });
 });

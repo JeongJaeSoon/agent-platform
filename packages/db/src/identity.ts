@@ -114,6 +114,10 @@ export async function bootstrapOwner(
             isNull(invites.revokedAt),
           ),
         );
+      // That update may have waited on an accept that made a live owner.
+      if ((await countLiveOwners(tx)) > 0) {
+        throw new BootstrapDoneError();
+      }
       // Every user this transaction will write, in id order, before the
       // first write: a reset issue locks its issuer and target the same way,
       // so restoring one of them cannot hold a row the issue needs while
