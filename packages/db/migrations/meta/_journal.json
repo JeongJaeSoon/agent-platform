@@ -358,6 +358,13 @@
       "when": 1791721899451,
       "tag": "0141_agent_identities",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1791725838548,
+      "tag": "0142_member_teams",
+      "breakpoints": true
     }
   ]
 }
