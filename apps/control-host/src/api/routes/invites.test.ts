@@ -5,6 +5,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   createInviteResponseSchema,
+  DISPLAY_NAME_MAX,
   listInvitesResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@agent-platform/contracts";
@@ -380,6 +381,37 @@ describe("POST /v1/invites/accept", () => {
     expect(asked?.account).toMatchObject({
       kind: "new",
       displayName: "invitee",
+    });
+  });
+
+  test("a default name from a long local part fits a display name", async () => {
+    let asked: AcceptInviteInput | undefined;
+    const email = `${"a".repeat(DISPLAY_NAME_MAX + 1)}@example.com`;
+    const response = await accept(
+      app(
+        inviteStore({
+          peekInvite: async () => ({
+            outcome: "pending",
+            email,
+            existingUser: null,
+          }),
+          acceptInvite: async (input) => {
+            asked = input;
+            return {
+              outcome: "accepted",
+              userId: input.account.userId,
+              workspaceId: WORKSPACE,
+              role: "member",
+              sessionExpiresAt: new Date("2026-10-25T00:00:00.000Z"),
+            };
+          },
+        }),
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(asked?.account).toMatchObject({
+      kind: "new",
+      displayName: "a".repeat(DISPLAY_NAME_MAX),
     });
   });
 

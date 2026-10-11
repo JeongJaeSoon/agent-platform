@@ -16,7 +16,8 @@ export const workspaceSlugSchema = z
   .max(64)
   .regex(/^[a-z0-9][a-z0-9-]*$/, "must be lowercase kebab-case");
 export const emailSchema = z.email().max(254);
-export const displayNameSchema = z.string().min(1).max(64);
+export const DISPLAY_NAME_MAX = 64;
+export const displayNameSchema = z.string().min(1).max(DISPLAY_NAME_MAX);
 
 /** Emails are compared lower-cased; store what this returns. */
 export function normalizeEmail(email: string): string {

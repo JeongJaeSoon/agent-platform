@@ -4,6 +4,7 @@ import {
   acceptInviteResponseSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
+  DISPLAY_NAME_MAX,
   inviteIdParamsSchema,
   listInvitesResponseSchema,
   normalizeEmail,
@@ -117,6 +118,11 @@ function inviteUsed(): ApiHttpError {
   return new ApiHttpError(409, "INVITE_USED", "This invite was already used");
 }
 
+// The local part may be longer than a display name is allowed to be.
+function defaultDisplayName(email: string): string {
+  return (email.split("@")[0] || email).slice(0, DISPLAY_NAME_MAX);
+}
+
 /** Mounted outside the auth middleware (03 §3.2 public allowlist). */
 export function registerPublicInviteRoutes(
   router: ApiRouter,
@@ -171,8 +177,7 @@ export function registerPublicInviteRoutes(
           kind: "new",
           userId: randomUUID(),
           passwordHash: await hashPassword(password),
-          displayName:
-            body.display_name ?? (peek.email.split("@")[0] || peek.email),
+          displayName: body.display_name ?? defaultDisplayName(peek.email),
         };
       }
     } finally {
