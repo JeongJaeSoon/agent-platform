@@ -7,6 +7,7 @@ import {
   type IdentityUser,
   type IdentityWorkspace,
   type IssuePasswordResetInput,
+  type IssuePasswordResetResult,
   type LiveMembership,
   type MembershipRole,
   type ResolvedWebSession,
@@ -98,6 +99,22 @@ export async function bootstrapOwner(
       .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
       .limit(1);
     const recovered = (await countUsers(tx)) > 0;
+    if (recovered && existing) {
+      // Every user this transaction will write, in id order, before the
+      // first write: a reset issue locks its issuer and target the same way,
+      // so restoring one of them cannot hold a row the issue needs while
+      // waiting on the one it holds.
+      const members = tx
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .where(eq(memberships.workspaceId, existing.id));
+      await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(or(inArray(users.id, members), eq(users.email, input.email)))
+        .orderBy(asc(users.id))
+        .for("no key update");
+    }
     const workspace =
       existing ??
       (
@@ -213,30 +230,73 @@ export async function retireBootstrapToken(
 }
 
 /**
- * Replaces the user's open link, if any. Null when the user is not a live
- * member of the workspace: a link for a disabled account would set a
- * password nobody can log in with.
+ * Replaces the user's open link, if any, and records the issue. The issuer
+ * and target rows are locked together in id order, ahead of the target's
+ * links (user -> link, as consumePasswordReset and recovery take them), so
+ * a reset or disable landing on either one after the route checked them is
+ * seen here.
  */
 export async function issuePasswordReset(
   db: Database,
   input: IssuePasswordResetInput,
-): Promise<{ expiresAt: Date } | null> {
+): Promise<IssuePasswordResetResult> {
   return db.transaction(async (tx) => {
-    const [member] = await tx
-      .select({ userId: users.id })
+    const locked = await tx
+      .select({ id: users.id, passwordHash: users.passwordHash })
       .from(users)
-      .innerJoin(
-        memberships,
+      .where(
         and(
-          eq(memberships.userId, users.id),
-          eq(memberships.workspaceId, input.workspaceId),
-          isNull(memberships.disabledAt),
+          inArray(users.id, [input.issuedBy, input.userId]),
+          isNull(users.disabledAt),
         ),
       )
-      .where(and(eq(users.id, input.userId), isNull(users.disabledAt)))
-      .for("update", { of: users });
-    if (!member) {
-      return null;
+      .orderBy(asc(users.id))
+      .for("update");
+    const roles = await tx
+      .select({
+        userId: memberships.userId,
+        workspaceId: memberships.workspaceId,
+        role: memberships.role,
+      })
+      .from(memberships)
+      .where(
+        and(
+          inArray(memberships.userId, [input.issuedBy, input.userId]),
+          isNull(memberships.disabledAt),
+        ),
+      );
+    const issuer = locked.find((row) => row.id === input.issuedBy);
+    const issuerOwns = roles.some(
+      (row) =>
+        row.userId === input.issuedBy &&
+        row.workspaceId === input.workspaceId &&
+        row.role === "owner",
+    );
+    if (
+      !issuer ||
+      issuer.passwordHash !== input.issuerPasswordHash ||
+      !issuerOwns
+    ) {
+      return { outcome: "issuer_changed" };
+    }
+    const target = roles.find(
+      (row) =>
+        row.userId === input.userId && row.workspaceId === input.workspaceId,
+    );
+    if (!target || !locked.some((row) => row.id === input.userId)) {
+      return { outcome: "not_found" };
+    }
+    // Accounts are global but this power is per workspace: a link would
+    // hand the issuer an owner of a workspace they have no role in.
+    if (
+      roles.some(
+        (row) =>
+          row.userId === input.userId &&
+          row.workspaceId !== input.workspaceId &&
+          row.role === "owner",
+      )
+    ) {
+      return { outcome: "owner_elsewhere" };
     }
     await tx
       .update(passwordResets)
@@ -262,7 +322,25 @@ export async function issuePasswordReset(
     if (!row) {
       throw new Error("password reset insert returned no row");
     }
-    return row;
+    await tx.insert(receipts).values({
+      id: input.receiptId,
+      ownerId: input.workspaceId,
+      operation: "issue_password_reset",
+      targetRef: { user_id: input.userId, workspace_id: input.workspaceId },
+      status: "succeeded",
+      // A link for another owner is the one that can take over the
+      // workspace, so it is told apart from a member's.
+      result: {
+        target_role: target.role,
+        expires_at: row.expiresAt.toISOString(),
+      },
+      actor: {
+        principal: { kind: "user", id: input.issuedBy },
+        actor_user_id: input.issuedBy,
+        agent_id: null,
+      },
+    });
+    return { outcome: "issued", expiresAt: row.expiresAt };
   });
 }
 
@@ -312,6 +390,22 @@ export async function consumePasswordReset(
       )
       .for("update");
     if (!reset) {
+      return null;
+    }
+    // A password nobody can log in with is not worth setting. Read without a
+    // lock: recovery holds the membership before the user row, the reverse
+    // of this transaction.
+    const [member] = await tx
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.workspaceId, reset.workspaceId),
+          eq(memberships.userId, reset.userId),
+          isNull(memberships.disabledAt),
+        ),
+      );
+    if (!member) {
       return null;
     }
     await tx

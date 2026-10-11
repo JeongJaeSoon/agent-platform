@@ -81,7 +81,7 @@ export interface paths {
         put?: never;
         /**
          * Create the first owner and default workspace, or recover an owner
-         * @description Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation. Five failed attempts in 15 minutes answer 429.
+         * @description Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation; a token presented while a live owner exists is spent. A wrong or spent token answers 401 before the owner state is looked at.
          */
         post: operations["bootstrap"];
         delete?: never;
@@ -118,7 +118,7 @@ export interface paths {
         put?: never;
         /**
          * Set a new password with a one-time reset link
-         * @description Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. Five failed attempts in 15 minutes answer 429.
+         * @description Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429.
          */
         post: operations["resetPassword"];
         delete?: never;
@@ -138,7 +138,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a one-time password reset link for a member (owner only)
-         * @description The token is returned once and expires in one hour; issuing another revokes the member's open link.
+         * @description Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.
          */
         post: operations["issuePasswordReset"];
         delete?: never;
@@ -1196,7 +1196,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "reset_password" | "recover_owner" | "takeover" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -1272,6 +1272,9 @@ export interface components {
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
             /** Format: date-time */
             expires_at: string;
+        };
+        IssuePasswordResetRequest: {
+            current_password: string;
         };
         IssuePasswordResetResponse: {
             /** Format: uuid */
@@ -1811,20 +1814,6 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: RATE_LIMITED */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "RATE_LIMITED";
-                        };
-                    };
-                };
-            };
             500: components["responses"]["InternalError"];
             /** @description Error: BACKEND_UNAVAILABLE */
             503: {
@@ -2090,7 +2079,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IssuePasswordResetRequest"];
+            };
+        };
         responses: {
             /** @description Success */
             201: {
@@ -2099,6 +2092,20 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IssuePasswordResetResponse"];
+                };
+            };
+            /** @description Error: BAD_REQUEST */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description Error: UNAUTHORIZED */
@@ -2153,6 +2160,34 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description Error: PAYLOAD_TOO_LARGE */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            /** @description Error: RATE_LIMITED */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
                         };
                     };
                 };

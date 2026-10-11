@@ -3014,6 +3014,7 @@
               "resume",
               "recovery_decision",
               "revoke_execution",
+              "issue_password_reset",
               "reset_password",
               "recover_owner",
               "takeover",
@@ -3444,6 +3445,19 @@
           "role",
           "scopes",
           "expires_at"
+        ],
+        "additionalProperties": false
+      },
+      "IssuePasswordResetRequest": {
+        "type": "object",
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 12
+          }
+        },
+        "required": [
+          "current_password"
         ],
         "additionalProperties": false
       },
@@ -5156,7 +5170,7 @@
           "Auth"
         ],
         "summary": "Create the first owner and default workspace, or recover an owner",
-        "description": "Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation. Five failed attempts in 15 minutes answer 429.",
+        "description": "Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation; a token presented while a live owner exists is spent. A wrong or spent token answers 401 before the owner state is looked at.",
         "security": [],
         "parameters": [],
         "requestBody": {
@@ -5319,36 +5333,6 @@
                               "type": "string",
                               "enum": [
                                 "PAYLOAD_TOO_LARGE"
-                              ]
-                            }
-                          }
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Error: RATE_LIMITED",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/ApiErrorResponse"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "object",
-                          "properties": {
-                            "code": {
-                              "type": "string",
-                              "enum": [
-                                "RATE_LIMITED"
                               ]
                             }
                           }
@@ -5662,7 +5646,7 @@
           "Auth"
         ],
         "summary": "Set a new password with a one-time reset link",
-        "description": "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. Five failed attempts in 15 minutes answer 429.",
+        "description": "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429.",
         "security": [],
         "parameters": [],
         "requestBody": {
@@ -5879,7 +5863,7 @@
           "Auth"
         ],
         "summary": "Issue a one-time password reset link for a member (owner only)",
-        "description": "The token is returned once and expires in one hour; issuing another revokes the member's open link.",
+        "description": "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.",
         "security": [
           {
             "cookieSession": []
@@ -5919,6 +5903,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssuePasswordResetRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Success",
@@ -5926,6 +5920,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IssuePasswordResetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error: BAD_REQUEST",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -6039,6 +6063,66 @@
                               "type": "string",
                               "enum": [
                                 "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error: PAYLOAD_TOO_LARGE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error: RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "RATE_LIMITED"
                               ]
                             }
                           }

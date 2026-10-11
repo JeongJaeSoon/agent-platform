@@ -3,6 +3,7 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
@@ -55,20 +56,18 @@ import { requireParams } from "./errors.ts";
 export interface AuthRouteDeps {
   identity: IdentityStore;
   bootstrap: BootstrapGate;
+  /** Shared with reset issuance, which re-checks the issuer's password. */
   lockout?: LoginLockout;
-  /** Failed bootstrap tokens and reset links, counted per route. */
-  recoveryLockout?: LoginLockout;
   passwordWork?: WorkGate;
   logger?: StructuredLogger;
 }
 
 const INVALID_CREDENTIALS = "Invalid email or password";
 const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
-// Recovery credentials are not tied to an address, so each route keeps one
-// failure window for every caller: guessing a token is bounded the way
-// guessing one account's password is.
-const BOOTSTRAP_LOCKOUT_KEY = "bootstrap";
-const PASSWORD_RESET_LOCKOUT_KEY = "password-reset";
+// The recovery routes keep no failure window. Their tokens are 256 bits
+// (BOOTSTRAP_TOKEN at least 32 characters), so a window adds nothing against
+// guessing, and with no address to key it on it would be one window for
+// every caller: anyone could keep recovery answering 429.
 
 // The token is read on its own and checked before the rest of the body is
 // validated, so a caller without it learns nothing about the schema and gets
@@ -77,6 +76,10 @@ const PASSWORD_RESET_LOCKOUT_KEY = "password-reset";
 const bootstrapTokenOnlySchema = z.looseObject({
   bootstrap_token: z.unknown().optional(),
 });
+
+function invalidBootstrapToken(): ApiHttpError {
+  return new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
+}
 
 function rateLimited(
   context: Context,
@@ -113,44 +116,90 @@ function workspaceView(row: IdentityWorkspace): Workspace {
   };
 }
 
+/**
+ * The signed-in user's current password, checked like a login: the same
+ * per-email failure window and the same hashing gate. Returns the hash it
+ * matched, for the store to confirm it has not changed since.
+ */
+async function reauthenticate(
+  context: Context,
+  deps: {
+    lockout: LoginLockout;
+    passwordWork: WorkGate;
+    identity: IdentityStore;
+    logger: StructuredLogger | undefined;
+  },
+  who: { userId: string; email: string },
+  password: string,
+): Promise<string> {
+  const lockedFor = deps.lockout.retryAfterMs(who.email);
+  if (lockedFor > 0) {
+    throw rateLimited(context, lockedFor, "Too many failed password checks");
+  }
+  const slot = deps.passwordWork.tryAcquire();
+  if (!slot) {
+    throw rateLimited(context, 1000, "Too many password checks in progress");
+  }
+  const releaseSlot = await slot;
+  let hash: string;
+  try {
+    const reservation = deps.lockout.reserve(who.email);
+    if (reservation.retryAfterMs > 0) {
+      throw rateLimited(
+        context,
+        reservation.retryAfterMs,
+        "Too many failed password checks",
+      );
+    }
+    let found: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
+    let verified: boolean;
+    try {
+      found = await storageMapped(() =>
+        deps.identity.findUserForLogin(who.email),
+      );
+      verified = await verifyPassword(password, found?.passwordHash ?? null);
+    } catch (error) {
+      reservation.release();
+      throw error;
+    }
+    if (!found || found.id !== who.userId || !verified) {
+      deps.logger?.warn("Password check failed", { user_id: who.userId });
+      throw new ApiHttpError(403, "FORBIDDEN", "Current password is incorrect");
+    }
+    hash = found.passwordHash;
+  } finally {
+    releaseSlot();
+  }
+  deps.lockout.clear(who.email);
+  return hash;
+}
+
 /** Mounted outside the auth middleware (03 §3.2 public allowlist). */
 export function registerPublicAuthRoutes(
   router: ApiRouter,
   deps: AuthRouteDeps,
 ) {
   const lockout = deps.lockout ?? new LoginLockout();
-  const recoveryLockout = deps.recoveryLockout ?? new LoginLockout();
   const passwordWork = deps.passwordWork ?? new WorkGate();
 
   apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
-    // Done is answered before the token is looked at: while a live owner
-    // exists the token has nothing left to protect, and 409 is not a hint.
-    if ((await storageMapped(() => deps.identity.countLiveOwners())) > 0) {
-      throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
-    }
-    const reservation = recoveryLockout.reserve(BOOTSTRAP_LOCKOUT_KEY);
-    if (reservation.retryAfterMs > 0) {
-      throw rateLimited(
-        context,
-        reservation.retryAfterMs,
-        "Too many failed bootstrap attempts",
-      );
-    }
-    let raw: z.infer<typeof bootstrapTokenOnlySchema>;
-    try {
-      raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
-    } catch (error) {
-      reservation.release();
-      throw error;
-    }
+    const raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
     const token =
       typeof raw.bootstrap_token === "string" ? raw.bootstrap_token : null;
     if (token === null || !deps.bootstrap.matches(token)) {
       deps.logger?.warn("Bootstrap refused: token mismatch");
-      throw new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
+      throw invalidBootstrapToken();
     }
-    // The right token is not a guess, whatever happens next.
-    reservation.release();
+    // Looked at only once the token matched, so a caller without it cannot
+    // tell an install with a live owner from one without.
+    if ((await storageMapped(() => deps.identity.countLiveOwners())) > 0) {
+      // Startup spends a token configured while an owner is live, but only
+      // when it reaches the database; this covers a start that did not.
+      await storageMapped(() =>
+        deps.identity.retireBootstrapToken(hashWebSessionToken(token)),
+      );
+      throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
+    }
     const parsed = bootstrapRequestSchema.safeParse(raw);
     if (!parsed.success) {
       // The token stays unspent: a typo in the form is not a used install.
@@ -195,12 +244,12 @@ export function registerPublicAuthRoutes(
         throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
       }
       if (error instanceof BootstrapTokenSpentError) {
-        // Recorded in the database, so a restart does not revive it.
-        throw new ApiHttpError(
-          401,
-          "UNAUTHORIZED",
-          "Bootstrap token was already used; set a new BOOTSTRAP_TOKEN",
+        // Recorded in the database, so a restart does not revive it. Only
+        // the operator, reading the log, needs to know why.
+        deps.logger?.warn(
+          "Bootstrap refused: token already used; set a new BOOTSTRAP_TOKEN",
         );
+        throw invalidBootstrapToken();
       }
       // The insert failed (storage down, slug race); the token is still the
       // operator's to spend.
@@ -211,10 +260,6 @@ export function registerPublicAuthRoutes(
 
   apiRoute(router, "resetPassword", ingestThenStopClock, async (context) => {
     const body = await parseJsonBody(context, passwordResetRequestSchema);
-    const lockedFor = recoveryLockout.retryAfterMs(PASSWORD_RESET_LOCKOUT_KEY);
-    if (lockedFor > 0) {
-      throw rateLimited(context, lockedFor, "Too many failed password resets");
-    }
     const slot = passwordWork.tryAcquire();
     if (!slot) {
       throw rateLimited(context, 1000, "Too many password changes in progress");
@@ -223,38 +268,24 @@ export function registerPublicAuthRoutes(
     let reset: Awaited<ReturnType<IdentityStore["consumePasswordReset"]>>;
     const receiptId = randomUUID();
     try {
-      const reservation = recoveryLockout.reserve(PASSWORD_RESET_LOCKOUT_KEY);
-      if (reservation.retryAfterMs > 0) {
-        throw rateLimited(
-          context,
-          reservation.retryAfterMs,
-          "Too many failed password resets",
-        );
-      }
-      try {
-        const passwordHash = await hashPassword(body.password);
-        reset = await storageMapped(() =>
-          deps.identity.consumePasswordReset({
-            tokenHash: hashWebSessionToken(body.token),
-            passwordHash,
-            receiptId,
-          }),
-        );
-      } catch (error) {
-        reservation.release();
-        throw error;
-      }
-      if (!reset) {
-        deps.logger?.warn("Password reset refused: link invalid or expired");
-        throw new ApiHttpError(
-          401,
-          "UNAUTHORIZED",
-          "Password reset link is invalid or has expired",
-        );
-      }
-      reservation.release();
+      const passwordHash = await hashPassword(body.password);
+      reset = await storageMapped(() =>
+        deps.identity.consumePasswordReset({
+          tokenHash: hashWebSessionToken(body.token),
+          passwordHash,
+          receiptId,
+        }),
+      );
     } finally {
       releaseSlot();
+    }
+    if (!reset) {
+      deps.logger?.warn("Password reset refused: link invalid or expired");
+      throw new ApiHttpError(
+        401,
+        "UNAUTHORIZED",
+        "Password reset link is invalid or has expired",
+      );
     }
     deps.logger?.info("Password reset completed", {
       user_id: reset.userId,
@@ -369,6 +400,8 @@ export function registerPublicAuthRoutes(
 
 /** Mounted inside the auth middleware. */
 export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
+  const lockout = deps.lockout ?? new LoginLockout();
+  const passwordWork = deps.passwordWork ?? new WorkGate();
   apiRoute(router, "logout", async (context) => {
     const principal = context.get("principal");
     const cookie = webSessionCookie(context);
@@ -388,8 +421,9 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
 
   apiRoute(router, "issuePasswordReset", async (context) => {
     const principal = context.get("principal");
+    const session = context.get("webSession");
     const params = requireParams(context, memberParamsSchema);
-    if (principal.kind !== "user") {
+    if (principal.kind !== "user" || !session) {
       throw new ApiHttpError(
         403,
         "FORBIDDEN",
@@ -406,6 +440,23 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         "Only an owner can issue a password reset link",
       );
     }
+    // A link for oneself would let a stolen session set the password and
+    // end the victim's other sessions; an owner who knows their password
+    // has no use for one.
+    if (params.userId === principal.id) {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "An owner cannot issue a password reset link for themselves",
+      );
+    }
+    const body = await parseJsonBody(context, issuePasswordResetRequestSchema);
+    const issuerPasswordHash = await reauthenticate(
+      context,
+      { lockout, passwordWork, identity: deps.identity, logger: deps.logger },
+      { userId: principal.id, email: session.email },
+      body.current_password,
+    );
     const token = generatePasswordResetToken();
     const issued = await storageMapped(() =>
       deps.identity.issuePasswordReset({
@@ -413,12 +464,31 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         workspaceId: params.id,
         userId: params.userId,
         issuedBy: principal.id,
+        issuerPasswordHash,
         tokenHash: hashWebSessionToken(token),
         ttlMs: PASSWORD_RESET_TTL_MS,
+        receiptId: randomUUID(),
       }),
     );
-    if (!issued) {
-      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    switch (issued.outcome) {
+      case "issued":
+        break;
+      case "not_found":
+        throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+      case "issuer_changed":
+        // A reset or a disable landed on the issuer after the check; either
+        // one also ends this session.
+        throw new ApiHttpError(
+          401,
+          "UNAUTHORIZED",
+          "Session is no longer valid",
+        );
+      case "owner_elsewhere":
+        throw new ApiHttpError(
+          403,
+          "FORBIDDEN",
+          "The member owns another workspace; only that workspace can reset them",
+        );
     }
     deps.logger?.info("Password reset link issued", {
       user_id: params.userId,
