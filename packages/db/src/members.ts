@@ -92,14 +92,23 @@ async function cutOff(
 }
 
 // Sessions no owner has taken over yet go back to the person who asked for
-// them, wherever they are live again; the cookies and keys stay revoked.
-async function release(tx: Database, userId: string) {
+// them, wherever they are live again; the cookies and keys stay revoked. Only
+// in the workspaces whose memberships this transaction holds: elsewhere a
+// disable could commit after the liveness read below.
+async function release(
+  tx: Database,
+  userId: string,
+  workspaceId: string | null,
+) {
   const released = await tx
     .update(sessions)
     .set({ takeoverRequiredAt: null, updatedAt: new Date() })
     .where(
       and(
         eq(sessions.createdByUserId, userId),
+        workspaceId === null
+          ? undefined
+          : eq(sessions.workspaceId, workspaceId),
         isNotNull(sessions.takeoverRequiredAt),
         sql`exists (select 1 from ${memberships} join ${users} on ${users.id} = ${memberships.userId} where ${memberships.workspaceId} = ${sessions.workspaceId} and ${memberships.userId} = ${userId} and ${memberships.disabledAt} is null and ${users.disabledAt} is null)`,
       ),
@@ -227,7 +236,7 @@ async function setAccess(
     }
     const effects = disabled
       ? await cutOff(tx, userId, scope === "membership" ? workspaceId : null)
-      : await release(tx, userId);
+      : await release(tx, userId, scope === "membership" ? workspaceId : null);
     const [member] = await tx
       .select(memberColumns)
       .from(memberships)
