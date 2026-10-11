@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import type { SessionScope, WorkspaceRole } from "@agent-platform/contracts";
+=======
+import type { SessionScope } from "@agent-platform/contracts";
+>>>>>>> origin/feature/musterrolle
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type WorkspaceKey = {
@@ -26,16 +30,20 @@ export type IssueKeyInput = {
   scopes: readonly SessionScope[];
   expiresAt: Date | null;
   receiptId: string;
+<<<<<<< HEAD
   /**
    * The roles that may issue this key, re-read under the issuer's
    * membership lock along with the scope ceiling of the role they hold
    * then; a key bound to an agent may also come from its admins.
    */
   issuerRoles: readonly WorkspaceRole[];
+=======
+>>>>>>> origin/feature/musterrolle
 };
 
 export type IssueKeyResult =
   | { outcome: "issued"; key: WorkspaceKey }
+<<<<<<< HEAD
   | {
       outcome:
         | "actor_inactive"
@@ -56,6 +64,21 @@ export type RevokeKeyResult =
 export type KeyListFilter = {
   personalOf: string;
   allServiceKeysFor: readonly WorkspaceRole[];
+=======
+  | { outcome: "actor_inactive" | "agent_not_found" };
+
+export type RevokeKeyResult =
+  | { outcome: "revoked" | "already_revoked"; key: WorkspaceKey }
+  | { outcome: "not_found" | "actor_inactive" };
+
+/**
+ * Which keys a list shows: the caller's own personal keys, plus every
+ * service key, the service keys of the agents they administer, or none.
+ */
+export type KeyListFilter = {
+  personalOf: string;
+  service: "all" | "administered" | "none";
+>>>>>>> origin/feature/musterrolle
 };
 
 export interface WorkspaceKeyStore {
@@ -71,10 +94,13 @@ export interface WorkspaceKeyStore {
     workspaceId: string;
     keyId: string;
     receiptId: string;
+<<<<<<< HEAD
     /**
      * The roles that may revoke this key, re-read as on issue; a key bound
      * to an agent may also go by its admins.
      */
     revokerRoles: readonly WorkspaceRole[];
+=======
+>>>>>>> origin/feature/musterrolle
   }): Promise<RevokeKeyResult>;
 }
