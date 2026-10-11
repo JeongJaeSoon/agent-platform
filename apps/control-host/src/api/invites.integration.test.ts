@@ -353,6 +353,21 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
       .where(eq(users.email, "returning@example.com"));
     expect(after?.passwordHash).toBe(hash);
     expect(after?.displayName).toBe("Returning");
+
+    // Offboarded: still listed, with when it ended.
+    await db
+      .update(memberships)
+      .set({ disabledAt: sql`clock_timestamp()` })
+      .where(eq(memberships.userId, existing?.id ?? ""));
+    const listed = listMembersResponseSchema.parse(
+      await (
+        await send("GET", "/v1/members", undefined, as(ownerCookie))
+      ).json(),
+    );
+    const gone = listed.items.find((item) => item.user_id === existing?.id);
+    expect(Date.parse(gone?.disabled_at ?? "")).toBeGreaterThan(
+      Date.now() - 60_000,
+    );
   });
 
   test("a member is refused every management route", async () => {
