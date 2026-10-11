@@ -19,6 +19,7 @@ import {
   type StructuredLogger,
 } from "@agent-platform/observability";
 import {
+  type AuthorizationPolicy,
   type Caller,
   callerFor,
   type IdentityStore,
@@ -42,7 +43,7 @@ import {
   buildOpenApiDocument,
 } from "./openapi.ts";
 import type { ReadinessProbe } from "./readiness.ts";
-import { missingScope } from "./scope-policy.ts";
+import { actionForScope, missingScope } from "./scope-policy.ts";
 import { createWebDistHandler } from "./web-dist.ts";
 
 interface ApiVariables {
@@ -189,6 +190,7 @@ export interface CreateApiAppOptions {
   // Overrides REQUEST_DEADLINE_MS, for tests.
   requestDeadlineMs?: number;
   webDistDir?: string;
+  authorization?: AuthorizationPolicy;
 }
 
 export class ApiHttpError extends Error {
@@ -549,12 +551,26 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       context.req.path,
       authenticated.principal,
     );
+    const caller = callerFor(
+      authenticated.principal,
+      { kind: authenticated.webSession ? "web" : "api" },
+      context.get("requestId"),
+      authenticated.storedKey,
+    );
     if (missing) {
       logger.warn("API request refused for a missing scope", {
         method: context.req.method,
         path: context.req.path,
         scope: missing,
       });
+      await options.authorization
+        ?.authorize({
+          subject: caller.subject,
+          action: actionForScope(missing),
+          resource: { kind: "session", id: null, owner_scope: caller.ownerId },
+          request_id: caller.requestId,
+        })
+        .catch(() => undefined);
       return errorResponse(
         context,
         403,
@@ -564,15 +580,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     }
     context.set("principal", authenticated.principal);
     context.set("ownerId", ownerScopeOf(authenticated.principal));
-    context.set(
-      "caller",
-      callerFor(
-        authenticated.principal,
-        { kind: authenticated.webSession ? "web" : "api" },
-        context.get("requestId"),
-        authenticated.storedKey,
-      ),
-    );
+    context.set("caller", caller);
     context.set("reauthenticate", authenticated.reauthenticate);
     if (authenticated.webSession) {
       context.set("webSession", authenticated.webSession);
