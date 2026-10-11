@@ -247,6 +247,7 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
       team_name: team.name,
     });
     expect(written[0]?.actor).toMatchObject({ actor_user_id: idOf(owner) });
+    expect(written[0]?.requestId).toBe(owner.requestId);
 
     expect(await member(owner, team.id, joiner, false)).toMatchObject({
       outcome: "removed",
