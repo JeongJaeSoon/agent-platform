@@ -20,6 +20,7 @@ import {
   type IdentityUser,
   type IdentityWorkspace,
   type IssuePasswordResetInput,
+  type IssuePasswordResetResult,
   type ResolvedWebSession,
 } from "@agent-platform/platform";
 import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
@@ -74,7 +75,12 @@ class MemoryIdentityStore implements IdentityStore {
     spent: boolean;
   }> = [];
   spentBootstrapTokens = new Set<string>();
-  receipts: Array<{ id: string; operation: string; targetRef: unknown }> = [];
+  receipts: Array<{
+    id: string;
+    operation: string;
+    targetRef: unknown;
+    result?: unknown;
+  }> = [];
   now = () => Date.now();
 
   async countLiveOwners() {
@@ -157,15 +163,34 @@ class MemoryIdentityStore implements IdentityStore {
   async retireBootstrapToken(tokenHash: Uint8Array) {
     this.spentBootstrapTokens.add(Buffer.from(tokenHash).toString("hex"));
   }
-  async issuePasswordReset(input: IssuePasswordResetInput) {
-    const live = this.memberships.some(
-      (m) =>
-        m.workspaceId === input.workspaceId &&
-        m.userId === input.userId &&
-        m.disabledAt === null &&
-        this.users.some((u) => u.id === m.userId && u.disabledAt === null),
-    );
-    if (!live) return null;
+  async issuePasswordReset(
+    input: IssuePasswordResetInput,
+  ): Promise<IssuePasswordResetResult> {
+    const liveRoles = (userId: string) =>
+      this.users.some((u) => u.id === userId && u.disabledAt === null)
+        ? this.memberships.filter(
+            (m) => m.userId === userId && m.disabledAt === null,
+          )
+        : [];
+    const issuer = this.users.find((u) => u.id === input.issuedBy);
+    if (
+      issuer?.passwordHash !== input.issuerPasswordHash ||
+      !liveRoles(input.issuedBy).some(
+        (m) => m.workspaceId === input.workspaceId && m.role === "owner",
+      )
+    ) {
+      return { outcome: "issuer_changed" };
+    }
+    const roles = liveRoles(input.userId);
+    const target = roles.find((m) => m.workspaceId === input.workspaceId);
+    if (!target) return { outcome: "not_found" };
+    if (
+      roles.some(
+        (m) => m.workspaceId !== input.workspaceId && m.role === "owner",
+      )
+    ) {
+      return { outcome: "owner_elsewhere" };
+    }
     for (const reset of this.resets) {
       if (reset.userId === input.userId) reset.spent = true;
     }
@@ -177,7 +202,13 @@ class MemoryIdentityStore implements IdentityStore {
       expiresAt,
       spent: false,
     });
-    return { expiresAt };
+    this.receipts.push({
+      id: input.receiptId,
+      operation: "issue_password_reset",
+      targetRef: { user_id: input.userId, workspace_id: input.workspaceId },
+      result: { target_role: target.role },
+    });
+    return { outcome: "issued", expiresAt };
   }
   async consumePasswordReset(input: ConsumePasswordResetInput) {
     const hex = Buffer.from(input.tokenHash).toString("hex");
@@ -188,7 +219,13 @@ class MemoryIdentityStore implements IdentityStore {
     const user = this.users.find(
       (u) => u.id === reset?.userId && u.disabledAt === null,
     );
-    if (!reset || !user) return null;
+    const member = this.memberships.some(
+      (m) =>
+        m.workspaceId === reset?.workspaceId &&
+        m.userId === user?.id &&
+        m.disabledAt === null,
+    );
+    if (!reset || !user || !member) return null;
     reset.spent = true;
     user.passwordHash = input.passwordHash;
     for (const session of this.sessions) {
@@ -328,7 +365,6 @@ function harness(
   options: {
     authMode?: string;
     lockout?: LoginLockout;
-    recoveryLockout?: LoginLockout;
     passwordWork?: WorkGate;
     bootstrapToken?: string;
   } = {},
@@ -342,9 +378,6 @@ function harness(
     bootstrap: createBootstrapGate(options.bootstrapToken ?? BOOTSTRAP_TOKEN),
     logger,
     ...(options.lockout ? { lockout: options.lockout } : {}),
-    ...(options.recoveryLockout
-      ? { recoveryLockout: options.recoveryLockout }
-      : {}),
     ...(options.passwordWork ? { passwordWork: options.passwordWork } : {}),
   };
   const app = createApiApp({
@@ -483,11 +516,35 @@ describe("bootstrap", () => {
     // Right token, invalid body: 400, and the token is not spent.
     expect((await h.bootstrap(invalidBody)).status).toBe(400);
     expect((await h.bootstrap()).status).toBe(201);
-    // Done beats everything, including a wrong token and an invalid body.
+    // Once done, a wrong token still learns nothing about the install.
     expect(
       (await h.bootstrap({ ...invalidBody, bootstrap_token: "y".repeat(40) }))
         .status,
-    ).toBe(409);
+    ).toBe(401);
+    expect((await h.bootstrap(invalidBody)).status).toBe(409);
+  });
+
+  test("a matching token presented while an owner is live is spent", async () => {
+    const h = harness();
+    expect((await h.bootstrap()).status).toBe(201);
+    h.identity.spentBootstrapTokens.clear();
+    expect((await h.bootstrap()).status).toBe(409);
+    expect(h.identity.spentBootstrapTokens).toContain(
+      Buffer.from(hashWebSessionToken(BOOTSTRAP_TOKEN)).toString("hex"),
+    );
+  });
+
+  test("failed attempts never lock out the right token", async () => {
+    const h = harness({
+      lockout: new LoginLockout({ now: () => 1_000_000 }),
+    });
+    for (let i = 0; i < 10; i += 1) {
+      expect(
+        (await h.bootstrap({ bootstrap_token: `${"y".repeat(39)}${i}` }))
+          .status,
+      ).toBe(401);
+    }
+    expect((await h.bootstrap()).status).toBe(201);
   });
 
   test("two concurrent bootstraps with the right token create one owner", async () => {
@@ -566,6 +623,35 @@ describe("bootstrap", () => {
     expect(gate.matches(value)).toBe(true);
   });
 
+  test("a configured token is spent once the database answers, if startup could not check it", async () => {
+    const identity = new MemoryIdentityStore();
+    identity.users.push({ id: "u", disabledAt: null } as IdentityUser);
+    identity.memberships.push({
+      workspaceId: "w",
+      userId: "u",
+      role: "owner",
+      disabledAt: null,
+    });
+    const counted = identity.countLiveOwners.bind(identity);
+    let failures = 2;
+    identity.countLiveOwners = async () => {
+      if (failures > 0) {
+        failures -= 1;
+        throw Object.assign(new Error("connect ECONNREFUSED"), {
+          code: "ECONNREFUSED",
+        });
+      }
+      return counted();
+    };
+    const logger = new StructuredLogger({ sinks: [new MemoryLogSink()] });
+    await bootstrapGateFromEnv("g".repeat(32), identity, logger, () => {}, 5);
+    expect(identity.spentBootstrapTokens.size).toBe(0);
+    await Bun.sleep(100);
+    expect(identity.spentBootstrapTokens).toContain(
+      Buffer.from(hashWebSessionToken("g".repeat(32))).toString("hex"),
+    );
+  });
+
   test("an empty BOOTSTRAP_TOKEN refuses to start instead of generating one", async () => {
     const identity = new MemoryIdentityStore();
     let counted = 0;
@@ -612,10 +698,16 @@ describe("account recovery", () => {
       userId = member.id,
       cookie = ownerCookie,
       id = workspace.id,
+      body: unknown = { current_password: PASSWORD },
     ) =>
       h.app.request(`/v1/workspaces/${id}/members/${userId}/password-reset`, {
         method: "POST",
-        headers: { Cookie: cookie, ...BROWSER },
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/json",
+          ...BROWSER,
+        },
+        body: JSON.stringify(body),
       });
     return { owner, member, workspace, ownerCookie, issue };
   }
@@ -721,21 +813,120 @@ describe("account recovery", () => {
     expect((await redeem(h, "apr_x")).status).toBe(503);
   });
 
-  test("the sixth failed reset inside the window is 429", async () => {
+  test("failed redemptions never lock out a valid link", async () => {
     const h = harness({
-      recoveryLockout: new LoginLockout({ now: () => 1_000_000 }),
+      lockout: new LoginLockout({ now: () => 1_000_000 }),
     });
     const { issue } = await withMember(h);
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 10; i += 1) {
       expect((await redeem(h, `apr_guess-${i}`)).status).toBe(401);
     }
     const { token } = issuePasswordResetResponseSchema.parse(
       await (await issue()).json(),
     );
-    const locked = await redeem(h, token);
+    expect((await redeem(h, token)).status).toBe(200);
+  });
+
+  test("redeeming and issuing answer 429 when the hashing gate is full", async () => {
+    const passwordWork = new WorkGate(1, 0);
+    const h = harness({ passwordWork });
+    const { issue } = await withMember(h);
+    const held = await passwordWork.tryAcquire();
+    const busy = await redeem(h, "apr_x");
+    expect(busy.status).toBe(429);
+    expect(await errorCode(busy)).toBe("RATE_LIMITED");
+    expect(busy.headers.get("Retry-After")).toBe("1");
+    expect((await issue()).status).toBe(429);
+    held?.();
+    expect((await issue()).status).toBe(201);
+  });
+
+  test("an owner cannot issue a link for themselves", async () => {
+    const h = harness();
+    const { owner, issue } = await withMember(h);
+    const self = await issue(owner.id);
+    expect(self.status).toBe(403);
+    expect(await errorCode(self)).toBe("FORBIDDEN");
+    expect(h.identity.resets).toHaveLength(0);
+  });
+
+  test("issuing needs the issuer's current password, counted like a login", async () => {
+    // Shared between the public and session routes, as server.ts wires it.
+    const h = harness({ lockout: new LoginLockout() });
+    const { issue, member, workspace, ownerCookie } = await withMember(h);
+    expect((await issue(member.id, ownerCookie, workspace.id, {})).status).toBe(
+      400,
+    );
+    const oversized = await issue(member.id, ownerCookie, workspace.id, {
+      current_password: "x".repeat(65 * 1024),
+    });
+    expect(oversized.status).toBe(413);
+    for (let i = 0; i < 5; i += 1) {
+      const wrong = await issue(member.id, ownerCookie, workspace.id, {
+        current_password: WRONG,
+      });
+      expect(wrong.status).toBe(403);
+    }
+    const locked = await issue();
     expect(locked.status).toBe(429);
     expect(await errorCode(locked)).toBe("RATE_LIMITED");
-    expect(Number(locked.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(h.identity.resets).toHaveLength(0);
+    // The same window as login: the owner's address is locked there too.
+    expect((await h.login()).status).toBe(429);
+  });
+
+  test("a password changed after the check stops the issue", async () => {
+    const h = harness();
+    const { owner, issue } = await withMember(h);
+    const original = h.identity.issuePasswordReset.bind(h.identity);
+    h.identity.issuePasswordReset = async (input) => {
+      owner.passwordHash = await hashPassword(WRONG);
+      return original(input);
+    };
+    const stale = await issue();
+    expect(stale.status).toBe(401);
+    expect(h.identity.resets).toHaveLength(0);
+  });
+
+  test("a link for another owner is recorded as such; one for an owner elsewhere is refused", async () => {
+    const h = harness();
+    const { member, issue, workspace } = await withMember(h);
+    const membership = h.identity.memberships.find(
+      (m) => m.userId === member.id,
+    );
+    if (!membership) throw new Error("member membership missing");
+    membership.role = "owner";
+    expect((await issue()).status).toBe(201);
+    expect(h.identity.receipts.at(-1)).toMatchObject({
+      operation: "issue_password_reset",
+      targetRef: { user_id: member.id, workspace_id: workspace.id },
+      result: { target_role: "owner" },
+    });
+
+    membership.role = "member";
+    h.identity.memberships.push({
+      workspaceId: "00000000-0000-4000-8000-0000000000ee",
+      userId: member.id,
+      role: "owner",
+      disabledAt: null,
+    });
+    const elsewhere = await issue();
+    expect(elsewhere.status).toBe(403);
+    expect(await errorCode(elsewhere)).toBe("FORBIDDEN");
+  });
+
+  test("a link dies with the user's membership", async () => {
+    const h = harness();
+    const { member, issue } = await withMember(h);
+    const { token } = issuePasswordResetResponseSchema.parse(
+      await (await issue()).json(),
+    );
+    const membership = h.identity.memberships.find(
+      (m) => m.userId === member.id,
+    );
+    if (!membership) throw new Error("member membership missing");
+    membership.disabledAt = new Date();
+    expect((await redeem(h, token)).status).toBe(401);
   });
 
   test("with no live owner, a new token restores an owner in the same workspace and ends every session", async () => {
@@ -747,9 +938,10 @@ describe("account recovery", () => {
     );
     if (!ownerMembership) throw new Error("owner membership missing");
 
-    // A live owner still exists: done, whatever the token.
+    // A live owner still exists, but a token this process does not hold
+    // learns nothing about that.
     expect((await h.bootstrap({ bootstrap_token: OTHER_TOKEN })).status).toBe(
-      409,
+      401,
     );
 
     ownerMembership.disabledAt = new Date();
@@ -768,7 +960,10 @@ describe("account recovery", () => {
     };
     const reused = await restart(BOOTSTRAP_TOKEN).bootstrap();
     expect(reused.status).toBe(401);
-    expect(await errorCode(reused)).toBe("UNAUTHORIZED");
+    // The same answer as a wrong token; only the log says why.
+    expect(await reused.json()).toMatchObject({
+      error: { code: "UNAUTHORIZED", message: "Bootstrap token is invalid" },
+    });
 
     const recovery = restart(OTHER_TOKEN);
     const restored = await recovery.bootstrap({
@@ -790,20 +985,6 @@ describe("account recovery", () => {
     ).toBe("member");
 
     expect((await recovery.bootstrap()).status).toBe(409);
-  });
-
-  test("the sixth failed bootstrap inside the window is 429", async () => {
-    const h = harness({
-      recoveryLockout: new LoginLockout({ now: () => 1_000_000 }),
-    });
-    for (let i = 0; i < 5; i += 1) {
-      expect(
-        (await h.bootstrap({ bootstrap_token: "y".repeat(40) })).status,
-      ).toBe(401);
-    }
-    const locked = await h.bootstrap();
-    expect(locked.status).toBe(429);
-    expect(await errorCode(locked)).toBe("RATE_LIMITED");
   });
 });
 

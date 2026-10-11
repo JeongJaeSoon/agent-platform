@@ -21,6 +21,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   resume: "재개 요청",
   recovery_decision: "복구 결정",
   revoke_execution: "실행 권한 회수",
+  issue_password_reset: "비밀번호 재설정 링크 발급",
   reset_password: "비밀번호 재설정",
   recover_owner: "owner 복구",
   takeover: "세션 인수",
