@@ -154,6 +154,9 @@ class MemoryIdentityStore implements IdentityStore {
     }
     return { user, workspace, recovered };
   }
+  async retireBootstrapToken(tokenHash: Uint8Array) {
+    this.spentBootstrapTokens.add(Buffer.from(tokenHash).toString("hex"));
+  }
   async issuePasswordReset(input: IssuePasswordResetInput) {
     const live = this.memberships.some(
       (m) =>
@@ -526,6 +529,10 @@ describe("bootstrap", () => {
     );
     expect(printed).toHaveLength(0);
     expect(given.consume("g".repeat(32))).toBe(true);
+    // Configured while an owner is live: spent, so it cannot recover later.
+    expect(identity.spentBootstrapTokens).toContain(
+      Buffer.from(hashWebSessionToken("g".repeat(32))).toString("hex"),
+    );
 
     // A configured token the request schema would refuse can never be
     // presented, so it is a startup error rather than a silent dead install.

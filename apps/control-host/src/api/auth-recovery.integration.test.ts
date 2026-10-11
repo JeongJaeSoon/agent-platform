@@ -8,6 +8,7 @@ import {
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  bootstrapTokenUses,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -28,6 +29,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import {
+  bootstrapGateFromEnv,
   createBootstrapGate,
   DatabaseIdentityStore,
   hashPassword,
@@ -355,6 +357,24 @@ integration("account recovery on PostgreSQL", () => {
       0,
     );
     expect(ownerId).not.toBe(memberId);
+  });
+
+  test("an install that predates the spent-token record retires its configured token at startup", async () => {
+    const { db, start, ownerId } = await install();
+    // What an install bootstrapped before 0131 looks like.
+    await db.delete(bootstrapTokenUses);
+    await bootstrapGateFromEnv(
+      INSTALL_TOKEN,
+      new DatabaseIdentityStore(db),
+      new StructuredLogger({ sinks: [new MemoryLogSink()] }),
+    );
+    expect(await db.$count(bootstrapTokenUses)).toBe(1);
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, ownerId));
+    expect((await start(INSTALL_TOKEN).bootstrap()).status).toBe(401);
+    expect((await start(RECOVERY_TOKEN).bootstrap()).status).toBe(201);
   });
 
   test("recovery revokes a reset link issued before it", async () => {

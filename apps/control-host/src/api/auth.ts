@@ -23,6 +23,7 @@ import {
   issuePasswordReset,
   renewWebSession,
   resolveWebSession,
+  retireBootstrapToken,
   revokeWebSession,
 } from "@agent-platform/db";
 import type { StructuredLogger } from "@agent-platform/observability";
@@ -57,6 +58,9 @@ export class DatabaseIdentityStore implements IdentityStore {
   }
   bootstrap(input: BootstrapInput) {
     return bootstrapOwner(this.db, input);
+  }
+  retireBootstrapToken(tokenHash: Uint8Array) {
+    return retireBootstrapToken(this.db, tokenHash);
   }
   issuePasswordReset(input: IssuePasswordResetInput) {
     return issuePasswordReset(this.db, input);
@@ -183,7 +187,7 @@ function generateBootstrapToken(): string {
  */
 export async function bootstrapGateFromEnv(
   value: string | undefined,
-  store: Pick<IdentityStore, "countLiveOwners">,
+  store: Pick<IdentityStore, "countLiveOwners" | "retireBootstrapToken">,
   logger: StructuredLogger,
   print: (line: string) => void = (line) => console.error(line),
 ): Promise<BootstrapGate> {
@@ -198,6 +202,18 @@ export async function bootstrapGateFromEnv(
       throw new Error(
         "BOOTSTRAP_TOKEN must be 32 to 256 characters (or unset to generate one)",
       );
+    }
+    // A value configured while an owner is live cannot be the new token a
+    // recovery needs, and an install that predates bootstrap_token_uses
+    // never recorded the one it used. Spend it now.
+    try {
+      if ((await store.countLiveOwners()) > 0) {
+        await store.retireBootstrapToken(hashWebSessionToken(parsed.data));
+      }
+    } catch (error) {
+      logger.warn("BOOTSTRAP_TOKEN could not be checked against live owners", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
     }
     return createBootstrapGate(parsed.data);
   }

@@ -75,6 +75,8 @@ export interface IdentityStore {
   /** Owners whose account and membership are both enabled. */
   countLiveOwners(): Promise<number>;
   bootstrap(input: BootstrapInput): Promise<BootstrapResult>;
+  /** Record a BOOTSTRAP_TOKEN as spent without using it. */
+  retireBootstrapToken(tokenHash: Uint8Array): Promise<void>;
   /** Null when the user is not a live member of the workspace. */
   issuePasswordReset(
     input: IssuePasswordResetInput,

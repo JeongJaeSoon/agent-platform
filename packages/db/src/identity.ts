@@ -191,6 +191,16 @@ export async function bootstrapOwner(
   });
 }
 
+export async function retireBootstrapToken(
+  db: Database,
+  tokenHash: Uint8Array,
+): Promise<void> {
+  await db
+    .insert(bootstrapTokenUses)
+    .values({ tokenHash })
+    .onConflictDoNothing();
+}
+
 /**
  * Replaces the user's open link, if any. Null when the user is not a live
  * member of the workspace: a link for a disabled account would set a
