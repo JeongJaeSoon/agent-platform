@@ -4,6 +4,7 @@ import {
   apiErrorResponseSchema,
   apiRootResponseSchema,
   healthResponseSchema,
+  ownerScopeOf,
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
   REQUEST_BODY_MAX_BYTES,
@@ -17,15 +18,17 @@ import {
   createLogger,
   type StructuredLogger,
 } from "@agent-platform/observability";
-import type {
-  IdentityStore,
-  ResolvedWebSession,
+import {
+  type Caller,
+  callerFor,
+  type IdentityStore,
+  type ResolvedWebSession,
 } from "@agent-platform/platform";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
-import { createAuthenticator, csrfViolation, ownerIdOf } from "./auth.ts";
+import { createAuthenticator, csrfViolation } from "./auth.ts";
 import {
   BODY_DEADLINE_MS,
   CLOSING_IDLE_TIMEOUT_SECONDS,
@@ -45,6 +48,8 @@ interface ApiVariables {
   // The alpha partition key; every existing route authorizes on it alone.
   ownerId: string;
   principal: Principal;
+  // What every session service is called as.
+  caller: Caller;
   // Present on the cookie path only.
   webSession?: ResolvedWebSession;
   requestId: string;
@@ -556,7 +561,15 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       );
     }
     context.set("principal", authenticated.principal);
-    context.set("ownerId", ownerIdOf(authenticated.principal));
+    context.set("ownerId", ownerScopeOf(authenticated.principal));
+    context.set(
+      "caller",
+      callerFor(
+        authenticated.principal,
+        { kind: authenticated.webSession ? "web" : "api" },
+        context.get("requestId"),
+      ),
+    );
     context.set("reauthenticate", authenticated.reauthenticate);
     if (authenticated.webSession) {
       context.set("webSession", authenticated.webSession);

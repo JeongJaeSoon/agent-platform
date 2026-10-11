@@ -14,11 +14,12 @@ import {
   workerLaunches,
 } from "@agent-platform/db";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createUsageService,
   type InputLimits,
   type InstallationLimits,
 } from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -57,7 +58,7 @@ integration("usage API on PostgreSQL", () => {
     pool = new Pool({ connectionString: database.url, max: 5 });
     db = drizzle(pool, { schema });
     const service = createUsageService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       reader: createPostgresUsageReader(db),
       limits,
     });
@@ -330,12 +331,12 @@ integration("usage API on PostgreSQL", () => {
     });
 
     const tokenLimited = createUsageService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       reader: createPostgresUsageReader(db),
       limits: { ...limits, sessionTokenLimit: 1_000 },
     });
     const usage = sessionUsageResponseSchema.parse(
-      await tokenLimited.getSessionUsage({ ownerId: owner }, id),
+      await tokenLimited.getSessionUsage(testCaller(owner), id),
     );
     expect(usage).toMatchObject({
       cost: { amount_usd: "0.000000" },

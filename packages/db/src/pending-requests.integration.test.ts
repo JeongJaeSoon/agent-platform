@@ -6,7 +6,7 @@ import type {
   WorkerScope,
 } from "@agent-platform/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createPendingRequestService,
   createWorkerGateway,
   payloadHash,
@@ -16,6 +16,7 @@ import {
   WorkerGatewayError,
   type WorkerPrincipal,
 } from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -134,7 +135,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = gatewayWith();
     service = createPendingRequestService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       store: createPostgresPendingRequests(db),
     });
   }, 60_000);
@@ -201,7 +202,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   // A session whose first turn is running on a worker.
   async function runningSession() {
     const partition = partitionFor("pending");
-    const owner = { ownerId: `owner-${crypto.randomUUID()}` };
+    const owner = testCaller(`owner-${crypto.randomUUID()}`);
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -249,7 +250,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   }
 
   function answer(
-    owner: { ownerId: string },
+    owner: ReturnType<typeof testCaller>,
     sessionId: string,
     body: PostSessionAnswerRequest,
     key = crypto.randomUUID(),
@@ -318,12 +319,12 @@ integration("pending requests and answers on PostgreSQL", () => {
 
     expect(
       await failure(
-        service.listPendingRequests({ ownerId: "someone-else" }, sessionId),
+        service.listPendingRequests(testCaller("someone-else"), sessionId),
       ),
     ).toBe("NOT_FOUND");
     expect(
       await failure(
-        answer({ ownerId: "someone-else" }, sessionId, {
+        answer(testCaller("someone-else"), sessionId, {
           request_id: tool.requestId,
           kind: "permission",
           decision: "allow",

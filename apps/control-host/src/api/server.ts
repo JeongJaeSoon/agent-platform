@@ -13,8 +13,8 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
   catalogRevision,
+  createAuthorizationPolicy,
   createInterruptService,
   createPendingRequestService,
   createSessionService,
@@ -147,8 +147,9 @@ const checkpoints = createApiCheckpoints(
   checkpointStorage,
   checkpointGitMemoryBytes,
 );
+const authorization = createAuthorizationPolicy();
 const sessions = createSessionService({
-  authorization: allowAllPolicy,
+  authorization,
   inputs: createPostgresSessionUnitOfWork(db),
   controls: createPostgresSessionControl(db, {
     connect: () => pool.connect(),
@@ -161,16 +162,16 @@ const sessions = createSessionService({
 // The same parsed limits admission and dispatch run under, so what this
 // reports is what the gates enforce.
 const usage = createUsageService({
-  authorization: allowAllPolicy,
+  authorization,
   reader: createPostgresUsageReader(db),
   limits,
 });
 const pendingRequests = createPendingRequestService({
-  authorization: allowAllPolicy,
+  authorization,
   store: createPostgresPendingRequests(db),
 });
 const interrupts = createInterruptService({
-  authorization: allowAllPolicy,
+  authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
 });
 const workers = createWorkerGateway({

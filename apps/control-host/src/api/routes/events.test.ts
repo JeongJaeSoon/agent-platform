@@ -5,7 +5,7 @@ import {
   type SseEvent,
 } from "@agent-platform/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
   type ReadEventsQuery,
@@ -154,7 +154,7 @@ function harness(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     controls: unusedControls,
     catalog: { profiles: {}, repositories: {} },
     inputs: {
@@ -393,7 +393,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -495,7 +495,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -549,7 +549,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -605,7 +605,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -668,7 +668,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -737,7 +737,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -815,7 +815,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -907,7 +907,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type {
   AdmissionState,
   ApiErrorCode,
+  AuthorizationAction,
+  AuthorizationResource,
   ControlAcceptedResponse,
   CreateSessionRequest,
   CreateSessionResponse,
@@ -25,10 +27,10 @@ import {
   budgetExceeded,
   type SessionSpend,
 } from "../limits/installation-limits.ts";
-import type {
-  AuthorizationPolicy,
-  Principal,
-  SessionAction,
+import {
+  ACTION_SCOPES,
+  type AuthorizationPolicy,
+  type Caller,
 } from "../musterrolle/policy.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
@@ -160,19 +162,32 @@ export function payloadHash(payload: unknown): string {
     .digest("hex");
 }
 
-// A missing scope is refused at the API edge before a service is called
-// this answers the same 403 for a policy that refuses the action.
-export function requirePermitted(
+// Every service entry asks before any store call. Over HTTP the edge has
+// already refused a missing scope, so only a caller without HTTP meets the
+// FORBIDDEN here, with the same message. A decision that cannot be reached
+// is a refusal.
+export async function requirePermitted(
   authorization: AuthorizationPolicy,
-  actor: Principal,
-  action: SessionAction,
-) {
-  if (!authorization.authorize(actor, action)) {
-    throw new SessionServiceError(
-      "FORBIDDEN",
-      `This principal does not hold ${action}`,
-    );
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+): Promise<void> {
+  const decision = await authorization
+    .authorize({
+      subject: caller.subject,
+      action,
+      resource: { ...resource, owner_scope: caller.ownerId },
+      request_id: caller.requestId,
+    })
+    .catch(() => null);
+  if (decision?.outcome === "allow") return;
+  if (decision?.reason_code === "not_found") {
+    throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
+  throw new SessionServiceError(
+    "FORBIDDEN",
+    `This principal does not hold ${ACTION_SCOPES[action] ?? action}`,
+  );
 }
 
 export function createSessionService(deps: {
@@ -258,10 +273,13 @@ export function createSessionService(deps: {
 
   return {
     async createSession(
-      actor: Principal,
+      actor: Caller,
       input: { idempotencyKey: string; body: CreateSessionRequest },
     ): Promise<CreateSessionResponse> {
-      requirePermitted(authorization, actor, "sessions:write");
+      await requirePermitted(authorization, actor, "session.submit", {
+        kind: "session",
+        id: null,
+      });
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
       const pair = allowedPair(
@@ -307,11 +325,14 @@ export function createSessionService(deps: {
     },
 
     async appendMessage(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: PostSessionMessageRequest },
     ): Promise<PostSessionMessageResponse> {
-      requirePermitted(authorization, actor, "sessions:write");
+      await requirePermitted(authorization, actor, "session.submit", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await inputs.appendInputAtomic({
         principal: actor,
         sessionId,
@@ -343,11 +364,14 @@ export function createSessionService(deps: {
     },
 
     async terminateSession(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: TerminateSessionRequest },
     ): Promise<TerminateSessionResponse> {
-      requirePermitted(authorization, actor, "sessions:control");
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await controls.terminateAtomic({
         principal: actor,
         sessionId,
@@ -379,11 +403,14 @@ export function createSessionService(deps: {
     },
 
     async pauseSession(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: PauseSessionRequest },
     ): Promise<ControlAcceptedResponse> {
-      requirePermitted(authorization, actor, "sessions:control");
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await controls.pauseAtomic({
         principal: actor,
         sessionId,
@@ -420,11 +447,14 @@ export function createSessionService(deps: {
     },
 
     async decideRecovery(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: RecoveryDecisionRequest },
     ): Promise<ControlAcceptedResponse> {
-      requirePermitted(authorization, actor, "sessions:recover");
+      await requirePermitted(authorization, actor, "session.recover", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await controls.decideRecoveryAtomic({
         principal: actor,
         sessionId,
@@ -496,11 +526,14 @@ export function createSessionService(deps: {
     },
 
     async resumeSession(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: ResumeSessionRequest },
     ): Promise<ControlAcceptedResponse> {
-      requirePermitted(authorization, actor, "sessions:control");
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await controls.resumeAtomic({
         principal: actor,
         sessionId,
@@ -558,10 +591,13 @@ export function createSessionService(deps: {
     },
 
     async listSessions(
-      actor: Principal,
+      actor: Caller,
       query: ListSessionsQuery,
     ): Promise<ListSessionsResponse> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: null,
+      });
       const page = await reader.listSessions(actor.ownerId, query);
       return {
         items: page.items.map(({ profile_id, ...item }) => ({
@@ -572,11 +608,11 @@ export function createSessionService(deps: {
       };
     },
 
-    async getSession(
-      actor: Principal,
-      sessionId: string,
-    ): Promise<SessionDetail> {
-      requirePermitted(authorization, actor, "sessions:read");
+    async getSession(actor: Caller, sessionId: string): Promise<SessionDetail> {
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const record = await reader.getSession(actor.ownerId, sessionId);
       if (!record) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -617,11 +653,14 @@ export function createSessionService(deps: {
     },
 
     async listTurns(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       query: ListTurnsQuery,
     ): Promise<ListTurnsResponse> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const page = await reader.listTurns(actor.ownerId, sessionId, query);
       if (!page) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -630,11 +669,14 @@ export function createSessionService(deps: {
     },
 
     async getTurn(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       turnId: string,
     ): Promise<TurnDetail> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const turn = await reader.getTurn(actor.ownerId, sessionId, turnId);
       if (!turn) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -643,11 +685,14 @@ export function createSessionService(deps: {
     },
 
     async readEvents(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       query: ReadEventsQuery,
     ): Promise<EventPage> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const page = await reader.readEvents(actor.ownerId, sessionId, query);
       if (!page) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -658,8 +703,11 @@ export function createSessionService(deps: {
     // Any principal of the issuing owner's partition may read a receipt,
     // not only the one that issued the command; another owner sees the same
     // 404 as for a receipt that never existed.
-    async getReceipt(actor: Principal, receiptId: string): Promise<Receipt> {
-      requirePermitted(authorization, actor, "sessions:read");
+    async getReceipt(actor: Caller, receiptId: string): Promise<Receipt> {
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: null,
+      });
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");

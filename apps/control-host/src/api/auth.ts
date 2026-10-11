@@ -436,13 +436,6 @@ function samePrincipal(left: Principal, right: Principal): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-/** The alpha partition key every existing route authorizes on. */
-export function ownerIdOf(principal: Principal): string {
-  return principal.kind === "user"
-    ? principal.workspace_id
-    : principal.owner_id;
-}
-
 export interface Authenticator {
   authenticate(context: Context): Promise<Authenticated | null>;
 }

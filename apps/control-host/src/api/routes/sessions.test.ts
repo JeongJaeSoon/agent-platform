@@ -5,7 +5,7 @@ import {
 } from "@agent-platform/contracts";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
   type SessionCatalog,
@@ -65,7 +65,7 @@ function app(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     catalog,
     inputs: {
       acceptInputAtomic: async () => {
@@ -816,7 +816,22 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         sessionTokenLimit: null,
       },
       authorization: {
-        authorize: (_actor, action) => action !== "sessions:recover",
+        authorize: async ({ action }) =>
+          action === "session.recover"
+            ? {
+                outcome: "deny",
+                reason_code: "role",
+                effective_scopes: [],
+                policy_version: "test",
+                decision_id: crypto.randomUUID(),
+              }
+            : {
+                outcome: "allow",
+                reason_code: "ok",
+                effective_scopes: [],
+                policy_version: "test",
+                decision_id: crypto.randomUUID(),
+              },
       },
       catalog,
       inputs: {
