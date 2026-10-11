@@ -171,8 +171,13 @@ describe("resolveReleaseContent", () => {
     const rotated: CatalogProfile = {
       ...profile,
       provider: {
-        ...profile.provider,
-        auth: { ...profile.provider.auth, value: "rotated-provider-key" },
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: {
+          kind: "api_key",
+          value: "rotated-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
       },
     };
     expect(deriveReleaseId(identityOf(card, rotated))).toBe(
