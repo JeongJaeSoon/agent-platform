@@ -616,7 +616,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 | `POST /v1/agents/{id}/credential-bindings` `{"credential_ref":"…"}` | 연결. 이미 있으면 같은 행과 `created: false`, `receipt_id: null` |
 | `DELETE /v1/agents/{id}/credential-bindings/{binding_id}` | 해제. 응답의 `running_sessions`와 `revoke_notice` |
 
-- 연결은 두 번 다시 검사한다. 활성화(`POST /v1/agents/{id}/activate`)는 release의 이름 중 연결되지 않은 것이 있으면 `409 CREDENTIAL_UNBOUND`이고 `error.details.missing`에 그 이름들이 있다. 새 세션(`POST /v1/sessions`에 `agent_release_id`)도 같은 검사를 판정(`session.submit`, `reason_code: credential_unbound`)에서 한 번 더 한다. 활성화 뒤에 해제했을 때를 막는 자리다.
+- 연결은 두 번 다시 검사한다. 활성화(`POST /v1/agents/{id}/activate`)는 release의 이름 중 연결되지 않은 것이 있으면 `409 CREDENTIAL_UNBOUND`이고 `error.details.missing`에 그 이름들이 있다. 새 세션(`POST /v1/sessions`에 `agent_release_id`)도 같은 검사를 판정(`session.submit`, `reason_code: credential_unbound`)에서 한 번 더 한다. 활성화 뒤에 해제했을 때를 막는 자리다. 세션을 받는 transaction은 그 에이전트의 살아 있는 연결 행을 잠그고 다시 읽는다. 그래서 동시에 온 해제는 세션이 들어간 뒤에 끝나고 실행 중 세션 수에 그 세션을 센다. 해제 전에 받은 세션을 같은 `Idempotency-Key`로 다시 보내면 원래 응답(`201`)이 돌아온다.
 - 세션 거절은 요청자에게 이름을 보여 주지 않는다. `error.details`는 안내 문구(`guidance`), 그 에이전트의 관리자 목록(`admins`, 관리자가 없으면 owner·admin), 연락 링크(`admin_link`, `mailto:`)다.
 - 해제는 실행 중인 세션을 멈추지 않는다. 그 세션은 끝날 때까지 자격을 쓰고, 다음 세션부터 막힌다. 바로 막으려면 외부 서비스에서 그 자격을 폐기한다. 해제 응답의 `revoke_notice`가 같은 말을 한다.
 - 에이전트 신원(M8)에 묶인 이름은 다른 에이전트에 연결하지 못한다(`409 CREDENTIAL_REF_IN_USE`). 거꾸로도 같다. 한 이름에 대한 두 경로는 같은 advisory lock과 trigger(`credential_bindings_exclusive_target`)로 막는다.
