@@ -1165,6 +1165,7 @@ export const API_ROUTE_DECLARATIONS = [
     body: "UpdateAgentRequest",
     success: { status: 200, schema: "AgentDetail" },
     errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
   },
   {
     method: "post",

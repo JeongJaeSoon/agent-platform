@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent Platform API",
     "version": "0.1.0-alpha",
-    "description": "Private alpha session control plane. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.\n\n## Authentication\n\nSend an API key as an HTTP bearer token, `Bearer <key>` (`bearerApiKey`), or use the browser session cookie that `POST /v1/auth/login` sets (`cookieSession`). A missing, malformed, unknown or revoked credential answers `401 UNAUTHORIZED`. `/healthz`, `/readyz`, `/v1/openapi.json`, `/v1/auth/bootstrap` and `/v1/auth/login` take no credential.\n\nA cookie-authenticated request with any method other than GET must also send `X-Requested-With: agent-platform-web` and must not be cross-site (`Sec-Fetch-Site`, `Origin`); otherwise it answers `403 FORBIDDEN`. API-key requests never need that header.\n\n## Scopes\n\nEach operation names the one scope it requires, in its description and in its `security` requirement:\n\n- `sessions:read`: read sessions, turns, events, pending requests, usage, limits and receipts.\n- `sessions:write`: create sessions and send messages.\n- `sessions:approve`: answer pending permission and question requests.\n- `sessions:control`: interrupt, pause, resume and terminate.\n- `sessions:recover`: record recovery decisions.\n\nWhat a credential holds:\n\n- An API key holds exactly the scopes it was issued with (`--scopes`). A key issued before scopes existed holds none and must be reissued.\n- A cookie session holds the scopes of the user's workspace role: `owner` holds all five, `member` all but `sessions:recover`.\n- A credential without the required scope answers `403 FORBIDDEN` before the body or the resource is read.\n\n## Idempotency\n\nEvery command (POST) except bootstrap, login and logout requires an `Idempotency-Key` header of 1–255 characters; a missing or invalid key answers `400 BAD_REQUEST`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. After a timeout or a lost response, retry with the same key rather than a new one. Bootstrap, login and logout ignore the header.\n\n## Errors\n\nEvery error answers `application/json` with `{\"error\": {\"code\", \"message\", \"retryable\", \"request_id\", \"details\"}}` (`ApiErrorResponse`). Branch on `code`, not on `message`. `retryable: true` means the same request may succeed later unchanged (`REQUEST_TIMEOUT`, `RATE_LIMITED`, `BACKEND_UNAVAILABLE`, `NOT_READY`). Each response below lists its codes and when each one happens.\n\n## Response headers\n\n- `X-Request-Id`: on every response, a fresh id for this request; an error's `request_id` is the same value. Quote it when reporting a problem.\n- `Retry-After`: seconds to wait, on `429 RATE_LIMITED` and on `503 BACKEND_UNAVAILABLE`."
+    "description": "Private alpha session control plane. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.\n\n## Authentication\n\nSend an API key as an HTTP bearer token, `Bearer <key>` (`bearerApiKey`), or use the browser session cookie that `POST /v1/auth/login` sets (`cookieSession`). A missing, malformed, unknown or revoked credential answers `401 UNAUTHORIZED`. `/healthz`, `/readyz`, `/v1/openapi.json`, `/v1/auth/bootstrap` and `/v1/auth/login` take no credential.\n\nA cookie-authenticated request with any method other than GET must also send `X-Requested-With: agent-platform-web` and must not be cross-site (`Sec-Fetch-Site`, `Origin`); otherwise it answers `403 FORBIDDEN`. API-key requests never need that header.\n\n## Scopes\n\nEach operation names the one scope it requires, in its description and in its `security` requirement:\n\n- `sessions:read`: read sessions, turns, events, pending requests, usage, limits and receipts.\n- `sessions:write`: create sessions and send messages.\n- `sessions:approve`: answer pending permission and question requests.\n- `sessions:control`: interrupt, pause, resume and terminate.\n- `sessions:recover`: record recovery decisions.\n\nWhat a credential holds:\n\n- An API key holds exactly the scopes it was issued with (`scopes` in `POST /v1/api-keys`, or `--scopes` in the key CLI). A key issued before scopes existed holds none and must be reissued.\n- A cookie session holds the scopes of the user's workspace role: `owner` holds all five, `admin` and `member` all but `sessions:recover`.\n- A credential without the required scope answers `403 FORBIDDEN` before the body or the resource is read.\n\n## Idempotency\n\nEach command (any method but GET) says in its description whether `Idempotency-Key` is required or ignored. Where it is required, send 1–255 characters; a missing or invalid key answers `400 BAD_REQUEST`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. After a timeout or a lost response, retry with the same key rather than a new one. Where it is ignored, nothing is replayed: a retry runs the command again, so reread the resource before retrying.\n\n## Errors\n\nEvery error answers `application/json` with `{\"error\": {\"code\", \"message\", \"retryable\", \"request_id\", \"details\"}}` (`ApiErrorResponse`). Branch on `code`, not on `message`. `retryable: true` means the same request may succeed later unchanged (`REQUEST_TIMEOUT`, `RATE_LIMITED`, `BACKEND_UNAVAILABLE`, `NOT_READY`). Each response below lists its codes and when each one happens.\n\n## Response headers\n\n- `X-Request-Id`: on every response, a fresh id for this request; an error's `request_id` is the same value. Quote it when reporting a problem.\n- `Retry-After`: seconds to wait, on `429 RATE_LIMITED` and on `503 BACKEND_UNAVAILABLE`."
   },
   "tags": [
     {
@@ -20193,7 +20193,7 @@
           "Agents"
         ],
         "summary": "Rename an agent or add a card version",
-        "description": "A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
+        "description": "A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -20208,17 +20208,6 @@
               "type": "string",
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "description": "Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read.",
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 255
             }
           },
           {
@@ -20261,7 +20250,7 @@
             }
           },
           "400": {
-            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying.",
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

@@ -951,7 +951,7 @@ export interface paths {
          * Rename an agent or add a card version
          * @description A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
          *
-         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         patch: operations["updateAgent"];
         trace?: never;
@@ -8410,9 +8410,7 @@ export interface operations {
     updateAgent: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
-                "Idempotency-Key": string;
+            header?: {
                 /** @description Required with a cookie session: the literal `agent-platform-web`. */
                 "X-Requested-With"?: "agent-platform-web";
             };
@@ -8437,7 +8435,7 @@ export interface operations {
                     "application/json": components["schemas"]["AgentDetail"];
                 };
             };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

@@ -41,13 +41,13 @@ Each operation names the one scope it requires, in its description and in its \`
 
 What a credential holds:
 
-- An API key holds exactly the scopes it was issued with (\`--scopes\`). A key issued before scopes existed holds none and must be reissued.
-- A cookie session holds the scopes of the user's workspace role: \`owner\` holds all five, \`member\` all but \`sessions:recover\`.
+- An API key holds exactly the scopes it was issued with (\`scopes\` in \`POST /v1/api-keys\`, or \`--scopes\` in the key CLI). A key issued before scopes existed holds none and must be reissued.
+- A cookie session holds the scopes of the user's workspace role: \`owner\` holds all five, \`admin\` and \`member\` all but \`sessions:recover\`.
 - A credential without the required scope answers \`403 FORBIDDEN\` before the body or the resource is read.
 
 ## Idempotency
 
-Every command (POST) except bootstrap, login and logout requires an \`Idempotency-Key\` header of 1–255 characters; a missing or invalid key answers \`400 BAD_REQUEST\`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers \`409 IDEMPOTENCY_CONFLICT\`. After a timeout or a lost response, retry with the same key rather than a new one. Bootstrap, login and logout ignore the header.
+Each command (any method but GET) says in its description whether \`Idempotency-Key\` is required or ignored. Where it is required, send 1–255 characters; a missing or invalid key answers \`400 BAD_REQUEST\`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers \`409 IDEMPOTENCY_CONFLICT\`. After a timeout or a lost response, retry with the same key rather than a new one. Where it is ignored, nothing is replayed: a retry runs the command again, so reread the resource before retrying.
 
 ## Errors
 
