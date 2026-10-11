@@ -722,6 +722,38 @@ integration("members, identity and takeover on PostgreSQL", () => {
       ).toMatchObject({ effects: { sessionsReleased: 1 } });
     });
 
+    test("enabling one membership hands back only that workspace's sessions", async () => {
+      const ws = await workspace();
+      const other = await workspace();
+      const owner = await member(ws, "owner");
+      const otherOwner = await member(other, "owner");
+      const target = await member(ws, "member");
+      await db
+        .insert(memberships)
+        .values({ workspaceId: other, userId: target, role: "member" });
+      const here = await createSession(asUser(ws, target));
+      const there = await createSession(asUser(other, target));
+      await setAccess(ws, owner, target);
+      await setAccess(other, otherOwner, target);
+      // Live again there without a release, as an accepted invite leaves it.
+      await db
+        .update(memberships)
+        .set({ disabledAt: null })
+        .where(
+          and(
+            eq(memberships.workspaceId, other),
+            eq(memberships.userId, target),
+          ),
+        );
+      expect(
+        await setAccess(ws, owner, target, { disabled: false }),
+      ).toMatchObject({ effects: { sessionsReleased: 1 } });
+      expect((await sessionRow(here.session_id)).takeoverRequiredAt).toBeNull();
+      expect(
+        (await sessionRow(there.session_id)).takeoverRequiredAt,
+      ).not.toBeNull();
+    });
+
     test("the only live owner cannot be turned off", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");
