@@ -1,6 +1,6 @@
 # 웹 로그인
 
-웹 사용자는 이메일·비밀번호로 로그인해 `__Host-ap_session` cookie를 받고, 웹 앱은 `GET /v1/auth/me`로 누가 어느 workspace에서 어떤 scope로 로그인했는지 읽는다. 설치 직후 첫 owner와 workspace는 bootstrap token으로 한 번만 만든다. 웹 화면(`apps/web`)은 아직 없으므로 브라우저가 보내는 요청을 curl로 그대로 보낸다.
+웹 사용자는 이메일·비밀번호로 로그인해 `__Host-ap_session` cookie를 받고, 웹 앱은 `GET /v1/auth/me`로 누가 어느 workspace에서 어떤 scope로 로그인했는지 읽는다. 설치 직후 첫 owner와 workspace는 bootstrap token으로 한 번만 만든다. 여기서는 브라우저가 보내는 요청을 curl로 그대로 보낸다. 화면으로 모는 절차는 [web-console.md](./web-console.md)다.
 
 ## Sub-features
 
@@ -15,9 +15,9 @@
 
 ## How to get to it (user POV)
 
-- 웹 앱의 첫 설치 화면(아직 없음)이 `POST /v1/auth/bootstrap`을 부른다.
-- 웹 앱의 로그인 화면(아직 없음)이 `POST /v1/auth/login`을, 앱 부팅이 `GET /v1/auth/me`를, 로그아웃이 `POST /v1/auth/logout`을 부른다.
-- 지금은 위 요청을 `ap_web`으로 보낸다. API reference(`/docs`)에도 같은 경로가 있다.
+- 웹 콘솔의 `/bootstrap` 화면이 `POST /v1/auth/bootstrap`을 부른다.
+- 웹 콘솔의 `/login` 화면이 `POST /v1/auth/login`을, 앱 부팅이 `GET /v1/auth/me`를, 로그아웃이 `POST /v1/auth/logout`을 부른다.
+- 이 파일은 위 요청을 `ap_web`으로 보낸다. API reference(`/docs`)에도 같은 경로가 있다.
 
 ## Driving it with lib.sh
 

@@ -21,6 +21,8 @@ const platform = join("packages", "platform");
 const system = join("packages", "system");
 const routes = join("apps", "control-host", "src", "api", "routes");
 const worker = join("apps", "worker");
+const web = join("apps", "web");
+const ui = join("packages", "ui");
 const storage = "@agent-platform/storage";
 /** The one worker file allowed to know objects live in S3. */
 const workerObjectStore = join(worker, "src", "object-store.ts");
@@ -218,6 +220,53 @@ export async function escapingRelativeImports(
     }
   }
   return offenders;
+}
+
+async function scriptFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, {
+    recursive: true,
+    withFileTypes: true,
+  });
+  return entries
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        /\.tsx?$/.test(entry.name) &&
+        !entry.parentPath.includes("node_modules"),
+    )
+    .map((entry) => join(entry.parentPath, entry.name));
+}
+
+const isTestFile = (file: string) =>
+  /\.test\.tsx?$/.test(file) || file.includes(`${sep}test-support${sep}`);
+
+/**
+ * The web app's view of the workspace: every `@agent-platform/*` package it
+ * imports, and each runtime file whose contracts import carries values. The
+ * bundle ships to browsers, so it takes contracts as types (no zod) and draws
+ * through packages/ui; nothing behind the API is reachable from it.
+ */
+export async function webBoundaryViolations(
+  directory: string,
+): Promise<string[]> {
+  const allowed = new Set(["@agent-platform/contracts", "@agent-platform/ui"]);
+  const offenders: string[] = [];
+  for (const file of await scriptFiles(directory)) {
+    const source = await readFile(file, "utf8");
+    const name = relative(directory, file);
+    for (const specifier of specifiers(source)) {
+      const target = packageOf(specifier);
+      if (target.startsWith("@agent-platform/") && !allowed.has(target))
+        offenders.push(`${name} -> ${specifier}`);
+    }
+    if (isTestFile(file)) continue;
+    for (const match of source.matchAll(
+      /import\s+(type\s+)?[^;]*?from\s*["']@agent-platform\/contracts["']/g,
+    )) {
+      if (!match[1]) offenders.push(`${name} -> contracts value import`);
+    }
+  }
+  return offenders.sort();
 }
 
 describe("architecture", () => {
@@ -705,5 +754,65 @@ describe("architecture", () => {
         missing: [],
       });
     }
+  });
+
+  test("the web app imports contracts as types and packages/ui, nothing else of the workspace", async () => {
+    expect(await webBoundaryViolations(join(root, web, "src"))).toEqual([]);
+    const declared = [
+      ...declaredDependencies(await manifest(join(root, web))),
+      ...Object.keys((await manifest(join(root, web))).devDependencies ?? {}),
+    ].filter((name) => name.startsWith("@agent-platform/"));
+    expect(declared.sort()).toEqual([
+      "@agent-platform/contracts",
+      "@agent-platform/ui",
+    ]);
+  });
+
+  test("the web boundary check catches a value import and a reach behind the API", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "arch-web-"));
+    try {
+      await writeFile(
+        join(fixture, "screen.tsx"),
+        [
+          'import { authMeResponseSchema } from "@agent-platform/contracts";',
+          'import type { AuthMeResponse } from "@agent-platform/contracts";',
+          'import { createPool } from "@agent-platform/db";',
+          "const lazy = () => import('@agent-platform/platform');",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(fixture, "screen.test.tsx"),
+        'import { authMeResponseSchema } from "@agent-platform/contracts";',
+      );
+      expect(await webBoundaryViolations(fixture)).toEqual([
+        "screen.tsx -> @agent-platform/db",
+        "screen.tsx -> @agent-platform/platform",
+        "screen.tsx -> contracts value import",
+      ]);
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  test("the web app's dependencies are build-time only, so no image installs them", async () => {
+    // worker installs every workspace with --production; a runtime dependency
+    // here would ship React and the router inside the worker image.
+    expect((await manifest(join(root, web))).dependencies ?? {}).toEqual({});
+  });
+
+  test("packages/ui never fetches", async () => {
+    const calls =
+      /\bfetch\s*\(|\bXMLHttpRequest\b|\bnew\s+WebSocket\b|\bnew\s+EventSource\b/;
+    const offenders: string[] = [];
+    for (const file of await scriptFiles(join(root, ui, "src"))) {
+      if (isTestFile(file)) continue;
+      const source = await readFile(file, "utf8");
+      if (
+        calls.test(source) ||
+        specifiers(source).some((s) => packageOf(s) === "openapi-fetch")
+      )
+        offenders.push(relative(root, file));
+    }
+    expect(offenders).toEqual([]);
   });
 });
