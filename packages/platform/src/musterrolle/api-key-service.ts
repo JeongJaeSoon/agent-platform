@@ -140,9 +140,29 @@ export function createApiKeyService(deps: {
         scopes: [...new Set(body.scopes)],
         expiresAt,
         receiptId,
+        issuerRoles: MANAGEMENT_ROLES[action] ?? [],
       });
-      if (result.outcome === "actor_inactive") throw ACTOR_INACTIVE();
-      if (result.outcome !== "issued") throw NOT_FOUND();
+      switch (result.outcome) {
+        case "issued":
+          break;
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        // The issuer's role fell between the decision and the write.
+        case "outranked":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "The issuer no longer holds this right",
+            undefined,
+            { reason_code: "role" },
+          );
+        case "scope_not_grantable":
+          throw new SessionServiceError(
+            "SCOPE_NOT_GRANTABLE",
+            "The issuer no longer holds these scopes",
+          );
+        default:
+          throw NOT_FOUND();
+      }
       return { key: viewOf(result.key), secret, receipt_id: receiptId };
     },
 
@@ -152,17 +172,14 @@ export function createApiKeyService(deps: {
         id: caller.ownerId,
       });
       const userId = personOf(caller);
-      // Who sees every service key is the role table's, read here rather
-      // than asked: a refused probe would record a denial for each listing.
-      const { principal } = caller.subject;
-      const everyServiceKey =
-        principal?.kind === "user" &&
-        (MANAGEMENT_ROLES["api_key.manage"] ?? []).includes(principal.role);
+      // Who sees every service key is the role table's, applied by the store
+      // to the role held now; a refused probe would record a denial for
+      // each listing.
       const keys = await store.list(
         caller.ownerId,
         {
           personalOf: userId,
-          service: everyServiceKey ? "all" : "administered",
+          allServiceKeysFor: MANAGEMENT_ROLES["api_key.manage"] ?? [],
         },
         API_KEY_LIST_LIMIT,
       );

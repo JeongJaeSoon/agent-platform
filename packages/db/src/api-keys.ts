@@ -1,17 +1,67 @@
-import type { SessionScope } from "@agent-platform/contracts";
+import {
+  type SessionScope,
+  scopesForRole,
+  type WorkspaceRole,
+} from "@agent-platform/contracts";
 import type {
   Principal,
   WorkspaceKey,
   WorkspaceKeyStore,
 } from "@agent-platform/platform";
-import { and, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
-import { actorStillMember, receiptActorOf } from "./control-shared.ts";
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+} from "drizzle-orm";
+import {
+  actorStillMember,
+  lockActorAccount,
+  receiptActorOf,
+} from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { agentAdmins, agents, apiKeys, receipts } from "./schema.ts";
+import {
+  agentAdmins,
+  agents,
+  apiKeys,
+  memberships,
+  receipts,
+  users,
+} from "./schema.ts";
 
 // Keys issued from the web or the API (94S-574). Lock order: the actor's
 // membership, then the agent, then the key, as the agent store takes them.
+
+const liveMembership = (workspaceId: string, userId: string) =>
+  and(
+    eq(memberships.workspaceId, workspaceId),
+    eq(memberships.userId, userId),
+    isNull(memberships.disabledAt),
+    isNull(users.disabledAt),
+  );
+
+// The issuer's role as it stands under the share lock, so a demotion that
+// commits after the policy's decision either waits for this key or is seen.
+async function lockedRole(
+  tx: Database,
+  workspaceId: string,
+  userId: string,
+): Promise<WorkspaceRole | null> {
+  await lockActorAccount(tx, userId);
+  const [row] = await tx
+    .select({ role: memberships.role })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(liveMembership(workspaceId, userId))
+    .limit(1)
+    .for("share", { of: memberships });
+  return (row?.role as WorkspaceRole | undefined) ?? null;
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -104,9 +154,12 @@ export function createPostgresWorkspaceKeyStore(
   return {
     issue(input) {
       return db.transaction(async (tx) => {
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
+        const role = await lockedRole(
+          tx,
+          input.workspaceId,
+          input.createdByUserId,
+        );
+        if (role === null) return { outcome: "actor_inactive" };
         if (input.agentId !== null) {
           const [agent] = await tx
             .select({ id: agents.id })
@@ -120,6 +173,29 @@ export function createPostgresWorkspaceKeyStore(
             .limit(1)
             .for("key share");
           if (!agent) return { outcome: "agent_not_found" };
+        }
+        if (!input.issuerRoles.includes(role)) {
+          const administers =
+            input.agentId !== null &&
+            (
+              await tx
+                .select({ agentId: agentAdmins.agentId })
+                .from(agentAdmins)
+                .where(
+                  and(
+                    eq(agentAdmins.workspaceId, input.workspaceId),
+                    eq(agentAdmins.agentId, input.agentId),
+                    eq(agentAdmins.userId, input.createdByUserId),
+                  ),
+                )
+                .limit(1)
+                .for("share")
+            ).length > 0;
+          if (!administers) return { outcome: "outranked" };
+        }
+        const ceiling = new Set(scopesForRole(role));
+        if (input.scopes.some((scope) => !ceiling.has(scope))) {
+          return { outcome: "scope_not_grantable" };
         }
         const [row] = await tx
           .insert(apiKeys)
@@ -153,36 +229,43 @@ export function createPostgresWorkspaceKeyStore(
         eq(apiKeys.kind, "personal"),
         eq(apiKeys.createdByUserId, filter.personalOf),
       );
-      const service =
-        filter.service === "all"
-          ? eq(apiKeys.kind, "service")
-          : filter.service === "administered"
-            ? and(
-                eq(apiKeys.kind, "service"),
-                isNotNull(apiKeys.agentId),
-                inArray(
-                  apiKeys.agentId,
-                  db
-                    .select({ agentId: agentAdmins.agentId })
-                    .from(agentAdmins)
-                    .where(
-                      and(
-                        eq(agentAdmins.workspaceId, workspaceId),
-                        eq(agentAdmins.userId, filter.personalOf),
-                      ),
-                    ),
-                ),
-              )
-            : undefined;
+      // Read in the same statement as the keys: the caller's role may have
+      // changed since they signed in.
+      const seesEveryServiceKey = exists(
+        db
+          .select({ userId: memberships.userId })
+          .from(memberships)
+          .innerJoin(users, eq(users.id, memberships.userId))
+          .where(
+            and(
+              liveMembership(workspaceId, filter.personalOf),
+              inArray(memberships.role, [...filter.allServiceKeysFor]),
+            ),
+          ),
+      );
+      const administered = and(
+        isNotNull(apiKeys.agentId),
+        inArray(
+          apiKeys.agentId,
+          db
+            .select({ agentId: agentAdmins.agentId })
+            .from(agentAdmins)
+            .where(
+              and(
+                eq(agentAdmins.workspaceId, workspaceId),
+                eq(agentAdmins.userId, filter.personalOf),
+              ),
+            ),
+        ),
+      );
+      const service = and(
+        eq(apiKeys.kind, "service"),
+        or(seesEveryServiceKey, administered),
+      );
       const rows = await db
         .select(keyColumns)
         .from(apiKeys)
-        .where(
-          and(
-            eq(apiKeys.workspaceId, workspaceId),
-            service ? or(own, service) : own,
-          ),
-        )
+        .where(and(eq(apiKeys.workspaceId, workspaceId), or(own, service)))
         .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
         .limit(limit);
       return rows.map(keyOf);
