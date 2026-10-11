@@ -18,9 +18,12 @@ import {
 // JeongJaeSoon/kollegium @ d711706).
 
 // Bumped when the hashed shape changes, so an old id can never equal a new
-// one by accident.
-// 2: `policy_pins` went from a placeholder `{}` to the resolved tool policy.
-const RELEASE_ID_VERSION = 2;
+// one by accident. 2: `policy_pins` went from a placeholder `{}` to the
+// resolved tool policy. A stored `{}` release keeps hashing as 1, so its id
+// still verifies.
+function releaseIdVersion(identity: ReleaseIdentity): number {
+  return identity.policy_pins.tools === undefined ? 1 : 2;
+}
 
 function sha256Hex(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -44,7 +47,7 @@ export type ReleaseIdentity = Pick<
 export function deriveReleaseId(identity: ReleaseIdentity): string {
   return `sha256:${sha256Hex(
     canonicalJsonOfJson({
-      release_id_version: RELEASE_ID_VERSION,
+      release_id_version: releaseIdVersion(identity),
       agent_id: identity.agent_id,
       card_sha256: identity.card_sha256,
       runtime_profile_id: identity.runtime_profile_id,
