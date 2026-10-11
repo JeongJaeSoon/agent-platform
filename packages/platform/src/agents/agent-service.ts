@@ -192,7 +192,8 @@ export function createAgentService(deps: {
         );
       }
       const identity = {
-        agent_id: agentId,
+        // As stored: PostgreSQL returns a uuid in lower case.
+        agent_id: version.agent_id,
         card_sha256: version.content_sha256,
         ...resolved.content,
       };
@@ -227,7 +228,7 @@ export function createAgentService(deps: {
     ): Promise<ActivateAgentResponse> {
       const userId = await manageAgent(caller, agentId);
       const release = await resolveRelease(caller.ownerId, request.release_id);
-      if (release.agent_id !== agentId) throw NOT_FOUND();
+      if (release.agent_id !== agentId.toLowerCase()) throw NOT_FOUND();
       const result = await store.activate({
         principal: caller,
         workspaceId: caller.ownerId,

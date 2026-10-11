@@ -453,6 +453,29 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     ).toBe(rereleased.release.id);
   });
 
+  test("an agent id in upper case releases and activates the same release", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const created = await newAgent(service(), owner);
+    const version = created.versions[0];
+    if (!version) throw new Error("no version");
+    const upper = created.agent.id.toUpperCase();
+    const { release } = await service().createRelease(owner, upper, {
+      version_id: version.id,
+      runtime_profile_id: "coding",
+    });
+    const lower = await service().createRelease(owner, created.agent.id, {
+      version_id: version.id,
+      runtime_profile_id: "coding",
+    });
+    expect(lower).toEqual({ release, created: false });
+    const activated = await service().activateAgent(owner, upper, {
+      release_id: release.id,
+      expected_revision: -1,
+    });
+    expect(activated.active_release_id).toBe(release.id);
+  });
+
   test("a card asking for more than the profile allows is not released", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
