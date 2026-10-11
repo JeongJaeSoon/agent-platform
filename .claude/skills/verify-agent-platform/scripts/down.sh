@@ -37,5 +37,8 @@ fi
   echo "\$ docker ps -a --filter label=agent-platform.installation=$EXECUTION_INSTALLATION_ID"
   echo "${workers:-(none)}"
 } | tee "$run/evidence/leftovers.txt"
+if [ -n "$left$workers" ]; then
+  echo "down.sh: containers left (above); ports.yml kept, rerun down.sh $run" >&2
+  exit 1
+fi
 rm -f "$run/ports.yml" "$run/cookie"
-[ -z "$left$workers" ]

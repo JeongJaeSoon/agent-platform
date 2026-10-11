@@ -40,14 +40,14 @@ services:
       BOOTSTRAP_TOKEN: "$token"
 EOF
 
-cat >"$run/state.env" <<EOF
-VERIFY_RUN=$run
-VERIFY_REPO=$repo
-export COMPOSE_PROJECT_NAME=$project
-export EXECUTION_INSTALLATION_ID=$project
-export COMPOSE_FILE=$repo/compose.yaml:$run/ports.yml
-VERIFY_BOOTSTRAP_TOKEN=$token
-EOF
+{
+  printf 'VERIFY_RUN=%q\n' "$run"
+  printf 'VERIFY_REPO=%q\n' "$repo"
+  printf 'export COMPOSE_PROJECT_NAME=%q\n' "$project"
+  printf 'export EXECUTION_INSTALLATION_ID=%q\n' "$project"
+  printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml"
+  printf 'VERIFY_BOOTSTRAP_TOKEN=%q\n' "$token"
+} >"$run/state.env"
 echo "$run" >"$root/latest"
 echo "run: $run (project $project)" >&2
 
