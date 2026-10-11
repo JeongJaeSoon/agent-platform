@@ -27,6 +27,7 @@ import {
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
+  receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
@@ -388,6 +389,7 @@ export function createPostgresSessionControl(
       const sessionId = input.sessionId.toLowerCase();
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
         operation: TERMINATE,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -577,6 +579,7 @@ export function createPostgresSessionControl(
           tx.insert(receipts).values({
             id: receiptId,
             ownerId: scope.principal,
+            actor: scope.actor,
             operation: TERMINATE,
             targetRef: {
               session_id: sessionId,

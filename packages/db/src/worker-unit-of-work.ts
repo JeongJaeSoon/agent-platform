@@ -1076,6 +1076,7 @@ export function createPostgresWorkerUnitOfWork(
               isNull(sessions.podId),
               inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
               isNull(sessions.executionRevokedAt),
+              isNull(sessions.takeoverRequiredAt),
               runnableCondition(input.runnable),
               withinBudget(budgetOf(input)),
               restoreRetryDue(),
@@ -1119,6 +1120,7 @@ export function createPostgresWorkerUnitOfWork(
           locked.podId !== null ||
           !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
           locked.executionRevokedAt !== null ||
+          locked.takeoverRequiredAt !== null ||
           (locked.restoreRetryAt !== null &&
             locked.restoreRetryAt > (await dbNow(tx)))
         ) {
@@ -1477,6 +1479,11 @@ export function createPostgresWorkerUnitOfWork(
         // A turn this attempt already holds is finished whatever it costs;
         // only a new one is refused.
         if (overBudget && !redelivery) return none;
+        // Its requester was offboarded: the turn already running was the
+        // last until an owner takes it over.
+        if (fenced.session.takeoverRequiredAt !== null && !redelivery) {
+          return none;
+        }
         // The scheduler is draining the launch to replace it: the
         // turn this attempt runs is its last. Read under the session lock,
         // which `requestDrain` takes before it looks for an open turn.

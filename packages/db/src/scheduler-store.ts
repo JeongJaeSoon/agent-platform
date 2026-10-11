@@ -229,6 +229,7 @@ export function createPostgresSchedulerStore(
           and(
             inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
             isNull(sessions.executionRevokedAt),
+            isNull(sessions.takeoverRequiredAt),
             // Before the LIMIT, so a backlog of spent sessions cannot crowd
             // out the ones that can still run, nor sessions waiting out a
             // restore backoff.
@@ -276,6 +277,7 @@ export function createPostgresSchedulerStore(
             costUsd: sessions.costUsd,
             providerTokens: sessions.providerTokens,
             executionRevokedAt: sessions.executionRevokedAt,
+            takeoverRequiredAt: sessions.takeoverRequiredAt,
             partition: sessions.partition,
             restoreRetryAt: sessions.restoreRetryAt,
           })
@@ -287,6 +289,7 @@ export function createPostgresSchedulerStore(
           !session ||
           !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
           session.executionRevokedAt !== null ||
+          session.takeoverRequiredAt !== null ||
           (session.restoreRetryAt !== null &&
             session.restoreRetryAt > (await dbNow(tx)))
         ) {

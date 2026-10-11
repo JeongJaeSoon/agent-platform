@@ -12,12 +12,15 @@ import * as schema from "./schema.ts";
 import {
   apiKeys,
   executions,
+  memberships,
   queueMessages,
   sessions,
   turns,
   unassignedSessions,
+  users,
   workerLaunches,
   workers,
+  workspaces,
 } from "./schema.ts";
 
 let client: PGlite;
@@ -484,6 +487,8 @@ describe("API key queries", () => {
       ownerId: "owner-a",
       workspaceId: null,
       scopes: ["sessions:read", "sessions:write"],
+      kind: "service",
+      createdByUserId: null,
     });
     expect(await findApiKey(db, new Uint8Array(32))).toBeNull();
   });
@@ -519,5 +524,78 @@ describe("API key queries", () => {
       revokedAt: new Date(),
     });
     expect(await findApiKey(db, digest)).toBeNull();
+  });
+
+  test("does not resolve an expired key", async () => {
+    const digest = new Uint8Array(32).fill(8);
+    await createApiKey(db, {
+      id: crypto.randomUUID(),
+      ownerId: "owner-a",
+      keyHash: digest,
+      scopes: ["sessions:read"],
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    expect(await findApiKey(db, digest)).toBeNull();
+  });
+
+  test("a personal key resolves only while its creator and their membership are live", async () => {
+    const workspaceId = crypto.randomUUID();
+    const userId = crypto.randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: workspaceId, slug: "acme", name: "Acme" });
+    await db.insert(users).values({
+      id: userId,
+      email: "c@example.com",
+      passwordHash: "x",
+      displayName: "C",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId, userId, role: "member" });
+    const personal = new Uint8Array(32).fill(9);
+    const service = new Uint8Array(32).fill(10);
+    const id = crypto.randomUUID();
+    await createApiKey(db, {
+      id,
+      ownerId: workspaceId,
+      workspaceId,
+      keyHash: personal,
+      scopes: ["sessions:read"],
+      kind: "personal",
+      createdByUserId: userId,
+    });
+    await createApiKey(db, {
+      id: crypto.randomUUID(),
+      ownerId: workspaceId,
+      workspaceId,
+      keyHash: service,
+      scopes: ["sessions:read"],
+      createdByUserId: userId,
+    });
+    expect(await findApiKey(db, personal)).toMatchObject({
+      id,
+      kind: "personal",
+      createdByUserId: userId,
+    });
+
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, userId));
+    expect(await findApiKey(db, personal)).toBeNull();
+    // A service key outlives whoever issued it.
+    expect((await findApiKey(db, service))?.kind).toBe("service");
+
+    await db
+      .update(memberships)
+      .set({ disabledAt: null })
+      .where(eq(memberships.userId, userId));
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, userId));
+    expect(await findApiKey(db, personal)).toBeNull();
+    expect(await findApiKey(db, service)).not.toBeNull();
   });
 });

@@ -1,14 +1,26 @@
 import type { SessionScope, TurnStatus } from "@agent-platform/contracts";
-import { and, asc, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+} from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { DB_NOW, dbNow } from "./db-clock.ts";
 import type * as schema from "./schema.ts";
 import {
   apiKeys,
+  memberships,
   queueMessages,
   sessions,
   turns,
   unassignedSessions,
+  users,
   workers,
 } from "./schema.ts";
 
@@ -22,6 +34,11 @@ export async function createApiKey(
     keyHash: Uint8Array;
     // Null issues the legacy all-scope key; only tests still do.
     scopes: readonly SessionScope[] | null;
+    workspaceId?: string | null;
+    // Omitted: a service key.
+    kind?: ApiKeyKind;
+    createdByUserId?: string | null;
+    expiresAt?: Date | null;
   },
 ) {
   const [created] = await db
@@ -41,32 +58,81 @@ export async function createApiKey(
   return created;
 }
 
+export type ApiKeyKind = "personal" | "service";
+
 export type ApiKeyRecord = {
   id: string;
   ownerId: string;
   workspaceId: string | null;
   // Null on keys issued before scopes existed.
   scopes: SessionScope[] | null;
+  kind: ApiKeyKind;
+  // A personal key's creator; null on a service key whose issuer is unknown.
+  createdByUserId: string | null;
 };
 
-export async function findApiKey(
-  db: Database,
-  keyHash: Uint8Array,
-): Promise<ApiKeyRecord | null> {
-  const [match] = await db
+/**
+ * A key that still authenticates: not revoked, not expired, and, for a
+ * personal key, a creator whose account and membership in the key's
+ * workspace are both live. Judged on the database clock.
+ */
+export function liveApiKey() {
+  return and(
+    isNull(apiKeys.revokedAt),
+    or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, DB_NOW)),
+    or(
+      eq(apiKeys.kind, "service"),
+      and(isNull(users.disabledAt), isNotNull(memberships.userId)),
+    ),
+  );
+}
+
+export function selectLiveApiKey(db: Database) {
+  return db
     .select({
       id: apiKeys.id,
       ownerId: apiKeys.ownerId,
       workspaceId: apiKeys.workspaceId,
       scopes: apiKeys.scopes,
+      kind: apiKeys.kind,
+      createdByUserId: apiKeys.createdByUserId,
     })
     .from(apiKeys)
-    .where(and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)))
+    .leftJoin(users, eq(users.id, apiKeys.createdByUserId))
+    .leftJoin(
+      memberships,
+      and(
+        eq(memberships.userId, apiKeys.createdByUserId),
+        eq(memberships.workspaceId, apiKeys.workspaceId),
+        isNull(memberships.disabledAt),
+      ),
+    );
+}
+
+// The columns' CHECKs hold both vocabularies, so the casts only name them.
+export function apiKeyRecordOf(row: {
+  id: string;
+  ownerId: string;
+  workspaceId: string | null;
+  scopes: string[] | null;
+  kind: string;
+  createdByUserId: string | null;
+}): ApiKeyRecord {
+  return {
+    ...row,
+    scopes: row.scopes as SessionScope[] | null,
+    kind: row.kind as ApiKeyKind,
+  };
+}
+
+export async function findApiKey(
+  db: Database,
+  keyHash: Uint8Array,
+): Promise<ApiKeyRecord | null> {
+  const [match] = await selectLiveApiKey(db)
+    .where(and(eq(apiKeys.keyHash, keyHash), liveApiKey()))
     .limit(1);
-  // The column's CHECK holds the vocabulary, so the cast only names it.
-  return match
-    ? { ...match, scopes: match.scopes as SessionScope[] | null }
-    : null;
+  return match ? apiKeyRecordOf(match) : null;
 }
 
 export type ApiKeyRevocation =

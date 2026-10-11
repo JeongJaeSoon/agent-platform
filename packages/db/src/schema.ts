@@ -446,7 +446,18 @@ export const sessions = pgTable(
     // Interface track (I0-2). Null on every row from before it: legacy
     // sessions are not backfilled, see owner_workspace_map.
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
+    /** The person who asked for the session; an owner who takes it over. */
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    /** The key that created it; who asked is the key, not a person. */
+    createdByApiKeyId: uuid("created_by_api_key_id").references(
+      () => apiKeys.id,
+    ),
+    // Its requester was offboarded. The turn already running finishes; no
+    // further turn starts and no input is taken until an owner takes it
+    // over. Independent of admission_state like execution_revoked_at.
+    takeoverRequiredAt: timestamp("takeover_required_at", {
+      withTimezone: true,
+    }),
     // TODO(94S-154): Add the FK when agent_releases is introduced. This is
     // not a uuid: release ids are derived hashes.
     agentReleaseId: text("agent_release_id"),
@@ -511,6 +522,13 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    // Offboarding finds the sessions a person asked for.
+    index("sessions_created_by_user_idx")
+      .on(table.createdByUserId)
+      .where(sql`${table.createdByUserId} IS NOT NULL`),
+    index("sessions_takeover_idx")
+      .on(table.workspaceId, table.takeoverRequiredAt)
+      .where(sql`${table.takeoverRequiredAt} IS NOT NULL`),
     // The reconciler's sweep for waits that ended with no write.
     index("sessions_input_announced_idx")
       .on(table.id)
@@ -1141,11 +1159,29 @@ export const apiKeys = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     /** Null means the legacy "everything" key. */
     scopes: text().array(),
+    // A personal key acts for its creator and stops with them; a service
+    // key belongs to the workspace and outlives whoever issued it (design
+    // 4.2). Every key from before kinds is a service key whose issuer is
+    // unknown (D17).
+    kind: text().notNull().default("service"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
   },
   (table) => [
     index("api_keys_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    // Offboarding revokes a person's personal keys.
+    index("api_keys_personal_creator_idx")
+      .on(table.createdByUserId)
+      .where(sql`${table.kind} = 'personal'`),
+    check("api_keys_kind_check", sql`${table.kind} IN ('personal', 'service')`),
+    // A personal key without a creator or a workspace would have nobody
+    // whose role bounds it.
+    check(
+      "api_keys_personal_check",
+      sql`${table.kind} <> 'personal' OR (${table.createdByUserId} IS NOT NULL AND ${table.workspaceId} IS NOT NULL)`,
+    ),
     // Same vocabulary as grants.scopes, which may only narrow a key's.
     check(
       "api_keys_scopes_check",

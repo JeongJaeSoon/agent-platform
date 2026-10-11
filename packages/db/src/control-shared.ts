@@ -1,4 +1,6 @@
+import type { ReceiptActor } from "@agent-platform/contracts";
 import {
+  type Principal,
   type SessionBudget,
   storedPendingReasonHoldsWork,
 } from "@agent-platform/platform";
@@ -53,7 +55,20 @@ export type IdempotencyScope = {
   operation: string;
   resource: string;
   key: string;
+  /** What the operation's receipt records as `receipts.actor`. */
+  actor: ReceiptActor | null;
 };
+
+/** `receipts.actor` for a caller; one with no actor records none. */
+export function receiptActorOf(principal: Principal): ReceiptActor | null {
+  const actor = principal.actor;
+  if (!actor) return null;
+  return {
+    principal: actor.principal,
+    actor_user_id: actor.userId,
+    agent_id: null,
+  };
+}
 
 export type ControlStageMeasure = <T>(
   stage: string,

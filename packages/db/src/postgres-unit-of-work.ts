@@ -58,6 +58,7 @@ import {
   type IdempotencyScope,
   lockIdempotencyScope,
   parseTurnSequence,
+  receiptActorOf,
 } from "./control-shared.ts";
 import {
   decodeEventCursor,
@@ -108,6 +109,7 @@ async function recordAcceptance(
   await tx.insert(receipts).values({
     id: receipt.id,
     ownerId: scope.principal,
+    actor: scope.actor,
     operation: scope.operation,
     targetRef: receipt.targetRef,
     result: receipt.result,
@@ -124,7 +126,12 @@ async function recordAcceptance(
 
 async function insertQueuedTurn(
   tx: Database,
-  input: { sessionId: string; sequence: number; message: string },
+  input: {
+    sessionId: string;
+    sequence: number;
+    message: string;
+    actorId: string | null;
+  },
 ) {
   // now() is the transaction start, which can precede a competing append
   // that won the session lock first; clock_timestamp() keeps created_at
@@ -137,6 +144,7 @@ async function insertQueuedTurn(
       message: input.message,
       status: "queued",
       createdAt: sql`clock_timestamp()`,
+      actorId: input.actorId,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -154,6 +162,7 @@ export function createPostgresSessionUnitOfWork(
     acceptInputAtomic(input: AcceptSessionInput): Promise<AcceptSessionResult> {
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
         operation: CREATE_SESSION,
         resource: SESSIONS_RESOURCE,
         key: input.idempotencyKey,
@@ -181,6 +190,7 @@ export function createPostgresSessionUnitOfWork(
         });
         if (refused) return refused;
         const sessionId = randomUUID();
+        const actor = input.principal.actor;
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
@@ -190,11 +200,15 @@ export function createPostgresSessionUnitOfWork(
           profileFingerprint: input.profileFingerprint ?? null,
           unmetered: input.unmetered ?? false,
           repositoryId: input.repository.id,
+          workspaceId: actor?.workspaceId ?? null,
+          createdByUserId: actor?.userId ?? null,
+          createdByApiKeyId: actor?.apiKeyId ?? null,
         });
         await insertQueuedTurn(tx, {
           sessionId,
           sequence: 1,
           message: input.message,
+          actorId: actor?.userId ?? null,
         });
 
         const receiptId = randomUUID();
@@ -220,6 +234,7 @@ export function createPostgresSessionUnitOfWork(
       const sessionId = input.sessionId.toLowerCase();
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
         operation: APPEND_MESSAGE,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -244,6 +259,7 @@ export function createPostgresSessionUnitOfWork(
             admissionState: sessions.admissionState,
             checkpointPendingReason: sessions.checkpointPendingReason,
             status: sessions.status,
+            takeoverRequiredAt: sessions.takeoverRequiredAt,
           })
           .from(sessions)
           .where(
@@ -256,6 +272,9 @@ export function createPostgresSessionUnitOfWork(
           .for("update");
         if (!session) {
           return { outcome: "not_found" };
+        }
+        if (session.takeoverRequiredAt !== null) {
+          return { outcome: "awaiting_takeover" };
         }
         if (session.admissionState !== "active") {
           return {
@@ -288,6 +307,7 @@ export function createPostgresSessionUnitOfWork(
           sessionId: sessionId,
           sequence,
           message: input.message,
+          actorId: input.principal.actor?.userId ?? null,
         });
         await tx
           .update(sessions)
@@ -846,6 +866,9 @@ export function createPostgresSessionReader(
         id: row.id,
         operation: row.operation,
         target_ref: target,
+        // Rows from before actors were recorded, and operator writes, have
+        // none to report.
+        ...(row.actor === null ? {} : { actor: row.actor }),
         status: row.status,
         result: row.result ?? null,
         error: row.error ?? null,

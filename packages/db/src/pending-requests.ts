@@ -26,6 +26,7 @@ import {
   ENDED_ATTEMPT_STATES,
   findIdempotent,
   lockIdempotencyScope,
+  receiptActorOf,
 } from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -280,6 +281,7 @@ export function createPostgresPendingRequests(
       const sessionId = input.sessionId.toLowerCase();
       const scope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
         operation: ANSWER,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -373,6 +375,7 @@ export function createPostgresPendingRequests(
         await tx.insert(receipts).values({
           id: receiptId,
           ownerId: scope.principal,
+          actor: scope.actor,
           operation: ANSWER,
           targetRef: {
             session_id: sessionId,
