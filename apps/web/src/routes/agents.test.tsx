@@ -155,6 +155,47 @@ describe("에이전트 상세", () => {
     ).toBe("version 1");
   });
 
+  test("저장 결과는 보낸 카드 전체(정규화, rules 포함)로 찾는다", async () => {
+    const server = agentServer();
+    const rule = (id: string) => ({
+      id,
+      text: `규칙 ${id}`,
+      source: "user" as const,
+    });
+    const base = server.versions[0] as (typeof server.versions)[number];
+    server.versions.splice(
+      0,
+      1,
+      { ...base, card: { ...CARD, rules: [rule("x")] } },
+      {
+        ...base,
+        id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+        version_no: 2,
+        card: { ...CARD, rules: [rule("y")] },
+        content_sha256: "2".repeat(64),
+      },
+      {
+        ...base,
+        id: "8d9e0f1a-2b3c-4d4e-9f5a-6b7c8d9e0f1a",
+        version_no: 3,
+        card: { ...CARD, instructions: "다른 지시.", rules: [rule("x")] },
+        content_sha256: "3".repeat(64),
+      },
+    );
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const instructions = await screen.findByLabelText("지시");
+    await user.clear(instructions);
+    await user.type(instructions, CARD.instructions);
+    await user.type(screen.getByLabelText("모델"), "  ");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect(
+      await screen.findByText(
+        "저장했습니다. 같은 카드가 이미 있어(version 1) 새 version은 생기지 않았습니다.",
+      ),
+    ).toBeDefined();
+  });
+
   test("바뀐 것 없이 저장하면 새 version이 없다고 말한다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
