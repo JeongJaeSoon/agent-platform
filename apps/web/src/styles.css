@@ -100,6 +100,17 @@ select:focus-visible,
   font-size: var(--ap-text-sm);
   margin: 0;
 }
+.web-auth__alt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-3);
+}
+.web-auth__divider {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-sm);
+  text-align: center;
+  margin: 0;
+}
 
 .web-form {
   display: flex;
@@ -292,7 +303,9 @@ select:focus-visible,
   margin: 0;
   font-size: var(--ap-text-xl);
 }
-.web-page__empty {
+.web-page__empty,
+.web-page__intro,
+.web-page__back {
   margin: 0;
   color: var(--ap-color-muted-foreground);
 }
@@ -386,6 +399,13 @@ select:focus-visible,
   min-height: 8rem;
   resize: vertical;
 }
+.web-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ap-space-2);
+}
+
 .web-fieldset {
   margin: 0;
   padding: var(--ap-space-3);

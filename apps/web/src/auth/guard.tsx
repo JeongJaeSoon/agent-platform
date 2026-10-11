@@ -1,5 +1,6 @@
 import type {
   AuthMeResponse,
+  AuthorizationAction,
   SessionScope,
   WorkspaceRole,
 } from "@agent-platform/contracts";
@@ -8,7 +9,12 @@ import { type ButtonHTMLAttributes, useId } from "react";
 import { ApiError, isApiError } from "../api/client.ts";
 import { meQuery } from "../api/queries.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
+import {
+  errorKey,
+  isMessageKey,
+  type Translate,
+  useI18n,
+} from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
 /** The roles a member can be given; client.test.ts pins it to the contract. */
@@ -32,6 +38,15 @@ export function useMe(): AuthMeResponse | undefined {
 export function useRole(): string | undefined {
   const principal = useMe()?.principal;
   return principal?.kind === "user" ? principal.role : undefined;
+}
+
+/**
+ * Whether the signed-in role holds a management action on the workspace, as
+ * the server's role table says (/v1/auth/me). Only for hiding a menu whose
+ * whole screen needs it; an agent's admin holds more on that agent.
+ */
+export function useHasPermission(action: AuthorizationAction): boolean {
+  return useMe()?.permissions.includes(action) ?? false;
 }
 
 export function useCan(scope: SessionScope): boolean {
@@ -101,7 +116,7 @@ export function ForbiddenNotice({ error }: { readonly error: unknown }) {
 }
 
 /** Management powers the server checks by role, not by session scope. */
-export type ManagedPermission = "member.manage" | "agent.manage";
+export type ManagedPermission = AuthorizationAction;
 
 /**
  * Why a management action is withheld, or undefined when it is not.
@@ -138,4 +153,19 @@ export function permissionReason(
 export function roleLabel(t: Translate, role: string): string {
   const key = `role.${role}`;
   return isMessageKey(key) ? t(key) : role;
+}
+
+/**
+ * What a refused management call says: a 403 reads like the reason on the
+ * disabled button, followed by the server's own sentence.
+ */
+export function refusalText(
+  t: Translate,
+  error: ApiError,
+  permission: ManagedPermission,
+  role: string | undefined,
+): string {
+  if (error.code === "FORBIDDEN")
+    return `${permissionReason(t, permission, role)} ${error.message}`;
+  return t(errorKey(error.code));
 }
