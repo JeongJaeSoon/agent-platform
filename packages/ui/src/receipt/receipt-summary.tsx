@@ -41,6 +41,13 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   activate_agent: "에이전트 활성화",
   create_api_key: "API key 발급",
   revoke_api_key: "API key 폐기",
+  create_team: "팀 생성",
+  rename_team: "팀 이름 변경",
+  delete_team: "팀 삭제",
+  add_team_member: "팀에 추가됨",
+  remove_team_member: "팀에서 빠짐",
+  add_agent_admin: "에이전트 관리자 지정",
+  remove_agent_admin: "에이전트 관리자 해제",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

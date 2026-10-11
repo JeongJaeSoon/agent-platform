@@ -3,6 +3,7 @@ import * as schema from "@agent-platform/db";
 import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
+  createPostgresAgentAdminStore,
   createPostgresAgentStore,
   createPostgresAuditRetention,
   createPostgresDecisionLog,
@@ -13,6 +14,7 @@ import {
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
+  createPostgresTeamStore,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
   createPostgresWorkerPendingStore,
@@ -23,6 +25,7 @@ import {
 import { createLogger } from "@agent-platform/observability";
 import {
   catalogRevision,
+  createAgentAdminService,
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
@@ -32,6 +35,7 @@ import {
   createMemberService,
   createPendingRequestService,
   createSessionService,
+  createTeamService,
   createUsageService,
   createWorkerGateway,
   InstallationConfigError,
@@ -88,6 +92,7 @@ import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
 import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
@@ -235,6 +240,14 @@ const apiKeys = createApiKeyService({
     return { secret, hash: hashApiKey(secret) };
   },
 });
+const teams = createTeamService({
+  authorization,
+  store: createPostgresTeamStore(db),
+});
+const agentAdmins = createAgentAdminService({
+  authorization,
+  store: createPostgresAgentAdminStore(db),
+});
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const interrupts = createInterruptService({
@@ -359,6 +372,7 @@ const app = createApiApp({
     registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
     registerApiKeyRoutes(router, apiKeys);
+    registerTeamRoutes(router, teams, agentAdmins);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

@@ -62,6 +62,15 @@ export const RECEIPT_OPERATION_VALUES = [
   // Issuing and revoking an API key from the web or the API (94S-574).
   "create_api_key",
   "revoke_api_key",
+  // Teams and who administers an agent (94S-582). Adding a member writes its
+  // receipt on that member, so it is also their notice of the change.
+  "create_team",
+  "rename_team",
+  "delete_team",
+  "add_team_member",
+  "remove_team_member",
+  "add_agent_admin",
+  "remove_agent_admin",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
