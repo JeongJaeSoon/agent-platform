@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Read-only: is the latest (or given) run's stack worth driving?
-#   doctor.sh [run dir]
+# Read-only: is the given run's stack worth driving?
+#   doctor.sh <run id | run dir>
 set -uo pipefail
 here=$(dirname "$0")
 # shellcheck disable=SC1091
-. "$here/lib.sh" "${1:-}"
+. "$here/lib.sh" "${1:-}" || exit 2
 echo "run:      $VERIFY_RUN"
 echo "project:  $COMPOSE_PROJECT_NAME"
 head=$("$here/tree-id.sh" "$VERIFY_REPO") || exit 1

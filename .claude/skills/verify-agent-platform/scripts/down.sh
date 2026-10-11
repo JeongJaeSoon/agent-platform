@@ -6,11 +6,13 @@
 # Evidence in <run>/evidence stays. Any failure keeps ports.yml so the same
 # run can be torn down again once Docker answers.
 #
-#   down.sh [run dir]    default: the latest run
+#   down.sh <run id | run dir>    the run id up.sh printed; no default run,
+#                                  without one it lists the runs and deletes nothing
 set -uo pipefail
 
-root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-agent-platform}
-run=${1:-$(cat "$root/latest" 2>/dev/null)}
+# shellcheck disable=SC1091
+. "$(dirname "$0")/run.sh" "${1:-}" || exit 2
+run=$VERIFY_RUN_DIR
 # shellcheck disable=SC1091
 . "$run/state.env" || exit 1
 case "${COMPOSE_PROJECT_NAME:-}" in

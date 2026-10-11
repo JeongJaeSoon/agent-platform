@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Start a verification stack of its own: scripts/local.sh up --fake-model
 # under a fresh compose project, with every host port ephemeral (loopback)
-# and a bootstrap token this run chose. Prints the run directory; every
-# later step sources <run>/state.env.
+# and a bootstrap token this run chose. Prints the run directory on stdout
+# and the run id on stderr; every later step names that run.
 #
 #   up.sh            new project verify-ap-<run id>
 set -euo pipefail
@@ -55,8 +55,8 @@ EOF
   printf 'VERIFY_BOOTSTRAP_TOKEN=%q\n' "$token"
   printf 'VERIFY_BUILT_FROM=%q\n' "$("$repo/.claude/skills/verify-agent-platform/scripts/tree-id.sh" "$repo")"
 } >"$run/state.env"
-echo "$run" >"$root/latest"
 echo "run: $run (project $project)" >&2
+echo "run id: $run_id  (record it; later: lib.sh $run_id, doctor.sh $run_id, down.sh $run_id)" >&2
 
 # shellcheck disable=SC1091
 . "$run/state.env"
@@ -64,4 +64,5 @@ echo "run: $run (project $project)" >&2
 
 api=$(docker compose --profile apps port api 3000 | head -n 1)
 echo "VERIFY_API=http://127.0.0.1:${api##*:}" >>"$run/state.env"
+echo "run id: $run_id" >&2
 echo "$run"

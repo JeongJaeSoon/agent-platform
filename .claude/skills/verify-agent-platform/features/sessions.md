@@ -23,7 +23,7 @@ Preconditions:
 - `KEY`가 `sessions:read,sessions:write`(권한 응답에는 `sessions:approve`, 제어에는 `sessions:control`, 복구에는 `sessions:recover`)를 가진다. [api-keys.md](./api-keys.md)로 발급한다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh
+. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
 KEY=$(ap_key verify --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover 2>/dev/null)
 body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$m}'; }
 ```
