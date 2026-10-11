@@ -103,7 +103,7 @@ async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-function workspaceView(row: IdentityWorkspace): Workspace {
+export function workspaceView(row: IdentityWorkspace): Workspace {
   return {
     id: row.id,
     slug: row.slug,
