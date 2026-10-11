@@ -104,6 +104,7 @@ permission_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
   --data "$(jq -nc --arg request_id "$PERMISSION_REQUEST_ID" \
     '{request_id:$request_id, kind:"permission", decision:"allow"}')")
 echo "$permission_answer" | jq -e '.receipt_status == "accepted"'
+echo "$permission_answer" | jq -e '.approval.surface == "api" and (.approval.decision_id | length) == 36'
 wait_for "/v1/sessions/$SID/turns/1" .status completed
 wait_for "/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" .status succeeded
 curl -sS "$API/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" \
@@ -128,7 +129,7 @@ wait_for "/v1/sessions/$SID/turns/2" .status completed
 wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status succeeded
 ```
 
-**기대 응답.** 목록의 `items`에는 `kind: "permission"` 또는 `kind: "question"`과 만료 시각이 있다. 답변은 `receipt_status: "accepted"`로 접수되고, worker가 답을 소비하면 receipt가 `succeeded`, turn이 `completed`가 된다. worker는 답 소비를 다음 poll에 보고하므로 turn이 먼저 `completed`가 될 수 있다. receipt는 한 번 조회하지 말고 `succeeded`까지 기다린다.
+**기대 응답.** 목록의 `items`에는 `kind: "permission"` 또는 `kind: "question"`과 만료 시각이 있다. 답변 응답의 `approval`에는 답한 사람(`answered_by`: principal과 그 뒤의 사람), 표면(`surface`: `web`·`api`·`slack`), 답변을 허용한 `session.approve` 판정의 `decision_id`가 있다. 같은 값이 승인 행(`pending_requests`)에 남고, 같은 Idempotency-Key로 다시 보내면 같은 `approval`이 돌아온다. 거부(`decision: "deny"`)의 `reason`은 선택이다. 비우면 worker가 모델에 사유 없는 거부를 전한다. 답변은 `receipt_status: "accepted"`로 접수되고, worker가 답을 소비하면 receipt가 `succeeded`, turn이 `completed`가 된다. worker는 답 소비를 다음 poll에 보고하므로 turn이 먼저 `completed`가 될 수 있다. receipt는 한 번 조회하지 말고 `succeeded`까지 기다린다.
 
 **흔한 오류.** 409 `REQUEST_EXPIRED`면 만료되거나 worker가 이미 포기한 요청이므로 새 세션/turn에서 다시 요청한다. 404 `NOT_FOUND`면 현재 principal이 보지 못하는 세션·요청이거나 이미 닫혔다. 승인 scope가 없으면 403 `FORBIDDEN`이다.
 
