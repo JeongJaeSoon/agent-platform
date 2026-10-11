@@ -14,12 +14,26 @@ import {
   agentSearch,
 } from "./routes/agent-detail.tsx";
 import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
+import { ApiKeysScreen } from "./routes/api-keys.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
+import {
+  GoogleCallbackScreen,
+  type GoogleCallbackSearch,
+  googleCallbackSearch,
+} from "./routes/google-callback.tsx";
 import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
+import {
+  LinkedAccountsScreen,
+  SlackLinkCallbackScreen,
+  type SlackLinkSearch,
+  slackLinkSearch,
+} from "./routes/linked-accounts.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
 import { MembersScreen } from "./routes/members.tsx";
+import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
+import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -44,6 +58,15 @@ const bootstrap = createRoute({
   getParentRoute: () => root,
   path: "/bootstrap",
   component: BootstrapScreen,
+});
+
+// Public: Google sends the browser back here (GOOGLE_OIDC_REDIRECT_URI).
+const googleCallback = createRoute({
+  getParentRoute: () => root,
+  path: "/auth/google/callback",
+  validateSearch: (search: Record<string, unknown>): GoogleCallbackSearch =>
+    googleCallbackSearch(search),
+  component: GoogleCallbackScreen,
 });
 
 // Public: whoever opens an invite link may not have an account yet.
@@ -90,6 +113,45 @@ const members = createRoute({
   component: MembersScreen,
 });
 
+const teams = createRoute({
+  getParentRoute: () => authed,
+  path: "/teams",
+  component: TeamsScreen,
+});
+
+const team = createRoute({
+  getParentRoute: () => authed,
+  path: "/teams/$teamId",
+  component: TeamDetailScreen,
+});
+
+const linkedAccounts = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/linked-accounts",
+  component: LinkedAccountsScreen,
+});
+
+// Slack sends the browser back here (SLACK_OIDC_REDIRECT_URI).
+const slackLink = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/linked-accounts/slack",
+  validateSearch: (search: Record<string, unknown>): SlackLinkSearch =>
+    slackLinkSearch(search),
+  component: SlackLinkCallbackScreen,
+});
+
+const apiKeys = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys",
+  component: ApiKeysScreen,
+});
+
+const workspaceSettings = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace",
+  component: WorkspaceSettingsScreen,
+});
+
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
@@ -113,8 +175,21 @@ const agent = createRoute({
 const routeTree = root.addChildren([
   login,
   bootstrap,
+  googleCallback,
   invite,
-  authed.addChildren([home, members, agents, newAgent, agent]),
+  authed.addChildren([
+    home,
+    members,
+    teams,
+    team,
+    agents,
+    newAgent,
+    agent,
+    linkedAccounts,
+    slackLink,
+    apiKeys,
+    workspaceSettings,
+  ]),
 ]);
 
 export function createAppRouter(services: Services, history?: RouterHistory) {

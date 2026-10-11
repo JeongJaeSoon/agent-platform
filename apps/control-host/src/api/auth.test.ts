@@ -44,7 +44,11 @@ import {
 } from "./deadline.ts";
 import { hashApiKey } from "./keys.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import {
+  permissionsOf,
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/auth.ts";
 
 const createApiApp = recordRouteErrors("auth.test.ts");
 
@@ -1083,6 +1087,8 @@ describe("login, logout, me", () => {
     expect(body.user?.email).toBe("owner@example.com");
     expect(body.workspace?.slug).toBe("acme");
     expect(body.workspace?.settings.kill_switch).toBe(false);
+    expect(body.permissions).toContain("audit_retention.manage");
+    expect(body.permissions).toContain("team.manage");
 
     const noHeader = await h.app.request("/v1/auth/logout", {
       method: "POST",
@@ -1114,12 +1120,24 @@ describe("login, logout, me", () => {
     expect(body.principal).toEqual(apiKeyPrincipal(API_KEY_RECORD));
     expect(body.user).toBeNull();
     expect(body.workspace).toBeNull();
+    expect(body.permissions).toEqual([]);
 
     const logout = await h.app.request("/v1/auth/logout", {
       method: "POST",
       headers: { Authorization: `Bearer ${API_KEY}` },
     });
     expect(logout.status).toBe(403);
+  });
+
+  test("permissions follow the policy's role table, an owner's beyond an admin's", () => {
+    expect(permissionsOf("member").sort()).toEqual([
+      "account.link",
+      "agent.create",
+      "api_key.manage_own",
+    ]);
+    expect(permissionsOf("admin")).toContain("team.manage");
+    expect(permissionsOf("admin")).not.toContain("audit_retention.manage");
+    expect(permissionsOf("owner")).toContain("audit_retention.manage");
   });
 
   test("an expired session is refused; an active one slides its expiry", async () => {

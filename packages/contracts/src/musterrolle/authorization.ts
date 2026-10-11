@@ -590,11 +590,14 @@ export const authorizationSurfaceSchema = z
     // binding's ceiling in. It can only narrow: a slack request without one
     // is refused.
     ceiling: surfaceCeilingSchema.optional(),
+    // The agent whose Slack app received the input. An installation speaks
+    // for that agent alone, so a slack request without one is refused.
+    agent_id: agentIdSchema.optional(),
   })
   .strict()
   .superRefine((surface, ctx) => {
     if (surface.kind === "slack") return;
-    for (const key of ["slack_user_kind", "ceiling"] as const) {
+    for (const key of ["slack_user_kind", "ceiling", "agent_id"] as const) {
       if (surface[key] !== undefined) {
         ctx.addIssue({
           code: "custom",

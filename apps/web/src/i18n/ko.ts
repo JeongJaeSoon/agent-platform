@@ -20,6 +20,10 @@ export const ko = {
   "nav.label": "주요 메뉴",
   "nav.home": "홈",
   "nav.members": "구성원",
+  "nav.teams": "팀",
+  "nav.linkedAccounts": "연동 계정",
+  "nav.apiKeys": "API key",
+  "nav.workspace": "워크스페이스 설정",
   "nav.agents": "에이전트",
 
   "role.owner": "소유자",
@@ -38,6 +42,19 @@ export const ko = {
   "login.notice.loggedOut": "로그아웃했습니다.",
   "login.notice.created":
     "소유자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
+
+  "login.or": "또는",
+  "login.alternatives": "다른 로그인 방법",
+  "login.google.submit": "Google로 로그인",
+  "login.google.starting": "Google로 이동하는 중…",
+  "login.google.title": "Google 로그인",
+  "login.google.rejected":
+    "Google 로그인을 받아들이지 못했습니다 — 초대받은 주소의 계정인지 확인하고 처음부터 다시 시도하세요.",
+  "login.google.forbidden":
+    "이 Google 계정으로는 들어올 수 없습니다 — 워크스페이스가 허용한 도메인의 계정으로 다시 시도하세요.",
+  "login.google.cancelled":
+    "Google 로그인이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
+  "login.google.backToLogin": "로그인 화면으로",
 
   "bootstrap.title": "첫 소유자 만들기",
   "bootstrap.intro":
@@ -233,6 +250,131 @@ export const ko = {
   "status.bootstrapRequired.action": "첫 소유자 만들기",
   "status.error.title": "문제가 생겼습니다",
 
+  "teams.title": "팀",
+  "teams.intro":
+    "팀은 사람 묶음입니다. 팀을 에이전트 관리자로 지정하면 팀의 구성원 모두가 그 에이전트를 관리합니다.",
+  "teams.name": "팀 이름",
+  "teams.create": "팀 만들기",
+  "teams.creating": "만드는 중…",
+  "teams.created": "{name} 팀을 만들었습니다.",
+  "teams.nameTaken": "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
+  "teams.listTitle": "팀 목록",
+  "teams.empty": "아직 팀이 없습니다.",
+  "teams.memberCount": "구성원 {count}명",
+  "teams.back": "← 팀 목록",
+  "teams.settings": "팀 설정",
+  "teams.rename": "이름 바꾸기",
+  "teams.renamed": "팀 이름을 {name}(으)로 바꿨습니다.",
+  "teams.delete": "팀 삭제",
+  "teams.deleteHint":
+    "팀을 지우면 이 팀을 에이전트 관리자로 둔 지정도 함께 사라집니다.",
+  "teams.deleteTitle": "{name} 팀을 삭제할까요?",
+  "teams.deleteConsequence":
+    "구성원은 워크스페이스에 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다.",
+  "teams.members": "팀 구성원",
+  "teams.addHint": "추가하면 수락 없이 바로 구성원이 됩니다.",
+  "teams.pickMember": "추가할 사람",
+  "teams.pickPlaceholder": "사람을 고르세요",
+  "teams.addMember": "구성원 추가",
+  "teams.noCandidates": "추가할 수 있는 활성 구성원이 없습니다.",
+  "teams.memberAdded": "{name}님을 팀에 넣었습니다.",
+  "teams.memberRemoved": "{name}님을 팀에서 뺐습니다.",
+  "teams.noMembers": "아직 구성원이 없습니다.",
+  "teams.addedAt": "{at} 추가",
+  "teams.removeMember": "빼기",
+  "teams.removeMemberFor": "{name}님을 팀에서 빼기",
+  "agentAdmins.title": "에이전트 관리자",
+  "agentAdmins.intro":
+    "관리자는 이 에이전트의 카드·release·자격 연결과 이 에이전트 전용 key를 관리합니다. 사람이나 팀을 지정합니다.",
+  "agentAdmins.empty":
+    "아직 지정된 관리자가 없습니다. 소유자와 관리자 역할은 지정 없이도 관리합니다.",
+  "agentAdmins.person": "사람",
+  "agentAdmins.team": "팀",
+  "agentAdmins.remove": "해제",
+  "agentAdmins.removeFor": "{name} 관리자 지정 해제",
+  "agentAdmins.pickPerson": "관리자로 지정할 사람",
+  "agentAdmins.pickTeam": "관리자로 지정할 팀",
+  "agentAdmins.pickPlaceholder": "고르세요",
+  "agentAdmins.addPerson": "사람 지정",
+  "agentAdmins.addTeam": "팀 지정",
+  "agentAdmins.added": "{name}을(를) 관리자로 지정했습니다.",
+  "agentAdmins.removed": "{name}의 관리자 지정을 해제했습니다.",
+
+  "linked.title": "연동 계정",
+  "linked.intro":
+    "Slack 계정을 연결하면 Slack에서 에이전트를 부를 때 이 계정의 권한으로 판정합니다. 토큰은 보관하지 않습니다.",
+  "linked.slack": "Slack",
+  "linked.none": "연결된 Slack 계정이 없습니다.",
+  "linked.connect": "Slack 계정 연결",
+  "linked.starting": "Slack으로 이동하는 중…",
+  "linked.slackAccount": "Slack 사용자 {user} (워크스페이스 {team})",
+  "linked.verified": "{at} 확인",
+  "linked.stale":
+    "Slack에서 비활성으로 알려 와 지금은 아무도 가리키지 않습니다 — 해제한 뒤 다시 연결하세요.",
+  "linked.unlink": "연결 해제",
+  "linked.unlinked": "Slack 계정 연결을 해제했습니다.",
+  "linked.unavailable":
+    "이 설치에서는 Slack 계정 연결을 쓸 수 없습니다 — 운영자에게 문의하세요.",
+  "linked.cancelled":
+    "Slack 연결이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
+  "linked.back": "연동 계정으로",
+
+  "apiKeys.title": "API key",
+  "apiKeys.personal": "개인 key",
+  "apiKeys.personalHint":
+    "내 이름으로 동작하고, 내가 워크스페이스를 떠나면 함께 멈춥니다.",
+  "apiKeys.issuePersonal": "개인 key 발급",
+  "apiKeys.service": "서비스 key",
+  "apiKeys.survivesIssuer":
+    "서비스 key는 워크스페이스의 것입니다. 발급자가 떠나도 유효합니다. 필요 없어지면 직접 폐기하세요.",
+  "apiKeys.survivesIssuerShort": "발급자가 떠나도 유효",
+  "apiKeys.issueWorkspace": "워크스페이스 서비스 key 발급",
+  "apiKeys.agent": "에이전트",
+  "apiKeys.pickAgent": "에이전트를 고르세요",
+  "apiKeys.agentHint":
+    "에이전트 전용 key는 그 에이전트의 세션에만 쓸 수 있습니다.",
+  "apiKeys.issueAgent": "에이전트 전용 key 발급",
+  "apiKeys.noAgents": "관리하는 에이전트가 없습니다.",
+  "apiKeys.agentNeedsScope":
+    "에이전트 전용 key에 넣을 범위를 하나 이상 고르세요(sessions:approve는 빠집니다).",
+  "apiKeys.agentNoApprove":
+    "에이전트 전용 key에는 빠집니다(사람의 승인을 대신하지 않음).",
+  "apiKeys.scopes": "권한 범위",
+  "apiKeys.expires": "만료일(선택)",
+  "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
+  "apiKeys.secretTitle": "새 key",
+  "apiKeys.secretOnce":
+    "이 값은 지금 한 번만 보입니다. 안전한 곳에 복사해 두세요.",
+  "apiKeys.secret": "key 값",
+  "apiKeys.copy": "복사",
+  "apiKeys.copied": "복사했습니다",
+  "apiKeys.secretDone": "복사했으니 닫기",
+  "apiKeys.listTitle": "발급된 key",
+  "apiKeys.empty": "발급된 key가 없습니다.",
+  "apiKeys.kind.personal": "개인 key",
+  "apiKeys.kind.workspace": "워크스페이스 서비스 key",
+  "apiKeys.kind.agent": "에이전트 전용 key · {agent}",
+  "apiKeys.createdAt": "발급 {at}",
+  "apiKeys.expiresAt": "만료 {at}",
+  "apiKeys.revokedAt": "폐기됨 {at}",
+  "apiKeys.revoke": "폐기",
+  "apiKeys.revokeFor": "{key} 폐기",
+  "apiKeys.revokeTitle": "ID {id} key를 폐기할까요?",
+  "apiKeys.keyId": "ID {id}",
+  "apiKeys.revokeConsequence":
+    "이 key를 쓰는 연동은 바로 멈춥니다. 되돌릴 수 없습니다.",
+  "apiKeys.revoked": "key를 폐기했습니다.",
+
+  "workspace.title": "워크스페이스 설정",
+  "workspace.retention": "감사 기록 보존",
+  "workspace.retentionDays": "보존 기간(일)",
+  "workspace.retentionHint":
+    "허용·거절 판정 기록을 이 기간만큼 보관합니다. 30일보다 짧게 할 수 없습니다. 소유자만 바꿀 수 있습니다.",
+  "workspace.retentionFloor":
+    "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
+  "workspace.retentionSaved": "감사 기록을 {days}일 보존합니다.",
+  "workspace.save": "저장",
+
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",
   "guard.missingPermission": "{permission} 권한이 있어야 할 수 있습니다.",
@@ -241,6 +383,8 @@ export const ko = {
 
   "error.BAD_REQUEST": "입력을 확인하고 다시 보내세요.",
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
+  "error.SCOPE_NOT_GRANTABLE":
+    "지금 내가 가진 범위보다 넓은 key는 만들 수 없습니다.",
   "error.FORBIDDEN": "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
   "error.BOOTSTRAP_DONE":
     "이미 소유자가 만들어져 있습니다 — 로그인 화면으로 가세요.",
@@ -248,6 +392,8 @@ export const ko = {
   "error.BACKEND_UNAVAILABLE":
     "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NETWORK_ERROR": "서버에 닿지 못했습니다 — 연결을 확인하세요.",
+  "error.LOGIN_LINK_REQUIRED":
+    "이미 이 이메일로 만든 계정이 있습니다 — 비밀번호로 로그인하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NOT_FOUND": "찾을 수 없습니다 — 목록을 다시 불러오세요.",
   "error.PAYLOAD_TOO_LARGE": "입력이 너무 깁니다 — 줄여서 다시 보내세요.",

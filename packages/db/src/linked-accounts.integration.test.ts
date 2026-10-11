@@ -498,6 +498,7 @@ integration("linked_accounts on PostgreSQL", () => {
   });
 
   describe("judged again at processing time", () => {
+    const agentId = randomUUID();
     const installationSubject = (
       ws: string,
       actorUserId: string,
@@ -517,6 +518,7 @@ integration("linked_accounts on PostgreSQL", () => {
           kind: "slack",
           slack_user_kind: "member",
           ceiling: { actions: ["session.submit"], disclosure: "full" },
+          agent_id: agentId,
         },
       }) as Reread;
 
@@ -627,7 +629,12 @@ integration("linked_accounts on PostgreSQL", () => {
             },
           },
           action: "session.submit",
-          resource: { kind: "surface_binding", id: null, owner_scope: ws },
+          resource: {
+            kind: "surface_binding",
+            id: null,
+            owner_scope: ws,
+            agent_id: agentId,
+          },
           request_id: randomUUID(),
         } as AuthorizationRequest);
       expect(await ask(["session.submit"])).toMatchObject({

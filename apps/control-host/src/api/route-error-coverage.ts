@@ -24,6 +24,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/auth/me",
   ],
   "google-login.test.ts": [
+    "GET /v1/auth/login-methods",
     "POST /v1/auth/google/start",
     "POST /v1/auth/google/callback",
   ],

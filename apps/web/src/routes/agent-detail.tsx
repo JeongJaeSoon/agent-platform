@@ -13,6 +13,7 @@ import { type FormEvent, useId, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { agentQuery, queryKeys } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
+import { AgentAdmins } from "../components/agent-admins.tsx";
 import {
   AgentCardFields,
   type CardDraft,
@@ -254,6 +255,7 @@ function AgentView({
           })
         }
       />
+      <AgentAdmins agentId={agent.id} onOutcome={onOutcome} />
     </div>
   );
 }
@@ -294,7 +296,6 @@ function CardEditor({
         client.PATCH("/v1/agents/{id}", {
           params: {
             path: { id: detail.agent.id },
-            header: { "Idempotency-Key": crypto.randomUUID() },
           },
           body: {
             // Only a name the user changed: sending the one the edit started
