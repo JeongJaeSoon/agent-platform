@@ -25,6 +25,10 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   reset_password: "비밀번호 재설정",
   recover_owner: "owner 복구",
   takeover: "세션 인수",
+  create_agent: "에이전트 생성",
+  update_agent: "에이전트 수정",
+  create_agent_release: "에이전트 release 생성",
+  activate_agent: "에이전트 활성화",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

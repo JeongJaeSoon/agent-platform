@@ -150,11 +150,22 @@ describe("AgentCard", () => {
     });
     const none = agentCardSchema.parse({
       ...card,
-      capabilities: { tools: [], mcp: [], forbidden: [] },
+      capabilities: { tools: [], mcp: null, forbidden: [] },
     });
     expect(all.capabilities.tools).toBeNull();
     expect(none.capabilities.tools).toEqual([]);
     expect(cardHash(all)).not.toBe(cardHash(none));
+  });
+
+  test("names no MCP server, since a worker's runtime config has none", () => {
+    for (const mcp of [[], ["notion"]]) {
+      expect(
+        agentCardSchema.safeParse({
+          ...card,
+          capabilities: { tools: null, mcp, forbidden: [] },
+        }).success,
+      ).toBe(false);
+    }
   });
 
   test("carries approved rules with their provenance", () => {
@@ -182,15 +193,20 @@ describe("agent, version and release", () => {
       workspace_id: WORKSPACE_ID,
       slug: "finance-analyst",
       name: "재무 분석가",
-      team: "finance",
       status: "active",
       active_release_id: null,
-      activation_revision: 0,
+      activation_revision: -1,
       created_by: null,
       created_at: AT,
       updated_at: AT,
     });
-    expect(agent.activation_revision).toBe(0);
+    expect(agent.activation_revision).toBe(-1);
+    expect(
+      agentSchema.safeParse({ ...agent, activation_revision: -2 }).success,
+    ).toBe(false);
+    expect(agentSchema.safeParse({ ...agent, team: "finance" }).success).toBe(
+      false,
+    );
     expect(
       agentSchema.safeParse({ ...agent, slug: "Finance Analyst" }).success,
     ).toBe(false);
@@ -203,18 +219,19 @@ describe("agent, version and release", () => {
     const version = agentVersionSchema.parse({
       id: VERSION_ID,
       agent_id: AGENT_ID,
-      number: 1,
+      version_no: 1,
       card,
-      card_hash: cardHash(agentCardSchema.parse(card)),
+      content_sha256: cardHash(agentCardSchema.parse(card)),
       created_by: null,
       created_at: AT,
     });
-    expect(version.card_hash).toHaveLength(64);
+    expect(version.content_sha256).toHaveLength(64);
     expect(
-      agentVersionSchema.safeParse({ ...version, card_hash: "nothex" }).success,
+      agentVersionSchema.safeParse({ ...version, content_sha256: "nothex" })
+        .success,
     ).toBe(false);
     expect(
-      agentVersionSchema.safeParse({ ...version, number: 0 }).success,
+      agentVersionSchema.safeParse({ ...version, version_no: 0 }).success,
     ).toBe(false);
   });
 
@@ -223,14 +240,19 @@ describe("agent, version and release", () => {
       id: "rel_9f2c",
       agent_id: AGENT_ID,
       version_id: VERSION_ID,
+      card_sha256: "a".repeat(64),
       runtime_profile_id: "claude-coding-v1",
-      runtime_profile_fingerprint: "fp_1",
+      profile_digest: "sha256:fp",
       runtime_config_snapshot: {
         model: "claude-sonnet-5",
         api_key_ref: "env:KEY",
       },
       effective_tools: { tools: ["Read"], mcp: [] },
+      policy_pins: {},
+      created_by: null,
       created_at: AT,
+      approved_by: null,
+      approved_at: null,
     });
     expect(release.effective_tools.tools).toEqual(["Read"]);
     expect(
@@ -246,11 +268,16 @@ describe("agent, version and release", () => {
       id: "rel_9f2c",
       agent_id: AGENT_ID,
       version_id: VERSION_ID,
+      card_sha256: "a".repeat(64),
       runtime_profile_id: "claude-coding-v1",
-      runtime_profile_fingerprint: "fp_1",
+      profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
+      policy_pins: {},
+      created_by: null,
       created_at: AT,
+      approved_by: null,
+      approved_at: null,
     };
     // This is the repository's own ClaudeRuntimeConfig shape: handing a
     // resolved profile straight to the release used to persist the key.
@@ -331,11 +358,16 @@ describe("agent, version and release", () => {
       id: "rel_9f2c",
       agent_id: AGENT_ID,
       version_id: VERSION_ID,
+      card_sha256: "a".repeat(64),
       runtime_profile_id: "claude-coding-v1",
-      runtime_profile_fingerprint: "fp_1",
+      profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
+      policy_pins: {},
+      created_by: null,
       created_at: AT,
+      approved_by: null,
+      approved_at: null,
     };
     // A snapshot canonicalJson refuses is a release that parses and then has
     // no identity, so the two rules have to be the same rule.
@@ -357,15 +389,18 @@ describe("agent, version and release", () => {
   test("activation is a compare-and-swap on the agent's revision", () => {
     expect(
       activateAgentRequestSchema.parse({
-        version_id: VERSION_ID,
-        runtime_profile_id: "claude-coding-v1",
-        expected_activation_revision: 3,
-      }).expected_activation_revision,
-    ).toBe(3);
+        release_id: "sha256:abc",
+        expected_revision: -1,
+      }).expected_revision,
+    ).toBe(-1);
+    expect(
+      activateAgentRequestSchema.safeParse({ release_id: "sha256:abc" })
+        .success,
+    ).toBe(false);
     expect(
       activateAgentRequestSchema.safeParse({
-        version_id: VERSION_ID,
-        runtime_profile_id: "claude-coding-v1",
+        release_id: "sha256:abc",
+        expected_revision: -2,
       }).success,
     ).toBe(false);
   });
@@ -377,11 +412,18 @@ describe("agent, version and release", () => {
         name: "재무 분석가",
         card,
       }).success,
+    ).toBe(true);
+    expect(
+      createAgentRequestSchema.safeParse({
+        slug: "finance-analyst",
+        name: "재무 분석가",
+      }).success,
     ).toBe(false);
     expect(updateAgentRequestSchema.safeParse({}).success).toBe(false);
     expect(updateAgentRequestSchema.safeParse({ team: null }).success).toBe(
-      true,
+      false,
     );
+    expect(updateAgentRequestSchema.safeParse({ card }).success).toBe(true);
     expect(draftAgentRequestSchema.safeParse({ prompt: "" }).success).toBe(
       false,
     );

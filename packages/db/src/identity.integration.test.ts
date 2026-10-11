@@ -201,8 +201,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 36, total: 45 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 45 });
+      expect(first).toEqual({ adopted: 0, applied: 37, total: 46 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 46 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",
@@ -497,12 +497,19 @@ integration("0100 identity migration on PostgreSQL", () => {
           [randomUUID(), workspaceId, userId, workspaceId],
         );
         expect(ok.rows).toHaveLength(1);
-        // A derived release id is opaque text, not a uuid.
-        await pool.query(
-          `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, agent_release_id)
-           VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, 'rel_' || encode(sha256('r'::bytea), 'hex'))`,
-          [randomUUID(), workspaceId],
-        );
+        // A derived release id is opaque text, and since 0134 it must name
+        // a release that exists.
+        const unpinned = await pool
+          .query(
+            `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, agent_release_id)
+             VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, 'sha256:' || encode(sha256('r'::bytea), 'hex'))`,
+            [randomUUID(), workspaceId],
+          )
+          .then(
+            () => undefined,
+            (error: unknown) => error,
+          );
+        expect(sqlState(unpinned)).toBe("23503");
         const tokens = await pool
           .query(
             `INSERT INTO web_sessions (id, user_id, token_hash, expires_at) VALUES ($1, $2, sha256('c'::bytea), now() + interval '1 day'), ($3, $2, sha256('c'::bytea), now() + interval '1 day')`,
