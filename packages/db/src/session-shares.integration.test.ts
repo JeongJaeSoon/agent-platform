@@ -302,6 +302,40 @@ integration("session share scopes on PostgreSQL", () => {
     expect((await shares().get(ws, id))?.revision).toBe(2);
   });
 
+  test("a read never mixes one change's scope with another's targets", async () => {
+    const ws = await workspace();
+    const a = await person(ws);
+    const b = await person(ws);
+    const id = await session(ws, { userId: idOf(a) });
+    const teamId = await team(ws, [b]);
+    let writing = true;
+    const writer = (async () => {
+      for (let i = 0; i < 40; i += 1) {
+        await share(
+          a,
+          id,
+          i % 2 === 0 ? "people" : "team",
+          i % 2 === 0 ? { userIds: [idOf(b)] } : { teamIds: [teamId] },
+        );
+      }
+      writing = false;
+    })();
+    const mixed: unknown[] = [];
+    const reader = async () => {
+      while (writing) {
+        const read = await shares().get(ws, id);
+        if (!read || read.scope === "workspace") continue;
+        const consistent =
+          read.scope === "people"
+            ? read.userIds.length === 1 && read.teamIds.length === 0
+            : read.teamIds.length === 1 && read.userIds.length === 0;
+        if (!consistent) mixed.push(read);
+      }
+    };
+    await Promise.all([writer, reader(), reader(), reader()]);
+    expect(mixed).toEqual([]);
+  });
+
   test("a change wakes the session's event listeners", async () => {
     const ws = await workspace();
     const a = await person(ws);
