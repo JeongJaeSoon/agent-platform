@@ -144,6 +144,19 @@ export async function bootstrapOwner(
         set: { role: "owner", disabledAt: null },
       });
     if (recovered) {
+      // A link issued before recovery would let its holder take the
+      // recovered account straight back. Links before sessions: the same
+      // user -> link -> session lock order consumePasswordReset takes.
+      await tx
+        .update(passwordResets)
+        .set({ revokedAt: DB_NOW })
+        .where(
+          and(
+            eq(passwordResets.workspaceId, workspace.id),
+            isNull(passwordResets.usedAt),
+            isNull(passwordResets.revokedAt),
+          ),
+        );
       const members = tx
         .select({ userId: memberships.userId })
         .from(memberships)
@@ -158,18 +171,6 @@ export async function bootstrapOwner(
           ),
         )
         .returning({ id: webSessions.id });
-      // A link issued before recovery would let its holder take the
-      // recovered account straight back.
-      await tx
-        .update(passwordResets)
-        .set({ revokedAt: DB_NOW })
-        .where(
-          and(
-            eq(passwordResets.workspaceId, workspace.id),
-            isNull(passwordResets.usedAt),
-            isNull(passwordResets.revokedAt),
-          ),
-        );
       await tx.insert(receipts).values({
         id: input.receiptId,
         ownerId: workspace.id,
