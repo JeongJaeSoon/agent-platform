@@ -127,10 +127,13 @@ async function link(
         workspaceName: workspace?.name ?? "",
       };
     }
+    // Locked: unlink and markStale take no team lock, so the holder is
+    // judged as their commit left it (a revoked one is no holder at all).
     const [holder] = await tx
       .select(columns)
       .from(linkedAccounts)
-      .where(and(byExternal(account), live));
+      .where(and(byExternal(account), live))
+      .for("update");
     if (holder && holder.userId !== userId) return { outcome: "taken" };
     let linked: Row | undefined;
     if (holder) {
