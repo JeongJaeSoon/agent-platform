@@ -42,7 +42,6 @@ export const RECEIPT_OPERATION_VALUES = [
   "recover_owner",
   // An owner taking over a session whose requester was offboarded.
   "takeover",
-  // Agent cards, releases and the active-release pointer (94S-154).
   "create_agent",
   "update_agent",
   "create_agent_release",

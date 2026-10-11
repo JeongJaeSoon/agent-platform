@@ -195,7 +195,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const first = created.versions[0];
     if (!first) throw new Error("no version 1");
 
-    // A new card is a new version; version 1 stays as it was.
     const edited = await agentsService.updateAgent(owner, created.agent.id, {
       name: "재무 분석가 2",
       card: cardWith("v2"),
@@ -205,7 +204,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       1, 2,
     ]);
     expect(edited.versions[0]).toEqual(first);
-    // The same card again adds nothing.
     const again = await agentsService.updateAgent(owner, created.agent.id, {
       card: cardWith("v2"),
     });
@@ -234,7 +232,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(JSON.stringify(released.release)).not.toContain(
       "catalog-provider-key",
     );
-    // Releasing the same content again is the same release, not a new row.
     const rereleased = await agentsService.createRelease(
       owner,
       created.agent.id,
@@ -242,7 +239,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     );
     expect(rereleased).toEqual({ release: released.release, created: false });
 
-    // Releasing activates nothing: that takes its own request.
     const before = await agentsService.getAgent(owner, created.agent.id);
     expect(before.active_release).toBeNull();
 
@@ -257,7 +253,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       activation_revision: 0,
     });
     expect(activated.receipt_id).not.toBeNull();
-    // The same activation again is a no-op.
     expect(
       await agentsService.activateAgent(owner, created.agent.id, {
         release_id: released.release.id,
@@ -296,7 +291,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       .select()
       .from(agentActivationEvents)
       .where(eq(agentActivationEvents.agentId, created.agent.id));
-    // Creating it approved nothing.
     expect(events.map((event) => event.kind)).toEqual(["release_created"]);
     const [stored] = await db
       .select()
@@ -341,7 +335,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(approved?.approvedBy).toBe(approver.actor?.userId as string);
     expect(approved?.createdBy).toBe(author.actor?.userId as string);
 
-    // Each event points at a receipt carrying the same person.
     for (const event of events) {
       const [receipt] = await db
         .select()
@@ -411,7 +404,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       .where(eq(agentActivationEvents.agentId, created.agent.id));
     expect(activated.filter((row) => row.kind === "activated")).toHaveLength(1);
 
-    // A later CAS from the current revision moves the pointer on.
     const next = releaseIds.find((id) => id !== winner) as string;
     expect(
       await agentsService.activateAgent(owner, created.agent.id, {
@@ -451,7 +443,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         }),
       ),
     ).toBe("PROFILE_DIGEST_MISMATCH");
-    // Releasing again under the edited profile is a new release that runs.
     const rereleased = await edited.createRelease(owner, created.agent.id, {
       version_id: version.id,
       runtime_profile_id: "coding",
@@ -520,7 +511,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       ),
     ).toBe("NOT_FOUND");
 
-    // Under the service, the composite keys hold on their own.
     expect(
       await refusal(
         db
@@ -544,7 +534,6 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       ),
     ).toMatch(/agent_releases_version_fk/);
 
-    // Another workspace's owner sees none of it.
     const elsewhere = await person(await workspace(), "owner");
     expect(await codeOf(agentsService.getAgent(elsewhere, a.agent.id))).toBe(
       "NOT_FOUND",

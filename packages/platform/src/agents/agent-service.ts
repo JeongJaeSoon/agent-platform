@@ -26,7 +26,6 @@ import {
   resolveReleaseContent,
 } from "./release-ids.ts";
 
-// A workspace holds a handful of agents; the list is not paginated yet.
 export const AGENT_LIST_LIMIT = 500;
 
 const NOT_FOUND = () =>
@@ -44,7 +43,6 @@ export function createAgentService(deps: {
 }) {
   const { authorization, store, catalog } = deps;
 
-  // agent.manage admits only a person, so the actor always names one.
   function personOf(caller: Caller): string {
     const userId = caller.actor?.userId;
     if (!userId) {
@@ -72,10 +70,6 @@ export function createAgentService(deps: {
     return personOf(caller);
   }
 
-  /**
-   * A stored release, refused when the profile it was made against no longer
-   * hashes the same: what it would run is not what was approved.
-   */
   async function resolveRelease(
     workspaceId: string,
     releaseId: string,
@@ -218,7 +212,6 @@ export function createAgentService(deps: {
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         default:
-          // The id is a hash, so a stored row under it must hash the same.
           assertReleaseIdentity(result.release);
           return {
             release: result.release,

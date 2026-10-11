@@ -12,8 +12,7 @@ import {
 } from "../sessions/catalog.ts";
 
 // Ported from Kollegium v1 `packages/core/src/ids.ts` (Apache-2.0,
-// JeongJaeSoon/kollegium @ d711706): a release is named by the hash of what
-// it runs, so the same content released twice is the same release.
+// JeongJaeSoon/kollegium @ d711706).
 
 // Bumped when the hashed shape changes, so an old id can never equal a new
 // one by accident.
@@ -27,7 +26,6 @@ export function cardContentSha256(card: AgentCard): string {
   return sha256Hex(canonicalJsonOfJson(card));
 }
 
-/** Everything a release id covers. Who made or approved it is not here. */
 export type ReleaseIdentity = Pick<
   AgentRelease,
   | "agent_id"
@@ -54,7 +52,6 @@ export function deriveReleaseId(identity: ReleaseIdentity): string {
   )}`;
 }
 
-/** A stored release whose content no longer hashes to its own id. */
 export class ReleaseIdentityError extends Error {
   constructor(readonly releaseId: string) {
     super(`agent release ${releaseId} does not hash to its id`);
@@ -71,8 +68,8 @@ export type ReleaseCompatibilityError = { field: string; message: string };
 
 /**
  * What a card runs as under a profile: the tools both allow, minus what the
- * card forbids, in the profile's order. Null when the card asks for more than
- * the profile gives.
+ * card forbids, in the profile's order. An error when the card's model or
+ * tools fall outside the profile.
  */
 export function resolveReleaseContent(
   card: AgentCard,
@@ -121,8 +118,8 @@ export function resolveReleaseContent(
     content: {
       runtime_profile_id: profileId,
       profile_digest: profileFingerprint(profile),
-      // runtimeConfigOf's shape without the attempt's egress token: the
-      // worker gets that at claim, and a credential has no place here.
+      // No credential here, not even the attempt's egress token: the worker
+      // gets that at claim.
       runtime_config_snapshot: {
         model: profile.model,
         tools,

@@ -95,9 +95,6 @@ const OPERATIONS: Operation[] = Object.entries(
   }),
 );
 
-// What the app answers around a handler: the error hook everywhere, the
-// auth middleware on authenticated routes, the body deadline and the cookie
-// CSRF refusal on POSTs and PATCHes, and the scope check.
 function middlewareErrors(operation: Operation): number[] {
   const unsafe = /^(POST|PATCH) \/v1/.test(operation.route);
   return [

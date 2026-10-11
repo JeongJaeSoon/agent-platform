@@ -542,8 +542,6 @@ export const sessions = pgTable(
     takeoverRequiredAt: timestamp("takeover_required_at", {
       withTimezone: true,
     }),
-    // The release the session was pinned to; a later activation does not
-    // move it. Not a uuid: release ids are derived hashes.
     agentReleaseId: text("agent_release_id").references(
       (): AnyPgColumn => agentReleases.id,
     ),
@@ -1285,17 +1283,13 @@ export const catalogAuthority = pgTable(
   (table) => [check("catalog_authority_singleton_check", sql`${table.id} = 1`)],
 );
 
-// Agents (94S-154, 03 §4). A version is a card frozen by its hash; a release
-// is a version pinned to the runtime profile it was released against, named
-// by the hash of what it runs. Both are insert-only (migration 0134 triggers):
-// the only mutable state is the agent's pointer, moved by compare-and-swap on
-// `activation_revision`, and a release's approval, set once by the first
-// activation.
 export const AGENT_ACTIVATION_EVENT_KINDS = [
   "release_created",
   "activated",
 ] as const;
 
+// Versions, releases and activation events are insert-only (migration 0134
+// triggers); a release's approval is set once, by its first activation.
 export const agents = pgTable(
   "agents",
   {
@@ -1307,7 +1301,6 @@ export const agents = pgTable(
     name: text().notNull(),
     status: text().notNull().default("active"),
     activeReleaseId: text("active_release_id"),
-    // -1 until the first activation, so the first CAS expects -1.
     activationRevision: integer("activation_revision").notNull().default(-1),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1319,7 +1312,6 @@ export const agents = pgTable(
   },
   (table) => [
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
-    // The pointer may only name a release of this agent.
     foreignKey({
       name: "agents_active_release_fk",
       columns: [table.id, table.activeReleaseId],
@@ -1357,7 +1349,6 @@ export const agentVersions = pgTable(
   },
   (table) => [
     uniqueIndex("agent_versions_number_idx").on(table.agentId, table.versionNo),
-    // The same card twice is the same version.
     uniqueIndex("agent_versions_content_idx").on(
       table.agentId,
       table.contentSha256,
@@ -1382,8 +1373,6 @@ export const agentReleases = pgTable(
     versionId: uuid("version_id").notNull(),
     cardSha256: text("card_sha256").notNull(),
     runtimeProfileId: text("runtime_profile_id").notNull(),
-    // catalog profileFingerprint: settings and credential reference, never
-    // the value.
     profileDigest: text("profile_digest").notNull(),
     runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
     effectiveTools: jsonb("effective_tools").notNull(),
@@ -1396,7 +1385,6 @@ export const agentReleases = pgTable(
     approvedAt: timestamp("approved_at", { withTimezone: true }),
   },
   (table) => [
-    // The version must be this agent's.
     foreignKey({
       name: "agent_releases_version_fk",
       columns: [table.agentId, table.versionId],
@@ -1410,8 +1398,6 @@ export const agentReleases = pgTable(
   ],
 );
 
-// Who released and who activated, one row each, insert-only. The receipt
-// carries the same actor for the person's own receipt list.
 export const agentActivationEvents = pgTable(
   "agent_activation_events",
   {

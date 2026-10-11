@@ -235,7 +235,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         if (!(await actorStillMember(tx, input.principal))) {
           return { outcome: "actor_inactive" };
         }
-        // Serializes version numbering for the agent.
         const agent = await lockAgent(tx, input.workspaceId, input.agentId);
         if (!agent) return { outcome: "not_found" };
         let changed = false;
@@ -366,12 +365,12 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         const agent = await lockAgent(tx, input.workspaceId, input.agentId);
         if (!agent) return { outcome: "not_found" };
         const current = agent.activationRevision;
+        // expected + 1: a retry of a request whose first attempt already swapped.
         if (
           agent.activeReleaseId === input.releaseId &&
           (current === input.expectedRevision ||
             current === input.expectedRevision + 1)
         ) {
-          // The same request again, or one that asks for what already holds.
           return {
             outcome: "unchanged",
             revision: current,

@@ -81,9 +81,6 @@ CREATE UNIQUE INDEX "agent_versions_number_idx" ON "agent_versions" USING btree 
 CREATE UNIQUE INDEX "agent_versions_content_idx" ON "agent_versions" USING btree ("agent_id","content_sha256");--> statement-breakpoint
 CREATE UNIQUE INDEX "agents_workspace_slug_idx" ON "agents" USING btree ("workspace_id","slug");--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_agent_release_id_agent_releases_id_fk" FOREIGN KEY ("agent_release_id") REFERENCES "public"."agent_releases"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
--- Versions and activation events are insert-only, and so is a release apart
--- from its approval, which the first activation sets once. Enforced here so
--- that no writer, present or future, can rewrite what a release id names.
 CREATE FUNCTION "agents_reject_mutation"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION '% rows are insert-only', TG_TABLE_NAME

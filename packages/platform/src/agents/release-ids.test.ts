@@ -80,11 +80,26 @@ describe("deriveReleaseId", () => {
     ) as ReleaseIdentity;
     expect(deriveReleaseId(reordered)).toBe(deriveReleaseId(identity));
     expect(deriveReleaseId(identity)).toMatch(/^sha256:[0-9a-f]{64}$/);
-    // Card keys too: the content hash is over canonical JSON.
     const cardReordered = JSON.parse(
       JSON.stringify(Object.fromEntries(Object.entries(card).reverse())),
     ) as AgentCard;
     expect(cardContentSha256(cardReordered)).toBe(cardContentSha256(card));
+  });
+
+  test("keeps stored ids valid: changing the hashed shape needs a version bump", () => {
+    expect(
+      deriveReleaseId({
+        agent_id: AGENT_ID,
+        card_sha256: "a".repeat(64),
+        runtime_profile_id: "coding",
+        profile_digest: `sha256:${"c".repeat(64)}`,
+        runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
+        effective_tools: { tools: ["Read"], mcp: [] },
+        policy_pins: {},
+      }),
+    ).toBe(
+      "sha256:d5076011600b9dde731f137c927e17e39a8dee6a1c6a3e4d42867d6d6b68f594",
+    );
   });
 
   test("treats array order as data", () => {
@@ -155,7 +170,6 @@ describe("resolveReleaseContent", () => {
       permission_mode: "default",
       provider: { kind: "litellm", endpoint: "https://litellm.invalid" },
     });
-    // The contract's own guard agrees there is no credential in it.
     expect(() => releaseOf(identity)).not.toThrow();
   });
 
@@ -167,7 +181,6 @@ describe("resolveReleaseContent", () => {
     expect(deriveReleaseId(identityOf(card, edited))).not.toBe(
       deriveReleaseId(identityOf()),
     );
-    // Rotating the credential behind the same reference is not a change.
     const rotated: CatalogProfile = {
       ...profile,
       provider: {

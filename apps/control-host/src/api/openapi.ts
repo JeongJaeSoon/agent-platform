@@ -745,9 +745,6 @@ function securityFor(route: RouteDeclaration): Array<Record<string, string[]>> {
   return route.scope ? [{ bearerApiKey: [] }, { cookieSession: [] }] : [];
 }
 
-// The /v1 middleware refuses a cookie-authenticated POST or PATCH without the CSRF
-// header (403), so every such operation documents both; bearer calls never
-// send it, hence `required: false`.
 function takesCookieMutation(route: RouteDeclaration): boolean {
   return (
     route.method !== "get" &&
