@@ -57,12 +57,6 @@ export function createPostgresAuditRetention(
   };
 }
 
-/**
- * Deletes up to `limit` rows older than their workspace keeps them, oldest
- * first, on the database clock. A row with no workspace keeps the default.
- * The floor is applied again here so a setting written around the API
- * cannot shorten it.
- */
 export async function expireAuthzDecisions(
   db: Database,
   input: { limit: number; dryRun: boolean },
@@ -70,7 +64,9 @@ export async function expireAuthzDecisions(
   const expired = sql`
     SELECT d.id FROM ${authzDecisions} d
     LEFT JOIN ${workspaces} w ON w.id = d.workspace_id
-    WHERE d.at < clock_timestamp() - make_interval(days => greatest(
+    -- The bare floor lets authz_decisions_at_idx bound the scan.
+    WHERE d.at < clock_timestamp() - make_interval(days => ${AUDIT_RETENTION_MIN_DAYS}::int)
+      AND d.at < clock_timestamp() - make_interval(days => greatest(
       ${AUDIT_RETENTION_MIN_DAYS}::int,
       coalesce(
         CASE WHEN jsonb_typeof(w.settings -> 'audit_retention_days') = 'number'

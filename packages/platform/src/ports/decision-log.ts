@@ -3,7 +3,6 @@ import type {
   AuthorizationRequest,
 } from "@agent-platform/contracts";
 
-/** Where authorize() writes the decisions D8 says to keep. */
 export interface DecisionLog {
   record(entry: {
     request: AuthorizationRequest;

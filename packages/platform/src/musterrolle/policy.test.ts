@@ -811,7 +811,6 @@ describe("decision log", () => {
       using,
     );
     expect(approval).toMatchObject({ outcome: "deny", reason_code: "error" });
-    // A read is not recorded, so a broken log does not touch it.
     expect((await decide(request(web), using)).outcome).toBe("allow");
   });
 

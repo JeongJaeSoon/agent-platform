@@ -90,7 +90,6 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<AnnouncedInputReturn[]>;
-  // Decision audit rows past their workspace's retention (D18).
   expireDecisions(options: { dryRun: boolean; limit: number }): Promise<number>;
 }): Promise<ReconcilerRun> {
   const { limit, dryRun } = reconcilerSettings(

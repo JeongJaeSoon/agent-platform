@@ -190,8 +190,6 @@ export interface CreateApiAppOptions {
   // Overrides REQUEST_DEADLINE_MS, for tests.
   requestDeadlineMs?: number;
   webDistDir?: string;
-  // Asked about a refusal for a missing scope so the decision is recorded;
-  // the edge refuses whatever it answers.
   authorization?: AuthorizationPolicy;
 }
 

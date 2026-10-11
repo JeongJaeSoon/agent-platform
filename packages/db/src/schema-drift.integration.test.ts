@@ -32,7 +32,6 @@ const integrationTest = testDatabaseUrl() ? test : test.skip;
 // Listed exactly, so a migration that loses, disables or rewrites one fails
 // as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
-  // 0134: decision audit rows are append-only.
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",

@@ -62,8 +62,6 @@ integration("authz_decisions on PostgreSQL", () => {
   }
 
   async function backdate(id: string, days: number) {
-    // The append-only trigger refuses UPDATE, so the test turns it off for
-    // one statement, inside a transaction that no other test can see.
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

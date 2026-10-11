@@ -23,10 +23,9 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-// D18: the owner may keep decision audit rows longer or shorter, but never
-// under 30 days. The upper bound only keeps a typo from meaning forever.
 export const AUDIT_RETENTION_DEFAULT_DAYS = 90;
 export const AUDIT_RETENTION_MIN_DAYS = 30;
+// The upper bound only keeps a typo from meaning forever.
 export const AUDIT_RETENTION_MAX_DAYS = 3650;
 export const auditRetentionDaysSchema = z
   .number()
@@ -54,7 +53,6 @@ export const workspaceParamsSchema = z
   .object({ id: workspaceIdSchema })
   .strict();
 
-/** Owner only: `workspace.manage` alone is not enough (design 4.1). */
 export const auditRetentionRequestSchema = z
   .object({ audit_retention_days: auditRetentionDaysSchema })
   .strict();

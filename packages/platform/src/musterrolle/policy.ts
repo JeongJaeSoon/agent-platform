@@ -27,7 +27,6 @@ export type RecordedActor = {
 export type Principal = {
   ownerId: string;
   actor?: RecordedActor;
-  /** Stamped on the receipts it writes, as `authz_decisions` names it. */
   requestId?: string;
 };
 
@@ -163,7 +162,6 @@ function claimedActorMatches(
   return subject.actor_user_id === expected;
 }
 
-// D8: the allows that answer "who did this" later. Every refusal is kept too.
 export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
   [
     "workspace.manage",
@@ -260,7 +258,6 @@ export function createAuthorizationPolicy(
         policy_version: POLICY_VERSION,
         decision_id,
       };
-      // A malformed request has nothing trustworthy to record; it is refused.
       const parsed = authorizationRequestSchema.safeParse(request);
       if (!decisions || !parsed.success || !mustRecord(parsed.data, decision)) {
         return decision;
@@ -269,9 +266,6 @@ export function createAuthorizationPolicy(
         await decisions.record({ request: parsed.data, decision });
         return decision;
       } catch {
-        // A refusal keeps its reason: a lost row must not turn not_found
-        // into a 403. An allow that must leave a record and cannot is not
-        // given.
         if (decision.outcome !== "allow") return decision;
         return {
           ...decision,

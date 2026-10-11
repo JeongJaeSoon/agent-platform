@@ -47,14 +47,15 @@ export function missingScope(
     : scope;
 }
 
-// Each session scope belongs to exactly one action, so the edge can name the
-// action it refused when it asks the policy to record that refusal.
-const ACTION_FOR_SCOPE = new Map(
-  Object.entries(ACTION_SCOPES).map(([action, scope]) => [
-    scope,
-    action as AuthorizationAction,
-  ]),
-);
+// The edge names the action it refused when it asks the policy to record
+// that refusal, so a scope two actions need would be ambiguous.
+const ACTION_FOR_SCOPE = new Map<SessionScope, AuthorizationAction>();
+for (const [action, scope] of Object.entries(ACTION_SCOPES)) {
+  if (ACTION_FOR_SCOPE.has(scope)) {
+    throw new Error(`${scope} is needed by more than one action`);
+  }
+  ACTION_FOR_SCOPE.set(scope, action as AuthorizationAction);
+}
 
 export function actionForScope(scope: SessionScope): AuthorizationAction {
   const action = ACTION_FOR_SCOPE.get(scope);

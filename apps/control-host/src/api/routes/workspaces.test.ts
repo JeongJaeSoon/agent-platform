@@ -40,7 +40,6 @@ function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
   return `${WEB_SESSION_COOKIE_NAME}=${token}`;
 }
 
-// Only what the cookie path of the middleware reads.
 const identity = {
   async resolveWebSession(tokenHash: Uint8Array) {
     return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
@@ -124,6 +123,24 @@ test("a member is refused, the setting is untouched, and the refusal is recorded
   expect(recorded).toHaveLength(1);
 });
 
+test("a member is refused before the body is read, malformed or not", async () => {
+  recorded.length = 0;
+  const response = await app.request(
+    `/v1/workspaces/${WORKSPACE}/audit-retention`,
+    {
+      method: "POST",
+      headers: {
+        Cookie: cookieFor("member"),
+        [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+        "Content-Type": "application/json",
+      },
+      body: "not json",
+    },
+  );
+  expect(response.status).toBe(403);
+  expect(recorded).toHaveLength(1);
+});
+
 test("fewer than 30 days is refused, even for an owner", async () => {
   stored.set(WORKSPACE, 90);
   for (const days of [29, 0, -1, 30.5, "45"]) {
@@ -139,7 +156,6 @@ test("another workspace, an unknown one or a malformed id does not exist", async
     const response = await setRetention(owner, 45, id);
     expect(response.status, id).toBe(404);
   }
-  // The owner's own workspace row is gone.
   const orphan = cookieFor("owner", OTHER_WORKSPACE);
   expect((await setRetention(orphan, 45, OTHER_WORKSPACE)).status).toBe(404);
 });

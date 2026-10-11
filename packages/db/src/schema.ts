@@ -768,7 +768,6 @@ export const receipts = pgTable(
       .defaultNow(),
     /** `receiptActorSchema`: principal plus the human behind it. */
     actor: jsonb(),
-    /** The request that wrote it, as `authz_decisions.request_id` names it. */
     requestId: text("request_id"),
   },
   (table) => [
@@ -785,18 +784,14 @@ export const receipts = pgTable(
   ],
 );
 
-// One row per recorded authorize() decision (Musterrolle D8). Append-only: a
-// migration-defined trigger refuses UPDATE, and only the retention pass
-// deletes. No foreign keys, so a row outlives the session, key or user it
-// names for as long as the workspace keeps audit rows.
+// No foreign keys, so a row outlives the session, key or user it names for
+// as long as the workspace keeps audit rows.
 export const authzDecisions = pgTable(
   "authz_decisions",
   {
-    /** The decision's `decision_id`. */
     id: uuid().primaryKey(),
     at: timestamp({ withTimezone: true }).notNull().defaultNow(),
     ownerId: text("owner_id").notNull(),
-    /** Null for an unmapped legacy key or a request with no principal. */
     workspaceId: uuid("workspace_id"),
     principalKind: text("principal_kind"),
     principalId: text("principal_id"),
@@ -805,7 +800,6 @@ export const authzDecisions = pgTable(
     agentReleaseId: text("agent_release_id"),
     linkedAccountId: text("linked_account_id"),
     linkedAccountRevision: integer("linked_account_revision"),
-    /** `authorizationSurfaceSchema`. */
     surface: jsonb().notNull(),
     action: text().notNull(),
     resourceKind: text("resource_kind").notNull(),
@@ -814,7 +808,6 @@ export const authzDecisions = pgTable(
     reasonCode: text("reason_code").notNull(),
     justification: text(),
     policyVersion: text("policy_version").notNull(),
-    /** The request's X-Request-Id; `receipts.request_id` carries the same. */
     requestId: text("request_id").notNull(),
   },
   (table) => [
