@@ -5,6 +5,7 @@ import type {
   InterruptService,
   InviteService,
   InviteStore,
+  LinkedAccountService,
   MemberService,
   PendingRequestService,
   SessionService,
@@ -22,6 +23,7 @@ import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
 } from "./routes/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
@@ -64,6 +66,10 @@ function apiApp() {
       registerInterruptRoutes(router, {} as InterruptService);
       registerMemberRoutes(router, {} as MemberService, {} as InviteService);
       registerAgentRoutes(router, {} as AgentService);
+      registerLinkedAccountRoutes(router, {
+        service: {} as LinkedAccountService,
+        slack: null,
+      });
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);

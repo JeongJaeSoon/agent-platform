@@ -57,6 +57,12 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/takeovers",
     "POST /v1/sessions/{id}/takeover",
   ],
+  "routes/linked-accounts.test.ts": [
+    "POST /v1/linked-accounts/slack/start",
+    "POST /v1/linked-accounts/slack/callback",
+    "GET /v1/linked-accounts",
+    "DELETE /v1/linked-accounts/{id}",
+  ],
   "routes/invites.test.ts": [
     "POST /v1/invites",
     "GET /v1/invites",

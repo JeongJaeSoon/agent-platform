@@ -12,6 +12,7 @@
     "./git-bundle": "./src/git-bundle.ts",
     "./git-http": "./src/git-http.ts",
     "./localstack": "./src/localstack.ts",
+    "./mock-slack-oidc": "./src/mock-slack-oidc.ts",
     "./mock-oidc": "./src/mock-oidc.ts",
     "./postgres": "./src/postgres.ts",
     "./scripted-messages": "./src/scripted-messages.ts",

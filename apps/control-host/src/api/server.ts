@@ -6,6 +6,7 @@ import {
   createPostgresAuditRetention,
   createPostgresDecisionLog,
   createPostgresInviteStore,
+  createPostgresLinkedAccountStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresSessionControl,
@@ -24,6 +25,7 @@ import {
   createAuthorizationPolicy,
   createInterruptService,
   createInviteService,
+  createLinkedAccountService,
   createMemberService,
   createPendingRequestService,
   createSessionService,
@@ -76,6 +78,7 @@ import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
 } from "./routes/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
@@ -86,6 +89,7 @@ import { registerWorkerRoutes } from "./routes/worker.ts";
 import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
+import { slackOidcConfigFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -201,6 +205,17 @@ const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
 });
+const linkedAccounts = createLinkedAccountService({
+  authorization,
+  store: createPostgresLinkedAccountStore(db),
+});
+const slackOidc = slackOidcConfigFromEnv(process.env);
+if (slackOidc === null) {
+  logger.warn(
+    "Sign in with Slack is off (SLACK_OIDC_CLIENT_ID unset); Slack accounts cannot be linked",
+    {},
+  );
+}
 const agents = createAgentService({
   authorization,
   store: createPostgresAgentStore(db),
@@ -322,6 +337,11 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
+    registerLinkedAccountRoutes(router, {
+      service: linkedAccounts,
+      slack: slackOidc,
+      logger,
+    });
     registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
     registerEventRoutes(router, sessions, {
