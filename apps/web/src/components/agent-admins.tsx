@@ -31,6 +31,9 @@ import { StatusScreen } from "./status-screen.tsx";
  * administer, which /v1/administered-agents answers without leaving a refused
  * decision behind. The list itself is the probe for everyone else.
  */
+/** contracts TEAM_LIST_LIMIT: a list this long may have left agents out. */
+export const ADMINISTERED_LIST_LIMIT = 200;
+
 export function AgentAdmins({
   agentId,
   onOutcome,
@@ -46,9 +49,14 @@ export function AgentAdmins({
     ...administeredAgentsQuery(client),
     enabled: !everywhere,
   });
+  const items = administered.data?.items;
+  // A full list may have cut this agent off; then the admin list itself
+  // answers, at the cost of a refused decision row if it is not theirs.
   const mine =
     everywhere ||
-    (administered.data?.items.some((agent) => agent.id === agentId) ?? false);
+    (items !== undefined &&
+      (items.some((agent) => agent.id === agentId) ||
+        items.length >= ADMINISTERED_LIST_LIMIT));
   const titleId = useId();
 
   return (
