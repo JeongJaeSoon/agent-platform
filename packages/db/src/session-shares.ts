@@ -282,7 +282,12 @@ export function createPostgresSessionShareStore(
 
     get(ownerId, sessionId) {
       if (!UUID.test(sessionId)) return Promise.resolve(null);
-      return readShare(db, ownerId, sessionId.toLowerCase());
+      // The row and its targets are two reads; one snapshot keeps a change
+      // committed between them from mixing two shares.
+      return db.transaction(
+        (tx) => readShare(tx, ownerId, sessionId.toLowerCase()),
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
 
     set: (input) => setShare(db, input),
