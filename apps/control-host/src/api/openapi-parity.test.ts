@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type {
+  AgentService,
   IdentityStore,
   InterruptService,
   MemberService,
@@ -11,6 +12,7 @@ import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
+import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
@@ -44,6 +46,7 @@ function apiApp() {
       registerPendingRoutes(router, {} as PendingRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
       registerMemberRoutes(router, {} as MemberService);
+      registerAgentRoutes(router, {} as AgentService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerEventRoutes(router, {} as SessionService, {
