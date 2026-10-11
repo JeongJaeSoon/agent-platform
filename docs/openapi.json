@@ -3666,6 +3666,8 @@
               "reset_password",
               "recover_owner",
               "takeover",
+              "link_account",
+              "unlink_account",
               "invite_member",
               "accept_invite",
               "revoke_invite",

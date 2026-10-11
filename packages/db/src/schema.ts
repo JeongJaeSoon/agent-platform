@@ -383,6 +383,72 @@ export const slackInstallations = pgTable(
   ],
 );
 
+// A person's account on another service (design A.2): today a Slack user,
+// linked through Sign in with Slack. Rows are revoked, never deleted, so the
+// receipts that name one keep their target; every status change bumps
+// `revision`, which a decision made on an older reading compares against.
+export const linkedAccounts = pgTable(
+  "linked_accounts",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    provider: text().$type<"slack">().notNull(),
+    /** The Slack team id. */
+    externalTenant: text("external_tenant").notNull(),
+    externalUserId: text("external_user_id").notNull(),
+    status: text()
+      .$type<"active" | "stale" | "revoked">()
+      .notNull()
+      .default("active"),
+    revokedReason: text("revoked_reason").$type<"unlinked" | "offboarded">(),
+    verifiedVia: text("verified_via").$type<"slack_oidc">().notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+    revision: integer().notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    // One person per external account, and one account per person in each
+    // Slack team, among the rows that still resolve.
+    uniqueIndex("linked_accounts_external_live_uniq")
+      .on(table.provider, table.externalTenant, table.externalUserId)
+      .where(sql`${table.status} <> 'revoked'`),
+    uniqueIndex("linked_accounts_user_live_uniq")
+      .on(table.userId, table.provider, table.externalTenant)
+      .where(sql`${table.status} <> 'revoked'`),
+    index("linked_accounts_workspace_user_idx").on(
+      table.workspaceId,
+      table.userId,
+    ),
+    check(
+      "linked_accounts_provider_check",
+      sql`${table.provider} IN ('slack')`,
+    ),
+    check(
+      "linked_accounts_status_check",
+      sql`${table.status} IN ('active', 'stale', 'revoked')`,
+    ),
+    check(
+      "linked_accounts_revoked_check",
+      sql`(${table.status} = 'revoked') = (${table.revokedAt} IS NOT NULL) AND (${table.status} = 'revoked') = (${table.revokedReason} IS NOT NULL)`,
+    ),
+    check(
+      "linked_accounts_revoked_reason_check",
+      sql`${table.revokedReason} IS NULL OR ${table.revokedReason} IN ('unlinked', 'offboarded')`,
+    ),
+  ],
+);
+
 // One Grant row per `grantSchema`; the refs are stored as
 // (kind, id) column pairs so the evaluator (I0-5a) matches them exactly in
 // SQL without unpacking JSON. `service_principal_id` is always a service

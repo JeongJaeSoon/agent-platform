@@ -15,6 +15,7 @@ export * from "./ports/checkpoint-verifier.ts";
 export * from "./ports/decision-log.ts";
 export * from "./ports/execution-backend.ts";
 export * from "./ports/identity-store.ts";
+export * from "./ports/linked-account-store.ts";
 export * from "./ports/member-store.ts";
 export * from "./ports/pending-requests.ts";
 export * from "./ports/scheduler-store.ts";
