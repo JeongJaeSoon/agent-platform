@@ -568,6 +568,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         authenticated.principal,
         { kind: authenticated.webSession ? "web" : "api" },
         context.get("requestId"),
+        authenticated.keyCreatorId,
       ),
     );
     context.set("reauthenticate", authenticated.reauthenticate);

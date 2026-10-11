@@ -43,6 +43,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "실행 환경에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   LAUNCH_FAILED:
     "작업 환경을 여러 번 띄우지 못해 입력이 처리되지 않았습니다 — 담당자에게 알린 뒤 다시 보내세요.",
+  TAKEOVER_REQUIRED:
+    "요청한 분이 떠나 관리자가 이어받을 때까지 멈춰요 — 워크스페이스 owner에게 인수를 요청하세요.",
   CATALOG_MISMATCH:
     "이 세션의 프로필·저장소 조합이 더 이상 허용되지 않아 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",

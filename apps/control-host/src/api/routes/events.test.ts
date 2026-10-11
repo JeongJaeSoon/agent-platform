@@ -40,6 +40,8 @@ const KEY = {
   id: "key-a",
   ownerId: OWNER,
   workspaceId: null,
+  kind: "service" as const,
+  createdByUserId: null,
   scopes: ["sessions:read" as const],
 };
 

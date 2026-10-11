@@ -16,6 +16,7 @@ import {
   listPendingRequestsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
+  listTakeoversResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
   loginRequestSchema,
@@ -81,6 +82,7 @@ const responseComponents = {
   TurnDetail: getTurnResponseSchema,
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
+  ListTakeoversResponse: listTakeoversResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
@@ -124,6 +126,11 @@ export const OPENAPI_TAGS = [
   {
     name: "Recovery",
     description: "Resolve sessions that require an operator recovery decision.",
+  },
+  {
+    name: "Members",
+    description:
+      "Take over the sessions of members who were offboarded. Owners only.",
   },
   {
     name: "Limits & receipts",
@@ -334,6 +341,7 @@ const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "TAKEOVER_REQUIRED",
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
@@ -515,6 +523,32 @@ const API_ROUTE_DECLARATIONS = [
         "CHECKPOINT_UNAVAILABLE",
       ],
     },
+  },
+  {
+    method: "get",
+    path: "/v1/takeovers",
+    operationId: "listTakeovers",
+    tag: "Members",
+    summary: "Sessions waiting for an owner to take them over",
+    description:
+      "Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ListTakeoversResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/takeover",
+    operationId: "takeOverSession",
+    tag: "Members",
+    summary: "Become the requester of an offboarded member's session",
+    description:
+      "The caller becomes the session's requester and its queued input runs again. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ReceiptAcceptedResponse" },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REQUEST_STALE"] },
+    idempotent: false,
   },
   {
     method: "get",

@@ -35,6 +35,36 @@ describe("API key issuance", () => {
     );
   });
 
+  test("--workspace makes the workspace the owner; --personal names whom the key acts for", async () => {
+    const persisted: Parameters<ApiKeyWriter["create"]>[0][] = [];
+    const writer: Pick<ApiKeyWriter, "create"> = {
+      async create(input) {
+        persisted.push(input);
+      },
+    };
+    await issueApiKey(writer, {
+      workspaceId: WORKSPACE,
+      scopes: ["sessions:read"],
+    });
+    await issueApiKey(writer, {
+      workspaceId: WORKSPACE,
+      scopes: ["sessions:read"],
+      personalFor: USER,
+    });
+    expect(persisted[0]).toMatchObject({
+      ownerId: WORKSPACE,
+      workspaceId: WORKSPACE,
+    });
+    // Unnamed kind is the column default: a service key.
+    expect(persisted[0]?.kind).toBeUndefined();
+    expect(persisted[1]).toMatchObject({
+      ownerId: WORKSPACE,
+      workspaceId: WORKSPACE,
+      kind: "personal",
+      createdByUserId: USER,
+    });
+  });
+
   test("rejects an empty owner or an empty scope list before persistence", async () => {
     let writes = 0;
     const writer: Pick<ApiKeyWriter, "create"> = {
@@ -52,7 +82,80 @@ describe("API key issuance", () => {
   });
 });
 
+const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
+const USER = "019a0000-0000-7000-8000-0000000000c1";
+
 describe("keys CLI arguments", () => {
+  test("create --workspace binds the key to a workspace, as a service key unless --personal", () => {
+    expect(
+      parseKeysCommand([
+        "create",
+        "--workspace",
+        WORKSPACE.toUpperCase(),
+        "--scopes",
+        "sessions:read",
+      ]),
+    ).toEqual({
+      command: "create",
+      workspaceId: WORKSPACE,
+      scopes: ["sessions:read"],
+    });
+    expect(
+      parseKeysCommand([
+        "create",
+        "--workspace",
+        WORKSPACE,
+        "--scopes",
+        "sessions:read",
+        "--personal",
+        USER,
+      ]),
+    ).toEqual({
+      command: "create",
+      workspaceId: WORKSPACE,
+      scopes: ["sessions:read"],
+      personalFor: USER,
+    });
+  });
+
+  test("--workspace and --personal take UUIDs and refuse a second owner", () => {
+    expect(() =>
+      parseKeysCommand([
+        "create",
+        "--workspace",
+        "acme",
+        "--scopes",
+        "sessions:read",
+      ]),
+    ).toThrow("--workspace must be a UUID");
+    expect(() =>
+      parseKeysCommand([
+        "create",
+        "owner-a",
+        "--workspace",
+        WORKSPACE,
+        "--scopes",
+        "sessions:read",
+      ]),
+    ).toThrow("Usage");
+    expect(() =>
+      parseKeysCommand([
+        "create",
+        "owner-a",
+        "--scopes",
+        "sessions:read",
+        "--personal",
+        USER,
+      ]),
+    ).toThrow("--personal needs --workspace");
+    expect(() =>
+      parseKeysCommand(["create", "--workspace", WORKSPACE]),
+    ).toThrow("--scopes is required");
+    expect(() =>
+      parseKeysCommand(["revoke", USER, "--workspace", WORKSPACE]),
+    ).toThrow("Usage");
+  });
+
   test("create <owner> --scopes reads the list in the vocabulary's order", () => {
     expect(
       parseKeysCommand([

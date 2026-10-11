@@ -398,6 +398,8 @@ type Authenticated = {
   webSession?: ResolvedWebSession;
   /** Re-runs the credential check; SSE calls it so revocation ends a stream. */
   reauthenticate: () => Promise<boolean>;
+  /** The person a personal key acts for. */
+  keyCreatorId?: string;
 };
 
 function bearerToken(value: string | undefined): string | null {
@@ -472,8 +474,12 @@ export function createAuthenticator(
         const principal = apiKeyPrincipal(key);
         return {
           principal,
+          ...(key.kind === "personal" && key.createdByUserId !== null
+            ? { keyCreatorId: key.createdByUserId }
+            : {}),
           // Nothing edits a key's scopes today, but a stream that outlives
-          // a narrowed key must not keep what the key no longer holds.
+          // a narrowed key must not keep what the key no longer holds. A
+          // personal key whose creator was offboarded is no longer found.
           reauthenticate: async () => {
             const current = await keyStore.find(keyHash);
             return (

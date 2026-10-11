@@ -41,6 +41,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
+  "routes/members.test.ts": [
+    "GET /v1/takeovers",
+    "POST /v1/sessions/{id}/takeover",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims
