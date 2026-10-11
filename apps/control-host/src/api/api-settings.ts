@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import {
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
@@ -27,6 +29,8 @@ export type ApiSettings = {
     maxStreams?: number;
     maxStreamsPerOwner?: number;
   };
+  /** apps/web's dist/; unset serves no web console. */
+  webDistDir?: string;
 };
 
 export class ApiSettingsError extends Error {
@@ -80,6 +84,15 @@ export function apiSettingsFromEnv(
       "AUTH_MODE=none cannot run with the egress authorizer on (EGRESS_AUTHORIZER_PORT): workers reach this API and would act as any owner",
     );
   }
+  const webDistDir = environment.WEB_DIST_DIR;
+  if (
+    webDistDir !== undefined &&
+    !(isAbsolute(webDistDir) && existsSync(join(webDistDir, "index.html")))
+  ) {
+    problems.push(
+      "WEB_DIST_DIR must be an absolute path to a directory holding index.html (apps/web's build output)",
+    );
+  }
   if (problems.length > 0) throw new ApiSettingsError(problems);
   return {
     leaseTtlMs: leaseTtlMs as number,
@@ -97,6 +110,7 @@ export function apiSettingsFromEnv(
         ? {}
         : { maxStreamsPerOwner: sse.maxStreamsPerOwner }),
     },
+    ...(webDistDir === undefined ? {} : { webDistDir }),
   };
 }
 

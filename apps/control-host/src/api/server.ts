@@ -262,6 +262,9 @@ const app = createApiApp({
     });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
+  ...(settings.webDistDir === undefined
+    ? {}
+    : { webDistDir: settings.webDistDir }),
   readiness: shutdown.readiness(
     createReadinessProbe({
       db: probePool,

@@ -560,10 +560,13 @@ API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control
 | `PENDING_REQUEST_TTL_SEC` | 1800 | 정수 1–604800. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다린다. worker의 `QUESTION_TIMEOUT_SEC`는 gateway가 등록을 확인하기 전에만 적용된다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
 | `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다. worker는 scheduler의 값을 받는다 |
+| `WEB_DIST_DIR` | 없음(웹 콘솔을 서빙하지 않음). control-host 이미지는 `/app/apps/web/dist` | `index.html`이 있는 절대 경로. 웹 콘솔(`apps/web`)의 빌드 결과다 |
 
 모든 `/v1` 응답은 `api.request.completed`를 남긴다. 실제 id가 없는 Hono `route_template`, `method`, `status`, 인증과 route 처리를 포함한 `duration_ms`, `operation=api_request`, `outcome`, `reason_code`가 있고 `request_id`는 log context에 있다. request body·credential·provider key는 넣지 않는다. terminate 요청은 같은 `request_id`의 `Terminate control transaction completed`도 남기며, 여기에는 pool checkout, binding·launch·session lock, 각 SQL, commit 또는 rollback, control transaction 전체의 millisecond 계측이 들어간다. 배포 환경에서 수락 지연을 조사할 때는 두 로그를 `request_id`로 묶어 어느 단계가 느렸는지 판단한다.
 
 terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reconciler가 execution 부재를 확인하면 `control.result`가 `operation=terminate`, receipt id인 `control_id`, `outcome`, `reason_code`, durable 수락부터 확인까지의 `effect_ms`(`duration_ms`와 같음)를 남긴다. 기한을 넘긴 receipt는 먼저 `outcome=unknown`·`reason_code=deadline_exceeded`를 남기며, 이후 execution 부재를 확인해 receipt를 성공으로 올리면 `outcome=succeeded`·`reason_code=execution_gone` 결과를 추가로 남긴다.
+
+`WEB_DIST_DIR`가 있으면 API가 웹 콘솔을 같은 origin에서 서빙한다(94S-158). `/v1`·`/internal` 밖의 GET·HEAD는 그 디렉터리의 파일을 돌려주고, 파일이 없으면 `index.html`을 돌려준다(SPA fallback). 그래서 `/login`·`/bootstrap`을 새로고침해도 화면이 열린다. `/v1`·`/internal` 아래는 fallback하지 않는다. 인증된 `/v1/nope`는 전처럼 JSON `404 NOT_FOUND`다. `/assets/` 아래 파일은 content hash가 붙은 이름이라 `immutable`로 캐시하고, 없는 asset은 페이지 대신 404를 준다. `index.html`은 `no-cache`이며 inline script를 허용하지 않는 CSP(`script-src 'self'`)를 붙인다. control-host 이미지는 `web` build stage에서 `apps/web`을 빌드하고 `dist/`만 담는다. 별도 web 이미지는 없다. 로컬에서 웹만 고칠 때는 `bun run --cwd apps/web dev`(Vite, `/v1`을 `VITE_API_TARGET` 기본 `http://127.0.0.1:3000`으로 proxy)를 쓴다.
 
 `AUTH_MODE=none`은 egress authorizer(`EGRESS_AUTHORIZER_PORT`)와 함께 쓸 수 없다. authorizer가 켜져 있다는 것은 worker가 proxy를 거쳐 이 API에 닿는다는 뜻이다. `none` 모드에서는 worker 안의 코드가 `X-Owner-Id`로 아무 owner나 행세할 수 있으므로 기동을 거부한다. `AUTH_MODE` 값 자체(`none`|`api-key`)는 전처럼 readiness가 판정한다.
 

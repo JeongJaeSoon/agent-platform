@@ -43,6 +43,7 @@ import {
 } from "./openapi.ts";
 import type { ReadinessProbe } from "./readiness.ts";
 import { missingScope } from "./scope-policy.ts";
+import { createWebDistHandler } from "./web-dist.ts";
 
 interface ApiVariables {
   // The alpha partition key; every existing route authorizes on it alone.
@@ -187,6 +188,9 @@ export interface CreateApiAppOptions {
   readiness?: ReadinessProbe;
   // Overrides REQUEST_DEADLINE_MS, for tests.
   requestDeadlineMs?: number;
+  // apps/web's build output (WEB_DIST_DIR); served outside /v1 and /internal
+  // with an index.html fallback for the client router.
+  webDistDir?: string;
 }
 
 export class ApiHttpError extends Error {
@@ -612,6 +616,14 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     internal.use("*", ingestThenStopClock);
     options.registerInternalRoutes(internal);
     app.route("/internal", internal);
+  }
+
+  if (options.webDistDir) {
+    const serveWeb = createWebDistHandler(options.webDistDir);
+    app.get(
+      "*",
+      async (context) => (await serveWeb(context)) ?? context.notFound(),
+    );
   }
 
   app.notFound((context) =>
