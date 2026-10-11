@@ -146,6 +146,13 @@ describe("에이전트 상세", () => {
       CARD.instructions,
     );
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
+    const release = screen
+      .getByRole("heading", { name: "release" })
+      .closest("section") as HTMLElement;
+    expect(
+      (within(release).getByLabelText("version") as HTMLSelectElement)
+        .selectedOptions[0]?.textContent,
+    ).toBe("version 1");
   });
 
   test("바뀐 것 없이 저장하면 새 version이 없다고 말한다", async () => {
