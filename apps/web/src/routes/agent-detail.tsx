@@ -1,4 +1,8 @@
-import type { AgentDetail, AgentVersion } from "@agent-platform/contracts";
+import type {
+  AgentCard,
+  AgentDetail,
+  AgentVersion,
+} from "@agent-platform/contracts";
 import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
@@ -178,7 +182,7 @@ function CardEditor({
     onSuccess: async (updated, submitted) => {
       // The server keeps one version per card content, so the card just saved
       // may be an older version rather than the highest one.
-      const saved = savedVersion(updated, submitted);
+      const saved = savedVersion(detail, updated, submitted);
       const isNew =
         saved !== undefined && !detail.versions.some((v) => v.id === saved.id);
       onOutcome({
@@ -280,15 +284,21 @@ function startEdit(detail: AgentDetail, from?: AgentVersion): Edit {
 }
 
 function savedVersion(
-  detail: AgentDetail,
+  before: AgentDetail,
+  after: AgentDetail,
   submitted: Edit,
 ): AgentVersion | undefined {
-  const sent = JSON.stringify(submitted.draft);
-  const matching = detail.versions.filter(
-    (version) => JSON.stringify(draftFromCard(version.card)) === sent,
+  const baseCard = before.versions.find((v) => v.id === submitted.baseId)?.card;
+  // Both sides go through the same normalisation the request did, rules
+  // included, so a card that only differs in what the server trims matches.
+  const normal = (draft: CardDraft, card?: AgentCard) =>
+    JSON.stringify(cardFromDraft(draft, card));
+  const sent = submitted.draft ? normal(submitted.draft, baseCard) : null;
+  const matching = after.versions.filter(
+    (version) => normal(draftFromCard(version.card), version.card) === sent,
   );
   return (
-    latestVersion({ ...detail, versions: matching }) ?? latestVersion(detail)
+    latestVersion({ ...after, versions: matching }) ?? latestVersion(after)
   );
 }
 
