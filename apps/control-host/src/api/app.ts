@@ -4,6 +4,7 @@ import {
   apiErrorResponseSchema,
   apiRootResponseSchema,
   healthResponseSchema,
+  LINK_MESSAGES,
   ownerScopeOf,
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
@@ -534,7 +535,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         context,
         401,
         "UNAUTHORIZED",
-        "Authentication is required",
+        // A link opened from Slack lands here before any login; the person
+        // may have no account at all, and should learn who can invite them.
+        context.req.path.startsWith("/v1/linked-accounts")
+          ? LINK_MESSAGES.signInRequired
+          : "Authentication is required",
       );
     }
     const violation = csrfViolation(context, authenticated.principal);

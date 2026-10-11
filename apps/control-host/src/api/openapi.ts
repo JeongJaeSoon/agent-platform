@@ -30,8 +30,10 @@ import {
   inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
+  linkedAccountParamsSchema,
   listAgentsResponseSchema,
   listInvitesResponseSchema,
+  listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
   listPendingRequestsResponseSchema,
   listSessionsQuerySchema,
@@ -63,8 +65,11 @@ import {
   sessionUsageResponseSchema,
   setAccessRequestSchema,
   setAccessResponseSchema,
+  slackLinkCallbackRequestSchema,
+  slackLinkCallbackResponseSchema,
   sseEventSchema,
   startGoogleLoginResponseSchema,
+  startSlackLinkResponseSchema,
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
   turnIdParamsSchema,
@@ -99,6 +104,7 @@ const requestComponents = {
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
+  SlackLinkCallbackRequest: slackLinkCallbackRequestSchema,
   CreateInviteRequest: createInviteRequestSchema,
   AcceptInviteRequest: acceptInviteRequestSchema,
   UpdateMemberRequest: updateMemberRequestSchema,
@@ -127,6 +133,9 @@ const responseComponents = {
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
   ListTakeoversResponse: listTakeoversResponseSchema,
+  StartSlackLinkResponse: startSlackLinkResponseSchema,
+  SlackLinkCallbackResponse: slackLinkCallbackResponseSchema,
+  ListLinkedAccountsResponse: listLinkedAccountsResponseSchema,
   CreateInviteResponse: createInviteResponseSchema,
   ListInvitesResponse: listInvitesResponseSchema,
   AcceptInviteResponse: acceptInviteResponseSchema,
@@ -199,6 +208,11 @@ export const OPENAPI_TAGS = [
     name: "Agents",
     description:
       "Write agent cards, release a version against a runtime profile and activate a release. Owners only.",
+  },
+  {
+    name: "Linked accounts",
+    description:
+      "Link and unlink the caller's own Slack account through Sign in with Slack.",
   },
   {
     name: "Limits & receipts",
@@ -833,6 +847,66 @@ const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/linked-accounts/slack/start",
+    operationId: "startSlackLink",
+    tag: "Linked accounts",
+    summary: "Start linking the caller's Slack account",
+    description:
+      "Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. Refused with 409 when the workspace has no verified Slack install. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "StartSlackLinkResponse" },
+    errors: [401, 403, 409, 503],
+    errorCodes: { 409: ["SLACK_NOT_INSTALLED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/linked-accounts/slack/callback",
+    operationId: "slackLinkCallback",
+    tag: "Linked accounts",
+    summary: "Finish linking with the code Slack returned",
+    description:
+      "Spends the state cookie, exchanges the code and verifies the id_token, then links the Slack account to the caller and writes a `link_account` receipt. Refused when the account's Slack team is not installed for the workspace, when the account is linked to someone else (never overwritten), or when the caller already linked another account in that team. API keys are refused.",
+    auth: "session",
+    body: "SlackLinkCallbackRequest",
+    success: { status: 201, schema: "SlackLinkCallbackResponse" },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "SLACK_NOT_INSTALLED",
+        "LINK_TEAM_MISMATCH",
+        "LINK_TAKEN",
+        "LINK_EXISTS",
+      ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/linked-accounts",
+    operationId: "listLinkedAccounts",
+    tag: "Linked accounts",
+    summary: "The caller's linked accounts that are active or stale",
+    description: "API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ListLinkedAccountsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/linked-accounts/{id}",
+    operationId: "unlinkAccount",
+    tag: "Linked accounts",
+    summary: "Unlink one of the caller's accounts",
+    description:
+      "Revokes the link and writes an `unlink_account` receipt. Input from that Slack account is refused from then on, including input that was already waiting to be processed. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ReceiptAcceptedResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
     method: "get",
     path: "/v1/agents",
     operationId: "listAgents",
@@ -1043,6 +1117,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
+  if (path.startsWith("/v1/linked-accounts/{id}"))
+    return linkedAccountParamsSchema;
   throw new Error(`No params schema registered for ${path}`);
 }
 
