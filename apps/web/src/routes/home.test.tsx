@@ -100,6 +100,19 @@ describe("bootstrap checklist", () => {
     );
   });
 
+  test("구성원은 혼자인데 초대 조회가 실패하면 초대 단계는 모른다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
+      "GET /v1/agents": () => json(200, { items: [] }),
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual(["done", "unknown", "pending", "pending"]),
+    );
+  });
+
   test("관리 권한이 없으면 모르는 단계는 모른다고 적는다", async () => {
     const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
     renderAt("/", {

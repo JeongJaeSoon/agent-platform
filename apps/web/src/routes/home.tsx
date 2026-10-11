@@ -55,8 +55,13 @@ export function HomeScreen() {
     select: (page) =>
       page.items.some((agent) => agent.active_release_id !== null),
   });
+  // Either list can show the step done; to call it not done, both must answer.
   const invited: StepState =
-    members.data || invites.data ? "done" : stateOf(members);
+    members.data || invites.data
+      ? "done"
+      : members.isError || invites.isError
+        ? "unknown"
+        : stateOf(members);
   const steps: readonly Step[] = [
     { key: "home.checklist.admin", state: "done" },
     { key: "home.checklist.invite", state: invited, to: "/members" },
