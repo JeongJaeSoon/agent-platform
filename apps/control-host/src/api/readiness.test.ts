@@ -89,7 +89,9 @@ describe("readiness probe", () => {
       environment,
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
-    expect(result.ready === false && result.reason).toContain("0137_pending_approval_record");
+    expect(result.ready === false && result.reason).toContain(
+      "0137_pending_approval_record",
+    );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.
     const rewritten = await database(true);
