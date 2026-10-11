@@ -1,15 +1,18 @@
 import {
   ADMISSION_STATE_VALUES,
+  AGENT_STATUS_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
 } from "@agent-platform/contracts";
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
   check,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -576,9 +579,9 @@ export const sessions = pgTable(
     takeoverRequiredAt: timestamp("takeover_required_at", {
       withTimezone: true,
     }),
-    // TODO(94S-154): Add the FK when agent_releases is introduced. This is
-    // not a uuid: release ids are derived hashes.
-    agentReleaseId: text("agent_release_id"),
+    agentReleaseId: text("agent_release_id").references(
+      (): AnyPgColumn => agentReleases.id,
+    ),
     // What this session's Messages calls cost, as the egress proxy metered
     // them: each is priced and added once (provider_usage), the
     // engine's calls and a tool's alike. An estimate. Sessions from before
@@ -1357,4 +1360,164 @@ export const catalogAuthority = pgTable(
       .defaultNow(),
   },
   (table) => [check("catalog_authority_singleton_check", sql`${table.id} = 1`)],
+);
+
+export const AGENT_ACTIVATION_EVENT_KINDS = [
+  "release_created",
+  "activated",
+] as const;
+
+// Versions, releases and activation events are insert-only (migration 0134
+// triggers); a release's approval is set once, by its first activation.
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    slug: text().notNull(),
+    name: text().notNull(),
+    status: text().notNull().default("active"),
+    activeReleaseId: text("active_release_id"),
+    activationRevision: integer("activation_revision").notNull().default(-1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    foreignKey({
+      name: "agents_active_release_fk",
+      columns: [table.id, table.activeReleaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    check(
+      "agents_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(AGENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "agents_slug_check",
+      sql`length(${table.slug}) BETWEEN 1 AND 64 AND ${table.slug} ~ '^[a-z0-9][a-z0-9-]*$'`,
+    ),
+    check(
+      "agents_activation_check",
+      sql`${table.activationRevision} >= -1 AND (${table.activeReleaseId} IS NULL) = (${table.activationRevision} = -1)`,
+    ),
+  ],
+);
+
+export const agentVersions = pgTable(
+  "agent_versions",
+  {
+    id: uuid().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references((): AnyPgColumn => agents.id),
+    versionNo: integer("version_no").notNull(),
+    card: jsonb().notNull(),
+    contentSha256: text("content_sha256").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("agent_versions_number_idx").on(table.agentId, table.versionNo),
+    uniqueIndex("agent_versions_content_idx").on(
+      table.agentId,
+      table.contentSha256,
+    ),
+    unique("agent_versions_agent_id_key").on(table.agentId, table.id),
+    check("agent_versions_number_check", sql`${table.versionNo} > 0`),
+    check(
+      "agent_versions_content_check",
+      sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
+
+export const agentReleases = pgTable(
+  "agent_releases",
+  {
+    // deriveReleaseId: a hash of every column below up to policy_pins.
+    id: text().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references((): AnyPgColumn => agents.id),
+    versionId: uuid("version_id").notNull(),
+    cardSha256: text("card_sha256").notNull(),
+    runtimeProfileId: text("runtime_profile_id").notNull(),
+    profileDigest: text("profile_digest").notNull(),
+    runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
+    effectiveTools: jsonb("effective_tools").notNull(),
+    policyPins: jsonb("policy_pins").notNull().default({}),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_releases_version_fk",
+      columns: [table.agentId, table.versionId],
+      foreignColumns: [agentVersions.agentId, agentVersions.id],
+    }),
+    unique("agent_releases_agent_id_key").on(table.agentId, table.id),
+    check(
+      "agent_releases_approval_check",
+      sql`(${table.approvedBy} IS NULL) = (${table.approvedAt} IS NULL)`,
+    ),
+  ],
+);
+
+export const agentActivationEvents = pgTable(
+  "agent_activation_events",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references((): AnyPgColumn => agents.id),
+    kind: text().notNull(),
+    releaseId: text("release_id")
+      .notNull()
+      .references(() => agentReleases.id),
+    previousReleaseId: text("previous_release_id").references(
+      () => agentReleases.id,
+    ),
+    activationRevision: integer("activation_revision"),
+    actorUserId: uuid("actor_user_id")
+      .notNull()
+      .references(() => users.id),
+    actor: jsonb(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references(() => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("agent_activation_events_agent_idx").on(
+      table.agentId,
+      table.createdAt,
+    ),
+    check(
+      "agent_activation_events_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(AGENT_ACTIVATION_EVENT_KINDS))})`,
+    ),
+    check(
+      "agent_activation_events_revision_check",
+      sql`(${table.kind} = 'activated') = (${table.activationRevision} IS NOT NULL)`,
+    ),
+  ],
 );

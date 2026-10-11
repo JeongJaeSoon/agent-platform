@@ -50,6 +50,10 @@ describe("database schema", () => {
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
+      "agent_activation_events",
+      "agent_releases",
+      "agent_versions",
+      "agents",
       "api_keys",
       "attempts",
       "authz_decisions",
