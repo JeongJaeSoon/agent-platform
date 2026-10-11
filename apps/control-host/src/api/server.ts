@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
+  createPostgresAgentStore,
   createPostgresAuditRetention,
   createPostgresDecisionLog,
   createPostgresInviteStore,
@@ -19,6 +20,7 @@ import {
 import { createLogger } from "@agent-platform/observability";
 import {
   catalogRevision,
+  createAgentService,
   createAuthorizationPolicy,
   createInterruptService,
   createInviteService,
@@ -66,6 +68,7 @@ import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
@@ -198,6 +201,11 @@ const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
 });
+const agents = createAgentService({
+  authorization,
+  store: createPostgresAgentStore(db),
+  catalog,
+});
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const interrupts = createInterruptService({
@@ -315,6 +323,7 @@ const app = createApiApp({
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
     registerMemberRoutes(router, members, invites);
+    registerAgentRoutes(router, agents);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

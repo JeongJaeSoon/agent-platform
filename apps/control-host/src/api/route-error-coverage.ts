@@ -60,6 +60,14 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/invites/accept",
   ],
   "routes/workspaces.test.ts": ["POST /v1/workspaces/{id}/audit-retention"],
+  "routes/agents.test.ts": [
+    "GET /v1/agents",
+    "POST /v1/agents",
+    "GET /v1/agents/{id}",
+    "PATCH /v1/agents/{id}",
+    "POST /v1/agents/{id}/releases",
+    "POST /v1/agents/{id}/activate",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims

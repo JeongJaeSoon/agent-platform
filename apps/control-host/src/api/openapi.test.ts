@@ -141,6 +141,7 @@ describe("OpenAPI document", () => {
     }
     expect(checked).toContain("post /v1/sessions");
     expect(checked).toContain("post /v1/auth/logout");
+    expect(checked).toContain("patch /v1/agents/{id}");
     expect(checked).toContain("patch /v1/members/{user_id}");
     expect(checked).toContain("delete /v1/invites/{id}");
     expect(checked).not.toContain("post /v1/auth/login");
@@ -181,6 +182,10 @@ describe("OpenAPI document", () => {
         "/v1/workspaces/{id}/audit-retention",
         "/v1/workspaces/{id}/members/{userId}/password-reset",
         "/v1/takeovers",
+        "/v1/agents",
+        "/v1/agents/{id}",
+        "/v1/agents/{id}/releases",
+        "/v1/agents/{id}/activate",
         "/v1/invites",
         "/v1/invites/accept",
         "/v1/invites/{id}",
