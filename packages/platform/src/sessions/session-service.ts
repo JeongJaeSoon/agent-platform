@@ -3,6 +3,7 @@ import type {
   AdmissionState,
   ApiErrorCode,
   AuthorizationAction,
+  AuthorizationDecision,
   AuthorizationResource,
   ControlAcceptedResponse,
   CreateSessionRequest,
@@ -172,6 +173,16 @@ export async function requirePermitted(
   action: AuthorizationAction,
   resource: Omit<AuthorizationResource, "owner_scope">,
 ): Promise<void> {
+  await requireAllowed(authorization, caller, action, resource);
+}
+
+/** requirePermitted, for a caller that records which decision allowed it. */
+export async function requireAllowed(
+  authorization: AuthorizationPolicy,
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+): Promise<AuthorizationDecision> {
   const decision = await authorization
     .authorize({
       subject: caller.subject,
@@ -180,7 +191,7 @@ export async function requirePermitted(
       request_id: caller.requestId,
     })
     .catch(() => null);
-  if (decision?.outcome === "allow") return;
+  if (decision?.outcome === "allow") return decision;
   if (decision?.reason_code === "not_found") {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
