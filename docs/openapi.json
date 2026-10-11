@@ -3082,13 +3082,20 @@
                     "type": "integer",
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
+                  },
+                  "audit_retention_days": {
+                    "default": 90,
+                    "type": "integer",
+                    "minimum": 30,
+                    "maximum": 3650
                   }
                 },
                 "required": [
                   "dispatch_model",
                   "kill_switch",
                   "daily_cost_limit_usd",
-                  "idle_pause_minutes"
+                  "idle_pause_minutes",
+                  "audit_retention_days"
                 ],
                 "additionalProperties": false
               },
@@ -3478,13 +3485,20 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
+                      },
+                      "audit_retention_days": {
+                        "default": 90,
+                        "type": "integer",
+                        "minimum": 30,
+                        "maximum": 3650
                       }
                     },
                     "required": [
                       "dispatch_model",
                       "kill_switch",
                       "daily_cost_limit_usd",
-                      "idle_pause_minutes"
+                      "idle_pause_minutes",
+                      "audit_retention_days"
                     ],
                     "additionalProperties": false
                   },
