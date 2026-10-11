@@ -3,6 +3,7 @@ import {
   type AgentDetail,
   type AgentRelease,
   activateAgentResponseSchema,
+  activationCredentialUnboundDetailsSchema,
   agentDetailSchema,
   apiErrorResponseSchema,
   createAgentReleaseResponseSchema,
@@ -168,12 +169,17 @@ type Routed = Omit<AgentService, "resolveRelease">;
 
 function app(
   agentStore: AgentStore = store(),
-  options: { authorization?: AuthorizationPolicy; person?: boolean } = {},
+  options: {
+    authorization?: AuthorizationPolicy;
+    person?: boolean;
+    unbound?: string[];
+  } = {},
 ) {
   const service = createAgentService({
     authorization: options.authorization ?? allowing,
     store: agentStore,
     catalog: { profiles: { coding: PROFILE }, repositories: {} },
+    credentials: { unboundRefs: async () => options.unbound ?? [] },
   });
   const routed: Routed =
     options.person === false
@@ -491,6 +497,26 @@ describe("POST /v1/agents/{id}/activate", () => {
     );
     expect(response.status).toBe(409);
     expect(await codeOf(response)).toBe("PROFILE_DIGEST_MISMATCH");
+  });
+
+  test("a release naming an unbound credential is 409 CREDENTIAL_UNBOUND with the names", async () => {
+    const response = await send(
+      app(store(), { unbound: ["mcp-notion", "slack_bot_token"] }),
+      "POST",
+      path,
+      body,
+    );
+    expect(response.status).toBe(409);
+    const { error } = (await response.json()) as {
+      error: { code: string; details: unknown };
+    };
+    expect(error.code).toBe("CREDENTIAL_UNBOUND");
+    expect(
+      activationCredentialUnboundDetailsSchema.parse(error.details),
+    ).toEqual({
+      reason_code: "credential_unbound",
+      missing: ["mcp-notion", "slack_bot_token"],
+    });
   });
 
   test("another agent's or a missing release is not found", async () => {

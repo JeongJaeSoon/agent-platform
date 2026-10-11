@@ -56,6 +56,10 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "발급하는 사람이 지금 가진 권한보다 넓은 key는 만들 수 없고, 에이전트 전용 key는 승인 권한을 갖지 못합니다 — scope를 줄여 다시 발급하세요.",
   RELEASE_PROFILE_MISMATCH:
     "이 release는 다른 실행 프로필로 만들어졌습니다 — release의 실행 프로필로 세션을 만드세요.",
+  CREDENTIAL_UNBOUND:
+    "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
+  CREDENTIAL_REF_IN_USE:
+    "이 자격 이름은 에이전트 신원이 쓰고 있어 연결할 수 없어요 — 다른 이름을 고르세요.",
   OWNER_PROTECTED:
     "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
   PROFILE_DIGEST_MISMATCH:

@@ -193,6 +193,43 @@ describe("AgentCard", () => {
   });
 });
 
+describe("credential names", () => {
+  const withRefs = (credential_refs: unknown) => ({
+    ...card,
+    capabilities: { ...card.capabilities, credential_refs },
+  });
+
+  test("a card without them keeps the hash it had before they existed", () => {
+    const parsed = agentCardSchema.parse(card);
+    expect("credential_refs" in parsed.capabilities).toBe(false);
+  });
+
+  test("a card names the credentials it runs with, and naming them is a new version", () => {
+    const parsed = agentCardSchema.parse(
+      withRefs(["slack_bot_token", "mcp:notion/workspace-1"]),
+    );
+    expect(parsed.capabilities.credential_refs).toEqual([
+      "slack_bot_token",
+      "mcp:notion/workspace-1",
+    ]);
+    expect(cardHash(parsed)).not.toBe(cardHash(agentCardSchema.parse(card)));
+  });
+
+  test("a name is a lowercase reference, never a value, and named once", () => {
+    for (const refs of [
+      ["Slack_Bot"],
+      ["xoxb 123"],
+      ["-leading"],
+      ["x".repeat(129)],
+      [""],
+      ["dup", "dup"],
+      Array.from({ length: 33 }, (_, i) => `ref-${i}`),
+    ]) {
+      expect(agentCardSchema.safeParse(withRefs(refs)).success).toBe(false);
+    }
+  });
+});
+
 describe("tool policy", () => {
   test("defaults to built-in allow and MCP ask", () => {
     expect(DEFAULT_TOOL_POLICY).toEqual({ builtin: "allow", mcp: "ask" });

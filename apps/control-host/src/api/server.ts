@@ -5,6 +5,7 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentStore,
   createPostgresAuditRetention,
+  createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresLinkedAccountStore,
@@ -177,17 +178,20 @@ const checkpoints = createApiCheckpoints(
   checkpointStorage,
   checkpointGitMemoryBytes,
 );
+const credentialBindings = createPostgresCredentialBindingStore(db);
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
     : { identity: createDatabaseIdentityReader(db) }),
   agents: createDatabaseAgentAuthority(db),
+  credentials: credentialBindings,
   decisions: createPostgresDecisionLog(db),
 });
 const agents = createAgentService({
   authorization,
   store: createPostgresAgentStore(db),
   catalog,
+  credentials: credentialBindings,
 });
 const sessions = createSessionService({
   authorization,
@@ -199,6 +203,7 @@ const sessions = createSessionService({
   reader: createPostgresSessionReader(db, { logger }),
   catalog,
   releases: agents,
+  credentials: credentialBindings,
   limits,
 });
 // The same parsed limits admission and dispatch run under, so what this

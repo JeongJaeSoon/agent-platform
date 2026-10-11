@@ -903,6 +903,14 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "credential_refs": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+                    }
                   }
                 },
                 "required": [
@@ -1072,6 +1080,14 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "credential_refs": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+                    }
                   }
                 },
                 "required": [
@@ -1254,6 +1270,8 @@
                   "OWNER_PROTECTED",
                   "SCOPE_NOT_GRANTABLE",
                   "RELEASE_PROFILE_MISMATCH",
+                  "CREDENTIAL_UNBOUND",
+                  "CREDENTIAL_REF_IN_USE",
                   "LOGIN_LINK_REQUIRED",
                   "PROFILE_DIGEST_MISMATCH",
                   "ALREADY_EXISTS",
@@ -4188,6 +4206,8 @@
                       "OWNER_PROTECTED",
                       "SCOPE_NOT_GRANTABLE",
                       "RELEASE_PROFILE_MISMATCH",
+                      "CREDENTIAL_UNBOUND",
+                      "CREDENTIAL_REF_IN_USE",
                       "LOGIN_LINK_REQUIRED",
                       "PROFILE_DIGEST_MISMATCH",
                       "ALREADY_EXISTS",
@@ -5350,6 +5370,14 @@
                             }
                           },
                           "additionalProperties": false
+                        },
+                        "credential_refs": {
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+                          }
                         }
                       },
                       "required": [
@@ -6057,6 +6085,85 @@
           "previous_release_id",
           "activation_revision",
           "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "SessionCredentialUnboundDetails": {
+        "type": "object",
+        "properties": {
+          "reason_code": {
+            "type": "string",
+            "const": "credential_unbound"
+          },
+          "guidance": {
+            "type": "string",
+            "const": "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "admins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "user_id",
+                "display_name",
+                "email"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "admin_link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "reason_code",
+          "guidance",
+          "agent_id",
+          "admins",
+          "admin_link"
+        ],
+        "additionalProperties": false
+      },
+      "ActivationCredentialUnboundDetails": {
+        "type": "object",
+        "properties": {
+          "reason_code": {
+            "type": "string",
+            "const": "credential_unbound"
+          },
+          "missing": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+            }
+          }
+        },
+        "required": [
+          "reason_code",
+          "missing"
         ],
         "additionalProperties": false
       },
@@ -8714,7 +8821,7 @@
           "Sessions"
         ],
         "summary": "Durably accept a session and its first input",
-        "description": "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`.",
+        "description": "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names.",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -8920,7 +9027,7 @@
             }
           },
           "409": {
-            "description": "Error: IDEMPOTENCY_CONFLICT, RELEASE_PROFILE_MISMATCH, PROFILE_DIGEST_MISMATCH",
+            "description": "Error: IDEMPOTENCY_CONFLICT, RELEASE_PROFILE_MISMATCH, PROFILE_DIGEST_MISMATCH, CREDENTIAL_UNBOUND",
             "content": {
               "application/json": {
                 "schema": {
@@ -8939,7 +9046,8 @@
                               "enum": [
                                 "IDEMPOTENCY_CONFLICT",
                                 "RELEASE_PROFILE_MISMATCH",
-                                "PROFILE_DIGEST_MISMATCH"
+                                "PROFILE_DIGEST_MISMATCH",
+                                "CREDENTIAL_UNBOUND"
                               ]
                             }
                           }
@@ -17616,7 +17724,7 @@
           "Agents"
         ],
         "summary": "Point the agent at a release (compare-and-swap)",
-        "description": "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again. Sessions already pinned keep their release.",
+        "description": "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
         "security": [
           {
             "cookieSession": []
@@ -17818,7 +17926,7 @@
             }
           },
           "409": {
-            "description": "Error: REVISION_CONFLICT, PROFILE_DIGEST_MISMATCH",
+            "description": "Error: REVISION_CONFLICT, PROFILE_DIGEST_MISMATCH, CREDENTIAL_UNBOUND",
             "content": {
               "application/json": {
                 "schema": {
@@ -17836,7 +17944,8 @@
                               "type": "string",
                               "enum": [
                                 "REVISION_CONFLICT",
-                                "PROFILE_DIGEST_MISMATCH"
+                                "PROFILE_DIGEST_MISMATCH",
+                                "CREDENTIAL_UNBOUND"
                               ]
                             }
                           }

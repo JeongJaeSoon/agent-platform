@@ -16,6 +16,7 @@ import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentStore,
+  createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -113,15 +114,18 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       lockout: new LoginLockout(),
       logger,
     };
+    const credentials = createPostgresCredentialBindingStore(db);
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
       agents: createDatabaseAgentAuthority(db),
+      credentials,
       decisions: createPostgresDecisionLog(db),
     });
     const agents = createAgentService({
       authorization,
       store: createPostgresAgentStore(db),
       catalog,
+      credentials,
     });
     const service = createSessionService({
       limits: {
@@ -136,6 +140,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       reader: createPostgresSessionReader(db),
       catalog,
       releases: agents,
+      credentials,
     });
     const keys = createApiKeyService({
       authorization,

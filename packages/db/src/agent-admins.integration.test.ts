@@ -25,6 +25,7 @@ import { Pool } from "pg";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresWorkspaceKeyStore } from "./api-keys.ts";
+import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import { createPostgresInviteStore } from "./invites.ts";
 import * as schema from "./schema.ts";
@@ -156,6 +157,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       authorization: policy(),
       store: createPostgresAgentStore(db),
       catalog: CATALOG,
+      credentials: createPostgresCredentialBindingStore(db),
     });
   }
 

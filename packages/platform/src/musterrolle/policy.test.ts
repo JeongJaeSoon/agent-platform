@@ -283,7 +283,7 @@ describe("authorize", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: without("sessions:recover"),
-      policy_version: "m4",
+      policy_version: "m12",
     });
   });
 
@@ -692,6 +692,113 @@ describe("personal and service keys", () => {
   });
 });
 
+describe("credentials a starting session needs", () => {
+  const web = callerFor(member, { kind: "web" }, "req-cred");
+  const AGENT = "019a0000-0000-7000-8000-00000000b0c1";
+  const starting = (release_id = "rel-1") =>
+    request(web, {
+      action: "session.submit",
+      resource: {
+        kind: "session",
+        id: null,
+        owner_scope: web.ownerId,
+        agent_id: AGENT,
+        release_id,
+      },
+    });
+
+  function withBindings(unbound: Record<string, string[]>) {
+    const entries: Parameters<DecisionLog["record"]>[0][] = [];
+    const asked: [string, string][] = [];
+    return {
+      entries,
+      asked,
+      policy: createAuthorizationPolicy({
+        credentials: {
+          async unboundRefs(workspaceId, releaseId) {
+            asked.push([workspaceId, releaseId]);
+            return unbound[releaseId] ?? [];
+          },
+        },
+        decisions: {
+          async record(entry) {
+            entries.push(entry);
+          },
+        },
+      }),
+    };
+  }
+
+  test("a release whose credentials are all bound starts", async () => {
+    const { policy: using, asked } = withBindings({});
+    expect(await decide(starting(), using)).toMatchObject({
+      outcome: "allow",
+      reason_code: "ok",
+    });
+    expect(asked).toEqual([[WORKSPACE_A, "rel-1"]]);
+  });
+
+  test("an unbound credential refuses the start, and the refusal is kept", async () => {
+    const { policy: using, entries } = withBindings({ "rel-1": ["mcp-x"] });
+    const decision = await decide(starting(), using);
+    expect(decision).toMatchObject({
+      outcome: "deny",
+      reason_code: "credential_unbound",
+    });
+    expect(entries.map((entry) => entry.decision)).toEqual([decision]);
+  });
+
+  test("the role is judged before the bindings are read", async () => {
+    const { policy: using, asked } = withBindings({ "rel-1": ["mcp-x"] });
+    const reader = callerFor(
+      { ...member, scopes: ["sessions:read"] },
+      { kind: "web" },
+      "req-reader",
+    );
+    expect(
+      await decide({ ...starting(), subject: reader.subject }, using),
+    ).toMatchObject({ reason_code: "role" });
+    expect(asked).toEqual([]);
+  });
+
+  test("with no binding store a release cannot be shown bound", async () => {
+    expect(await decide(starting())).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+  });
+
+  test("a release is named only on a session about to start", async () => {
+    const { policy: using } = withBindings({});
+    expect(
+      await decide(
+        request(web, {
+          resource: {
+            kind: "session",
+            id: SESSION,
+            owner_scope: web.ownerId,
+            release_id: "rel-1",
+          },
+        }),
+        using,
+      ),
+    ).toMatchObject({ reason_code: "error" });
+    expect(
+      await decide(
+        request(web, {
+          resource: {
+            kind: "session",
+            id: null,
+            owner_scope: web.ownerId,
+            release_id: "rel-1",
+          },
+        }),
+        using,
+      ),
+    ).toMatchObject({ reason_code: "error" });
+  });
+});
+
 describe("callerFor records who acts", () => {
   test("a cookie user is recorded as themselves in their workspace", () => {
     expect(callerFor(member, { kind: "web" }, "r").actor).toEqual({
@@ -775,7 +882,7 @@ describe("decision log", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: [],
-      policy_version: "m4",
+      policy_version: "m12",
       decision_id: crypto.randomUUID(),
     };
     expect(
