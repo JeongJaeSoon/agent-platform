@@ -296,7 +296,6 @@ function CardEditor({
         client.PATCH("/v1/agents/{id}", {
           params: {
             path: { id: detail.agent.id },
-            header: { "Idempotency-Key": crypto.randomUUID() },
           },
           body: {
             // Only a name the user changed: sending the one the edit started

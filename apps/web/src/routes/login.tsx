@@ -172,10 +172,12 @@ function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
       <button
         type="button"
         className="ap-button"
-        disabled={start.isPending || start.isSuccess}
+        // Not held after success: back from Google (bfcache) must be able
+        // to start again.
+        disabled={start.isPending}
         onClick={() => start.mutate()}
       >
-        {start.isPending || start.isSuccess
+        {start.isPending
           ? t("login.google.starting")
           : t("login.google.submit")}
       </button>
