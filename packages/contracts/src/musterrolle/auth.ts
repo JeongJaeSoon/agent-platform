@@ -102,6 +102,22 @@ export const loginResponseSchema = z
     }
   });
 
+/**
+ * Holds one Google sign-in flow's state, nonce and PKCE verifier. `__Host-`
+ * for the reason given at WEB_SESSION_COOKIE_NAME.
+ */
+export const GOOGLE_LOGIN_COOKIE_NAME = "__Host-ap_google_login";
+export const GOOGLE_LOGIN_FLOW_TTL_MINUTES = 10;
+export const startGoogleLoginResponseSchema = z
+  .object({ authorization_url: z.url() })
+  .strict();
+export const googleLoginCallbackRequestSchema = z
+  .object({
+    code: z.string().min(1).max(2048),
+    state: z.string().min(1).max(256),
+  })
+  .strict();
+
 /** What the web app boots from: who is authenticated and under which key. */
 export const authMeResponseSchema = z
   .object({
@@ -228,6 +244,12 @@ export type BootstrapResponse = z.infer<typeof bootstrapResponseSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
+export type StartGoogleLoginResponse = z.infer<
+  typeof startGoogleLoginResponseSchema
+>;
+export type GoogleLoginCallbackRequest = z.infer<
+  typeof googleLoginCallbackRequestSchema
+>;
 export type AcceptInviteRequest = z.infer<typeof acceptInviteRequestSchema>;
 export type AcceptInviteResponse = z.infer<typeof acceptInviteResponseSchema>;
 export type IssuePasswordResetRequest = z.infer<
