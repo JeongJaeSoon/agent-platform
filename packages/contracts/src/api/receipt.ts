@@ -42,6 +42,11 @@ export const RECEIPT_OPERATION_VALUES = [
   "recover_owner",
   // An owner taking over a session whose requester was offboarded.
   "takeover",
+  // Invites and roles (94S-153).
+  "invite_member",
+  "accept_invite",
+  "revoke_invite",
+  "change_member_role",
   "create_agent",
   "update_agent",
   "create_agent_release",

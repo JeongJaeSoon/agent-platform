@@ -47,6 +47,11 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "이 이메일로 만든 계정이 이미 있어요 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
   TAKEOVER_REQUIRED:
     "요청한 분이 떠나 관리자가 이어받을 때까지 멈춰요 — 워크스페이스 owner에게 인수를 요청하세요.",
+  INVITE_EXPIRED:
+    "초대가 회수됐거나 새 초대로 바뀌었거나 만료됐습니다 — 관리자에게 새 초대를 요청하세요.",
+  INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
+  LAST_OWNER:
+    "워크스페이스에는 owner가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 owner로 바꾸세요.",
   PROFILE_DIGEST_MISMATCH:
     "이 release를 만든 뒤 실행 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
   ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",

@@ -1,3 +1,5 @@
+import type { Principal } from "../musterrolle/policy.ts";
+
 export type IdentityUser = {
   id: string;
   email: string;
@@ -110,6 +112,8 @@ export type ExternalSignInInput = {
   ownsEmail: boolean;
   newUserId: string;
   newLoginMethodId: string;
+  /** The accept_invite receipt's id, used only when an invite admits them. */
+  receiptId: string;
   session: {
     id: string;
     tokenHash: Uint8Array;
@@ -193,4 +197,127 @@ export class BootstrapTokenSpentError extends Error {
     super("This BOOTSTRAP_TOKEN has already been used");
     this.name = "BootstrapTokenSpentError";
   }
+}
+
+export type InviteRecord = {
+  id: string;
+  workspaceId: string;
+  email: string;
+  role: MembershipRole;
+  invitedBy: string;
+  /** Judged on the database clock when the row was read. */
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expiresAt: Date;
+  acceptedAt: Date | null;
+  revokedAt: Date | null;
+  createdAt: Date;
+};
+
+export type MemberRecord = {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: MembershipRole;
+  /** The membership's or the account's, whichever ended first. */
+  disabledAt: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * The caller of a management write. Its person is re-checked as a live owner
+ * of `workspaceId` under the write's own locks; the receipt is written under
+ * its partition with its actor.
+ */
+export type ActingOwner = {
+  principal: Principal;
+  workspaceId: string;
+  userId: string;
+};
+
+export type CreateInviteResult =
+  | { outcome: "created"; invite: InviteRecord }
+  | { outcome: "already_member" }
+  | { outcome: "actor_inactive" };
+
+export type RevokeInviteResult =
+  | { outcome: "revoked" | "already_revoked" }
+  | { outcome: "not_found" | "accepted" | "actor_inactive" };
+
+export type ChangeRoleResult =
+  | { outcome: "changed"; member: MemberRecord }
+  | { outcome: "not_found" | "last_owner" | "actor_inactive" };
+
+/** What redeeming a token would do, read before any password is hashed. */
+export type InvitePeek =
+  | {
+      outcome: "pending";
+      email: string;
+      /** Null when no account has this email. */
+      existingUser: { id: string; passwordHash: string } | null;
+    }
+  | { outcome: "expired" | "used" | "unknown" };
+
+export type AcceptInviteInput = {
+  tokenHash: Uint8Array;
+  /**
+   * The account the peek saw: its id and the hash the caller's password was
+   * verified against, or the hash of the password for a new account.
+   */
+  account:
+    | { kind: "existing"; userId: string; verifiedPasswordHash: string }
+    | {
+        kind: "new";
+        userId: string;
+        passwordHash: string;
+        displayName: string;
+        loginMethodId: string;
+      };
+  session: {
+    id: string;
+    tokenHash: Uint8Array;
+    ttlMs: number;
+    userAgent: string | null;
+    maxLive: number;
+  };
+  receiptId: string;
+};
+
+export type AcceptInviteResult =
+  | {
+      outcome: "accepted";
+      userId: string;
+      workspaceId: string;
+      role: MembershipRole;
+      sessionExpiresAt: Date;
+    }
+  | { outcome: "expired" | "used" }
+  /** The account changed between the peek and the write; ask again. */
+  | { outcome: "account_changed" };
+
+export interface InviteStore {
+  /** Revokes the address's live invite, if any, in the same transaction. */
+  createInvite(input: {
+    id: string;
+    actor: ActingOwner;
+    email: string;
+    role: MembershipRole;
+    tokenHash: Uint8Array;
+    ttlMs: number;
+    receiptId: string;
+  }): Promise<CreateInviteResult>;
+  listInvites(workspaceId: string, limit: number): Promise<InviteRecord[]>;
+  revokeInvite(input: {
+    id: string;
+    actor: ActingOwner;
+    receiptId: string;
+  }): Promise<RevokeInviteResult>;
+  peekInvite(tokenHash: Uint8Array): Promise<InvitePeek>;
+  acceptInvite(input: AcceptInviteInput): Promise<AcceptInviteResult>;
+  listMembers(workspaceId: string): Promise<MemberRecord[]>;
+  changeMemberRole(input: {
+    userId: string;
+    role: MembershipRole;
+    actor: ActingOwner;
+    receiptId: string;
+  }): Promise<ChangeRoleResult>;
 }

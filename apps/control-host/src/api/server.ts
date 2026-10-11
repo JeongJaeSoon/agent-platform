@@ -5,6 +5,7 @@ import {
   createPostgresAgentStore,
   createPostgresAuditRetention,
   createPostgresDecisionLog,
+  createPostgresInviteStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresSessionControl,
@@ -22,6 +23,7 @@ import {
   createAgentService,
   createAuthorizationPolicy,
   createInterruptService,
+  createInviteService,
   createMemberService,
   createPendingRequestService,
   createSessionService,
@@ -70,6 +72,10 @@ import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import {
+  registerInviteRoutes,
+  registerPublicInviteRoutes,
+} from "./routes/invites.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
@@ -200,6 +206,8 @@ const agents = createAgentService({
   store: createPostgresAgentStore(db),
   catalog,
 });
+const inviteStore = createPostgresInviteStore(db);
+const invites = createInviteService({ authorization, store: inviteStore });
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -266,18 +274,21 @@ if (google.problems.length > 0) {
     `Invalid Google sign-in settings: ${google.problems.join("; ")}`,
   );
 }
+// One window and one hashing gate for every account password check (login,
+// the reset issuer's re-check, invite accept), so no route resets another's
+// count.
+const lockout = new LoginLockout();
+const passwordWork = new WorkGate();
 const auth = {
   identity,
   ...(google.config ? { google: createGoogleLogin(google.config) } : {}),
+  lockout,
+  passwordWork,
   bootstrap: await bootstrapGateFromEnv(
     process.env.BOOTSTRAP_TOKEN,
     identity,
     logger,
   ),
-  // One window and one hashing gate for login and the issuer's password
-  // check, so neither route resets the other's count.
-  lockout: new LoginLockout(),
-  passwordWork: new WorkGate(),
   logger,
 };
 const probePool = createProbePool(databaseUrl, logger);
@@ -288,9 +299,19 @@ const app = createApiApp({
   keyStore: new DatabaseApiKeyStore(db),
   identity,
   authorization,
-  registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+  registerPublicRoutes: (router) => {
+    registerPublicAuthRoutes(router, auth);
+    registerPublicInviteRoutes(router, {
+      invites: inviteStore,
+      identity,
+      lockout,
+      passwordWork,
+      logger,
+    });
+  },
   registerRoutes: (router) => {
     registerAuthRoutes(router, auth);
+    registerInviteRoutes(router, invites);
     registerWorkspaceRoutes(router, {
       authorization,
       retention: createPostgresAuditRetention(db),
@@ -301,7 +322,7 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
-    registerMemberRoutes(router, members);
+    registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,

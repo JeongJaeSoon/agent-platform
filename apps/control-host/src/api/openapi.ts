@@ -1,5 +1,7 @@
 import {
   type ApiErrorCode,
+  acceptInviteRequestSchema,
+  acceptInviteResponseSchema,
   activateAgentRequestSchema,
   activateAgentResponseSchema,
   agentDetailSchema,
@@ -14,6 +16,8 @@ import {
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
+  createInviteRequestSchema,
+  createInviteResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
   getReceiptResponseSchema,
@@ -23,9 +27,12 @@ import {
   healthResponseSchema,
   installationLimitsResponseSchema,
   interruptSessionRequestSchema,
+  inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
   listAgentsResponseSchema,
+  listInvitesResponseSchema,
+  listMembersResponseSchema,
   listPendingRequestsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
@@ -35,6 +42,8 @@ import {
   loginRequestSchema,
   loginResponseSchema,
   memberParamsSchema,
+  memberUserParamsSchema,
+  memberViewSchema,
   passwordResetRequestSchema,
   passwordResetResponseSchema,
   pauseSessionRequestSchema,
@@ -58,6 +67,7 @@ import {
   turnIdParamsSchema,
   turnSummarySchema,
   updateAgentRequestSchema,
+  updateMemberRequestSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
 } from "@agent-platform/contracts";
@@ -85,6 +95,9 @@ const requestComponents = {
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
+  CreateInviteRequest: createInviteRequestSchema,
+  AcceptInviteRequest: acceptInviteRequestSchema,
+  UpdateMemberRequest: updateMemberRequestSchema,
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   CreateAgentRequest: createAgentRequestSchema,
@@ -109,6 +122,11 @@ const responseComponents = {
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
   ListTakeoversResponse: listTakeoversResponseSchema,
+  CreateInviteResponse: createInviteResponseSchema,
+  ListInvitesResponse: listInvitesResponseSchema,
+  AcceptInviteResponse: acceptInviteResponseSchema,
+  ListMembersResponse: listMembersResponseSchema,
+  MemberView: memberViewSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
@@ -165,7 +183,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Members",
     description:
-      "Take over the sessions of members who were offboarded. Owners only.",
+      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners only, from a browser session.",
   },
   {
     name: "Workspace settings",
@@ -190,7 +208,7 @@ type ComponentName =
 type ApiTagName = (typeof OPENAPI_TAGS)[number]["name"];
 
 type RouteDeclaration = {
-  method: "get" | "post" | "patch";
+  method: "get" | "post" | "patch" | "delete";
   path: string;
   operationId: string;
   tag: ApiTagName;
@@ -644,6 +662,87 @@ const API_ROUTE_DECLARATIONS = [
     },
   },
   {
+    method: "post",
+    path: "/v1/invites",
+    operationId: "createInvite",
+    tag: "Members",
+    summary: "Invite a person to the workspace",
+    description:
+      "The token is returned once and expires in seven days; only its sha256 is stored. Inviting an address that already has a live invite revokes that invite. An address that is already a live member answers 400. Every invite writes an `invite_member` receipt.",
+    auth: "session",
+    body: "CreateInviteRequest",
+    success: { status: 201, schema: "CreateInviteResponse" },
+    errors: [400, 401, 403, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/invites",
+    operationId: "listInvites",
+    tag: "Members",
+    summary: "Invites of the workspace, newest first",
+    description:
+      "Each invite's status is pending, accepted, revoked or expired. Tokens are never returned.",
+    auth: "session",
+    success: { status: 200, schema: "ListInvitesResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/invites/{id}",
+    operationId: "revokeInvite",
+    tag: "Members",
+    summary: "Revoke an invite",
+    description:
+      "Writes a `revoke_invite` receipt. Revoking an invite that was already revoked does nothing; an accepted one answers 409.",
+    auth: "session",
+    success: { status: 204 },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["INVITE_USED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/invites/accept",
+    operationId: "acceptInvite",
+    tag: "Members",
+    summary: "Redeem an invite; sets the session cookie",
+    description:
+      "An address with no account gets one with this password. An existing account joins with its current password, which is never changed. The token is spent once; a revoked, replaced or expired token answers 410, an accepted one 409. Writes an `accept_invite` receipt.",
+    auth: "public",
+    csrf: "always",
+    body: "AcceptInviteRequest",
+    success: { status: 200, schema: "AcceptInviteResponse" },
+    errors: [400, 401, 403, 409, 410, 413, 429, 503],
+    errorCodes: { 409: ["INVITE_USED"], 410: ["INVITE_EXPIRED"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/members",
+    operationId: "listMembers",
+    tag: "Members",
+    summary: "Members of the workspace, oldest first",
+    auth: "session",
+    success: { status: 200, schema: "ListMembersResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/members/{user_id}",
+    operationId: "updateMember",
+    tag: "Members",
+    summary: "Change a member's role",
+    description:
+      "Demoting the workspace's last live owner answers 409 LAST_OWNER. Writes a `change_member_role` receipt when the role changes.",
+    auth: "session",
+    body: "UpdateMemberRequest",
+    success: { status: 200, schema: "MemberView" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["LAST_OWNER"] },
+    idempotent: false,
+  },
+  {
     method: "get",
     path: "/v1/takeovers",
     operationId: "listTakeovers",
@@ -778,7 +877,7 @@ export type ApiOperationId =
  * probes, the public auth routes and cookie-only logout.
  */
 export const API_ROUTE_SCOPES: ReadonlyArray<{
-  method: "GET" | "POST";
+  method: Uppercase<RouteDeclaration["method"]>;
   path: string;
   scope: SessionScope;
 }> = API_ROUTE_DECLARATIONS.flatMap((declaration) => {
@@ -786,7 +885,9 @@ export const API_ROUTE_SCOPES: ReadonlyArray<{
   return route.scope
     ? [
         {
-          method: route.method === "get" ? "GET" : "POST",
+          method: route.method.toUpperCase() as Uppercase<
+            RouteDeclaration["method"]
+          >,
           path: route.path,
           scope: `sessions:${route.scope}` as SessionScope,
         },
@@ -802,6 +903,9 @@ function securityFor(route: RouteDeclaration): Array<Record<string, string[]>> {
   return route.scope ? [{ bearerApiKey: [] }, { cookieSession: [] }] : [];
 }
 
+// The /v1 middleware refuses a cookie-authenticated mutation without the
+// CSRF header (403), so every such operation documents both; bearer calls
+// never send it, hence `required: false`.
 function takesCookieMutation(route: RouteDeclaration): boolean {
   return (
     route.method !== "get" &&
@@ -869,6 +973,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
+  if (path === "/v1/invites/{id}") return inviteIdParamsSchema;
+  if (path === "/v1/members/{user_id}") return memberUserParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
@@ -926,7 +1032,7 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
     if (!querySchema) throw new Error(`Missing query schema ${route.query}`);
     parameters.push(...queryParameters(querySchema));
   }
-  if (route.method === "post" && route.idempotent !== false) {
+  if (route.method !== "get" && route.idempotent !== false) {
     parameters.push({
       name: "Idempotency-Key",
       in: "header",

@@ -104,6 +104,23 @@ export async function bootstrapOwner(
       .limit(1);
     const recovered = (await countUsers(tx)) > 0;
     if (recovered && existing) {
+      // An invite issued before recovery would let its holder in as whatever
+      // role the lost owners chose. Revoked before any user row is locked:
+      // accepting and issuing take the invite before the user.
+      await tx
+        .update(invites)
+        .set({ revokedAt: DB_NOW })
+        .where(
+          and(
+            eq(invites.workspaceId, existing.id),
+            isNull(invites.acceptedAt),
+            isNull(invites.revokedAt),
+          ),
+        );
+      // That update may have waited on an accept that made a live owner.
+      if ((await countLiveOwners(tx)) > 0) {
+        throw new BootstrapDoneError();
+      }
       // Every user this transaction will write, in id order, before the
       // first write: a reset issue locks its issuer and target the same way,
       // so restoring one of them cannot hold a row the issue needs while
@@ -747,6 +764,28 @@ export async function signInWithExternalIdentity(
         .update(invites)
         .set({ acceptedAt: DB_NOW })
         .where(eq(invites.id, invite.id));
+      // The same receipt a password accept writes.
+      await tx.insert(receipts).values({
+        id: input.receiptId,
+        ownerId: invite.workspaceId,
+        actor: {
+          principal: { kind: "user", id: input.newUserId },
+          actor_user_id: input.newUserId,
+          agent_id: null,
+        },
+        operation: "accept_invite",
+        targetRef: {
+          resource: { kind: "invite", id: invite.id },
+          workspace_id: invite.workspaceId,
+        },
+        status: "succeeded",
+        result: {
+          user_id: input.newUserId,
+          role: admission.role,
+          new_account: true,
+          login_method: input.kind,
+        },
+      });
     }
     const { expiresAt } = await insertWebSession(tx, {
       ...input.session,

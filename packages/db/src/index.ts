@@ -9,6 +9,7 @@ export * from "./execution-revocation.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";
 export * from "./interrupt-control.ts";
+export * from "./invites.ts";
 export * from "./lease-reconcile.ts";
 export * from "./members.ts";
 export * from "./migration-head.ts";
