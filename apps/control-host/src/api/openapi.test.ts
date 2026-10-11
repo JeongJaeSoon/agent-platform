@@ -120,11 +120,11 @@ describe("OpenAPI document", () => {
         const header = operation.parameters.find(
           (p) => p.in === "header" && p.name === "X-Requested-With",
         );
-        if (path === "/v1/auth/login") {
-          // Login sets the cookie, so every caller sends the header.
+        if (path === "/v1/auth/login" || path === "/v1/invites/accept") {
+          // Both set the cookie, so every caller sends the header.
           expect(header?.required, path).toBe(true);
           expect(operation.responses, path).toHaveProperty("403");
-        } else if (method === "post" && cookie) {
+        } else if (method !== "get" && cookie) {
           checked.push(`${method} ${path}`);
           expect(header?.required, path).toBe(false);
           expect(operation.responses, path).toHaveProperty("403");
@@ -135,6 +135,8 @@ describe("OpenAPI document", () => {
     }
     expect(checked).toContain("post /v1/sessions");
     expect(checked).toContain("post /v1/auth/logout");
+    expect(checked).toContain("patch /v1/members/{user_id}");
+    expect(checked).toContain("delete /v1/invites/{id}");
     expect(checked).not.toContain("post /v1/auth/login");
   });
 
@@ -170,6 +172,11 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/usage",
         "/v1/workspaces/{id}/members/{userId}/password-reset",
         "/v1/takeovers",
+        "/v1/invites",
+        "/v1/invites/accept",
+        "/v1/invites/{id}",
+        "/v1/members",
+        "/v1/members/{user_id}",
       ].sort(),
     );
     const rendered = renderOpenApiDocument();
