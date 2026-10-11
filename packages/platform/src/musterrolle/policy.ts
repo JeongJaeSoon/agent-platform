@@ -128,6 +128,7 @@ export const MANAGEMENT_ROLES: Partial<
   "member.manage": ["owner"],
   "api_key.manage": ["owner"],
   "api_key.manage_own": ["owner", "member"],
+  "account.link": ["owner", "member"],
   "agent.manage": ["owner"],
   "binding.manage": ["owner"],
 };
@@ -171,6 +172,7 @@ export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
     "agent.manage",
     "binding.manage",
     "routine.manage",
+    "account.link",
     "session.approve",
   ],
 );

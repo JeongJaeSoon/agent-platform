@@ -57,6 +57,13 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
   CATALOG_MISMATCH:
     "이 세션의 프로필·저장소 조합이 더 이상 허용되지 않아 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
+  SLACK_NOT_INSTALLED:
+    "Slack이 아직 설치되지 않았어요 — owner·admin에게 Slack 설치를 요청하세요.",
+  LINK_TEAM_MISMATCH:
+    "연결된 Slack 워크스페이스가 아니에요 — 안내된 워크스페이스 계정으로 다시 시도하세요.",
+  LINK_TAKEN:
+    "이 Slack 계정은 다른 사용자에게 연결돼 있어요 — owner·admin에게 문의하세요.",
+  LINK_EXISTS: "이미 연결된 Slack 계정이 있어요 — 해제한 뒤 다시 연결하세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",
   CURSOR_EXPIRED: "이어보기 위치가 만료됐습니다 — 처음부터 다시 불러오세요.",
   LEASE_EXPIRED: "실행 점유가 만료됐습니다 — 현재 상태를 확인하세요.",
