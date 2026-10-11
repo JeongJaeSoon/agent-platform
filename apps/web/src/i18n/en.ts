@@ -5,6 +5,7 @@ export const en: Record<MessageKey, string> = {
   "common.retry": "Try again",
   "common.logout": "Log out",
   "common.loggingOut": "Logging out…",
+  "common.logoutFailed": "Logging out failed; you are still logged in.",
   "common.language": "Language",
   "common.skipToContent": "Skip to content",
   "common.done": "Done",

@@ -43,7 +43,12 @@ const authed = createRoute({
   id: "authed",
   beforeLoad: async ({ context, location }) => {
     try {
-      await context.queryClient.ensureQueryData(meQuery(context.client));
+      // A cached principal is checked again once stale, so a session that
+      // ended elsewhere does not keep the old identity on screen.
+      await context.queryClient.ensureQueryData({
+        ...meQuery(context.client),
+        revalidateIfStale: true,
+      });
     } catch (error) {
       if (isApiError(error, "UNAUTHORIZED")) {
         throw redirect({

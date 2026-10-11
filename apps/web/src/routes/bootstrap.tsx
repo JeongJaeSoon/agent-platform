@@ -74,6 +74,7 @@ export function BootstrapScreen() {
   const hintId = useId();
 
   const create = useMutation<unknown, ApiError>({
+    meta: { public: true },
     mutationFn: () => unwrap(client.POST("/v1/auth/bootstrap", { body: form })),
     onSuccess: () => navigate({ to: "/login", search: { notice: "created" } }),
     onError: async (error) => {

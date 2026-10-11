@@ -8,12 +8,7 @@ import { ApiError, isApiError, unwrap } from "../api/client.ts";
 import { useMe } from "../auth/guard.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import {
-  errorKey as errorKeyOf,
-  LOCALES,
-  type Locale,
-  useI18n,
-} from "../i18n/i18n.tsx";
+import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
 export function RootLayout() {
@@ -56,10 +51,16 @@ export function AuthedLayout() {
   const me = useMe();
   const { client, queryClient } = useServices();
   const navigate = useNavigate();
-  const logout = useMutation({
-    mutationFn: () => unwrap(client.POST("/v1/auth/logout")),
-    // Logged out or not, this page must stop showing the old identity.
-    onSettled: async () => {
+  const logout = useMutation<unknown, ApiError>({
+    // A 401 means the session is already gone, which is what was asked.
+    meta: { public: true },
+    mutationFn: () =>
+      unwrap(client.POST("/v1/auth/logout")).catch((error: unknown) => {
+        if (!isApiError(error, "UNAUTHORIZED")) throw error;
+      }),
+    // Only once the server has dropped the session: on any other failure the
+    // cookie still works, and saying "logged out" would be a lie.
+    onSuccess: async () => {
       queryClient.clear();
       await navigate({ to: "/login", search: { notice: "logged_out" } });
     },
@@ -86,6 +87,11 @@ export function AuthedLayout() {
         </button>
       </header>
       <Main className="web-shell__main">
+        {logout.error ? (
+          <p className="web-form__error" role="alert">
+            {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
+          </p>
+        ) : null}
         <Outlet />
       </Main>
     </div>
@@ -107,9 +113,7 @@ export function AuthedError({ error, reset }: ErrorComponentProps) {
         <h2 className="web-status__title">{t("status.error.title")}</h2>
         <p className="web-status__body">
           {t(
-            error instanceof ApiError
-              ? errorKeyOf(error.code)
-              : "error.UNKNOWN",
+            error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN",
           )}
         </p>
         <button type="button" className="ap-button" onClick={reset}>

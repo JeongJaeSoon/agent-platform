@@ -10,25 +10,20 @@ import {
 
 const { render, screen, waitFor } = await setupDom();
 // After the DOM exists: the router and Testing Library look for it on load.
-const { QueryClient } = await import("@tanstack/react-query");
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
-const { createApiClient } = await import("./api/client.ts");
 const { GuardedButton } = await import("./auth/guard.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
-const { ServicesProvider } = await import("./services.tsx");
+const { createServices, ServicesProvider } = await import("./services.tsx");
 
 type Routes = Parameters<typeof fakeApi>[0];
 
 function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
   const api = fakeApi(routes);
-  const services = {
-    client: createApiClient({
-      baseUrl: "https://console.test",
-      fetch: api.fetch,
-    }),
-    queryClient: new QueryClient(),
-  };
+  const services = createServices({
+    baseUrl: "https://console.test",
+    fetch: api.fetch,
+  });
   const history = createMemoryHistory({ initialEntries: [path] });
   render(<App services={services} history={history} locale={locale} />);
   return { api, history, services };
@@ -124,16 +119,47 @@ describe("workspace shell", () => {
     expect(logout?.headers.get("x-requested-with")).toBe("agent-platform-web");
     expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
   });
-  test("로그아웃이 실패해도 이전 신원을 지우고 로그인으로 간다", async () => {
-    const { history, services } = renderAt("/", {
+  test("로그아웃이 실패하면 로그인된 채로 남고 그렇게 말한다", async () => {
+    const { history } = renderAt("/", {
       ...meOk,
       "POST /v1/auth/logout": () =>
         apiError(503, "BACKEND_UNAVAILABLE", "Storage is unavailable"),
     });
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "로그아웃하지 못해 아직 로그인된 상태입니다.",
+    );
+    expect(history.location.pathname).toBe("/");
+    expect(screen.queryByText("로그아웃했습니다.")).toBeNull();
+  });
+
+  test("이미 끝난 세션의 로그아웃(401)은 로그아웃으로 친다", async () => {
+    const { history } = renderAt("/", {
+      ...meOk,
+      "POST /v1/auth/logout": () =>
+        apiError(401, "UNAUTHORIZED", "Authentication is required"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
+  });
+
+  test("캐시된 신원이 있어도 세션이 끝나면(401) 지우고 로그인으로 간다", async () => {
+    let expired = false;
+    const { history, services } = renderAt("/", {
+      "GET /v1/auth/me": () =>
+        expired
+          ? apiError(401, "UNAUTHORIZED", "Authentication is required")
+          : json(200, me()),
+    });
+    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expired = true;
+    await services.queryClient.refetchQueries({ queryKey: ["me"] });
+    expect(await screen.findByText("다시 로그인하세요")).toBeDefined();
+    expect(history.location.pathname).toBe("/login");
+    expect(screen.queryByText("Acme")).toBeNull();
     expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
   });
 });
@@ -280,12 +306,9 @@ describe("bootstrap", () => {
 
 describe("권한 없는 버튼", () => {
   async function renderButton(scopes: Parameters<typeof me>[0]) {
-    const queryClient = new QueryClient();
+    const services = createServices({ baseUrl: "https://console.test" });
+    const { queryClient } = services;
     queryClient.setQueryData(["me"], me(scopes));
-    const services = {
-      client: createApiClient({ baseUrl: "https://console.test" }),
-      queryClient,
-    };
     const { QueryClientProvider } = await import("@tanstack/react-query");
     render(
       <I18nProvider locale="ko">

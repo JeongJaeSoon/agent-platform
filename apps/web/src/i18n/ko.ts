@@ -10,6 +10,7 @@ export const ko = {
   "common.retry": "다시 시도",
   "common.logout": "로그아웃",
   "common.loggingOut": "로그아웃하는 중…",
+  "common.logoutFailed": "로그아웃하지 못해 아직 로그인된 상태입니다.",
   "common.language": "언어",
   "common.skipToContent": "본문으로 건너뛰기",
   "common.done": "완료",

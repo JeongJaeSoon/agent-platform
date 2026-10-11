@@ -51,6 +51,7 @@ export function LoginScreen() {
   const [password, setPassword] = useState("");
 
   const login = useMutation<unknown, ApiError>({
+    meta: { public: true },
     mutationFn: () =>
       unwrap(
         client.POST("/v1/auth/login", {
