@@ -233,6 +233,26 @@ integration("linked_accounts on PostgreSQL", () => {
       );
     });
 
+    test("an account linked in another workspace is taken, even by the same person", async () => {
+      const { ws, team, user } = await setup();
+      const account = slack(team);
+      const first = await linked(ws, user, account);
+      const second = await workspace();
+      await install(second, team);
+      await db
+        .insert(memberships)
+        .values({ workspaceId: second, userId: user, role: "member" });
+      expect(await link(second, user, account)).toEqual({ outcome: "taken" });
+      const rows = await db
+        .select({
+          id: linkedAccounts.id,
+          workspaceId: linkedAccounts.workspaceId,
+        })
+        .from(linkedAccounts)
+        .where(eq(linkedAccounts.externalUserId, account.externalUserId));
+      expect(rows).toEqual([{ id: first.account.id, workspaceId: ws }]);
+    });
+
     test("two people racing for one account: one links, the other is told it is taken", async () => {
       const { ws, team, user } = await setup();
       const other = await member(ws, "member");
