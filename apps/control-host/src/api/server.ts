@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
+  createPostgresInviteStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresSessionControl,
@@ -18,6 +19,7 @@ import {
   catalogRevision,
   createAuthorizationPolicy,
   createInterruptService,
+  createInviteService,
   createMemberService,
   createPendingRequestService,
   createSessionService,
@@ -64,6 +66,10 @@ import { createReadinessProbe } from "./readiness.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import {
+  registerInviteRoutes,
+  registerPublicInviteRoutes,
+} from "./routes/invites.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
@@ -185,6 +191,8 @@ const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
 });
+const inviteStore = createPostgresInviteStore(db);
+const invites = createInviteService({ authorization, store: inviteStore });
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -245,17 +253,20 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
+// One window and one hashing gate for every account password check (login,
+// the reset issuer's re-check, invite accept), so no route resets another's
+// count.
+const lockout = new LoginLockout();
+const passwordWork = new WorkGate();
 const auth = {
   identity,
+  lockout,
+  passwordWork,
   bootstrap: await bootstrapGateFromEnv(
     process.env.BOOTSTRAP_TOKEN,
     identity,
     logger,
   ),
-  // One window and one hashing gate for login and the issuer's password
-  // check, so neither route resets the other's count.
-  lockout: new LoginLockout(),
-  passwordWork: new WorkGate(),
   logger,
 };
 const probePool = createProbePool(databaseUrl, logger);
@@ -265,16 +276,26 @@ const app = createApiApp({
   logger,
   keyStore: new DatabaseApiKeyStore(db),
   identity,
-  registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+  registerPublicRoutes: (router) => {
+    registerPublicAuthRoutes(router, auth);
+    registerPublicInviteRoutes(router, {
+      invites: inviteStore,
+      identity,
+      lockout,
+      passwordWork,
+      logger,
+    });
+  },
   registerRoutes: (router) => {
     registerAuthRoutes(router, auth);
+    registerInviteRoutes(router, invites);
     registerSessionRoutes(router, sessions);
     registerPauseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
-    registerMemberRoutes(router, members);
+    registerMemberRoutes(router, members, invites);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
