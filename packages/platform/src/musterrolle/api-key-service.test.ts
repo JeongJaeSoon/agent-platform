@@ -212,6 +212,27 @@ describe("issuing a key", () => {
     expect(issued).toHaveLength(0);
   });
 
+  test("the store's recheck under the issuer's lock has the last word", async () => {
+    for (const [outcome, code] of [
+      ["outranked", "FORBIDDEN"],
+      ["scope_not_grantable", "SCOPE_NOT_GRANTABLE"],
+    ] as const) {
+      const fake = fakeStore();
+      fake.store.issue = async (input) => {
+        fake.issued.push(input);
+        return { outcome };
+      };
+      const { keys } = service(fake);
+      expect(
+        (await refusal(keys.issue(user(OWNER, "owner"), service_))).code,
+      ).toBe(code);
+      expect(fake.issued[0]?.issuerRoles).toEqual(["owner", "admin"]);
+    }
+    const { keys, issued: own } = service();
+    await keys.issue(user(MEMBER, "member"), personal);
+    expect(own[0]?.issuerRoles).toEqual(["owner", "admin", "member"]);
+  });
+
   test("a past expiry is refused", async () => {
     const { keys } = service();
     const error = await refusal(
