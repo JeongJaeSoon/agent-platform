@@ -570,6 +570,8 @@
                   "LAUNCH_FAILED",
                   "CATALOG_MISMATCH",
                   "TAKEOVER_REQUIRED",
+                  "PROFILE_DIGEST_MISMATCH",
+                  "ALREADY_EXISTS",
                   "NOT_READY",
                   "CURSOR_EXPIRED",
                   "LEASE_EXPIRED",
@@ -2738,7 +2740,11 @@
               "issue_password_reset",
               "reset_password",
               "recover_owner",
-              "takeover"
+              "takeover",
+              "create_agent",
+              "update_agent",
+              "create_agent_release",
+              "activate_agent"
             ]
           },
           "target_ref": {
@@ -2969,6 +2975,8 @@
                       "LAUNCH_FAILED",
                       "CATALOG_MISMATCH",
                       "TAKEOVER_REQUIRED",
+                      "PROFILE_DIGEST_MISMATCH",
+                      "ALREADY_EXISTS",
                       "NOT_READY",
                       "CURSOR_EXPIRED",
                       "LEASE_EXPIRED",

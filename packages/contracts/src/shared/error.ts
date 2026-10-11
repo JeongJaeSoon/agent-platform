@@ -39,6 +39,10 @@ export const API_ERROR_CODE_VALUES = [
   // The person who asked for the session was offboarded; it takes no input
   // until an owner takes it over.
   "TAKEOVER_REQUIRED",
+  // A release was made against a runtime profile whose settings have changed
+  // since; it has to be released again before it can run.
+  "PROFILE_DIGEST_MISMATCH",
+  "ALREADY_EXISTS",
   "NOT_READY",
   "CURSOR_EXPIRED",
   "LEASE_EXPIRED",
