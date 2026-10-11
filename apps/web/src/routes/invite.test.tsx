@@ -68,6 +68,21 @@ describe("초대 수락", () => {
     expect(screen.queryByRole("button", { name: "초대 수락" })).toBeNull();
   });
 
+  test("다른 초대 링크로 옮기면 앞 초대의 결과를 들고 가지 않는다", async () => {
+    const { history } = renderAt(`/invite/${TOKEN}`, {
+      "GET /v1/auth/me": signedOut,
+      "POST /v1/invites/accept": () =>
+        apiError(410, "INVITE_EXPIRED", "This invite was revoked"),
+    });
+    await accept();
+    await screen.findByRole("alert");
+    history.push(`/invite/${"u".repeat(43)}`);
+    expect(
+      await screen.findByRole("button", { name: "초대 수락" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   test("이미 쓴 초대(409)는 로그인으로 안내한다", async () => {
     renderAt(`/invite/${TOKEN}`, {
       "GET /v1/auth/me": signedOut,
