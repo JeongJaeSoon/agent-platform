@@ -88,7 +88,8 @@ run, project, checkout SHA, API 주소, 서비스별 상태, `/readyz`를 보여
 - `scripts/local.sh down`을 같은 env로 돌린다(volume까지 지우고, installation label이 붙은 worker 컨테이너·네트워크·volume도 지운다).
 - 이어서 `--profile apps --profile fake-model`과 `-f compose.yaml -f ports.yml -f infra/compose.fake-model.yml`로 `down -v --remove-orphans`를 한 번 더 한다. profile이나 fake-model overlay가 빠지면 api·scheduler·reconciler와 `fake-messages`, `<project>_default` 네트워크가 남는 일이 있었다.
 - 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너를 보여 주고 `evidence/leftovers.txt`에 쓴다. 남은 것이 있으면 exit 1.
-- `ports.yml`(token이 든 파일)은 지우고, `evidence/`는 남긴다. 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
+- 다 성공하면 `ports.yml`(token이 든 파일)과 cookie를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run 디렉터리>`를 다시 돌린다. 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
+- `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project로 넘어가지 않게 하려는 것이다.
 
 ## 알려진 함정
 
