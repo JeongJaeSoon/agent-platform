@@ -62,12 +62,15 @@ function AuditRetention({
         }),
       ),
     onMutate: () => onOutcome(null),
-    onSuccess: async ({ audit_retention_days }) => {
+    onSuccess: async ({ audit_retention_days }, sent) => {
       onOutcome({
         kind: "notice",
         text: t("workspace.retentionSaved", { days: audit_retention_days }),
       });
-      setDraft(null);
+      // Keep anything typed while the save was in flight.
+      setDraft((typed) =>
+        typed !== null && Number(typed) !== sent ? typed : null,
+      );
       await queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
     onError: (error) =>

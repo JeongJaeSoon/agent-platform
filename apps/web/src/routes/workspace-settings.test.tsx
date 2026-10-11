@@ -81,6 +81,34 @@ describe("워크스페이스 설정", () => {
     await waitFor(() => expect(input.value).toBe("365"));
   });
 
+  test("저장하는 동안 고친 입력은 저장이 끝나도 남는다", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${RETENTION}`]: async () => {
+        await held;
+        return json(200, { audit_retention_days: 180 });
+      },
+    });
+    const input = (await screen.findByLabelText(
+      "보존 기간(일)",
+    )) as HTMLInputElement;
+    const user = await setupUser();
+    await user.clear(input);
+    await user.type(input, "180");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.clear(input);
+    await user.type(input, "200");
+    release();
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "감사 기록을 180일 보존합니다.",
+    );
+    expect(input.value).toBe("200");
+  });
+
   test("30일보다 짧으면 서버가 거절하고 그 이유를 보인다", async () => {
     const { api } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
