@@ -6,10 +6,10 @@ import type {
   AuditRetentionStore,
   DecisionLog,
 } from "@agent-platform/platform";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
-import { authzDecisions, workspaces } from "./schema.ts";
+import { authzDecisions, memberships, users, workspaces } from "./schema.ts";
 
 export function createPostgresDecisionLog(db: Database): DecisionLog {
   return {
@@ -44,15 +44,35 @@ export function createPostgresAuditRetention(
   db: Database,
 ): AuditRetentionStore {
   return {
-    async setAuditRetentionDays(workspaceId, days) {
-      const rows = await db
-        .update(workspaces)
-        .set({
-          settings: sql`jsonb_set(${workspaces.settings}, '{audit_retention_days}', to_jsonb(${days}::int))`,
-        })
-        .where(eq(workspaces.id, workspaceId))
-        .returning({ id: workspaces.id });
-      return rows.length > 0;
+    async setAuditRetentionDays({ workspaceId, ownerUserId, days }) {
+      // Same lock as offboarding takes, so an owner disabled mid-request
+      // cannot still write the setting.
+      return db.transaction(async (tx) => {
+        const owner = await tx
+          .select({ userId: memberships.userId })
+          .from(memberships)
+          .innerJoin(users, eq(users.id, memberships.userId))
+          .where(
+            and(
+              eq(memberships.workspaceId, workspaceId),
+              eq(memberships.userId, ownerUserId),
+              eq(memberships.role, "owner"),
+              isNull(memberships.disabledAt),
+              isNull(users.disabledAt),
+            ),
+          )
+          .limit(1)
+          .for("share", { of: memberships });
+        if (owner.length === 0) return false;
+        const rows = await tx
+          .update(workspaces)
+          .set({
+            settings: sql`jsonb_set(${workspaces.settings}, '{audit_retention_days}', to_jsonb(${days}::int))`,
+          })
+          .where(eq(workspaces.id, workspaceId))
+          .returning({ id: workspaces.id });
+        return rows.length > 0;
+      });
     },
   };
 }

@@ -55,10 +55,11 @@ export function registerWorkspaceRoutes(
     }
     const body = await parseJsonBody(context, auditRetentionRequestSchema);
     if (
-      !(await deps.retention.setAuditRetentionDays(
-        params.id,
-        body.audit_retention_days,
-      ))
+      !(await deps.retention.setAuditRetentionDays({
+        workspaceId: params.id,
+        ownerUserId: principal.id,
+        days: body.audit_retention_days,
+      }))
     ) {
       throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
     }

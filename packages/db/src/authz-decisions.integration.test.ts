@@ -16,7 +16,7 @@ import {
   expireAuthzDecisions,
 } from "./authz-decisions.ts";
 import * as schema from "./schema.ts";
-import { authzDecisions, workspaces } from "./schema.ts";
+import { authzDecisions, memberships, users, workspaces } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -256,10 +256,36 @@ integration("authz_decisions on PostgreSQL", () => {
     expect(left.map((row) => row.id)).toEqual(ids.slice(2));
   });
 
-  test("the retention setting is written into the workspace settings", async () => {
+  async function joined(
+    workspaceId: string,
+    role: string,
+    disabled = false,
+  ): Promise<string> {
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.test`,
+      passwordHash: "x",
+      displayName: role,
+    });
+    await db.insert(memberships).values({
+      workspaceId,
+      userId,
+      role,
+      disabledAt: disabled ? new Date() : null,
+    });
+    return userId;
+  }
+
+  test("only an active owner writes the retention into the workspace settings", async () => {
     const workspaceId = await workspace({ kill_switch: true });
     const store = createPostgresAuditRetention(db);
-    expect(await store.setAuditRetentionDays(workspaceId, 45)).toBe(true);
+    const set = (ownerUserId: string, days: number, id = workspaceId) =>
+      store.setAuditRetentionDays({ workspaceId: id, ownerUserId, days });
+    const owner = await joined(workspaceId, "owner");
+    expect(await set(await joined(workspaceId, "member"), 60)).toBe(false);
+    expect(await set(await joined(workspaceId, "owner", true), 60)).toBe(false);
+    expect(await set(owner, 45)).toBe(true);
     const [row] = await db
       .select({ settings: workspaces.settings })
       .from(workspaces)
@@ -268,6 +294,6 @@ integration("authz_decisions on PostgreSQL", () => {
       kill_switch: true,
       audit_retention_days: 45,
     });
-    expect(await store.setAuditRetentionDays(randomUUID(), 45)).toBe(false);
+    expect(await set(owner, 45, await workspace())).toBe(false);
   });
 });

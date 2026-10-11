@@ -58,7 +58,7 @@ const decisions: DecisionLog = {
 const stored = new Map<string, number>([[WORKSPACE, 90]]);
 let storageDown = false;
 const retention: AuditRetentionStore = {
-  async setAuditRetentionDays(workspaceId, days) {
+  async setAuditRetentionDays({ workspaceId, days }) {
     if (storageDown) {
       throw Object.assign(new Error("connection refused"), {
         code: "ECONNREFUSED",

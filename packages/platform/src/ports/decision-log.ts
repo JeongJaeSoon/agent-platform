@@ -11,6 +11,13 @@ export interface DecisionLog {
 }
 
 export interface AuditRetentionStore {
-  /** False when the workspace does not exist. */
-  setAuditRetentionDays(workspaceId: string, days: number): Promise<boolean>;
+  /**
+   * False when the workspace does not exist or `ownerUserId` is no longer an
+   * active owner of it when the write commits.
+   */
+  setAuditRetentionDays(input: {
+    workspaceId: string;
+    ownerUserId: string;
+    days: number;
+  }): Promise<boolean>;
 }
