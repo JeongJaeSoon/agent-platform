@@ -12,6 +12,7 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "./auth.ts";
 import {
+  auditRetentionRequestSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   inviteSchema,
@@ -43,12 +44,27 @@ describe("workspace", () => {
       kill_switch: false,
       daily_cost_limit_usd: null,
       idle_pause_minutes: 30,
+      audit_retention_days: 90,
     });
     expect(
       workspaceSchema.safeParse({ ...workspace, slug: "Acme" }).success,
     ).toBe(false);
     expect(
       workspaceSettingsSchema.safeParse({ idle_pause_minutes: 0 }).success,
+    ).toBe(false);
+  });
+
+  test("keeps audit rows at least 30 days, whole days only", () => {
+    const days = (value: unknown) =>
+      auditRetentionRequestSchema.safeParse({ audit_retention_days: value })
+        .success;
+    expect(days(30)).toBe(true);
+    expect(days(3650)).toBe(true);
+    expect(days(29)).toBe(false);
+    expect(days(30.5)).toBe(false);
+    expect(days(3651)).toBe(false);
+    expect(
+      workspaceSettingsSchema.safeParse({ audit_retention_days: 29 }).success,
     ).toBe(false);
   });
 

@@ -23,6 +23,17 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+// D18: the owner may keep decision audit rows longer or shorter, but never
+// under 30 days. The upper bound only keeps a typo from meaning forever.
+export const AUDIT_RETENTION_DEFAULT_DAYS = 90;
+export const AUDIT_RETENTION_MIN_DAYS = 30;
+export const AUDIT_RETENTION_MAX_DAYS = 3650;
+export const auditRetentionDaysSchema = z
+  .number()
+  .int()
+  .min(AUDIT_RETENTION_MIN_DAYS)
+  .max(AUDIT_RETENTION_MAX_DAYS);
+
 export const workspaceSettingsSchema = z
   .object({
     /** Model the dispatch classifier uses; null falls back to the deployment default. */
@@ -32,8 +43,22 @@ export const workspaceSettingsSchema = z
     daily_cost_limit_usd: z.number().nonnegative().nullable().default(null),
     /** Minutes of silence before the reconciler pauses a session. */
     idle_pause_minutes: z.number().int().positive().default(30),
+    /** How long `authz_decisions` rows are kept before the reconciler deletes them. */
+    audit_retention_days: auditRetentionDaysSchema.default(
+      AUDIT_RETENTION_DEFAULT_DAYS,
+    ),
   })
   .strict();
+
+export const workspaceParamsSchema = z
+  .object({ id: workspaceIdSchema })
+  .strict();
+
+/** Owner only: `workspace.manage` alone is not enough (design 4.1). */
+export const auditRetentionRequestSchema = z
+  .object({ audit_retention_days: auditRetentionDaysSchema })
+  .strict();
+export const auditRetentionResponseSchema = auditRetentionRequestSchema;
 
 export const workspaceSchema = z
   .object({
@@ -166,6 +191,7 @@ export const listInvitesResponseSchema = z
   .strict();
 
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
+export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Membership = z.infer<typeof membershipSchema>;
