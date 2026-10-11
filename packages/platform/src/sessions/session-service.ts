@@ -579,7 +579,12 @@ export function createSessionService(deps: {
         principal: actor,
         sessionId,
         idempotencyKey: input.idempotencyKey,
-        payloadHash: payloadHash(input.body),
+        // The reason becomes the stop reason, so it is part of the request.
+        payloadHash: payloadHash(
+          input.justification === undefined
+            ? input.body
+            : { ...input.body, justification: input.justification },
+        ),
         expectedRevision: input.body.expected_revision,
         reason: input.body.reason ?? input.justification ?? null,
         now: now(),

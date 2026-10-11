@@ -789,11 +789,25 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       expected_revision: revision,
     });
     expect(unreasoned.status).toBe(400);
-    const stopped = await send("POST", path, headers(), {
+    const once = headers();
+    const stopped = await send("POST", path, once, {
       expected_revision: revision,
       justification: "runaway cost",
     });
     expect(stopped.status).toBe(202);
+    // The reason is part of the request: the same key with another reason
+    // is a different request, not a replay.
+    const replayed = await send("POST", path, once, {
+      expected_revision: revision,
+      justification: "runaway cost",
+    });
+    expect(replayed.status).toBe(202);
+    const reworded = await send("POST", path, once, {
+      expected_revision: revision,
+      justification: "something else",
+    });
+    expect(reworded.status).toBe(409);
+    expect((await codeOf(reworded)).code).toBe("IDEMPOTENCY_CONFLICT");
     const kept = await decisionsOf("session.control", "owner");
     expect(kept.map((d) => [d.outcome, d.reasonCode, d.justification])).toEqual(
       expect.arrayContaining([
