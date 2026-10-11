@@ -8,11 +8,18 @@ import {
 import { isApiError } from "./api/client.ts";
 import { meQuery } from "./api/queries.ts";
 import { StatusScreen } from "./components/status-screen.tsx";
+import {
+  AgentDetailScreen,
+  type AgentSearch,
+  agentSearch,
+} from "./routes/agent-detail.tsx";
+import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
 import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
+import { MembersScreen } from "./routes/members.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -77,11 +84,37 @@ const home = createRoute({
   component: HomeScreen,
 });
 
+const members = createRoute({
+  getParentRoute: () => authed,
+  path: "/members",
+  component: MembersScreen,
+});
+
+const agents = createRoute({
+  getParentRoute: () => authed,
+  path: "/agents",
+  component: AgentsScreen,
+});
+
+const newAgent = createRoute({
+  getParentRoute: () => authed,
+  path: "/agents/new",
+  component: NewAgentScreen,
+});
+
+const agent = createRoute({
+  getParentRoute: () => authed,
+  path: "/agents/$id",
+  validateSearch: (search: Record<string, unknown>): AgentSearch =>
+    agentSearch(search),
+  component: AgentDetailScreen,
+});
+
 const routeTree = root.addChildren([
   login,
   bootstrap,
   invite,
-  authed.addChildren([home]),
+  authed.addChildren([home, members, agents, newAgent, agent]),
 ]);
 
 export function createAppRouter(services: Services, history?: RouterHistory) {

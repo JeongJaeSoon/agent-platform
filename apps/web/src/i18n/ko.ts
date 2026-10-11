@@ -15,6 +15,15 @@ export const ko = {
   "common.skipToContent": "본문으로 건너뛰기",
   "common.done": "완료",
   "common.pending": "예정",
+  "common.cancel": "취소",
+
+  "nav.label": "주요 메뉴",
+  "nav.home": "홈",
+  "nav.members": "구성원",
+  "nav.agents": "에이전트",
+
+  "role.owner": "관리자",
+  "role.member": "구성원",
 
   "login.title": "로그인",
   "login.email": "이메일",
@@ -45,6 +54,46 @@ export const ko = {
   "bootstrap.tokenInvalid":
     "Bootstrap 토큰이 맞지 않습니다 — 설치 때 출력된 값을 그대로 넣으세요.",
   "bootstrap.loginLink": "이미 관리자가 있다면 로그인",
+
+  "members.title": "구성원",
+  "members.listTitle": "구성원 목록",
+  "members.empty": "아직 구성원이 없습니다.",
+  "members.column.name": "이름",
+  "members.column.role": "역할",
+  "members.column.state": "상태",
+  "members.column.actions": "관리",
+  "members.state.active": "활성",
+  "members.state.disabled": "비활성",
+  "members.enableHint": "다시 들이려면 초대하지 말고 재활성하세요.",
+  "members.roleFor": "{name}의 역할",
+  "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
+  "members.disable": "비활성",
+  "members.disableFor": "{name} 비활성",
+  "members.disableTitle": "{name}을(를) 비활성할까요?",
+  "members.disableConsequence":
+    "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 요청한 세션은 관리자가 넘겨받을 때까지 멈춥니다. 재활성해도 끊긴 로그인과 key는 돌아오지 않습니다.",
+  "members.disabled": "{name}을(를) 비활성했습니다.",
+  "members.enable": "재활성",
+  "members.enabled":
+    "{name}을(를) 재활성했습니다. 다시 로그인하면 들어올 수 있습니다.",
+  "members.invite.title": "초대",
+  "members.invite.email": "이메일",
+  "members.invite.role": "역할",
+  "members.invite.submit": "초대 링크 만들기",
+  "members.invite.submitting": "만드는 중…",
+  "members.invite.disabledHint":
+    "{name}은(는) 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 재활성하세요. Google로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
+  "members.invite.link": "초대 링크",
+  "members.invite.linkOnce":
+    "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다. 초대할 사람에게 직접 전하세요.",
+  "members.invite.copy": "링크 복사",
+  "members.invite.copied": "초대 링크를 복사했습니다.",
+  "members.invites.title": "대기 중인 초대",
+  "members.invites.empty": "대기 중인 초대가 없습니다.",
+  "members.invites.expires": "{expires}까지",
+  "members.invites.revoke": "회수",
+  "members.invites.revokeFor": "{email} 초대 회수",
+  "members.invites.revoked": "{email} 초대를 회수했습니다.",
 
   "invite.title": "초대 수락",
   "invite.intro":
@@ -78,6 +127,96 @@ export const ko = {
   "home.checklist.invite": "구성원 초대하기",
   "home.checklist.agent": "에이전트 준비하기",
   "home.checklist.session": "첫 세션 시작하기",
+  "home.checklist.unknown": "확인할 수 없음",
+
+  "agents.title": "에이전트",
+  "agents.new": "새 에이전트",
+  "agents.empty": "아직 에이전트가 없습니다. 새 에이전트로 카드를 만드세요.",
+  "agents.updated": "{at} 수정",
+  "agents.state.notReleased": "활성 release 없음",
+  "agents.status.active": "활성",
+  "agents.status.paused": "일시정지",
+  "agents.status.archived": "보관됨",
+  "agents.newTitle": "새 에이전트",
+  "agents.newIntro":
+    "빈 카드에서 시작합니다. 저장하면 첫 version이 생기고, release를 만들어 활성화해야 세션에서 쓸 수 있습니다.",
+  "agents.name": "이름",
+  "agents.slug": "주소 이름",
+  "agents.slugHint": "영문 소문자, 숫자, 하이픈(-). 나중에 바꿀 수 없습니다",
+  "agents.create": "에이전트 만들기",
+  "agents.creating": "만드는 중…",
+  "agentCard.role": "역할",
+  "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
+  "agentCard.instructions": "지시",
+  "agentCard.tone": "말투",
+  "agentCard.optional": "선택",
+  "agentCard.language": "언어",
+  "agentCard.model": "모델",
+  "agentCard.modelHint":
+    "release할 runtime profile이 허용하는 모델이어야 합니다",
+  "agentCard.tools": "쓸 수 있는 도구",
+  "agentCard.toolsAll": "runtime profile이 허용하는 도구 전부",
+  "agentCard.toolsList": "고른 도구만",
+  "agentCard.toolNames": "도구 이름",
+  "agentCard.listHint": "한 줄에 하나",
+  "agentCard.forbidden": "금지 도구",
+  "agentCard.forbiddenHint": "한 줄에 하나. 서버가 막습니다",
+  "agent.created":
+    "에이전트를 만들었습니다(version 1). release를 만들고 활성화해야 세션에서 쓸 수 있습니다.",
+  "agent.noActive": "없음",
+  "agent.activeRelease": "활성 release: {release}",
+  "agent.releaseLabel": "version {version} · {profile}",
+  "agent.versionLabel": "version {version}",
+  "agent.saved":
+    "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 쓰려면 release를 만들고 활성화하세요.",
+  "agent.savedExisting":
+    "저장했습니다. 같은 카드가 이미 있어(version {version}) 새 version은 생기지 않았습니다.",
+  "agent.savedNoChange":
+    "저장했습니다. 카드 내용이 같아 새 version은 생기지 않았습니다.",
+  "agent.activated":
+    "활성화됐습니다 — 이제 새 세션은 {release}(으)로 시작합니다.",
+  "agent.alreadyActive": "이미 활성 release입니다. 바뀐 것은 없습니다.",
+  "agent.conflict.title": "다른 곳에서 먼저 활성화를 바꿨습니다",
+  "agent.conflict.body":
+    "이 화면을 연 뒤 다른 사람이나 다른 탭이 활성 release를 바꿔, 덮어쓰지 않고 멈췄습니다. 최신 상태를 불러와 무엇이 바뀌었는지 확인한 뒤 다시 결정하세요.",
+  "agent.conflict.reload": "최신 상태 불러오기",
+  "agent.conflict.reloaded":
+    "보던 화면의 활성 release: {seen}. 지금 활성 release: {now}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
+  "agent.card.title": "카드",
+  "agent.card.intro":
+    "저장하면 새 version이 생깁니다. 활성 release는 그대로입니다.",
+  "agent.card.save": "저장",
+  "agent.card.saving": "저장하는 중…",
+  "agent.card.stale":
+    "다른 곳에서 카드를 저장해 최신이 version {version}입니다. 고치던 내용은 그대로 두었습니다. 이대로 저장하면 이 내용이 다음 version이 됩니다.",
+  "agent.card.takeLatest": "최신 카드 불러오기",
+  "agent.versions.title": "version 기록",
+  "agent.versions.active": "활성",
+  "agent.versions.before": "비교 기준",
+  "agent.versions.after": "비교 대상",
+  "agent.releases.title": "release",
+  "agent.releases.intro":
+    "release는 version을 runtime profile에 고정한 것입니다. 만든다고 바로 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
+  "agent.releases.version": "version",
+  "agent.releases.profile": "runtime profile",
+  "agent.releases.profileHint": "플랫폼 설정(profiles.yaml)의 profile id",
+  "agent.releases.create": "release 만들기",
+  "agent.releases.creating": "만드는 중…",
+  "agent.releases.empty": "아직 release가 없습니다.",
+  "agent.releases.approved": "{at} 승인",
+  "agent.releases.notApproved": "아직 활성화된 적 없음",
+  "agent.releases.active": "활성",
+  "agent.releases.activate": "활성화",
+  "agent.releases.activating": "활성화하는 중…",
+  "agent.releases.activateFor": "{release} 활성화",
+  "agent.releaseCreated":
+    "release를 만들었습니다(version {version}). 아직 활성화되지 않았습니다.",
+  "agent.releaseExisted":
+    "같은 내용의 release가 이미 있어 그것을 씁니다. 아직 활성화되지 않았다면 활성화하세요.",
+  "diff.caption": "{before} → {after}",
+  "diff.added": "추가: ",
+  "diff.removed": "삭제: ",
+  "diff.same": "두 version의 카드가 같습니다.",
 
   "status.loading.title": "로그인 상태를 확인하는 중입니다",
   "status.loginRequired.title": "다시 로그인하세요",
@@ -94,6 +233,10 @@ export const ko = {
   "status.error.title": "문제가 생겼습니다",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
+  "guard.checking": "권한을 확인하는 중입니다.",
+  "guard.missingPermission": "{permission} 권한이 있어야 할 수 있습니다.",
+  "guard.missingPermissionAs":
+    "{permission} 권한이 있어야 할 수 있습니다. 지금 역할: {role}.",
 
   "error.BAD_REQUEST": "입력을 확인하고 다시 보내세요.",
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
@@ -105,8 +248,18 @@ export const ko = {
     "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NETWORK_ERROR": "서버에 닿지 못했습니다 — 연결을 확인하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+  "error.NOT_FOUND": "찾을 수 없습니다 — 목록을 다시 불러오세요.",
+  "error.PAYLOAD_TOO_LARGE": "입력이 너무 깁니다 — 줄여서 다시 보내세요.",
   "error.INVITE_EXPIRED": "만료됐거나 회수된 초대입니다.",
   "error.INVITE_USED": "이미 쓰인 초대입니다.",
+  "error.LAST_OWNER":
+    "마지막 관리자는 역할을 바꾸거나 비활성할 수 없습니다 — 다른 관리자를 먼저 두세요. 자기 자신도 비활성할 수 없습니다.",
+  "error.UNSUPPORTED_CAPABILITY":
+    "이 runtime profile에서 쓸 수 없는 모델·도구가 카드에 있거나 모르는 profile입니다.",
+  "error.REVISION_CONFLICT": "다른 곳에서 먼저 바꿨습니다 — 다시 불러오세요.",
+  "error.PROFILE_DIGEST_MISMATCH":
+    "runtime profile 설정이 release 뒤에 바뀌었습니다 — 새 release를 만드세요.",
+  "error.ALREADY_EXISTS": "같은 주소 이름이 이미 있습니다.",
 } as const;
 
 export type MessageKey = keyof typeof ko;
