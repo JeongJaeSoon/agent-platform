@@ -22,6 +22,7 @@ export type ReconcilerRun = {
   interruptsOverdue: number;
   terminationsOverdue: number;
   inputReturns: AnnouncedInputReturn[];
+  decisionsExpired: number;
 };
 
 export type ReconcilerLogger = {
@@ -89,6 +90,8 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<AnnouncedInputReturn[]>;
+  // Decision audit rows past their workspace's retention (D18).
+  expireDecisions(options: { dryRun: boolean; limit: number }): Promise<number>;
 }): Promise<ReconcilerRun> {
   const { limit, dryRun } = reconcilerSettings(
     input.environment ?? process.env,
@@ -152,6 +155,11 @@ export async function runReconciler(input: {
     announced_count: inputReturns.length,
     session_ids: inputReturns.map(({ sessionId }) => sessionId),
   });
+  const decisionsExpired = await input.expireDecisions({ dryRun, limit });
+  input.logger.info("Expired authorization decisions deleted", {
+    dry_run: dryRun,
+    deleted_count: decisionsExpired,
+  });
   return {
     orphans: reconciled,
     leases,
@@ -159,6 +167,7 @@ export async function runReconciler(input: {
     interruptsOverdue,
     terminationsOverdue,
     inputReturns,
+    decisionsExpired,
   };
 }
 
