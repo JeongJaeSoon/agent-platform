@@ -71,5 +71,7 @@ export interface MemberStore {
     workspaceId: string;
     sessionId: string;
     newRequesterId: string;
+    /** Kept on the receipt when the taker gave one. */
+    justification?: string | null;
   }): Promise<TakeOverResult>;
 }

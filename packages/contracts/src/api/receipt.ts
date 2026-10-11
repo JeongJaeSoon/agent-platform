@@ -77,6 +77,8 @@ export const RECEIPT_OPERATION_VALUES = [
   // Pinning an agent to its Slack app and bot, and taking that back (M8).
   "link_agent_identity",
   "revoke_agent_identity",
+  // Changing who sees a session (94S-584).
+  "share_session",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
