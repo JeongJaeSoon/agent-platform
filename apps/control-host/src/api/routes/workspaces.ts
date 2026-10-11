@@ -29,12 +29,18 @@ export function registerWorkspaceRoutes(
     const caller = context.get("caller");
     const principal = context.get("principal");
     const params = requireParams(context, workspaceParamsSchema);
+    // Principals carry lowercase ids, and the policy compares strings.
+    const workspaceId = params.id.toLowerCase();
     // Asked before the body is read, so a refused caller learns nothing
     // about the request shape and every attempt leaves a decision row.
     const decision = await deps.authorization.authorize({
       subject: caller.subject,
       action: "workspace.manage",
-      resource: { kind: "workspace", id: params.id, owner_scope: params.id },
+      resource: {
+        kind: "workspace",
+        id: workspaceId,
+        owner_scope: workspaceId,
+      },
       request_id: caller.requestId,
     });
     if (decision.reason_code === "not_found") {
@@ -56,7 +62,7 @@ export function registerWorkspaceRoutes(
     const body = await parseJsonBody(context, auditRetentionRequestSchema);
     if (
       !(await deps.retention.setAuditRetentionDays({
-        workspaceId: params.id,
+        workspaceId,
         ownerUserId: principal.id,
         days: body.audit_retention_days,
       }))

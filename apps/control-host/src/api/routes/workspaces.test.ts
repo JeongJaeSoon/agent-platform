@@ -150,6 +150,16 @@ test("fewer than 30 days is refused, even for an owner", async () => {
   expect(stored.get(WORKSPACE)).toBe(90);
 });
 
+test("an uppercase id names the same workspace", async () => {
+  const response = await setRetention(
+    cookieFor("owner"),
+    60,
+    WORKSPACE.toUpperCase(),
+  );
+  expect(response.status).toBe(200);
+  expect(stored.get(WORKSPACE)).toBe(60);
+});
+
 test("another workspace, an unknown one or a malformed id does not exist", async () => {
   const owner = cookieFor("owner");
   for (const id of [OTHER_WORKSPACE, "not-a-uuid"]) {
