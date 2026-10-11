@@ -191,6 +191,10 @@ describe("OpenAPI document", () => {
         "/v1/invites/{id}",
         "/v1/members",
         "/v1/members/{user_id}",
+        "/v1/members/{user_id}/disable",
+        "/v1/members/{user_id}/enable",
+        "/v1/users/{user_id}/disable",
+        "/v1/users/{user_id}/enable",
       ].sort(),
     );
     const rendered = renderOpenApiDocument();

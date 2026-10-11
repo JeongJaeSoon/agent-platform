@@ -50,6 +50,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/members.test.ts": [
     "GET /v1/members",
     "PATCH /v1/members/{user_id}",
+    "POST /v1/members/{user_id}/disable",
+    "POST /v1/members/{user_id}/enable",
+    "POST /v1/users/{user_id}/disable",
+    "POST /v1/users/{user_id}/enable",
     "GET /v1/takeovers",
     "POST /v1/sessions/{id}/takeover",
   ],
