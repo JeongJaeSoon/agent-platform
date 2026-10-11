@@ -254,13 +254,20 @@ integration("teams as agent admins on PostgreSQL", () => {
     expect(
       (
         await db
-          .select({ operation: receipts.operation })
+          .select({
+            operation: receipts.operation,
+            requestId: receipts.requestId,
+          })
           .from(receipts)
           .where(eq(receipts.ownerId, workspaceId))
       )
-        .map((r) => r.operation)
+        .map((r) => `${r.operation}:${r.requestId !== null}`)
         .sort(),
-    ).toEqual(["add_agent_admin", "add_agent_admin", "remove_agent_admin"]);
+    ).toEqual([
+      "add_agent_admin:true",
+      "add_agent_admin:true",
+      "remove_agent_admin:true",
+    ]);
   });
 
   test("two admins removing each other at once: one wins, the other is refused", async () => {
