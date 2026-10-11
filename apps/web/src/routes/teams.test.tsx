@@ -1,0 +1,402 @@
+import { describe, expect, test } from "bun:test";
+import {
+  type AgentAdminsView,
+  agentAdminsViewSchema,
+  type MemberView,
+  TEAM_LIST_LIMIT,
+  type TeamDetail,
+  teamDetailSchema,
+} from "@agent-platform/contracts";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
+import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
+import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
+import {
+  apiError,
+  json,
+  me,
+  memberMe,
+  USER_ID,
+  WORKSPACE_ID,
+} from "../test-support/fake-api.ts";
+import { appHarness } from "../test-support/render-app.tsx";
+
+const { renderAt, screen, waitFor, within } = await appHarness();
+
+const TEAM_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+const MATE_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
+const AT = "2026-10-11T00:00:00.000Z";
+
+const mate: MemberView = {
+  user_id: MATE_ID,
+  email: "mate@example.com",
+  display_name: "Mate",
+  role: "member",
+  disabled_at: null,
+  created_at: AT,
+};
+const owner: MemberView = {
+  ...mate,
+  user_id: USER_ID,
+  email: "owner@example.com",
+  display_name: "Owner",
+  role: "owner",
+};
+
+/** The teams API as one stateful server, as the real routes answer. */
+function teamServer() {
+  let team: TeamDetail | null = {
+    id: TEAM_ID,
+    workspace_id: WORKSPACE_ID,
+    name: "결제팀",
+    member_count: 0,
+    created_by: USER_ID,
+    created_at: AT,
+    revision: 1,
+    members: [],
+  };
+  const view = () => {
+    if (!team) throw new Error("deleted");
+    const { members: _members, ...rest } = team;
+    return { ...rest, member_count: team.members.length };
+  };
+  const change = () => json(200, { team: view(), receipt_id: "r-1" });
+  const path = `/v1/teams/${TEAM_ID}`;
+  return {
+    get team() {
+      return team;
+    },
+    routes: {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner, mate] }),
+      "GET /v1/teams": () => json(200, { items: team ? [view()] : [] }),
+      "POST /v1/teams": async (request: Request) => {
+        const { name } = (await request.json()) as { name: string };
+        if (name === team?.name)
+          return apiError(409, "ALREADY_EXISTS", "A team by that name exists");
+        return json(201, { team: { ...view(), name }, receipt_id: "r-0" });
+      },
+      [`GET ${path}`]: () =>
+        team
+          ? json(200, team)
+          : apiError(404, "NOT_FOUND", "Resource not found"),
+      [`PATCH ${path}`]: async (request: Request) => {
+        const { name } = (await request.json()) as { name: string };
+        if (team) team = { ...team, name, revision: team.revision + 1 };
+        return change();
+      },
+      [`DELETE ${path}`]: () => {
+        team = null;
+        return json(200, { receipt_id: "r-9" });
+      },
+      [`POST ${path}/members`]: async (request: Request) => {
+        const { user_id } = (await request.json()) as { user_id: string };
+        if (team)
+          team = {
+            ...team,
+            members: [
+              ...team.members,
+              {
+                user_id,
+                email: "mate@example.com",
+                display_name: "Mate",
+                added_by: USER_ID,
+                added_at: AT,
+              },
+            ],
+          };
+        return change();
+      },
+      [`DELETE ${path}/members/${MATE_ID}`]: () => {
+        if (team)
+          team = {
+            ...team,
+            members: team.members.filter((m) => m.user_id !== MATE_ID),
+          };
+        return change();
+      },
+    },
+  };
+}
+
+describe("팀 화면", () => {
+  test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
+    expect(teamDetailSchema.safeParse(teamServer().team).success).toBe(true);
+  });
+
+  test("팀 메뉴는 team.manage가 있는 역할에만 보인다", async () => {
+    const shown = renderAt("/", { "GET /v1/auth/me": () => json(200, me()) });
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    expect(within(nav).getByRole("link", { name: "팀" })).toBeDefined();
+    shown.container.remove();
+
+    renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
+    const memberNav = await screen.findByRole("navigation", {
+      name: "주요 메뉴",
+    });
+    expect(within(memberNav).queryByRole("link", { name: "팀" })).toBeNull();
+    expect(
+      within(memberNav).getByRole("link", { name: "구성원" }),
+    ).toBeDefined();
+  });
+
+  test("목록을 보이고 만든다. 같은 이름은 그렇게 말한다", async () => {
+    const server = teamServer();
+    const { api } = renderAt("/teams", server.routes);
+    const link = await screen.findByRole("link", { name: "결제팀" });
+    expect(link.getAttribute("href")).toBe(`/teams/${TEAM_ID}`);
+    const user = await setupUser();
+    await user.type(screen.getByLabelText("팀 이름"), "지원팀");
+    await user.click(screen.getByRole("button", { name: "팀 만들기" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "지원팀 팀을 만들었습니다.",
+    );
+    expect(api.calls.find((c) => c.method === "POST")?.body).toEqual({
+      name: "지원팀",
+    });
+    await user.type(screen.getByLabelText("팀 이름"), "결제팀");
+    await user.click(screen.getByRole("button", { name: "팀 만들기" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
+    );
+  });
+
+  test("구성원이 주소로 열면 만들기는 비활성이고 서버 403과 같은 이유다", async () => {
+    renderAt("/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/teams": () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
+    });
+    const button = await screen.findByRole("button", { name: "팀 만들기" });
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+    const reason = document.getElementById(
+      button.getAttribute("aria-describedby") ?? "",
+    );
+    expect(reason?.textContent).toBe(
+      "team.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+    );
+    expect(
+      screen.getByText("This principal does not hold team.manage"),
+    ).toBeDefined();
+  });
+
+  test("구성원을 수락 없이 넣고 빼며, 이름을 바꾸고 지운다", async () => {
+    const server = teamServer();
+    const { api, history } = renderAt(`/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
+    await screen.findByRole("option", { name: "Mate (mate@example.com)" });
+    await user.selectOptions(screen.getByLabelText("추가할 사람"), MATE_ID);
+    await user.click(screen.getByRole("button", { name: "구성원 추가" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "Mate님을 팀에 넣었습니다.",
+    );
+    expect(
+      api.calls.find((c) => c.method === "POST" && c.path.endsWith("/members"))
+        ?.body,
+    ).toEqual({
+      user_id: MATE_ID,
+    });
+    // The owner is the only one left to add; Mate is in the team now.
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText("추가할 사람"))
+          .getAllByRole("option")
+          .map((o) => o.getAttribute("value")),
+      ).toEqual(["", USER_ID]),
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Mate님을 팀에서 빼기" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "Mate님을 팀에서 뺐습니다.",
+      ),
+    );
+
+    const name = screen.getByLabelText("팀 이름");
+    await user.clear(name);
+    await user.type(name, "청구팀");
+    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "팀 이름을 청구팀(으)로 바꿨습니다.",
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "팀 삭제" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "팀 삭제" }));
+    await waitFor(() => expect(history.location.pathname).toBe("/teams"));
+    expect(server.team).toBeNull();
+    expect(await screen.findByText("아직 팀이 없습니다.")).toBeDefined();
+  });
+});
+
+const admins = (over: Partial<AgentAdminsView> = {}): AgentAdminsView => ({
+  users: [
+    {
+      user_id: MATE_ID,
+      email: "mate@example.com",
+      display_name: "Mate",
+      created_by: USER_ID,
+      created_at: AT,
+    },
+  ],
+  teams: [],
+  ...over,
+});
+
+describe("에이전트 관리자", () => {
+  test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
+    expect(agentAdminsViewSchema.safeParse(admins()).success).toBe(true);
+  });
+
+  test("owner는 사람·팀을 지정하고 해제한다", async () => {
+    const agentsApi = agentServer();
+    const teams = teamServer();
+    let current = admins();
+    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+      ...agentsApi.routes,
+      ...teams.routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, current),
+      [`POST /v1/agents/${AGENT_ID}/admins`]: async (request: Request) => {
+        const body = (await request.json()) as { team_id?: string };
+        current = admins({
+          teams: [
+            {
+              team_id: body.team_id ?? "",
+              name: "결제팀",
+              created_by: USER_ID,
+              created_at: AT,
+            },
+          ],
+        });
+        return json(200, { admins: current, receipt_id: "r-1" });
+      },
+      [`DELETE /v1/agents/${AGENT_ID}/admins/users/${MATE_ID}`]: () => {
+        current = { ...current, users: [] };
+        return json(200, { admins: current, receipt_id: "r-2" });
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("option", { name: "결제팀" });
+    await user.selectOptions(
+      screen.getByLabelText("관리자로 지정할 팀"),
+      TEAM_ID,
+    );
+    await user.click(screen.getByRole("button", { name: "팀 지정" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "결제팀을(를) 관리자로 지정했습니다.",
+    );
+    expect(
+      api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
+        ?.body,
+    ).toEqual({ team_id: TEAM_ID });
+
+    await user.click(
+      screen.getByRole("button", { name: "Mate 관리자 지정 해제" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "Mate의 관리자 지정을 해제했습니다.",
+      ),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Mate 관리자 지정 해제" }),
+    ).toBeNull();
+  });
+
+  test("관리 목록이 상한까지 차 있으면 이 에이전트의 관리자 목록에 직접 묻는다", async () => {
+    expect(ADMINISTERED_LIST_LIMIT).toBe(TEAM_LIST_LIMIT);
+    const agentsApi = agentServer();
+    const agent = (
+      (await (
+        await agentsApi.routes[`GET /v1/agents/${AGENT_ID}`]()
+      ).json()) as { agent: { id: string } }
+    ).agent;
+    const others = Array.from({ length: TEAM_LIST_LIMIT }, () => ({
+      ...agent,
+      id: crypto.randomUUID(),
+    }));
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...agentsApi.routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: others }),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+    });
+    expect(
+      await screen.findByRole("button", { name: "Mate 관리자 지정 해제" }),
+    ).toBeDefined();
+  });
+
+  test("관리 여부를 묻지 못하면 권한 문구가 아니라 실패를 보인다", async () => {
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () =>
+        apiError(500, "INTERNAL", "Internal error"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+    );
+    expect(
+      screen.queryByText(
+        "agent.admin.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+      ),
+    ).toBeNull();
+  });
+
+  test("관리자 목록이 실패하면 권한 문구가 아니라 실패를 보인다", async () => {
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Backend unavailable"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+    );
+  });
+
+  test("관리하지 않는 구성원은 이유만 보고, 관리자 목록을 묻지 않는다", async () => {
+    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+    });
+    expect(
+      await screen.findByText(
+        "agent.admin.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+      ),
+    ).toBeDefined();
+    expect(api.calls.some((c) => c.path.endsWith("/admins"))).toBe(false);
+  });
+
+  test("자기 에이전트의 관리자인 구성원은 목록을 보고, 고르기는 이유와 함께 닫혀 있다", async () => {
+    const agentsApi = agentServer();
+    const agent = (
+      (await (
+        await agentsApi.routes[`GET /v1/agents/${AGENT_ID}`]()
+      ).json()) as { agent: unknown }
+    ).agent;
+    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+      ...agentsApi.routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [agent] }),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+    });
+    expect(
+      await screen.findByRole("button", { name: "Mate 관리자 지정 해제" }),
+    ).toBeDefined();
+    const person = screen.getByRole("button", { name: "사람 지정" });
+    expect(person.hasAttribute("disabled")).toBe(true);
+    expect(
+      document.getElementById(person.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    // Neither list is asked for, so no refused decision is left behind.
+    expect(
+      api.calls.some((c) => c.path === "/v1/members" || c.path === "/v1/teams"),
+    ).toBe(false);
+  });
+});

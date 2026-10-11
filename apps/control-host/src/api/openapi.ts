@@ -63,6 +63,7 @@ import {
   listTeamsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
+  loginMethodsResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
   memberParamsSchema,
@@ -112,6 +113,16 @@ import {
 } from "@agent-platform/contracts";
 import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
 import { z } from "zod";
+import {
+  API_INFO_DESCRIPTION,
+  accessNote,
+  type ErrorContext,
+  errorResponseDescription,
+  IDEMPOTENCY_KEY_DESCRIPTION,
+  LAST_EVENT_ID_DESCRIPTION,
+  RESPONSE_HEADERS,
+  SECURITY_SCHEME_DESCRIPTIONS,
+} from "./openapi-docs.ts";
 
 const OPENAPI_VERSION = "0.1.0-alpha";
 
@@ -184,6 +195,7 @@ const responseComponents = {
   Receipt: getReceiptResponseSchema,
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
+  LoginMethodsResponse: loginMethodsResponseSchema,
   StartGoogleLoginResponse: startGoogleLoginResponseSchema,
   IssuePasswordResetRequest: issuePasswordResetRequestSchema,
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
@@ -293,7 +305,7 @@ type ComponentName =
 
 type ApiTagName = (typeof OPENAPI_TAGS)[number]["name"];
 
-type RouteDeclaration = {
+export type RouteDeclaration = {
   method: "get" | "post" | "patch" | "delete";
   path: string;
   operationId: string;
@@ -311,11 +323,22 @@ type RouteDeclaration = {
   csrf?: "always";
   query?: ComponentName;
   body?: ComponentName;
+  // Parsed with the body schema by openapi.test.ts.
+  requestExample?: unknown;
   success:
-    | { status: 200 | 201 | 202; schema: ComponentName; sse?: boolean }
-    | { status: 204 };
+    | {
+        status: 200 | 201 | 202;
+        schema: ComponentName;
+        sse?: boolean;
+        description?: string;
+        // Parsed with `schema` by openapi.test.ts.
+        example?: unknown;
+      }
+    | { status: 204; description?: string };
   errors: number[];
   errorCodes?: Partial<Record<number, readonly ApiErrorCode[]>>;
+  // Appended to ERROR_CODE_WHEN's sentence where a code is narrower here.
+  errorNotes?: Partial<Record<ApiErrorCode, string>>;
   lastEventId?: boolean;
   // Most POSTs are commands and take Idempotency-Key; auth endpoints do not.
   idempotent?: false;
@@ -337,7 +360,7 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
   503: ["BACKEND_UNAVAILABLE"],
 };
 
-const API_ROUTE_DECLARATIONS = [
+export const API_ROUTE_DECLARATIONS = [
   {
     method: "get",
     path: "/healthz",
@@ -363,8 +386,18 @@ const API_ROUTE_DECLARATIONS = [
     operationId: "getOpenApiDocument",
     tag: "Health",
     summary: "Generated OpenAPI document",
+    description:
+      "This document as JSON, the same content as `docs/openapi.json` in the repository.",
     auth: "public",
-    success: { status: 200, schema: "OpenApiDocument" },
+    success: {
+      status: 200,
+      schema: "OpenApiDocument",
+      description: "The OpenAPI 3.1 document.",
+      example: {
+        openapi: "3.1.0",
+        info: { title: "Agent Platform API", version: OPENAPI_VERSION },
+      },
+    },
     errors: [],
   },
   {
@@ -373,8 +406,18 @@ const API_ROUTE_DECLARATIONS = [
     operationId: "getApiRoot",
     tag: "Auth",
     summary: "Authenticated principal",
+    description:
+      "Checks a credential: answers 200 with the owner it authenticates as, or 401.",
     scope: "read",
-    success: { status: 200, schema: "ApiRootResponse" },
+    success: {
+      status: 200,
+      schema: "ApiRootResponse",
+      description: "The credential is valid.",
+      example: {
+        status: "ok",
+        owner_id: "7b0e5c1e-2f4a-4d7e-9a51-3c6f0b8d2e14",
+      },
+    },
     errors: [401, 503],
   },
   {
@@ -391,7 +434,25 @@ const API_ROUTE_DECLARATIONS = [
     success: { status: 201, schema: "BootstrapResponse" },
     errors: [400, 401, 409, 413, 503],
     errorCodes: { 409: ["BOOTSTRAP_DONE"] },
+    errorNotes: {
+      UNAUTHORIZED:
+        "`bootstrap_token` is missing or does not match the installation's token; checked before the rest of the body.",
+      BOOTSTRAP_DONE:
+        "Checked before the token, and also the answer to the loser of two concurrent bootstraps.",
+    },
     idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/auth/login-methods",
+    operationId: "listLoginMethods",
+    tag: "Auth",
+    summary: "How a person can sign in on this installation",
+    description:
+      "`password` always; `google` when Google sign-in is configured. The login page offers these.",
+    auth: "public",
+    success: { status: 200, schema: "LoginMethodsResponse" },
+    errors: [],
   },
   {
     method: "post",
@@ -404,6 +465,12 @@ const API_ROUTE_DECLARATIONS = [
     body: "LoginRequest",
     success: { status: 200, schema: "LoginResponse" },
     errors: [400, 401, 403, 413, 429, 503],
+    errorNotes: {
+      UNAUTHORIZED:
+        "Unknown email, wrong password, or a user with no live workspace membership.",
+      RATE_LIMITED:
+        "Five failed logins for this email within 15 minutes lock it until the window ends (`Retry-After` is the time left), or too many logins are being checked at once (`Retry-After: 1`).",
+    },
     idempotent: false,
   },
   {
@@ -487,6 +554,9 @@ const API_ROUTE_DECLARATIONS = [
     auth: "session",
     success: { status: 204 },
     errors: [401, 403, 503],
+    errorNotes: {
+      FORBIDDEN: "Also when the caller is not a cookie session (an API key).",
+    },
     idempotent: false,
   },
   {
@@ -498,6 +568,9 @@ const API_ROUTE_DECLARATIONS = [
     scope: "read",
     success: { status: 200, schema: "AuthMeResponse" },
     errors: [401, 503],
+    errorNotes: {
+      UNAUTHORIZED: "Also when the session's workspace no longer exists.",
+    },
   },
   {
     method: "post",
@@ -505,11 +578,28 @@ const API_ROUTE_DECLARATIONS = [
     operationId: "createSession",
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
-    scope: "write",
     description:
-      "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names.",
+      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names.",
+    scope: "write",
     body: "CreateSessionRequest",
-    success: { status: 201, schema: "CreateSessionResponse" },
+    requestExample: {
+      profile_id: "claude-coding-real",
+      repository_id: "sample-app",
+      message: "Add a health check endpoint and a test for it.",
+    },
+    success: {
+      status: 201,
+      schema: "CreateSessionResponse",
+      description:
+        "The session and its first turn are stored; `receipt_id` tracks the acceptance.",
+      example: {
+        session_id: "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+        turn_id: "1",
+        receipt_id: "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+        receipt_status: "accepted",
+        status: "queued",
+      },
+    },
     errors: [400, 401, 404, 409, 413, 422, 429, 503],
     errorCodes: {
       409: [
@@ -519,6 +609,12 @@ const API_ROUTE_DECLARATIONS = [
         "CREDENTIAL_UNBOUND",
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
+    },
+    errorNotes: {
+      UNSUPPORTED_CAPABILITY:
+        "`profile_id` or `repository_id` is not in the catalog, or the catalog does not allow the pair.",
+      RATE_LIMITED:
+        "Reserved here: the per-session input queue limit applies to later messages, not to the first.",
     },
   },
   {
@@ -575,6 +671,12 @@ const API_ROUTE_DECLARATIONS = [
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
+    errorNotes: {
+      RATE_LIMITED:
+        "The session already holds the installation's maximum of queued inputs; `Retry-After` is 5.",
+      CHECKPOINT_UNAVAILABLE:
+        "A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.",
+    },
   },
   {
     method: "get",
@@ -611,6 +713,10 @@ const API_ROUTE_DECLARATIONS = [
     // 410 CURSOR_EXPIRED is declared for clients but never produced in alpha:
     // events are not trimmed (api.md § 이벤트).
     errors: [400, 401, 404, 410, 429, 503],
+    errorNotes: {
+      RATE_LIMITED:
+        "This owner already has 8 open streams, or the process 256; `Retry-After` is 15.",
+    },
   },
   {
     method: "get",
@@ -635,6 +741,12 @@ const API_ROUTE_DECLARATIONS = [
     errorCodes: {
       409: ["IDEMPOTENCY_CONFLICT", "REQUEST_EXPIRED", "REQUEST_STALE"],
     },
+    errorNotes: {
+      BAD_REQUEST:
+        "Also when the answer does not fit the pending request (its kind, question or option ids); `message` says how.",
+      REQUEST_STALE:
+        "The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on.",
+    },
   },
   {
     method: "post",
@@ -652,6 +764,10 @@ const API_ROUTE_DECLARATIONS = [
     errors: [...CONFLICTS, 413, 422, 503],
     errorCodes: {
       409: ["IDEMPOTENCY_CONFLICT", "TURN_NOT_STARTED"],
+    },
+    errorNotes: {
+      UNSUPPORTED_CAPABILITY:
+        "The turn runs on a legacy pod binding, which no worker polls for control.",
     },
   },
   {
@@ -677,6 +793,11 @@ const API_ROUTE_DECLARATIONS = [
         "CHECKPOINT_UNAVAILABLE",
       ],
     },
+    errorNotes: {
+      UNSUPPORTED_CAPABILITY: "The session runs on a legacy pod binding.",
+      CHECKPOINT_UNAVAILABLE:
+        "No live worker can drain the turn and no committed checkpoint covers the last turn; terminate instead.",
+    },
   },
   {
     method: "post",
@@ -700,6 +821,10 @@ const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
       ],
+    },
+    errorNotes: {
+      UNSUPPORTED_CAPABILITY:
+        "The session runs on a legacy pod binding with no kill path.",
     },
   },
   {
@@ -727,6 +852,18 @@ const API_ROUTE_DECLARATIONS = [
         "PAUSE_COMMITTING",
       ],
     },
+    errorNotes: {
+      FORBIDDEN:
+        "Also when an operator revoked the session's execution authority.",
+      RECOVERY_REQUIRED:
+        "The session is stopping or needs recovery, or a turn's outcome is unknown.",
+      REQUEST_STALE: "The session is already active.",
+      CHECKPOINT_UNAVAILABLE:
+        "The stopped or paused session has no restore point it can resume from.",
+      UNSUPPORTED_CAPABILITY: "The session runs on a legacy pod binding.",
+      BACKEND_UNAVAILABLE:
+        "Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10.",
+    },
   },
   {
     method: "post",
@@ -740,6 +877,20 @@ const API_ROUTE_DECLARATIONS = [
     success: { status: 202, schema: "ReceiptAcceptedResponse" },
     // 422: a legacy pod binding, as for terminate.
     errors: [...CONFLICTS, 413, 422, 503],
+    errorNotes: {
+      FORBIDDEN:
+        "Also when an operator revoked the session's execution authority.",
+      NOT_FOUND: "Also when `target_turn_id` names no turn of the session.",
+      REQUEST_STALE:
+        "The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.",
+      RECOVERY_REQUIRED:
+        "The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.",
+      CHECKPOINT_UNAVAILABLE:
+        "`confirm_completed` with no committed checkpoint that reaches the target turn.",
+      UNSUPPORTED_CAPABILITY: "The session runs on a legacy pod binding.",
+      BACKEND_UNAVAILABLE:
+        "Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10.",
+    },
     errorCodes: {
       409: [
         "IDEMPOTENCY_CONFLICT",
@@ -1028,6 +1179,7 @@ const API_ROUTE_DECLARATIONS = [
     body: "UpdateAgentRequest",
     success: { status: 200, schema: "AgentDetail" },
     errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
   },
   {
     method: "post",
@@ -1354,6 +1506,11 @@ const API_ROUTE_DECLARATIONS = [
   },
 ] as const satisfies readonly RouteDeclaration[];
 
+export const OPENAPI_COMPONENT_SCHEMAS: Record<ComponentName, z.ZodType> = {
+  ...requestComponents,
+  ...responseComponents,
+};
+
 export type ApiOperationId =
   (typeof API_ROUTE_DECLARATIONS)[number]["operationId"];
 
@@ -1368,14 +1525,15 @@ export const API_ROUTE_SCOPES: ReadonlyArray<{
   scope: SessionScope;
 }> = API_ROUTE_DECLARATIONS.flatMap((declaration) => {
   const route: RouteDeclaration = declaration;
-  return route.scope
+  const scope = scopeOf(route);
+  return scope
     ? [
         {
           method: route.method.toUpperCase() as Uppercase<
             RouteDeclaration["method"]
           >,
           path: route.path,
-          scope: `sessions:${route.scope}` as SessionScope,
+          scope,
         },
       ]
     : [];
@@ -1383,10 +1541,36 @@ export const API_ROUTE_SCOPES: ReadonlyArray<{
 
 type JsonSchema = Record<string, unknown>;
 
+function scopeOf(route: RouteDeclaration): SessionScope | undefined {
+  return route.scope ? `sessions:${route.scope}` : undefined;
+}
+
 function securityFor(route: RouteDeclaration): Array<Record<string, string[]>> {
   if (route.auth === "public") return [];
   if (route.auth === "session") return [{ cookieSession: [] }];
-  return route.scope ? [{ bearerApiKey: [] }, { cookieSession: [] }] : [];
+  const scope = scopeOf(route);
+  return scope ? [{ bearerApiKey: [scope] }, { cookieSession: [scope] }] : [];
+}
+
+function takesIdempotencyKey(route: RouteDeclaration): boolean {
+  return route.method !== "get" && route.idempotent !== false;
+}
+
+function errorContext(route: RouteDeclaration): ErrorContext {
+  return {
+    scope: scopeOf(route),
+    auth: route.auth ?? "any",
+    csrf:
+      route.csrf === "always"
+        ? "always"
+        : takesCookieMutation(route)
+          ? "cookie"
+          : "none",
+    idempotencyKey: takesIdempotencyKey(route),
+    lastEventId: route.lastEventId === true,
+    body: route.body !== undefined,
+    query: route.query !== undefined,
+  };
 }
 
 // The /v1 middleware refuses a cookie-authenticated mutation without the
@@ -1403,8 +1587,13 @@ function ref(name: ComponentName) {
   return { $ref: `#/components/schemas/${name}` };
 }
 
-function jsonContent(name: ComponentName) {
-  return { "application/json": { schema: ref(name) } };
+function jsonContent(name: ComponentName, example?: unknown) {
+  return {
+    "application/json": {
+      schema: ref(name),
+      ...(example === undefined ? {} : { example }),
+    },
+  };
 }
 
 function errorCodesFor(
@@ -1418,6 +1607,17 @@ function errorCodesFor(
     );
   }
   return codes;
+}
+
+// Retry-After rides on every 429 and on a storage 503 (app.ts), not on the
+// readiness probe's NOT_READY.
+function responseHeaders(retryAfter = false) {
+  return {
+    "X-Request-Id": { $ref: "#/components/headers/RequestId" },
+    ...(retryAfter
+      ? { "Retry-After": { $ref: "#/components/headers/RetryAfter" } }
+      : {}),
+  };
 }
 
 function errorContent(codes: readonly ApiErrorCode[]) {
@@ -1529,11 +1729,12 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
     if (!querySchema) throw new Error(`Missing query schema ${route.query}`);
     parameters.push(...queryParameters(querySchema));
   }
-  if (route.method !== "get" && route.idempotent !== false) {
+  if (takesIdempotencyKey(route)) {
     parameters.push({
       name: "Idempotency-Key",
       in: "header",
       required: true,
+      description: IDEMPOTENCY_KEY_DESCRIPTION,
       schema: { type: "string", minLength: 1, maxLength: 255 },
     });
   }
@@ -1542,6 +1743,7 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
       name: "Last-Event-ID",
       in: "header",
       required: false,
+      description: LAST_EVENT_ID_DESCRIPTION,
       schema: { type: "string", minLength: 1 },
     });
   }
@@ -1558,26 +1760,42 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
       schema: { type: "string", enum: ["agent-platform-web"] },
     });
   }
+  const success = route.success;
   const responses: Record<string, unknown> = {
-    [route.success.status]:
-      route.success.status === 204
-        ? { description: "No content" }
+    [success.status]:
+      success.status === 204
+        ? {
+            description: success.description ?? "No content",
+            headers: responseHeaders(),
+          }
         : {
-            description: route.success.sse ? "Event stream" : "Success",
-            content: route.success.sse
+            description:
+              success.description ?? (success.sse ? "Event stream" : "Success"),
+            headers: responseHeaders(),
+            content: success.sse
               ? {
-                  "text/event-stream": { schema: ref(route.success.schema) },
+                  "text/event-stream": {
+                    schema: ref(success.schema),
+                    ...(success.example === undefined
+                      ? {}
+                      : { example: success.example }),
+                  },
                 }
-              : jsonContent(route.success.schema),
+              : jsonContent(success.schema, success.example),
           },
   };
   const errors = new Set<number>(route.errors);
   if (csrf || route.scope) errors.add(403);
   if (route.method !== "get") errors.add(408);
+  const context = errorContext(route);
   for (const status of [...errors].sort((a, b) => a - b)) {
     const codes = errorCodesFor(route, status);
     responses[status] = {
-      description: `Error: ${codes.join(", ")}`,
+      description: errorResponseDescription(codes, context, route.errorNotes),
+      headers: responseHeaders(
+        status === 429 ||
+          (status === 503 && codes.includes("BACKEND_UNAVAILABLE")),
+      ),
       content: errorContent(codes),
     };
   }
@@ -1589,8 +1807,13 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
     operationId: route.operationId,
     tags: [route.tag],
     summary: route.summary,
-    ...(route.description ? { description: route.description } : {}),
-    ...(route.scope ? { "x-scope": `sessions:${route.scope}` } : {}),
+    description: [
+      route.description,
+      accessNote(errorContext(route), route.method),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    ...(route.scope ? { "x-scope": scopeOf(route) } : {}),
     security: securityFor(route),
     parameters,
     ...(route.body
@@ -1598,7 +1821,7 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
           request: {
             body: {
               required: true,
-              content: jsonContent(route.body),
+              content: jsonContent(route.body, route.requestExample),
             },
           },
         }
@@ -1641,8 +1864,7 @@ export function buildOpenApiDocument() {
     info: {
       title: "Agent Platform API",
       version: OPENAPI_VERSION,
-      description:
-        "Private alpha session control plane. Generated from the Zod contracts in packages/contracts; do not edit by hand.",
+      description: API_INFO_DESCRIPTION,
     },
   });
 
@@ -1652,17 +1874,25 @@ export function buildOpenApiDocument() {
     tags: OPENAPI_TAGS,
     components: {
       securitySchemes: {
-        bearerApiKey: { type: "http", scheme: "bearer" },
+        bearerApiKey: {
+          type: "http",
+          scheme: "bearer",
+          description: SECURITY_SCHEME_DESCRIPTIONS.bearerApiKey,
+        },
         cookieSession: {
           type: "apiKey",
           in: "cookie",
           name: WEB_SESSION_COOKIE_NAME,
+          description: SECURITY_SCHEME_DESCRIPTIONS.cookieSession,
         },
       },
+      headers: RESPONSE_HEADERS,
       schemas,
       responses: {
         InternalError: {
-          description: "Unexpected server error (INTERNAL_ERROR)",
+          description:
+            "- `INTERNAL_ERROR`: An unexpected server failure. Report it with the `X-Request-Id`.",
+          headers: responseHeaders(),
           content: errorContent(["INTERNAL_ERROR"]),
         },
       },
