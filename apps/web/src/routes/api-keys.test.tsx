@@ -214,6 +214,25 @@ describe("API key", () => {
     );
   });
 
+  test("관리 에이전트 조회가 실패하면 없다고 하지 않고 실패를 이유로 보인다", async () => {
+    renderAt("/settings/api-keys", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Backend unavailable"),
+      ...keysServer(),
+    });
+    const button = await screen.findByRole("button", {
+      name: "에이전트 전용 key 발급",
+    });
+    await waitFor(() =>
+      expect(
+        document.getElementById(button.getAttribute("aria-describedby") ?? "")
+          ?.textContent,
+      ).toBe("서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요."),
+    );
+    expect(screen.queryByText("관리하는 에이전트가 없습니다.")).toBeNull();
+  });
+
   test("관리하는 에이전트가 없으면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
     renderAt("/settings/api-keys", {
       "GET /v1/auth/me": () => json(200, memberMe()),
