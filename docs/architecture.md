@@ -64,6 +64,12 @@
 - `/v1` route는 DB-backed 오류와 row를 platform port(`InvalidCursorError`, `IdentityStore`)로만 알고, db 구현을 직접 import하지 않는다.
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
 
+## 권한과 비활성
+
+관리 action(`member.manage` 등)은 `packages/platform/src/musterrolle/policy.ts`가 역할로 판정하고, API key는 scope와 관계없이 거절한다. 판정을 통과한 쓰기는 저장소 transaction 안에서 actor가 아직 live owner인지 다시 확인한다. 이때 actor의 `users` 행을 membership보다 먼저 share 잠금한다. 잠금 순서는 login-email advisory → invite → user → membership → web session이다.
+
+계정 정지(`users.disabled_at`)와 membership 비활성(`memberships.disabled_at`)은 다른 것이다. 앞의 것은 모든 workspace에서, 뒤의 것은 그 workspace에서만 사람을 막는다. API key는 두 종류다. service key(`api_keys.kind = 'service'`)는 사람과 무관하고 비활성의 영향을 받지 않는다. 개인 key(`kind = 'personal'`)는 `created_by_user_id`를 갖고, 만든 사람이 비활성이면 요청마다 거절되며, 비활성화하는 transaction이 함께 폐기한다. 그래서 재활성해도 되살아나지 않는다. 사용자가 key를 발급하는 경로를 새로 만들면 그 key에도 `created_by_user_id`를 두고 같은 폐기 대상에 넣는다.
+
 ## checkpoint 경로
 
 immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`가 담당하고, `apps/control-host`의 api role이 이를 S3 object store·Postgres `CheckpointStore`·git bundle verifier로 조립해 Worker Gateway에 붙인다(94S-201). Gateway의 finalize는 manifest ref가 `requestCheckpoint`가 발급한 `sessions/<sid>/checkpoints/<rev>/<attempt>/<publishId>/manifest.json`이고 본문 digest·bundle이 검증된 checkpoint만 받으며, pointer는 `finalizeAtomic`(turn 있는 경로)과 `CheckpointStore.commitAtomic`(turn 없는 경로, 94S-137)이 같은 SQL helper로 "정확히 current+1"만 전진시킨다. 워커용 `/internal/worker/checkpoint-request`·`/restore-plan`은 lease fence 안에서 읽은 pointer로 답한다. 워커는 turn 경계에 engine process tree의 descendant나 reparent 뒤에도 workspace 안을 cwd로 둔 process가 남아 있으면 `background_writer`로 checkpoint를 거절한다. 또한 경로·형태·크기·mtime·ctime으로 만든 workspace 지문을 capture 전후에 비교하고, 바뀌었으면 전체 capture를 한 번 다시 시도한 뒤 다시 바뀌면 publish를 거절한다(94S-481). 워커 heartbeat의 `transcript` 보고는 세션의 `last_transcript_persisted_at`과 `checkpoint_pending_reason`이 되고, `mirror_error`가 기록된 세션은 새 입력과 checkpoint 없는 completed 종료를 409 `CHECKPOINT_UNAVAILABLE`로 거절한다 — 같은 attempt의 checkpoint는 이를 지우지 못하고 **다른** attempt가 커밋한 checkpoint만 지운다(복구 결정은 94S-140). 롤백한 빌드가 모르는 reason(새 빌드가 남긴 값)은 세션 상세에 `unknown`으로 보이고 경고 로그를 남기며, 새 입력은 `mirror_error`처럼 거절한다(94S-396). completed turn에 checkpoint를 강제하지는 않는다: 세션 상세의 `durability`가 `last_completed_turn_id`와 `last_checkpointed_turn_id`의 차이로 드러낸다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
