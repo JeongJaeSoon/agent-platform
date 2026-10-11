@@ -188,6 +188,16 @@ export const en: Record<MessageKey, string> = {
     "Anything using this key stops at once. This cannot be undone.",
   "apiKeys.revoked": "Key revoked.",
 
+  "workspace.title": "Workspace settings",
+  "workspace.retention": "Audit retention",
+  "workspace.retentionDays": "Keep for (days)",
+  "workspace.retentionHint":
+    "Allowed and refused decisions are kept this long. It cannot be shorter than 30 days. Only an owner can change it.",
+  "workspace.retentionFloor":
+    "Audit records cannot be kept for less than 30 days. Choose 30 or more (up to 3650).",
+  "workspace.retentionSaved": "Audit records are kept for {days} days.",
+  "workspace.save": "Save",
+
   "guard.missingScope": "Requires the {scope} permission.",
 
   "error.BAD_REQUEST": "Check the form and send it again.",
@@ -288,6 +298,7 @@ export const en: Record<MessageKey, string> = {
   "nav.teams": "Teams",
   "nav.linkedAccounts": "Linked accounts",
   "nav.apiKeys": "API keys",
+  "nav.workspace": "Workspace settings",
   "nav.agents": "Agents",
   "agents.title": "Agents",
   "agents.new": "New agent",

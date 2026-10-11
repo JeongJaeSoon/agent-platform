@@ -23,6 +23,7 @@ export const ko = {
   "nav.teams": "팀",
   "nav.linkedAccounts": "연동 계정",
   "nav.apiKeys": "API key",
+  "nav.workspace": "워크스페이스 설정",
   "nav.agents": "에이전트",
 
   "role.owner": "소유자",
@@ -363,6 +364,16 @@ export const ko = {
   "apiKeys.revokeConsequence":
     "이 key를 쓰는 연동은 바로 멈춥니다. 되돌릴 수 없습니다.",
   "apiKeys.revoked": "key를 폐기했습니다.",
+
+  "workspace.title": "워크스페이스 설정",
+  "workspace.retention": "감사 기록 보존",
+  "workspace.retentionDays": "보존 기간(일)",
+  "workspace.retentionHint":
+    "허용·거절 판정 기록을 이 기간만큼 보관합니다. 30일보다 짧게 할 수 없습니다. 소유자만 바꿀 수 있습니다.",
+  "workspace.retentionFloor":
+    "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
+  "workspace.retentionSaved": "감사 기록을 {days}일 보존합니다.",
+  "workspace.save": "저장",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",
