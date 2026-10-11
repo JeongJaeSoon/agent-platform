@@ -448,6 +448,42 @@ integration("account recovery on PostgreSQL", () => {
     }
   });
 
+  test("recovery restoring a user an in-flight issue is about to lock does not deadlock", async () => {
+    const { db, pool, start, ownerId, workspace } = await install();
+    // Sorts after the issuer, so an issue locks the issuer first and this
+    // user second.
+    const lateId = "ffffffff-ffff-4fff-bfff-ffffffffffff";
+    await db.insert(users).values({
+      id: lateId,
+      email: "late@example.com",
+      passwordHash: await hashPassword(PASSWORD),
+      displayName: "Late",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: workspace.id, userId: lateId, role: "member" });
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, ownerId));
+    const issue = await pool.connect();
+    try {
+      await issue.query("BEGIN");
+      await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        ownerId,
+      ]);
+      const recovery = start(RECOVERY_TOKEN).bootstrap("late@example.com");
+      await Bun.sleep(300);
+      await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        lateId,
+      ]);
+      await issue.query("COMMIT");
+      expect((await recovery).status).toBe(201);
+    } finally {
+      issue.release();
+    }
+  });
+
   test("recovery revokes a reset link issued before it", async () => {
     const { db, start, first, ownerId, memberId, workspace } = await install();
     const ownerCookie = cookieOf(await first.login("owner@example.com"));

@@ -99,6 +99,22 @@ export async function bootstrapOwner(
       .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
       .limit(1);
     const recovered = (await countUsers(tx)) > 0;
+    if (recovered && existing) {
+      // Every user this transaction will write, in id order, before the
+      // first write: a reset issue locks its issuer and target the same way,
+      // so restoring one of them cannot hold a row the issue needs while
+      // waiting on the one it holds.
+      const members = tx
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .where(eq(memberships.workspaceId, existing.id));
+      await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(or(inArray(users.id, members), eq(users.email, input.email)))
+        .orderBy(asc(users.id))
+        .for("no key update");
+    }
     const workspace =
       existing ??
       (
