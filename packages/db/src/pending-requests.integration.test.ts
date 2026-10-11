@@ -25,6 +25,7 @@ import {
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresDecisionLog } from "./authz-decisions.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
 import { reconcileExpiredLeases } from "./lease-reconcile.ts";
@@ -37,6 +38,7 @@ import {
 import * as schema from "./schema.ts";
 import {
   attempts,
+  authzDecisions,
   events,
   pendingRequests,
   queueMessages,
@@ -395,6 +397,36 @@ integration("pending requests and answers on PostgreSQL", () => {
     // A new key on an answered request is too late.
     expect(await failure(answer(owner, sessionId, body))).toBe(
       "REQUEST_EXPIRED",
+    );
+  });
+
+  test("an approval leaves one decision row and a receipt under the same request id", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await register(worker, permission());
+    const audited = createPendingRequestService({
+      authorization: createAuthorizationPolicy({
+        decisions: createPostgresDecisionLog(db),
+      }),
+      store: createPostgresPendingRequests(db),
+    });
+    const accepted = await audited.answer(owner, sessionId, {
+      idempotencyKey: crypto.randomUUID(),
+      body: { request_id: requestId, kind: "permission", decision: "allow" },
+    });
+    const rows = await db
+      .select()
+      .from(authzDecisions)
+      .where(eq(authzDecisions.requestId, owner.requestId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      action: "session.approve",
+      resourceKind: "session",
+      resourceId: sessionId,
+      outcome: "allow",
+      reasonCode: "ok",
+    });
+    expect((await receiptOf(accepted.receipt_id))?.requestId).toBe(
+      owner.requestId,
     );
   });
 
