@@ -104,9 +104,14 @@ async function main(): Promise<void> {
       randomUUID(),
     );
     try {
-      const result = await service.offboardMember(caller, command.userId);
+      const { effects } = await service.disableMember(caller, command.userId);
+      if (!effects?.disabled) {
+        console.error(`User ${command.userId} is already offboarded`);
+        process.exitCode = 1;
+        return;
+      }
       console.log(
-        `offboarded ${command.userId} workspace=${membership.workspaceId} web_sessions_revoked=${result.revokedWebSessions} personal_keys_revoked=${result.revokedPersonalKeys} sessions_awaiting_takeover=${result.sessionsAwaitingTakeover}`,
+        `offboarded ${command.userId} workspace=${membership.workspaceId} web_sessions_revoked=${effects.revokedWebSessions} personal_keys_revoked=${effects.revokedPersonalKeys} sessions_awaiting_takeover=${effects.sessionsAwaitingTakeover}`,
       );
     } catch (error) {
       if (!(error instanceof SessionServiceError)) throw error;

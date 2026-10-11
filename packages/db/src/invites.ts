@@ -51,7 +51,7 @@ function inviteRecord(row: InviteRow, now: Date): InviteRecord {
   };
 }
 
-const memberColumns = {
+export const memberColumns = {
   userId: users.id,
   email: users.email,
   displayName: users.displayName,
@@ -60,7 +60,7 @@ const memberColumns = {
   createdAt: memberships.createdAt,
 };
 
-function memberRecord(row: {
+export function memberRecord(row: {
   userId: string;
   email: string;
   displayName: string;
@@ -81,18 +81,27 @@ const liveMember = and(
   isNull(users.disabledAt),
 );
 
+/**
+ * The actor's user row, before any membership: accepting takes it in that
+ * order, and the invite's invited_by key check would otherwise wait on it
+ * while holding the membership. A share lock rather than a key share, so an
+ * account disable either waits for this write or is seen by it — re-checked
+ * after a membership lock wait, a joined user row is the old snapshot's.
+ */
+export async function lockActorAccount(tx: Database, userId: string) {
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .for("share");
+}
+
 /** FOR SHARE, so a demotion or offboarding of the actor waits for this write. */
 async function actorIsLiveOwner(
   tx: Database,
   actor: ActingOwner,
 ): Promise<boolean> {
-  // The user row first, as accepting takes it: the invite's invited_by key
-  // check would otherwise wait on it while holding the membership.
-  await tx
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.id, actor.userId))
-    .for("key share");
+  await lockActorAccount(tx, actor.userId);
   const rows = await tx
     .select({ userId: memberships.userId })
     .from(memberships)
@@ -432,6 +441,7 @@ async function changeMemberRole(
   const { actor } = input;
   const userId = input.userId.toLowerCase();
   return db.transaction(async (tx) => {
+    await lockActorAccount(tx, actor.userId);
     // Every owner row, the target and the actor, locked in user_id order —
     // the order offboarding takes its two rows in — so two owners demoting
     // each other queue, and the second one counts what the first left.

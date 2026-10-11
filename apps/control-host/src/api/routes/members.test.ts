@@ -45,7 +45,7 @@ const outage = () =>
 
 function store(overrides: Partial<MemberStore> = {}): MemberStore {
   return {
-    offboard: async () => ({ outcome: "not_found" }),
+    setAccess: async () => ({ outcome: "not_found" }),
     listAwaitingTakeover: async () => [
       {
         sessionId: SESSION,
