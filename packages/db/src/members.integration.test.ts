@@ -427,6 +427,49 @@ integration("members, identity and takeover on PostgreSQL", () => {
         }),
       ).toEqual({ outcome: "not_found" });
     });
+
+    test("a cookie that would resolve to another workspace is ended too", async () => {
+      // A cookie resolves to the oldest live membership, so one kept alive
+      // would go on working under the other workspace.
+      const left = await workspace();
+      const other = await workspace();
+      const leaver = await member(left, "member");
+      await db
+        .insert(memberships)
+        .values({ workspaceId: other, userId: leaver, role: "member" });
+      const cookie = await webSession(leaver);
+      await createPostgresMemberStore(db).offboard({
+        workspaceId: left,
+        userId: leaver,
+      });
+      const [row] = await db
+        .select({ revokedAt: webSessions.revokedAt })
+        .from(webSessions)
+        .where(eq(webSessions.id, cookie));
+      expect(row?.revokedAt).not.toBeNull();
+    });
+
+    test("restoring the membership does not bring a personal key back", async () => {
+      const ws = await workspace();
+      const leaver = await member(ws, "member");
+      const personal = await key(ws, { personalFor: leaver });
+      await createPostgresMemberStore(db).offboard({
+        workspaceId: ws,
+        userId: leaver,
+      });
+      await db
+        .update(memberships)
+        .set({ disabledAt: null })
+        .where(
+          and(eq(memberships.workspaceId, ws), eq(memberships.userId, leaver)),
+        );
+      expect(await reader().reread(userSubject(leaver, ws))).toMatchObject({
+        status: "ok",
+      });
+      expect(await reader().reread(keySubject(personal, ws))).toEqual({
+        status: "disabled",
+      });
+    });
   });
 
   describe("a session awaiting takeover", () => {

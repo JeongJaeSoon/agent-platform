@@ -36,8 +36,6 @@ export function createMemberService(deps: {
         kind: "workspace",
         id: caller.ownerId,
       });
-      // Offboarding yourself would leave a workspace whose last owner is
-      // locked out, with nobody left to undo it.
       if (personOf(caller) === userId.toLowerCase()) {
         throw new SessionServiceError(
           "BAD_REQUEST",

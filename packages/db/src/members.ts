@@ -38,17 +38,11 @@ async function offboard(
       )
       .returning({ userId: memberships.userId });
     if (disabled.length === 0) return { outcome: "not_found" };
-    // Every web session, not only this workspace's: a cookie resolves to
-    // whichever live membership is oldest, so one left alive could keep
-    // working under another (design D16).
     const sessionsRevoked = await tx
       .update(webSessions)
       .set({ revokedAt: DB_NOW })
       .where(and(eq(webSessions.userId, userId), isNull(webSessions.revokedAt)))
       .returning({ id: webSessions.id });
-    // Revoked rather than left to the creator check, so restoring the
-    // membership later does not bring them back. Service keys the person
-    // issued belong to the workspace and keep working.
     const keysRevoked = await tx
       .update(apiKeys)
       .set({ revokedAt: DB_NOW })

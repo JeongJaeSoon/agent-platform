@@ -401,28 +401,28 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       bearer(service.plaintext),
     );
 
-    const cli = Bun.spawn(
-      [
-        "bun",
-        "run",
-        "src/api/members.ts",
-        "offboard",
-        memberId,
-        "--by",
-        ownerId,
-      ],
-      {
-        cwd: `${import.meta.dir}/../..`,
-        env: { ...process.env, DATABASE_URL: database.url },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    const [out, err, code] = await Promise.all([
-      new Response(cli.stdout).text(),
-      new Response(cli.stderr).text(),
-      cli.exited,
-    ]);
+    const offboard = async (userId: string, by: string) => {
+      const cli = Bun.spawn(
+        ["bun", "run", "src/api/members.ts", "offboard", userId, "--by", by],
+        {
+          cwd: `${import.meta.dir}/../..`,
+          env: { ...process.env, DATABASE_URL: database.url },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [out, err, code] = await Promise.all([
+        new Response(cli.stdout).text(),
+        new Response(cli.stderr).text(),
+        cli.exited,
+      ]);
+      return { out, err, code };
+    };
+    // The CLI acts as --by; the operator's shell holds no authority itself.
+    const byMember = await offboard(ownerId, memberId);
+    expect(byMember.code).toBe(1);
+    expect(byMember.err).toContain("FORBIDDEN");
+    const { out, err, code } = await offboard(memberId, ownerId);
     expect(code, err).toBe(0);
     expect(out).toContain(
       "web_sessions_revoked=1 personal_keys_revoked=1 sessions_awaiting_takeover=2",
