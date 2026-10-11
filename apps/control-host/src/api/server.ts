@@ -15,6 +15,7 @@ import {
   createPostgresPendingRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
+  createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
@@ -195,6 +196,7 @@ const authorization = createAuthorizationPolicy({
     : { identity: createDatabaseIdentityReader(db) }),
   agents: createDatabaseAgentAuthority(db),
   credentials: credentialBindings,
+  sessions: createPostgresSessionShareStore(db),
   decisions: createPostgresDecisionLog(db),
 });
 const agents = createAgentService({

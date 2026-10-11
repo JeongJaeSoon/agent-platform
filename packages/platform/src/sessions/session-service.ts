@@ -200,6 +200,14 @@ export async function requireAllowed(
   if (decision?.reason_code === "not_found") {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
+  if (decision?.reason_code === "justification_required") {
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "This action on this session needs a justification",
+      undefined,
+      { reason_code: "justification_required" },
+    );
+  }
   if (decision?.reason_code === "credential_unbound") {
     throw new SessionServiceError(
       "CREDENTIAL_UNBOUND",
