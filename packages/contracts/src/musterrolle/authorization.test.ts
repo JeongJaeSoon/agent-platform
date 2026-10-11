@@ -63,10 +63,24 @@ describe("principal and scopes", () => {
     ).toBe(false);
   });
 
-  test("a member gets everything but recovery", () => {
+  test("a member and an admin get everything but recovery", () => {
     expect(scopesForRole("owner")).toEqual(SESSION_SCOPE_VALUES);
-    expect(scopesForRole("member")).not.toContain("sessions:recover");
-    expect(scopesForRole("member")).toContain("sessions:approve");
+    for (const role of ["admin", "member"] as const) {
+      expect(scopesForRole(role)).not.toContain("sessions:recover");
+      expect(scopesForRole(role)).toContain("sessions:approve");
+    }
+  });
+
+  test("an admin cannot hold recovery", () => {
+    expect(
+      principalSchema.safeParse({
+        kind: "user",
+        id: USER_ID,
+        workspace_id: WORKSPACE_ID,
+        role: "admin",
+        scopes: ["sessions:recover"],
+      }).success,
+    ).toBe(false);
   });
 
   test("a signed chat webhook authenticates the installation, not the typist", () => {
@@ -355,6 +369,20 @@ describe("authorize contract", () => {
     ).toBe(true);
     expect(
       authorizationResourceSchema.safeParse({ ...resource, id: "" }).success,
+    ).toBe(false);
+  });
+
+  test("only a resource not yet identified is told its agent", () => {
+    const resource = {
+      kind: "session",
+      owner_scope: "owner-a",
+      agent_id: "019a0000-0000-7000-8000-00000000a0a1",
+    };
+    expect(
+      authorizationResourceSchema.safeParse({ ...resource, id: null }).success,
+    ).toBe(true);
+    expect(
+      authorizationResourceSchema.safeParse({ ...resource, id: "s-1" }).success,
     ).toBe(false);
   });
 

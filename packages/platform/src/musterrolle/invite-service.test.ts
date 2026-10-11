@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { SESSION_SCOPE_VALUES } from "@agent-platform/contracts";
+import {
+  SESSION_SCOPE_VALUES,
+  scopesForRole,
+  type WorkspaceRole,
+} from "@agent-platform/contracts";
 import type {
   InviteRecord,
   InviteStore,
@@ -35,14 +39,14 @@ const MEMBER_ROW: MemberRecord = {
   createdAt: new Date("2026-10-11T00:00:00.000Z"),
 };
 
-function user(id: string, role: "owner" | "member"): Caller {
+function user(id: string, role: WorkspaceRole): Caller {
   return callerFor(
     {
       kind: "user",
       id,
       workspace_id: WORKSPACE,
       role,
-      scopes: [...SESSION_SCOPE_VALUES],
+      scopes: [...scopesForRole(role)],
     },
     { kind: "web" },
     crypto.randomUUID(),
@@ -166,6 +170,21 @@ describe("invite service", () => {
         owner,
       ),
     ).rejects.toMatchObject({ code: "LAST_OWNER" });
+    const admin = user(MEMBER, "admin");
+    await expect(
+      EVERY_ENTRY.changeMemberRole(
+        service({
+          changeMemberRole: async () => ({ outcome: "owner_protected" }),
+        }),
+        admin,
+      ),
+    ).rejects.toMatchObject({ code: "OWNER_PROTECTED" });
+    await expect(
+      EVERY_ENTRY.issueInvite(
+        service({ createInvite: async () => ({ outcome: "owner_protected" }) }),
+        admin,
+      ),
+    ).rejects.toMatchObject({ code: "OWNER_PROTECTED" });
     await expect(
       EVERY_ENTRY.changeMemberRole(
         service({

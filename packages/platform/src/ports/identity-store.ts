@@ -1,3 +1,4 @@
+import type { WorkspaceRole } from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type IdentityUser = {
@@ -18,7 +19,7 @@ export type IdentityWorkspace = {
   createdAt: Date;
 };
 
-export type MembershipRole = "owner" | "member";
+export type MembershipRole = WorkspaceRole;
 
 export type BootstrapInput = {
   userId: string;
@@ -237,7 +238,9 @@ export type ActingOwner = {
 export type CreateInviteResult =
   | { outcome: "created"; invite: InviteRecord }
   | { outcome: "already_member" }
-  | { outcome: "actor_inactive" };
+  | { outcome: "actor_inactive" }
+  // An admin offering the owner role.
+  | { outcome: "owner_protected" };
 
 export type RevokeInviteResult =
   | { outcome: "revoked" | "already_revoked" }
@@ -245,7 +248,9 @@ export type RevokeInviteResult =
 
 export type ChangeRoleResult =
   | { outcome: "changed"; member: MemberRecord }
-  | { outcome: "not_found" | "last_owner" | "actor_inactive" };
+  | { outcome: "not_found" | "last_owner" | "actor_inactive" }
+  // An admin granting the owner role or changing an owner's.
+  | { outcome: "owner_protected" };
 
 /** What redeeming a token would do, read before any password is hashed. */
 export type InvitePeek =

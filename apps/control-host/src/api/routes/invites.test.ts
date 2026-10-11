@@ -217,7 +217,7 @@ describe("POST /v1/invites", () => {
     expect(member.status).toBe(400);
     const bad = await send(app(), "/v1/invites", "POST", {
       email: "invitee@example.com",
-      role: "admin",
+      role: "guest",
     });
     expect(bad.status).toBe(400);
     const huge = await send(

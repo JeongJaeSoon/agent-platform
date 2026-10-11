@@ -669,6 +669,7 @@
             "type": "string",
             "enum": [
               "owner",
+              "admin",
               "member"
             ]
           }
@@ -710,6 +711,7 @@
             "type": "string",
             "enum": [
               "owner",
+              "admin",
               "member"
             ]
           }
@@ -1189,6 +1191,7 @@
                   "INVITE_EXPIRED",
                   "INVITE_USED",
                   "LAST_OWNER",
+                  "OWNER_PROTECTED",
                   "LOGIN_LINK_REQUIRED",
                   "PROFILE_DIGEST_MISMATCH",
                   "ALREADY_EXISTS",
@@ -3506,6 +3509,7 @@
                   "type": "string",
                   "enum": [
                     "owner",
+                    "admin",
                     "member"
                   ]
                 },
@@ -3679,6 +3683,7 @@
             "type": "string",
             "enum": [
               "owner",
+              "admin",
               "member"
             ]
           }
@@ -3728,6 +3733,7 @@
             "type": "string",
             "enum": [
               "owner",
+              "admin",
               "member"
             ]
           },
@@ -3874,7 +3880,9 @@
               "create_agent",
               "update_agent",
               "create_agent_release",
-              "activate_agent"
+              "activate_agent",
+              "create_api_key",
+              "revoke_api_key"
             ]
           },
           "target_ref": {
@@ -3936,7 +3944,8 @@
                           "dispatch",
                           "memory",
                           "routine",
-                          "artifact"
+                          "artifact",
+                          "api_key"
                         ]
                       },
                       "id": {
@@ -4112,6 +4121,7 @@
                       "INVITE_EXPIRED",
                       "INVITE_USED",
                       "LAST_OWNER",
+                      "OWNER_PROTECTED",
                       "LOGIN_LINK_REQUIRED",
                       "PROFILE_DIGEST_MISMATCH",
                       "ALREADY_EXISTS",
@@ -4285,6 +4295,7 @@
             "type": "string",
             "enum": [
               "owner",
+              "admin",
               "member"
             ]
           },
@@ -4478,6 +4489,7 @@
                     "type": "string",
                     "enum": [
                       "owner",
+                      "admin",
                       "member"
                     ]
                   },
