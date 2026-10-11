@@ -429,7 +429,8 @@ type Authenticated = {
   webSession?: ResolvedWebSession;
   /** Re-runs the credential check; SSE calls it so revocation ends a stream. */
   reauthenticate: () => Promise<boolean>;
-  keyCreatorId?: string;
+  /** Set when a key row authenticated; a personal key names its creator. */
+  storedKey?: { creatorId: string | null };
 };
 
 function bearerToken(value: string | undefined): string | null {
@@ -509,9 +510,9 @@ export function createAuthenticator(
         const principal = apiKeyPrincipal(key);
         return {
           principal,
-          ...(key.kind === "personal" && key.createdByUserId !== null
-            ? { keyCreatorId: key.createdByUserId }
-            : {}),
+          storedKey: {
+            creatorId: key.kind === "personal" ? key.createdByUserId : null,
+          },
           // Nothing edits a key's scopes today, but a stream that outlives
           // a narrowed key must not keep what the key no longer holds.
           reauthenticate: async () => {

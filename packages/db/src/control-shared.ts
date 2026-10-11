@@ -4,13 +4,15 @@ import {
   type SessionBudget,
   storedPendingReasonHoldsWork,
 } from "@agent-platform/platform";
-import { and, eq, inArray, lt, min, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, min, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   idempotencyKeys,
+  memberships,
   receipts,
   sessions,
   turns,
+  users,
   workerLaunches,
 } from "./schema.ts";
 
@@ -57,6 +59,33 @@ export type IdempotencyScope = {
   key: string;
   actor: ReceiptActor | null;
 };
+
+// Authorization read the membership before this transaction opened. The share
+// lock makes an offboarding that commits since then either wait for this write
+// (and see what it wrote) or be seen here. Take it before any session row
+// lock, in offboarding's order.
+export async function actorStillMember(
+  tx: Database,
+  principal: Principal,
+): Promise<boolean> {
+  const actor = principal.actor;
+  if (!actor?.userId || !actor.workspaceId) return true;
+  const live = await tx
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, actor.workspaceId),
+        eq(memberships.userId, actor.userId),
+        isNull(memberships.disabledAt),
+        isNull(users.disabledAt),
+      ),
+    )
+    .limit(1)
+    .for("share", { of: memberships });
+  return live.length > 0;
+}
 
 export function receiptActorOf(principal: Principal): ReceiptActor | null {
   const actor = principal.actor;

@@ -21,7 +21,8 @@ export type TakeoverRecord = {
 export type TakeOverResult =
   | { outcome: "taken_over"; receiptId: string }
   | { outcome: "not_found" }
-  | { outcome: "not_awaiting" };
+  | { outcome: "not_awaiting" }
+  | { outcome: "actor_inactive" };
 
 export interface MemberStore {
   /**

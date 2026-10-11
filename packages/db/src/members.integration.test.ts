@@ -247,6 +247,36 @@ integration("members, identity and takeover on PostgreSQL", () => {
     return row;
   }
 
+  // Authorization reads the membership before the write transaction opens;
+  // an offboarding that commits in between must not let the write through.
+  async function offboardingInFlight(ws: string, userId: string) {
+    const client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query(
+      "UPDATE memberships SET disabled_at = now() WHERE workspace_id = $1 AND user_id = $2",
+      [ws, userId],
+    );
+    return async () => {
+      await client.query(
+        "UPDATE sessions SET takeover_required_at = now() WHERE workspace_id = $1 AND created_by_user_id = $2",
+        [ws, userId],
+      );
+      await client.query("COMMIT");
+      client.release();
+    };
+  }
+
+  async function lockWaiter() {
+    for (let i = 0; i < 200; i += 1) {
+      const { rows } = await pool.query<{ waiting: string }>(
+        "SELECT count(*)::text AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+      );
+      if (Number(rows[0]?.waiting) >= 1) return;
+      await Bun.sleep(10);
+    }
+    throw new Error("the write never waited on the membership");
+  }
+
   describe("who acts is recorded", () => {
     test("a cookie caller is the session's requester, the turn's actor and the receipt's", async () => {
       const ws = await workspace();
@@ -362,36 +392,6 @@ integration("members, identity and takeover on PostgreSQL", () => {
   });
 
   describe("offboarding", () => {
-    // Authorization reads the membership before the write transaction opens;
-    // an offboarding that commits in between must not let the write through.
-    async function offboardingInFlight(ws: string, userId: string) {
-      const client = await pool.connect();
-      await client.query("BEGIN");
-      await client.query(
-        "UPDATE memberships SET disabled_at = now() WHERE workspace_id = $1 AND user_id = $2",
-        [ws, userId],
-      );
-      return async () => {
-        await client.query(
-          "UPDATE sessions SET takeover_required_at = now() WHERE workspace_id = $1 AND created_by_user_id = $2",
-          [ws, userId],
-        );
-        await client.query("COMMIT");
-        client.release();
-      };
-    }
-
-    async function lockWaiter() {
-      for (let i = 0; i < 200; i += 1) {
-        const { rows } = await pool.query<{ waiting: string }>(
-          "SELECT count(*)::text AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        );
-        if (Number(rows[0]?.waiting) >= 1) return;
-        await Bun.sleep(10);
-      }
-      throw new Error("the write never waited on the membership");
-    }
-
     test("a session asked for while offboarding commits is refused, never left running", async () => {
       const ws = await workspace();
       const leaver = await member(ws, "member");
@@ -717,6 +717,23 @@ integration("members, identity and takeover on PostgreSQL", () => {
           newRequesterId: owner,
         }),
       ).toEqual({ outcome: "not_awaiting" });
+    });
+
+    test("an owner offboarded while taking over does not become the requester", async () => {
+      const { ws, owner, leaver, sessionId } = await awaiting();
+      const commit = await offboardingInFlight(ws, owner);
+      const taking = createPostgresMemberStore(db).takeOver({
+        principal: asUser(ws, owner),
+        workspaceId: ws,
+        sessionId,
+        newRequesterId: owner,
+      });
+      await lockWaiter();
+      await commit();
+      expect(await taking).toEqual({ outcome: "actor_inactive" });
+      const row = await sessionRow(sessionId);
+      expect(row.createdByUserId).toBe(leaver);
+      expect(row.takeoverRequiredAt).not.toBeNull();
     });
 
     test("another workspace cannot see or take it", async () => {

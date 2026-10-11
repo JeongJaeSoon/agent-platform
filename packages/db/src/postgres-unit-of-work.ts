@@ -28,7 +28,6 @@ import type {
   AppendMessageInput,
   AppendMessageResult,
   EventPage,
-  Principal,
   ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
@@ -55,6 +54,7 @@ import {
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
 import {
+  actorStillMember,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
@@ -87,11 +87,9 @@ import {
   events,
   executions,
   idempotencyKeys,
-  memberships,
   receipts,
   sessions,
   turns,
-  users,
 } from "./schema.ts";
 import { recordStatus } from "./session-events.ts";
 
@@ -156,33 +154,6 @@ async function insertQueuedTurn(
     turnId: turn.id,
     payload: { message: input.message },
   });
-}
-
-// Authorization read the membership before this transaction opened. The share
-// lock makes an offboarding that commits since then either wait for this write
-// (and mark what it creates) or be seen here. Taken before any session row
-// lock, in offboarding's order.
-async function actorStillMember(
-  tx: Database,
-  principal: Principal,
-): Promise<boolean> {
-  const actor = principal.actor;
-  if (!actor?.userId || !actor.workspaceId) return true;
-  const live = await tx
-    .select({ userId: memberships.userId })
-    .from(memberships)
-    .innerJoin(users, eq(users.id, memberships.userId))
-    .where(
-      and(
-        eq(memberships.workspaceId, actor.workspaceId),
-        eq(memberships.userId, actor.userId),
-        isNull(memberships.disabledAt),
-        isNull(users.disabledAt),
-      ),
-    )
-    .limit(1)
-    .for("share", { of: memberships });
-  return live.length > 0;
 }
 
 export function createPostgresSessionUnitOfWork(

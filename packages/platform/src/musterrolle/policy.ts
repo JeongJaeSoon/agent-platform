@@ -35,19 +35,21 @@ export type Caller = Principal & {
   requestId: string;
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
+/**
+ * `storedKey` is set only when authentication found the key's row: the
+ * AUTH_MODE=none principal is an api_key named after its owner, with no row.
+ */
 export function callerFor(
   principal: AuthenticatedPrincipal,
   surface: AuthorizationSurface,
   requestId: string,
-  keyCreatorId?: string,
+  storedKey?: { creatorId: string | null },
 ): Caller {
   const userId =
     principal.kind === "user"
       ? principal.id
       : principal.kind === "api_key"
-        ? (keyCreatorId ?? null)
+        ? (storedKey?.creatorId ?? null)
         : null;
   return {
     ownerId: ownerScopeOf(principal),
@@ -55,10 +57,7 @@ export function callerFor(
       principal: { kind: principal.kind, id: principal.id },
       userId,
       workspaceId: principal.workspace_id,
-      apiKeyId:
-        principal.kind === "api_key" && UUID.test(principal.id)
-          ? principal.id
-          : null,
+      apiKeyId: principal.kind === "api_key" && storedKey ? principal.id : null,
     },
     subject: {
       principal,

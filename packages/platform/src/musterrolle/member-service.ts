@@ -94,6 +94,11 @@ export function createMemberService(deps: {
             "REQUEST_STALE",
             "Session is not awaiting a takeover",
           );
+        case "actor_inactive":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal is no longer a member of the workspace",
+          );
         default:
           return { receipt_id: result.receiptId, receipt_status: "succeeded" };
       }

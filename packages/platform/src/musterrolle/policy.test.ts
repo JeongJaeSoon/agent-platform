@@ -549,12 +549,13 @@ describe("management actions", () => {
       workspaceKey(SESSION_SCOPE_VALUES),
       { kind: "api" },
       "req-k",
+      { creatorId: null },
     );
     const personal = callerFor(
       workspaceKey(SESSION_SCOPE_VALUES),
       { kind: "api" },
       "req-p",
-      USER,
+      { creatorId: USER },
     );
     for (const action of MANAGEMENT_ACTIONS) {
       expect(await decide(onWorkspace(service, action))).toMatchObject({
@@ -598,7 +599,7 @@ describe("personal and service keys", () => {
     workspaceKey(SESSION_SCOPE_VALUES),
     { kind: "api" },
     "req-p",
-    USER,
+    { creatorId: USER },
   );
 
   test("a personal key holds the narrower of its scopes and its creator's current role", async () => {
@@ -625,7 +626,7 @@ describe("personal and service keys", () => {
       workspaceKey(["sessions:read"]),
       { kind: "api" },
       "req-n",
-      USER,
+      { creatorId: USER },
     );
     expect(
       await decide(request(narrowKey, { action: "session.submit" }), asOwner),
@@ -649,6 +650,7 @@ describe("personal and service keys", () => {
       workspaceKey(SESSION_SCOPE_VALUES),
       { kind: "api" },
       "req-s",
+      { creatorId: null },
     );
     expect(
       await decide(request(service, { action: "session.recover" })),
@@ -697,22 +699,26 @@ describe("callerFor records who acts", () => {
 
   test("a service key names no person, a personal key its creator", () => {
     const key = workspaceKey(["sessions:read"]);
-    expect(callerFor(key, { kind: "api" }, "r").actor).toEqual({
+    expect(
+      callerFor(key, { kind: "api" }, "r", { creatorId: null }).actor,
+    ).toEqual({
       principal: { kind: "api_key", id: KEY },
       userId: null,
       workspaceId: WORKSPACE_A,
       apiKeyId: KEY,
     });
-    const personal = callerFor(key, { kind: "api" }, "r", USER);
+    const personal = callerFor(key, { kind: "api" }, "r", {
+      creatorId: USER,
+    });
     expect(personal.actor?.userId).toBe(USER);
     expect(personal.subject.actor_user_id).toBe(USER);
   });
 
-  test("AUTH_MODE=none's owner-named principal is no key row", () => {
+  test("AUTH_MODE=none's owner-named principal is no key row, even when the owner is a UUID", () => {
     const none: Principal = {
       kind: "api_key",
-      id: "owner-a",
-      owner_id: "owner-a",
+      id: KEY,
+      owner_id: KEY,
       workspace_id: null,
       scopes: [...SESSION_SCOPE_VALUES],
     };

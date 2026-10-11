@@ -7,7 +7,7 @@ import type {
   TakeoverRecord,
 } from "@agent-platform/platform";
 import { and, asc, eq, isNotNull, isNull, ne } from "drizzle-orm";
-import { receiptActorOf } from "./control-shared.ts";
+import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -120,6 +120,9 @@ export function createPostgresMemberStore(db: Database): MemberStore {
     takeOver(input): Promise<TakeOverResult> {
       const sessionId = input.sessionId.toLowerCase();
       return db.transaction(async (tx) => {
+        if (!(await actorStillMember(tx, input.principal))) {
+          return { outcome: "actor_inactive" };
+        }
         const [session] = await tx
           .select({ takeoverRequiredAt: sessions.takeoverRequiredAt })
           .from(sessions)
