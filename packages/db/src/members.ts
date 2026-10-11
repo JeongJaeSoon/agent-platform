@@ -362,6 +362,9 @@ export function createPostgresMemberStore(db: Database): MemberStore {
           operation: TAKEOVER,
           targetRef: { session_id: sessionId, turn_id: null, request_id: null },
           status: "succeeded",
+          result: input.justification
+            ? { justification: input.justification }
+            : null,
         });
         return { outcome: "taken_over", receiptId };
       });

@@ -829,10 +829,19 @@ integration("pending requests and answers on PostgreSQL", () => {
     const turnList = await reader.listTurns(owner.ownerId, sessionId, {
       limit: 10,
     });
-    const listed = await reader.listSessions(owner.ownerId, { limit: 10 });
+    const listed = await reader.listSessions(
+      owner.ownerId,
+      { limit: 10 },
+      { userId: null, apiKeyId: null },
+    );
     const filtered = async (status: "needs_input" | "running") =>
-      (await reader.listSessions(owner.ownerId, { limit: 10, status })).items
-        .length;
+      (
+        await reader.listSessions(
+          owner.ownerId,
+          { limit: 10, status },
+          { userId: null, apiKeyId: null },
+        )
+      ).items.length;
     const [stored] = await db
       .select({ session: sessions.status, turn: turns.status })
       .from(sessions)

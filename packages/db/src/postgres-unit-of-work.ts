@@ -33,6 +33,7 @@ import type {
   SessionReader,
   SessionRecord,
   SessionUnitOfWork,
+  SessionViewer,
 } from "@agent-platform/platform";
 import {
   InvalidCursorError,
@@ -93,6 +94,7 @@ import {
   turns,
 } from "./schema.ts";
 import { recordStatus } from "./session-events.ts";
+import { sessionVisibleTo } from "./session-shares.ts";
 
 const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -605,7 +607,11 @@ export function createPostgresSessionReader(
   }
 
   return {
-    async listSessions(ownerId: string, query: ListSessionsQuery) {
+    async listSessions(
+      ownerId: string,
+      query: ListSessionsQuery,
+      viewer: SessionViewer,
+    ) {
       const cursor = query.cursor ? decodeSessionCursor(query.cursor) : null;
       const rows = await db
         .select({
@@ -618,6 +624,7 @@ export function createPostgresSessionReader(
         .where(
           and(
             eq(sessions.ownerId, ownerId),
+            sessionVisibleTo(viewer),
             query.status ? publicStatusIs(query.status) : undefined,
             cursor
               ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`

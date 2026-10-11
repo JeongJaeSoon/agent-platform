@@ -12,6 +12,7 @@ import type {
   TurnSummary,
 } from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
+import type { SessionViewer } from "./session-share-store.ts";
 
 // Checked inside the acceptance transaction, after an idempotent replay has
 // been answered: a replay is never refused for a limit.
@@ -115,9 +116,11 @@ export class InvalidCursorError extends Error {
 }
 
 export interface SessionReader {
+  // Only the sessions shared with `viewer` (design 4.6).
   listSessions(
     ownerId: string,
     query: ListSessionsQuery,
+    viewer: SessionViewer,
   ): Promise<{ items: SessionRecord[]; next_cursor: string | null }>;
   getSession(
     ownerId: string,

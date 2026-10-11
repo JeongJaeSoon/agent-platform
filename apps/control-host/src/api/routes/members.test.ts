@@ -3,6 +3,7 @@ import {
   apiErrorResponseSchema,
   listMembersResponseSchema,
   listTakeoversResponseSchema,
+  REQUEST_BODY_MAX_BYTES,
   setAccessResponseSchema,
   takeOverSessionResponseSchema,
   updateMemberResponseSchema,
@@ -130,8 +131,8 @@ function app(
       ? service
       : {
           listTakeovers: (caller) => service.listTakeovers(asPerson(caller)),
-          takeOverSession: (caller, id) =>
-            service.takeOverSession(asPerson(caller), id),
+          takeOverSession: (caller, id, justification) =>
+            service.takeOverSession(asPerson(caller), id, justification),
           disableMember: (caller, id, reason) =>
             service.disableMember(asPerson(caller), id, reason),
           enableMember: (caller, id, reason) =>
@@ -218,6 +219,57 @@ describe("POST /v1/sessions/{id}/takeover", () => {
       receipt_status: "succeeded",
     });
     expect(renamed).toBe(OWNER_USER);
+  });
+
+  test("a reason rides on the decision and reaches the store", async () => {
+    let decided: unknown;
+    let stored: unknown;
+    const response = await app(
+      store({
+        takeOver: async (input) => {
+          stored = input.justification;
+          return { outcome: "taken_over", receiptId: RECEIPT };
+        },
+      }),
+      {
+        authorization: {
+          authorize: async (request) => {
+            decided = request.subject.justification;
+            return allowing.authorize(request);
+          },
+        },
+      },
+    ).request(`/v1/sessions/${SESSION}/takeover`, {
+      method: "POST",
+      headers: { ...owner, "Content-Type": "application/json" },
+      body: JSON.stringify({ justification: " left the company " }),
+    });
+    expect(response.status).toBe(200);
+    expect(decided).toBe("left the company");
+    expect(stored).toBe("left the company");
+  });
+
+  test("a body, when sent, is checked", async () => {
+    const send = (body: string) =>
+      app().request(`/v1/sessions/${SESSION}/takeover`, {
+        method: "POST",
+        headers: { ...owner, "Content-Type": "application/json" },
+        body,
+      });
+    expect((await send(JSON.stringify({ justification: "" }))).status).toBe(
+      400,
+    );
+    expect((await send("{")).status).toBe(400);
+    expect(
+      (
+        await send(
+          JSON.stringify({
+            justification: "x",
+            pad: "x".repeat(REQUEST_BODY_MAX_BYTES),
+          }),
+        )
+      ).status,
+    ).toBe(413);
   });
 
   test("an API key cannot take a session over", async () => {
