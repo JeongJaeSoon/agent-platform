@@ -4,7 +4,7 @@ import type {
 } from "@agent-platform/contracts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
-import { type ApiError, unwrap } from "../api/client.ts";
+import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import {
   administeredAgentsQuery,
   agentAdminsQuery,
@@ -20,7 +20,7 @@ import {
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
-import { useI18n } from "../i18n/i18n.tsx";
+import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { StatusScreen } from "./status-screen.tsx";
@@ -59,6 +59,10 @@ export function AgentAdmins({
         <AdminList agentId={agentId} onOutcome={onOutcome} />
       ) : administered.isPending && !everywhere ? (
         <StatusScreen kind="loading" />
+      ) : administered.error ? (
+        <p className="web-form__error" role="alert">
+          {t(errorKey((administered.error as ApiError).code))}
+        </p>
       ) : (
         <p className="web-guarded__reason">
           {permissionReason(t, "agent.admin.manage", role)}
@@ -131,7 +135,13 @@ function AdminList({
 
   if (admins.isPending) return <StatusScreen kind="loading" />;
   if (admins.error) {
-    return <p className="web-guarded__reason">{reason}</p>;
+    return isApiError(admins.error, "FORBIDDEN") ? (
+      <p className="web-guarded__reason">{reason}</p>
+    ) : (
+      <p className="web-form__error" role="alert">
+        {t(errorKey((admins.error as ApiError).code))}
+      </p>
+    );
   }
 
   const userIds = new Set(admins.data.users.map((user) => user.user_id));

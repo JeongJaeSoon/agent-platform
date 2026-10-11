@@ -304,6 +304,35 @@ describe("에이전트 관리자", () => {
     ).toBeNull();
   });
 
+  test("관리 여부를 묻지 못하면 권한 문구가 아니라 실패를 보인다", async () => {
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () =>
+        apiError(500, "INTERNAL", "Internal error"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+    );
+    expect(
+      screen.queryByText(
+        "agent.admin.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+      ),
+    ).toBeNull();
+  });
+
+  test("관리자 목록이 실패하면 권한 문구가 아니라 실패를 보인다", async () => {
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Backend unavailable"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+    );
+  });
+
   test("관리하지 않는 구성원은 이유만 보고, 관리자 목록을 묻지 않는다", async () => {
     const { api } = renderAt(`/agents/${AGENT_ID}`, {
       ...agentServer().routes,
