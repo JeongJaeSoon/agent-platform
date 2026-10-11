@@ -197,6 +197,14 @@ export const en: Record<MessageKey, string> = {
     "Audit records cannot be kept for less than 30 days. Choose 30 or more (up to 3650).",
   "workspace.retentionSaved": "Audit records are kept for {days} days.",
   "workspace.save": "Save",
+  "workspace.guest": "Slack guests",
+  "workspace.guestLabel": "Let Slack guests call agents",
+  "workspace.guestOn": "On",
+  "workspace.guestOff": "Off",
+  "workspace.guestHint":
+    "Even when on, a guest has to link their Slack account on the web first. People from other organizations in Slack Connect cannot call agents either way. An owner or admin can change this.",
+  "workspace.guestSavedOn": "Slack guests can call agents.",
+  "workspace.guestSavedOff": "Slack guests cannot call agents.",
 
   "guard.missingScope": "Requires the {scope} permission.",
 
