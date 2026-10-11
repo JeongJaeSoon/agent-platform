@@ -19,12 +19,14 @@ import type {
   Receipt,
   RecoveryDecisionRequest,
   ResumeSessionRequest,
+  SessionCredentialUnboundDetails,
   SessionDetail,
   SessionRuntime,
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
 } from "@agent-platform/contracts";
+import { CREDENTIAL_UNBOUND_GUIDANCE } from "@agent-platform/contracts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -34,6 +36,7 @@ import {
   type AuthorizationPolicy,
   type Caller,
 } from "../musterrolle/policy.ts";
+import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
   EventPage,
@@ -197,6 +200,14 @@ export async function requireAllowed(
   if (decision?.reason_code === "not_found") {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
+  if (decision?.reason_code === "credential_unbound") {
+    throw new SessionServiceError(
+      "CREDENTIAL_UNBOUND",
+      "A credential this agent's release uses is no longer bound to the agent",
+      undefined,
+      { reason_code: "credential_unbound" },
+    );
+  }
   throw new SessionServiceError(
     "FORBIDDEN",
     `This principal does not hold ${ACTION_SCOPES[action] ?? action}`,
@@ -219,6 +230,8 @@ export function createSessionService(deps: {
       releaseId: string,
     ): Promise<Pick<AgentRelease, "id" | "agent_id" | "runtime_profile_id">>;
   };
+  // Who a requester refused for an unbound credential is told to ask.
+  credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
     sessionCostLimitUsd: number;
     sessionTokenLimit: number | null;
@@ -294,6 +307,35 @@ export function createSessionService(deps: {
     );
   }
 
+  async function credentialUnbound(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<SessionServiceError> {
+    const admins = (
+      (await deps.credentials?.contacts(workspaceId, agentId)) ?? []
+    ).map((contact) => ({
+      user_id: contact.userId,
+      display_name: contact.displayName,
+      email: contact.email,
+    }));
+    const details: SessionCredentialUnboundDetails = {
+      reason_code: "credential_unbound",
+      guidance: CREDENTIAL_UNBOUND_GUIDANCE,
+      agent_id: agentId,
+      admins,
+      admin_link:
+        admins.length === 0
+          ? null
+          : `mailto:${admins.map((admin) => encodeURIComponent(admin.email)).join(",")}`,
+    };
+    return new SessionServiceError(
+      "CREDENTIAL_UNBOUND",
+      "A credential this agent's release uses is no longer bound to the agent",
+      undefined,
+      details,
+    );
+  }
+
   async function pinnedRelease(actor: Caller, body: CreateSessionRequest) {
     if (body.agent_release_id === undefined) return null;
     if (!deps.releases) {
@@ -325,11 +367,32 @@ export function createSessionService(deps: {
       input: { idempotencyKey: string; body: CreateSessionRequest },
     ): Promise<CreateSessionResponse> {
       const release = await pinnedRelease(actor, input.body);
-      await requirePermitted(authorization, actor, "session.submit", {
-        kind: "session",
-        id: null,
-        ...(release ? { agent_id: release.agent_id } : {}),
-      });
+      // An unbound name refuses a new session but not the replay of one
+      // accepted before the unbind, which only the acceptance can tell.
+      const credentialsUnbound = await requirePermitted(
+        authorization,
+        actor,
+        "session.submit",
+        {
+          kind: "session",
+          id: null,
+          ...(release
+            ? { agent_id: release.agent_id, release_id: release.id }
+            : {}),
+        },
+      ).then(
+        () => false,
+        (error: unknown) => {
+          if (
+            release &&
+            error instanceof SessionServiceError &&
+            error.code === "CREDENTIAL_UNBOUND"
+          ) {
+            return true;
+          }
+          throw error;
+        },
+      );
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
       const pair = allowedPair(
@@ -356,12 +419,18 @@ export function createSessionService(deps: {
             }
           : {}),
         ...(release ? { agentReleaseId: release.id } : {}),
+        ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         message: input.body.message,
         limits: inputLimits,
       });
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        case "credential_unbound":
+          if (!release) {
+            throw new Error("Only a pinned release names credentials");
+          }
+          throw await credentialUnbound(actor.ownerId, release.agent_id);
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);

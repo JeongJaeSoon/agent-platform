@@ -27,6 +27,7 @@ import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentStore } from "./agents.ts";
+import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import * as schema from "./schema.ts";
 import {
@@ -122,6 +123,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       }),
       store: createPostgresAgentStore(db),
       catalog,
+      credentials: createPostgresCredentialBindingStore(db),
     });
   }
 

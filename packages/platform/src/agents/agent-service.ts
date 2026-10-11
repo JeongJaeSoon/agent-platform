@@ -1,6 +1,7 @@
 import type {
   ActivateAgentRequest,
   ActivateAgentResponse,
+  ActivationCredentialUnboundDetails,
   AgentDetail,
   AgentRelease,
   CreateAgentReleaseRequest,
@@ -11,6 +12,7 @@ import type {
 } from "@agent-platform/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
+import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import {
   profileFingerprint,
   type SessionCatalog,
@@ -40,8 +42,9 @@ export function createAgentService(deps: {
   authorization: AuthorizationPolicy;
   store: AgentStore;
   catalog: SessionCatalog;
+  credentials: Pick<CredentialBindingStore, "unboundRefs">;
 }) {
-  const { authorization, store, catalog } = deps;
+  const { authorization, store, catalog, credentials } = deps;
 
   function personOf(caller: Caller): string {
     const userId = caller.actor?.userId;
@@ -233,6 +236,21 @@ export function createAgentService(deps: {
       const userId = await manageAgent(caller, agentId);
       const release = await resolveRelease(caller.ownerId, request.release_id);
       if (release.agent_id !== agentId.toLowerCase()) throw NOT_FOUND();
+      // Checked again when each session starts, so a binding revoked after
+      // this point stops the next session rather than this activation.
+      const missing = await credentials.unboundRefs(caller.ownerId, release.id);
+      if (missing.length > 0) {
+        const details: ActivationCredentialUnboundDetails = {
+          reason_code: "credential_unbound",
+          missing,
+        };
+        throw new SessionServiceError(
+          "CREDENTIAL_UNBOUND",
+          `Release ${release.id} uses credentials not bound to this agent: ${missing.join(", ")}`,
+          undefined,
+          details,
+        );
+      }
       const result = await store.activate({
         principal: caller,
         workspaceId: caller.ownerId,

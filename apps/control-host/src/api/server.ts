@@ -5,6 +5,7 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentStore,
   createPostgresAuditRetention,
+  createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresLinkedAccountStore,
@@ -26,6 +27,7 @@ import {
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
+  createCredentialBindingService,
   createInterruptService,
   createInviteService,
   createLinkedAccountService,
@@ -76,6 +78,7 @@ import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
@@ -177,17 +180,20 @@ const checkpoints = createApiCheckpoints(
   checkpointStorage,
   checkpointGitMemoryBytes,
 );
+const credentialBindings = createPostgresCredentialBindingStore(db);
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
     : { identity: createDatabaseIdentityReader(db) }),
   agents: createDatabaseAgentAuthority(db),
+  credentials: credentialBindings,
   decisions: createPostgresDecisionLog(db),
 });
 const agents = createAgentService({
   authorization,
   store: createPostgresAgentStore(db),
   catalog,
+  credentials: credentialBindings,
 });
 const sessions = createSessionService({
   authorization,
@@ -199,6 +205,7 @@ const sessions = createSessionService({
   reader: createPostgresSessionReader(db, { logger }),
   catalog,
   releases: agents,
+  credentials: credentialBindings,
   limits,
 });
 // The same parsed limits admission and dispatch run under, so what this
@@ -227,6 +234,10 @@ if (slackOidc === null) {
     {},
   );
 }
+const credentialBindingService = createCredentialBindingService({
+  authorization,
+  store: credentialBindings,
+});
 const apiKeys = createApiKeyService({
   authorization,
   store: createPostgresWorkspaceKeyStore(db),
@@ -359,6 +370,7 @@ const app = createApiApp({
     registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
     registerApiKeyRoutes(router, apiKeys);
+    registerCredentialBindingRoutes(router, credentialBindingService);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

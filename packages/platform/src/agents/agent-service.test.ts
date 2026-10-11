@@ -7,6 +7,7 @@ import {
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";
+import { SessionServiceError } from "../sessions/session-service.ts";
 import { createAgentService } from "./agent-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -112,11 +113,18 @@ function memoryStore(tools: string[] = ["Read"]) {
   return { store, releases, activations: () => activations };
 }
 
-function serviceOver(store: AgentStore, profile: CatalogProfile = PROFILE) {
+function serviceOver(
+  store: AgentStore,
+  profile: CatalogProfile = PROFILE,
+  unbound: Record<string, string[]> = {},
+) {
   return createAgentService({
     authorization: createAuthorizationPolicy(),
     store,
     catalog: catalogOf(profile),
+    credentials: {
+      unboundRefs: async (_workspaceId, releaseId) => unbound[releaseId] ?? [],
+    },
   });
 }
 
@@ -239,6 +247,33 @@ describe("agent service", () => {
         }),
       ),
     ).toBe("NOT_FOUND");
+    expect(memory.activations()).toBe(0);
+  });
+
+  test("activation names the credentials not bound to the agent, without reaching the store", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(memory.store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    const refused = await serviceOver(memory.store, PROFILE, {
+      [made.id]: ["mcp-notion", "slack_bot_token"],
+    })
+      .activateAgent(owner, AGENT, {
+        release_id: made.id,
+        expected_revision: -1,
+      })
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(SessionServiceError);
+    expect(refused).toMatchObject({
+      code: "CREDENTIAL_UNBOUND",
+      details: {
+        reason_code: "credential_unbound",
+        missing: ["mcp-notion", "slack_bot_token"],
+      },
+    });
+    expect((refused as Error).message).toContain("mcp-notion, slack_bot_token");
     expect(memory.activations()).toBe(0);
   });
 
