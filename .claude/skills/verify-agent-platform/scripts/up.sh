@@ -53,7 +53,7 @@ EOF
   printf 'export WORKER_IMAGE=%q\n' "agent-platform-worker:$project"
   printf 'export EGRESS_PROXY_IMAGE=%q\n' "agent-platform-egress-proxy:$project"
   printf 'VERIFY_BOOTSTRAP_TOKEN=%q\n' "$token"
-  printf 'VERIFY_BUILT_FROM=%q\n' "$(git -C "$repo" rev-parse HEAD)"
+  printf 'VERIFY_BUILT_FROM=%q\n' "$("$repo/.claude/skills/verify-agent-platform/scripts/tree-id.sh" "$repo")"
 } >"$run/state.env"
 echo "$run" >"$root/latest"
 echo "run: $run (project $project)" >&2

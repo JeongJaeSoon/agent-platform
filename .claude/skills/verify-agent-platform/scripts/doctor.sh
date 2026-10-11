@@ -7,11 +7,11 @@ here=$(dirname "$0")
 . "$here/lib.sh" "${1:-}"
 echo "run:      $VERIFY_RUN"
 echo "project:  $COMPOSE_PROJECT_NAME"
-head=$(git -C "$VERIFY_REPO" rev-parse HEAD)
+head=$("$here/tree-id.sh" "$VERIFY_REPO") || exit 1
 echo "built:    ${VERIFY_BUILT_FROM:-unknown}"
 echo "checkout: $head"
-# The images were built from VERIFY_BUILT_FROM; a moved HEAD is not what runs.
-[ "$head" = "${VERIFY_BUILT_FROM:-}" ] || { echo "doctor: checkout moved since up.sh; down.sh and up.sh again" >&2; exit 1; }
+# The images were built from VERIFY_BUILT_FROM; a moved HEAD or a new edit is not what runs.
+[ "$head" = "${VERIFY_BUILT_FROM:-}" ] || { echo "doctor: checkout (HEAD or uncommitted changes) moved since up.sh; down.sh and up.sh again" >&2; exit 1; }
 echo "api:      $API"
 services=$(ap_compose ps --format '{{.Service}} {{.State}} {{.Health}}') || { echo "doctor: docker compose ps failed" >&2; exit 1; }
 echo "$services" | sort
