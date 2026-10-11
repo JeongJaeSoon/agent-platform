@@ -513,7 +513,11 @@ integration("linked_accounts on PostgreSQL", () => {
         },
         actor_user_id: actorUserId,
         linked_account: link,
-        surface: { kind: "slack" },
+        surface: {
+          kind: "slack",
+          slack_user_kind: "member",
+          ceiling: { actions: ["session.submit"], disclosure: "full" },
+        },
       }) as Reread;
 
     test("the reader judges the linked person as they stand now", async () => {
@@ -603,23 +607,38 @@ integration("linked_accounts on PostgreSQL", () => {
       });
     });
 
-    test("a live link still stops at the Slack ceiling until bindings exist", async () => {
+    test("a live link is judged as its person, under the channel's ceiling", async () => {
       const { ws, team, user } = await setup();
       const { account: row } = await linked(ws, user, slack(team));
       const policy = createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
       });
-      expect(
-        await policy.authorize({
-          subject: installationSubject(ws, user, {
-            id: row.id,
-            revision: row.revision,
-          }),
+      const subject = installationSubject(ws, user, {
+        id: row.id,
+        revision: row.revision,
+      });
+      const ask = (ceiling: string[]) =>
+        policy.authorize({
+          subject: {
+            ...subject,
+            surface: {
+              ...subject.surface,
+              ceiling: { actions: ceiling, disclosure: "full" },
+            },
+          },
           action: "session.submit",
           resource: { kind: "surface_binding", id: null, owner_scope: ws },
           request_id: randomUUID(),
-        } as AuthorizationRequest),
-      ).toMatchObject({ outcome: "deny", reason_code: "surface_ceiling" });
+        } as AuthorizationRequest);
+      expect(await ask(["session.submit"])).toMatchObject({
+        outcome: "allow",
+        reason_code: "ok",
+        effective_scopes: ["sessions:write"],
+      });
+      expect(await ask(["session.read"])).toMatchObject({
+        outcome: "deny",
+        reason_code: "surface_ceiling",
+      });
     });
 
     test("the partial indexes allow one live link per account and per person in a team", async () => {
