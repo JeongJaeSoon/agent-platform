@@ -10,6 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { signInWithExternalIdentity } from "./identity.ts";
+import { createPostgresMemberStore } from "./members.ts";
 import * as schema from "./schema.ts";
 import {
   invites,
@@ -171,6 +172,44 @@ integration("external sign-in first-entry rules", () => {
     });
     expect(await signIn("sub-carol-2", "carol@example.com")).toEqual({
       outcome: "rejected",
+    });
+  });
+
+  test("a passwordless account whose membership is enabled again signs in with its link", async () => {
+    await invite("erin@example.com");
+    const first = await signIn("sub-erin", "erin@example.com");
+    if (first.outcome !== "signed_in") throw new Error(first.outcome);
+    const store = createPostgresMemberStore(db);
+    const change = (disabled: boolean) =>
+      store.setAccess({
+        actor: {
+          principal: {
+            ownerId: workspaceId,
+            actor: {
+              principal: { kind: "user", id: ownerId },
+              userId: ownerId,
+              workspaceId,
+              apiKeyId: null,
+            },
+          },
+          workspaceId,
+          userId: ownerId,
+        },
+        userId: first.userId,
+        scope: "membership",
+        disabled,
+        reason: null,
+        receiptId: randomUUID(),
+      });
+    expect(await change(true)).toMatchObject({ outcome: "changed" });
+    expect(await signIn("sub-erin", "erin@example.com")).toEqual({
+      outcome: "rejected",
+    });
+    expect(await change(false)).toMatchObject({ outcome: "changed" });
+    expect(await signIn("sub-erin", "erin@example.com")).toMatchObject({
+      outcome: "signed_in",
+      via: "linked",
+      userId: first.userId,
     });
   });
 

@@ -3,6 +3,7 @@ import {
   apiErrorResponseSchema,
   listMembersResponseSchema,
   listTakeoversResponseSchema,
+  setAccessResponseSchema,
   takeOverSessionResponseSchema,
   updateMemberResponseSchema,
 } from "@agent-platform/contracts";
@@ -45,7 +46,7 @@ const outage = () =>
 
 function store(overrides: Partial<MemberStore> = {}): MemberStore {
   return {
-    offboard: async () => ({ outcome: "not_found" }),
+    setAccess: async () => ({ outcome: "not_found" }),
     listAwaitingTakeover: async () => [
       {
         sessionId: SESSION,
@@ -124,13 +125,21 @@ function app(
           changeMemberRole: (caller, userId, role) =>
             invites.changeMemberRole(asPerson(caller), userId, role),
         };
-  const routed: Pick<MemberService, "listTakeovers" | "takeOverSession"> =
+  const routed: MemberService =
     options.person === false
       ? service
       : {
           listTakeovers: (caller) => service.listTakeovers(asPerson(caller)),
           takeOverSession: (caller, id) =>
             service.takeOverSession(asPerson(caller), id),
+          disableMember: (caller, id, reason) =>
+            service.disableMember(asPerson(caller), id, reason),
+          enableMember: (caller, id, reason) =>
+            service.enableMember(asPerson(caller), id, reason),
+          disableUser: (caller, id, reason) =>
+            service.disableUser(asPerson(caller), id, reason),
+          enableUser: (caller, id, reason) =>
+            service.enableUser(asPerson(caller), id, reason),
         };
   return createApiApp({
     authMode: "none",
@@ -399,4 +408,122 @@ describe("PATCH /v1/members/{user_id}", () => {
     );
     expect(response.status).toBe(503);
   });
+});
+
+describe.each([
+  ["members", "disable", true],
+  ["members", "enable", false],
+  ["users", "disable", true],
+  ["users", "enable", false],
+] as const)("POST /v1/%s/{user_id}/%s", (base, action, disabled) => {
+  const scope = base === "members" ? "membership" : "account";
+  const post = (
+    api: ReturnType<typeof app>,
+    body: unknown = { reason: "left the team" },
+    id = DEPARTED,
+  ) =>
+    api.request(`/v1/${base}/${id}/${action}`, {
+      method: "POST",
+      headers: { ...owner, "Content-Type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  const answering = (result: Awaited<ReturnType<MemberStore["setAccess"]>>) =>
+    app(store({ setAccess: async () => result }));
+
+  test("asks the store as the acting owner and answers the member and receipt", async () => {
+    let asked: Parameters<MemberStore["setAccess"]>[0] | undefined;
+    const response = await post(
+      app(
+        store({
+          setAccess: async (input) => {
+            asked = input;
+            return {
+              outcome: "changed",
+              member: MEMBER,
+              receiptId: RECEIPT,
+              effects: { disabled: false, sessionsReleased: 0 },
+            };
+          },
+        }),
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(setAccessResponseSchema.parse(await response.json())).toEqual({
+      member: {
+        user_id: DEPARTED,
+        email: "member@example.com",
+        display_name: "Member",
+        role: "member",
+        disabled_at: null,
+        created_at: "2026-10-11T00:00:00.000Z",
+      },
+      receipt_id: RECEIPT,
+    });
+    expect(asked).toMatchObject({
+      actor: { userId: OWNER_USER },
+      userId: DEPARTED,
+      scope,
+      disabled,
+      reason: "left the team",
+    });
+  });
+
+  test("a state already as asked answers without a receipt", async () => {
+    const response = await post(
+      answering({ outcome: "unchanged", member: MEMBER }),
+      {},
+    );
+    expect(response.status).toBe(200);
+    expect(
+      setAccessResponseSchema.parse(await response.json()).receipt_id,
+    ).toBeNull();
+  });
+
+  test("a body that is not an access change is refused; a reason over 1 KiB is too large", async () => {
+    expect((await post(app(), { role: "owner" })).status).toBe(400);
+    expect((await post(app(), "not json")).status).toBe(400);
+    expect((await post(app(), { reason: "é".repeat(513) })).status).toBe(413);
+  });
+
+  test("requires authentication", async () => {
+    const response = await app().request(`/v1/${base}/${DEPARTED}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(response.status).toBe(401);
+  });
+
+  test("an API key, a demoted owner and an account elsewhere are refused", async () => {
+    const byKey = await post(
+      app(store(), {
+        authorization: createAuthorizationPolicy(),
+        person: false,
+      }),
+    );
+    expect(byKey.status).toBe(403);
+    for (const outcome of ["actor_inactive", "elsewhere"] as const) {
+      expect((await post(answering({ outcome }))).status).toBe(403);
+    }
+  });
+
+  test("a person who is not here, or a malformed id, is not found", async () => {
+    expect((await post(answering({ outcome: "not_found" }))).status).toBe(404);
+    expect((await post(app(), {}, "nope")).status).toBe(404);
+  });
+
+  test("maps a storage outage to 503", async () => {
+    expect((await post(app(store({ setAccess: outage })))).status).toBe(503);
+  });
+
+  if (disabled) {
+    test("the last owner, or yourself, cannot be disabled", async () => {
+      const last = await post(answering({ outcome: "last_owner" }));
+      expect(last.status).toBe(409);
+      expect((await errorOf(last)).code).toBe("LAST_OWNER");
+      const self = await post(app(), {}, OWNER_USER);
+      expect(self.status).toBe(409);
+      expect((await errorOf(self)).code).toBe("LAST_OWNER");
+    });
+  }
 });

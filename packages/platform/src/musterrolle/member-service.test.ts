@@ -1,38 +1,142 @@
 import { describe, expect, test } from "bun:test";
+import type { MemberStore, SetAccessResult } from "../ports/member-store.ts";
 import { createMemberService } from "./member-service.ts";
 import { callerFor, createAuthorizationPolicy } from "./policy.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000a1";
+const MEMBER = "019a0000-0000-7000-8000-0000000000a2";
+const KEY = "019a0000-0000-7000-8000-0000000000c1";
 
-describe("offboardMember", () => {
-  test("an owner cannot offboard themselves, so a workspace never locks out its last owner", async () => {
-    let reached = false;
-    const service = createMemberService({
-      authorization: createAuthorizationPolicy(),
-      store: {
-        offboard: async () => {
-          reached = true;
-          return { outcome: "not_found" };
-        },
-        listAwaitingTakeover: async () => [],
-        takeOver: async () => ({ outcome: "not_found" }),
+const member = {
+  userId: MEMBER,
+  email: "member@example.com",
+  displayName: "Member",
+  role: "member" as const,
+  disabledAt: null,
+  createdAt: new Date("2026-10-01T00:00:00Z"),
+};
+
+function serviceAnswering(result: SetAccessResult) {
+  const calls: Parameters<MemberStore["setAccess"]>[0][] = [];
+  const service = createMemberService({
+    authorization: createAuthorizationPolicy(),
+    store: {
+      setAccess: async (input) => {
+        calls.push(input);
+        return result;
       },
-    });
-    const caller = callerFor(
+      listAwaitingTakeover: async () => [],
+      takeOver: async () => ({ outcome: "not_found" }),
+    },
+  });
+  return { service, calls };
+}
+
+function asOwner() {
+  return callerFor(
+    {
+      kind: "user",
+      id: OWNER,
+      workspace_id: WORKSPACE,
+      role: "owner",
+      scopes: ["sessions:read"],
+    },
+    { kind: "api" },
+    crypto.randomUUID(),
+  );
+}
+
+describe("member access", () => {
+  test("an owner cannot disable themselves, so a workspace never locks out its last owner", async () => {
+    const { service, calls } = serviceAnswering({ outcome: "not_found" });
+    for (const disable of [service.disableMember, service.disableUser]) {
+      await expect(
+        disable(asOwner(), OWNER.toUpperCase()),
+      ).rejects.toMatchObject({ code: "LAST_OWNER" });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("a member and an API key never reach the store", async () => {
+    const { service, calls } = serviceAnswering({ outcome: "not_found" });
+    const asMember = callerFor(
       {
         kind: "user",
-        id: OWNER,
+        id: MEMBER,
         workspace_id: WORKSPACE,
-        role: "owner",
+        role: "member",
         scopes: ["sessions:read"],
       },
       { kind: "api" },
       crypto.randomUUID(),
     );
-    await expect(
-      service.offboardMember(caller, OWNER.toUpperCase()),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    expect(reached).toBe(false);
+    const asKey = callerFor(
+      {
+        kind: "api_key",
+        id: KEY,
+        owner_id: WORKSPACE,
+        workspace_id: WORKSPACE,
+        scopes: ["sessions:read"],
+      },
+      { kind: "api" },
+      crypto.randomUUID(),
+      { creatorId: null },
+    );
+    for (const caller of [asMember, asKey]) {
+      await expect(service.disableMember(caller, OWNER)).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("the store is asked as the acting owner, in the caller's workspace, with the reason", async () => {
+    const { service, calls } = serviceAnswering({
+      outcome: "unchanged",
+      member,
+    });
+    const done = await service.enableUser(
+      asOwner(),
+      MEMBER.toUpperCase(),
+      "back",
+    );
+    expect(done).toEqual({
+      member: {
+        user_id: MEMBER,
+        email: "member@example.com",
+        display_name: "Member",
+        role: "member",
+        disabled_at: null,
+        created_at: "2026-10-01T00:00:00.000Z",
+      },
+      receiptId: null,
+      effects: null,
+    });
+    expect(calls).toMatchObject([
+      {
+        actor: { workspaceId: WORKSPACE, userId: OWNER },
+        userId: MEMBER,
+        scope: "account",
+        disabled: false,
+        reason: "back",
+      },
+    ]);
+  });
+
+  test("each refusal from the store keeps its own error code", async () => {
+    const cases = [
+      ["not_found", "NOT_FOUND"],
+      ["last_owner", "LAST_OWNER"],
+      ["elsewhere", "FORBIDDEN"],
+      ["outranked", "FORBIDDEN"],
+      ["actor_inactive", "FORBIDDEN"],
+    ] as const;
+    for (const [outcome, code] of cases) {
+      const { service } = serviceAnswering({ outcome });
+      await expect(
+        service.disableMember(asOwner(), MEMBER),
+      ).rejects.toMatchObject({ code });
+    }
   });
 });

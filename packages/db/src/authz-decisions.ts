@@ -8,6 +8,7 @@ import type {
   DecisionLog,
 } from "@agent-platform/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { lockActorAccount } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { authzDecisions, memberships, users, workspaces } from "./schema.ts";
@@ -51,6 +52,7 @@ export function createPostgresAuditRetention(
       // Same lock as offboarding takes, so an owner disabled mid-request
       // cannot still write the setting.
       return db.transaction(async (tx) => {
+        await lockActorAccount(tx, ownerUserId);
         const owner = await tx
           .select({ userId: memberships.userId })
           .from(memberships)

@@ -466,6 +466,45 @@ integration("invite store on PostgreSQL", () => {
     }
   });
 
+  test("an actor whose account is disabled mid-write is refused", async () => {
+    const ws = await workspace();
+    const writes = [
+      (owner: string) =>
+        issue(acting(ws, owner), `${randomUUID()}@example.invalid`).then(
+          ({ result }) => result,
+        ),
+      async (owner: string) =>
+        store.changeMemberRole({
+          userId: await member(ws, "member"),
+          role: "owner",
+          actor: acting(ws, owner),
+          receiptId: randomUUID(),
+        }),
+    ];
+    for (const write of writes) {
+      const owner = await member(ws, "owner");
+      const other = await pool.connect();
+      try {
+        // An account disable's order: the user row, then its memberships.
+        await other.query("BEGIN");
+        await other.query(
+          "UPDATE users SET disabled_at = now() WHERE id = $1",
+          [owner],
+        );
+        await other.query(
+          "SELECT 1 FROM memberships WHERE user_id = $1 FOR UPDATE",
+          [owner],
+        );
+        const writing = write(owner);
+        await Bun.sleep(300);
+        await other.query("COMMIT");
+        expect(await writing).toEqual({ outcome: "actor_inactive" });
+      } finally {
+        other.release();
+      }
+    }
+  });
+
   test("roles: the last live owner stays, and two owners demoting each other leave one", async () => {
     const ws = await workspace();
     const first = await member(ws, "owner");

@@ -1,7 +1,9 @@
 import { z } from "zod";
 
+import { PAYLOAD_TOO_LARGE_ISSUE } from "../api/session.ts";
 import {
   inviteIdSchema,
+  receiptIdSchema,
   timestampSchema,
   userIdSchema,
   workspaceIdSchema,
@@ -186,6 +188,35 @@ export const updateMemberRequestSchema = z
   .strict();
 export const updateMemberResponseSchema = memberViewSchema;
 
+export const ACCESS_REASON_MAX_BYTES = 1024;
+const utf8 = new TextEncoder();
+
+/** Disabling or enabling a membership or an account. */
+export const setAccessRequestSchema = z
+  .object({
+    /** Kept on the receipt, for whoever reads the audit later. */
+    reason: z
+      .string()
+      .min(1)
+      .refine((text) => utf8.encode(text).length <= ACCESS_REASON_MAX_BYTES, {
+        message: `Reason exceeds ${ACCESS_REASON_MAX_BYTES} UTF-8 bytes`,
+        params: { code: PAYLOAD_TOO_LARGE_ISSUE },
+      })
+      .meta({
+        description: `At most ${ACCESS_REASON_MAX_BYTES} bytes of UTF-8`,
+      })
+      .optional(),
+  })
+  .strict();
+
+export const setAccessResponseSchema = z
+  .object({
+    member: memberViewSchema,
+    /** Null when the state already was what was asked: nothing was written. */
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
+
 export const listMembersResponseSchema = z
   .object({ items: z.array(memberViewSchema) })
   .strict();
@@ -206,5 +237,7 @@ export type CreateInviteRequest = z.infer<typeof createInviteRequestSchema>;
 export type CreateInviteResponse = z.infer<typeof createInviteResponseSchema>;
 export type UpdateMemberRequest = z.infer<typeof updateMemberRequestSchema>;
 export type UpdateMemberResponse = z.infer<typeof updateMemberResponseSchema>;
+export type SetAccessRequest = z.infer<typeof setAccessRequestSchema>;
+export type SetAccessResponse = z.infer<typeof setAccessResponseSchema>;
 export type ListMembersResponse = z.infer<typeof listMembersResponseSchema>;
 export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;
