@@ -20,10 +20,13 @@ import {
   createAgentRequestSchema,
   createApiKeyRequestSchema,
   createApiKeyResponseSchema,
+  createCredentialBindingRequestSchema,
+  createCredentialBindingResponseSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  credentialBindingParamsSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getTurnResponseSchema,
@@ -37,6 +40,7 @@ import {
   linkedAccountParamsSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
+  listCredentialBindingsResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
@@ -64,6 +68,7 @@ import {
   recoveryDecisionRequestSchema,
   resumeSessionRequestSchema,
   revokeApiKeyResponseSchema,
+  revokeCredentialBindingResponseSchema,
   type SessionScope,
   sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
@@ -172,6 +177,10 @@ const responseComponents = {
   CreateApiKeyResponse: createApiKeyResponseSchema,
   ListApiKeysResponse: listApiKeysResponseSchema,
   RevokeApiKeyResponse: revokeApiKeyResponseSchema,
+  CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
+  CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
+  ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
+  RevokeCredentialBindingResponse: revokeCredentialBindingResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -220,7 +229,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Agents",
     description:
-      "Write agent cards, release a version against a runtime profile and activate a release. Owners, admins, and each agent's own admins.",
+      "Write agent cards, release a version against a runtime profile, activate a release and bind the credential names it runs with. Owners, admins, and each agent's own admins.",
   },
   {
     name: "Linked accounts",
@@ -1017,6 +1026,46 @@ const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "get",
+    path: "/v1/agents/{id}/credential-bindings",
+    operationId: "listCredentialBindings",
+    tag: "Agents",
+    summary: "The credential names bound to an agent",
+    description:
+      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.",
+    auth: "session",
+    success: { status: 200, schema: "ListCredentialBindingsResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/credential-bindings",
+    operationId: "createCredentialBinding",
+    tag: "Agents",
+    summary: "Bind a credential name to an agent",
+    description:
+      "Owners, admins and the agent's admins; never an API key. `credential_ref` names a credential held outside Werft (a secret store entry, a remote MCP server connection). Binding a name already bound answers `created: false` and a null `receipt_id`; otherwise writes a `bind_credential` receipt. A name an agent identity holds answers 409 CREDENTIAL_REF_IN_USE.",
+    auth: "session",
+    body: "CreateCredentialBindingRequest",
+    success: { status: 200, schema: "CreateCredentialBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["CREDENTIAL_REF_IN_USE"] },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/credential-bindings/{binding_id}",
+    operationId: "revokeCredentialBinding",
+    tag: "Agents",
+    summary: "Unbind a credential name from an agent",
+    description:
+      "Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeCredentialBindingResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
     method: "post",
     path: "/v1/api-keys",
     operationId: "createApiKey",
@@ -1180,6 +1229,7 @@ function queryParameters(schema: JsonSchema) {
 
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
+  if (path.includes("{binding_id}")) return credentialBindingParamsSchema;
   if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;

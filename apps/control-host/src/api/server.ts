@@ -27,6 +27,7 @@ import {
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
+  createCredentialBindingService,
   createInterruptService,
   createInviteService,
   createLinkedAccountService,
@@ -77,6 +78,7 @@ import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
@@ -232,6 +234,10 @@ if (slackOidc === null) {
     {},
   );
 }
+const credentialBindingService = createCredentialBindingService({
+  authorization,
+  store: credentialBindings,
+});
 const apiKeys = createApiKeyService({
   authorization,
   store: createPostgresWorkspaceKeyStore(db),
@@ -364,6 +370,7 @@ const app = createApiApp({
     registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
     registerApiKeyRoutes(router, apiKeys);
+    registerCredentialBindingRoutes(router, credentialBindingService);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

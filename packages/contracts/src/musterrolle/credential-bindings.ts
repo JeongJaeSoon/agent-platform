@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { credentialRefSchema } from "../kollegium/agents.ts";
-import { agentIdSchema, userIdSchema } from "../shared/index.ts";
+import {
+  agentIdSchema,
+  receiptIdSchema,
+  timestampSchema,
+  userIdSchema,
+} from "../shared/index.ts";
 
 /**
  * What a requester whose session could not start reads (design 4.4, D11):
@@ -45,4 +50,73 @@ export type SessionCredentialUnboundDetails = z.infer<
 >;
 export type ActivationCredentialUnboundDetails = z.infer<
   typeof activationCredentialUnboundDetailsSchema
+>;
+
+/**
+ * What the unbind screen says beside the running count (D11): unbinding
+ * only stops the next session, and the value's owner is the one who can
+ * stop a running one.
+ */
+export const CREDENTIAL_REVOKE_NOTICE =
+  "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요";
+
+export const credentialBindingIdSchema = z.uuid();
+
+export const credentialBindingSchema = z
+  .object({
+    id: credentialBindingIdSchema,
+    agent_id: agentIdSchema,
+    credential_ref: credentialRefSchema,
+    bound_by: userIdSchema,
+    bound_at: timestampSchema,
+    revoked_at: timestampSchema.nullable(),
+    /** Sessions on this agent's releases that name it and have not closed. */
+    running_sessions: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const credentialBindingParamsSchema = z
+  .object({ id: agentIdSchema, binding_id: credentialBindingIdSchema })
+  .strict();
+
+export const listCredentialBindingsResponseSchema = z
+  .object({
+    items: z.array(credentialBindingSchema),
+    revoke_notice: z.literal(CREDENTIAL_REVOKE_NOTICE),
+  })
+  .strict();
+
+export const createCredentialBindingRequestSchema = z
+  .object({ credential_ref: credentialRefSchema })
+  .strict();
+
+/** `created: false` and a null receipt when the name was bound already. */
+export const createCredentialBindingResponseSchema = z
+  .object({
+    binding: credentialBindingSchema,
+    created: z.boolean(),
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
+
+export const revokeCredentialBindingResponseSchema = z
+  .object({
+    binding: credentialBindingSchema,
+    revoke_notice: z.literal(CREDENTIAL_REVOKE_NOTICE),
+    receipt_id: receiptIdSchema,
+  })
+  .strict();
+
+export type CredentialBindingView = z.infer<typeof credentialBindingSchema>;
+export type ListCredentialBindingsResponse = z.infer<
+  typeof listCredentialBindingsResponseSchema
+>;
+export type CreateCredentialBindingRequest = z.infer<
+  typeof createCredentialBindingRequestSchema
+>;
+export type CreateCredentialBindingResponse = z.infer<
+  typeof createCredentialBindingResponseSchema
+>;
+export type RevokeCredentialBindingResponse = z.infer<
+  typeof revokeCredentialBindingResponseSchema
 >;

@@ -75,6 +75,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/api-keys",
     "DELETE /v1/api-keys/{id}",
   ],
+  "routes/credential-bindings.test.ts": [
+    "GET /v1/agents/{id}/credential-bindings",
+    "POST /v1/agents/{id}/credential-bindings",
+    "DELETE /v1/agents/{id}/credential-bindings/{binding_id}",
+  ],
   "routes/agents.test.ts": [
     "GET /v1/agents",
     "POST /v1/agents",
