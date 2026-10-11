@@ -55,6 +55,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/invites/{id}",
     "POST /v1/invites/accept",
   ],
+  "routes/workspaces.test.ts": ["POST /v1/workspaces/{id}/audit-retention"],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims

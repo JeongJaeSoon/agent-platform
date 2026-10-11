@@ -2,6 +2,8 @@ import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
+  createPostgresAuditRetention,
+  createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
@@ -77,6 +79,7 @@ import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
+import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 
@@ -162,9 +165,12 @@ const checkpoints = createApiCheckpoints(
   checkpointStorage,
   checkpointGitMemoryBytes,
 );
-const authorization = createAuthorizationPolicy(
-  authMode === "none" ? {} : { identity: createDatabaseIdentityReader(db) },
-);
+const authorization = createAuthorizationPolicy({
+  ...(authMode === "none"
+    ? {}
+    : { identity: createDatabaseIdentityReader(db) }),
+  decisions: createPostgresDecisionLog(db),
+});
 const sessions = createSessionService({
   authorization,
   inputs: createPostgresSessionUnitOfWork(db),
@@ -276,6 +282,7 @@ const app = createApiApp({
   logger,
   keyStore: new DatabaseApiKeyStore(db),
   identity,
+  authorization,
   registerPublicRoutes: (router) => {
     registerPublicAuthRoutes(router, auth);
     registerPublicInviteRoutes(router, {
@@ -289,6 +296,10 @@ const app = createApiApp({
   registerRoutes: (router) => {
     registerAuthRoutes(router, auth);
     registerInviteRoutes(router, invites);
+    registerWorkspaceRoutes(router, {
+      authorization,
+      retention: createPostgresAuditRetention(db),
+    });
     registerSessionRoutes(router, sessions);
     registerPauseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);

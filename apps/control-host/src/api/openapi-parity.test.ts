@@ -26,6 +26,10 @@ import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
+import {
+  registerWorkspaceRoutes,
+  type WorkspaceRouteDeps,
+} from "./routes/workspaces.ts";
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
@@ -59,6 +63,7 @@ function apiApp() {
       registerMemberRoutes(router, {} as MemberService, {} as InviteService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
+      registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerEventRoutes(router, {} as SessionService, {
         wakeup: { wait: async () => {} },
       });
