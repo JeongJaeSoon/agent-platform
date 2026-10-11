@@ -7,9 +7,8 @@ import { API_ROUTE_SCOPES } from "./openapi.ts";
 // scope learns nothing about the session it named, and the owner check that
 // follows still answers 404 for another owner's resource.
 //
-// Enforced here, at the only production entry into the session services.
-// A caller that reaches those services without HTTP (a chat adapter, a job)
-// is the trigger for moving this into the platform policy.
+// The first refusal only: every session service asks the platform policy
+// again before it reads anything, so a caller without HTTP is refused too.
 
 const TABLE = API_ROUTE_SCOPES.map((route) => ({
   method: route.method,

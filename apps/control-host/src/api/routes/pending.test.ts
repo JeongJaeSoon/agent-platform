@@ -7,7 +7,7 @@ import {
 import {
   type AnswerRequestInput,
   type AnswerRequestResult,
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createPendingRequestService,
   type PendingRequestStore,
 } from "@agent-platform/platform";
@@ -20,7 +20,7 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 
 function app(overrides: Partial<PendingRequestStore> = {}) {
   const service = createPendingRequestService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     store: {
       listOpen: async () => null,
       answerAtomic: async () => {

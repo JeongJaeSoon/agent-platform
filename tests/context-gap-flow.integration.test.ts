@@ -27,7 +27,7 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
   type SessionCatalog,
@@ -161,7 +161,7 @@ integration(
       notifier = new PostgresSessionNotifier(database.url, logger);
       await notifier.start();
       const sessions = createSessionService({
-        authorization: allowAllPolicy,
+        authorization: createAuthorizationPolicy(),
         inputs: createPostgresSessionUnitOfWork(db),
         controls: createPostgresSessionControl(db),
         reader: createPostgresSessionReader(db),

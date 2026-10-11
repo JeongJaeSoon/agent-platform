@@ -8,7 +8,7 @@ import {
   STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
-import type { AuthorizationPolicy, Principal } from "../musterrolle/policy.ts";
+import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { UsageReader } from "../ports/usage-reader.ts";
 import {
   requirePermitted,
@@ -67,10 +67,13 @@ export function createUsageService(deps: {
     },
 
     async getSessionUsage(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
     ): Promise<SessionUsageResponse> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const usage = await reader.sessionUsage(actor.ownerId, sessionId);
       // Another owner's session does not exist as far as this principal can
       // tell, the same answer every session read gives.

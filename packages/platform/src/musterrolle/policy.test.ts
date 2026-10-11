@@ -1,4 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import {
+  type AuthorizationAction,
+  type AuthorizationRequest,
+  authorizationDecisionSchema,
+  type Principal,
+  SESSION_SCOPE_VALUES,
+  type SessionScope,
+} from "@agent-platform/contracts";
+import { testCaller } from "@agent-platform/testkit/callers";
 import { createInterruptService } from "../sessions/interrupt-service.ts";
 import { createPendingRequestService } from "../sessions/pending-service.ts";
 import {
@@ -6,7 +15,14 @@ import {
   SessionServiceError,
 } from "../sessions/session-service.ts";
 import { createUsageService } from "../usage/usage-service.ts";
-import type { AuthorizationPolicy, SessionAction } from "./policy.ts";
+import {
+  ACTION_SCOPES,
+  type AuthorizationPolicy,
+  type Caller,
+  callerFor,
+  createAuthorizationPolicy,
+  type IdentityReader,
+} from "./policy.ts";
 
 // Any store call means the refusal came too late.
 const unreachable = new Proxy(
@@ -17,10 +33,6 @@ const unreachable = new Proxy(
     },
   },
 ) as never;
-
-function refusing(action: SessionAction): AuthorizationPolicy {
-  return { authorize: (_actor, asked) => asked !== action };
-}
 
 function services(authorization: AuthorizationPolicy) {
   const sessions = createSessionService({
@@ -48,102 +60,407 @@ function services(authorization: AuthorizationPolicy) {
 }
 
 type Services = ReturnType<typeof services>;
-const actor = { ownerId: "owner-a" };
 const id = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const input = unreachable;
 
-// Every service entry point with the action it needs. A policy that takes an
-// action away refuses each of them, whichever service owns it.
+// Every service entry point with the action it needs.
 const entryPoints: [
   string,
-  SessionAction,
-  (s: Services) => Promise<unknown>,
+  AuthorizationAction,
+  (s: Services, actor: Caller) => Promise<unknown>,
 ][] = [
   [
     "createSession",
-    "sessions:write",
-    (s) => s.sessions.createSession(actor, input),
+    "session.submit",
+    (s, actor) => s.sessions.createSession(actor, input),
   ],
   [
     "appendMessage",
-    "sessions:write",
-    (s) => s.sessions.appendMessage(actor, id, input),
+    "session.submit",
+    (s, actor) => s.sessions.appendMessage(actor, id, input),
   ],
   [
     "terminateSession",
-    "sessions:control",
-    (s) => s.sessions.terminateSession(actor, id, input),
+    "session.control",
+    (s, actor) => s.sessions.terminateSession(actor, id, input),
   ],
   [
     "pauseSession",
-    "sessions:control",
-    (s) => s.sessions.pauseSession(actor, id, input),
+    "session.control",
+    (s, actor) => s.sessions.pauseSession(actor, id, input),
   ],
   [
     "resumeSession",
-    "sessions:control",
-    (s) => s.sessions.resumeSession(actor, id, input),
+    "session.control",
+    (s, actor) => s.sessions.resumeSession(actor, id, input),
   ],
   [
     "decideRecovery",
-    "sessions:recover",
-    (s) => s.sessions.decideRecovery(actor, id, input),
+    "session.recover",
+    (s, actor) => s.sessions.decideRecovery(actor, id, input),
   ],
   [
     "listSessions",
-    "sessions:read",
-    (s) => s.sessions.listSessions(actor, input),
+    "session.read",
+    (s, actor) => s.sessions.listSessions(actor, input),
   ],
-  ["getSession", "sessions:read", (s) => s.sessions.getSession(actor, id)],
-  ["listTurns", "sessions:read", (s) => s.sessions.listTurns(actor, id, input)],
-  ["getTurn", "sessions:read", (s) => s.sessions.getTurn(actor, id, "1")],
+  [
+    "getSession",
+    "session.read",
+    (s, actor) => s.sessions.getSession(actor, id),
+  ],
+  [
+    "listTurns",
+    "session.read",
+    (s, actor) => s.sessions.listTurns(actor, id, input),
+  ],
+  ["getTurn", "session.read", (s, actor) => s.sessions.getTurn(actor, id, "1")],
   [
     "readEvents",
-    "sessions:read",
-    (s) => s.sessions.readEvents(actor, id, input),
+    "session.read",
+    (s, actor) => s.sessions.readEvents(actor, id, input),
   ],
-  ["getReceipt", "sessions:read", (s) => s.sessions.getReceipt(actor, id)],
+  [
+    "getReceipt",
+    "session.read",
+    (s, actor) => s.sessions.getReceipt(actor, id),
+  ],
   [
     "listPendingRequests",
-    "sessions:read",
-    (s) => s.pending.listPendingRequests(actor, id),
+    "session.read",
+    (s, actor) => s.pending.listPendingRequests(actor, id),
   ],
-  ["answer", "sessions:approve", (s) => s.pending.answer(actor, id, input)],
+  [
+    "answer",
+    "session.approve",
+    (s, actor) => s.pending.answer(actor, id, input),
+  ],
   [
     "interrupt",
-    "sessions:control",
-    (s) => s.interrupts.interrupt(actor, id, input),
+    "session.control",
+    (s, actor) => s.interrupts.interrupt(actor, id, input),
   ],
   [
     "getSessionUsage",
-    "sessions:read",
-    (s) => s.usage.getSessionUsage(actor, id),
+    "session.read",
+    (s, actor) => s.usage.getSessionUsage(actor, id),
   ],
 ];
 
-describe("AuthorizationPolicy", () => {
+const policy = createAuthorizationPolicy();
+
+function without(scope: SessionScope): SessionScope[] {
+  return SESSION_SCOPE_VALUES.filter((held) => held !== scope);
+}
+
+describe("service entry points without HTTP", () => {
   for (const [name, action, call] of entryPoints) {
-    test(`${name} is 403 FORBIDDEN before any store call when ${action} is refused`, async () => {
-      const error = await call(services(refusing(action))).catch((e) => e);
+    const scope = ACTION_SCOPES[action] as SessionScope;
+    test(`${name} is FORBIDDEN before any store call without ${scope}`, async () => {
+      const error = await call(
+        services(policy),
+        testCaller("owner-a", without(scope)),
+      ).catch((e) => e);
       expect(error).toBeInstanceOf(SessionServiceError);
+      expect(error).toMatchObject({
+        code: "FORBIDDEN",
+        message: `This principal does not hold ${scope}`,
+      });
+    });
+
+    test(`${name} is NOT_FOUND for a caller holding another owner's partition`, async () => {
+      const error = await call(services(policy), {
+        ...testCaller("owner-a"),
+        ownerId: "owner-b",
+      }).catch((e) => e);
+      expect(error).toMatchObject({ code: "NOT_FOUND" });
+    });
+
+    test(`${name} is FORBIDDEN when the decision throws`, async () => {
+      const broken = createAuthorizationPolicy({
+        identity: {
+          reread: async () => {
+            throw new Error("connection terminated");
+          },
+        },
+      });
+      const error = await call(services(broken), testCaller("owner-a")).catch(
+        (e) => e,
+      );
       expect(error).toMatchObject({ code: "FORBIDDEN" });
     });
   }
 
-  test("is asked about the action alone, never the owner", async () => {
-    const asked: unknown[][] = [];
-    const recording: AuthorizationPolicy = {
-      authorize: (...args) => {
-        asked.push(args);
-        return false;
-      },
+  test("a policy that rejects instead of deciding is a refusal", async () => {
+    const rejecting: AuthorizationPolicy = {
+      authorize: () => Promise.reject(new Error("boom")),
     };
     for (const [, , call] of entryPoints) {
-      await call(services(recording)).catch(() => {});
+      const error = await call(
+        services(rejecting),
+        testCaller("owner-a"),
+      ).catch((e) => e);
+      expect(error).toMatchObject({ code: "FORBIDDEN" });
     }
-    expect(asked.map(([, action]) => action)).toEqual(
+  });
+
+  test("asks about the caller's subject, the action and a session in its partition", async () => {
+    const asked: AuthorizationRequest[] = [];
+    const recording: AuthorizationPolicy = {
+      authorize: async (request) => {
+        asked.push(request);
+        return policy.authorize({ ...request, action: "workspace.manage" });
+      },
+    };
+    const actor = testCaller("owner-a");
+    for (const [, , call] of entryPoints) {
+      await call(services(recording), actor).catch(() => {});
+    }
+    expect(asked.map((request) => request.action)).toEqual(
       entryPoints.map(([, action]) => action),
     );
-    expect(asked.every((args) => args.length === 2)).toBe(true);
+    for (const request of asked) {
+      expect(request.subject).toBe(actor.subject);
+      expect(request.request_id).toBe(actor.requestId);
+      expect(request.resource).toMatchObject({
+        kind: "session",
+        owner_scope: "owner-a",
+      });
+    }
+    expect(asked.filter((request) => request.resource.id === null).length).toBe(
+      3,
+    ); // createSession, listSessions, getReceipt
+  });
+});
+
+const WORKSPACE_A = "019a0000-0000-7000-8000-0000000000a1";
+const WORKSPACE_B = "019a0000-0000-7000-8000-0000000000b1";
+const USER = "019a0000-0000-7000-8000-0000000000c1";
+const INSTALLATION = "019a0000-0000-7000-8000-0000000000d1";
+const SESSION = "019a0000-0000-7000-8000-0000000000e1";
+
+const member: Principal = {
+  kind: "user",
+  id: USER,
+  workspace_id: WORKSPACE_A,
+  role: "member",
+  scopes: without("sessions:recover"),
+};
+
+function request(
+  caller: Caller,
+  overrides: Partial<AuthorizationRequest> = {},
+): AuthorizationRequest {
+  return {
+    subject: caller.subject,
+    action: "session.read",
+    resource: { kind: "session", id: SESSION, owner_scope: caller.ownerId },
+    request_id: caller.requestId,
+    ...overrides,
+  };
+}
+
+async function decide(
+  req: AuthorizationRequest,
+  using: AuthorizationPolicy = policy,
+) {
+  const decision = await using.authorize(req);
+  // Every decision, refusals included, is a well-formed contract value.
+  return authorizationDecisionSchema.parse(decision);
+}
+
+describe("authorize", () => {
+  const web = callerFor(member, { kind: "web" }, "req-1");
+
+  test("allows what the role and the membership both hold", async () => {
+    const decision = await decide(request(web));
+    expect(decision).toMatchObject({
+      outcome: "allow",
+      reason_code: "ok",
+      effective_scopes: without("sessions:recover"),
+      policy_version: "m1",
+    });
+  });
+
+  test("the role is a ceiling the membership's scopes cannot pass", async () => {
+    const decision = await decide(
+      request(web, {
+        subject: {
+          ...web.subject,
+          // A hand-built subject the contract rejects.
+          principal: { ...member, scopes: [...SESSION_SCOPE_VALUES] },
+        },
+        action: "session.recover",
+      }),
+    );
+    expect(decision).toMatchObject({ outcome: "deny", reason_code: "error" });
+  });
+
+  test("a member is refused recovery for their role", async () => {
+    const decision = await decide(request(web, { action: "session.recover" }));
+    expect(decision).toMatchObject({ outcome: "deny", reason_code: "role" });
+  });
+
+  test("an API key holds exactly its scopes", async () => {
+    const key = testCaller("owner-a", ["sessions:read"]);
+    expect(await decide(request(key))).toMatchObject({ outcome: "allow" });
+    expect(
+      await decide(request(key, { action: "session.submit" })),
+    ).toMatchObject({ outcome: "deny", reason_code: "role" });
+  });
+
+  test("a resource in another workspace does not exist", async () => {
+    const decision = await decide(
+      request(web, {
+        resource: { kind: "session", id: SESSION, owner_scope: WORKSPACE_B },
+      }),
+    );
+    expect(decision).toMatchObject({
+      outcome: "deny",
+      reason_code: "not_found",
+      effective_scopes: [],
+    });
+  });
+
+  test("an autonomous run, with no person or key asking, is refused", async () => {
+    const decision = await decide(
+      request(web, {
+        subject: { principal: null, surface: { kind: "api" } },
+      }),
+    );
+    expect(decision).toMatchObject({
+      outcome: "deny",
+      reason_code: "no_requester",
+    });
+  });
+
+  test("an installation with no person behind it is unlinked", async () => {
+    const installation = callerFor(
+      {
+        kind: "installation",
+        id: INSTALLATION,
+        owner_id: "service-owner",
+        workspace_id: WORKSPACE_A,
+        scopes: ["sessions:read"],
+      },
+      { kind: "slack", channel_kind: "public_channel" },
+      "req-2",
+    );
+    expect(await decide(request(installation))).toMatchObject({
+      outcome: "deny",
+      reason_code: "unlinked",
+    });
+    expect(
+      await decide(
+        request(installation, {
+          subject: { ...installation.subject, actor_user_id: USER },
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "unlinked" });
+  });
+
+  test("slack has no ceiling to judge against yet", async () => {
+    const slack = callerFor(member, { kind: "slack" }, "req-3");
+    expect(await decide(request(slack))).toMatchObject({
+      outcome: "deny",
+      reason_code: "surface_ceiling",
+    });
+  });
+
+  test("an agent acting for the requester has no ceiling to judge against yet", async () => {
+    const decision = await decide(
+      request(web, {
+        subject: {
+          ...web.subject,
+          agent: {
+            agent_id: "019a0000-0000-7000-8000-0000000000f1",
+            release_id: "release-1",
+          },
+        },
+      }),
+    );
+    expect(decision).toMatchObject({
+      outcome: "deny",
+      reason_code: "agent_ceiling",
+    });
+  });
+
+  test("an action with no rule, or on a resource it cannot apply to, is an error", async () => {
+    expect(
+      await decide(
+        request(web, {
+          action: "workspace.manage",
+          resource: {
+            kind: "workspace",
+            id: WORKSPACE_A,
+            owner_scope: WORKSPACE_A,
+          },
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "error" });
+    expect(
+      await decide(
+        request(web, {
+          action: "session.recover",
+          resource: {
+            kind: "session_link",
+            id: SESSION,
+            owner_scope: WORKSPACE_A,
+          },
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "error" });
+  });
+
+  test("a malformed request is an error, not a throw", async () => {
+    const decision = await decide({
+      ...request(web),
+      action: "sessions:read",
+    } as unknown as AuthorizationRequest);
+    expect(decision).toMatchObject({ outcome: "deny", reason_code: "error" });
+  });
+
+  test("an identity read that throws or fails is an error", async () => {
+    const failing = (reread: IdentityReader["reread"]) =>
+      createAuthorizationPolicy({ identity: { reread } });
+    expect(
+      await decide(
+        request(web),
+        failing(async () => {
+          throw new Error("connection terminated");
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "error" });
+    expect(
+      await decide(
+        request(web),
+        failing(() => Promise.reject(new Error("deadlock detected"))),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "error" });
+  });
+
+  test("the identity read decides, not the principal the request carried", async () => {
+    const reads: unknown[] = [];
+    const disabled = createAuthorizationPolicy({
+      identity: {
+        reread: async (subject) => {
+          reads.push(subject.principal);
+          return { status: "disabled" };
+        },
+      },
+    });
+    expect(await decide(request(web), disabled)).toMatchObject({
+      outcome: "deny",
+      reason_code: "disabled",
+    });
+    await decide(request(web), disabled);
+    // Read again for each decision, never remembered.
+    expect(reads).toEqual([member, member]);
+  });
+
+  test("each decision has its own id", async () => {
+    const first = await decide(request(web));
+    const second = await decide(request(web));
+    expect(first.decision_id).not.toBe(second.decision_id);
   });
 });

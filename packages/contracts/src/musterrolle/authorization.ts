@@ -1,12 +1,18 @@
 import { z } from "zod";
 
 import {
+  surfaceChannelKindSchema,
+  surfaceKindSchema,
+} from "../kollegium/surfaces.ts";
+import {
   agentIdSchema,
+  agentReleaseIdSchema,
   grantIdSchema,
   installationIdSchema,
   opaqueIdSchema,
   ownerScopeSchema,
   revisionSchema,
+  surfaceBindingIdSchema,
   timestampSchema,
   userIdSchema,
   workspaceIdSchema,
@@ -111,7 +117,8 @@ export const principalSchema = z
     z
       .object({
         kind: z.literal("api_key"),
-        id: opaqueIdSchema,
+        // Uncapped for the reason principalRefSchema gives.
+        id: z.string().min(1),
         owner_id: ownerScopeSchema,
         // Legacy keys predate workspaces and stay unmapped until an explicit
         // owner_workspace_map row exists.
@@ -350,6 +357,13 @@ const ACTION_RESOURCE_KINDS: Record<
   "delivery.send": new Set(["session", "session_link", "surface_binding"]),
 };
 
+export function actionAppliesTo(
+  action: AuthorizationAction,
+  kind: ResourceKind,
+): boolean {
+  return ACTION_RESOURCE_KINDS[action]?.has(kind) ?? false;
+}
+
 // ---------------------------------------------------------------------------
 // Grant
 // ---------------------------------------------------------------------------
@@ -431,3 +445,139 @@ export const receiptActorSchema = z
 export const turnActorIdSchema = userIdSchema.nullable();
 
 export type ReceiptActor = z.infer<typeof receiptActorSchema>;
+
+// ---------------------------------------------------------------------------
+// The authorize() decision (Musterrolle design, appendix A.3)
+// ---------------------------------------------------------------------------
+
+/** The partition every existing store reads and writes under. */
+export function ownerScopeOf(principal: Principal): string {
+  return principal.kind === "user"
+    ? principal.workspace_id
+    : principal.owner_id;
+}
+
+export const AUTHORIZATION_OUTCOME_VALUES = [
+  "allow",
+  "deny",
+  "redact",
+  "require_approval",
+] as const;
+export const authorizationOutcomeSchema = z.enum(AUTHORIZATION_OUTCOME_VALUES);
+
+export const AUTHORIZATION_REASON_VALUES = [
+  "ok",
+  "not_found",
+  "unlinked",
+  // An agent starting work with no person or key asking: v1 has no
+  // autonomous runs, so this is always a refusal.
+  "no_requester",
+  "role",
+  "surface_ceiling",
+  "agent_ceiling",
+  "disabled",
+  "stale_link",
+  "credential_unbound",
+  "guest_disabled",
+  // Fail-closed: a throw, a storage error, a malformed request or an
+  // action/resource pair the policy has no rule for.
+  "error",
+] as const;
+export const authorizationReasonSchema = z.enum(AUTHORIZATION_REASON_VALUES);
+
+export const SLACK_USER_KIND_VALUES = ["member", "guest"] as const;
+export const slackUserKindSchema = z.enum(SLACK_USER_KIND_VALUES);
+
+export const authorizationSurfaceSchema = z
+  .object({
+    kind: surfaceKindSchema,
+    binding_id: surfaceBindingIdSchema.optional(),
+    channel_kind: surfaceChannelKindSchema.optional(),
+    slack_user_kind: slackUserKindSchema.optional(),
+  })
+  .strict();
+
+/**
+ * Who is asking. The whole authenticated principal travels here rather than
+ * a ref, so the policy judges the ceiling that authenticated instead of
+ * one a caller restated. `null` is an autonomous run: no person or key
+ * asked for it.
+ */
+export const authorizationSubjectSchema = z
+  .object({
+    principal: principalSchema.nullable(),
+    actor_user_id: userIdSchema.optional(),
+    linked_account: z
+      .object({ id: opaqueIdSchema, revision: revisionSchema })
+      .strict()
+      .optional(),
+    /** The agent acting for the requester, whose ceiling also applies. */
+    agent: z
+      .object({ agent_id: agentIdSchema, release_id: agentReleaseIdSchema })
+      .strict()
+      .optional(),
+    surface: authorizationSurfaceSchema,
+    justification: z.string().min(1).max(1000).optional(),
+  })
+  .strict();
+
+/**
+ * What the action is on. `id` is null for something not yet identified: a
+ * session about to be created, a list, or a receipt whose session the store
+ * has not read yet. `owner_scope` is the partition the resource lives in;
+ * a subject from another partition is told it does not exist.
+ */
+export const authorizationResourceSchema = z
+  .object({
+    kind: resourceKindSchema,
+    id: z.string().min(1).max(512).nullable(),
+    owner_scope: ownerScopeSchema,
+  })
+  .strict();
+
+export const authorizationRequestSchema = z
+  .object({
+    subject: authorizationSubjectSchema,
+    action: authorizationActionSchema,
+    resource: authorizationResourceSchema,
+    request_id: z.string().min(1).max(512),
+  })
+  .strict();
+
+export const authorizationDecisionSchema = z
+  .object({
+    outcome: authorizationOutcomeSchema,
+    reason_code: authorizationReasonSchema,
+    effective_scopes: z.array(sessionScopeSchema),
+    redact: z
+      .object({ view: z.literal("summary") })
+      .strict()
+      .optional(),
+    approval: z
+      .object({ approvers: z.literal("session.approve") })
+      .strict()
+      .optional(),
+    policy_version: z.string().min(1),
+    decision_id: z.uuid(),
+  })
+  .strict()
+  .superRefine((decision, ctx) => {
+    const ok = decision.reason_code === "ok";
+    if (
+      decision.outcome === "allow" ? !ok : decision.outcome === "deny" && ok
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reason_code"],
+        message: `${decision.outcome} cannot carry ${decision.reason_code}`,
+      });
+    }
+  });
+
+export type AuthorizationOutcome = z.infer<typeof authorizationOutcomeSchema>;
+export type AuthorizationReason = z.infer<typeof authorizationReasonSchema>;
+export type AuthorizationSurface = z.infer<typeof authorizationSurfaceSchema>;
+export type AuthorizationSubject = z.infer<typeof authorizationSubjectSchema>;
+export type AuthorizationResource = z.infer<typeof authorizationResourceSchema>;
+export type AuthorizationRequest = z.infer<typeof authorizationRequestSchema>;
+export type AuthorizationDecision = z.infer<typeof authorizationDecisionSchema>;

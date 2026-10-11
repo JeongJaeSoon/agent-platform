@@ -25,7 +25,7 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createInterruptService,
   createSessionService,
   createWorkerGateway,
@@ -155,7 +155,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
     notifier = new PostgresSessionNotifier(database.url, logger);
     await notifier.start();
     const sessions = createSessionService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
@@ -187,7 +187,7 @@ integration("POST /v1/sessions/{id}/interrupt end to end", () => {
         registerInterruptRoutes(
           router,
           createInterruptService({
-            authorization: allowAllPolicy,
+            authorization: createAuthorizationPolicy(),
             store: createPostgresTurnInterrupts(db),
           }),
         );
