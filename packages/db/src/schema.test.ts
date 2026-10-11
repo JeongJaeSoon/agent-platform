@@ -60,6 +60,7 @@ describe("database schema", () => {
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
       "agent_activation_events",
       "agent_admins",
+      "agent_identities",
       "agent_releases",
       "agent_versions",
       "agents",

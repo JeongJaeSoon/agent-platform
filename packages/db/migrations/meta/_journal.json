@@ -351,6 +351,13 @@
       "when": 1791719494750,
       "tag": "0140_credential_bindings",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1791721899451,
+      "tag": "0141_agent_identities",
+      "breakpoints": true
     }
   ]
 }

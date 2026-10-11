@@ -65,6 +65,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // Binding a credential name to an agent and taking it off (94S-581).
   "bind_credential",
   "unbind_credential",
+  // Pinning an agent to its Slack app and bot, and taking that back (M8).
+  "link_agent_identity",
+  "revoke_agent_identity",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
