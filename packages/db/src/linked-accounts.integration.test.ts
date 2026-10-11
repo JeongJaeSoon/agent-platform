@@ -403,6 +403,47 @@ integration("linked_accounts on PostgreSQL", () => {
       });
     });
 
+    // A relink reads the holder row while an unlink or a stale mark on it is
+    // still uncommitted; the relink must act on the row as that left it.
+    async function relinkWhileHeld(change: string) {
+      const { ws, team, user } = await setup();
+      const account = slack(team);
+      const { account: row } = await linked(ws, user, account);
+      const holder = await pool.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query(change, [row.id]);
+        const relink = link(ws, user, account);
+        // Long enough for the relink to reach the holder row and wait on it.
+        await Bun.sleep(200);
+        await holder.query("COMMIT");
+        return { row, result: await relink };
+      } finally {
+        holder.release();
+      }
+    }
+
+    test("a relink waiting on an unlink links afresh once the unlink commits", async () => {
+      const { row, result } = await relinkWhileHeld(
+        "UPDATE linked_accounts SET status = 'revoked', revoked_reason = 'unlinked', revoked_at = now(), revision = revision + 1 WHERE id = $1",
+      );
+      if (result.outcome !== "linked") throw new Error(result.outcome);
+      expect(result.account.id).not.toBe(row.id);
+      expect(result.account).toMatchObject({ status: "active", revision: 1 });
+    });
+
+    test("a relink waiting on a stale mark reactivates with a new revision", async () => {
+      const { row, result } = await relinkWhileHeld(
+        "UPDATE linked_accounts SET status = 'stale', revision = revision + 1 WHERE id = $1",
+      );
+      if (result.outcome !== "linked") throw new Error(result.outcome);
+      expect(result.account).toMatchObject({
+        id: row.id,
+        status: "active",
+        revision: 3,
+      });
+    });
+
     test("a link racing an offboard never outlives it", async () => {
       for (let round = 0; round < 10; round++) {
         const { ws, team, user } = await setup();
