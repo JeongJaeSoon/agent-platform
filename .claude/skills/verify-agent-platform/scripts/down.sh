@@ -23,7 +23,7 @@ failed=0
 "$VERIFY_REPO/scripts/local.sh" down 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
 docker compose --profile apps --profile fake-model \
   -f compose.yaml -f "$run/ports.yml" -f infra/compose.fake-model.yml \
-  down -v --remove-orphans >>"$run/evidence/down.log" 2>&1 || failed=1
+  down -v --remove-orphans --rmi local >>"$run/evidence/down.log" 2>&1 || failed=1
 
 left=$(docker ps -a --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Names}}') || failed=1
 workers=$(docker ps -a --filter "label=agent-platform.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Names}}') || failed=1
