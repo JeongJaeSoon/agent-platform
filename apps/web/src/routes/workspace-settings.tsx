@@ -1,0 +1,117 @@
+import type { AuditRetentionRequest } from "@agent-platform/contracts";
+import { useMutation } from "@tanstack/react-query";
+import { type FormEvent, useId, useState } from "react";
+import { type ApiError, unwrap } from "../api/client.ts";
+import { queryKeys } from "../api/queries.ts";
+import {
+  permissionReason,
+  ReasonButton,
+  refusalText,
+  useHasPermission,
+  useMe,
+  useRole,
+} from "../auth/guard.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
+import { useServices } from "../services.tsx";
+
+/** Workspace-wide settings an owner or admin opens from the menu. */
+export function WorkspaceSettingsScreen() {
+  const { t } = useI18n();
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  return (
+    <div className="web-page">
+      <h1 className="web-page__title">{t("workspace.title")}</h1>
+      <OutcomeLine outcome={outcome} />
+      <AuditRetention onOutcome={setOutcome} />
+    </div>
+  );
+}
+
+/**
+ * How long refused and allowed decisions are kept. Only an owner changes it;
+ * the floor is the server's, so a short value goes there and comes back as
+ * the refusal.
+ */
+function AuditRetention({
+  onOutcome,
+}: {
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const me = useMe();
+  const role = useRole();
+  const workspaceId = me?.workspace?.id ?? "";
+  const current = me?.workspace?.settings.audit_retention_days;
+  const [days, setDays] = useState(current === undefined ? "" : `${current}`);
+  const titleId = useId();
+  const hintId = useId();
+  const reason = useHasPermission("audit_retention.manage")
+    ? undefined
+    : permissionReason(t, "audit_retention.manage", role);
+
+  const save = useMutation<AuditRetentionRequest, ApiError, number>({
+    mutationFn: (value) =>
+      unwrap(
+        client.POST("/v1/workspaces/{id}/audit-retention", {
+          params: { path: { id: workspaceId } },
+          body: { audit_retention_days: value },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async ({ audit_retention_days }) => {
+      onOutcome({
+        kind: "notice",
+        text: t("workspace.retentionSaved", { days: audit_retention_days }),
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+    onError: (error) =>
+      onOutcome({
+        kind: "error",
+        text:
+          error.code === "BAD_REQUEST"
+            ? t("workspace.retentionFloor")
+            : refusalText(t, error, "audit_retention.manage", role),
+      }),
+  });
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    save.mutate(Number(days));
+  };
+
+  return (
+    <section className="web-section" aria-labelledby={titleId}>
+      <h2 id={titleId}>{t("workspace.retention")}</h2>
+      {/* noValidate: the server owns the floor and says why it refused. */}
+      <form className="web-form" onSubmit={submit} noValidate>
+        <label className="web-field">
+          <span>{t("workspace.retentionDays")}</span>
+          <input
+            className="ap-input"
+            type="number"
+            inputMode="numeric"
+            step={1}
+            value={days}
+            disabled={reason !== undefined}
+            aria-describedby={hintId}
+            onChange={(event) => setDays(event.target.value)}
+          />
+        </label>
+        <p id={hintId} className="web-field__hint">
+          {t("workspace.retentionHint")}
+        </p>
+        <ReasonButton
+          type="submit"
+          className="ap-button ap-button--primary"
+          reason={reason}
+          disabled={save.isPending || days.trim() === ""}
+        >
+          {t("workspace.save")}
+        </ReasonButton>
+      </form>
+    </section>
+  );
+}
