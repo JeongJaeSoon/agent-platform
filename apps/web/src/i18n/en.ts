@@ -180,7 +180,8 @@ export const en: Record<MessageKey, string> = {
   "apiKeys.revokedAt": "Revoked {at}",
   "apiKeys.revoke": "Revoke",
   "apiKeys.revokeFor": "Revoke {key}",
-  "apiKeys.revokeTitle": "Revoke this key?",
+  "apiKeys.revokeTitle": "Revoke key ID {id}?",
+  "apiKeys.keyId": "ID {id}",
   "apiKeys.revokeConsequence":
     "Anything using this key stops at once. This cannot be undone.",
   "apiKeys.revoked": "Key revoked.",

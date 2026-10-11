@@ -167,7 +167,19 @@ describe("API key", () => {
     ]);
     expect(api.calls.some((c) => c.path === "/v1/agents")).toBe(false);
 
+    // Nothing else is issued while this secret is still on screen.
+    for (const name of ["개인 key 발급", "에이전트 전용 key 발급"]) {
+      expect(
+        screen.getByRole("button", { name }).hasAttribute("disabled"),
+      ).toBe(true);
+    }
+    expect(within(secret).getByText(/ID [0-9a-f]{8}/)).toBeDefined();
     await user.click(screen.getByRole("button", { name: "복사했으니 닫기" }));
+    expect(
+      screen
+        .getByRole("button", { name: "개인 key 발급" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
     expect(screen.queryByRole("region", { name: "새 key" })).toBeNull();
     expect(screen.queryByDisplayValue(SECRET)).toBeNull();
   });
@@ -220,10 +232,13 @@ describe("API key", () => {
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", {
-        name: "에이전트 전용 key · Billing 폐기",
+        name: "에이전트 전용 key · Billing (1a2b3c4d) 폐기",
       }),
     );
     const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("ID 1a2b3c4d key를 폐기할까요?"),
+    ).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "폐기" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "key를 폐기했습니다.",

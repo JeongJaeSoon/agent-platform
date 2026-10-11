@@ -356,7 +356,8 @@ export const ko = {
   "apiKeys.revokedAt": "폐기됨 {at}",
   "apiKeys.revoke": "폐기",
   "apiKeys.revokeFor": "{key} 폐기",
-  "apiKeys.revokeTitle": "이 key를 폐기할까요?",
+  "apiKeys.revokeTitle": "ID {id} key를 폐기할까요?",
+  "apiKeys.keyId": "ID {id}",
   "apiKeys.revokeConsequence":
     "이 key를 쓰는 연동은 바로 멈춥니다. 되돌릴 수 없습니다.",
   "apiKeys.revoked": "key를 폐기했습니다.",
