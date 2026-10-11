@@ -789,6 +789,15 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       expected_revision: revision,
     });
     expect(unreasoned.status).toBe(400);
+    // The admin path is a manager's, even for a member who sees the session.
+    const byCreator = await send(
+      "POST",
+      path,
+      { ...asCookie(cookies.creator), "Idempotency-Key": crypto.randomUUID() },
+      { expected_revision: revision, justification: "mine anyway" },
+    );
+    expect(byCreator.status).toBe(403);
+    expect((await codeOf(byCreator)).details).toEqual({ reason_code: "role" });
     const once = headers();
     const stopped = await send("POST", path, once, {
       expected_revision: revision,
