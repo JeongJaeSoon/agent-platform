@@ -384,6 +384,14 @@ describe("authorize contract", () => {
     expect(
       authorizationResourceSchema.safeParse({ ...resource, id: "s-1" }).success,
     ).toBe(false);
+    // Likewise the release it is to run, whose credentials the policy reads.
+    const starting = { ...resource, release_id: "rel-1" };
+    expect(
+      authorizationResourceSchema.safeParse({ ...starting, id: null }).success,
+    ).toBe(true);
+    expect(
+      authorizationResourceSchema.safeParse({ ...starting, id: "s-1" }).success,
+    ).toBe(false);
   });
 
   test("allow is always ok and deny never is", () => {

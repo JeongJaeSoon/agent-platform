@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   ADMISSION_STATE_VALUES,
+  CREDENTIAL_REF_PATTERN as CONTRACT_CREDENTIAL_REF_PATTERN,
+  CREDENTIAL_BINDING_TARGET_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
 } from "@agent-platform/contracts";
@@ -9,6 +11,8 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {
   admissionState,
+  CREDENTIAL_BINDING_TARGETS,
+  CREDENTIAL_REF_PATTERN,
   checkpoints,
   events,
   idempotencyKeys,
@@ -35,6 +39,10 @@ afterEach(async () => {
 describe("database schema", () => {
   test("uses the contract session status values", () => {
     expect(sessionStatus.enumValues).toEqual([...SESSION_STATUS_VALUES]);
+    expect(CREDENTIAL_BINDING_TARGETS).toEqual(
+      CREDENTIAL_BINDING_TARGET_VALUES,
+    );
+    expect(CREDENTIAL_REF_PATTERN).toBe(CONTRACT_CREDENTIAL_REF_PATTERN);
   });
 
   test("uses the contract admission and receipt status values", () => {
@@ -62,6 +70,7 @@ describe("database schema", () => {
       "catalog_authority",
       "checkpoints",
       "control_intents",
+      "credential_bindings",
       "events",
       "executions",
       "grants",

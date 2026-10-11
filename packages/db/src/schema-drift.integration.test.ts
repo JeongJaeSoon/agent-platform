@@ -37,6 +37,8 @@ const MIGRATIONS_ONLY = [
   "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 c6e3025aa20a67be3dc0885bb3301b1b",
   "function agents_reject_mutation() trigger language plpgsql volatility=v parallel=u body md5 f434237a3126c21bab918af2558fbc88",
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
+  // 0140: an agent identity's credential name is never an agent's.
+  "function credential_bindings_exclusive_target() trigger language plpgsql volatility=v parallel=u body md5 55270e3870adbfee5a5edd2ab0daf6a8",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0127, capped by 0129: a session's provider tokens are counted as usage
@@ -48,6 +50,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER agent_releases_approve_once BEFORE DELETE OR UPDATE ON public.agent_releases FOR EACH ROW EXECUTE FUNCTION agent_releases_approve_once() enabled=O",
   "trigger CREATE TRIGGER agent_versions_insert_only BEFORE DELETE OR UPDATE ON public.agent_versions FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
   "trigger CREATE TRIGGER authz_decisions_append_only BEFORE UPDATE ON public.authz_decisions FOR EACH ROW EXECUTE FUNCTION authz_decisions_refuse_update() enabled=O",
+  "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_tokens AFTER INSERT ON public.provider_usage FOR EACH ROW EXECUTE FUNCTION sessions_count_provider_tokens() enabled=O",
   "trigger CREATE TRIGGER turns_charge_storage AFTER INSERT ON public.turns FOR EACH ROW EXECUTE FUNCTION storage_usage_charge_turn() enabled=O",
 ];

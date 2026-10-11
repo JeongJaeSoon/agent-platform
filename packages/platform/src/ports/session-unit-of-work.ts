@@ -43,6 +43,10 @@ export type AcceptSessionInput = {
   // The agent release the session belongs to, already checked against
   // profileId.
   agentReleaseId?: string;
+  // The policy found a name the release uses unbound: only a replay of an
+  // earlier acceptance goes through. Without it, the names are rechecked
+  // under lock against a concurrent unbind.
+  credentialsUnbound?: true;
   message: string;
   limits: InputLimits;
 };
@@ -51,6 +55,7 @@ export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
   | { outcome: "conflict" | "unsupported" }
   | { outcome: "actor_inactive" }
+  | { outcome: "credential_unbound" }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {
