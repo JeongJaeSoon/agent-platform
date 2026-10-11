@@ -190,6 +190,30 @@ describe("API key", () => {
     await waitFor(() => expect(cached()).toBe(false));
   });
 
+  test("승인 범위만 고르면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
+    renderAt("/settings/api-keys", { ...memberOk, ...keysServer() });
+    const user = await setupUser();
+    await screen.findByRole("option", { name: "Billing" });
+    const service = screen.getByRole("region", { name: "서비스 key" });
+    await user.click(
+      within(service).getByRole("checkbox", { name: "sessions:read" }),
+    );
+    await user.click(
+      within(service).getByRole("checkbox", { name: /sessions:approve/ }),
+    );
+    await user.selectOptions(within(service).getByRole("combobox"), AGENT_ID);
+    const button = screen.getByRole("button", {
+      name: "에이전트 전용 key 발급",
+    });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(
+      document.getElementById(button.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe(
+      "에이전트 전용 key에 넣을 범위를 하나 이상 고르세요(sessions:approve는 빠집니다).",
+    );
+  });
+
   test("관리하는 에이전트가 없으면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
     renderAt("/settings/api-keys", {
       "GET /v1/auth/me": () => json(200, memberMe()),

@@ -159,6 +159,8 @@ export const en: Record<MessageKey, string> = {
   "apiKeys.agentHint": "An agent key reaches only that agent's sessions.",
   "apiKeys.issueAgent": "Issue agent key",
   "apiKeys.noAgents": "You do not administer any agent.",
+  "apiKeys.agentNeedsScope":
+    "Choose at least one scope an agent key can carry (sessions:approve is left out).",
   "apiKeys.agentNoApprove":
     "Left out of an agent key (it never stands in for a person's approval).",
   "apiKeys.scopes": "Scopes",
