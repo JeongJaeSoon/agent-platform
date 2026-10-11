@@ -165,10 +165,9 @@ export const en: Record<MessageKey, string> = {
   "agentCard.toolsAll": "Every tool the runtime profile allows",
   "agentCard.toolsList": "Only the tools I pick",
   "agentCard.toolNames": "Tool names",
-  "agentCard.listHint": "Separated by commas or spaces",
+  "agentCard.listHint": "One per line",
   "agentCard.forbidden": "Forbidden tools",
-  "agentCard.forbiddenHint":
-    "Separated by commas or spaces. The server enforces it",
+  "agentCard.forbiddenHint": "One per line. The server enforces it",
   "diff.caption": "{before} → {after}",
   "diff.added": "added: ",
   "diff.removed": "removed: ",

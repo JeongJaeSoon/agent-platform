@@ -29,13 +29,13 @@ describe("카드 폼 변환", () => {
     expect<unknown>(cardFromDraft(draftFromCard(CARD), CARD)).toEqual(CARD);
   });
 
-  test("도구 '전부'는 tools: null, 목록은 쉼표·공백 어느 쪽으로도 나뉜다", () => {
+  test("도구 '전부'는 tools: null, 목록은 한 줄에 하나다", () => {
     const card = cardFromDraft({
       ...EMPTY_DRAFT,
       role: " 역할 ",
       model: " m ",
       toolsMode: "list",
-      tools: "Read,  Grep\nWrite",
+      tools: "Read\n  Grep  \n\nWrite",
       forbidden: "",
     });
     expect<unknown>(card.capabilities).toEqual({
@@ -49,6 +49,18 @@ describe("카드 폼 변환", () => {
       cardFromDraft({ ...EMPTY_DRAFT, toolsMode: "all", tools: "Read" })
         .capabilities.tools,
     ).toBeNull();
+  });
+
+  test("쉼표나 공백이 든 도구 이름도 그대로 왕복한다", () => {
+    const card: AgentCard = {
+      ...CARD,
+      capabilities: {
+        tools: ["mcp__docs search", "Read"],
+        mcp: null,
+        forbidden: ["Bash(rm -rf, *)"],
+      },
+    };
+    expect<unknown>(cardFromDraft(draftFromCard(card), card)).toEqual(card);
   });
 
   test("편집기가 없는 rules는 원래 카드의 것을 그대로 싣는다", () => {

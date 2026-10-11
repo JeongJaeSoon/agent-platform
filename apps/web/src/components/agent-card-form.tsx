@@ -34,9 +34,10 @@ export const EMPTY_DRAFT: CardDraft = {
   forbidden: "",
 };
 
+// One name per line: the contract lets a tool name hold spaces and commas.
 const splitList = (text: string) =>
   text
-    .split(/[\s,]+/)
+    .split("\n")
     .map((item) => item.trim())
     .filter(Boolean);
 
@@ -63,8 +64,8 @@ export function draftFromCard(card: AgentCard): CardDraft {
     language: card.language,
     model: card.model,
     toolsMode: card.capabilities.tools === null ? "all" : "list",
-    tools: (card.capabilities.tools ?? []).join(", "),
-    forbidden: card.capabilities.forbidden.join(", "),
+    tools: (card.capabilities.tools ?? []).join("\n"),
+    forbidden: card.capabilities.forbidden.join("\n"),
   };
 }
 
@@ -170,7 +171,8 @@ export function AgentCardFields({
           {t("agentCard.toolsList")}
         </label>
         {draft.toolsMode === "list" ? (
-          <TextField
+          <TextAreaField
+            rows={3}
             label={t("agentCard.toolNames")}
             hint={t("agentCard.listHint")}
             value={draft.tools}
@@ -178,7 +180,8 @@ export function AgentCardFields({
           />
         ) : null}
       </fieldset>
-      <TextField
+      <TextAreaField
+        rows={3}
         label={t("agentCard.forbidden")}
         hint={t("agentCard.forbiddenHint")}
         value={draft.forbidden}
