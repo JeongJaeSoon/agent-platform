@@ -72,4 +72,31 @@ export const en: Record<MessageKey, string> = {
   "error.BACKEND_UNAVAILABLE": "The server is unavailable — try again shortly.",
   "error.NETWORK_ERROR": "Could not reach the server — check your connection.",
   "error.UNKNOWN": "That did not work — try again shortly.",
+  "invite.title": "Accept invite",
+  "invite.intro":
+    "Accepting adds you to the workspace. If this email already has an account, enter its password; otherwise choose a new one.",
+  "invite.password": "Password",
+  "invite.passwordHint":
+    "At least {min} characters. Your current password if you already have an account",
+  "invite.displayName": "Name",
+  "invite.displayNameHint":
+    "Only used for a new account. Left empty, the part of the email before @ is used",
+  "invite.submit": "Accept invite",
+  "invite.submitting": "Accepting…",
+  "invite.wrongPassword":
+    "The password does not match. If this email already has an account, enter that account's password. An account that only signs in with Google has no password and cannot accept here — ask an owner to re-enable it.",
+  "invite.expired.title": "This invite cannot be used",
+  "invite.expired.body":
+    "It expired or was revoked. Ask whoever invited you for a new link.",
+  "invite.used.title": "This invite was already accepted",
+  "invite.used.body":
+    "It has been used once. Log in with the account that accepted it.",
+  "invite.used.login": "Go to login",
+  "invite.member.title": "You are already a member of this workspace",
+  "invite.member.body":
+    "You are logged in to {workspace} as {email}, so there is nothing to accept.",
+  "invite.member.home": "Go to the workspace",
+  "invite.member.switch": "Log out and accept with another account",
+  "error.INVITE_EXPIRED": "The invite expired or was revoked.",
+  "error.INVITE_USED": "The invite was already used.",
 };

@@ -1,6 +1,6 @@
 import type { AuthMeResponse } from "@agent-platform/contracts";
 import { queryOptions } from "@tanstack/react-query";
-import { type ApiClient, unwrap } from "./client.ts";
+import { type ApiClient, isApiError, unwrap } from "./client.ts";
 
 /**
  * Query keys are the cache's public names. A screen that shows server state
@@ -9,6 +9,7 @@ import { type ApiClient, unwrap } from "./client.ts";
  */
 export const queryKeys = {
   me: ["me"] as const,
+  viewer: ["me", "optional"] as const,
 };
 
 export function meQuery(client: ApiClient) {
@@ -17,5 +18,24 @@ export function meQuery(client: ApiClient) {
     queryFn: () => unwrap(client.GET("/v1/auth/me")) as Promise<AuthMeResponse>,
     retry: false,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Who is signed in on a page that works either way (the invite link): no
+ * session is an answer here, not a reason to send the reader to /login.
+ */
+export function viewerQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.viewer,
+    queryFn: async (): Promise<AuthMeResponse | null> => {
+      try {
+        return (await unwrap(client.GET("/v1/auth/me"))) as AuthMeResponse;
+      } catch (error) {
+        if (isApiError(error, "UNAUTHORIZED")) return null;
+        throw error;
+      }
+    },
+    retry: false,
   });
 }

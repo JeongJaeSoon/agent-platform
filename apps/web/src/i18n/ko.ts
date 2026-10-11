@@ -46,6 +46,31 @@ export const ko = {
     "Bootstrap 토큰이 맞지 않습니다 — 설치 때 출력된 값을 그대로 넣으세요.",
   "bootstrap.loginLink": "이미 관리자가 있다면 로그인",
 
+  "invite.title": "초대 수락",
+  "invite.intro":
+    "초대를 수락하면 워크스페이스에 들어갑니다. 이 이메일로 이미 계정이 있으면 그 비밀번호를, 처음이면 새로 쓸 비밀번호를 넣으세요.",
+  "invite.password": "비밀번호",
+  "invite.passwordHint": "{min}자 이상. 기존 계정이면 지금 쓰는 비밀번호",
+  "invite.displayName": "이름",
+  "invite.displayNameHint":
+    "처음 가입할 때만 씁니다. 비우면 이메일 앞부분을 씁니다",
+  "invite.submit": "초대 수락",
+  "invite.submitting": "수락하는 중…",
+  "invite.wrongPassword":
+    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. Google로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 관리자에게 재활성을 요청하세요.",
+  "invite.expired.title": "쓸 수 없는 초대입니다",
+  "invite.expired.body":
+    "만료됐거나 회수된 초대입니다. 초대한 사람에게 새 링크를 요청하세요.",
+  "invite.used.title": "이미 수락한 초대입니다",
+  "invite.used.body":
+    "이 초대는 한 번 쓰였습니다. 수락한 계정으로 로그인하세요.",
+  "invite.used.login": "로그인 화면으로",
+  "invite.member.title": "이미 이 워크스페이스의 구성원입니다",
+  "invite.member.body":
+    "{email} 계정으로 {workspace}에 로그인되어 있어 초대를 수락할 필요가 없습니다.",
+  "invite.member.home": "워크스페이스로 가기",
+  "invite.member.switch": "로그아웃하고 다른 계정으로 수락",
+
   "home.title": "워크스페이스",
   "home.signedInAs": "{name}({email})으로 로그인했습니다",
   "home.checklist.title": "시작하기",
@@ -80,6 +105,8 @@ export const ko = {
     "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NETWORK_ERROR": "서버에 닿지 못했습니다 — 연결을 확인하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+  "error.INVITE_EXPIRED": "만료됐거나 회수된 초대입니다.",
+  "error.INVITE_USED": "이미 쓰인 초대입니다.",
 } as const;
 
 export type MessageKey = keyof typeof ko;

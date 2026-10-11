@@ -10,6 +10,7 @@ import { meQuery } from "./api/queries.ts";
 import { StatusScreen } from "./components/status-screen.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
 import { HomeScreen } from "./routes/home.tsx";
+import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
 import type { Services } from "./services.tsx";
@@ -36,6 +37,13 @@ const bootstrap = createRoute({
   getParentRoute: () => root,
   path: "/bootstrap",
   component: BootstrapScreen,
+});
+
+// Public: whoever opens an invite link may not have an account yet.
+const invite = createRoute({
+  getParentRoute: () => root,
+  path: "/invite/$token",
+  component: InviteScreen,
 });
 
 const authed = createRoute({
@@ -72,6 +80,7 @@ const home = createRoute({
 const routeTree = root.addChildren([
   login,
   bootstrap,
+  invite,
   authed.addChildren([home]),
 ]);
 
