@@ -61,16 +61,32 @@ export type IdempotencyScope = {
   requestId: string | null;
 };
 
+/**
+ * The actor's user row, before any membership: accepting takes it in that
+ * order, and an invite's invited_by key check would otherwise wait on it
+ * while holding the membership. A share lock rather than a key share, so an
+ * account disable either waits for this write or is seen by it — re-checked
+ * after a membership lock wait, a joined user row is the old snapshot's.
+ */
+export async function lockActorAccount(tx: Database, userId: string) {
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .for("share");
+}
+
 // Authorization read the membership before this transaction opened. The share
-// lock makes an offboarding that commits since then either wait for this write
-// (and see what it wrote) or be seen here. Take it before any session row
-// lock, in offboarding's order.
+// locks make an offboarding or a suspension that commits since then either
+// wait for this write (and see what it wrote) or be seen here. Take them
+// before any session row lock: user, membership, session.
 export async function actorStillMember(
   tx: Database,
   principal: Principal,
 ): Promise<boolean> {
   const actor = principal.actor;
   if (!actor?.userId || !actor.workspaceId) return true;
+  await lockActorAccount(tx, actor.userId);
   const live = await tx
     .select({ userId: memberships.userId })
     .from(memberships)

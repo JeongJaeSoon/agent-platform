@@ -10,10 +10,12 @@ import {
   SESSION_SCOPE_VALUES,
   type SessionScope,
   scopesForRole,
+  setAccessResponseSchema,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
+  createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresMemberStore,
   createPostgresSessionControl,
@@ -77,6 +79,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     };
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
+      decisions: createPostgresDecisionLog(db),
     });
     const service = createSessionService({
       limits: {
@@ -382,7 +385,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     );
   });
 
-  test("offboarding blocks the web session and personal key, cuts open streams, and parks what they asked for", async () => {
+  test("disabling a member blocks the web session and personal key, cuts open streams, and parks what they asked for", async () => {
     const memberCookie = await login("member@example.com");
     const personal = await issueApiKey(keys, {
       workspaceId,
@@ -410,32 +413,62 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       bearer(service.plaintext),
     );
 
-    const offboard = async (userId: string, by: string) => {
-      const cli = Bun.spawn(
-        ["bun", "run", "src/api/members.ts", "offboard", userId, "--by", by],
-        {
-          cwd: `${import.meta.dir}/../..`,
-          env: { ...process.env, DATABASE_URL: database.url },
-          stdout: "pipe",
-          stderr: "pipe",
-        },
-      );
-      const [out, err, code] = await Promise.all([
-        new Response(cli.stdout).text(),
-        new Response(cli.stderr).text(),
-        cli.exited,
-      ]);
-      return { out, err, code };
-    };
-    // The CLI acts as --by; the operator's shell holds no authority itself.
-    const byMember = await offboard(ownerId, memberId);
-    expect(byMember.code).toBe(1);
-    expect(byMember.err).toContain("FORBIDDEN");
-    const { out, err, code } = await offboard(memberId, ownerId);
-    expect(code, err).toBe(0);
-    expect(out).toContain(
-      "web_sessions_revoked=1 personal_keys_revoked=1 sessions_awaiting_takeover=2",
+    const setAccess = (
+      base: "members" | "users",
+      action: "disable" | "enable",
+      userId: string,
+      cookie: string,
+      body: unknown = {},
+    ) =>
+      app.request(`/v1/${base}/${userId}/${action}`, {
+        method: "POST",
+        headers: { ...asCookie(cookie), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const decisionsBefore = await db.$count(
+      schema.authzDecisions,
+      eq(schema.authzDecisions.action, "member.manage"),
     );
+    expect(
+      (await setAccess("members", "disable", ownerId, memberCookie)).status,
+    ).toBe(403);
+    const self = await setAccess("members", "disable", ownerId, ownerCookie);
+    expect(self.status).toBe(409);
+    expect(
+      ((await self.json()) as { error: { code: string } }).error.code,
+    ).toBe("LAST_OWNER");
+    const disabled = await setAccess(
+      "members",
+      "disable",
+      memberId,
+      ownerCookie,
+      { reason: "left the team" },
+    );
+    expect(disabled.status).toBe(200);
+    const change = setAccessResponseSchema.parse(await disabled.json());
+    expect(change.member.disabled_at).not.toBeNull();
+    if (!change.receipt_id) throw new Error("no receipt");
+    const receipt = getReceiptResponseSchema.parse(
+      await (
+        await get(`/v1/receipts/${change.receipt_id}`, { Cookie: ownerCookie })
+      ).json(),
+    );
+    expect(receipt).toMatchObject({
+      operation: "disable_member",
+      status: "succeeded",
+      target_ref: { user_id: memberId, workspace_id: workspaceId },
+      actor: {
+        principal: { kind: "user", id: ownerId },
+        actor_user_id: ownerId,
+        agent_id: null,
+      },
+      result: {
+        reason: "left the team",
+        revoked_web_sessions: 1,
+        revoked_personal_keys: 1,
+        sessions_awaiting_takeover: 2,
+      },
+    });
     const offboardedAt = Date.now();
     const kept = await db
       .select({
@@ -445,8 +478,9 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       .from(schema.authzDecisions)
       .where(eq(schema.authzDecisions.action, "member.manage"))
       .orderBy(schema.authzDecisions.at);
-    expect(kept).toEqual([
+    expect(kept.slice(decisionsBefore)).toEqual([
       { outcome: "deny", actor: memberId },
+      { outcome: "allow", actor: ownerId },
       { outcome: "allow", actor: ownerId },
     ]);
 
@@ -541,5 +575,105 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       headers: asCookie(ownerCookie),
     });
     expect(again.status).toBe(409);
+  });
+
+  test("enabling the member again brings back neither the old cookie nor the old key; a new login works", async () => {
+    const personal = await db
+      .select({ id: schema.apiKeys.id })
+      .from(schema.apiKeys)
+      .where(eq(schema.apiKeys.createdByUserId, memberId));
+    expect(personal).toHaveLength(1);
+    const enabled = await app.request(`/v1/members/${memberId}/enable`, {
+      method: "POST",
+      headers: { ...asCookie(ownerCookie), "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(enabled.status).toBe(200);
+    const change = setAccessResponseSchema.parse(await enabled.json());
+    expect(change.member.disabled_at).toBeNull();
+    const [receipt] = await db
+      .select({
+        operation: schema.receipts.operation,
+        result: schema.receipts.result,
+      })
+      .from(schema.receipts)
+      .where(eq(schema.receipts.id, change.receipt_id ?? ""));
+    // The takeover above took one of the two; the other goes back to them.
+    expect(receipt).toEqual({
+      operation: "enable_member",
+      result: { reason: null, sessions_released: 1 },
+    });
+    expect(
+      await db.$count(
+        schema.apiKeys,
+        sql`revoked_at IS NULL AND created_by_user_id = ${memberId}`,
+      ),
+    ).toBe(0);
+    const revokedCookies = await db.$count(
+      schema.webSessions,
+      sql`user_id = ${memberId} AND revoked_at IS NULL`,
+    );
+    expect(revokedCookies).toBe(0);
+    const fresh = await login("member@example.com");
+    expect((await get("/v1/sessions", { Cookie: fresh })).status).toBe(200);
+  });
+
+  test("an account is suspended only by someone who owns every workspace it is in", async () => {
+    const userId = await addMember("two-places@example.com");
+    const elsewhere = crypto.randomUUID();
+    await db.insert(schema.workspaces).values({
+      id: elsewhere,
+      slug: "elsewhere",
+      name: "Elsewhere",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: elsewhere, userId, role: "member" });
+    const cookie = await login("two-places@example.com");
+    const suspend = () =>
+      app.request(`/v1/users/${userId}/disable`, {
+        method: "POST",
+        headers: {
+          ...asCookie(ownerCookie),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ reason: "security review" }),
+      });
+    expect((await suspend()).status).toBe(403);
+    expect((await get("/v1/sessions", { Cookie: cookie })).status).toBe(200);
+
+    await db
+      .update(memberships)
+      .set({ disabledAt: sql`clock_timestamp()` })
+      .where(sql`workspace_id = ${elsewhere} AND user_id = ${userId}`);
+    const suspended = await suspend();
+    expect(suspended.status).toBe(200);
+    const change = setAccessResponseSchema.parse(await suspended.json());
+    expect(change.member.disabled_at).not.toBeNull();
+    expect((await get("/v1/sessions", { Cookie: cookie })).status).toBe(401);
+    const refused = await post(
+      "/v1/auth/login",
+      { email: "two-places@example.com", password: PASSWORD },
+      { "X-Requested-With": "agent-platform-web" },
+    );
+    expect(refused.status).toBe(401);
+
+    const lifted = await app.request(`/v1/users/${userId}/enable`, {
+      method: "POST",
+      headers: { ...asCookie(ownerCookie), "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(lifted.status).toBe(200);
+    expect((await get("/v1/sessions", { Cookie: cookie })).status).toBe(401);
+    const operations = await db
+      .select({ operation: schema.receipts.operation })
+      .from(schema.receipts)
+      .where(sql`target_ref->>'user_id' = ${userId}`)
+      .orderBy(schema.receipts.createdAt);
+    expect(operations.map((row) => row.operation)).toEqual([
+      "disable_user",
+      "enable_user",
+    ]);
+    await login("two-places@example.com");
   });
 });

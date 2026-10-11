@@ -515,18 +515,25 @@ curl -s -b jar https://<host>/v1/auth/me
 
 시험용 IdP: `bun packages/testkit/src/mock-oidc-main.ts`(`MOCK_OIDC_PORT`·`MOCK_OIDC_CLIENT_ID`·`MOCK_OIDC_CLIENT_SECRET`·`MOCK_OIDC_ISSUER`·`MOCK_OIDC_PUBLIC_URL`)가 Google 대신 discovery·JWKS·authorize·token을 낸다. authorize는 바로 동의하고, 로그인할 계정은 authorization URL에 붙인 `login_hint`(id_token claim JSON의 base64url)로 고른다. 통합 테스트(`google-login.integration.test.ts`)가 같은 IdP로 다섯 규칙을 고정한다. 테스트 이름의 규칙 번호는 설계 3.1의 번호(2 초대, 3 JIT, 4 같은 이메일)이고 위 목록은 실제 적용 순서다.
 
-#### workspace key, 개인 key, 오프보딩 (94S-152)
+#### workspace key, 개인 key, 오프보딩 (94S-152, 94S-464)
 
 `keys create <owner_id>`로 만든 기존 key는 모두 service key다. 응답과 partition은 이전과 같다. `keys create --workspace <workspace_id> --scopes …`로 만든 key는 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--personal <user_id>`를 더하면 그 멤버의 개인 key가 된다. 이 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. service key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수 등)을 할 수 없다(`403`). 관리 action은 owner의 cookie 세션으로만 한다.
 
 누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0133 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
-멤버를 내보내는 HTTP API는 아직 없다. 운영자 CLI가 `--by`로 지정한 owner로서 같은 `member.manage` 판정을 거쳐 실행한다. 자기 자신은 내보낼 수 없다. 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기한다(열린 SSE는 keepalive 주기 안에 끊긴다). 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 외부 디렉터리(SCIM 등)와의 동기화는 없다. 사내 SSO에서 사람을 내보내도 여기에는 반영되지 않으므로 이 CLI를 따로 실행해야 한다.
+멤버를 내보내는 것은 owner의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, API key는 `403`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기한다(열린 SSE는 keepalive 주기 안에 끊긴다). service key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다.
+
+`POST /v1/members/{user_id}/enable`은 membership을 되살린다. 폐기한 web session과 개인 key는 되살리지 않는다. 사용자는 다시 로그인하고 key도 새로 받는다. 아직 아무도 인수하지 않은 세션은 인수 대기 표시를 지워 그 사람에게 돌려준다. Google로만 만든(비밀번호 없는) 계정도 이렇게 되살리면 연결된 Google 로그인으로 다시 들어온다. 이런 계정은 다시 초대하지 말고 enable한다. 초대 수락은 새 계정이거나 비밀번호로 확인한 계정만 받기 때문이다.
+
+계정 정지는 `POST /v1/users/{user_id}/disable`·`/enable`이다. 대상의 live membership이 모두 호출한 owner의 workspace 안에 있을 때만 허용하고, owner가 아닌 workspace에도 속한 계정은 `403`이다. 정지된 계정은 어느 workspace로도 로그인하지 못하고, 정지할 때 멤버 비활성과 같은 폐기(web session, 모든 workspace의 개인 key, 인수 대기 표시)가 일어난다. 정지 해제도 cookie와 key를 되살리지 않는다.
+
+네 동작은 모두 바뀐 경우에만 receipt를 남긴다(`disable_member`·`enable_member`·`disable_user`·`enable_user`). `target_ref`는 `{user_id, workspace_id}`, `actor`는 호출한 owner, `result`는 `reason`과 폐기·반환한 개수다. 이미 그 상태면 아무것도 쓰지 않고 응답의 `receipt_id`가 `null`이다. 외부 디렉터리(SCIM 등)와의 동기화는 없다. 사내 SSO에서 사람을 내보내도 여기에는 반영되지 않으므로 이 API를 따로 불러야 한다. 이전의 `members offboard` CLI는 없어졌다.
 
 ```bash
 bun run keys create --workspace "$WORKSPACE_ID" --scopes sessions:read,sessions:write
 bun run keys create --workspace "$WORKSPACE_ID" --scopes sessions:read,sessions:write --personal "$USER_ID"
-bun run members offboard "$USER_ID" --by "$OWNER_USER_ID"
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/disable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"reason":"left the team"}'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/enable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{}'
 curl -s -b jar http://127.0.0.1:3000/v1/takeovers
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" -H 'X-Requested-With: agent-platform-web'
 ```

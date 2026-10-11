@@ -3,6 +3,8 @@ import {
   listTakeoversResponseSchema,
   memberUserParamsSchema,
   sessionIdParamsSchema,
+  setAccessRequestSchema,
+  setAccessResponseSchema,
   takeOverSessionResponseSchema,
   updateMemberRequestSchema,
   updateMemberResponseSchema,
@@ -18,7 +20,15 @@ import { mapped, requireParams } from "./errors.ts";
 
 export function registerMemberRoutes(
   router: ApiRouter,
-  service: Pick<MemberService, "listTakeovers" | "takeOverSession">,
+  service: Pick<
+    MemberService,
+    | "listTakeovers"
+    | "takeOverSession"
+    | "disableMember"
+    | "enableMember"
+    | "disableUser"
+    | "enableUser"
+  >,
   roles: Pick<InviteService, "listMembers" | "changeMemberRole">,
 ) {
   apiRoute(router, "listMembers", async (context) => {
@@ -34,6 +44,29 @@ export function registerMemberRoutes(
     );
     return jsonWithSchema(context, updateMemberResponseSchema, member);
   });
+
+  for (const operation of [
+    "disableMember",
+    "enableMember",
+    "disableUser",
+    "enableUser",
+  ] as const) {
+    apiRoute(router, operation, async (context) => {
+      const params = requireParams(context, memberUserParamsSchema);
+      const body = await parseJsonBody(context, setAccessRequestSchema);
+      const change = await mapped(() =>
+        service[operation](
+          context.get("caller"),
+          params.user_id,
+          body.reason ?? null,
+        ),
+      );
+      return jsonWithSchema(context, setAccessResponseSchema, {
+        member: change.member,
+        receipt_id: change.receiptId,
+      });
+    });
+  }
 
   apiRoute(router, "listTakeovers", async (context) => {
     const page = await mapped(() =>
