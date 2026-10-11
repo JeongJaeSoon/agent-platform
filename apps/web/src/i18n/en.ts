@@ -194,6 +194,8 @@ export const en: Record<MessageKey, string> = {
   "agent.versionLabel": "version {version}",
   "agent.saved":
     "Saved — version {version}. It is not active yet; create a release and activate it to use it.",
+  "agent.savedExisting":
+    "Saved. The same card already exists as version {version}, so no new version was made.",
   "agent.savedNoChange":
     "Saved. The card is unchanged, so no new version was made.",
   "agent.activated": "Activated — new sessions now start with {release}.",
