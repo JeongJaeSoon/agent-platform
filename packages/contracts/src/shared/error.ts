@@ -39,6 +39,13 @@ export const API_ERROR_CODE_VALUES = [
   // The person who asked for the session was offboarded; it takes no input
   // until an owner takes it over.
   "TAKEOVER_REQUIRED",
+  // Linking a Slack account (94S-577): the workspace has no verified Slack
+  // install, the account is from another Slack team, it is linked to someone
+  // else, or the caller already linked a different account in that team.
+  "SLACK_NOT_INSTALLED",
+  "LINK_TEAM_MISMATCH",
+  "LINK_TAKEN",
+  "LINK_EXISTS",
   // An invite that was revoked, replaced by a newer one, or has expired.
   "INVITE_EXPIRED",
   "INVITE_USED",

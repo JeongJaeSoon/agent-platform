@@ -317,6 +317,8 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "api_key.manage",
   // Issuing and revoking the caller's own personal keys.
   "api_key.manage_own",
+  // Linking and unlinking the caller's own account on another service.
+  "account.link",
   "agent.manage",
   "binding.manage",
   "routine.manage",
@@ -352,6 +354,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "member.manage": new Set(["workspace", "session"]),
   "api_key.manage": new Set(["workspace"]),
   "api_key.manage_own": new Set(["workspace"]),
+  "account.link": new Set(["workspace"]),
   "agent.manage": new Set(["workspace", "agent"]),
   "binding.manage": new Set(["workspace", "agent", "surface_binding"]),
   "routine.manage": new Set(["workspace", "agent", "routine"]),
