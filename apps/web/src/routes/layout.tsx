@@ -82,6 +82,7 @@ export function AuthedLayout() {
           <Link to="/members">{t("nav.members")}</Link>
           {managesTeams ? <Link to="/teams">{t("nav.teams")}</Link> : null}
           <Link to="/agents">{t("nav.agents")}</Link>
+          <Link to="/settings/linked-accounts">{t("nav.linkedAccounts")}</Link>
         </nav>
         <span className="web-shell__spacer" />
         {me?.user ? (

@@ -126,6 +126,24 @@ export const en: Record<MessageKey, string> = {
   "agentAdmins.added": "Named {name} an admin.",
   "agentAdmins.removed": "{name} is no longer an admin.",
 
+  "linked.title": "Linked accounts",
+  "linked.intro":
+    "Link your Slack account and requests you make to agents in Slack are judged with your permissions. No token is kept.",
+  "linked.slack": "Slack",
+  "linked.none": "No Slack account linked.",
+  "linked.connect": "Link Slack account",
+  "linked.starting": "Going to Slack…",
+  "linked.slackAccount": "Slack user {user} (workspace {team})",
+  "linked.verified": "verified {at}",
+  "linked.stale":
+    "Slack reported this account deactivated, so it resolves to no one — unlink it and link again.",
+  "linked.unlink": "Unlink",
+  "linked.unlinked": "Unlinked the Slack account.",
+  "linked.unavailable":
+    "Linking Slack accounts is not available on this installation — ask the operator.",
+  "linked.cancelled": "Linking Slack did not finish — start again.",
+  "linked.back": "Back to linked accounts",
+
   "guard.missingScope": "Requires the {scope} permission.",
 
   "error.BAD_REQUEST": "Check the form and send it again.",
@@ -222,6 +240,7 @@ export const en: Record<MessageKey, string> = {
   "error.OWNER_PROTECTED":
     "Only an owner can grant or change the owner role — ask an owner.",
   "nav.teams": "Teams",
+  "nav.linkedAccounts": "Linked accounts",
   "nav.agents": "Agents",
   "agents.title": "Agents",
   "agents.new": "New agent",

@@ -5,6 +5,7 @@ import type {
   ListAdministeredAgentsResponse,
   ListAgentsResponse,
   ListInvitesResponse,
+  ListLinkedAccountsResponse,
   ListMembersResponse,
   ListTeamsResponse,
   LoginMethodsResponse,
@@ -29,6 +30,7 @@ export const queryKeys = {
   agentAdmins: (id: string) => ["agents", id, "admins"] as const,
   administeredAgents: ["administered-agents"] as const,
   teams: ["teams"] as const,
+  linkedAccounts: ["linked-accounts"] as const,
   team: (id: string) => ["teams", id] as const,
 };
 
@@ -151,6 +153,17 @@ export function administeredAgentsQuery(client: ApiClient) {
       unwrap(
         client.GET("/v1/administered-agents"),
       ) as Promise<ListAdministeredAgentsResponse>,
+    retry: false,
+  });
+}
+
+export function linkedAccountsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.linkedAccounts,
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/linked-accounts"),
+      ) as Promise<ListLinkedAccountsResponse>,
     retry: false,
   });
 }

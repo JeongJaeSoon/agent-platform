@@ -23,6 +23,12 @@ import {
 import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
+import {
+  LinkedAccountsScreen,
+  SlackLinkCallbackScreen,
+  type SlackLinkSearch,
+  slackLinkSearch,
+} from "./routes/linked-accounts.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
 import { MembersScreen } from "./routes/members.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
@@ -117,6 +123,21 @@ const team = createRoute({
   component: TeamDetailScreen,
 });
 
+const linkedAccounts = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/linked-accounts",
+  component: LinkedAccountsScreen,
+});
+
+// Slack sends the browser back here (SLACK_OIDC_REDIRECT_URI).
+const slackLink = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/linked-accounts/slack",
+  validateSearch: (search: Record<string, unknown>): SlackLinkSearch =>
+    slackLinkSearch(search),
+  component: SlackLinkCallbackScreen,
+});
+
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
@@ -142,7 +163,17 @@ const routeTree = root.addChildren([
   bootstrap,
   googleCallback,
   invite,
-  authed.addChildren([home, members, teams, team, agents, newAgent, agent]),
+  authed.addChildren([
+    home,
+    members,
+    teams,
+    team,
+    agents,
+    newAgent,
+    agent,
+    linkedAccounts,
+    slackLink,
+  ]),
 ]);
 
 export function createAppRouter(services: Services, history?: RouterHistory) {
