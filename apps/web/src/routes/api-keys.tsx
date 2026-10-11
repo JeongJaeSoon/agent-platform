@@ -70,6 +70,12 @@ export function ApiKeysScreen() {
     setOutcome(null);
     setIssued(result);
   };
+  const mutation = useIssue(onIssued, setOutcome);
+  // A secret shows once: nothing new is issued until this one is put away.
+  const issue: Issue = {
+    send: (body, permission) => mutation.mutate({ body, permission }),
+    blocked: mutation.isPending || issued !== null,
+  };
 
   return (
     <div className="web-page">
@@ -78,8 +84,8 @@ export function ApiKeysScreen() {
       {issued ? (
         <IssuedSecret issued={issued} onDone={() => setIssued(null)} />
       ) : null}
-      <PersonalKeyForm onIssued={onIssued} onOutcome={setOutcome} />
-      <ServiceKeyForm onIssued={onIssued} onOutcome={setOutcome} />
+      <PersonalKeyForm issue={issue} />
+      <ServiceKeyForm issue={issue} />
       {keys.isPending ? (
         <StatusScreen kind="loading" />
       ) : keys.error ? (
@@ -113,7 +119,10 @@ function IssuedSecret({
       aria-label={t("apiKeys.secretTitle")}
     >
       <h2 className="web-status__title">{t("apiKeys.secretTitle")}</h2>
-      <p className="web-status__body">{t("apiKeys.secretOnce")}</p>
+      <p className="web-status__body">
+        {t("apiKeys.secretOnce")}{" "}
+        {t("apiKeys.keyId", { id: shortId(issued.key.id) })}
+      </p>
       <label className="web-field">
         <span>{t("apiKeys.secret")}</span>
         <input
@@ -187,22 +196,38 @@ function ScopePicker({
   );
 }
 
+interface Issue {
+  readonly send: (body: IssueRequest, permission: ManagedPermission) => void;
+  /** A request is in flight or an issued secret is still on screen. */
+  readonly blocked: boolean;
+}
+
+/** Enough of the id to tell keys apart in the list and when revoking. */
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
 function useIssue(
-  permission: ManagedPermission,
   onIssued: (result: CreateApiKeyResponse) => void,
   onOutcome: (outcome: Outcome | null) => void,
 ) {
   const { t } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
-  return useMutation<CreateApiKeyResponse, ApiError, IssueRequest>({
-    mutationFn: (body) => unwrap(client.POST("/v1/api-keys", { body })),
+  return useMutation<
+    CreateApiKeyResponse,
+    ApiError,
+    { body: IssueRequest; permission: ManagedPermission }
+  >({
+    mutationFn: ({ body }) => unwrap(client.POST("/v1/api-keys", { body })),
+    // The response carries the secret; keep it nowhere but the screen.
+    gcTime: 0,
     onMutate: () => onOutcome(null),
     onSuccess: async (result) => {
       onIssued(result);
       await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
     },
-    onError: (error) =>
+    onError: (error, { permission }) =>
       onOutcome({
         kind: "error",
         text: keyRefusal(t, error, permission, role),
@@ -210,18 +235,11 @@ function useIssue(
   });
 }
 
-function PersonalKeyForm({
-  onIssued,
-  onOutcome,
-}: {
-  readonly onIssued: (result: CreateApiKeyResponse) => void;
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function PersonalKeyForm({ issue }: { readonly issue: Issue }) {
   const { t } = useI18n();
   const held = useMe()?.scopes ?? [];
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
   const [expires, setExpires] = useState("");
-  const issue = useIssue("api_key.manage_own", onIssued, onOutcome);
   const titleId = useId();
   const role = useRole();
   const reason = useHasPermission("api_key.manage_own")
@@ -231,11 +249,14 @@ function PersonalKeyForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const expiresAt = expiryOf(expires);
-    issue.mutate({
-      kind: "personal",
-      scopes: scopes.filter((scope) => held.includes(scope)),
-      ...(expiresAt ? { expires_at: expiresAt } : {}),
-    });
+    issue.send(
+      {
+        kind: "personal",
+        scopes: scopes.filter((scope) => held.includes(scope)),
+        ...(expiresAt ? { expires_at: expiresAt } : {}),
+      },
+      "api_key.manage_own",
+    );
   };
 
   return (
@@ -249,7 +270,7 @@ function PersonalKeyForm({
           type="submit"
           className="ap-button ap-button--primary"
           reason={reason}
-          disabled={issue.isPending || scopes.length === 0}
+          disabled={issue.blocked || scopes.length === 0}
         >
           {t("apiKeys.issuePersonal")}
         </ReasonButton>
@@ -299,13 +320,7 @@ function useBindableAgents(): {
   return { agents: source.data?.items ?? [], pending: source.isPending };
 }
 
-function ServiceKeyForm({
-  onIssued,
-  onOutcome,
-}: {
-  readonly onIssued: (result: CreateApiKeyResponse) => void;
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
   const { t } = useI18n();
   const role = useRole();
   const held = useMe()?.scopes ?? [];
@@ -314,7 +329,6 @@ function ServiceKeyForm({
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
   const [agentId, setAgentId] = useState("");
   const [expires, setExpires] = useState("");
-  const issue = useIssue("api_key.manage", onIssued, onOutcome);
   const titleId = useId();
   const agentFieldId = useId();
   const chosenAgent = agents.find((agent) => agent.id === agentId);
@@ -326,12 +340,15 @@ function ServiceKeyForm({
         held.includes(scope) &&
         (agent === undefined || !AGENT_KEY_WITHHELD.includes(scope)),
     );
-    issue.mutate({
-      kind: "service",
-      scopes: granted,
-      ...(agent ? { agent_id: agent.id } : {}),
-      ...(expiresAt ? { expires_at: expiresAt } : {}),
-    });
+    issue.send(
+      {
+        kind: "service",
+        scopes: granted,
+        ...(agent ? { agent_id: agent.id } : {}),
+        ...(expiresAt ? { expires_at: expiresAt } : {}),
+      },
+      "api_key.manage",
+    );
   };
 
   const agentReason =
@@ -358,7 +375,7 @@ function ServiceKeyForm({
               ? undefined
               : permissionReason(t, "api_key.manage", role)
           }
-          disabled={issue.isPending || scopes.length === 0}
+          disabled={issue.blocked || scopes.length === 0}
           onClick={() => send(undefined)}
         >
           {t("apiKeys.issueWorkspace")}
@@ -384,7 +401,7 @@ function ServiceKeyForm({
         <ReasonButton
           className="ap-button"
           reason={agentReason}
-          disabled={issue.isPending || !chosenAgent || scopes.length === 0}
+          disabled={issue.blocked || !chosenAgent || scopes.length === 0}
           onClick={() => send(chosenAgent)}
         >
           {t("apiKeys.issueAgent")}
@@ -462,6 +479,7 @@ function KeyList({
               >
                 <span className="web-table__primary">{label}</span>
                 <span className="web-table__secondary">
+                  {t("apiKeys.keyId", { id: shortId(key.id) })} ·{" "}
                   {key.scopes.join(", ")} ·{" "}
                   {t("apiKeys.createdAt", {
                     at: formatTimestamp(key.created_at),
@@ -486,7 +504,9 @@ function KeyList({
                     type="button"
                     className="ap-button"
                     disabled={revoke.isPending}
-                    aria-label={t("apiKeys.revokeFor", { key: label })}
+                    aria-label={t("apiKeys.revokeFor", {
+                      key: `${label} (${shortId(key.id)})`,
+                    })}
                     onClick={() => setConfirming(key)}
                   >
                     {t("apiKeys.revoke")}
@@ -502,7 +522,9 @@ function KeyList({
         onOpenChange={(open) => {
           if (!open) setConfirming(null);
         }}
-        title={t("apiKeys.revokeTitle")}
+        title={t("apiKeys.revokeTitle", {
+          id: confirming ? shortId(confirming.id) : "",
+        })}
         consequence={t("apiKeys.revokeConsequence")}
         confirmLabel={t("apiKeys.revoke")}
         cancelLabel={t("common.cancel")}
