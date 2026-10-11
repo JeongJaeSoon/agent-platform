@@ -8,6 +8,7 @@
       "!!dist",
       "!!.claude",
       "!docs/openapi.json",
+      "!apps/web/src/api/schema.gen.ts",
       "!docs/api/index.html",
       "!docs/api/scalar.js"
     ]
