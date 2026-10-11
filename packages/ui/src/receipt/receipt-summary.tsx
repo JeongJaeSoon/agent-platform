@@ -29,6 +29,10 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   accept_invite: "초대 수락",
   revoke_invite: "초대 회수",
   change_member_role: "역할 변경",
+  create_agent: "에이전트 생성",
+  update_agent: "에이전트 수정",
+  create_agent_release: "에이전트 release 생성",
+  activate_agent: "에이전트 활성화",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

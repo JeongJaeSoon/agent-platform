@@ -50,6 +50,9 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
   LAST_OWNER:
     "워크스페이스에는 owner가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 owner로 바꾸세요.",
+  PROFILE_DIGEST_MISMATCH:
+    "이 release를 만든 뒤 실행 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
+  ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
   CATALOG_MISMATCH:
     "이 세션의 프로필·저장소 조합이 더 이상 허용되지 않아 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",

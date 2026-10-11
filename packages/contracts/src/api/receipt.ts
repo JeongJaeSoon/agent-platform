@@ -47,6 +47,10 @@ export const RECEIPT_OPERATION_VALUES = [
   "accept_invite",
   "revoke_invite",
   "change_member_role",
+  "create_agent",
+  "update_agent",
+  "create_agent_release",
+  "activate_agent",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
