@@ -318,6 +318,7 @@ function ExpiryField({
 function useBindableAgents(): {
   readonly agents: readonly Agent[];
   readonly pending: boolean;
+  readonly error: ApiError | null;
 } {
   const { client } = useServices();
   const everywhere = useHasPermission("api_key.manage");
@@ -327,7 +328,11 @@ function useBindableAgents(): {
     enabled: !everywhere,
   });
   const source = everywhere ? all : mine;
-  return { agents: source.data?.items ?? [], pending: source.isPending };
+  return {
+    agents: source.data?.items ?? [],
+    pending: source.isPending,
+    error: (source.error as ApiError | null) ?? null,
+  };
 }
 
 function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
@@ -335,7 +340,7 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
   const role = useRole();
   const held = useMe()?.scopes ?? [];
   const workspaceWide = useHasPermission("api_key.manage");
-  const { agents, pending } = useBindableAgents();
+  const { agents, pending, error: agentsError } = useBindableAgents();
   const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
   const [agentId, setAgentId] = useState("");
   const [expires, setExpires] = useState("");
@@ -366,8 +371,9 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
     );
   };
 
-  const agentReason =
-    agents.length === 0 && !pending
+  const agentReason = agentsError
+    ? t(errorKey(agentsError.code))
+    : agents.length === 0 && !pending
       ? t("apiKeys.noAgents")
       : chosenAgent && agentScopes.length === 0
         ? t("apiKeys.agentNeedsScope")
