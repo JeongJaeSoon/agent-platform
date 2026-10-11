@@ -466,6 +466,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
         reason: "left the team",
         revoked_web_sessions: 1,
         revoked_personal_keys: 1,
+        revoked_linked_accounts: 0,
         sessions_awaiting_takeover: 2,
       },
     });

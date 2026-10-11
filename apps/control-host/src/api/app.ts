@@ -4,6 +4,7 @@ import {
   apiErrorResponseSchema,
   apiRootResponseSchema,
   healthResponseSchema,
+  LINK_MESSAGES,
   ownerScopeOf,
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
@@ -201,6 +202,7 @@ export class ApiHttpError extends Error {
     readonly retryable = false,
     // Sent as Retry-After: when a retry is worth making, not a promise.
     readonly retryAfterSeconds?: number,
+    readonly details: unknown = null,
   ) {
     super(message);
   }
@@ -534,7 +536,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         context,
         401,
         "UNAUTHORIZED",
-        "Authentication is required",
+        // A link opened from Slack lands here before any login; the person
+        // may have no account at all, and should learn who can invite them.
+        context.req.path.startsWith("/v1/linked-accounts")
+          ? LINK_MESSAGES.signInRequired
+          : "Authentication is required",
       );
     }
     const violation = csrfViolation(context, authenticated.principal);
@@ -647,6 +653,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         error.code,
         error.message,
         error.retryable,
+        error.details,
       );
     }
     // The key lookup in the auth middleware runs before any route, so a

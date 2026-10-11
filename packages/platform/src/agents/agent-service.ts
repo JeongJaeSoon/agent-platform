@@ -54,8 +54,11 @@ export function createAgentService(deps: {
     return userId;
   }
 
-  async function manageWorkspace(caller: Caller): Promise<string> {
-    await requirePermitted(authorization, caller, "agent.manage", {
+  async function onWorkspace(
+    caller: Caller,
+    action: "agent.manage" | "agent.create",
+  ): Promise<string> {
+    await requirePermitted(authorization, caller, action, {
       kind: "workspace",
       id: caller.ownerId,
     });
@@ -93,7 +96,7 @@ export function createAgentService(deps: {
     resolveRelease,
 
     async listAgents(caller: Caller): Promise<ListAgentsResponse> {
-      await manageWorkspace(caller);
+      await onWorkspace(caller, "agent.manage");
       return { items: await store.list(caller.ownerId, AGENT_LIST_LIMIT) };
     },
 
@@ -108,7 +111,8 @@ export function createAgentService(deps: {
       caller: Caller,
       request: CreateAgentRequest,
     ): Promise<AgentDetail> {
-      const userId = await manageWorkspace(caller);
+      // Any member may; the store makes them the agent's admin (D3).
+      const userId = await onWorkspace(caller, "agent.create");
       const result = await store.create({
         principal: caller,
         workspaceId: caller.ownerId,

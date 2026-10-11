@@ -7,6 +7,7 @@ import {
   agentDetailSchema,
   agentIdParamsSchema,
   apiErrorResponseSchema,
+  apiKeyIdParamsSchema,
   apiRootResponseSchema,
   auditRetentionRequestSchema,
   auditRetentionResponseSchema,
@@ -16,6 +17,8 @@ import {
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
+  createApiKeyRequestSchema,
+  createApiKeyResponseSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   createSessionRequestSchema,
@@ -30,8 +33,11 @@ import {
   inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
+  linkedAccountParamsSchema,
   listAgentsResponseSchema,
+  listApiKeysResponseSchema,
   listInvitesResponseSchema,
+  listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
   listPendingRequestsResponseSchema,
   listSessionsQuerySchema,
@@ -48,6 +54,7 @@ import {
   passwordResetResponseSchema,
   pauseSessionRequestSchema,
   postSessionAnswerRequestSchema,
+  postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
   readyResponseSchema,
@@ -55,6 +62,7 @@ import {
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
   resumeSessionRequestSchema,
+  revokeApiKeyResponseSchema,
   type SessionScope,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
@@ -62,8 +70,11 @@ import {
   sessionUsageResponseSchema,
   setAccessRequestSchema,
   setAccessResponseSchema,
+  slackLinkCallbackRequestSchema,
+  slackLinkCallbackResponseSchema,
   sseEventSchema,
   startGoogleLoginResponseSchema,
+  startSlackLinkResponseSchema,
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
   turnIdParamsSchema,
@@ -89,6 +100,7 @@ const requestComponents = {
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
   PostSessionAnswerRequest: postSessionAnswerRequestSchema,
+  PostSessionAnswerResponse: postSessionAnswerResponseSchema,
   InterruptSessionRequest: interruptSessionRequestSchema,
   PauseSessionRequest: pauseSessionRequestSchema,
   TerminateSessionRequest: terminateSessionRequestSchema,
@@ -97,6 +109,7 @@ const requestComponents = {
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
+  SlackLinkCallbackRequest: slackLinkCallbackRequestSchema,
   CreateInviteRequest: createInviteRequestSchema,
   AcceptInviteRequest: acceptInviteRequestSchema,
   UpdateMemberRequest: updateMemberRequestSchema,
@@ -107,6 +120,7 @@ const requestComponents = {
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
   ActivateAgentRequest: activateAgentRequestSchema,
+  CreateApiKeyRequest: createApiKeyRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -125,6 +139,9 @@ const responseComponents = {
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
   ListTakeoversResponse: listTakeoversResponseSchema,
+  StartSlackLinkResponse: startSlackLinkResponseSchema,
+  SlackLinkCallbackResponse: slackLinkCallbackResponseSchema,
+  ListLinkedAccountsResponse: listLinkedAccountsResponseSchema,
   CreateInviteResponse: createInviteResponseSchema,
   ListInvitesResponse: listInvitesResponseSchema,
   AcceptInviteResponse: acceptInviteResponseSchema,
@@ -148,6 +165,9 @@ const responseComponents = {
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
+  CreateApiKeyResponse: createApiKeyResponseSchema,
+  ListApiKeysResponse: listApiKeysResponseSchema,
+  RevokeApiKeyResponse: revokeApiKeyResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -187,7 +207,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Members",
     description:
-      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners only, from a browser session.",
+      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
   },
   {
     name: "Workspace settings",
@@ -196,7 +216,17 @@ export const OPENAPI_TAGS = [
   {
     name: "Agents",
     description:
-      "Write agent cards, release a version against a runtime profile and activate a release. Owners only.",
+      "Write agent cards, release a version against a runtime profile and activate a release. Owners, admins, and each agent's own admins.",
+  },
+  {
+    name: "Linked accounts",
+    description:
+      "Link and unlink the caller's own Slack account through Sign in with Slack.",
+  },
+  {
+    name: "API keys",
+    description:
+      "Issue and revoke keys, never above what the issuer holds. Signed-in people only.",
   },
   {
     name: "Limits & receipts",
@@ -424,11 +454,17 @@ const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
     scope: "write",
+    description:
+      "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`.",
     body: "CreateSessionRequest",
     success: { status: 201, schema: "CreateSessionResponse" },
-    errors: [400, 401, 409, 413, 422, 429, 503],
+    errors: [400, 401, 404, 409, 413, 422, 429, 503],
     errorCodes: {
-      409: ["IDEMPOTENCY_CONFLICT"],
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "RELEASE_PROFILE_MISMATCH",
+        "PROFILE_DIGEST_MISMATCH",
+      ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
   },
@@ -541,7 +577,7 @@ const API_ROUTE_DECLARATIONS = [
     summary: "Answer a pending permission or question request",
     scope: "approve",
     body: "PostSessionAnswerRequest",
-    success: { status: 202, schema: "ReceiptAcceptedResponse" },
+    success: { status: 202, schema: "PostSessionAnswerResponse" },
     errors: [...CONFLICTS, 413, 503],
     errorCodes: {
       409: ["IDEMPOTENCY_CONFLICT", "REQUEST_EXPIRED", "REQUEST_STALE"],
@@ -677,6 +713,7 @@ const API_ROUTE_DECLARATIONS = [
     body: "CreateInviteRequest",
     success: { status: 201, schema: "CreateInviteResponse" },
     errors: [400, 401, 403, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
@@ -743,7 +780,7 @@ const API_ROUTE_DECLARATIONS = [
     body: "UpdateMemberRequest",
     success: { status: 200, schema: "MemberView" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {
@@ -831,6 +868,66 @@ const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/linked-accounts/slack/start",
+    operationId: "startSlackLink",
+    tag: "Linked accounts",
+    summary: "Start linking the caller's Slack account",
+    description:
+      "Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. Refused with 409 when the workspace has no verified Slack install. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "StartSlackLinkResponse" },
+    errors: [401, 403, 409, 503],
+    errorCodes: { 409: ["SLACK_NOT_INSTALLED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/linked-accounts/slack/callback",
+    operationId: "slackLinkCallback",
+    tag: "Linked accounts",
+    summary: "Finish linking with the code Slack returned",
+    description:
+      "Spends the state cookie, exchanges the code and verifies the id_token, then links the Slack account to the caller and writes a `link_account` receipt. Refused when the account's Slack team is not installed for the workspace, when the account is linked to someone else (never overwritten), or when the caller already linked another account in that team. API keys are refused.",
+    auth: "session",
+    body: "SlackLinkCallbackRequest",
+    success: { status: 201, schema: "SlackLinkCallbackResponse" },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "SLACK_NOT_INSTALLED",
+        "LINK_TEAM_MISMATCH",
+        "LINK_TAKEN",
+        "LINK_EXISTS",
+      ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/linked-accounts",
+    operationId: "listLinkedAccounts",
+    tag: "Linked accounts",
+    summary: "The caller's linked accounts that are active or stale",
+    description: "API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ListLinkedAccountsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/linked-accounts/{id}",
+    operationId: "unlinkAccount",
+    tag: "Linked accounts",
+    summary: "Unlink one of the caller's accounts",
+    description:
+      "Revokes the link and writes an `unlink_account` receipt. Input from that Slack account is refused from then on, including input that was already waiting to be processed. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ReceiptAcceptedResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
     method: "get",
     path: "/v1/agents",
     operationId: "listAgents",
@@ -906,6 +1003,46 @@ const API_ROUTE_DECLARATIONS = [
     success: { status: 200, schema: "ActivateAgentResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["REVISION_CONFLICT", "PROFILE_DIGEST_MISMATCH"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/api-keys",
+    operationId: "createApiKey",
+    tag: "API keys",
+    summary: "Issue a personal key, a service key, or one bound to an agent",
+    description:
+      "A personal key is the caller's own; a service key takes an owner or an admin, and one with `agent_id` also that agent's admin. `scopes` may not exceed what the caller holds now, and a key with `agent_id` never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.",
+    auth: "session",
+    body: "CreateApiKeyRequest",
+    success: { status: 201, schema: "CreateApiKeyResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "SCOPE_NOT_GRANTABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/api-keys",
+    operationId: "listApiKeys",
+    tag: "API keys",
+    summary: "The caller's personal keys and the service keys they manage",
+    description:
+      "Owners and admins see every service key; an agent's admin sees that agent's keys. Secrets are never returned.",
+    auth: "session",
+    success: { status: 200, schema: "ListApiKeysResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/api-keys/{id}",
+    operationId: "revokeApiKey",
+    tag: "API keys",
+    summary: "Revoke a key",
+    description:
+      "Takes the right issuing that kind of key takes. Revoking a key already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_api_key` receipt.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeApiKeyResponse" },
+    errors: [401, 403, 404, 503],
     idempotent: false,
   },
   {
@@ -1036,11 +1173,14 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path === "/v1/invites/{id}") return inviteIdParamsSchema;
+  if (path === "/v1/api-keys/{id}") return apiKeyIdParamsSchema;
   if (path.startsWith("/v1/members/{user_id}")) return memberUserParamsSchema;
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
+  if (path.startsWith("/v1/linked-accounts/{id}"))
+    return linkedAccountParamsSchema;
   throw new Error(`No params schema registered for ${path}`);
 }
 

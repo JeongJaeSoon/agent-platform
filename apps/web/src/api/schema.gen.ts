@@ -251,7 +251,10 @@ export interface paths {
         /** List sessions visible to the principal */
         get: operations["listSessions"];
         put?: never;
-        /** Durably accept a session and its first input */
+        /**
+         * Durably accept a session and its first input
+         * @description `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`.
+         */
         post: operations["createSession"];
         delete?: never;
         options?: never;
@@ -707,6 +710,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/linked-accounts/slack/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start linking the caller's Slack account
+         * @description Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. Refused with 409 when the workspace has no verified Slack install. API keys are refused.
+         */
+        post: operations["startSlackLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/linked-accounts/slack/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish linking with the code Slack returned
+         * @description Spends the state cookie, exchanges the code and verifies the id_token, then links the Slack account to the caller and writes a `link_account` receipt. Refused when the account's Slack team is not installed for the workspace, when the account is linked to someone else (never overwritten), or when the caller already linked another account in that team. API keys are refused.
+         */
+        post: operations["slackLinkCallback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/linked-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's linked accounts that are active or stale
+         * @description API keys are refused.
+         */
+        get: operations["listLinkedAccounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/linked-accounts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unlink one of the caller's accounts
+         * @description Revokes the link and writes an `unlink_account` receipt. Input from that Slack account is refused from then on, including input that was already waiting to be processed. API keys are refused.
+         */
+        delete: operations["unlinkAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -792,6 +875,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's personal keys and the service keys they manage
+         * @description Owners and admins see every service key; an agent's admin sees that agent's keys. Secrets are never returned.
+         */
+        get: operations["listApiKeys"];
+        put?: never;
+        /**
+         * Issue a personal key, a service key, or one bound to an agent
+         * @description A personal key is the caller's own; a service key takes an owner or an admin, and one with `agent_id` also that agent's admin. `scopes` may not exceed what the caller holds now, and a key with `agent_id` never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.
+         */
+        post: operations["createApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/api-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a key
+         * @description Takes the right issuing that kind of key takes. Revoking a key already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_api_key` receipt.
+         */
+        delete: operations["revokeApiKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/limits": {
         parameters: {
             query?: never;
@@ -835,6 +962,7 @@ export interface components {
             repository_id: string;
             /** @description At most 32768 bytes of UTF-8 */
             message: string;
+            agent_release_id?: string;
         };
         ListSessionsQuery: {
             cursor?: string;
@@ -876,6 +1004,27 @@ export interface components {
                 selected_option_ids: string[];
                 free_text?: string;
             }[];
+        };
+        PostSessionAnswerResponse: {
+            /** Format: uuid */
+            receipt_id: string;
+            /** @enum {string} */
+            receipt_status: "accepted" | "succeeded" | "failed" | "unknown";
+            approval?: {
+                answered_by: {
+                    principal: {
+                        /** @enum {string} */
+                        kind: "api_key" | "user" | "installation";
+                        id: string;
+                    };
+                    actor_user_id: string | null;
+                    agent_id: string | null;
+                } | null;
+                /** @enum {string} */
+                surface: "web" | "slack" | "api";
+                /** Format: uuid */
+                decision_id: string;
+            };
         };
         InterruptSessionRequest: {
             target_turn_id: string;
@@ -938,11 +1087,15 @@ export interface components {
             token: string;
             password: string;
         };
+        SlackLinkCallbackRequest: {
+            code: string;
+            state: string;
+        };
         CreateInviteRequest: {
             /** Format: email */
             email: string;
             /** @enum {string} */
-            role: "owner" | "member";
+            role: "owner" | "admin" | "member";
         };
         AcceptInviteRequest: {
             token: string;
@@ -951,7 +1104,7 @@ export interface components {
         };
         UpdateMemberRequest: {
             /** @enum {string} */
-            role: "owner" | "member";
+            role: "owner" | "admin" | "member";
         };
         SetAccessRequest: {
             /** @description At most 1024 bytes of UTF-8 */
@@ -982,6 +1135,17 @@ export interface components {
                     mcp: null;
                     /** @default [] */
                     forbidden: string[];
+                    tool_policy?: {
+                        default?: {
+                            /** @enum {string} */
+                            builtin?: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp?: "allow" | "ask" | "deny";
+                        };
+                        per_tool?: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 /** @default [] */
                 rules: {
@@ -1009,6 +1173,17 @@ export interface components {
                     mcp: null;
                     /** @default [] */
                     forbidden: string[];
+                    tool_policy?: {
+                        default?: {
+                            /** @enum {string} */
+                            builtin?: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp?: "allow" | "ask" | "deny";
+                        };
+                        per_tool?: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 /** @default [] */
                 rules: {
@@ -1028,10 +1203,19 @@ export interface components {
             release_id: string;
             expected_revision: number;
         };
+        CreateApiKeyRequest: {
+            /** @enum {string} */
+            kind: "personal" | "service";
+            scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
+            /** Format: uuid */
+            agent_id?: string;
+            /** Format: date-time */
+            expires_at?: string;
+        };
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -1445,6 +1629,48 @@ export interface components {
                 takeover_required_at: string;
             }[];
         };
+        StartSlackLinkResponse: {
+            /** Format: uri */
+            authorize_url: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        SlackLinkCallbackResponse: {
+            linked_account: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                user_id: string;
+                /** @enum {string} */
+                provider: "slack";
+                external_tenant: string;
+                external_user_id: string;
+                /** @enum {string} */
+                status: "active" | "stale" | "revoked";
+                /** Format: date-time */
+                verified_at: string;
+                revision: number;
+            };
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        ListLinkedAccountsResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                user_id: string;
+                /** @enum {string} */
+                provider: "slack";
+                external_tenant: string;
+                external_user_id: string;
+                /** @enum {string} */
+                status: "active" | "stale" | "revoked";
+                /** Format: date-time */
+                verified_at: string;
+                revision: number;
+            }[];
+        };
         CreateInviteResponse: {
             /** Format: uuid */
             invite_id: string;
@@ -1461,7 +1687,7 @@ export interface components {
                 /** Format: email */
                 email: string;
                 /** @enum {string} */
-                role: "owner" | "member";
+                role: "owner" | "admin" | "member";
                 /** Format: uuid */
                 invited_by: string;
                 /** @enum {string} */
@@ -1498,7 +1724,7 @@ export interface components {
                 created_at: string;
             };
             /** @enum {string} */
-            role: "owner" | "member";
+            role: "owner" | "admin" | "member";
         };
         ListMembersResponse: {
             items: components["schemas"]["MemberView"][];
@@ -1510,7 +1736,7 @@ export interface components {
             email: string;
             display_name: string;
             /** @enum {string} */
-            role: "owner" | "member";
+            role: "owner" | "admin" | "member";
             disabled_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -1537,7 +1763,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -1546,7 +1772,7 @@ export interface components {
             } | {
                 resource: {
                     /** @enum {string} */
-                    kind: "workspace" | "session" | "invite" | "agent" | "agent_release" | "surface_binding" | "session_link" | "dispatch" | "memory" | "routine" | "artifact";
+                    kind: "workspace" | "session" | "invite" | "agent" | "agent_release" | "surface_binding" | "session_link" | "dispatch" | "memory" | "routine" | "artifact" | "api_key";
                     id: string;
                 };
                 workspace_id: string | null;
@@ -1571,7 +1797,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -1611,7 +1837,7 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             /** @enum {string} */
-            role: "owner" | "member";
+            role: "owner" | "admin" | "member";
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
             /** Format: date-time */
             expires_at: string;
@@ -1655,7 +1881,7 @@ export interface components {
                 /** Format: uuid */
                 workspace_id: string;
                 /** @enum {string} */
-                role: "owner" | "member";
+                role: "owner" | "admin" | "member";
                 scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
             } | {
                 /** @constant */
@@ -1805,6 +2031,17 @@ export interface components {
                         mcp: null;
                         /** @default [] */
                         forbidden: string[];
+                        tool_policy?: {
+                            default?: {
+                                /** @enum {string} */
+                                builtin?: "allow" | "ask" | "deny";
+                                /** @enum {string} */
+                                mcp?: "allow" | "ask" | "deny";
+                            };
+                            per_tool?: {
+                                [key: string]: "allow" | "ask" | "deny";
+                            };
+                        };
                     };
                     /** @default [] */
                     rules: {
@@ -1836,7 +2073,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -1861,7 +2108,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -1888,7 +2145,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -1902,6 +2169,61 @@ export interface components {
             active_release_id: string;
             previous_release_id: string | null;
             activation_revision: number;
+            receipt_id: string | null;
+        };
+        CreateApiKeyResponse: {
+            key: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "personal" | "service";
+                /** Format: uuid */
+                workspace_id: string;
+                agent_id: string | null;
+                created_by: string | null;
+                scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
+                /** Format: date-time */
+                created_at: string;
+                expires_at: string | null;
+                revoked_at: string | null;
+            };
+            secret: string;
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        ListApiKeysResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "personal" | "service";
+                /** Format: uuid */
+                workspace_id: string;
+                agent_id: string | null;
+                created_by: string | null;
+                scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
+                /** Format: date-time */
+                created_at: string;
+                expires_at: string | null;
+                revoked_at: string | null;
+            }[];
+        };
+        RevokeApiKeyResponse: {
+            key: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "personal" | "service";
+                /** Format: uuid */
+                workspace_id: string;
+                agent_id: string | null;
+                created_by: string | null;
+                scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
+                /** Format: date-time */
+                created_at: string;
+                expires_at: string | null;
+                revoked_at: string | null;
+            };
             receipt_id: string | null;
         };
         OpenApiDocument: {
@@ -3199,6 +3521,20 @@ export interface operations {
                     };
                 };
             };
+            /** @description Error: NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
             /** @description Error: REQUEST_TIMEOUT */
             408: {
                 headers: {
@@ -3213,7 +3549,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: IDEMPOTENCY_CONFLICT */
+            /** @description Error: IDEMPOTENCY_CONFLICT, RELEASE_PROFILE_MISMATCH, PROFILE_DIGEST_MISMATCH */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3222,7 +3558,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT";
+                            code?: "IDEMPOTENCY_CONFLICT" | "RELEASE_PROFILE_MISMATCH" | "PROFILE_DIGEST_MISMATCH";
                         };
                     };
                 };
@@ -4004,7 +4340,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReceiptAcceptedResponse"];
+                    "application/json": components["schemas"]["PostSessionAnswerResponse"];
                 };
             };
             /** @description Error: BAD_REQUEST */
@@ -5023,7 +5359,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description Error: FORBIDDEN, OWNER_PROTECTED */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5032,7 +5368,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN";
+                            code?: "FORBIDDEN" | "OWNER_PROTECTED";
                         };
                     };
                 };
@@ -5462,7 +5798,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description Error: FORBIDDEN, OWNER_PROTECTED */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5471,7 +5807,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "FORBIDDEN";
+                            code?: "FORBIDDEN" | "OWNER_PROTECTED";
                         };
                     };
                 };
@@ -6262,6 +6598,385 @@ export interface operations {
             };
         };
     };
+    startSlackLink: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartSlackLinkResponse"];
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description Error: REQUEST_TIMEOUT */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description Error: SLACK_NOT_INSTALLED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "SLACK_NOT_INSTALLED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    slackLinkCallback: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackLinkCallbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackLinkCallbackResponse"];
+                };
+            };
+            /** @description Error: BAD_REQUEST */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description Error: REQUEST_TIMEOUT */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description Error: SLACK_NOT_INSTALLED, LINK_TEAM_MISMATCH, LINK_TAKEN, LINK_EXISTS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS";
+                        };
+                    };
+                };
+            };
+            /** @description Error: PAYLOAD_TOO_LARGE */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listLinkedAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListLinkedAccountsResponse"];
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    unlinkAccount: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptAcceptedResponse"];
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description Error: NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description Error: REQUEST_TIMEOUT */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     listAgents: {
         parameters: {
             query?: never;
@@ -6922,6 +7637,291 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listApiKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListApiKeysResponse"];
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createApiKey: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateApiKeyResponse"];
+                };
+            };
+            /** @description Error: BAD_REQUEST */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN, SCOPE_NOT_GRANTABLE */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN" | "SCOPE_NOT_GRANTABLE";
+                        };
+                    };
+                };
+            };
+            /** @description Error: NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description Error: REQUEST_TIMEOUT */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description Error: PAYLOAD_TOO_LARGE */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    revokeApiKey: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokeApiKeyResponse"];
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description Error: NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description Error: REQUEST_TIMEOUT */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
                         };
                     };
                 };

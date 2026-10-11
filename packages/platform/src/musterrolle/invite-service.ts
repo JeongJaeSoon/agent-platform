@@ -45,12 +45,19 @@ export function memberView(row: MemberRecord): MemberView {
   };
 }
 
-const NOT_AN_OWNER = "This principal is no longer an owner of the workspace";
+const NOT_AN_OWNER =
+  "This principal no longer manages the members of the workspace";
+const OWNER_PROTECTED = () =>
+  new SessionServiceError(
+    "OWNER_PROTECTED",
+    "Only an owner can grant the owner role or change an owner's role",
+  );
 
 /**
  * Invites and roles (94S-153). Every entry point asks the policy for
  * `member.manage` first, so which roles may manage members is the policy's
- * table, not this file's.
+ * table, not this file's. That an admin cannot touch the owner role is the
+ * store's to say: it reads both roles inside the change's transaction.
  */
 export function createInviteService(deps: {
   authorization: AuthorizationPolicy;
@@ -99,6 +106,8 @@ export function createInviteService(deps: {
           );
         case "actor_inactive":
           throw new SessionServiceError("FORBIDDEN", NOT_AN_OWNER);
+        case "owner_protected":
+          throw OWNER_PROTECTED();
         default:
           return result.invite;
       }
@@ -163,6 +172,8 @@ export function createInviteService(deps: {
           );
         case "actor_inactive":
           throw new SessionServiceError("FORBIDDEN", NOT_AN_OWNER);
+        case "owner_protected":
+          throw OWNER_PROTECTED();
         default:
           return memberView(result.member);
       }

@@ -10,6 +10,7 @@ export type AccessEffects =
       disabled: true;
       revokedWebSessions: number;
       revokedPersonalKeys: number;
+      revokedLinkedAccounts: number;
       sessionsAwaitingTakeover: number;
     }
   | { disabled: false; sessionsReleased: number };
@@ -48,8 +49,8 @@ export interface MemberStore {
   /**
    * Disabling, in one transaction with its receipt: the membership (or the
    * account) disabled, every web session of the user revoked, their personal
-   * keys revoked, and every open session they asked for marked as awaiting
-   * takeover. Enabling restores none of the sessions or keys; it only
+   * keys and linked accounts revoked, and every open session they asked for
+   * marked as awaiting takeover. Enabling restores none of the sessions or keys; it only
    * releases the sessions still waiting for them. The actor is re-checked as
    * a member manager under the same locks.
    */

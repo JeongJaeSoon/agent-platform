@@ -10,7 +10,9 @@ import {
   agentSchema,
   agentVersionSchema,
   createAgentRequestSchema,
+  DEFAULT_TOOL_POLICY,
   draftAgentRequestSchema,
+  policyPinsSchema,
   updateAgentRequestSchema,
 } from "./agents.ts";
 
@@ -18,6 +20,12 @@ const AGENT_ID = "019a0000-0000-7000-8000-0000000000a1";
 const VERSION_ID = "019a0000-0000-7000-8000-0000000000a2";
 const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000a3";
 const AT = "2026-09-22T01:00:00Z";
+const PINS = {
+  tools: {
+    default: { builtin: "allow", mcp: "ask" },
+    per_tool: { Read: "allow" },
+  },
+} as const;
 
 const card = {
   role: "재무 분석가",
@@ -185,6 +193,59 @@ describe("AgentCard", () => {
   });
 });
 
+describe("tool policy", () => {
+  test("defaults to built-in allow and MCP ask", () => {
+    expect(DEFAULT_TOOL_POLICY).toEqual({ builtin: "allow", mcp: "ask" });
+  });
+
+  test("a card without a tool policy keeps the hash it had before one existed", () => {
+    const parsed = agentCardSchema.parse(card);
+    expect("tool_policy" in parsed.capabilities).toBe(false);
+  });
+
+  test("a card names allow, ask or deny per tool and nothing else", () => {
+    const parsed = agentCardSchema.parse({
+      ...card,
+      capabilities: {
+        ...card.capabilities,
+        tool_policy: {
+          default: { mcp: "deny" },
+          per_tool: { Read: "allow", Grep: "ask", mcp__docs__search: "deny" },
+        },
+      },
+    });
+    expect(parsed.capabilities.tool_policy?.per_tool?.Grep).toBe("ask");
+    for (const tool_policy of [
+      { per_tool: { Read: "auto" } },
+      { default: { builtin: "always_allow" } },
+      { default: { other: "allow" } },
+      { per_tool: {}, rules: [] },
+    ]) {
+      expect(
+        agentCardSchema.safeParse({
+          ...card,
+          capabilities: { ...card.capabilities, tool_policy },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("a release pins both defaults and a policy per tool", () => {
+    expect(policyPinsSchema.parse(PINS)).toEqual(PINS);
+    // A release stored before tool policies existed still reads.
+    expect(policyPinsSchema.parse({})).toEqual({});
+    for (const pins of [
+      { tools: {} },
+      { tools: { per_tool: { Read: "allow" } } },
+      { tools: { default: { builtin: "allow" }, per_tool: {} } },
+      { tools: { ...PINS.tools, per_tool: { Read: "maybe" } } },
+      { ...PINS, extra: true },
+    ]) {
+      expect(policyPinsSchema.safeParse(pins).success).toBe(false);
+    }
+  });
+});
+
 describe("agent, version and release", () => {
   test("names the agent on the row, not inside the immutable card", () => {
     expect(Object.hasOwn(agentCardSchema.parse(card), "name")).toBe(false);
@@ -248,7 +309,7 @@ describe("agent, version and release", () => {
         api_key_ref: "env:KEY",
       },
       effective_tools: { tools: ["Read"], mcp: [] },
-      policy_pins: {},
+      policy_pins: PINS,
       created_by: null,
       created_at: AT,
       approved_by: null,
@@ -273,7 +334,7 @@ describe("agent, version and release", () => {
       profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
-      policy_pins: {},
+      policy_pins: PINS,
       created_by: null,
       created_at: AT,
       approved_by: null,
@@ -363,7 +424,7 @@ describe("agent, version and release", () => {
       profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
-      policy_pins: {},
+      policy_pins: PINS,
       created_by: null,
       created_at: AT,
       approved_by: null,

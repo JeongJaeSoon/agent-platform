@@ -39,11 +39,25 @@ export const API_ERROR_CODE_VALUES = [
   // The person who asked for the session was offboarded; it takes no input
   // until an owner takes it over.
   "TAKEOVER_REQUIRED",
+  // Linking a Slack account (94S-577): the workspace has no verified Slack
+  // install, the account is from another Slack team, it is linked to someone
+  // else, or the caller already linked a different account in that team.
+  "SLACK_NOT_INSTALLED",
+  "LINK_TEAM_MISMATCH",
+  "LINK_TAKEN",
+  "LINK_EXISTS",
   // An invite that was revoked, replaced by a newer one, or has expired.
   "INVITE_EXPIRED",
   "INVITE_USED",
   // The change would leave the workspace with no live owner.
   "LAST_OWNER",
+  // An admin granting the owner role or changing an owner's (design 4.1).
+  "OWNER_PROTECTED",
+  // A key asked for more than its issuer holds now, or an agent's key asked
+  // to approve (design 4.1, D26).
+  "SCOPE_NOT_GRANTABLE",
+  // A session named a release made for another runtime profile.
+  "RELEASE_PROFILE_MISMATCH",
   // An external login whose verified address already has an account: it is
   // never joined by email, the owner links it after signing in (design 3.1).
   "LOGIN_LINK_REQUIRED",

@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 import type {
   AgentService,
+  ApiKeyService,
   IdentityStore,
   InterruptService,
   InviteService,
   InviteStore,
+  LinkedAccountService,
   MemberService,
   PendingRequestService,
   SessionService,
@@ -15,6 +17,7 @@ import type { BootstrapGate } from "./auth.ts";
 import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
@@ -22,6 +25,7 @@ import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
 } from "./routes/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
@@ -64,6 +68,11 @@ function apiApp() {
       registerInterruptRoutes(router, {} as InterruptService);
       registerMemberRoutes(router, {} as MemberService, {} as InviteService);
       registerAgentRoutes(router, {} as AgentService);
+      registerLinkedAccountRoutes(router, {
+        service: {} as LinkedAccountService,
+        slack: null,
+      });
+      registerApiKeyRoutes(router, {} as ApiKeyService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);

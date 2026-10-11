@@ -4,6 +4,7 @@ import {
   type AuthorizationDecision,
   type AuthorizationReason,
   type AuthorizationRequest,
+  type AuthorizationResource,
   type AuthorizationSubject,
   type AuthorizationSurface,
   actionAppliesTo,
@@ -78,6 +79,8 @@ export type IdentityReading =
       status: "ok";
       principal: AuthenticatedPrincipal;
       keyCreator?: { userId: string; role: WorkspaceRole };
+      /** Set for a service key bound to one agent. */
+      keyAgentId?: string;
     }
   | {
       status: Extract<
@@ -104,7 +107,35 @@ export const authenticatedIdentity: IdentityReader = {
   },
 };
 
-export const POLICY_VERSION = "m2";
+/**
+ * Which agent a resource belongs to and who administers it, read for every
+ * decision that needs it.
+ */
+export interface AgentAuthority {
+  /** The agent an identified resource belongs to; null for none. */
+  agentOf(
+    workspaceId: string,
+    resource: { kind: AuthorizationResource["kind"]; id: string },
+  ): Promise<string | null>;
+  isAdmin(
+    workspaceId: string,
+    agentId: string,
+    userId: string,
+  ): Promise<boolean>;
+}
+
+// Without a store an agent is only ever named directly, and nobody
+// administers one.
+export const noAgentAuthority: AgentAuthority = {
+  async agentOf(_workspaceId, resource) {
+    return resource.kind === "agent" ? resource.id : null;
+  },
+  async isAdmin() {
+    return false;
+  },
+};
+
+export const POLICY_VERSION = "m4";
 
 export interface AuthorizationPolicy {
   authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;
@@ -121,16 +152,39 @@ export const ACTION_SCOPES: Partial<Record<AuthorizationAction, SessionScope>> =
     "session.recover": "sessions:recover",
   };
 
+// Design 4.1, the workspace and agent rows. An API key never holds one of
+// these, whatever its scopes.
 export const MANAGEMENT_ROLES: Partial<
   Record<AuthorizationAction, readonly WorkspaceRole[]>
 > = {
-  "workspace.manage": ["owner"],
-  "member.manage": ["owner"],
-  "api_key.manage": ["owner"],
-  "api_key.manage_own": ["owner", "member"],
-  "agent.manage": ["owner"],
-  "binding.manage": ["owner"],
+  "workspace.manage": ["owner", "admin"],
+  "audit_retention.manage": ["owner"],
+  "member.manage": ["owner", "admin"],
+  "team.manage": ["owner", "admin"],
+  "api_key.manage": ["owner", "admin"],
+  "api_key.manage_own": ["owner", "admin", "member"],
+  "account.link": ["owner", "admin", "member"],
+  "agent.create": ["owner", "admin", "member"],
+  "agent.manage": ["owner", "admin"],
+  "agent.restore": ["owner"],
+  "agent.admin.manage": ["owner", "admin"],
+  "credential.bind": ["owner", "admin"],
+  "binding.manage": ["owner", "admin"],
 };
+
+// What an agent's admin may also do on that agent, whatever their role.
+export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "api_key.manage",
+  "agent.manage",
+  "agent.admin.manage",
+  "credential.bind",
+  "binding.manage",
+]);
+
+// D26 5: automation bound to an agent never stands in for a person's approval.
+export const AGENT_KEY_WITHHELD: ReadonlySet<SessionScope> = new Set([
+  "sessions:approve",
+]);
 
 function within(
   scopes: readonly SessionScope[],
@@ -143,11 +197,15 @@ function within(
 function authorityScopes(reading: {
   principal: AuthenticatedPrincipal;
   keyCreator?: { role: WorkspaceRole };
+  keyAgentId?: string;
 }): SessionScope[] {
-  const { principal, keyCreator } = reading;
+  const { principal, keyCreator, keyAgentId } = reading;
   if (principal.kind === "user")
     return within(principal.scopes, principal.role);
   if (keyCreator) return within(principal.scopes, keyCreator.role);
+  if (keyAgentId !== undefined) {
+    return principal.scopes.filter((scope) => !AGENT_KEY_WITHHELD.has(scope));
+  }
   return [...principal.scopes];
 }
 
@@ -164,12 +222,7 @@ function claimedActorMatches(
 
 export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
   [
-    "workspace.manage",
-    "member.manage",
-    "api_key.manage",
-    "api_key.manage_own",
-    "agent.manage",
-    "binding.manage",
+    ...(Object.keys(MANAGEMENT_ROLES) as AuthorizationAction[]),
     "routine.manage",
     "session.approve",
   ],
@@ -190,11 +243,24 @@ export function mustRecord(
 export function createAuthorizationPolicy(
   deps: {
     identity?: IdentityReader;
+    agents?: AgentAuthority;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
   } = {},
 ): AuthorizationPolicy {
   const identity = deps.identity ?? authenticatedIdentity;
+  const agents = deps.agents ?? noAgentAuthority;
+
+  async function agentOfResource(
+    resource: AuthorizationResource,
+  ): Promise<string | null> {
+    if (resource.id === null) return resource.agent_id?.toLowerCase() ?? null;
+    const agentId = await agents.agentOf(resource.owner_scope, {
+      kind: resource.kind,
+      id: resource.id,
+    });
+    return agentId?.toLowerCase() ?? null;
+  }
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
@@ -227,11 +293,27 @@ export function createAuthorizationPolicy(
     const scopes = authorityScopes(reading);
     if (roles !== undefined) {
       const { principal } = reading;
-      if (principal.kind !== "user" || !roles.includes(principal.role)) {
-        return ["role", scopes];
+      if (principal.kind !== "user") return ["role", scopes];
+      if (!roles.includes(principal.role)) {
+        const agentId = AGENT_ADMIN_ACTIONS.has(action)
+          ? await agentOfResource(resource)
+          : null;
+        if (
+          agentId === null ||
+          !(await agents.isAdmin(principal.workspace_id, agentId, principal.id))
+        ) {
+          return ["role", scopes];
+        }
       }
     } else if (scope === undefined || !scopes.includes(scope)) {
       return ["role", scopes];
+    } else if (
+      reading.keyAgentId !== undefined &&
+      (await agentOfResource(resource)) !== reading.keyAgentId.toLowerCase()
+    ) {
+      // A key bound to an agent reaches that agent's sessions and nothing
+      // else, a list across agents included.
+      return ["agent_ceiling", scopes];
     }
     // Slack's ceiling is the binding's allowed actions, which have no table
     // yet; web and api add no ceiling of their own.

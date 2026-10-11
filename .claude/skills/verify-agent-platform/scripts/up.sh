@@ -4,7 +4,8 @@
 # and a bootstrap token this run chose. Prints the run directory on stdout
 # and the run id on stderr; every later step names that run.
 #
-#   up.sh            new project verify-ap-<run id>
+#   up.sh                      new project verify-ap-<run id>
+#   up.sh infra/compose.x.yml  the same, with opt-in overlays on top
 set -euo pipefail
 
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -45,7 +46,9 @@ EOF
   printf 'VERIFY_REPO=%q\n' "$repo"
   printf 'export COMPOSE_PROJECT_NAME=%q\n' "$project"
   printf 'export EXECUTION_INSTALLATION_ID=%q\n' "$project"
-  printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml"
+  overlays=""
+  for overlay in "$@"; do overlays="$overlays:$repo/$overlay"; done
+  printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml$overlays"
   # Per-run tags, as tests/e2e/run.sh does: the scheduler starts workers from
   # WORKER_IMAGE, so a shared :dev tag would let another stack's build
   # change what this one runs (and the reverse).

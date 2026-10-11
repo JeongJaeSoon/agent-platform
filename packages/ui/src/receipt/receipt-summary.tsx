@@ -25,6 +25,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   reset_password: "비밀번호 재설정",
   recover_owner: "owner 복구",
   takeover: "세션 인수",
+  link_account: "Slack 계정 연결",
+  unlink_account: "Slack 계정 연결 해제",
   invite_member: "초대 발급",
   accept_invite: "초대 수락",
   revoke_invite: "초대 회수",
@@ -37,6 +39,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   update_agent: "에이전트 수정",
   create_agent_release: "에이전트 release 생성",
   activate_agent: "에이전트 활성화",
+  create_api_key: "API key 발급",
+  revoke_api_key: "API key 폐기",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

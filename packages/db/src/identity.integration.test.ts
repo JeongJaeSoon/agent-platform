@@ -135,6 +135,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "kind",
     "created_by_user_id",
     "expires_at",
+    // 0139
+    "agent_id",
   ],
   receipts: ["actor", "request_id"],
 };
@@ -201,8 +203,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 37, total: 46 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 46 });
+      expect(first).toEqual({ adopted: 0, applied: 40, total: 49 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 49 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",
@@ -356,7 +358,7 @@ integration("0100 identity migration on PostgreSQL", () => {
           ],
           [
             "23514",
-            `INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin')`,
+            `INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'guest')`,
             [workspaceId, randomUUID()],
           ],
           [

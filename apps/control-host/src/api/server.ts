@@ -1,11 +1,13 @@
 import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentStore,
   createPostgresAuditRetention,
   createPostgresDecisionLog,
   createPostgresInviteStore,
+  createPostgresLinkedAccountStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresSessionControl,
@@ -15,15 +17,18 @@ import {
   createPostgresUsageReader,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
+  createPostgresWorkspaceKeyStore,
   hasUncollectedCheckpoint,
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
   catalogRevision,
   createAgentService,
+  createApiKeyService,
   createAuthorizationPolicy,
   createInterruptService,
   createInviteService,
+  createLinkedAccountService,
   createMemberService,
   createPendingRequestService,
   createSessionService,
@@ -65,10 +70,11 @@ import {
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
-import { DatabaseApiKeyStore } from "./keys.ts";
+import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
@@ -76,6 +82,7 @@ import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
 } from "./routes/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
@@ -86,6 +93,7 @@ import { registerWorkerRoutes } from "./routes/worker.ts";
 import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
+import { slackOidcConfigFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -173,7 +181,13 @@ const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
     : { identity: createDatabaseIdentityReader(db) }),
+  agents: createDatabaseAgentAuthority(db),
   decisions: createPostgresDecisionLog(db),
+});
+const agents = createAgentService({
+  authorization,
+  store: createPostgresAgentStore(db),
+  catalog,
 });
 const sessions = createSessionService({
   authorization,
@@ -184,6 +198,7 @@ const sessions = createSessionService({
   }),
   reader: createPostgresSessionReader(db, { logger }),
   catalog,
+  releases: agents,
   limits,
 });
 // The same parsed limits admission and dispatch run under, so what this
@@ -201,10 +216,24 @@ const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
 });
-const agents = createAgentService({
+const linkedAccounts = createLinkedAccountService({
   authorization,
-  store: createPostgresAgentStore(db),
-  catalog,
+  store: createPostgresLinkedAccountStore(db),
+});
+const slackOidc = slackOidcConfigFromEnv(process.env);
+if (slackOidc === null) {
+  logger.warn(
+    "Sign in with Slack is off (SLACK_OIDC_CLIENT_ID unset); Slack accounts cannot be linked",
+    {},
+  );
+}
+const apiKeys = createApiKeyService({
+  authorization,
+  store: createPostgresWorkspaceKeyStore(db),
+  mint: () => {
+    const secret = generateApiKey();
+    return { secret, hash: hashApiKey(secret) };
+  },
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
@@ -322,8 +351,14 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
+    registerLinkedAccountRoutes(router, {
+      service: linkedAccounts,
+      slack: slackOidc,
+      logger,
+    });
     registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
+    registerApiKeyRoutes(router, apiKeys);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

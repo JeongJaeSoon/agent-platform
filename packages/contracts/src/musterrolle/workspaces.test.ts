@@ -100,6 +100,9 @@ describe("workspace", () => {
       true,
     );
     expect(updateMemberRequestSchema.safeParse({ role: "admin" }).success).toBe(
+      true,
+    );
+    expect(updateMemberRequestSchema.safeParse({ role: "guest" }).success).toBe(
       false,
     );
   });

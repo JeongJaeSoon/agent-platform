@@ -42,6 +42,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "recover_owner",
   // An owner taking over a session whose requester was offboarded.
   "takeover",
+  // A person linking or unlinking their own Slack account.
+  "link_account",
+  "unlink_account",
   // Invites and roles (94S-153).
   "invite_member",
   "accept_invite",
@@ -56,6 +59,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "update_agent",
   "create_agent_release",
   "activate_agent",
+  // Issuing and revoking an API key from the web or the API (94S-574).
+  "create_api_key",
+  "revoke_api_key",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

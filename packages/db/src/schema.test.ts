@@ -51,6 +51,7 @@ describe("database schema", () => {
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
       "agent_activation_events",
+      "agent_admins",
       "agent_releases",
       "agent_versions",
       "agents",
@@ -66,6 +67,7 @@ describe("database schema", () => {
       "grants",
       "idempotency_keys",
       "invites",
+      "linked_accounts",
       "login_methods",
       "memberships",
       "owner_workspace_map",
@@ -215,6 +217,7 @@ describe("database schema", () => {
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'api_keys' ORDER BY column_name",
     );
     expect(columns.rows.map(({ column_name }) => column_name)).toEqual([
+      "agent_id",
       "created_at",
       "created_by_user_id",
       "expires_at",

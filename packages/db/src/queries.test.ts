@@ -490,6 +490,7 @@ describe("API key queries", () => {
       kind: "service",
       createdByUserId: null,
       creatorRole: null,
+      agentId: null,
     });
     expect(await findApiKey(db, new Uint8Array(32))).toBeNull();
   });

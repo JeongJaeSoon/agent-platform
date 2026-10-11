@@ -517,15 +517,15 @@ curl -s -b jar https://<host>/v1/auth/me
 
 #### workspace key, 개인 key, 오프보딩 (94S-152, 94S-464)
 
-`keys create <owner_id>`로 만든 기존 key는 모두 service key다. 응답과 partition은 이전과 같다. `keys create --workspace <workspace_id> --scopes …`로 만든 key는 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--personal <user_id>`를 더하면 그 멤버의 개인 key가 된다. 이 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. service key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수 등)을 할 수 없다(`403`). 관리 action은 owner의 cookie 세션으로만 한다.
+`keys create <owner_id>`로 만든 기존 key는 모두 service key다. 응답과 partition은 이전과 같다. `keys create --workspace <workspace_id> --scopes …`로 만든 key는 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--personal <user_id>`를 더하면 그 멤버의 개인 key가 된다. 이 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. service key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수·key 발급 등)을 할 수 없다(`403`). 관리 action은 사람의 cookie 세션으로만 한다. 누가 무엇을 하는지는 아래 역할 표를 따른다.
 
 누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0133 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
-멤버를 내보내는 것은 owner의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, API key는 `403`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기한다(열린 SSE는 keepalive 주기 안에 끊긴다). service key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다.
+멤버를 내보내는 것은 owner의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, API key는 `403`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기하고, 그 workspace에 연결된 Slack 계정을 `revoked`로 바꾼다(열린 SSE는 keepalive 주기 안에 끊긴다). service key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다.
 
-`POST /v1/members/{user_id}/enable`은 membership을 되살린다. 폐기한 web session과 개인 key는 되살리지 않는다. 사용자는 다시 로그인하고 key도 새로 받는다. 아직 아무도 인수하지 않은 세션은 인수 대기 표시를 지워 그 사람에게 돌려준다. Google로만 만든(비밀번호 없는) 계정도 이렇게 되살리면 연결된 Google 로그인으로 다시 들어온다. 이런 계정은 다시 초대하지 말고 enable한다. 초대 수락은 새 계정이거나 비밀번호로 확인한 계정만 받기 때문이다.
+`POST /v1/members/{user_id}/enable`은 membership을 되살린다. 폐기한 web session과 개인 key, 회수한 Slack 연결은 되살리지 않는다(Slack은 다시 연결한다). 사용자는 다시 로그인하고 key도 새로 받는다. 아직 아무도 인수하지 않은 세션은 인수 대기 표시를 지워 그 사람에게 돌려준다. Google로만 만든(비밀번호 없는) 계정도 이렇게 되살리면 연결된 Google 로그인으로 다시 들어온다. 이런 계정은 다시 초대하지 말고 enable한다. 초대 수락은 새 계정이거나 비밀번호로 확인한 계정만 받기 때문이다.
 
-계정 정지는 `POST /v1/users/{user_id}/disable`·`/enable`이다. 대상의 live membership이 모두 호출한 owner의 workspace 안에 있을 때만 허용하고, owner가 아닌 workspace에도 속한 계정은 `403`이다. 정지된 계정은 어느 workspace로도 로그인하지 못하고, 정지할 때 멤버 비활성과 같은 폐기(web session, 모든 workspace의 개인 key, 인수 대기 표시)가 일어난다. 정지 해제도 cookie와 key를 되살리지 않는다.
+계정 정지는 `POST /v1/users/{user_id}/disable`·`/enable`이다. 대상의 live membership이 모두 호출한 owner의 workspace 안에 있을 때만 허용하고, owner가 아닌 workspace에도 속한 계정은 `403`이다. 정지된 계정은 어느 workspace로도 로그인하지 못하고, 정지할 때 멤버 비활성과 같은 폐기(web session, 모든 workspace의 개인 key와 Slack 연결, 인수 대기 표시)가 일어난다. 정지 해제도 cookie와 key를 되살리지 않는다.
 
 네 동작은 모두 바뀐 경우에만 receipt를 남긴다(`disable_member`·`enable_member`·`disable_user`·`enable_user`). `target_ref`는 `{user_id, workspace_id}`, `actor`는 호출한 owner, `result`는 `reason`과 폐기·반환한 개수다. 이미 그 상태면 아무것도 쓰지 않고 응답의 `receipt_id`가 `null`이다. 외부 디렉터리(SCIM 등)와의 동기화는 없다. 사내 SSO에서 사람을 내보내도 여기에는 반영되지 않으므로 이 API를 따로 불러야 한다. 이전의 `members offboard` CLI는 없어졌다.
 
@@ -538,9 +538,77 @@ curl -s -b jar http://127.0.0.1:3000/v1/takeovers
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" -H 'X-Requested-With: agent-platform-web'
 ```
 
+#### Slack 계정 연결 (94S-577)
+
+웹에 로그인한 사람은 자기 Slack 계정을 Sign in with Slack(OpenID Connect)으로 연결한다. 연결은 `linked_accounts`에 `(provider, external_tenant, external_user_id) → user`로 남는다. Slack 쪽 입력(M9)은 처리 시점에 이 행을 다시 읽어 사람을 정한다. 연결·해제는 그 사람의 web session으로만 한다. API key는 개인 key라도 `403`이다(`account.link`, owner·admin·member).
+
+| 변수 | 기본값 | 허용 범위 |
+|---|---|---|
+| `SLACK_OIDC_CLIENT_ID` · `SLACK_OIDC_CLIENT_SECRET` · `SLACK_OIDC_REDIRECT_URI` | 없음(연결을 끔. 시작 요청은 `503`) | 셋을 함께 설정한다. 일부만 설정하면 기동하지 않는다. redirect URI는 절대 http(s) URL이다 |
+| `SLACK_OIDC_ISSUER` | `https://slack.com` | 절대 http(s) URL. mock IdP(`infra/compose.mock-slack.yml`)에만 쓴다 |
+
+흐름은 다음과 같다.
+
+1. `POST /v1/linked-accounts/slack/start`가 `authorize_url`을 돌려주고, state·nonce를 HttpOnly cookie `ap_slack_link`(path `/v1/linked-accounts/slack`, 10분)에 둔다. 워크스페이스에 확인된 Slack 설치(`slack_installations`)가 없으면 `409 SLACK_NOT_INSTALLED`다. 설치가 하나면 그 team을 `team` 파라미터로 고정한다.
+2. Slack이 `SLACK_OIDC_REDIRECT_URI`로 `code`·`state`를 붙여 돌려보낸다. 이 주소는 웹 화면(M10)이며, 화면이 둘을 `POST /v1/linked-accounts/slack/callback`에 `{code, state}`로 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·불일치·IdP 거절은 모두 `400`(다시 시작 안내)이다.
+3. API가 `code`를 id_token으로 바꾸고 서명(JWKS, RS256)·`iss`·`aud`·`nonce`를 검증한 뒤 `https://slack.com/team_id`·`https://slack.com/user_id`로 연결한다. 설치된 team이 아니면 `409 LINK_TEAM_MISMATCH`, 그 Slack 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 같은 team에 이미 내 연결이 있으면 `409 LINK_EXISTS`다. 성공하면 `201`과 `link_account` receipt가 남는다.
+4. `GET /v1/linked-accounts`로 내 연결을 보고, `DELETE /v1/linked-accounts/{id}`로 해제한다(`unlink_account` receipt). 해제한 뒤에는 이미 대기 중인 입력도 처리 시점 재판정에서 거절된다.
+
+상태는 `active`·`stale`·`revoked`다. 해제와 오프보딩은 `revoked`(사유 `unlinked`·`offboarded`)로 바꾸고 `revision`을 올린다. Slack 비활성화 이벤트는 `stale`로 바꾼다(저장소 함수 `markStale`. 이벤트 수신은 Slack ingress가 붙인다). 같은 계정으로 다시 연결하면 `active`로 돌아오고 `revision`이 오른다. 대기 중인 입력의 `subject.linked_account`는 `{id, revision}`을 담는다. 재판정에서 행이 없거나 해제됐으면 `unlinked`, 오프보딩이면 `disabled`, `stale`이거나 revision이 다르면 `stale_link`로 거절한다. 사람 계정이 없는 Slack 사용자가 웹을 열면 `/v1/linked-accounts` 아래의 `401`이 "웹에 로그인한 뒤… owner·admin에게 초대를 요청하세요"를 안내한다.
+
+Enterprise Grid(P5): id_token의 `https://slack.com/team_id`가 workspace id인지 org id인지는 실제 Grid 설치로만 확인할 수 있다. 지금은 workspace id로 보고 `slack_installations.team_id`와 비교한다. Grid에서 org id가 오면 `LINK_TEAM_MISMATCH`로 거절된다(안전한 쪽). 아래 확인 순서 5에서 판정한다.
+
+**실제 Slack으로 확인하는 절차** (사람이 한다. 자동 테스트와 로컬 확인은 mock IdP를 쓴다)
+
+1. https://api.slack.com/apps 에서 앱을 만들거나 기존 Slack 앱을 연다. **OAuth & Permissions → Redirect URLs**에 웹의 연결 화면 주소(예: `https://<host>/settings/linked-accounts/slack`)를 넣는다. 이 값이 `SLACK_OIDC_REDIRECT_URI`와 글자까지 같아야 한다.
+2. **OpenID Connect** scope는 `openid`·`profile`이다(user scope. email은 쓰지 않는다). bot scope는 이 흐름에 필요 없다.
+3. **Basic Information**의 Client ID·Client Secret을 `SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`로 넣고 API를 다시 띄운다. `SLACK_OIDC_ISSUER`는 비워 둔다.
+4. 같은 앱이 그 워크스페이스에 설치돼 `slack_installations`에 확인된 행이 있어야 한다. owner로 웹에 로그인하고 시작 → Slack 동의 → 콜백 순으로 연결한다. 웹 화면(M10)이 없으면 `authorize_url`을 브라우저로 열고, 돌아온 주소의 `code`·`state`를 같은 cookie jar로 callback에 보낸다. `GET /v1/linked-accounts`에 `active` 행과 receipt가 보이는지 확인한다.
+5. 다른 워크스페이스 계정으로 시도해 `LINK_TEAM_MISMATCH`, 다른 웹 사용자로 같은 Slack 계정을 시도해 `LINK_TAKEN`을 확인한다. Grid 설치라면 연결이 되는지 보고, 됐으면 `linked_accounts.external_tenant`를 `slack_installations.team_id`와 비교해 P5를 판정한다. `LINK_TEAM_MISMATCH`로 거절되면 id_token의 team이 org id라는 뜻이다.
+6. 해제한 뒤 `GET /v1/linked-accounts`가 비는지, 연결한 멤버를 `POST /v1/members/{user_id}/disable`로 비활성화하면 receipt `result.revoked_linked_accounts`가 1이고 목록에서 사라지는지 확인한다.
+
+```bash
+curl -s -b jar -c jar -X POST http://127.0.0.1:3000/v1/linked-accounts/slack/start -H 'X-Requested-With: agent-platform-web'
+curl -s -b jar -c jar -X POST http://127.0.0.1:3000/v1/linked-accounts/slack/callback \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
+curl -s -b jar http://127.0.0.1:3000/v1/linked-accounts
+curl -s -b jar -X DELETE "http://127.0.0.1:3000/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H 'X-Requested-With: agent-platform-web'
+```
+
+로컬에서는 `infra/compose.mock-slack.yml`을 겹쳐 띄우면 Slack 앱 없이 같은 흐름을 돌릴 수 있다. mock은 동의를 자동으로 하고 `MOCK_SLACK_TEAM_ID`·`MOCK_SLACK_USER_ID`(기본 `T0MOCK`·`U0MOCK`)를 돌려준다. `authorize_url`에 `mock_team`·`mock_user`를 붙이면 그 계정을 돌려준다. 실제 배포에는 절대 겹치지 않는다. API가 mock이 서명한 것을 믿게 된다.
+
+#### 역할, 에이전트 관리자, 권한별 API key (94S-574)
+
+workspace 역할은 owner·admin·member 셋이다. admin은 owner와 같은 관리 권한을 갖되 세 가지가 다르다: 감사 보존 기간을 바꾸지 못하고, 보관한 에이전트를 되살리지 못하고, 세션 복구 결정(`sessions:recover`)을 하지 못한다. admin은 owner를 초대하거나 owner의 역할을 바꾸거나 누구를 owner로 올리지 못한다(`403 OWNER_PROTECTED`).
+
+에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0139 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자를 지정하는 API는 아직 없다.
+
+key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
+
+| key | 누가 발급 | 무엇을 하나 |
+|---|---|---|
+| 개인 key (`kind: personal`) | 모든 멤버, 자기 것만 | 만든 사람의 지금 역할 안에서 그 사람으로 동작한다. 그 사람이 비활성화되면 `401` |
+| 서비스 key (`kind: service`) | owner·admin | workspace의 서비스로 동작한다. 발급자가 떠나도 계속 동작한다 |
+| 에이전트 전용 서비스 key (`agent_id`) | owner·admin·그 에이전트 관리자 | 그 에이전트의 세션 생성·조회만. `sessions:approve`는 갖지 못한다 |
+
+- 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 에이전트 전용 key에 `sessions:approve`를 넣어도 같은 오류다.
+- 권한이 없으면 `403 FORBIDDEN`이고 `error.details.reason_code`에 판정 이유(`role`, `agent_ceiling` 등)가 있다.
+- 에이전트 전용 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 그 release의 실행 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
+- 목록(`GET /v1/api-keys`)은 자기 개인 key와 자기가 관리하는 서비스 key만 보인다. 비밀값은 발급 응답에서 한 번만 나온다.
+- 폐기는 `DELETE /v1/api-keys/{id}`이고 발급과 같은 권한이 든다. 남의 개인 key는 `404`다. 이미 폐기한 key는 아무것도 바꾸지 않고 `receipt_id: null`을 돌려준다.
+- 발급·폐기는 `create_api_key`·`revoke_api_key` receipt와 `api_key.manage`·`api_key.manage_own` 판정 행을 남긴다. receipt에는 key의 종류·에이전트·scope만 있고 비밀값은 없다.
+
+```bash
+curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -d '{"kind":"service","agent_id":"<agent_id>","scopes":["sessions:read","sessions:write"]}'
+```
+
+운영자 CLI(`keys create`)는 그대로 있고 이 판정을 거치지 않는다. 운영자가 쓰는 길이다.
+
 #### 판정 감사와 보존 기간 (94S-573)
 
-권한 판정(`authorize`)은 기록할 것을 `authz_decisions`에 한 행씩 남긴다. 거절(`deny`)·`redact`·`require_approval`은 모두 남는다. 허용은 관리 action(`workspace.manage`·`member.manage`·`api_key.manage`·`api_key.manage_own`·`agent.manage`·`binding.manage`·`routine.manage`), 승인(`session.approve`), Slack 입력(Slack 표면의 `session.submit`)만 남는다. route edge의 scope 부족 403도 같은 판정을 거쳐 남는다. 행의 `request_id`는 응답의 `X-Request-Id`이고, 그 요청이 만든 receipt의 `receipts.request_id`와 같다. 그래서 "누가 시켰나"는 receipt에서 `request_id`로 판정 행을 찾아 답한다.
+권한 판정(`authorize`)은 기록할 것을 `authz_decisions`에 한 행씩 남긴다. 거절(`deny`)·`redact`·`require_approval`은 모두 남는다. 허용은 관리 action(`workspace.manage`·`audit_retention.manage`·`member.manage`·`team.manage`·`api_key.manage`·`api_key.manage_own`·`agent.create`·`agent.manage`·`agent.restore`·`agent.admin.manage`·`credential.bind`·`binding.manage`·`routine.manage`·`account.link`), 승인(`session.approve`), Slack 입력(Slack 표면의 `session.submit`)만 남는다. route edge의 scope 부족 403도 같은 판정을 거쳐 남는다. 행의 `request_id`는 응답의 `X-Request-Id`이고, 그 요청이 만든 receipt의 `receipts.request_id`와 같다. 그래서 "누가 시켰나"는 receipt에서 `request_id`로 판정 행을 찾아 답한다.
 
 ```sql
 SELECT d.at, d.principal_kind, d.principal_id, d.actor_user_id, d.action, d.outcome, d.reason_code, r.id AS receipt_id, r.operation
@@ -550,7 +618,7 @@ WHERE d.request_id = '<X-Request-Id>';
 
 행은 고칠 수 없다(UPDATE는 trigger가 거절한다). 기록해야 하는 허용을 기록하지 못하면(DB 오류) 그 요청은 거절된다. 거절은 기록에 실패해도 원래 사유(`404`·`403`)를 그대로 돌려준다.
 
-보존 기간은 워크스페이스마다 `settings.audit_retention_days`이고 기본 90일이다. owner만 cookie 세션으로 바꾼다. 30일 미만이나 3650일 초과는 `400`이고, member·API key는 `403`이다. 지금 값은 `GET /v1/auth/me`의 `workspace.settings`에서 읽는다. 보존 기간이 지난 행은 reconciler pass마다 오래된 것부터 `RECONCILER_BATCH_SIZE`개씩 지운다(`RECONCILER_DRY_RUN=true`면 세기만 한다). 워크스페이스가 없는 행(workspace에 묶이지 않은 legacy key)은 기본 90일을 따른다.
+보존 기간은 워크스페이스마다 `settings.audit_retention_days`이고 기본 90일이다. owner만 cookie 세션으로 바꾼다(`audit_retention.manage`). 30일 미만이나 3650일 초과는 `400`이고, admin·member·API key는 `403`이다. 지금 값은 `GET /v1/auth/me`의 `workspace.settings`에서 읽는다. 보존 기간이 지난 행은 reconciler pass마다 오래된 것부터 `RECONCILER_BATCH_SIZE`개씩 지운다(`RECONCILER_DRY_RUN=true`면 세기만 한다). 워크스페이스가 없는 행(workspace에 묶이지 않은 legacy key)은 기본 90일을 따른다.
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/audit-retention" \

@@ -1,4 +1,6 @@
+export * from "./agent-authority.ts";
 export * from "./agents.ts";
+export * from "./api-keys.ts";
 export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
 export * from "./checkpoint-store.ts";
@@ -11,6 +13,7 @@ export * from "./identity-reader.ts";
 export * from "./interrupt-control.ts";
 export * from "./invites.ts";
 export * from "./lease-reconcile.ts";
+export * from "./linked-accounts.ts";
 export * from "./members.ts";
 export * from "./migration-head.ts";
 export * from "./pause-control.ts";

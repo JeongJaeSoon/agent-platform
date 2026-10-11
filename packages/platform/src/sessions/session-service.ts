@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type {
   AdmissionState,
+  AgentRelease,
   ApiErrorCode,
   AuthorizationAction,
+  AuthorizationDecision,
   AuthorizationResource,
   ControlAcceptedResponse,
   CreateSessionRequest,
@@ -53,6 +55,7 @@ export class SessionServiceError extends Error {
     readonly code: ApiErrorCode,
     message: string,
     readonly retry?: { afterSeconds: number },
+    readonly details: unknown = null,
   ) {
     super(message);
   }
@@ -172,6 +175,16 @@ export async function requirePermitted(
   action: AuthorizationAction,
   resource: Omit<AuthorizationResource, "owner_scope">,
 ): Promise<void> {
+  await requireAllowed(authorization, caller, action, resource);
+}
+
+/** requirePermitted, for a caller that records which decision allowed it. */
+export async function requireAllowed(
+  authorization: AuthorizationPolicy,
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+): Promise<AuthorizationDecision> {
   const decision = await authorization
     .authorize({
       subject: caller.subject,
@@ -180,13 +193,16 @@ export async function requirePermitted(
       request_id: caller.requestId,
     })
     .catch(() => null);
-  if (decision?.outcome === "allow") return;
+  if (decision?.outcome === "allow") return decision;
   if (decision?.reason_code === "not_found") {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
   throw new SessionServiceError(
     "FORBIDDEN",
     `This principal does not hold ${ACTION_SCOPES[action] ?? action}`,
+    undefined,
+    // The policy's reason, so a screen can say why (design 3.3).
+    { reason_code: decision?.reason_code ?? "error" },
   );
 }
 
@@ -196,6 +212,13 @@ export function createSessionService(deps: {
   controls: SessionControl;
   reader: SessionReader;
   catalog: SessionCatalog;
+  // Resolves a release a session pins; absent, no session may name one.
+  releases?: {
+    resolveRelease(
+      workspaceId: string,
+      releaseId: string,
+    ): Promise<Pick<AgentRelease, "id" | "agent_id" | "runtime_profile_id">>;
+  };
   limits: InputLimits & {
     sessionCostLimitUsd: number;
     sessionTokenLimit: number | null;
@@ -271,14 +294,41 @@ export function createSessionService(deps: {
     );
   }
 
+  async function pinnedRelease(actor: Caller, body: CreateSessionRequest) {
+    if (body.agent_release_id === undefined) return null;
+    if (!deps.releases) {
+      throw new SessionServiceError(
+        "UNSUPPORTED_CAPABILITY",
+        "This deployment does not pin sessions to agent releases",
+      );
+    }
+    // A key from before workspaces has no agents to name.
+    if ((actor.subject.principal?.workspace_id ?? null) === null) {
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
+    }
+    const release = await deps.releases.resolveRelease(
+      actor.ownerId,
+      body.agent_release_id,
+    );
+    if (release.runtime_profile_id !== body.profile_id) {
+      throw new SessionServiceError(
+        "RELEASE_PROFILE_MISMATCH",
+        `Release ${release.id} runs on profile ${release.runtime_profile_id}, not ${body.profile_id}`,
+      );
+    }
+    return release;
+  }
+
   return {
     async createSession(
       actor: Caller,
       input: { idempotencyKey: string; body: CreateSessionRequest },
     ): Promise<CreateSessionResponse> {
+      const release = await pinnedRelease(actor, input.body);
       await requirePermitted(authorization, actor, "session.submit", {
         kind: "session",
         id: null,
+        ...(release ? { agent_id: release.agent_id } : {}),
       });
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
@@ -305,6 +355,7 @@ export function createSessionService(deps: {
               unmetered: isUnmetered(pair.profile),
             }
           : {}),
+        ...(release ? { agentReleaseId: release.id } : {}),
         message: input.body.message,
         limits: inputLimits,
       });
