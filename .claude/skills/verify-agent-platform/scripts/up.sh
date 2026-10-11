@@ -46,6 +46,12 @@ EOF
   printf 'export COMPOSE_PROJECT_NAME=%q\n' "$project"
   printf 'export EXECUTION_INSTALLATION_ID=%q\n' "$project"
   printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml"
+  # Per-run tags, as tests/e2e/run.sh does: the scheduler starts workers from
+  # WORKER_IMAGE, so a shared :dev tag would let another stack's build
+  # change what this one runs (and the reverse).
+  printf 'export API_IMAGE=%q\n' "agent-platform-control-host:$project"
+  printf 'export WORKER_IMAGE=%q\n' "agent-platform-worker:$project"
+  printf 'export EGRESS_PROXY_IMAGE=%q\n' "agent-platform-egress-proxy:$project"
   printf 'VERIFY_BOOTSTRAP_TOKEN=%q\n' "$token"
   printf 'VERIFY_BUILT_FROM=%q\n' "$(git -C "$repo" rev-parse HEAD)"
 } >"$run/state.env"

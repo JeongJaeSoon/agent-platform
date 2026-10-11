@@ -41,4 +41,6 @@ if [ -n "$left$workers" ]; then
   echo "down.sh: containers left (above); ports.yml kept, rerun down.sh $run" >&2
   exit 1
 fi
+# Only this run's tags; layers another tag shares stay.
+docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >>"$run/evidence/down.log" 2>&1 || true
 rm -f "$run/ports.yml" "$run/cookie"
