@@ -5,6 +5,8 @@
 node_modules
 **/node_modules
 **/*.tsbuildinfo
+# The image builds apps/web itself; a local build must not stand in for it.
+**/dist
 docs
 !docs/
 docs/*

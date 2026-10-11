@@ -10,6 +10,17 @@
 # apps/worker/Dockerfile for why and tests/images.test.ts for the check.
 ARG BUN_IMAGE=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
 
+# The web console (apps/web, 94S-158) is built here and only its dist/ goes
+# on: the build tools stay in this stage, and no separate web image exists.
+FROM ${BUN_IMAGE} AS web
+WORKDIR /app
+COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+RUN bun install --frozen-lockfile --filter ./apps/web \
+  && bun run --cwd apps/web build \
+  && test -f apps/web/dist/index.html
+
 FROM ${BUN_IMAGE} AS deps
 WORKDIR /app
 # THIRD_PARTY_NOTICES.md: the licenses of what this image ships (94S-338).
@@ -38,12 +49,14 @@ RUN apt-get update --error-on=any \
 RUN test "$(id -u bun)" = 1000
 WORKDIR /app
 COPY --from=deps --chown=1000:1000 /app /app
+COPY --from=web --chown=1000:1000 /app/apps/web/dist /app/apps/web/dist
 # The corresponding source of every Debian package in this image (94S-375);
 # see apps/worker/Dockerfile.
 RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \
   bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md
 USER 1000:1000
 ENV NODE_ENV=production
+ENV WEB_DIST_DIR=/app/apps/web/dist
 EXPOSE 3000
 # An init as PID 1 wherever the image runs, not only under compose's
 # `init: true`: the checkpoint verifier kills a git that outlives its timeout
