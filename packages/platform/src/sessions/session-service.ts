@@ -741,7 +741,10 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      const page = await reader.listSessions(actor.ownerId, query);
+      const page = await reader.listSessions(actor.ownerId, query, {
+        userId: actor.actor?.userId ?? null,
+        apiKeyId: actor.actor?.apiKeyId ?? null,
+      });
       return {
         items: page.items.map(({ profile_id, ...item }) => ({
           ...item,
@@ -845,7 +848,8 @@ export function createSessionService(deps: {
 
     // Any principal of the issuing owner's partition may read a receipt,
     // not only the one that issued the command; another owner sees the same
-    // 404 as for a receipt that never existed.
+    // 404 as for a receipt that never existed, and so does anyone outside
+    // the share of the session it names.
     async getReceipt(actor: Caller, receiptId: string): Promise<Receipt> {
       await requirePermitted(authorization, actor, "session.read", {
         kind: "session",
@@ -854,6 +858,12 @@ export function createSessionService(deps: {
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      if ("session_id" in receipt.target_ref) {
+        await requirePermitted(authorization, actor, "session.read", {
+          kind: "session",
+          id: receipt.target_ref.session_id,
+        });
       }
       return receipt;
     },

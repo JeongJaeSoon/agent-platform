@@ -50,7 +50,11 @@ console.log(
 );
 
 const reader = createPostgresSessionReader(db);
-const page = await reader.listSessions(OWNER, { limit: PAGE });
+const page = await reader.listSessions(
+  OWNER,
+  { limit: PAGE },
+  { userId: null, apiKeyId: null },
+);
 const detailId = page.items[0]?.id;
 if (!detailId || page.items.length !== PAGE) throw new Error("seed failed");
 
@@ -70,7 +74,11 @@ async function timed(fn: () => Promise<unknown>) {
 
 console.table({
   [`listSessions(limit ${PAGE})`]: await timed(() =>
-    reader.listSessions(OWNER, { limit: PAGE }),
+    reader.listSessions(
+      OWNER,
+      { limit: PAGE },
+      { userId: null, apiKeyId: null },
+    ),
   ),
   getSession: await timed(() => reader.getSession(OWNER, detailId)),
 });

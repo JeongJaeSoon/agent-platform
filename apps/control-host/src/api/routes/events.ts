@@ -328,13 +328,20 @@ export function registerEventRoutes(
           page = await read(cursor);
         }
       } catch (error) {
-        // Headers are gone, so there is no error envelope to send; the client
-        // reconnects with the last id it saw and the read is repeated then.
-        logger.warn("SSE stream failed", {
-          session_id: sessionId,
-          error_name: error instanceof Error ? error.name : "UnknownError",
-        });
-        closeWith("read_failed");
+        // A re-read the session's share no longer allows (a narrowed share
+        // wakes the stream): end it, and the reconnect is refused with 404.
+        if (error instanceof ApiHttpError && error.status === 404) {
+          closeWith("not_visible");
+        } else {
+          // Headers are gone, so there is no error envelope to send; the
+          // client reconnects with the last id it saw and the read is
+          // repeated then.
+          logger.warn("SSE stream failed", {
+            session_id: sessionId,
+            error_name: error instanceof Error ? error.name : "UnknownError",
+          });
+          closeWith("read_failed");
+        }
       } finally {
         armed.release();
         disarmWatchdog();
