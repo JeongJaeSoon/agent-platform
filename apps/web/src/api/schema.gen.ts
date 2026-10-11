@@ -875,6 +875,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/credential-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The credential names bound to an agent
+         * @description Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.
+         */
+        get: operations["listCredentialBindings"];
+        put?: never;
+        /**
+         * Bind a credential name to an agent
+         * @description Owners, admins and the agent's admins; never an API key. `credential_ref` names a credential held outside Werft (a secret store entry, a remote MCP server connection). Binding a name already bound answers `created: false` and a null `receipt_id`; otherwise writes a `bind_credential` receipt. A name an agent identity holds answers 409 CREDENTIAL_REF_IN_USE.
+         */
+        post: operations["createCredentialBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/credential-bindings/{binding_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unbind a credential name from an agent
+         * @description Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.
+         */
+        delete: operations["revokeCredentialBinding"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/api-keys": {
         parameters: {
             query?: never;
@@ -2248,6 +2292,62 @@ export interface components {
                 revoked_at: string | null;
             };
             receipt_id: string | null;
+        };
+        CreateCredentialBindingRequest: {
+            credential_ref: string;
+        };
+        CreateCredentialBindingResponse: {
+            binding: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                credential_ref: string;
+                /** Format: uuid */
+                bound_by: string;
+                /** Format: date-time */
+                bound_at: string;
+                revoked_at: string | null;
+                running_sessions: number;
+            };
+            created: boolean;
+            receipt_id: string | null;
+        };
+        ListCredentialBindingsResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                credential_ref: string;
+                /** Format: uuid */
+                bound_by: string;
+                /** Format: date-time */
+                bound_at: string;
+                revoked_at: string | null;
+                running_sessions: number;
+            }[];
+            /** @constant */
+            revoke_notice: "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요";
+        };
+        RevokeCredentialBindingResponse: {
+            binding: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                agent_id: string;
+                credential_ref: string;
+                /** Format: uuid */
+                bound_by: string;
+                /** Format: date-time */
+                bound_at: string;
+                revoked_at: string | null;
+                running_sessions: number;
+            };
+            /** @constant */
+            revoke_notice: "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요";
+            /** Format: uuid */
+            receipt_id: string;
         };
         OpenApiDocument: {
             /** @constant */
@@ -7660,6 +7760,324 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listCredentialBindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListCredentialBindingsResponse"];
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description Error: NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createCredentialBinding: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCredentialBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateCredentialBindingResponse"];
+                };
+            };
+            /** @description Error: BAD_REQUEST */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description Error: NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description Error: REQUEST_TIMEOUT */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description Error: CREDENTIAL_REF_IN_USE */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "CREDENTIAL_REF_IN_USE";
+                        };
+                    };
+                };
+            };
+            /** @description Error: PAYLOAD_TOO_LARGE */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Error: BACKEND_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    revokeCredentialBinding: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokeCredentialBindingResponse"];
+                };
+            };
+            /** @description Error: UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description Error: FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description Error: NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description Error: REQUEST_TIMEOUT */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
                         };
                     };
                 };
