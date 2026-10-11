@@ -1,0 +1,517 @@
+import type {
+  Agent,
+  ApiKeyView,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+  RevokeApiKeyResponse,
+  SessionScope,
+} from "@agent-platform/contracts";
+import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { type FormEvent, useId, useState } from "react";
+import { type ApiError, isApiError, unwrap } from "../api/client.ts";
+import {
+  administeredAgentsQuery,
+  agentsQuery,
+  apiKeysQuery,
+  queryKeys,
+} from "../api/queries.ts";
+import {
+  type ManagedPermission,
+  permissionReason,
+  ReasonButton,
+  refusalText,
+  useHasPermission,
+  useMe,
+  useRole,
+} from "../auth/guard.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { StatusScreen } from "../components/status-screen.tsx";
+import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
+import { useServices } from "../services.tsx";
+
+type IssueRequest = Pick<CreateApiKeyRequest, "kind" | "scopes"> & {
+  agent_id?: string;
+  expires_at?: string;
+};
+
+// D26: a key bound to an agent never stands in for a person's approval.
+const AGENT_KEY_WITHHELD: readonly SessionScope[] = ["sessions:approve"];
+
+function keyRefusal(
+  t: Translate,
+  error: ApiError,
+  permission: ManagedPermission,
+  role: string | undefined,
+): string {
+  if (error.code === "SCOPE_NOT_GRANTABLE" || error.code === "BAD_REQUEST")
+    return `${t(errorKey(error.code))} ${error.message}`;
+  return refusalText(t, error, permission, role);
+}
+
+/** The end of the chosen day, in the browser's time zone. */
+function expiryOf(day: string): string | undefined {
+  return day ? new Date(`${day}T23:59:59`).toISOString() : undefined;
+}
+
+/**
+ * API keys (design 4.2). A personal key acts as the person who made it and
+ * stops with them; a service key belongs to the workspace and keeps working
+ * after its issuer leaves. One bound to an agent reaches that agent's
+ * sessions only, and its issuer is that agent's admin.
+ */
+export function ApiKeysScreen() {
+  const { t } = useI18n();
+  const { client } = useServices();
+  const keys = useQuery(apiKeysQuery(client));
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [issued, setIssued] = useState<CreateApiKeyResponse | null>(null);
+  const onIssued = (result: CreateApiKeyResponse) => {
+    setOutcome(null);
+    setIssued(result);
+  };
+
+  return (
+    <div className="web-page">
+      <h1 className="web-page__title">{t("apiKeys.title")}</h1>
+      <OutcomeLine outcome={outcome} />
+      {issued ? (
+        <IssuedSecret issued={issued} onDone={() => setIssued(null)} />
+      ) : null}
+      <PersonalKeyForm onIssued={onIssued} onOutcome={setOutcome} />
+      <ServiceKeyForm onIssued={onIssued} onOutcome={setOutcome} />
+      {keys.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : keys.error ? (
+        isApiError(keys.error, "FORBIDDEN") ? (
+          <StatusScreen kind="forbidden" detail={keys.error.message} />
+        ) : (
+          <p className="web-form__error" role="alert">
+            {t(errorKey((keys.error as ApiError).code))}
+          </p>
+        )
+      ) : (
+        <KeyList items={keys.data.items} onOutcome={setOutcome} />
+      )}
+    </div>
+  );
+}
+
+function IssuedSecret({
+  issued,
+  onDone,
+}: {
+  readonly issued: CreateApiKeyResponse;
+  readonly onDone: () => void;
+}) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  return (
+    <section
+      className="web-status"
+      data-status="secret"
+      aria-label={t("apiKeys.secretTitle")}
+    >
+      <h2 className="web-status__title">{t("apiKeys.secretTitle")}</h2>
+      <p className="web-status__body">{t("apiKeys.secretOnce")}</p>
+      <label className="web-field">
+        <span>{t("apiKeys.secret")}</span>
+        <input
+          className="ap-input"
+          type="text"
+          readOnly
+          value={issued.secret}
+          onFocus={(event) => event.target.select()}
+        />
+      </label>
+      <div className="web-form web-form--inline">
+        <button
+          type="button"
+          className="ap-button"
+          onClick={() => {
+            void navigator.clipboard?.writeText(issued.secret).then(
+              () => setCopied(true),
+              () => {},
+            );
+          }}
+        >
+          {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
+        </button>
+        <button type="button" className="ap-button" onClick={onDone}>
+          {t("apiKeys.secretDone")}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ScopePicker({
+  available,
+  chosen,
+  onChange,
+  withheld = [],
+}: {
+  readonly available: readonly SessionScope[];
+  readonly chosen: readonly SessionScope[];
+  readonly onChange: (scopes: SessionScope[]) => void;
+  readonly withheld?: readonly SessionScope[];
+}) {
+  const { t } = useI18n();
+  return (
+    <fieldset className="web-fieldset">
+      <legend>{t("apiKeys.scopes")}</legend>
+      {available.map((scope) => {
+        return (
+          <label key={scope} className="web-check">
+            <input
+              type="checkbox"
+              checked={chosen.includes(scope)}
+              onChange={(event) =>
+                onChange(
+                  event.target.checked
+                    ? [...chosen, scope]
+                    : chosen.filter((s) => s !== scope),
+                )
+              }
+            />
+            <span>{scope}</span>
+            {withheld.includes(scope) ? (
+              <span className="web-field__hint">
+                {t("apiKeys.agentNoApprove")}
+              </span>
+            ) : null}
+          </label>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+function useIssue(
+  permission: ManagedPermission,
+  onIssued: (result: CreateApiKeyResponse) => void,
+  onOutcome: (outcome: Outcome | null) => void,
+) {
+  const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const role = useRole();
+  return useMutation<CreateApiKeyResponse, ApiError, IssueRequest>({
+    mutationFn: (body) => unwrap(client.POST("/v1/api-keys", { body })),
+    onMutate: () => onOutcome(null),
+    onSuccess: async (result) => {
+      onIssued(result);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
+    },
+    onError: (error) =>
+      onOutcome({
+        kind: "error",
+        text: keyRefusal(t, error, permission, role),
+      }),
+  });
+}
+
+function PersonalKeyForm({
+  onIssued,
+  onOutcome,
+}: {
+  readonly onIssued: (result: CreateApiKeyResponse) => void;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const held = useMe()?.scopes ?? [];
+  const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
+  const [expires, setExpires] = useState("");
+  const issue = useIssue("api_key.manage_own", onIssued, onOutcome);
+  const titleId = useId();
+  const role = useRole();
+  const reason = useHasPermission("api_key.manage_own")
+    ? undefined
+    : permissionReason(t, "api_key.manage_own", role);
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const expiresAt = expiryOf(expires);
+    issue.mutate({
+      kind: "personal",
+      scopes: scopes.filter((scope) => held.includes(scope)),
+      ...(expiresAt ? { expires_at: expiresAt } : {}),
+    });
+  };
+
+  return (
+    <section className="web-section" aria-labelledby={titleId}>
+      <h2 id={titleId}>{t("apiKeys.personal")}</h2>
+      <p className="web-field__hint">{t("apiKeys.personalHint")}</p>
+      <form className="web-form" onSubmit={submit}>
+        <ScopePicker available={held} chosen={scopes} onChange={setScopes} />
+        <ExpiryField value={expires} onChange={setExpires} />
+        <ReasonButton
+          type="submit"
+          className="ap-button ap-button--primary"
+          reason={reason}
+          disabled={issue.isPending || scopes.length === 0}
+        >
+          {t("apiKeys.issuePersonal")}
+        </ReasonButton>
+      </form>
+    </section>
+  );
+}
+
+function ExpiryField({
+  value,
+  onChange,
+}: {
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <label className="web-field">
+      <span>{t("apiKeys.expires")}</span>
+      <input
+        className="ap-input"
+        type="date"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <span className="web-field__hint">{t("apiKeys.expiresHint")}</span>
+    </label>
+  );
+}
+
+/**
+ * The agents this person may bind a key to: every agent for an owner or
+ * admin, the ones they administer for anyone else (design 4.1).
+ */
+function useBindableAgents(): {
+  readonly agents: readonly Agent[];
+  readonly pending: boolean;
+} {
+  const { client } = useServices();
+  const everywhere = useHasPermission("api_key.manage");
+  const all = useQuery({ ...agentsQuery(client), enabled: everywhere });
+  const mine = useQuery({
+    ...administeredAgentsQuery(client),
+    enabled: !everywhere,
+  });
+  const source = everywhere ? all : mine;
+  return { agents: source.data?.items ?? [], pending: source.isPending };
+}
+
+function ServiceKeyForm({
+  onIssued,
+  onOutcome,
+}: {
+  readonly onIssued: (result: CreateApiKeyResponse) => void;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const role = useRole();
+  const held = useMe()?.scopes ?? [];
+  const workspaceWide = useHasPermission("api_key.manage");
+  const { agents, pending } = useBindableAgents();
+  const [scopes, setScopes] = useState<SessionScope[]>(["sessions:read"]);
+  const [agentId, setAgentId] = useState("");
+  const [expires, setExpires] = useState("");
+  const issue = useIssue("api_key.manage", onIssued, onOutcome);
+  const titleId = useId();
+  const agentFieldId = useId();
+  const chosenAgent = agents.find((agent) => agent.id === agentId);
+
+  const send = (agent: Agent | undefined) => {
+    const expiresAt = expiryOf(expires);
+    const granted = scopes.filter(
+      (scope) =>
+        held.includes(scope) &&
+        (agent === undefined || !AGENT_KEY_WITHHELD.includes(scope)),
+    );
+    issue.mutate({
+      kind: "service",
+      scopes: granted,
+      ...(agent ? { agent_id: agent.id } : {}),
+      ...(expiresAt ? { expires_at: expiresAt } : {}),
+    });
+  };
+
+  const agentReason =
+    agents.length === 0 && !pending ? t("apiKeys.noAgents") : undefined;
+
+  return (
+    <section className="web-section" aria-labelledby={titleId}>
+      <h2 id={titleId}>{t("apiKeys.service")}</h2>
+      <p className="web-notice" data-testid="survives-issuer">
+        {t("apiKeys.survivesIssuer")}
+      </p>
+      <form className="web-form" onSubmit={(event) => event.preventDefault()}>
+        <ScopePicker
+          available={held}
+          chosen={scopes}
+          onChange={setScopes}
+          withheld={AGENT_KEY_WITHHELD}
+        />
+        <ExpiryField value={expires} onChange={setExpires} />
+        <ReasonButton
+          className="ap-button"
+          reason={
+            workspaceWide
+              ? undefined
+              : permissionReason(t, "api_key.manage", role)
+          }
+          disabled={issue.isPending || scopes.length === 0}
+          onClick={() => send(undefined)}
+        >
+          {t("apiKeys.issueWorkspace")}
+        </ReasonButton>
+        <label className="web-field" htmlFor={agentFieldId}>
+          <span>{t("apiKeys.agent")}</span>
+          <select
+            id={agentFieldId}
+            className="ap-input"
+            value={agentId}
+            disabled={agents.length === 0}
+            onChange={(event) => setAgentId(event.target.value)}
+          >
+            <option value="">{t("apiKeys.pickAgent")}</option>
+            {agents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+          <span className="web-field__hint">{t("apiKeys.agentHint")}</span>
+        </label>
+        <ReasonButton
+          className="ap-button"
+          reason={agentReason}
+          disabled={issue.isPending || !chosenAgent || scopes.length === 0}
+          onClick={() => send(chosenAgent)}
+        >
+          {t("apiKeys.issueAgent")}
+        </ReasonButton>
+      </form>
+    </section>
+  );
+}
+
+function KeyList({
+  items,
+  onOutcome,
+}: {
+  readonly items: readonly ApiKeyView[];
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const role = useRole();
+  const { agents } = useBindableAgents();
+  const [confirming, setConfirming] = useState<ApiKeyView | null>(null);
+  const titleId = useId();
+
+  const revoke = useMutation<RevokeApiKeyResponse, ApiError, ApiKeyView>({
+    mutationFn: (key) =>
+      unwrap(
+        client.DELETE("/v1/api-keys/{id}", {
+          params: { path: { id: key.id } },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async () => {
+      setConfirming(null);
+      onOutcome({ kind: "notice", text: t("apiKeys.revoked") });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
+    },
+    onError: (error, key) => {
+      setConfirming(null);
+      onOutcome({
+        kind: "error",
+        text: keyRefusal(
+          t,
+          error,
+          key.kind === "personal" ? "api_key.manage_own" : "api_key.manage",
+          role,
+        ),
+      });
+    },
+  });
+
+  const agentName = (id: string | null) =>
+    id === null ? null : (agents.find((agent) => agent.id === id)?.name ?? id);
+
+  return (
+    <section className="web-section" aria-labelledby={titleId}>
+      <h2 id={titleId}>{t("apiKeys.listTitle")}</h2>
+      {items.length === 0 ? (
+        <p className="web-page__empty">{t("apiKeys.empty")}</p>
+      ) : (
+        <ul className="web-list">
+          {items.map((key) => {
+            const label =
+              key.kind === "personal"
+                ? t("apiKeys.kind.personal")
+                : key.agent_id === null
+                  ? t("apiKeys.kind.workspace")
+                  : t("apiKeys.kind.agent", {
+                      agent: agentName(key.agent_id) ?? "",
+                    });
+            return (
+              <li
+                key={key.id}
+                className="web-list__item"
+                data-revoked={key.revoked_at !== null}
+              >
+                <span className="web-table__primary">{label}</span>
+                <span className="web-table__secondary">
+                  {key.scopes.join(", ")} ·{" "}
+                  {t("apiKeys.createdAt", {
+                    at: formatTimestamp(key.created_at),
+                  })}
+                  {key.expires_at
+                    ? ` · ${t("apiKeys.expiresAt", { at: formatTimestamp(key.expires_at) })}`
+                    : ""}
+                </span>
+                {key.kind === "service" ? (
+                  <span className="web-table__secondary">
+                    {t("apiKeys.survivesIssuerShort")}
+                  </span>
+                ) : null}
+                {key.revoked_at ? (
+                  <span className="web-badge" data-tone="pending">
+                    {t("apiKeys.revokedAt", {
+                      at: formatTimestamp(key.revoked_at),
+                    })}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="ap-button"
+                    disabled={revoke.isPending}
+                    aria-label={t("apiKeys.revokeFor", { key: label })}
+                    onClick={() => setConfirming(key)}
+                  >
+                    {t("apiKeys.revoke")}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <ConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null);
+        }}
+        title={t("apiKeys.revokeTitle")}
+        consequence={t("apiKeys.revokeConsequence")}
+        confirmLabel={t("apiKeys.revoke")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (confirming) revoke.mutate(confirming);
+        }}
+      />
+    </section>
+  );
+}

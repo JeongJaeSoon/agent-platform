@@ -22,6 +22,7 @@ export const ko = {
   "nav.members": "구성원",
   "nav.teams": "팀",
   "nav.linkedAccounts": "연동 계정",
+  "nav.apiKeys": "API key",
   "nav.agents": "에이전트",
 
   "role.owner": "소유자",
@@ -317,6 +318,49 @@ export const ko = {
     "Slack 연결이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
   "linked.back": "연동 계정으로",
 
+  "apiKeys.title": "API key",
+  "apiKeys.personal": "개인 key",
+  "apiKeys.personalHint":
+    "내 이름으로 동작하고, 내가 워크스페이스를 떠나면 함께 멈춥니다.",
+  "apiKeys.issuePersonal": "개인 key 발급",
+  "apiKeys.service": "서비스 key",
+  "apiKeys.survivesIssuer":
+    "서비스 key는 워크스페이스의 것입니다. 발급자가 떠나도 유효합니다. 필요 없어지면 직접 폐기하세요.",
+  "apiKeys.survivesIssuerShort": "발급자가 떠나도 유효",
+  "apiKeys.issueWorkspace": "워크스페이스 서비스 key 발급",
+  "apiKeys.agent": "에이전트",
+  "apiKeys.pickAgent": "에이전트를 고르세요",
+  "apiKeys.agentHint":
+    "에이전트 전용 key는 그 에이전트의 세션에만 쓸 수 있습니다.",
+  "apiKeys.issueAgent": "에이전트 전용 key 발급",
+  "apiKeys.noAgents": "관리하는 에이전트가 없습니다.",
+  "apiKeys.agentNoApprove":
+    "에이전트 전용 key에는 빠집니다(사람의 승인을 대신하지 않음).",
+  "apiKeys.scopes": "권한 범위",
+  "apiKeys.expires": "만료일(선택)",
+  "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
+  "apiKeys.secretTitle": "새 key",
+  "apiKeys.secretOnce":
+    "이 값은 지금 한 번만 보입니다. 안전한 곳에 복사해 두세요.",
+  "apiKeys.secret": "key 값",
+  "apiKeys.copy": "복사",
+  "apiKeys.copied": "복사했습니다",
+  "apiKeys.secretDone": "복사했으니 닫기",
+  "apiKeys.listTitle": "발급된 key",
+  "apiKeys.empty": "발급된 key가 없습니다.",
+  "apiKeys.kind.personal": "개인 key",
+  "apiKeys.kind.workspace": "워크스페이스 서비스 key",
+  "apiKeys.kind.agent": "에이전트 전용 key · {agent}",
+  "apiKeys.createdAt": "발급 {at}",
+  "apiKeys.expiresAt": "만료 {at}",
+  "apiKeys.revokedAt": "폐기됨 {at}",
+  "apiKeys.revoke": "폐기",
+  "apiKeys.revokeFor": "{key} 폐기",
+  "apiKeys.revokeTitle": "이 key를 폐기할까요?",
+  "apiKeys.revokeConsequence":
+    "이 key를 쓰는 연동은 바로 멈춥니다. 되돌릴 수 없습니다.",
+  "apiKeys.revoked": "key를 폐기했습니다.",
+
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",
   "guard.missingPermission": "{permission} 권한이 있어야 할 수 있습니다.",
@@ -325,6 +369,8 @@ export const ko = {
 
   "error.BAD_REQUEST": "입력을 확인하고 다시 보내세요.",
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
+  "error.SCOPE_NOT_GRANTABLE":
+    "지금 내가 가진 범위보다 넓은 key는 만들 수 없습니다.",
   "error.FORBIDDEN": "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
   "error.BOOTSTRAP_DONE":
     "이미 소유자가 만들어져 있습니다 — 로그인 화면으로 가세요.",

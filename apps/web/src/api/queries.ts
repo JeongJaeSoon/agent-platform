@@ -4,6 +4,7 @@ import type {
   AuthMeResponse,
   ListAdministeredAgentsResponse,
   ListAgentsResponse,
+  ListApiKeysResponse,
   ListInvitesResponse,
   ListLinkedAccountsResponse,
   ListMembersResponse,
@@ -31,6 +32,7 @@ export const queryKeys = {
   administeredAgents: ["administered-agents"] as const,
   teams: ["teams"] as const,
   linkedAccounts: ["linked-accounts"] as const,
+  apiKeys: ["api-keys"] as const,
   team: (id: string) => ["teams", id] as const,
 };
 
@@ -164,6 +166,16 @@ export function linkedAccountsQuery(client: ApiClient) {
       unwrap(
         client.GET("/v1/linked-accounts"),
       ) as Promise<ListLinkedAccountsResponse>,
+    retry: false,
+  });
+}
+
+/** The caller's personal keys and the service keys they may revoke. */
+export function apiKeysQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.apiKeys,
+    queryFn: () =>
+      unwrap(client.GET("/v1/api-keys")) as Promise<ListApiKeysResponse>,
     retry: false,
   });
 }
