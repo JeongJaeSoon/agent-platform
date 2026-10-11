@@ -75,7 +75,7 @@ Preconditions:
   const authorization = platform.createAuthorizationPolicy({
     identity: schema.createDatabaseIdentityReader(db), agents: schema.createDatabaseAgentAuthority(db),
     credentials: schema.createPostgresCredentialBindingStore(db), slackGuests: schema.createPostgresSlackGuestSetting(db),
-    decisions: schema.createPostgresDecisionLog(db) });
+    sessions: schema.createPostgresSessionShareStore(db), decisions: schema.createPostgresDecisionLog(db) });
   const i = JSON.parse(process.argv[1]); const all = ["session.read","session.submit","session.control","session.approve"];
   const r = await platform.authorizeSlackInput({ authorization, agents: schema.createPostgresAgentIdentityStore(db), links: schema.createPostgresLinkedAccountStore(db) }, {
     event: { appId: "A0VERIFY", teamId: "T0MOCK", agentId: process.argv[2] }, user: { id: i.user, team_id: "T0MOCK", ...(i.flags ?? {}) },
@@ -90,6 +90,7 @@ Preconditions:
   decide "{\"user\":\"U0NOBODY\",\"action\":\"session.approve\",\"session\":\"$S\"}"   # 4
   decide "{\"user\":\"U0MOCK\",\"action\":\"session.read\",\"session\":\"$S\",\"disclosure\":\"summary\"}"  # 5
   decide "{\"user\":\"U0MOCK\",\"action\":\"session.approve\",\"session\":\"$OS\"}"    # 5b
+  # 5c·5d: owner cookie로 curl -X POST "$API/v1/sessions/$S/share"(Idempotency-Key 필요) '{"scope":"private"}' 뒤 2와 같은 승인, '{"scope":"workspace"}'로 되돌린 뒤 한 번 더
   decide '{"user":"U0GUEST","flags":{"is_restricted":true}}'                          # 6
   decide '{"user":"U0EXT","flags":{"is_stranger":true}}'                              # 7
   ap_web POST "/v1/workspaces/$WS/slack-guest" '{"slack_guest_enabled":true}'          # 8: member cookie, 9: owner cookie
@@ -99,7 +100,7 @@ Preconditions:
   ap_compose exec -T postgres psql -U postgres -d sessions -c "select action, outcome, reason_code, surface->>'slack_user_kind' from authz_decisions where surface->>'kind' = 'slack' order by at"
   ```
 
-  기대: 1·2 `allow`, `actorUserId`가 member, `notice: null`. 3 `deny surface_ceiling`, 안내 "이 요청을 승인할 권한이 없어요". 4 `deny unlinked`, 안내 "웹에서 Slack 계정을 연결해 주세요"와 `link_url`. 5 `redact`(`reason_code: surface_ceiling`, 안내 없음). 5b 같은 workspace여도 다른 에이전트의 세션이라 `deny agent_ceiling`, `actorUserId: null`, 안내 "이 요청을 승인할 권한이 없어요". 6 `guest_disabled`, "이 워크스페이스는 guest의 에이전트 사용을 허용하지 않아요". 7 `external_user`, "이 에이전트는 이 워크스페이스 멤버만 쓸 수 있어요". 8 member는 `403`과 `details.reason_code: role`, 9 owner는 `200`이고 `GET /v1/auth/me`의 `workspace.settings.slack_guest_enabled: true`. 10 같은 guest는 이제 `unlinked`(켜도 연결해야 쓴다), Slack Connect 사용자는 여전히 `external_user`. 해제 `200` 뒤 11은 `unlinked`와 연결 링크. 판정 행은 Slack 판정마다 하나씩(허용 포함)이고 `principal_kind`는 `installation`, 연결된 사람이 있을 때만 `actor_user_id`가 찬다. 모든 행의 `surface->>'agent_id'`는 `AID`이고 `policy_version`은 `m15`다. 2026-10-12 run `20261012-010625-66450`에서 5b까지 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-c-decision.txt`.
+  기대: 1·2 `allow`, `actorUserId`가 member, `notice: null`. 3 `deny surface_ceiling`, 안내 "이 요청을 승인할 권한이 없어요". 4 `deny unlinked`, 안내 "웹에서 Slack 계정을 연결해 주세요"와 `link_url`. 5 `redact`(`reason_code: surface_ceiling`, 안내 없음). 5b 같은 workspace여도 다른 에이전트의 세션이라 `deny agent_ceiling`, `actorUserId: null`, 안내 "이 요청을 승인할 권한이 없어요". 5c 공유가 `private`(만든 사람만)이면 member의 승인은 `deny not_found`, 안내 "이 세션은 공유 범위 밖이라 요청할 수 없어요. 세션을 만든 사람에게 공유를 요청하세요". 5d `workspace`로 되돌리면 다시 `allow`. 6 `guest_disabled`, "이 워크스페이스는 guest의 에이전트 사용을 허용하지 않아요". 7 `external_user`, "이 에이전트는 이 워크스페이스 멤버만 쓸 수 있어요". 8 member는 `403`과 `details.reason_code: role`, 9 owner는 `200`이고 `GET /v1/auth/me`의 `workspace.settings.slack_guest_enabled: true`. 10 같은 guest는 이제 `unlinked`(켜도 연결해야 쓴다), Slack Connect 사용자는 여전히 `external_user`. 해제 `200` 뒤 11은 `unlinked`와 연결 링크. 판정 행은 Slack 판정마다 하나씩(허용 포함)이고 `principal_kind`는 `installation`, 연결된 사람이 있을 때만 `actor_user_id`가 찬다. 모든 행의 `surface->>'agent_id'`는 `AID`이고 `policy_version`은 `m15`다. 2026-10-12 run `20261012-013848-78890`에서 11까지 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-c-decision.txt`.
 - **d.** (아직 없음) 역할별 key 발급 요청과 403 이유, 서비스 key로 다른 에이전트 API 403, 발급자 비활성화 뒤 개인 key 401·서비스 key 200.
 - **d. 권한별 key.** 사람마다 cookie 파일을 따로 둔다: `ap_web`은 `$VERIFY_RUN/cookie` 하나만 읽고 쓰므로 로그인·수락 직후 `cp "$VERIFY_RUN/cookie" "$VERIFY_RUN/cookie.<이름>"`, 그 사람으로 부르기 전에 거꾸로 복사한다. 비밀값(`secret`, `invite_token`)은 변수에만 담는다.
   1. owner bootstrap·login([web-login.md](./web-login.md)). owner가 `ap_web POST /v1/invites '{"email":"member@example.test","role":"member"}'` → `201`, 같은 식으로 `other`(member)와 `admin`(admin). cookie를 비우고 `ap_web POST /v1/invites/accept "{\"token\":\"$TOKEN\",\"password\":\"verify-member-pass-1\"}"` → `200`(cookie가 생긴다).
