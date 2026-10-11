@@ -225,8 +225,6 @@ function AgentView({
         detail={detail}
       />
       <Releases
-        // A new version becomes the one the form offers to release.
-        key={latestVersion(detail)?.id ?? "none"}
         detail={detail}
         versionNo={versionNo}
         onOutcome={onOutcome}
@@ -472,7 +470,10 @@ function Releases({
   const role = useRole();
   const titleId = useId();
   const latest = latestVersion(detail);
-  const [versionId, setVersionId] = useState(latest?.id ?? "");
+  // Until a version is picked the form offers the latest, so a version saved
+  // after the page opened is the default without remounting the form.
+  const [picked, setPicked] = useState<string | null>(null);
+  const versionId = picked ?? latest?.id ?? "";
   const [profile, setProfile] = useState(
     detail.releases.at(-1)?.runtime_profile_id ?? "",
   );
@@ -522,7 +523,7 @@ function Releases({
             (a, b) => b.version_no - a.version_no,
           )}
           value={versionId}
-          onChange={setVersionId}
+          onChange={setPicked}
         />
         <TextField
           label={t("agent.releases.profile")}

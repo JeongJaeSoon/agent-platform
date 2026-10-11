@@ -299,6 +299,30 @@ describe("편집 중 다른 곳의 저장", () => {
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
 
+  test("release 폼은 적어 둔 profile을 지키면서 새 version을 기본으로 고른다", async () => {
+    const server = agentServer();
+    const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("runtime profile"), PROFILE);
+    otherTabSaves(server);
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.agent(AGENT_ID),
+    });
+    const release = screen
+      .getByRole("heading", { name: "release" })
+      .closest("section") as HTMLElement;
+    await waitFor(() =>
+      expect(
+        (within(release).getByLabelText("version") as HTMLSelectElement)
+          .selectedOptions[0]?.textContent,
+      ).toBe("version 2"),
+    );
+    expect(
+      (within(release).getByLabelText("runtime profile") as HTMLInputElement)
+        .value,
+    ).toBe(PROFILE);
+  });
+
   test("고친 것이 없으면 최신 카드를 그대로 받아들인다", async () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
