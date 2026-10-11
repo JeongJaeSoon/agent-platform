@@ -4,6 +4,8 @@ import {
   type BootstrapResult,
   BootstrapTokenSpentError,
   type ConsumePasswordResetInput,
+  type ExternalSignInInput,
+  type ExternalSignInResult,
   type IdentityUser,
   type IdentityWorkspace,
   type IssuePasswordResetInput,
@@ -33,6 +35,7 @@ import type { Database } from "./queries.ts";
 import {
   bootstrapTokenUses,
   invites,
+  loginMethods,
   memberships,
   passwordResets,
   receipts,
@@ -172,6 +175,10 @@ export async function bootstrapOwner(
       throw new Error("bootstrap insert returned no row");
     }
     await tx
+      .insert(loginMethods)
+      .values({ id: input.loginMethodId, userId: user.id, kind: "password" })
+      .onConflictDoNothing();
+    await tx
       .insert(memberships)
       .values({ workspaceId: workspace.id, userId: user.id, role: "owner" })
       .onConflictDoUpdate({
@@ -301,7 +308,12 @@ export async function issuePasswordReset(
       (row) =>
         row.userId === input.userId && row.workspaceId === input.workspaceId,
     );
-    if (!target || !locked.some((row) => row.id === input.userId)) {
+    if (
+      !target ||
+      !locked.some(
+        (row) => row.id === input.userId && row.passwordHash !== null,
+      )
+    ) {
       return { outcome: "not_found" };
     }
     // Accounts are global but this power is per workspace: a link would
@@ -385,7 +397,13 @@ export async function consumePasswordReset(
     const [user] = await tx
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.id, candidate.userId), isNull(users.disabledAt)))
+      .where(
+        and(
+          eq(users.id, candidate.userId),
+          isNull(users.disabledAt),
+          isNotNull(users.passwordHash),
+        ),
+      )
       .for("update");
     if (!user) {
       return null;
@@ -530,53 +548,257 @@ export async function createWebSession(
     if (current?.passwordHash !== input.verifiedPasswordHash) {
       return null;
     }
-    await tx
-      .delete(webSessions)
+    return insertWebSession(tx, input);
+  });
+}
+
+type WebSessionInput = {
+  id: string;
+  userId: string;
+  tokenHash: Uint8Array;
+  ttlMs: number;
+  userAgent: string | null;
+  maxLive: number;
+};
+
+// The caller holds the user's row lock, so two logins cannot both leave
+// maxLive + 1 live sessions.
+async function insertWebSession(
+  tx: Database,
+  input: WebSessionInput,
+): Promise<{ expiresAt: Date }> {
+  await tx
+    .delete(webSessions)
+    .where(
+      and(
+        eq(webSessions.userId, input.userId),
+        or(
+          lte(webSessions.expiresAt, DB_NOW),
+          isNotNull(webSessions.revokedAt),
+        ),
+      ),
+    );
+  const [row] = await tx
+    .insert(webSessions)
+    .values({
+      id: input.id,
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      // Not the column default now(): that is the transaction start, and
+      // a login that waited longest for the user lock would sort oldest.
+      createdAt: DB_NOW,
+      expiresAt: fromDbNow(input.ttlMs),
+      lastSeenAt: DB_NOW,
+      userAgent: input.userAgent,
+    })
+    .returning({ expiresAt: webSessions.expiresAt });
+  if (!row) {
+    throw new Error("web session insert returned no row");
+  }
+  const keep = tx
+    .select({ id: webSessions.id })
+    .from(webSessions)
+    .where(
+      and(eq(webSessions.userId, input.userId), ne(webSessions.id, input.id)),
+    )
+    .orderBy(desc(webSessions.createdAt), desc(webSessions.id))
+    .limit(Math.max(0, input.maxLive - 1));
+  await tx
+    .delete(webSessions)
+    .where(
+      and(
+        eq(webSessions.userId, input.userId),
+        ne(webSessions.id, input.id),
+        notInArray(webSessions.id, keep),
+      ),
+    );
+  return row;
+}
+
+/**
+ * The first-entry rules for an external login (design 3.1, A.7), first
+ * match wins: a linked (issuer, subject) signs in as its user; otherwise an
+ * address that already has an account is never joined to it by email, and
+ * only an address with no account may be admitted by a live invite or by
+ * JIT. Concurrent first logins of one external account are serialised by
+ * the advisory lock, so the second one finds the link the first made.
+ * Locks run invite, then user, then session.
+ */
+export async function signInWithExternalIdentity(
+  db: Database,
+  input: ExternalSignInInput,
+): Promise<ExternalSignInResult> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`login:${input.kind}:${input.issuer}:${input.subject}`}))`,
+    );
+    const [linked] = await tx
+      .select({ id: loginMethods.id, userId: loginMethods.userId })
+      .from(loginMethods)
       .where(
         and(
-          eq(webSessions.userId, input.userId),
-          or(
-            lte(webSessions.expiresAt, DB_NOW),
-            isNotNull(webSessions.revokedAt),
-          ),
+          eq(loginMethods.kind, input.kind),
+          eq(loginMethods.issuer, input.issuer),
+          eq(loginMethods.subject, input.subject),
         ),
       );
-    const [row] = await tx
-      .insert(webSessions)
-      .values({
-        id: input.id,
-        userId: input.userId,
-        tokenHash: input.tokenHash,
-        // Not the column default now(): that is the transaction start, and
-        // a login that waited longest for the user lock would sort oldest.
-        createdAt: DB_NOW,
-        expiresAt: fromDbNow(input.ttlMs),
-        lastSeenAt: DB_NOW,
-        userAgent: input.userAgent,
-      })
-      .returning({ expiresAt: webSessions.expiresAt });
-    if (!row) {
-      throw new Error("web session insert returned no row");
+    if (linked) {
+      const [user] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, linked.userId), isNull(users.disabledAt)))
+        .for("update");
+      const membership = user ? await findLiveMembership(tx, user.id) : null;
+      if (!membership) {
+        return { outcome: "rejected" };
+      }
+      await tx
+        .update(loginMethods)
+        .set({ lastLoginAt: DB_NOW })
+        .where(eq(loginMethods.id, linked.id));
+      const { expiresAt } = await insertWebSession(tx, {
+        ...input.session,
+        userId: linked.userId,
+      });
+      return {
+        outcome: "signed_in",
+        via: "linked",
+        userId: linked.userId,
+        ...membership,
+        expiresAt,
+      };
     }
-    // The new session always stays; the others compete for the rest.
-    const keep = tx
-      .select({ id: webSessions.id })
-      .from(webSessions)
-      .where(
-        and(eq(webSessions.userId, input.userId), ne(webSessions.id, input.id)),
-      )
-      .orderBy(desc(webSessions.createdAt), desc(webSessions.id))
-      .limit(Math.max(0, input.maxLive - 1));
-    await tx
-      .delete(webSessions)
-      .where(
-        and(
-          eq(webSessions.userId, input.userId),
-          ne(webSessions.id, input.id),
-          notInArray(webSessions.id, keep),
-        ),
-      );
-    return row;
+    // Two subjects may claim one address; the second must see the first's
+    // account. Always taken after the subject lock.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`login-email:${input.email}`}))`,
+    );
+    const [existing] = await tx
+      .select({ disabledAt: users.disabledAt })
+      .from(users)
+      .where(eq(users.email, input.email));
+    if (existing) {
+      // Only someone Google says owns the address now may learn it has one.
+      return existing.disabledAt === null && input.ownsEmail
+        ? { outcome: "link_required" }
+        : { outcome: "rejected" };
+    }
+    const [invite] = !input.ownsEmail
+      ? []
+      : await tx
+          .select({
+            id: invites.id,
+            workspaceId: invites.workspaceId,
+            role: invites.role,
+          })
+          .from(invites)
+          .where(
+            and(
+              eq(invites.email, input.email),
+              isNull(invites.acceptedAt),
+              isNull(invites.revokedAt),
+              gt(invites.expiresAt, DB_NOW),
+            ),
+          )
+          .orderBy(asc(invites.createdAt), asc(invites.id))
+          .limit(1)
+          .for("update");
+    // The expiry above was read before the lock wait.
+    const inviteLive =
+      invite !== undefined &&
+      (await tx.$count(
+        invites,
+        and(eq(invites.id, invite.id), gt(invites.expiresAt, DB_NOW)),
+      )) > 0;
+    let admission: {
+      via: "invite" | "jit";
+      workspaceId: string;
+      role: MembershipRole;
+    };
+    if (invite && inviteLive) {
+      admission = {
+        via: "invite",
+        workspaceId: invite.workspaceId,
+        role: invite.role as MembershipRole,
+      };
+    } else {
+      // One workspace per installation (03 §3.1): JIT joins the oldest.
+      const [workspace] = input.jitRole
+        ? await tx
+            .select({ id: workspaces.id })
+            .from(workspaces)
+            .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
+            .limit(1)
+        : [];
+      if (!workspace || !input.jitRole) {
+        return { outcome: "rejected" };
+      }
+      admission = {
+        via: "jit",
+        workspaceId: workspace.id,
+        role: input.jitRole,
+      };
+    }
+    await tx.insert(users).values({
+      id: input.newUserId,
+      email: input.email,
+      passwordHash: null,
+      displayName: input.displayName,
+    });
+    await tx.insert(memberships).values({
+      workspaceId: admission.workspaceId,
+      userId: input.newUserId,
+      role: admission.role,
+    });
+    await tx.insert(loginMethods).values({
+      id: input.newLoginMethodId,
+      userId: input.newUserId,
+      kind: input.kind,
+      issuer: input.issuer,
+      subject: input.subject,
+      emailAtLink: input.email,
+      lastLoginAt: DB_NOW,
+    });
+    if (admission.via === "invite" && invite) {
+      await tx
+        .update(invites)
+        .set({ acceptedAt: DB_NOW })
+        .where(eq(invites.id, invite.id));
+      // The same receipt a password accept writes.
+      await tx.insert(receipts).values({
+        id: input.receiptId,
+        ownerId: invite.workspaceId,
+        actor: {
+          principal: { kind: "user", id: input.newUserId },
+          actor_user_id: input.newUserId,
+          agent_id: null,
+        },
+        operation: "accept_invite",
+        targetRef: {
+          resource: { kind: "invite", id: invite.id },
+          workspace_id: invite.workspaceId,
+        },
+        status: "succeeded",
+        result: {
+          user_id: input.newUserId,
+          role: admission.role,
+          new_account: true,
+          login_method: input.kind,
+        },
+      });
+    }
+    const { expiresAt } = await insertWebSession(tx, {
+      ...input.session,
+      userId: input.newUserId,
+    });
+    return {
+      outcome: "signed_in",
+      via: admission.via,
+      userId: input.newUserId,
+      workspaceId: admission.workspaceId,
+      role: admission.role,
+      expiresAt,
+    };
   });
 }
 

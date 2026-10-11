@@ -20,6 +20,7 @@ import { createPostgresInviteStore } from "./invites.ts";
 import * as schema from "./schema.ts";
 import {
   invites,
+  loginMethods,
   memberships,
   receipts,
   users,
@@ -124,6 +125,7 @@ integration("invite store on PostgreSQL", () => {
         userId: randomUUID(),
         passwordHash: `new-hash-${email}`,
         displayName: "New",
+        loginMethodId: randomUUID(),
       },
       session: {
         id: randomUUID(),
@@ -233,6 +235,11 @@ integration("invite store on PostgreSQL", () => {
       .from(webSessions)
       .where(eq(webSessions.id, input.session.id));
     expect(session?.userId).toBe(input.account.userId);
+    const methods = await db
+      .select()
+      .from(loginMethods)
+      .where(eq(loginMethods.userId, input.account.userId));
+    expect(methods.map((m) => m.kind)).toEqual(["password"]);
     const written = await receipt(input.receiptId);
     expect(written?.operation).toBe("accept_invite");
     expect(JSON.stringify(written?.actor)).toContain(input.account.userId);
@@ -564,6 +571,7 @@ integration("invites across owner recovery on PostgreSQL", () => {
       workspaceName: "unused",
       bootstrapTokenHash: hashOf("recovery token"),
       receiptId: randomUUID(),
+      loginMethodId: randomUUID(),
     });
 
     expect(await store.peekInvite(hashOf(token))).toEqual({
@@ -645,6 +653,7 @@ integration("owner recovery racing an owner invite on PostgreSQL", () => {
         workspaceName: "unused",
         bootstrapTokenHash: hashOf("second recovery token"),
         receiptId: randomUUID(),
+        loginMethodId: randomUUID(),
       });
       await Bun.sleep(300);
       await accept.query("COMMIT");

@@ -25,11 +25,13 @@ import {
   resolveWebSession,
   retireBootstrapToken,
   revokeWebSession,
+  signInWithExternalIdentity,
 } from "@agent-platform/db";
 import type { StructuredLogger } from "@agent-platform/observability";
 import type {
   BootstrapInput,
   ConsumePasswordResetInput,
+  ExternalSignInInput,
   IdentityStore,
   IssuePasswordResetInput,
   ResolvedWebSession,
@@ -87,6 +89,9 @@ export class DatabaseIdentityStore implements IdentityStore {
     maxLive: number;
   }) {
     return createWebSession(this.db, input);
+  }
+  signInWithExternalIdentity(input: ExternalSignInInput) {
+    return signInWithExternalIdentity(this.db, input);
   }
   resolveWebSession(tokenHash: Uint8Array) {
     return resolveWebSession(this.db, tokenHash);

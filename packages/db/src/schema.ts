@@ -146,8 +146,8 @@ export const users = pgTable(
   {
     id: uuid().primaryKey(),
     email: text().notNull().unique(),
-    /** argon2id. */
-    passwordHash: text("password_hash").notNull(),
+    /** argon2id; null for an account that only signs in externally. */
+    passwordHash: text("password_hash"),
     displayName: text("display_name").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -228,6 +228,43 @@ export const invites = pgTable(
     check(
       "invites_single_outcome_check",
       sql`${table.acceptedAt} IS NULL OR ${table.revokedAt} IS NULL`,
+    ),
+  ],
+);
+
+export const loginMethods = pgTable(
+  "login_methods",
+  {
+    id: uuid().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    kind: text().$type<"password" | "google">().notNull(),
+    issuer: text(),
+    subject: text(),
+    /** The address the provider vouched for when the account was linked. */
+    emailAtLink: text("email_at_link"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("login_methods_external_uniq").on(
+      table.kind,
+      table.issuer,
+      table.subject,
+    ),
+    uniqueIndex("login_methods_password_user_uniq")
+      .on(table.userId)
+      .where(sql`${table.kind} = 'password'`),
+    check(
+      "login_methods_kind_check",
+      sql`${table.kind} IN ('password', 'google')`,
+    ),
+    check(
+      "login_methods_external_check",
+      sql`CASE WHEN ${table.kind} = 'password' THEN ${table.issuer} IS NULL AND ${table.subject} IS NULL ELSE ${table.issuer} IS NOT NULL AND ${table.subject} IS NOT NULL END`,
     ),
   ],
 );

@@ -201,8 +201,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 35, total: 44 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 44 });
+      expect(first).toEqual({ adopted: 0, applied: 36, total: 45 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 45 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

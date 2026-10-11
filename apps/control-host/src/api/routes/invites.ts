@@ -178,6 +178,7 @@ export function registerPublicInviteRoutes(
           userId: randomUUID(),
           passwordHash: await hashPassword(password),
           displayName: body.display_name ?? defaultDisplayName(peek.email),
+          loginMethodId: randomUUID(),
         };
       }
     } finally {

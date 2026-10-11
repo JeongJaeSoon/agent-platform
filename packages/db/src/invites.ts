@@ -16,7 +16,13 @@ import { receiptActorOf } from "./control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { createWebSession } from "./identity.ts";
 import type { Database } from "./queries.ts";
-import { invites, memberships, receipts, users } from "./schema.ts";
+import {
+  invites,
+  loginMethods,
+  memberships,
+  receipts,
+  users,
+} from "./schema.ts";
 
 // Invites and roles (94S-153). Lock order, everywhere here: invite, then
 // user, then membership, then web session — the user -> link -> session
@@ -328,6 +334,11 @@ async function acceptInviteOnce(
         .onConflictDoNothing({ target: users.email })
         .returning({ id: users.id });
       if (created.length === 0) return { outcome: "account_changed" };
+      await tx.insert(loginMethods).values({
+        id: expected.loginMethodId,
+        userId: expected.userId,
+        kind: "password",
+      });
       userId = expected.userId;
       verifiedPasswordHash = expected.passwordHash;
     }
