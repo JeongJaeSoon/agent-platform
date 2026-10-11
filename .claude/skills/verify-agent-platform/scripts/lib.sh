@@ -35,7 +35,7 @@ ap_post() {
 # cookie kept in $VERIFY_RUN/cookie (curl will not store a __Host- cookie
 # over http, so it is carried by hand).
 # Works under bash and zsh (the Bash tool's shell), hence no variable named
-# `path` (zsh ties it to PATH) and no unquoted ${x:+…} word splitting.
+# `path` (zsh ties it to PATH) or `status` (read-only in zsh) and no unquoted ${x:+…} word splitting.
 ap_web() {
   local method=$1 route=$2 extra=() headers
   [ -n "${3:-}" ] && extra+=(-d "$3")
@@ -44,9 +44,9 @@ ap_web() {
   curl -sS -w '\n%{http_code}\n' -X "$method" "$API$route" -D "$headers" \
     -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' \
     "${extra[@]}"
-  local status=$?
+  local curl_rc=$?
   sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p' "$headers" |
     tr -d '\r' | while read -r c; do printf '%s' "$c" >"$VERIFY_RUN/cookie"; done
   rm -f "$headers"
-  return "$status"
+  return "$curl_rc"
 }
