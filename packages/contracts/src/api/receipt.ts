@@ -62,6 +62,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // Issuing and revoking an API key from the web or the API (94S-574).
   "create_api_key",
   "revoke_api_key",
+  // Binding a credential name to an agent and taking it off (94S-581).
+  "bind_credential",
+  "unbind_credential",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

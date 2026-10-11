@@ -41,6 +41,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   activate_agent: "에이전트 활성화",
   create_api_key: "API key 발급",
   revoke_api_key: "API key 폐기",
+  bind_credential: "자격 연결",
+  unbind_credential: "자격 연결 해제",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

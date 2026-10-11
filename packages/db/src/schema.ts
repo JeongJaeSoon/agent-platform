@@ -1469,6 +1469,11 @@ export const AGENT_ACTIVATION_EVENT_KINDS = [
   "activated",
 ] as const;
 
+// Mirror contracts' CREDENTIAL_BINDING_TARGET_VALUES and CREDENTIAL_REF
+// pattern; schema.test.ts asserts they agree.
+export const CREDENTIAL_BINDING_TARGETS = ["agent", "agent_identity"] as const;
+export const CREDENTIAL_REF_PATTERN = "^[a-z0-9][a-z0-9._:/-]{0,127}$";
+
 // Versions, releases and activation events are insert-only (migration 0134
 // triggers); a release's approval is set once, by its first activation.
 export const agents = pgTable(
@@ -1608,6 +1613,47 @@ export const agentReleases = pgTable(
     check(
       "agent_releases_approval_check",
       sql`(${table.approvedBy} IS NULL) = (${table.approvedAt} IS NULL)`,
+    ),
+  ],
+);
+
+// The name of a credential an agent may use, never its value (design 4.4,
+// D11). A row is revoked, not deleted, so a later session start sees the
+// binding is gone while the receipt keeps who bound it.
+export const credentialBindings = pgTable(
+  "credential_bindings",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    credentialRef: text("credential_ref").notNull(),
+    target: text().notNull(),
+    // An agent or an agent identity; the identity table comes later (M8),
+    // so the target has no foreign key and the store checks it exists.
+    targetId: uuid("target_id").notNull(),
+    boundBy: uuid("bound_by")
+      .notNull()
+      .references(() => users.id),
+    boundAt: timestamp("bound_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("credential_bindings_live_idx")
+      .on(table.target, table.targetId, table.credentialRef)
+      .where(sql`${table.revokedAt} IS NULL`),
+    index("credential_bindings_ref_idx")
+      .on(table.workspaceId, table.credentialRef)
+      .where(sql`${table.revokedAt} IS NULL`),
+    check(
+      "credential_bindings_target_check",
+      sql`${table.target} IN (${sql.raw(sqlList(CREDENTIAL_BINDING_TARGETS))})`,
+    ),
+    check(
+      "credential_bindings_ref_check",
+      sql`${table.credentialRef} ~ ${sql.raw(`'${CREDENTIAL_REF_PATTERN}'`)}`,
     ),
   ],
 );

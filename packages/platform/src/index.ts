@@ -15,6 +15,7 @@ export * from "./ports/api-key-store.ts";
 export * from "./ports/checkpoint-collection.ts";
 export * from "./ports/checkpoint-store.ts";
 export * from "./ports/checkpoint-verifier.ts";
+export * from "./ports/credential-binding-store.ts";
 export * from "./ports/decision-log.ts";
 export * from "./ports/execution-backend.ts";
 export * from "./ports/identity-store.ts";

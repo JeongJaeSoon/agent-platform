@@ -62,6 +62,7 @@ describe("database schema", () => {
       "catalog_authority",
       "checkpoints",
       "control_intents",
+      "credential_bindings",
       "events",
       "executions",
       "grants",
