@@ -59,7 +59,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CREDENTIAL_UNBOUND:
     "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
   CREDENTIAL_REF_IN_USE:
-    "이 자격 이름은 에이전트 신원이 쓰고 있어 연결할 수 없어요 — 다른 이름을 고르세요.",
+    "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
   OWNER_PROTECTED:
     "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
   PROFILE_DIGEST_MISMATCH:
@@ -74,6 +74,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   LINK_TAKEN:
     "이 Slack 계정은 다른 사용자에게 연결돼 있어요 — owner·admin에게 문의하세요.",
   LINK_EXISTS: "이미 연결된 Slack 계정이 있어요 — 해제한 뒤 다시 연결하세요.",
+  AGENT_IDENTITY_TAKEN:
+    "이 Slack 앱은 다른 에이전트에 연결돼 있어요 — 그 연결을 회수한 뒤 다시 연결하세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",
   CURSOR_EXPIRED: "이어보기 위치가 만료됐습니다 — 처음부터 다시 불러오세요.",
   LEASE_EXPIRED: "실행 점유가 만료됐습니다 — 현재 상태를 확인하세요.",

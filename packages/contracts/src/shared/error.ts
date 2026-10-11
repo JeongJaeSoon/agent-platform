@@ -46,6 +46,8 @@ export const API_ERROR_CODE_VALUES = [
   "LINK_TEAM_MISMATCH",
   "LINK_TAKEN",
   "LINK_EXISTS",
+  // The Slack app is already pinned to another agent (M8).
+  "AGENT_IDENTITY_TAKEN",
   // An invite that was revoked, replaced by a newer one, or has expired.
   "INVITE_EXPIRED",
   "INVITE_USED",
