@@ -1106,6 +1106,8 @@ export interface components {
                     daily_cost_limit_usd: number | null;
                     /** @default 30 */
                     idle_pause_minutes: number;
+                    /** @default 90 */
+                    audit_retention_days: number;
                 };
                 /** Format: date-time */
                 created_at: string;
@@ -1189,6 +1191,8 @@ export interface components {
                     daily_cost_limit_usd: number | null;
                     /** @default 30 */
                     idle_pause_minutes: number;
+                    /** @default 90 */
+                    audit_retention_days: number;
                 };
                 /** Format: date-time */
                 created_at: string;

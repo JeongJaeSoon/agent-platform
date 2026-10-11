@@ -213,6 +213,7 @@ export function pauseAtomic(
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
     actor: receiptActorOf(input.principal),
+    requestId: input.principal.requestId ?? null,
     operation: PAUSE,
     resource: sessionId,
     key: input.idempotencyKey,
@@ -323,6 +324,7 @@ export function pauseAtomic(
       id: receiptId,
       ownerId: scope.principal,
       actor: scope.actor,
+      requestId: scope.requestId,
       operation: PAUSE,
       targetRef: { session_id: sessionId, turn_id: null, request_id: null },
       status: response.receipt_status,
