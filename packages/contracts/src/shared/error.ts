@@ -36,6 +36,9 @@ export const API_ERROR_CODE_VALUES = [
   // The catalog no longer allows the session's (profile, repository) pair,
   // so no worker may run it until an operator restores the pair.
   "CATALOG_MISMATCH",
+  // The person who asked for the session was offboarded; it takes no input
+  // until an owner takes it over.
+  "TAKEOVER_REQUIRED",
   "NOT_READY",
   "CURSOR_EXPIRED",
   "LEASE_EXPIRED",

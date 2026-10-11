@@ -23,6 +23,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   revoke_execution: "실행 권한 회수",
   reset_password: "비밀번호 재설정",
   recover_owner: "owner 복구",
+  takeover: "세션 인수",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

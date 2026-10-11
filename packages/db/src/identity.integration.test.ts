@@ -123,9 +123,19 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "provider_tokens",
     // arrives as false
     "unmetered",
+    //
+    "created_by_api_key_id",
+    "takeover_required_at",
   ],
   turns: ["actor_id"],
-  api_keys: ["workspace_id", "scopes"],
+  // kind arrives as 'service'
+  api_keys: [
+    "workspace_id",
+    "scopes",
+    "kind",
+    "created_by_user_id",
+    "expires_at",
+  ],
   receipts: ["actor"],
 };
 
@@ -191,8 +201,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 33, total: 42 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 42 });
+      expect(first).toEqual({ adopted: 0, applied: 34, total: 43 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 43 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

@@ -210,8 +210,11 @@ describe("database schema", () => {
     );
     expect(columns.rows.map(({ column_name }) => column_name)).toEqual([
       "created_at",
+      "created_by_user_id",
+      "expires_at",
       "id",
       "key_hash",
+      "kind",
       "owner_id",
       "revoked_at",
       "scopes",

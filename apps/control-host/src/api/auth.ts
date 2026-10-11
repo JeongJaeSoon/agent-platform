@@ -429,6 +429,8 @@ type Authenticated = {
   webSession?: ResolvedWebSession;
   /** Re-runs the credential check; SSE calls it so revocation ends a stream. */
   reauthenticate: () => Promise<boolean>;
+  /** Set when a key row authenticated; a personal key names its creator. */
+  storedKey?: { creatorId: string | null };
 };
 
 function bearerToken(value: string | undefined): string | null {
@@ -454,12 +456,17 @@ export function unauthenticatedPrincipal(ownerId: string): Principal {
 // before scopes existed (NULL) holds none and has to be reissued: guessing
 // "everything" would hand it recovery too.
 export function apiKeyPrincipal(key: ApiKeyRecord): Principal {
+  const scopes = key.scopes === null ? [] : [...key.scopes];
+  const ceiling =
+    key.kind === "personal" && key.creatorRole !== null
+      ? new Set(scopesForRole(key.creatorRole))
+      : null;
   return {
     kind: "api_key",
     id: key.id,
     owner_id: key.ownerId,
     workspace_id: key.workspaceId,
-    scopes: key.scopes === null ? [] : [...key.scopes],
+    scopes: ceiling === null ? scopes : scopes.filter((s) => ceiling.has(s)),
   };
 }
 
@@ -503,6 +510,9 @@ export function createAuthenticator(
         const principal = apiKeyPrincipal(key);
         return {
           principal,
+          storedKey: {
+            creatorId: key.kind === "personal" ? key.createdByUserId : null,
+          },
           // Nothing edits a key's scopes today, but a stream that outlives
           // a narrowed key must not keep what the key no longer holds.
           reauthenticate: async () => {

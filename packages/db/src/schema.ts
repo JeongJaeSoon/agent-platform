@@ -533,6 +533,12 @@ export const sessions = pgTable(
     // sessions are not backfilled, see owner_workspace_map.
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    createdByApiKeyId: uuid("created_by_api_key_id").references(
+      () => apiKeys.id,
+    ),
+    takeoverRequiredAt: timestamp("takeover_required_at", {
+      withTimezone: true,
+    }),
     // TODO(94S-154): Add the FK when agent_releases is introduced. This is
     // not a uuid: release ids are derived hashes.
     agentReleaseId: text("agent_release_id"),
@@ -597,6 +603,12 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    index("sessions_created_by_user_idx")
+      .on(table.createdByUserId)
+      .where(sql`${table.createdByUserId} IS NOT NULL`),
+    index("sessions_takeover_idx")
+      .on(table.workspaceId, table.takeoverRequiredAt)
+      .where(sql`${table.takeoverRequiredAt} IS NOT NULL`),
     // The reconciler's sweep for waits that ended with no write.
     index("sessions_input_announced_idx")
       .on(table.id)
@@ -1227,11 +1239,22 @@ export const apiKeys = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     /** Null means the legacy "everything" key. */
     scopes: text().array(),
+    kind: text().notNull().default("service"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
   },
   (table) => [
     index("api_keys_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    index("api_keys_personal_creator_idx")
+      .on(table.createdByUserId)
+      .where(sql`${table.kind} = 'personal'`),
+    check("api_keys_kind_check", sql`${table.kind} IN ('personal', 'service')`),
+    check(
+      "api_keys_personal_check",
+      sql`${table.kind} <> 'personal' OR (${table.createdByUserId} IS NOT NULL AND ${table.workspaceId} IS NOT NULL)`,
+    ),
     // Same vocabulary as grants.scopes, which may only narrow a key's.
     check(
       "api_keys_scopes_check",

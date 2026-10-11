@@ -1,6 +1,8 @@
 import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  createDatabaseIdentityReader,
+  createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -16,6 +18,7 @@ import {
   catalogRevision,
   createAuthorizationPolicy,
   createInterruptService,
+  createMemberService,
   createPendingRequestService,
   createSessionService,
   createUsageService,
@@ -56,6 +59,7 @@ import { createReadinessProbe } from "./readiness.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
@@ -147,7 +151,9 @@ const checkpoints = createApiCheckpoints(
   checkpointStorage,
   checkpointGitMemoryBytes,
 );
-const authorization = createAuthorizationPolicy();
+const authorization = createAuthorizationPolicy(
+  authMode === "none" ? {} : { identity: createDatabaseIdentityReader(db) },
+);
 const sessions = createSessionService({
   authorization,
   inputs: createPostgresSessionUnitOfWork(db),
@@ -169,6 +175,10 @@ const usage = createUsageService({
 const pendingRequests = createPendingRequestService({
   authorization,
   store: createPostgresPendingRequests(db),
+});
+const members = createMemberService({
+  authorization,
+  store: createPostgresMemberStore(db),
 });
 const interrupts = createInterruptService({
   authorization,
@@ -255,6 +265,7 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
+    registerMemberRoutes(router, members);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

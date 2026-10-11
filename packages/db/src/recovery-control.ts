@@ -23,6 +23,7 @@ import {
   lockIdempotencyScope,
   lockSessionForControl,
   parseTurnSequence,
+  receiptActorOf,
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
@@ -166,6 +167,7 @@ async function writeReceipt(
   await tx.insert(receipts).values({
     id: receiptId,
     ownerId: input.scope.principal,
+    actor: input.scope.actor,
     operation: input.scope.operation,
     targetRef: {
       session_id: input.scope.resource,
@@ -281,6 +283,7 @@ export function decideRecoveryAtomic(
   const sessionId = input.sessionId.toLowerCase();
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
+    actor: receiptActorOf(input.principal),
     operation: RECOVERY_DECISION,
     resource: sessionId,
     key: input.idempotencyKey,
@@ -816,6 +819,7 @@ export function resumeAtomic(
   const sessionId = input.sessionId.toLowerCase();
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
+    actor: receiptActorOf(input.principal),
     operation: RESUME,
     resource: sessionId,
     key: input.idempotencyKey,

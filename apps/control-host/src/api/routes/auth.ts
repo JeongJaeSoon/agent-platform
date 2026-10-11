@@ -465,12 +465,19 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         scopes: principal.scopes,
       });
     }
+    const workspaceId =
+      principal.kind === "user" ? null : principal.workspace_id;
+    const workspace =
+      workspaceId === null
+        ? null
+        : await storageMapped(() => deps.identity.findWorkspace(workspaceId));
+    if (workspaceId !== null && !workspace) {
+      throw new ApiHttpError(401, "UNAUTHORIZED", "Key is no longer valid");
+    }
     return jsonWithSchema(context, authMeResponseSchema, {
       principal,
       user: null,
-      // A legacy key stays unmapped until an owner_workspace_map row exists.
-      // TODO(94S-152): Read that mapping for the authenticated owner.
-      workspace: null,
+      workspace: workspace ? workspaceView(workspace) : null,
       scopes: principal.scopes,
     });
   });

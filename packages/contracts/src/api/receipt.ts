@@ -38,6 +38,8 @@ export const RECEIPT_OPERATION_VALUES = [
   // owner added or restored by BOOTSTRAP_TOKEN when no live owner remained.
   "reset_password",
   "recover_owner",
+  // An owner taking over a session whose requester was offboarded.
+  "takeover",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

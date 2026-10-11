@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type {
   IdentityStore,
   InterruptService,
+  MemberService,
   PendingRequestService,
   SessionService,
   UsageService,
@@ -13,6 +14,7 @@ import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
@@ -41,6 +43,7 @@ function apiApp() {
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
+      registerMemberRoutes(router, {} as MemberService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerEventRoutes(router, {} as SessionService, {

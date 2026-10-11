@@ -210,6 +210,7 @@ async function writeResumeReceipt(
   await tx.insert(receipts).values({
     id: receiptId,
     ownerId: input.scope.principal,
+    actor: input.scope.actor,
     operation: RESUME,
     targetRef,
     status: input.status,

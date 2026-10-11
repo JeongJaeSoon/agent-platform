@@ -163,11 +163,13 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/pending-requests",
         "/v1/sessions/{id}/recovery-decisions",
         "/v1/sessions/{id}/resume",
+        "/v1/sessions/{id}/takeover",
         "/v1/sessions/{id}/terminate",
         "/v1/sessions/{id}/turns",
         "/v1/sessions/{id}/turns/{turn_id}",
         "/v1/sessions/{id}/usage",
         "/v1/workspaces/{id}/members/{userId}/password-reset",
+        "/v1/takeovers",
       ].sort(),
     );
     const rendered = renderOpenApiDocument();
