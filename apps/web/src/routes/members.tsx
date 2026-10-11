@@ -1,8 +1,7 @@
-import {
-  type Invite,
-  type MemberView,
-  WORKSPACE_ROLE_VALUES,
-  type WorkspaceRole,
+import type {
+  Invite,
+  MemberView,
+  WorkspaceRole,
 } from "@agent-platform/contracts";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -15,6 +14,7 @@ import {
   roleLabel,
   usePermissionReason,
   useRole,
+  WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
 import { TextField } from "../components/field.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";

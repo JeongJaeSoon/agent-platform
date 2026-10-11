@@ -1,4 +1,8 @@
-import type { AuthMeResponse, SessionScope } from "@agent-platform/contracts";
+import type {
+  AuthMeResponse,
+  SessionScope,
+  WorkspaceRole,
+} from "@agent-platform/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { type ButtonHTMLAttributes, useId } from "react";
 import { ApiError, isApiError } from "../api/client.ts";
@@ -6,6 +10,12 @@ import { meQuery } from "../api/queries.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
+
+/** The roles a member can be given; client.test.ts pins it to the contract. */
+export const WORKSPACE_ROLE_VALUES: readonly WorkspaceRole[] = [
+  "owner",
+  "member",
+];
 
 /** The signed-in principal; screens under the authenticated layout only. */
 export function useMe(): AuthMeResponse | undefined {

@@ -5,7 +5,9 @@ import {
   CSRF_HEADER_NAME as CONTRACT_HEADER_NAME,
   CSRF_HEADER_VALUE as CONTRACT_HEADER_VALUE,
   PASSWORD_MIN_LENGTH as CONTRACT_PASSWORD_MIN_LENGTH,
+  WORKSPACE_ROLE_VALUES as CONTRACT_ROLE_VALUES,
 } from "@agent-platform/contracts";
+import { WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import { DISPLAY_NAME_MAX, PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { apiError, fakeApi, json, me } from "../test-support/fake-api.ts";
 import {
@@ -22,6 +24,7 @@ describe("API client", () => {
     expect(CSRF_HEADER_VALUE).toBe(CONTRACT_HEADER_VALUE);
     expect(PASSWORD_MIN_LENGTH).toBe(CONTRACT_PASSWORD_MIN_LENGTH);
     expect(DISPLAY_NAME_MAX).toBe(CONTRACT_DISPLAY_NAME_MAX);
+    expect(WORKSPACE_ROLE_VALUES).toEqual(CONTRACT_ROLE_VALUES);
   });
 
   test("the test principal is one the server could send", () => {
