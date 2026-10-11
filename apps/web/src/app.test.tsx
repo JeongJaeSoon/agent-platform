@@ -208,14 +208,20 @@ describe("bootstrap", () => {
       "owner@example.com",
     );
     await user.type(screen.getByLabelText("이름"), "Owner");
-    await user.type(
-      screen.getByLabelText(/^비밀번호/),
-      "correct horse battery",
-    );
+    await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
     await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
-    await user.type(screen.getByLabelText(/^워크스페이스 주소 이름/), "acme");
+    await user.type(screen.getByLabelText("워크스페이스 주소 이름"), "acme");
     await user.click(screen.getByRole("button", { name: "관리자 만들기" }));
   }
+
+  test("입력 힌트는 이름이 아니라 설명으로 붙는다", async () => {
+    renderAt("/bootstrap", {});
+    const password = await screen.findByLabelText("비밀번호");
+    const hint = document.getElementById(
+      password.getAttribute("aria-describedby") ?? "",
+    );
+    expect(hint?.textContent).toBe("12자 이상");
+  });
 
   test("만들고 나면 로그인으로 보낸다", async () => {
     const { api, history } = renderAt("/bootstrap", {

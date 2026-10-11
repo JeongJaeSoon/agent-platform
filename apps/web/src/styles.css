@@ -55,13 +55,22 @@ body {
 .web-skip {
   position: absolute;
   left: var(--ap-space-2);
-  top: calc(-1 * var(--ap-space-10));
+  top: var(--ap-space-2);
   padding: var(--ap-space-2) var(--ap-space-3);
   background: var(--ap-color-surface);
   border-radius: var(--ap-radius-sm);
+  transform: translateY(-200%);
 }
 .web-skip:focus {
-  top: var(--ap-space-2);
+  transform: none;
+}
+
+/* Tailwind's preflight strips link styling; a link must still look like one. */
+.web-auth a,
+.web-shell__main a:not(.ap-button) {
+  color: var(--ap-color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Every interactive element shows where the keyboard is. */
@@ -213,6 +222,11 @@ select:focus-visible,
 .web-shell__spacer {
   flex: 1;
 }
+.web-shell__bar .ap-button {
+  border-color: var(--ap-color-rail-muted-foreground);
+  background: transparent;
+  color: var(--ap-color-rail-foreground);
+}
 .web-shell__main {
   padding: var(--ap-space-4);
   width: 100%;
@@ -227,6 +241,10 @@ select:focus-visible,
   margin: 0 0 var(--ap-space-6);
   color: var(--ap-color-muted-foreground);
   overflow-wrap: anywhere;
+}
+.web-checklist h2 {
+  margin: 0 0 var(--ap-space-3);
+  font-size: var(--ap-text-lg);
 }
 .web-checklist ol {
   list-style: none;
@@ -260,6 +278,7 @@ select:focus-visible,
   justify-content: flex-end;
 }
 .web-locale {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: var(--ap-space-2);

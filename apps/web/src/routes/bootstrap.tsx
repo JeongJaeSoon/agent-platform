@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import { type ApiError, unwrap } from "../api/client.ts";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { Main } from "../components/main.tsx";
@@ -74,6 +74,7 @@ export function BootstrapScreen() {
   const { client } = useServices();
   const navigate = useNavigate();
   const [form, setForm] = useState<Form>(EMPTY);
+  const hintId = useId();
 
   const create = useMutation<unknown, ApiError>({
     mutationFn: () => unwrap(client.POST("/v1/auth/bootstrap", { body: form })),
@@ -102,38 +103,45 @@ export function BootstrapScreen() {
       <StatusScreen kind="bootstrap-required" action={false} />
       <p className="web-auth__intro">{t("bootstrap.intro")}</p>
       <form className="web-form" onSubmit={submit}>
-        {FIELDS.map((field) => (
-          <label className="web-field" key={field.name}>
-            <span>{t(field.label)}</span>
-            <input
-              className="ap-input"
-              name={field.name}
-              type={field.type}
-              autoComplete={field.autoComplete}
-              required
-              {...(field.name === "password"
-                ? { minLength: PASSWORD_MIN_LENGTH }
-                : {})}
-              {...(field.name === "workspace_slug"
-                ? { pattern: "[a-z0-9][a-z0-9\\-]*", maxLength: 64 }
-                : {})}
-              value={form[field.name]}
-              onChange={(event) =>
-                setForm({ ...form, [field.name]: event.target.value })
-              }
-            />
-            {field.name === "password" ? (
-              <small className="web-field__hint">
-                {t("bootstrap.passwordHint", { min: PASSWORD_MIN_LENGTH })}
-              </small>
-            ) : null}
-            {field.name === "workspace_slug" ? (
-              <small className="web-field__hint">
-                {t("bootstrap.workspaceSlugHint")}
-              </small>
-            ) : null}
-          </label>
-        ))}
+        {FIELDS.map((field) => {
+          const hint =
+            field.name === "password"
+              ? t("bootstrap.passwordHint", { min: PASSWORD_MIN_LENGTH })
+              : field.name === "workspace_slug"
+                ? t("bootstrap.workspaceSlugHint")
+                : null;
+          const describedBy = `${hintId}-${field.name}`;
+          return (
+            <div className="web-field" key={field.name}>
+              <label className="web-field">
+                <span>{t(field.label)}</span>
+                <input
+                  className="ap-input"
+                  name={field.name}
+                  type={field.type}
+                  autoComplete={field.autoComplete}
+                  required
+                  {...(hint ? { "aria-describedby": describedBy } : {})}
+                  {...(field.name === "password"
+                    ? { minLength: PASSWORD_MIN_LENGTH }
+                    : {})}
+                  {...(field.name === "workspace_slug"
+                    ? { pattern: "[a-z0-9][a-z0-9\\-]*", maxLength: 64 }
+                    : {})}
+                  value={form[field.name]}
+                  onChange={(event) =>
+                    setForm({ ...form, [field.name]: event.target.value })
+                  }
+                />
+              </label>
+              {hint ? (
+                <small id={describedBy} className="web-field__hint">
+                  {hint}
+                </small>
+              ) : null}
+            </div>
+          );
+        })}
         {errorText ? (
           <p className="web-form__error" role="alert">
             {errorText}
