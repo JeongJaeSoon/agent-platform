@@ -12,7 +12,7 @@
 
 ## How to get to it (user POV)
 
-- (아직 없음) 웹 콘솔의 멤버·팀·연결·key 화면. 지금 있는 것은 [web-login.md](./web-login.md)의 bootstrap·login·me뿐이다. 초대 수락 계약(`acceptInviteRequestSchema`)은 `packages/contracts/src/musterrolle/auth.ts`에 있지만 route는 아직 없다.
+- 웹 콘솔의 초대 수락·구성원 화면은 [web-members-agents.md](./web-members-agents.md)에 있다(시나리오 a의 웹 쪽). 팀·연결·key 화면은 아직 없다.
 - (아직 없음) 같은 동작의 HTTP API.
 - c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다.
 

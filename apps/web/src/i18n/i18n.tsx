@@ -31,9 +31,13 @@ export function translate(
   );
 }
 
+export function isMessageKey(key: string): key is MessageKey {
+  return Object.hasOwn(ko, key);
+}
+
 export function errorKey(code: string): MessageKey {
   const key = `error.${code}`;
-  return Object.hasOwn(ko, key) ? (key as MessageKey) : "error.UNKNOWN";
+  return isMessageKey(key) ? key : "error.UNKNOWN";
 }
 
 function isLocale(value: unknown): value is Locale {
