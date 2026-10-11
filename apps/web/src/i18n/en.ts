@@ -48,6 +48,7 @@ export const en: Record<MessageKey, string> = {
   "home.checklist.invite": "Invite members",
   "home.checklist.agent": "Set up an agent",
   "home.checklist.session": "Start the first session",
+  "home.checklist.unknown": "Cannot tell",
 
   "status.loading.title": "Checking your sign-in",
   "status.loginRequired.title": "Log in again",
