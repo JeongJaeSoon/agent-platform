@@ -1,0 +1,128 @@
+import { useMutation } from "@tanstack/react-query";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { type FormEvent, useState } from "react";
+import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "../api/client.ts";
+import { Main } from "../components/main.tsx";
+import { StatusScreen } from "../components/status-screen.tsx";
+import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { useServices } from "../services.tsx";
+
+const NOTICES = ["bootstrap_done", "logged_out", "created"] as const;
+type Notice = (typeof NOTICES)[number];
+
+export interface LoginSearch {
+  /** Where to go after logging in; a same-origin path only. */
+  readonly redirect?: string;
+  readonly notice?: Notice;
+}
+
+/**
+ * Only a path on this origin survives: `//evil.example` and `https://…`
+ * would turn the login page into an open redirect.
+ */
+export function safeRedirect(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if (!value.startsWith("/") || value.startsWith("//")) return undefined;
+  if (value.includes("\\")) return undefined;
+  return value;
+}
+
+export function loginSearch(search: Record<string, unknown>): LoginSearch {
+  const redirect = safeRedirect(search.redirect);
+  const notice = NOTICES.find((value) => value === search.notice);
+  return {
+    ...(redirect ? { redirect } : {}),
+    ...(notice ? { notice } : {}),
+  };
+}
+
+const NOTICE_KEY = {
+  bootstrap_done: "login.notice.bootstrapDone",
+  logged_out: "login.notice.loggedOut",
+  created: "login.notice.created",
+} as const;
+
+export function LoginScreen() {
+  const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const navigate = useNavigate();
+  const search = useSearch({ from: "/login" });
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const login = useMutation<unknown, ApiError>({
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/auth/login", {
+          // Declared on the operation, so the types ask for it; the
+          // middleware would set the same value anyway.
+          params: { header: { "X-Requested-With": CSRF_HEADER_VALUE } },
+          body: { email, password },
+        }),
+      ),
+    onSuccess: async () => {
+      // A different account may be logging in: nothing cached may carry over.
+      queryClient.clear();
+      await navigate({ to: search.redirect ?? "/" });
+    },
+  });
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    login.mutate();
+  };
+
+  return (
+    <Main className="web-auth">
+      <h1 className="web-auth__title">{t("login.title")}</h1>
+      {search.redirect ? (
+        <StatusScreen kind="login-required" action={false} />
+      ) : null}
+      {search.notice ? (
+        <output className="web-notice">{t(NOTICE_KEY[search.notice])}</output>
+      ) : null}
+      <form className="web-form" onSubmit={submit}>
+        <label className="web-field">
+          <span>{t("login.email")}</span>
+          <input
+            className="ap-input"
+            type="email"
+            name="email"
+            autoComplete="username"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+        <label className="web-field">
+          <span>{t("login.password")}</span>
+          <input
+            className="ap-input"
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        {login.error ? (
+          <p className="web-form__error" role="alert">
+            {t(errorKey(login.error.code))}
+          </p>
+        ) : null}
+        <button
+          type="submit"
+          className="ap-button ap-button--primary"
+          disabled={login.isPending}
+        >
+          {login.isPending ? t("login.submitting") : t("login.submit")}
+        </button>
+      </form>
+      <p className="web-auth__aside">
+        {t("login.bootstrapPrompt")}{" "}
+        <Link to="/bootstrap">{t("login.bootstrapLink")}</Link>
+      </p>
+    </Main>
+  );
+}

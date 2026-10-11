@@ -1,0 +1,74 @@
+import type { MessageKey } from "./ko.ts";
+
+export const en: Record<MessageKey, string> = {
+  "common.appName": "Agent Platform",
+  "common.retry": "Try again",
+  "common.logout": "Log out",
+  "common.loggingOut": "Logging out…",
+  "common.language": "Language",
+  "common.skipToContent": "Skip to content",
+  "common.done": "Done",
+  "common.pending": "Upcoming",
+
+  "login.title": "Log in",
+  "login.email": "Email",
+  "login.password": "Password",
+  "login.submit": "Log in",
+  "login.submitting": "Logging in…",
+  "login.bootstrapPrompt": "Just installed? Create the first admin.",
+  "login.bootstrapLink": "Create the first admin",
+  "login.notice.bootstrapDone":
+    "An admin already exists. Log in with that account.",
+  "login.notice.loggedOut": "You are logged out.",
+  "login.notice.created":
+    "The admin is ready. Log in with the password you just set.",
+
+  "bootstrap.title": "Create the first admin",
+  "bootstrap.intro":
+    "Use the bootstrap token printed once at install to create the first admin and workspace. The token works only once.",
+  "bootstrap.token": "Bootstrap token",
+  "bootstrap.email": "Admin email",
+  "bootstrap.displayName": "Name",
+  "bootstrap.password": "Password",
+  "bootstrap.passwordHint": "At least {min} characters",
+  "bootstrap.workspaceName": "Workspace name",
+  "bootstrap.workspaceSlug": "Workspace handle",
+  "bootstrap.workspaceSlugHint": "Lowercase letters, digits and hyphens",
+  "bootstrap.submit": "Create admin",
+  "bootstrap.submitting": "Creating…",
+  "bootstrap.tokenInvalid":
+    "The bootstrap token is wrong — paste the value printed at install.",
+  "bootstrap.loginLink": "Already have an admin? Log in",
+
+  "home.title": "Workspace",
+  "home.signedInAs": "Logged in as {name} ({email})",
+  "home.checklist.title": "Getting started",
+  "home.checklist.admin": "Create the admin account",
+  "home.checklist.invite": "Invite members",
+  "home.checklist.agent": "Set up an agent",
+  "home.checklist.session": "Start the first session",
+
+  "status.loading.title": "Checking your sign-in",
+  "status.loginRequired.title": "Log in again",
+  "status.loginRequired.body":
+    "Your sign-in ended, or this account can no longer get in.",
+  "status.loginRequired.action": "Go to log in",
+  "status.forbidden.title": "You do not have access to this page",
+  "status.forbidden.body": "Ask a workspace admin for access if you need it.",
+  "status.bootstrapRequired.title": "There is no admin yet",
+  "status.bootstrapRequired.body":
+    "Create the first admin with the bootstrap token from the install.",
+  "status.bootstrapRequired.action": "Create the first admin",
+  "status.error.title": "Something went wrong",
+
+  "guard.missingScope": "Requires the {scope} permission.",
+
+  "error.BAD_REQUEST": "Check the form and send it again.",
+  "error.UNAUTHORIZED": "The email or password is wrong.",
+  "error.FORBIDDEN": "Not allowed — ask an admin.",
+  "error.BOOTSTRAP_DONE": "An admin already exists — go to log in.",
+  "error.RATE_LIMITED": "Too many attempts — try again shortly.",
+  "error.BACKEND_UNAVAILABLE": "The server is unavailable — try again shortly.",
+  "error.NETWORK_ERROR": "Could not reach the server — check your connection.",
+  "error.UNKNOWN": "That did not work — try again shortly.",
+};

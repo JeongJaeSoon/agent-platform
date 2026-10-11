@@ -1,0 +1,294 @@
+/*
+ * Tailwind reads the packages/ui tokens through `@theme inline`, so a utility
+ * like `bg-canvas` resolves to var(--ap-color-canvas) at runtime and follows
+ * the dark theme with no rebuild. Values live in tokens.css only.
+ * 360px is the narrowest supported width: nothing here is wider than that.
+ */
+@import "tailwindcss";
+@import "@agent-platform/ui/styles.css";
+
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@theme inline {
+  --color-canvas: var(--ap-color-canvas);
+  --color-surface: var(--ap-color-surface);
+  --color-surface-sunken: var(--ap-color-surface-sunken);
+  --color-rail: var(--ap-color-rail);
+  --color-rail-foreground: var(--ap-color-rail-foreground);
+  --color-border: var(--ap-color-border);
+  --color-border-strong: var(--ap-color-border-strong);
+  --color-foreground: var(--ap-color-foreground);
+  --color-muted-foreground: var(--ap-color-muted-foreground);
+  --color-accent: var(--ap-color-accent);
+  --color-accent-hover: var(--ap-color-accent-hover);
+  --color-accent-foreground: var(--ap-color-accent-foreground);
+  --color-focus-ring: var(--ap-color-focus-ring);
+  --font-sans: var(--ap-font-sans);
+  --font-mono: var(--ap-font-mono);
+  --radius-sm: var(--ap-radius-sm);
+  --radius-md: var(--ap-radius-md);
+  --radius-lg: var(--ap-radius-lg);
+  --shadow-sm: var(--ap-shadow-sm);
+  --shadow-md: var(--ap-shadow-md);
+  --shadow-lg: var(--ap-shadow-lg);
+}
+
+body {
+  margin: 0;
+  background: var(--ap-color-canvas);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+  line-height: var(--ap-leading-normal);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.web-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.web-skip {
+  position: absolute;
+  left: var(--ap-space-2);
+  top: calc(-1 * var(--ap-space-10));
+  padding: var(--ap-space-2) var(--ap-space-3);
+  background: var(--ap-color-surface);
+  border-radius: var(--ap-radius-sm);
+}
+.web-skip:focus {
+  top: var(--ap-space-2);
+}
+
+/* Every interactive element shows where the keyboard is. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ap-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.web-auth {
+  width: 100%;
+  max-width: min(100%, 28rem);
+  margin: 0 auto;
+  padding: var(--ap-space-6) var(--ap-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-4);
+}
+.web-auth__title {
+  font-size: var(--ap-text-xl);
+  margin: 0;
+}
+.web-auth__intro,
+.web-auth__aside {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-sm);
+  margin: 0;
+}
+
+.web-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-3);
+}
+.web-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-1);
+  font-size: var(--ap-text-label);
+}
+.web-field .ap-input {
+  width: 100%;
+}
+.web-field__hint {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+}
+.web-form__error {
+  margin: 0;
+  color: var(--ap-tone-danger-fg);
+}
+
+.web-notice {
+  display: block;
+  margin: 0;
+  padding: var(--ap-space-3);
+  border: 1px solid var(--ap-tone-progress-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-tone-progress-bg);
+  color: var(--ap-tone-progress-fg);
+}
+
+.web-status {
+  padding: var(--ap-space-4);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ap-space-2);
+}
+.web-status[data-status="forbidden"],
+.web-status[data-status="error"] {
+  border-color: var(--ap-tone-danger-border);
+}
+.web-status[data-status="bootstrap-required"] {
+  border-color: var(--ap-tone-attention-border);
+}
+.web-status__title {
+  margin: 0;
+  font-weight: var(--ap-weight-bold);
+  font-size: var(--ap-text-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--ap-space-2);
+}
+.web-status__body,
+.web-status__detail {
+  margin: 0;
+}
+.web-status__detail {
+  color: var(--ap-color-muted-foreground);
+  font-family: var(--ap-font-mono);
+  font-size: var(--ap-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.web-spinner {
+  width: 1em;
+  height: 1em;
+  border: 2px solid var(--ap-color-border-strong);
+  border-top-color: var(--ap-color-accent);
+  border-radius: var(--ap-radius-pill);
+  animation: web-spin var(--ap-motion-normal) linear infinite;
+  animation-duration: 900ms;
+}
+@keyframes web-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.web-guarded {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--ap-space-1);
+}
+.web-guarded__reason {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+}
+
+.web-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.web-shell__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ap-space-2) var(--ap-space-3);
+  padding: var(--ap-space-3) var(--ap-space-4);
+  background: var(--ap-color-rail);
+  color: var(--ap-color-rail-foreground);
+}
+.web-shell__brand {
+  font-weight: var(--ap-weight-bold);
+}
+.web-shell__workspace,
+.web-shell__user {
+  color: var(--ap-color-rail-muted-foreground);
+  font-size: var(--ap-text-sm);
+}
+.web-shell__spacer {
+  flex: 1;
+}
+.web-shell__main {
+  padding: var(--ap-space-4);
+  width: 100%;
+  max-width: min(100%, var(--ap-layout-reading-width));
+}
+
+.web-home__title {
+  margin: 0 0 var(--ap-space-2);
+  font-size: var(--ap-text-xl);
+}
+.web-home__who {
+  margin: 0 0 var(--ap-space-6);
+  color: var(--ap-color-muted-foreground);
+  overflow-wrap: anywhere;
+}
+.web-checklist ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+}
+.web-checklist__step {
+  display: flex;
+  align-items: center;
+  gap: var(--ap-space-3);
+  padding: var(--ap-space-3);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+}
+.web-checklist__step[data-done="false"] {
+  color: var(--ap-color-muted-foreground);
+}
+.web-checklist__state {
+  margin-left: auto;
+  font-size: var(--ap-text-xs);
+}
+
+.web-footer {
+  margin-top: auto;
+  padding: var(--ap-space-4);
+  display: flex;
+  justify-content: flex-end;
+}
+.web-locale {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ap-space-2);
+  font-size: var(--ap-text-sm);
+}
+
+/* 768: the tablet step — more air around the forms and the shell. */
+@media (min-width: 48rem) {
+  .web-auth {
+    padding: var(--ap-space-10) var(--ap-space-6);
+  }
+  .web-shell__bar {
+    padding: var(--ap-space-3) var(--ap-space-6);
+  }
+  .web-shell__main {
+    padding: var(--ap-space-8) var(--ap-space-6);
+  }
+}
+
+/* 1440: the desktop step — the content column centres in the canvas. */
+@media (min-width: 90rem) {
+  .web-shell__main {
+    margin: 0 auto;
+    padding: var(--ap-space-10) var(--ap-space-8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .web-spinner {
+    animation: none;
+  }
+}
