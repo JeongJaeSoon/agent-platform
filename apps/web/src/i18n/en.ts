@@ -202,6 +202,9 @@ export const en: Record<MessageKey, string> = {
     "Saving makes a new version. The active release stays as it is.",
   "agent.card.save": "Save",
   "agent.card.saving": "Saving…",
+  "agent.card.stale":
+    "Someone saved the card elsewhere; the latest is now version {version}. Your edits are kept. Saving now makes them the next version.",
+  "agent.card.takeLatest": "Load the latest card",
   "agent.versions.title": "Version history",
   "agent.versions.active": "active",
   "agent.versions.before": "Compare from",
