@@ -85,8 +85,8 @@ export async function expireAuthzDecisions(
     SELECT d.id FROM ${authzDecisions} d
     LEFT JOIN ${workspaces} w ON w.id = d.workspace_id
     -- The bare floor lets authz_decisions_at_idx bound the scan.
-    WHERE d.at < clock_timestamp() - make_interval(days => ${AUDIT_RETENTION_MIN_DAYS}::int)
-      AND d.at < clock_timestamp() - make_interval(days => greatest(
+    WHERE d.at < statement_timestamp() - make_interval(days => ${AUDIT_RETENTION_MIN_DAYS}::int)
+      AND d.at < statement_timestamp() - make_interval(days => greatest(
       ${AUDIT_RETENTION_MIN_DAYS}::int,
       coalesce(
         CASE WHEN jsonb_typeof(w.settings -> 'audit_retention_days') = 'number'
