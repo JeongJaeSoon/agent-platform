@@ -734,6 +734,49 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       ...asCookie(cookies.owner),
       "Idempotency-Key": crypto.randomUUID(),
     });
+    // Recovery: owners only, past the share only with the decision's reason.
+    const decision = {
+      decision: "close",
+      expected_revision: revision,
+      reason: "unknown outcome; customer waiting",
+    };
+    const plain = await send(
+      "POST",
+      `/v1/sessions/${sessionId}/recovery-decisions`,
+      headers(),
+      decision,
+    );
+    expect(plain.status).toBe(404);
+    const blank = await send(
+      "POST",
+      `/v1/admin/sessions/${sessionId}/recovery-decisions`,
+      headers(),
+      { ...decision, reason: "  " },
+    );
+    expect(blank.status).toBe(404);
+    const recovered = await send(
+      "POST",
+      `/v1/admin/sessions/${sessionId}/recovery-decisions`,
+      headers(),
+      decision,
+    );
+    // Past the share; the session is simply not awaiting a decision.
+    expect(recovered.status).toBe(409);
+    const byAdmin = await send(
+      "POST",
+      `/v1/admin/sessions/${sessionId}/recovery-decisions`,
+      { ...asCookie(cookies.admin), "Idempotency-Key": crypto.randomUUID() },
+      decision,
+    );
+    expect(byAdmin.status).toBe(403);
+    expect(
+      (await decisionsOf("session.recover", "owner")).map((d) => [
+        d.outcome,
+        d.justification,
+      ]),
+    ).toEqual(
+      expect.arrayContaining([["allow", "unknown outcome; customer waiting"]]),
+    );
     const ordinary = await send(
       "POST",
       `/v1/sessions/${sessionId}/terminate`,

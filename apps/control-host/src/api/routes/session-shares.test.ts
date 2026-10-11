@@ -76,7 +76,7 @@ const fails =
 function app(
   shares: Partial<SessionShareService>,
   sessions: Partial<
-    Pick<SessionService, "auditRead" | "terminateSession">
+    Pick<SessionService, "auditRead" | "terminateSession" | "decideRecovery">
   > = {},
 ) {
   return createApiApp({
@@ -368,6 +368,69 @@ describe("POST /v1/admin/sessions/{id}/terminate", () => {
         "POST",
         path,
         { expected_revision: 3, justification: "x" },
+        key,
+      );
+      expect(response.status).toBe(status);
+    }
+  });
+});
+
+describe("POST /v1/admin/sessions/{id}/recovery-decisions", () => {
+  const path = `/v1/admin/sessions/${SESSION}/recovery-decisions`;
+  const key = { "Idempotency-Key": "key-1" };
+  const DECISION = {
+    decision: "close",
+    expected_revision: 3,
+    reason: "owner left; customer waiting",
+  };
+
+  test("decides with the reason as the justification", async () => {
+    let asked: unknown;
+    const response = await call(
+      app(
+        {},
+        {
+          decideRecovery: async (_caller, _id, input) => {
+            asked = input;
+            return { receipt_id: RECEIPT, receipt_status: "accepted" };
+          },
+        },
+      ),
+      "POST",
+      path,
+      DECISION,
+      key,
+    );
+    expect(response.status).toBe(202);
+    expect(asked).toEqual({
+      idempotencyKey: "key-1",
+      body: DECISION,
+      justification: DECISION.reason,
+    });
+  });
+
+  test("a reason, a revision and a key are required", async () => {
+    const api = app({});
+    const { reason: _, ...unreasoned } = DECISION;
+    expect((await call(api, "POST", path, unreasoned, key)).status).toBe(400);
+    expect((await call(api, "POST", path, DECISION)).status).toBe(400);
+    expect(
+      (await call(api, "POST", path, { ...DECISION, pad: PAD }, key)).status,
+    ).toBe(413);
+  });
+
+  test("every refusal maps to its status", async () => {
+    for (const [code, status] of [
+      ["FORBIDDEN", 403],
+      ["NOT_FOUND", 404],
+      ["REQUEST_STALE", 409],
+      ["UNSUPPORTED_CAPABILITY", 422],
+    ] as const) {
+      const response = await call(
+        app({}, { decideRecovery: fails(code) }),
+        "POST",
+        path,
+        DECISION,
         key,
       );
       expect(response.status).toBe(status);

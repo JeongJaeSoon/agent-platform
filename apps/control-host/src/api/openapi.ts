@@ -636,6 +636,32 @@ const API_ROUTE_DECLARATIONS = [
     },
   },
   {
+    method: "post",
+    path: "/v1/admin/sessions/{id}/recovery-decisions",
+    operationId: "adminDecideSessionRecovery",
+    tag: "Recovery",
+    summary: "Decide recovery for any session of the workspace",
+    description:
+      "Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.",
+    auth: "session",
+    body: "RecoveryDecisionRequest",
+    success: { status: 202, schema: "ReceiptAcceptedResponse" },
+    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "REQUEST_STALE",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+    },
+  },
+  {
     method: "get",
     path: "/v1/sessions/{id}/usage",
     operationId: "getSessionUsage",
