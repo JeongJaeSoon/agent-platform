@@ -348,6 +348,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
           kind: "slack",
           slack_user_kind: "member",
           ceiling: { actions: ["session.submit"], disclosure: "full" },
+          agent_id: crypto.randomUUID(),
         },
       },
       action: "session.submit",

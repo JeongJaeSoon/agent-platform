@@ -283,7 +283,7 @@ describe("authorize", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: without("sessions:recover"),
-      policy_version: "m9",
+      policy_version: "m14",
     });
   });
 
@@ -352,6 +352,7 @@ describe("authorize", () => {
         kind: "slack",
         channel_kind: "public_channel",
         slack_user_kind: "member",
+        agent_id: "019a0000-0000-7000-8000-00000000b0c1",
       },
       "req-2",
     );
@@ -890,7 +891,7 @@ describe("decision log", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: [],
-      policy_version: "m9",
+      policy_version: "m14",
       decision_id: crypto.randomUUID(),
     };
     expect(
