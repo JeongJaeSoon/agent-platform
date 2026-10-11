@@ -32,6 +32,7 @@ const integrationTest = testDatabaseUrl() ? test : test.skip;
 // Listed exactly, so a migration that loses, disables or rewrites one fails
 // as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
+  "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0127, capped by 0129: a session's provider tokens are counted as usage
@@ -39,6 +40,7 @@ const MIGRATIONS_ONLY = [
   "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 10b430e39e60b9de258ff213c7718c04",
   // 0107: retained input is charged to storage_usage as turns are inserted.
   "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
+  "trigger CREATE TRIGGER authz_decisions_append_only BEFORE UPDATE ON public.authz_decisions FOR EACH ROW EXECUTE FUNCTION authz_decisions_refuse_update() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_tokens AFTER INSERT ON public.provider_usage FOR EACH ROW EXECUTE FUNCTION sessions_count_provider_tokens() enabled=O",
   "trigger CREATE TRIGGER turns_charge_storage AFTER INSERT ON public.turns FOR EACH ROW EXECUTE FUNCTION storage_usage_charge_turn() enabled=O",
 ];

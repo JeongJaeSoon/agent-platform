@@ -282,6 +282,7 @@ export function createPostgresPendingRequests(
       const scope = {
         principal: input.principal.ownerId,
         actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: ANSWER,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -376,6 +377,7 @@ export function createPostgresPendingRequests(
           id: receiptId,
           ownerId: scope.principal,
           actor: scope.actor,
+          requestId: scope.requestId,
           operation: ANSWER,
           targetRef: {
             session_id: sessionId,

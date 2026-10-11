@@ -211,6 +211,7 @@ async function writeResumeReceipt(
     id: receiptId,
     ownerId: input.scope.principal,
     actor: input.scope.actor,
+    requestId: input.scope.requestId,
     operation: RESUME,
     targetRef,
     status: input.status,
