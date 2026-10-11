@@ -21,6 +21,8 @@ const BINDING = "019a0000-0000-7000-8000-0000000000a4";
 const SESSION = "019a0000-0000-7000-8000-0000000000a5";
 const OTHER_AGENT = "019a0000-0000-7000-8000-0000000000a6";
 const OTHER_SESSION = "019a0000-0000-7000-8000-0000000000a7";
+// Shared with its creator, userId(1), alone.
+const PRIVATE_SESSION = "019a0000-0000-7000-8000-0000000000a8";
 const APP = "A0RESEARCH";
 const TEAM = "T0OPS";
 const CONNECT_URL = "https://app.example/settings/accounts";
@@ -90,11 +92,19 @@ const deps = () => ({
     identity,
     slackGuests: { enabled: async () => guestsEnabled },
     credentials: { unboundRefs: async () => [] },
+    sessions: {
+      async visibleTo(_ownerId, sessionId, viewer) {
+        return sessionId !== PRIVATE_SESSION || viewer.userId === userId(1);
+      },
+      async originOf() {
+        return null;
+      },
+    },
     agents: {
       async agentOf(_workspaceId, resource) {
         if (resource.kind === "agent") return resource.id;
         if (resource.id === OTHER_SESSION) return OTHER_AGENT;
-        return resource.id === SESSION || resource.id === BINDING
+        return [SESSION, PRIVATE_SESSION, BINDING].includes(resource.id)
           ? AGENT
           : null;
       },
@@ -420,6 +430,27 @@ describe("a channel whose ceiling is a summary (D13)", () => {
       }),
     );
     expect(asked.decision.outcome).toBe("allow");
+  });
+});
+
+describe("a session outside the share", () => {
+  test("does not exist for a linked member's press, and is the creator's", async () => {
+    link("U0B", 1);
+    link("U0C", 2);
+    const onPrivate = (user: SlackUser) =>
+      input(user, {
+        action: "session.approve",
+        resource: { kind: "session", id: PRIVATE_SESSION },
+      });
+
+    expect(await judge(onPrivate(slackUser("U0C")))).toMatchObject({
+      actorUserId: null,
+      decision: { outcome: "deny", reason_code: "not_found" },
+      notice: { text: SLACK_NOTICE_MESSAGES.outOfShare },
+    });
+    expect((await judge(onPrivate(slackUser("U0B")))).decision.outcome).toBe(
+      "allow",
+    );
   });
 });
 
