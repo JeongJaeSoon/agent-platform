@@ -61,6 +61,7 @@ describe("database schema", () => {
       "agent_activation_events",
       "agent_admin_teams",
       "agent_admins",
+      "agent_identities",
       "agent_releases",
       "agent_versions",
       "agents",

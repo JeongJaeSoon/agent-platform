@@ -101,6 +101,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/releases",
     "POST /v1/agents/{id}/activate",
   ],
+  "routes/agent-identities.test.ts": [
+    "POST /v1/agents/{id}/identities",
+    "GET /v1/agents/{id}/identities",
+    "DELETE /v1/agents/{id}/identities/{identity_id}",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims

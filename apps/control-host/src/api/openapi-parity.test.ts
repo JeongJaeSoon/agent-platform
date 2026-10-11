@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type {
   AgentAdminService,
+  AgentIdentityService,
   AgentService,
   ApiKeyService,
   CredentialBindingService,
@@ -19,6 +20,7 @@ import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
+import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -73,6 +75,9 @@ function apiApp() {
       registerInterruptRoutes(router, {} as InterruptService);
       registerMemberRoutes(router, {} as MemberService, {} as InviteService);
       registerAgentRoutes(router, {} as AgentService);
+      registerAgentIdentityRoutes(router, {
+        service: {} as AgentIdentityService,
+      });
       registerLinkedAccountRoutes(router, {
         service: {} as LinkedAccountService,
         slack: null,

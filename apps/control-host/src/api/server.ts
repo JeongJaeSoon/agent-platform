@@ -4,6 +4,7 @@ import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentAdminStore,
+  createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresAuditRetention,
   createPostgresCredentialBindingStore,
@@ -27,6 +28,7 @@ import { createLogger } from "@agent-platform/observability";
 import {
   catalogRevision,
   createAgentAdminService,
+  createAgentIdentityService,
   createAgentService,
   createApiKeyService,
   createAuthorizationPolicy,
@@ -79,6 +81,7 @@ import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -227,6 +230,10 @@ const pendingRequests = createPendingRequestService({
 const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
+});
+const agentIdentities = createAgentIdentityService({
+  authorization,
+  store: createPostgresAgentIdentityStore(db),
 });
 const linkedAccounts = createLinkedAccountService({
   authorization,
@@ -382,6 +389,10 @@ const app = createApiApp({
     });
     registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
+    registerAgentIdentityRoutes(router, {
+      service: agentIdentities,
+      logger,
+    });
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerCredentialBindingRoutes(router, credentialBindingService);

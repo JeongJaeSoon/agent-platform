@@ -1,5 +1,7 @@
 import {
   ADMISSION_STATE_VALUES,
+  AGENT_IDENTITY_PROVIDER_VALUES,
+  AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
@@ -374,6 +376,12 @@ export const slackInstallations = pgTable(
   },
   (table) => [
     unique("slack_installations_app_team_uniq").on(table.appId, table.teamId),
+    // What agent_identities references, so an identity cannot pin another
+    // workspace's install.
+    unique("slack_installations_workspace_id_key").on(
+      table.workspaceId,
+      table.id,
+    ),
     check(
       "slack_installations_status_check",
       sql`${table.status} IN ('pending', 'verified', 'revoked')`,
@@ -1522,8 +1530,7 @@ export const agents = pgTable(
 );
 
 // An agent's admins (design 4.1): a member gains that agent's management
-// actions. Whoever creates an agent is its first (D3). A team as admin is a
-// row of agent_admin_teams.
+// actions. Whoever creates an agent is its first (D3). A team as admin is M13.
 export const agentAdmins = pgTable(
   "agent_admins",
   {
@@ -1641,6 +1648,65 @@ export const agentAdminTeams = pgTable(
       foreignColumns: [memberTeams.workspaceId, memberTeams.id],
     }),
     index("agent_admin_teams_team_idx").on(table.teamId),
+  ],
+);
+
+// "This Slack app and bot is this agent" (design A.2, M8). App and team are
+// the install's; the bot user is pinned here, so a reinstall that answers as
+// another bot resolves to no one until linked again.
+export const agentIdentities = pgTable(
+  "agent_identities",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    provider: text().$type<"slack_bot">().notNull(),
+    installationId: uuid("installation_id").notNull(),
+    /** The bot user id `auth.test` reported when the identity was linked. */
+    externalPrincipalId: text("external_principal_id").notNull(),
+    /** The bot token's name in the secret store; the value is never here. */
+    credentialRef: text("credential_ref").notNull(),
+    status: text().$type<"active" | "revoked">().notNull().default("active"),
+    revision: integer().notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedBy: uuid("revoked_by").references(() => users.id),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_identities_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "agent_identities_installation_fk",
+      columns: [table.workspaceId, table.installationId],
+      foreignColumns: [slackInstallations.workspaceId, slackInstallations.id],
+    }),
+    // An event's app and team name one agent at most.
+    uniqueIndex("agent_identities_installation_live_uniq")
+      .on(table.installationId)
+      .where(sql`${table.status} = 'active'`),
+    index("agent_identities_agent_idx").on(table.agentId),
+    check(
+      "agent_identities_provider_check",
+      sql`${table.provider} IN (${sql.raw(sqlList(AGENT_IDENTITY_PROVIDER_VALUES))})`,
+    ),
+    check(
+      "agent_identities_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(AGENT_IDENTITY_STATUS_VALUES))})`,
+    ),
+    check(
+      "agent_identities_revoked_check",
+      sql`(${table.status} = 'revoked') = (${table.revokedAt} IS NOT NULL)`,
+    ),
+    check(
+      "agent_identities_credential_ref_check",
+      sql`${table.credentialRef} ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'`,
+    ),
   ],
 );
 
