@@ -7,7 +7,9 @@ _verify_root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-agent-
 _verify_run=${1:-$(cat "$_verify_root/latest" 2>/dev/null)}
 # Without a loaded run every helper would fall through to the default
 # project, so refuse to define them at all.
-unset VERIFY_RUN VERIFY_REPO VERIFY_API COMPOSE_PROJECT_NAME
+unset VERIFY_RUN VERIFY_REPO VERIFY_API VERIFY_BUILT_FROM VERIFY_BOOTSTRAP_TOKEN API EVIDENCE \
+  COMPOSE_PROJECT_NAME COMPOSE_FILE EXECUTION_INSTALLATION_ID API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
+unset -f ap_compose ap_key ap_revoke ap_get ap_post ap_web 2>/dev/null
 if [ -z "$_verify_run" ] || ! . "$_verify_run/state.env" ||
   [ -z "${VERIFY_REPO:-}" ] || [ -z "${VERIFY_API:-}" ] ||
   case "${COMPOSE_PROJECT_NAME:-}" in verify-ap-*) false ;; *) true ;; esac; then
