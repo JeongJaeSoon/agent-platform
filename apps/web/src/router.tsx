@@ -25,6 +25,7 @@ import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
 import { MembersScreen } from "./routes/members.tsx";
+import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -104,6 +105,18 @@ const members = createRoute({
   component: MembersScreen,
 });
 
+const teams = createRoute({
+  getParentRoute: () => authed,
+  path: "/teams",
+  component: TeamsScreen,
+});
+
+const team = createRoute({
+  getParentRoute: () => authed,
+  path: "/teams/$teamId",
+  component: TeamDetailScreen,
+});
+
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
@@ -129,7 +142,7 @@ const routeTree = root.addChildren([
   bootstrap,
   googleCallback,
   invite,
-  authed.addChildren([home, members, agents, newAgent, agent]),
+  authed.addChildren([home, members, teams, team, agents, newAgent, agent]),
 ]);
 
 export function createAppRouter(services: Services, history?: RouterHistory) {
