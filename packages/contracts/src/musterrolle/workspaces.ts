@@ -24,6 +24,16 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+export const AUDIT_RETENTION_DEFAULT_DAYS = 90;
+export const AUDIT_RETENTION_MIN_DAYS = 30;
+// The upper bound only keeps a typo from meaning forever.
+export const AUDIT_RETENTION_MAX_DAYS = 3650;
+export const auditRetentionDaysSchema = z
+  .number()
+  .int()
+  .min(AUDIT_RETENTION_MIN_DAYS)
+  .max(AUDIT_RETENTION_MAX_DAYS);
+
 export const workspaceSettingsSchema = z
   .object({
     /** Model the dispatch classifier uses; null falls back to the deployment default. */
@@ -33,6 +43,10 @@ export const workspaceSettingsSchema = z
     daily_cost_limit_usd: z.number().nonnegative().nullable().default(null),
     /** Minutes of silence before the reconciler pauses a session. */
     idle_pause_minutes: z.number().int().positive().default(30),
+    /** How long `authz_decisions` rows are kept before the reconciler deletes them. */
+    audit_retention_days: auditRetentionDaysSchema.default(
+      AUDIT_RETENTION_DEFAULT_DAYS,
+    ),
   })
   .strict();
 
