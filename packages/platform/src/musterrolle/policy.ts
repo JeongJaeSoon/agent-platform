@@ -14,6 +14,7 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@agent-platform/contracts";
+import type { DecisionLog } from "../ports/decision-log.ts";
 
 export type RecordedActor = {
   principal: PrincipalRef;
@@ -157,10 +158,37 @@ function claimedActorMatches(
   return subject.actor_user_id === expected;
 }
 
+// D8: the allows that answer "who did this" later. Every refusal is kept too.
+export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
+  [
+    "workspace.manage",
+    "agent.manage",
+    "binding.manage",
+    "routine.manage",
+    "session.approve",
+  ],
+);
+
+export function mustRecord(
+  request: AuthorizationRequest,
+  decision: AuthorizationDecision,
+): boolean {
+  return (
+    decision.outcome !== "allow" ||
+    RECORDED_ALLOW_ACTIONS.has(request.action) ||
+    request.subject.surface.kind === "slack"
+  );
+}
+
 export function createAuthorizationPolicy(
-  deps: { identity?: IdentityReader; newDecisionId?: () => string } = {},
+  deps: {
+    identity?: IdentityReader;
+    newDecisionId?: () => string;
+    decisions?: DecisionLog;
+  } = {},
 ): AuthorizationPolicy {
   const identity = deps.identity ?? authenticatedIdentity;
+  const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
   async function decide(
@@ -216,13 +244,33 @@ export function createAuthorizationPolicy(
       } catch {
         [reason, effective_scopes] = ["error", []];
       }
-      return {
+      const decision: AuthorizationDecision = {
         outcome: reason === "ok" ? "allow" : "deny",
         reason_code: reason,
         effective_scopes,
         policy_version: POLICY_VERSION,
         decision_id,
       };
+      // A malformed request has nothing trustworthy to record; it is refused.
+      const parsed = authorizationRequestSchema.safeParse(request);
+      if (!decisions || !parsed.success || !mustRecord(parsed.data, decision)) {
+        return decision;
+      }
+      try {
+        await decisions.record({ request: parsed.data, decision });
+        return decision;
+      } catch {
+        // A refusal keeps its reason: a lost row must not turn not_found
+        // into a 403. An allow that must leave a record and cannot is not
+        // given.
+        if (decision.outcome !== "allow") return decision;
+        return {
+          ...decision,
+          outcome: "deny",
+          reason_code: "error",
+          effective_scopes: [],
+        };
+      }
     },
   };
 }

@@ -8,6 +8,7 @@ import {
   type SessionScope,
 } from "@agent-platform/contracts";
 import { testCaller } from "@agent-platform/testkit/callers";
+import type { DecisionLog } from "../ports/decision-log.ts";
 import { createInterruptService } from "../sessions/interrupt-service.ts";
 import { createPendingRequestService } from "../sessions/pending-service.ts";
 import {
@@ -723,5 +724,92 @@ describe("callerFor records who acts", () => {
       scopes: [...SESSION_SCOPE_VALUES],
     };
     expect(callerFor(none, { kind: "api" }, "r").actor?.apiKeyId).toBeNull();
+  });
+});
+
+describe("decision log", () => {
+  const web = callerFor(member, { kind: "web" }, "req-log");
+
+  function logged(fail = false) {
+    const entries: Parameters<DecisionLog["record"]>[0][] = [];
+    const decisions: DecisionLog = {
+      async record(entry) {
+        if (fail) throw new Error("audit store down");
+        entries.push(entry);
+      },
+    };
+    return { entries, policy: createAuthorizationPolicy({ decisions }) };
+  }
+
+  test("keeps every refusal with the request that asked", async () => {
+    const { entries, policy: using } = logged();
+    const decision = await decide(
+      request(web, { action: "session.recover" }),
+      using,
+    );
+    expect(entries).toEqual([
+      { request: request(web, { action: "session.recover" }), decision },
+    ]);
+    expect(entries[0]?.request.request_id).toBe("req-log");
+  });
+
+  test("keeps an approval but not a plain read", async () => {
+    const { entries, policy: using } = logged();
+    await decide(request(web), using);
+    expect(entries).toEqual([]);
+    const approval = await decide(
+      request(web, { action: "session.approve" }),
+      using,
+    );
+    expect(approval.outcome).toBe("allow");
+    expect(entries.map((entry) => entry.decision)).toEqual([approval]);
+  });
+
+  test("keeps every Slack input", async () => {
+    const { entries, policy: using } = logged();
+    const slack = callerFor(member, { kind: "slack" }, "req-slack");
+    await decide(request(slack, { action: "session.submit" }), using);
+    expect(entries.map((entry) => entry.request.subject.surface.kind)).toEqual([
+      "slack",
+    ]);
+  });
+
+  test("an allow that must be kept and cannot be is refused", async () => {
+    const { policy: using } = logged(true);
+    const approval = await decide(
+      request(web, { action: "session.approve" }),
+      using,
+    );
+    expect(approval).toMatchObject({ outcome: "deny", reason_code: "error" });
+    // A read is not recorded, so a broken log does not touch it.
+    expect((await decide(request(web), using)).outcome).toBe("allow");
+  });
+
+  test("a refusal stays a refusal when it cannot be kept", async () => {
+    const { policy: using } = logged(true);
+    const decision = await decide(
+      request(web, { action: "session.recover" }),
+      using,
+    );
+    expect(decision).toMatchObject({ outcome: "deny", reason_code: "role" });
+  });
+
+  test("a malformed request is refused without a row", async () => {
+    const { entries, policy: using } = logged();
+    const decision = await decide(
+      { ...request(web), request_id: "" } as AuthorizationRequest,
+      using,
+    );
+    expect(decision.outcome).toBe("deny");
+    expect(entries).toEqual([]);
+  });
+
+  test("records the decision it returns, id included", async () => {
+    const { entries, policy: using } = logged();
+    const decision = await decide(
+      request(web, { action: "session.recover" }),
+      using,
+    );
+    expect(entries[0]?.decision.decision_id).toBe(decision.decision_id);
   });
 });
