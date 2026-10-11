@@ -71,7 +71,7 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("역할"), CARD.role);
     await user.type(screen.getByLabelText("지시"), CARD.instructions);
     await user.type(screen.getByLabelText("모델"), CARD.model);
-    await user.type(screen.getByLabelText("금지 도구"), "Bash, Write");
+    await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
     await user.click(screen.getByRole("button", { name: "에이전트 만들기" }));
     expect(
       await screen.findByText(/에이전트를 만들었습니다\(version 1\)/),
@@ -350,6 +350,45 @@ describe("편집 중 다른 곳의 저장", () => {
       "첫 저장. 이어서 쓴 줄.",
     );
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
+  });
+
+  test("다른 에이전트로 옮기면 이전 에이전트의 편집을 들고 가지 않는다", async () => {
+    const server = agentServer();
+    const OTHER = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+    const other = server.detail();
+    const otherDetail = {
+      ...other,
+      agent: { ...other.agent, id: OTHER, slug: "refund", name: "환불 담당" },
+      versions: other.versions.map((v) => ({
+        ...v,
+        agent_id: OTHER,
+        card: { ...CARD, instructions: "환불 문의에 답한다." },
+      })),
+    };
+    const { api, history } = renderAt(`/agents/${OTHER}`, {
+      ...meOk,
+      ...server.routes,
+      [`GET /v1/agents/${OTHER}`]: () => json(200, otherDetail),
+      [`PATCH /v1/agents/${OTHER}`]: () => json(200, otherDetail),
+    });
+    // Visit the other agent first so it is cached when we come back to it.
+    await screen.findByRole("heading", { name: "환불 담당" });
+    history.push(DETAIL);
+    await screen.findByRole("heading", { name: "결제 담당" });
+    const user = await setupUser();
+    const instructions = screen.getByLabelText("지시");
+    await user.clear(instructions);
+    await user.type(instructions, "결제 담당에게만 쓴 지시.");
+    history.push(`/agents/${OTHER}`);
+    await screen.findByRole("heading", { name: "환불 담당" });
+    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
+      "환불 문의에 답한다.",
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다/);
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect(patch?.path).toBe(`/v1/agents/${OTHER}`);
+    expect(JSON.stringify(patch?.body)).not.toContain("결제 담당에게만");
   });
 
   test("고친 것이 없으면 최신 카드를 그대로 받아들인다", async () => {

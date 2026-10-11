@@ -51,8 +51,14 @@ const latestVersion = (detail: AgentDetail) =>
   );
 
 export function AgentDetailScreen() {
-  const { t } = useI18n();
   const { id } = useParams({ from: "/authed/agents/$id" });
+  // The route component is reused between agents; a fresh page per id keeps
+  // one agent's unsaved edits from being saved onto another.
+  return <AgentDetailPage key={id} id={id} />;
+}
+
+function AgentDetailPage({ id }: { readonly id: string }) {
+  const { t } = useI18n();
   const search = useSearch({ from: "/authed/agents/$id" });
   const { client } = useServices();
   const detail = useQuery(agentQuery(client, id));
