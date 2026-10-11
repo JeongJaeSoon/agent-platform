@@ -41,8 +41,8 @@ orca eval --expression "document.querySelector('[data-testid=invite-link] input'
 초대받는 쪽은 격리 profile의 새 탭으로 연다.
 
 ```sh
-orca profile create --label invitee --scope isolated --json     # owner와 cookie를 나누지 않는다
-orca tab create --url "$(cat "$VERIFY_RUN/invite-url")" --profile <profile id> --json
+orca tab profile create --label invitee --scope isolated --json   # .result.profile.id. owner와 cookie를 나누지 않는다
+orca tab create --url "$(cat "$VERIFY_RUN/invite-url")" --profile <profile id> --json   # .result.browserPageId
 orca fill --page <invitee page> --element <"비밀번호" ref> --value verify-mate-pass-1
 orca click --page <invitee page> --element <"초대 수락" ref>
 orca eval --page <invitee page> --expression "location.pathname"   # /
@@ -62,7 +62,9 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select u.email, m.r
 ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.activation_revision, v.version_no as active_version from agents a left join agent_releases r on r.id=a.active_release_id left join agent_versions v on v.id=r.version_id" | tee "$EVIDENCE/agents-db.txt"
 ```
 
-409 직후에는 revision과 version이 A가 활성화한 그대로여야 한다.
+409 직후에는 revision과 version이 A가 활성화한 그대로여야 한다. B에서 "최신 상태 불러오기"를 누르면 보던·지금 활성 release와 카드 차이가 보이고, 그 뒤 활성화는 성공한다(revision +1).
+
+끝나면 만든 탭은 `orca tab close --page <id>`, profile은 `orca tab profile delete --profile <id>`로 지운다.
 
 ## Gotchas
 
