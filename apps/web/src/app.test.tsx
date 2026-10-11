@@ -71,9 +71,9 @@ describe("상태 화면", () => {
     expect(screen.queryByText("다시 로그인하세요")).toBeNull();
   });
 
-  test("bootstrap 화면은 관리자가 없다는 문구로 열린다", async () => {
+  test("bootstrap 화면은 소유자가 없다는 문구로 열린다", async () => {
     renderAt("/bootstrap", {});
-    expect(await screen.findByText("아직 관리자가 없습니다")).toBeDefined();
+    expect(await screen.findByText("아직 소유자가 없습니다")).toBeDefined();
     expect(screen.queryByText("다시 로그인하세요")).toBeNull();
     expect(screen.queryByText("이 화면을 볼 권한이 없습니다")).toBeNull();
   });
@@ -242,14 +242,14 @@ describe("bootstrap", () => {
       "t".repeat(40),
     );
     await user.type(
-      screen.getByLabelText("관리자 이메일"),
+      screen.getByLabelText("소유자 이메일"),
       "owner@example.com",
     );
     await user.type(screen.getByLabelText("이름"), "Owner");
     await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
     await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
     await user.type(screen.getByLabelText("워크스페이스 주소 이름"), "acme");
-    await user.click(screen.getByRole("button", { name: "관리자 만들기" }));
+    await user.click(screen.getByRole("button", { name: "소유자 만들기" }));
   }
 
   test("입력 힌트는 이름이 아니라 설명으로 붙는다", async () => {
@@ -268,7 +268,7 @@ describe("bootstrap", () => {
     await fill();
     expect(
       await screen.findByText(
-        "관리자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
+        "소유자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
       ),
     ).toBeDefined();
     expect(history.location.pathname).toBe("/login");
@@ -286,7 +286,7 @@ describe("bootstrap", () => {
     await fill();
     expect(
       await screen.findByText(
-        "이미 관리자가 있습니다. 그 계정으로 로그인하세요.",
+        "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
       ),
     ).toBeDefined();
     expect(history.location.pathname).toBe("/login");

@@ -1,4 +1,4 @@
-import type { AuthMeResponse } from "@agent-platform/contracts";
+import type { AuthMeResponse, WorkspaceRole } from "@agent-platform/contracts";
 
 export interface Recorded {
   readonly method: string;
@@ -27,7 +27,16 @@ export function fakeApi(routes: Record<string, Handler>) {
     });
     const handler = routes[key];
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
-    return handler(input);
+    // The body was read for the record; a handler gets one it can read again.
+    return handler(
+      text
+        ? new Request(input.url, {
+            method: input.method,
+            headers: input.headers,
+            body: text,
+          })
+        : input,
+    );
   };
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
 }
@@ -54,21 +63,24 @@ export function apiError(status: number, code: string, message: string) {
 export const WORKSPACE_ID = "6d4c1f5e-4c39-4d7a-9a51-0f4f3c7a2b10";
 export const USER_ID = "0b1d0c7e-1f27-4a3e-8a8e-9c1b2d3e4f50";
 
+const OWNER_SCOPES: AuthMeResponse["scopes"] = [
+  "sessions:read",
+  "sessions:write",
+  "sessions:approve",
+  "sessions:control",
+  "sessions:recover",
+];
+
 export function me(
-  scopes: AuthMeResponse["scopes"] = [
-    "sessions:read",
-    "sessions:write",
-    "sessions:approve",
-    "sessions:control",
-    "sessions:recover",
-  ],
+  scopes: AuthMeResponse["scopes"] = OWNER_SCOPES,
+  role: WorkspaceRole = "owner",
 ): AuthMeResponse {
   return {
     principal: {
       kind: "user",
       id: USER_ID,
       workspace_id: WORKSPACE_ID,
-      role: "owner",
+      role,
       scopes,
     },
     user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
@@ -87,4 +99,12 @@ export function me(
     },
     scopes,
   };
+}
+
+/** A signed-in member without management powers. */
+export function memberMe(): AuthMeResponse {
+  return me(
+    OWNER_SCOPES.filter((scope) => scope !== "sessions:recover"),
+    "member",
+  );
 }
