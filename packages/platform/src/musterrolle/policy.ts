@@ -117,6 +117,7 @@ export interface AgentAuthority {
     workspaceId: string,
     resource: { kind: AuthorizationResource["kind"]; id: string },
   ): Promise<string | null>;
+  /** An admin row of their own, or a live team they are a live member of. */
   isAdmin(
     workspaceId: string,
     agentId: string,
@@ -148,7 +149,7 @@ export const noCredentialCheck: CredentialCheck = {
   },
 };
 
-export const POLICY_VERSION = "m12";
+export const POLICY_VERSION = "m13";
 
 export interface AuthorizationPolicy {
   authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;

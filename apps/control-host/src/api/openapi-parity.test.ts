@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type {
+  AgentAdminService,
   AgentIdentityService,
   AgentService,
   ApiKeyService,
@@ -12,6 +13,7 @@ import type {
   MemberService,
   PendingRequestService,
   SessionService,
+  TeamService,
   UsageService,
 } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
@@ -35,6 +37,7 @@ import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import {
   registerWorkspaceRoutes,
@@ -80,6 +83,7 @@ function apiApp() {
         slack: null,
       });
       registerApiKeyRoutes(router, {} as ApiKeyService);
+      registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);

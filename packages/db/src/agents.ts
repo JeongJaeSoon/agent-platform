@@ -30,7 +30,7 @@ type AgentRow = typeof agents.$inferSelect;
 type VersionRow = typeof agentVersions.$inferSelect;
 type ReleaseRow = typeof agentReleases.$inferSelect;
 
-function agentOf(row: AgentRow): Agent {
+export function agentOf(row: AgentRow): Agent {
   return {
     id: row.id,
     workspace_id: row.workspaceId,

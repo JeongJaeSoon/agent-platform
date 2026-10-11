@@ -1,8 +1,8 @@
 import type { AgentAuthority } from "@agent-platform/platform";
 import { and, eq, isNull } from "drizzle-orm";
+import { administers } from "./agent-admins.ts";
 import type { Database } from "./queries.ts";
 import {
-  agentAdmins,
   agentReleases,
   agents,
   memberships,
@@ -55,25 +55,23 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
         return false;
       }
       const [row] = await db
-        .select({ userId: agentAdmins.userId })
-        .from(agentAdmins)
-        .innerJoin(
-          memberships,
-          and(
-            eq(memberships.workspaceId, agentAdmins.workspaceId),
-            eq(memberships.userId, agentAdmins.userId),
-            isNull(memberships.disabledAt),
-          ),
-        )
+        .select({ userId: memberships.userId })
+        .from(memberships)
         .innerJoin(
           users,
-          and(eq(users.id, agentAdmins.userId), isNull(users.disabledAt)),
+          and(eq(users.id, memberships.userId), isNull(users.disabledAt)),
         )
         .where(
           and(
-            eq(agentAdmins.workspaceId, workspaceId),
-            eq(agentAdmins.agentId, agentId.toLowerCase()),
-            eq(agentAdmins.userId, userId.toLowerCase()),
+            eq(memberships.workspaceId, workspaceId),
+            eq(memberships.userId, userId.toLowerCase()),
+            isNull(memberships.disabledAt),
+            administers(
+              db,
+              workspaceId,
+              userId.toLowerCase(),
+              agentId.toLowerCase(),
+            ),
           ),
         )
         .limit(1);

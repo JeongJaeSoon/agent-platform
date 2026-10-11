@@ -1,3 +1,4 @@
+export * from "./agent-admins.ts";
 export * from "./agent-authority.ts";
 export * from "./agent-identities.ts";
 export * from "./agents.ts";
@@ -16,6 +17,7 @@ export * from "./interrupt-control.ts";
 export * from "./invites.ts";
 export * from "./lease-reconcile.ts";
 export * from "./linked-accounts.ts";
+export * from "./member-teams.ts";
 export * from "./members.ts";
 export * from "./migration-head.ts";
 export * from "./pause-control.ts";
