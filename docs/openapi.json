@@ -775,6 +775,18 @@
         ],
         "additionalProperties": false
       },
+      "SlackGuestRequest": {
+        "type": "object",
+        "properties": {
+          "slack_guest_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slack_guest_enabled"
+        ],
+        "additionalProperties": false
+      },
       "CreateAgentRequest": {
         "type": "object",
         "properties": {
@@ -3758,6 +3770,10 @@
                     "type": "integer",
                     "minimum": 30,
                     "maximum": 3650
+                  },
+                  "slack_guest_enabled": {
+                    "default": false,
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -3765,7 +3781,8 @@
                   "kill_switch",
                   "daily_cost_limit_usd",
                   "idle_pause_minutes",
-                  "audit_retention_days"
+                  "audit_retention_days",
+                  "slack_guest_enabled"
                 ],
                 "additionalProperties": false
               },
@@ -4354,6 +4371,10 @@
                     "type": "integer",
                     "minimum": 30,
                     "maximum": 3650
+                  },
+                  "slack_guest_enabled": {
+                    "default": false,
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -4361,7 +4382,8 @@
                   "kill_switch",
                   "daily_cost_limit_usd",
                   "idle_pause_minutes",
-                  "audit_retention_days"
+                  "audit_retention_days",
+                  "slack_guest_enabled"
                 ],
                 "additionalProperties": false
               },
@@ -4504,6 +4526,18 @@
         },
         "required": [
           "audit_retention_days"
+        ],
+        "additionalProperties": false
+      },
+      "SlackGuestResponse": {
+        "type": "object",
+        "properties": {
+          "slack_guest_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slack_guest_enabled"
         ],
         "additionalProperties": false
       },
@@ -4773,6 +4807,10 @@
                         "type": "integer",
                         "minimum": 30,
                         "maximum": 3650
+                      },
+                      "slack_guest_enabled": {
+                        "default": false,
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -4780,7 +4818,8 @@
                       "kill_switch",
                       "daily_cost_limit_usd",
                       "idle_pause_minutes",
-                      "audit_retention_days"
+                      "audit_retention_days",
+                      "slack_guest_enabled"
                     ],
                     "additionalProperties": false
                   },
@@ -8933,6 +8972,280 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuditRetentionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error: BAD_REQUEST",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error: UNAUTHORIZED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error: FORBIDDEN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error: NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Error: REQUEST_TIMEOUT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error: PAYLOAD_TOO_LARGE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Error: BACKEND_UNAVAILABLE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{id}/slack-guest": {
+      "post": {
+        "operationId": "setSlackGuest",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Let Slack guests call agents, or stop them (owner or admin)",
+        "description": "Off by default. While off, a Slack guest (`is_restricted`) who calls an agent is refused with `guest_disabled`; while on, a guest still has to link their Slack account. Slack Connect users from other organizations are refused either way. An app with Slack's agent features on is closed to guests by Slack itself. The current value is `workspace.settings.slack_guest_enabled` in GET /v1/auth/me.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackGuestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackGuestResponse"
                 }
               }
             }

@@ -33,6 +33,7 @@ export * from "./ports/turn-interrupts.ts";
 export * from "./ports/usage-reader.ts";
 export * from "./ports/worker-unit-of-work.ts";
 export * from "./ports/workspace-bundle-verifier.ts";
+export * from "./ports/workspace-settings.ts";
 export * from "./scheduler/session-scheduler.ts";
 export * from "./sessions/catalog.ts";
 export * from "./sessions/interrupt-service.ts";

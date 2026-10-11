@@ -6,6 +6,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   REQUEST_BODY_MAX_BYTES,
+  slackGuestResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@agent-platform/contracts";
 import {
@@ -15,6 +16,7 @@ import {
   type IdentityStore,
   type MembershipRole,
   type ResolvedWebSession,
+  type SlackGuestSettingStore,
 } from "@agent-platform/platform";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
@@ -70,6 +72,20 @@ const retention: AuditRetentionStore = {
   },
 };
 
+const guests = new Map<string, boolean>([[WORKSPACE, false]]);
+const slackGuests: SlackGuestSettingStore = {
+  async setSlackGuestEnabled({ workspaceId, enabled }) {
+    if (storageDown) {
+      throw Object.assign(new Error("connection refused"), {
+        code: "ECONNREFUSED",
+      });
+    }
+    if (!guests.has(workspaceId)) return false;
+    guests.set(workspaceId, enabled);
+    return true;
+  },
+};
+
 const app = createApiApp({
   authMode: "api-key",
   identity,
@@ -77,6 +93,7 @@ const app = createApiApp({
     registerWorkspaceRoutes(router, {
       authorization: createAuthorizationPolicy({ decisions }),
       retention,
+      slackGuests,
     }),
 });
 
@@ -183,6 +200,92 @@ test("a storage outage answers 503", async () => {
   try {
     const response = await setRetention(cookieFor("owner"), 45);
     expect(response.status).toBe(503);
+  } finally {
+    storageDown = false;
+  }
+});
+
+function setSlackGuest(
+  cookie: string | null,
+  body: unknown,
+  workspaceId = WORKSPACE,
+) {
+  return app.request(`/v1/workspaces/${workspaceId}/slack-guest`, {
+    method: "POST",
+    headers: {
+      ...(cookie === null ? {} : { Cookie: cookie }),
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      "Content-Type": "application/json",
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
+test("an owner or admin turns Slack guests on and off, and each change is recorded", async () => {
+  for (const [role, enabled] of [
+    ["owner", true],
+    ["admin", false],
+  ] as const) {
+    recorded.length = 0;
+    const response = await setSlackGuest(cookieFor(role), {
+      slack_guest_enabled: enabled,
+    });
+    expect(response.status, role).toBe(200);
+    expect(slackGuestResponseSchema.parse(await response.json())).toEqual({
+      slack_guest_enabled: enabled,
+    });
+    expect(guests.get(WORKSPACE)).toBe(enabled);
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        action: "workspace.manage",
+        resource: { kind: "workspace", id: WORKSPACE, owner_scope: WORKSPACE },
+      }),
+    ]);
+  }
+});
+
+test("a member is refused for the role before the body is read", async () => {
+  guests.set(WORKSPACE, false);
+  for (const body of [{ slack_guest_enabled: true }, "not json"]) {
+    const response = await setSlackGuest(cookieFor("member"), body);
+    expect(response.status).toBe(403);
+    expect(
+      apiErrorResponseSchema.parse(await response.json()).error,
+    ).toMatchObject({ code: "FORBIDDEN", details: { reason_code: "role" } });
+  }
+  expect(guests.get(WORKSPACE)).toBe(false);
+});
+
+test("the Slack guest setting takes a boolean and nothing else", async () => {
+  for (const body of [
+    { slack_guest_enabled: "true" },
+    {},
+    { slack_guest_enabled: true, extra: 1 },
+  ]) {
+    const response = await setSlackGuest(cookieFor("owner"), body);
+    expect(response.status, JSON.stringify(body)).toBe(400);
+  }
+  expect(
+    (
+      await setSlackGuest(
+        cookieFor("owner"),
+        `{"slack_guest_enabled":${" ".repeat(REQUEST_BODY_MAX_BYTES)}true}`,
+      )
+    ).status,
+  ).toBe(413);
+});
+
+test("the Slack guest setting needs a session and a workspace that is the caller's", async () => {
+  const body = { slack_guest_enabled: true };
+  expect((await setSlackGuest(null, body)).status).toBe(401);
+  expect(
+    (await setSlackGuest(cookieFor("owner"), body, OTHER_WORKSPACE)).status,
+  ).toBe(404);
+  const orphan = cookieFor("owner", OTHER_WORKSPACE);
+  expect((await setSlackGuest(orphan, body, OTHER_WORKSPACE)).status).toBe(404);
+  storageDown = true;
+  try {
+    expect((await setSlackGuest(cookieFor("owner"), body)).status).toBe(503);
   } finally {
     storageDown = false;
   }

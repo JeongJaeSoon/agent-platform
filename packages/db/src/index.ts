@@ -30,3 +30,4 @@ export * from "./slack-installations.ts";
 export { expireOverdueInterrupts } from "./turn-interrupts.ts";
 export * from "./usage-reader.ts";
 export * from "./worker-unit-of-work.ts";
+export * from "./workspace-settings.ts";

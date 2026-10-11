@@ -184,6 +184,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/turns/{turn_id}",
         "/v1/sessions/{id}/usage",
         "/v1/workspaces/{id}/audit-retention",
+        "/v1/workspaces/{id}/slack-guest",
         "/v1/workspaces/{id}/members/{userId}/password-reset",
         "/v1/takeovers",
         "/v1/agents",
