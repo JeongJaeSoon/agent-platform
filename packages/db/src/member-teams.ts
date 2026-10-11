@@ -111,10 +111,12 @@ function teamTarget(teamId: string, workspaceId: string) {
 }
 
 // Two renames racing to one free name: the live-name index refuses the
-// second. drizzle wraps the driver's error, so the code may sit on its cause.
-function isUniqueViolation(error: unknown): boolean {
+// second. drizzle wraps the driver's error, so the code may sit on its cause;
+// any other unique violation (a reused receipt id) is not a name clash.
+function isLiveNameTaken(error: unknown): boolean {
   for (let e = error; typeof e === "object" && e !== null; ) {
-    if ((e as { code?: unknown }).code === "23505") return true;
+    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
+    if (code === "23505") return constraint === "member_teams_live_name_uniq";
     e = (e as { cause?: unknown }).cause;
   }
   return false;
@@ -156,7 +158,7 @@ export function createPostgresTeamStore(db: Database): TeamStore {
           return { outcome: "created" as const, team: await teamOf(tx, row) };
         });
       } catch (error) {
-        if (isUniqueViolation(error)) return { outcome: "name_taken" };
+        if (isLiveNameTaken(error)) return { outcome: "name_taken" };
         throw error;
       }
     },
@@ -205,7 +207,7 @@ export function createPostgresTeamStore(db: Database): TeamStore {
           return { outcome: "renamed" as const, team: await teamOf(tx, row) };
         });
       } catch (error) {
-        if (isUniqueViolation(error)) return { outcome: "name_taken" };
+        if (isLiveNameTaken(error)) return { outcome: "name_taken" };
         throw error;
       }
     },

@@ -309,4 +309,28 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
       suspender.release();
     }
   });
+
+  test("a reused receipt id fails the write rather than reading as a name clash", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const receiptId = randomUUID();
+    const create = (name: string) =>
+      teams().create({
+        actor: acting(owner),
+        receiptId,
+        teamId: randomUUID(),
+        name,
+      });
+    expect(await create("first")).toMatchObject({ outcome: "created" });
+    await expect(create("second")).rejects.toThrow();
+    const team = await newTeam(owner);
+    await expect(
+      teams().rename({
+        actor: acting(owner),
+        receiptId,
+        teamId: team.id,
+        name: "third",
+      }),
+    ).rejects.toThrow();
+  });
 });
