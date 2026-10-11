@@ -47,6 +47,14 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/takeovers",
     "POST /v1/sessions/{id}/takeover",
   ],
+  "routes/agents.test.ts": [
+    "GET /v1/agents",
+    "POST /v1/agents",
+    "GET /v1/agents/{id}",
+    "PATCH /v1/agents/{id}",
+    "POST /v1/agents/{id}/releases",
+    "POST /v1/agents/{id}/activate",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims
@@ -87,16 +95,13 @@ const OPERATIONS: Operation[] = Object.entries(
   }),
 );
 
-// What the app answers around a handler: the error hook everywhere, the
-// auth middleware on authenticated routes, the body deadline and the cookie
-// CSRF refusal on POSTs, and the scope check.
 function middlewareErrors(operation: Operation): number[] {
-  const post = operation.route.startsWith("POST /v1");
+  const unsafe = /^(POST|PATCH) \/v1/.test(operation.route);
   return [
     ...globalRouteErrors,
     ...(operation.authenticated ? rootRouteErrors : []),
-    ...(post ? bodyRouteErrors : []),
-    ...(post && operation.authenticated ? mutationRouteErrors : []),
+    ...(unsafe ? bodyRouteErrors : []),
+    ...(unsafe && operation.authenticated ? mutationRouteErrors : []),
     ...(SCOPED.has(operation.route) ? scopedRouteErrors : []),
   ];
 }
