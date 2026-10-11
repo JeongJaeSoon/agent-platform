@@ -17,40 +17,12 @@ import {
 } from "../../scripts/generate-openapi.ts";
 import {
   API_ROUTE_DECLARATIONS,
-  type ApiOperationId,
   buildOpenApiDocument,
   OPENAPI_COMPONENT_SCHEMAS,
   OPENAPI_TAGS,
   type RouteDeclaration,
   renderOpenApiDocument,
 } from "./openapi.ts";
-
-// Public /v1 operations whose declaration still lacks a description, a
-// request example (when it takes a body), or a success example and
-// description. 94S-599 empties this list; an entry that is already complete
-// fails the test below, so the list only shrinks.
-const UNDOCUMENTED_OPERATIONS = new Set<ApiOperationId>([
-  "bootstrap",
-  "login",
-  "logout",
-  "getAuthMe",
-  "listSessions",
-  "getSession",
-  "getSessionUsage",
-  "appendSessionMessage",
-  "listSessionTurns",
-  "getSessionTurn",
-  "streamSessionEvents",
-  "listPendingRequests",
-  "answerPendingRequest",
-  "interruptSession",
-  "pauseSession",
-  "terminateSession",
-  "resumeSession",
-  "decideSessionRecovery",
-  "getInstallationLimits",
-  "getReceipt",
-]);
 
 const ROUTES: readonly RouteDeclaration[] = API_ROUTE_DECLARATIONS;
 
@@ -479,16 +451,17 @@ describe("OpenAPI document", () => {
     expect(parsed).toBeGreaterThan(0);
   });
 
-  test("every public /v1 operation is documented, or still on the allowlist", () => {
+  test("every operation has a description and examples", () => {
     const complete = (route: RouteDeclaration) =>
       Boolean(route.description) &&
       (route.body === undefined || route.requestExample !== undefined) &&
       Boolean(route.success.description) &&
       (route.success.status === 204 || route.success.example !== undefined);
-    const incomplete = ROUTES.filter(
-      (route) => route.path.startsWith("/v1") && !complete(route),
-    ).map((route) => route.operationId);
-    expect(incomplete.sort()).toEqual([...UNDOCUMENTED_OPERATIONS].sort());
+    expect(
+      ROUTES.filter((route) => !complete(route)).map(
+        (route) => route.operationId,
+      ),
+    ).toEqual([]);
   });
 
   test("widening the receipt target keeps every alpha response valid", () => {
