@@ -1,10 +1,14 @@
 import type {
+  AgentAdminsView,
   AgentDetail,
   AuthMeResponse,
+  ListAdministeredAgentsResponse,
   ListAgentsResponse,
   ListInvitesResponse,
   ListMembersResponse,
+  ListTeamsResponse,
   LoginMethodsResponse,
+  TeamDetail,
 } from "@agent-platform/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { type ApiClient, isApiError, unwrap } from "./client.ts";
@@ -22,6 +26,10 @@ export const queryKeys = {
   invites: ["invites"] as const,
   agents: ["agents"] as const,
   agent: (id: string) => ["agents", id] as const,
+  agentAdmins: (id: string) => ["agents", id, "admins"] as const,
+  administeredAgents: ["administered-agents"] as const,
+  teams: ["teams"] as const,
+  team: (id: string) => ["teams", id] as const,
 };
 
 export function meQuery(client: ApiClient) {
@@ -98,6 +106,51 @@ export function agentQuery(client: ApiClient, id: string) {
       unwrap(
         client.GET("/v1/agents/{id}", { params: { path: { id } } }),
       ) as Promise<AgentDetail>,
+    retry: false,
+  });
+}
+
+export function teamsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.teams,
+    queryFn: () =>
+      unwrap(client.GET("/v1/teams")) as Promise<ListTeamsResponse>,
+    retry: false,
+  });
+}
+
+export function teamQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.team(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/teams/{team_id}", {
+          params: { path: { team_id: id } },
+        }),
+      ) as Promise<TeamDetail>,
+    retry: false,
+  });
+}
+
+export function agentAdminsQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.agentAdmins(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/admins", { params: { path: { id } } }),
+      ) as Promise<AgentAdminsView>,
+    retry: false,
+  });
+}
+
+/** The agents the caller administers now, directly or through a team. */
+export function administeredAgentsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.administeredAgents,
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/administered-agents"),
+      ) as Promise<ListAdministeredAgentsResponse>,
     retry: false,
   });
 }
