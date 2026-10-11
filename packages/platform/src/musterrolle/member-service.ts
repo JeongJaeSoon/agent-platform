@@ -91,12 +91,17 @@ export function createMemberService(deps: {
       case "elsewhere":
         throw new SessionServiceError(
           "FORBIDDEN",
-          "The account also belongs to a workspace this principal does not own",
+          "The account also belongs to a workspace this principal does not manage",
+        );
+      case "outranked":
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "Only an owner can change an owner's access",
         );
       case "actor_inactive":
         throw new SessionServiceError(
           "FORBIDDEN",
-          "This principal is no longer an owner of the workspace",
+          "This principal no longer manages the workspace's members",
         );
       case "unchanged":
         return {
