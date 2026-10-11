@@ -12,6 +12,8 @@ export interface Services {
   readonly queryClient: QueryClient;
   /** Set by the app once its router exists; a 401 anywhere calls it. */
   onUnauthorized: () => void;
+  /** Leaves the app for another site (an identity provider's consent page). */
+  readonly leave: (url: string) => void;
 }
 
 /**
@@ -19,7 +21,9 @@ export interface Services {
  * and bootstrap answer 401 for a wrong password or token), means the session
  * is gone: cached data would keep showing the old identity otherwise.
  */
-export function createServices(options: ApiClientOptions = {}): Services {
+export function createServices(
+  options: ApiClientOptions & { readonly leave?: (url: string) => void } = {},
+): Services {
   const services: Services = {
     client: createApiClient(options),
     queryClient: new QueryClient({
@@ -39,6 +43,7 @@ export function createServices(options: ApiClientOptions = {}): Services {
       }),
     }),
     onUnauthorized: () => {},
+    leave: options.leave ?? ((url) => window.location.assign(url)),
   };
   return services;
 }

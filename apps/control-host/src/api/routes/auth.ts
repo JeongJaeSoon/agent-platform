@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  type AuthorizationAction,
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
@@ -8,6 +9,8 @@ import {
   googleLoginCallbackRequestSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
+  type LoginMethod,
+  loginMethodsResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
   memberParamsSchema,
@@ -18,6 +21,7 @@ import {
   scopesForRole,
   startGoogleLoginResponseSchema,
   type Workspace,
+  type WorkspaceRole,
   workspaceSettingsSchema,
 } from "@agent-platform/contracts";
 import type { StructuredLogger } from "@agent-platform/observability";
@@ -26,6 +30,7 @@ import {
   BootstrapTokenSpentError,
   type IdentityStore,
   type IdentityWorkspace,
+  MANAGEMENT_ROLES,
 } from "@agent-platform/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -119,6 +124,18 @@ async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The workspace management actions a role holds, from the policy's own table. */
+export function permissionsOf(role: WorkspaceRole): AuthorizationAction[] {
+  return (
+    Object.entries(MANAGEMENT_ROLES) as [
+      AuthorizationAction,
+      readonly WorkspaceRole[],
+    ][]
+  )
+    .filter(([, roles]) => roles.includes(role))
+    .map(([action]) => action);
+}
+
 export function workspaceView(row: IdentityWorkspace): Workspace {
   return {
     id: row.id,
@@ -199,6 +216,13 @@ export function registerPublicAuthRoutes(
 ) {
   const lockout = deps.lockout ?? new LoginLockout();
   const passwordWork = deps.passwordWork ?? new WorkGate();
+
+  apiRoute(router, "listLoginMethods", ingestThenStopClock, (context) => {
+    const methods: LoginMethod[] = deps.google
+      ? ["password", "google"]
+      : ["password"];
+    return jsonWithSchema(context, loginMethodsResponseSchema, { methods });
+  });
 
   apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
     const raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
@@ -707,6 +731,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         },
         workspace: workspaceView(workspace),
         scopes: principal.scopes,
+        permissions: permissionsOf(principal.role),
       });
     }
     const workspaceId =
@@ -723,6 +748,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
       user: null,
       workspace: workspace ? workspaceView(workspace) : null,
       scopes: principal.scopes,
+      permissions: [],
     });
   });
 }
