@@ -34,7 +34,12 @@ import {
   apiSettingsProblems,
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
-import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
+import {
+  bootstrapGateFromEnv,
+  DatabaseIdentityStore,
+  LoginLockout,
+  WorkGate,
+} from "./auth.ts";
 import {
   DEFAULT_CONFIG_DIR,
   loadSessionCatalog,
@@ -247,6 +252,10 @@ const auth = {
     identity,
     logger,
   ),
+  // One window and one hashing gate for login and the issuer's password
+  // check, so neither route resets the other's count.
+  lockout: new LoginLockout(),
+  passwordWork: new WorkGate(),
   logger,
 };
 const probePool = createProbePool(databaseUrl, logger);

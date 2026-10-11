@@ -13,6 +13,7 @@ import {
   healthResponseSchema,
   installationLimitsResponseSchema,
   interruptSessionRequestSchema,
+  issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
   listPendingRequestsResponseSchema,
   listSessionsQuerySchema,
@@ -93,6 +94,7 @@ const responseComponents = {
   Receipt: getReceiptResponseSchema,
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
+  IssuePasswordResetRequest: issuePasswordResetRequestSchema,
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
@@ -244,11 +246,11 @@ const API_ROUTE_DECLARATIONS = [
     summary:
       "Create the first owner and default workspace, or recover an owner",
     description:
-      "Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation. Five failed attempts in 15 minutes answer 429.",
+      "Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation; a token presented while a live owner exists is spent. A wrong or spent token answers 401 before the owner state is looked at.",
     auth: "public",
     body: "BootstrapRequest",
     success: { status: 201, schema: "BootstrapResponse" },
-    errors: [400, 401, 409, 413, 429, 503],
+    errors: [400, 401, 409, 413, 503],
     errorCodes: { 409: ["BOOTSTRAP_DONE"] },
     idempotent: false,
   },
@@ -272,7 +274,7 @@ const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "Set a new password with a one-time reset link",
     description:
-      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. Five failed attempts in 15 minutes answer 429.",
+      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429.",
     auth: "public",
     body: "PasswordResetRequest",
     success: { status: 200, schema: "PasswordResetResponse" },
@@ -286,10 +288,11 @@ const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "Issue a one-time password reset link for a member (owner only)",
     description:
-      "The token is returned once and expires in one hour; issuing another revokes the member's open link.",
+      "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.",
     auth: "session",
+    body: "IssuePasswordResetRequest",
     success: { status: 201, schema: "IssuePasswordResetResponse" },
-    errors: [401, 403, 404, 503],
+    errors: [400, 401, 403, 404, 413, 429, 503],
     idempotent: false,
   },
   {

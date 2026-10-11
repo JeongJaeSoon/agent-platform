@@ -172,6 +172,18 @@ export function createBootstrapGate(token: string): BootstrapGate {
   };
 }
 
+const BOOTSTRAP_RETIRE_RETRY_MS = 30_000;
+
+/** Retries until `work` resolves once; the timer never holds the process. */
+function retryInBackground(work: () => Promise<void>, delayMs: number) {
+  const attempt = () => {
+    work().catch(() => {
+      setTimeout(attempt, delayMs).unref();
+    });
+  };
+  setTimeout(attempt, delayMs).unref();
+}
+
 function generateBootstrapToken(): string {
   return randomBytes(32).toString("base64url");
 }
@@ -190,6 +202,7 @@ export async function bootstrapGateFromEnv(
   store: Pick<IdentityStore, "countLiveOwners" | "retireBootstrapToken">,
   logger: StructuredLogger,
   print: (line: string) => void = (line) => console.error(line),
+  retryMs = BOOTSTRAP_RETIRE_RETRY_MS,
 ): Promise<BootstrapGate> {
   if (value !== undefined) {
     // The request schema bounds the token; a configured value outside it
@@ -205,15 +218,22 @@ export async function bootstrapGateFromEnv(
     }
     // A value configured while an owner is live cannot be the new token a
     // recovery needs, and an install that predates bootstrap_token_uses
-    // never recorded the one it used. Spend it now.
-    try {
+    // never recorded the one it used. Spend it now, or as soon as the
+    // database answers: left unchecked, it would still open recovery if the
+    // owners were lost later.
+    const tokenHash = hashWebSessionToken(parsed.data);
+    const retire = async () => {
       if ((await store.countLiveOwners()) > 0) {
-        await store.retireBootstrapToken(hashWebSessionToken(parsed.data));
+        await store.retireBootstrapToken(tokenHash);
       }
+    };
+    try {
+      await retire();
     } catch (error) {
       logger.warn("BOOTSTRAP_TOKEN could not be checked against live owners", {
         error_name: error instanceof Error ? error.name : typeof error,
       });
+      retryInBackground(retire, retryMs);
     }
     return createBootstrapGate(parsed.data);
   }
