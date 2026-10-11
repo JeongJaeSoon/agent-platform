@@ -141,7 +141,7 @@ integration("account recovery on PostgreSQL", () => {
       userId: memberId,
       role: "member",
     });
-    return { db, sink, start, first, ownerId, memberId, workspace };
+    return { db, pool, sink, start, first, ownerId, memberId, workspace };
   }
 
   const cookieOf = (response: Response) =>
@@ -375,6 +375,39 @@ integration("account recovery on PostgreSQL", () => {
       .where(eq(users.id, ownerId));
     expect((await start(INSTALL_TOKEN).bootstrap()).status).toBe(401);
     expect((await start(RECOVERY_TOKEN).bootstrap()).status).toBe(201);
+  });
+
+  test("recovery waits for a member login in flight and revokes its session too", async () => {
+    const { db, pool, start, ownerId, memberId } = await install();
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, ownerId));
+    // A login between its user-row lock and its commit.
+    const login = await pool.connect();
+    try {
+      await login.query("BEGIN");
+      await login.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        memberId,
+      ]);
+      const sessionId = randomUUID();
+      await login.query(
+        `INSERT INTO web_sessions (id, user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3, now() + interval '1 hour')`,
+        [sessionId, memberId, Buffer.from(hashWebSessionToken("aps_inflight"))],
+      );
+      const recovery = start(RECOVERY_TOKEN).bootstrap();
+      await Bun.sleep(300);
+      await login.query("COMMIT");
+      expect((await recovery).status).toBe(201);
+      const [row] = await db
+        .select({ revokedAt: webSessions.revokedAt })
+        .from(webSessions)
+        .where(eq(webSessions.id, sessionId));
+      expect(row?.revokedAt).not.toBeNull();
+    } finally {
+      login.release();
+    }
   });
 
   test("recovery revokes a reset link issued before it", async () => {

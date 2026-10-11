@@ -144,6 +144,19 @@ export async function bootstrapOwner(
         set: { role: "owner", disabledAt: null },
       });
     if (recovered) {
+      const members = tx
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .where(eq(memberships.workspaceId, workspace.id));
+      // Every member's row, in id order, before links and sessions: a login
+      // holds its user's row while it inserts a session, so this waits for
+      // it to commit and the revocation below sees that session too.
+      await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(inArray(users.id, members))
+        .orderBy(asc(users.id))
+        .for("update");
       // A link issued before recovery would let its holder take the
       // recovered account straight back. Links before sessions: the same
       // user -> link -> session lock order consumePasswordReset takes.
@@ -157,10 +170,6 @@ export async function bootstrapOwner(
             isNull(passwordResets.revokedAt),
           ),
         );
-      const members = tx
-        .select({ userId: memberships.userId })
-        .from(memberships)
-        .where(eq(memberships.workspaceId, workspace.id));
       const revoked = await tx
         .update(webSessions)
         .set({ revokedAt: DB_NOW })
