@@ -14,6 +14,7 @@ import { useServices } from "../services.tsx";
 /** The roles a member can be given; client.test.ts pins it to the contract. */
 export const WORKSPACE_ROLE_VALUES: readonly WorkspaceRole[] = [
   "owner",
+  "admin",
   "member",
 ];
 

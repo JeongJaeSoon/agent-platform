@@ -22,7 +22,8 @@ export const ko = {
   "nav.members": "구성원",
   "nav.agents": "에이전트",
 
-  "role.owner": "관리자",
+  "role.owner": "소유자",
+  "role.admin": "관리자",
   "role.member": "구성원",
 
   "login.title": "로그인",
@@ -253,7 +254,9 @@ export const ko = {
   "error.INVITE_EXPIRED": "만료됐거나 회수된 초대입니다.",
   "error.INVITE_USED": "이미 쓰인 초대입니다.",
   "error.LAST_OWNER":
-    "마지막 관리자는 역할을 바꾸거나 비활성할 수 없습니다 — 다른 관리자를 먼저 두세요. 자기 자신도 비활성할 수 없습니다.",
+    "마지막 소유자는 역할을 바꾸거나 비활성할 수 없습니다 — 다른 소유자를 먼저 두세요. 자기 자신도 비활성할 수 없습니다.",
+  "error.OWNER_PROTECTED":
+    "소유자 역할은 소유자만 주거나 바꿀 수 있습니다 — 소유자에게 요청하세요.",
   "error.UNSUPPORTED_CAPABILITY":
     "이 runtime profile에서 쓸 수 없는 모델·도구가 카드에 있거나 모르는 profile입니다.",
   "error.REVISION_CONFLICT": "다른 곳에서 먼저 바꿨습니다 — 다시 불러오세요.",

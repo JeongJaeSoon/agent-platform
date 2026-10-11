@@ -96,10 +96,10 @@ describe("구성원 화면", () => {
     await user.selectOptions(select, "owner");
     await waitFor(() => expect(select.disabled).toBe(true));
     expect(select.value).toBe("member");
-    expect(screen.queryByText(/역할을 관리자\(으\)로 바꿨습니다/)).toBeNull();
+    expect(screen.queryByText(/역할을 소유자\(으\)로 바꿨습니다/)).toBeNull();
     release();
     expect(
-      await screen.findByText("Mate의 역할을 관리자(으)로 바꿨습니다."),
+      await screen.findByText("Mate의 역할을 소유자(으)로 바꿨습니다."),
     ).toBeDefined();
     await waitFor(() => expect(select.value).toBe("owner"));
     const patch = api.calls.find((c) => c.method === "PATCH");
@@ -107,7 +107,7 @@ describe("구성원 화면", () => {
     expect(patch?.headers.get("x-requested-with")).toBe("agent-platform-web");
   });
 
-  test("마지막 관리자(409 LAST_OWNER)는 그 이유를 보인다", async () => {
+  test("마지막 소유자(409 LAST_OWNER)는 그 이유를 보인다", async () => {
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner, teammate] }),
@@ -121,7 +121,25 @@ describe("구성원 화면", () => {
       "member",
     );
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "마지막 관리자는 역할을 바꾸거나 비활성할 수 없습니다",
+      "마지막 소유자는 역할을 바꾸거나 비활성할 수 없습니다",
+    );
+  });
+
+  test("관리자가 소유자 역할을 주려 하면(403 OWNER_PROTECTED) 그 이유를 보인다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+      ...noInvites,
+      [`PATCH /v1/members/${teammate.user_id}`]: () =>
+        apiError(403, "OWNER_PROTECTED", "Only an owner can grant owner"),
+    });
+    const user = await setupUser();
+    await user.selectOptions(
+      await screen.findByLabelText("Mate의 역할"),
+      "owner",
+    );
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "소유자 역할은 소유자만 주거나 바꿀 수 있습니다",
     );
   });
 
@@ -285,7 +303,7 @@ describe("권한", () => {
     );
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe(
-      "member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 관리자. This principal does not hold member.manage",
+      "member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. This principal does not hold member.manage",
     );
   });
 

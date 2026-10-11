@@ -78,6 +78,7 @@ export const en: Record<MessageKey, string> = {
   "nav.home": "Home",
   "nav.members": "Members",
   "role.owner": "Owner",
+  "role.admin": "Admin",
   "role.member": "Member",
   "invite.title": "Accept invite",
   "invite.intro":
@@ -153,6 +154,8 @@ export const en: Record<MessageKey, string> = {
   "error.INVITE_USED": "The invite was already used.",
   "error.LAST_OWNER":
     "The last owner cannot change role or be disabled — make someone else an owner first. You cannot disable yourself either.",
+  "error.OWNER_PROTECTED":
+    "Only an owner can grant or change the owner role — ask an owner.",
   "nav.agents": "Agents",
   "agents.title": "Agents",
   "agents.new": "New agent",
