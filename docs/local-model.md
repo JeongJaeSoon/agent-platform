@@ -20,9 +20,9 @@ tests/e2e/run.sh --local-model
   - `local-ollama`: Ollama의 Anthropic 호환 `/v1/messages`를 직접 부른다. Ollama는 key를 검사하지 않으므로 `LOCAL_OLLAMA_API_KEY`는 아무 값이면 된다(기본 `ollama-local`).
   - `local-litellm`: overlay의 `litellm` 서비스(LiteLLM proxy, `infra/local-model/litellm.yaml`)를 Bearer로 부르고, LiteLLM이 Ollama로 넘긴다. `LITELLM_MASTER_KEY`는 셸에 없으면 실행마다 새로 만든다.
 - 두 key 모두 이름으로만 전달된다. 값은 API(그리고 LiteLLM)에만 있고 worker는 egress token만 받는다.
-- egress proxy의 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`를 `gitea:3000,localstack:4566,ollama.internal:11434,litellm:4000`으로 둔다. 로컬 카탈로그가 부르지 않는 `fake-messages:4010`은 뺀다. 모델 경로 둘은 credential route로만 닿고 forward proxy 목록에는 없다. 셸에 이 변수가 있으면 그 값을 쓴다.
+- egress proxy의 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`를 `gitea:3000,localstack:4566,ollama.internal:11434,litellm:4000`으로 둔다. 로컬 카탈로그가 부르지 않는 `fake-messages:4010`은 뺀다. 모델 경로 둘은 credential route로만 닿고 forward proxy 목록에는 없다. 이 값은 overlay에 고정돼 있어 셸이나 `.env`(repo 루트·`infra/`)의 같은 변수를 읽지 않는다. 기본 스택 값이 남아 있어도 모델 경로가 빠지거나 `fake-messages:4010`이 끼지 않는다.
 - `ollama` relay와 `litellm`에 healthcheck가 있고 API는 둘이 healthy가 된 뒤에 뜬다. relay의 healthcheck는 relay를 거쳐 호스트 Ollama의 `/api/version`을 부르므로, `E2E_UP_ONLY=1`로 띄운 스택에서 바로 어느 profile로 세션을 만들어도 첫 호출이 닿는다.
-- suite는 `tests/e2e/real-model.e2e.ts` 하나를 두 profile에 한 번씩 돌린다(`E2E_PROFILE_IDS`). `E2E_MODEL_MODE=local`이라 테스트 이름은 `against the local model (<profile>)`이고, `test.log`의 JSON 한 줄은 `local_model` 키로 남는다.
+- suite는 `tests/e2e/real-model.e2e.ts` 하나를 두 profile에 한 번씩 돌린다. `run.sh`가 플래그로 `E2E_MODEL_MODE`를 정하고(`--local-model`은 `local`, `--real-model`은 `real`, 셸에 남은 값은 덮어쓴다) suite가 그 모드에서 profile 목록을 꺼낸다. `E2E_MODEL_MODE=local`이라 테스트 이름은 `against the local model (<profile>)`이고, `test.log`의 JSON 한 줄은 `local_model` 키로 남는다.
 
 ### 호스트의 Ollama를 relay로 부르는 이유
 
