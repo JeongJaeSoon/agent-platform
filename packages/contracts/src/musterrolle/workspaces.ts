@@ -49,6 +49,15 @@ export const workspaceSettingsSchema = z
   })
   .strict();
 
+export const workspaceParamsSchema = z
+  .object({ id: workspaceIdSchema })
+  .strict();
+
+export const auditRetentionRequestSchema = z
+  .object({ audit_retention_days: auditRetentionDaysSchema })
+  .strict();
+export const auditRetentionResponseSchema = auditRetentionRequestSchema;
+
 export const workspaceSchema = z
   .object({
     id: workspaceIdSchema,
@@ -180,6 +189,7 @@ export const listInvitesResponseSchema = z
   .strict();
 
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
+export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Membership = z.infer<typeof membershipSchema>;

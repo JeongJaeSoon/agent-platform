@@ -12,7 +12,7 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "./auth.ts";
 import {
-  auditRetentionDaysSchema,
+  auditRetentionRequestSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   inviteSchema,
@@ -56,7 +56,8 @@ describe("workspace", () => {
 
   test("keeps audit rows at least 30 days, whole days only", () => {
     const days = (value: unknown) =>
-      auditRetentionDaysSchema.safeParse(value).success;
+      auditRetentionRequestSchema.safeParse({ audit_retention_days: value })
+        .success;
     expect(days(30)).toBe(true);
     expect(days(3650)).toBe(true);
     expect(days(29)).toBe(false);

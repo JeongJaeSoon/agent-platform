@@ -4,6 +4,7 @@ import { scopesForRole } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
+  createPostgresDecisionLog,
   createPostgresMemberStore,
   findLiveMembership,
 } from "@agent-platform/db";
@@ -87,6 +88,7 @@ async function main(): Promise<void> {
     const service = createMemberService({
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
+        decisions: createPostgresDecisionLog(db),
       }),
       store: createPostgresMemberStore(db),
     });

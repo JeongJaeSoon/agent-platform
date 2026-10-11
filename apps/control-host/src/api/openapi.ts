@@ -2,6 +2,8 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   apiRootResponseSchema,
+  auditRetentionRequestSchema,
+  auditRetentionResponseSchema,
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
@@ -48,6 +50,7 @@ import {
   turnIdParamsSchema,
   turnSummarySchema,
   WEB_SESSION_COOKIE_NAME,
+  workspaceParamsSchema,
 } from "@agent-platform/contracts";
 import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
 import { z } from "zod";
@@ -74,6 +77,7 @@ const requestComponents = {
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
+  AuditRetentionRequest: auditRetentionRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -100,6 +104,7 @@ const responseComponents = {
   StartGoogleLoginResponse: startGoogleLoginResponseSchema,
   IssuePasswordResetRequest: issuePasswordResetRequestSchema,
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
+  AuditRetentionResponse: auditRetentionResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
@@ -144,6 +149,10 @@ export const OPENAPI_TAGS = [
     name: "Members",
     description:
       "Take over the sessions of members who were offboarded. Owners only.",
+  },
+  {
+    name: "Workspace settings",
+    description: "Change workspace-wide settings. Owners only.",
   },
   {
     name: "Limits & receipts",
@@ -327,6 +336,20 @@ const API_ROUTE_DECLARATIONS = [
     body: "IssuePasswordResetRequest",
     success: { status: 201, schema: "IssuePasswordResetResponse" },
     errors: [400, 401, 403, 404, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/audit-retention",
+    operationId: "setAuditRetention",
+    tag: "Workspace settings",
+    summary: "Set how many days authorization decisions are kept (owner only)",
+    description:
+      "At least 30 days; the default is 90. Rows older than this are deleted by the reconciler. The current value is `workspace.settings.audit_retention_days` in GET /v1/auth/me.",
+    auth: "session",
+    body: "AuditRetentionRequest",
+    success: { status: 200, schema: "AuditRetentionResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
   },
   {
@@ -748,6 +771,7 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
+  if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
   throw new Error(`No params schema registered for ${path}`);

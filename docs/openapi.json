@@ -43,6 +43,10 @@
       "description": "Take over the sessions of members who were offboarded. Owners only."
     },
     {
+      "name": "Workspace settings",
+      "description": "Change workspace-wide settings. Owners only."
+    },
+    {
       "name": "Limits & receipts",
       "description": "Inspect installation limits and asynchronous command receipts."
     }
@@ -533,6 +537,20 @@
         ],
         "additionalProperties": false
       },
+      "AuditRetentionRequest": {
+        "type": "object",
+        "properties": {
+          "audit_retention_days": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "audit_retention_days"
+        ],
+        "additionalProperties": false
+      },
       "ApiErrorResponse": {
         "type": "object",
         "properties": {
@@ -573,6 +591,8 @@
                   "CATALOG_MISMATCH",
                   "TAKEOVER_REQUIRED",
                   "LOGIN_LINK_REQUIRED",
+                  "PROFILE_DIGEST_MISMATCH",
+                  "ALREADY_EXISTS",
                   "NOT_READY",
                   "CURSOR_EXPIRED",
                   "LEASE_EXPIRED",
@@ -2741,7 +2761,11 @@
               "issue_password_reset",
               "reset_password",
               "recover_owner",
-              "takeover"
+              "takeover",
+              "create_agent",
+              "update_agent",
+              "create_agent_release",
+              "activate_agent"
             ]
           },
           "target_ref": {
@@ -2973,6 +2997,8 @@
                       "CATALOG_MISMATCH",
                       "TAKEOVER_REQUIRED",
                       "LOGIN_LINK_REQUIRED",
+                      "PROFILE_DIGEST_MISMATCH",
+                      "ALREADY_EXISTS",
                       "NOT_READY",
                       "CURSOR_EXPIRED",
                       "LEASE_EXPIRED",
@@ -3223,6 +3249,20 @@
           "user_id",
           "token",
           "expires_at"
+        ],
+        "additionalProperties": false
+      },
+      "AuditRetentionResponse": {
+        "type": "object",
+        "properties": {
+          "audit_retention_days": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "audit_retention_days"
         ],
         "additionalProperties": false
       },
@@ -5495,6 +5535,280 @@
                               "type": "string",
                               "enum": [
                                 "RATE_LIMITED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "Error: BACKEND_UNAVAILABLE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{id}/audit-retention": {
+      "post": {
+        "operationId": "setAuditRetention",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Set how many days authorization decisions are kept (owner only)",
+        "description": "At least 30 days; the default is 90. Rows older than this are deleted by the reconciler. The current value is `workspace.settings.audit_retention_days` in GET /v1/auth/me.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `agent-platform-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-platform-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditRetentionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditRetentionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error: BAD_REQUEST",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error: UNAUTHORIZED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error: FORBIDDEN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error: NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Error: REQUEST_TIMEOUT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error: PAYLOAD_TOO_LARGE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
                               ]
                             }
                           }
