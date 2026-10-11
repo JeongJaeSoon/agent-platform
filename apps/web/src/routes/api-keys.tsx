@@ -277,7 +277,10 @@ function PersonalKeyForm({ issue }: { readonly issue: Issue }) {
           type="submit"
           className="ap-button ap-button--primary"
           reason={reason}
-          disabled={issue.blocked || scopes.length === 0}
+          disabled={
+            issue.blocked ||
+            scopes.filter((scope) => held.includes(scope)).length === 0
+          }
         >
           {t("apiKeys.issuePersonal")}
         </ReasonButton>
@@ -340,13 +343,18 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
   const agentFieldId = useId();
   const chosenAgent = agents.find((agent) => agent.id === agentId);
 
-  const send = (agent: Agent | undefined) => {
-    const expiresAt = expiryOf(expires);
-    const granted = scopes.filter(
+  // What each kind would actually carry; the buttons judge by these.
+  const grantable = (forAgent: boolean) =>
+    scopes.filter(
       (scope) =>
         held.includes(scope) &&
-        (agent === undefined || !AGENT_KEY_WITHHELD.includes(scope)),
+        (!forAgent || !AGENT_KEY_WITHHELD.includes(scope)),
     );
+  const agentScopes = grantable(true);
+
+  const send = (agent: Agent | undefined) => {
+    const expiresAt = expiryOf(expires);
+    const granted = grantable(agent !== undefined);
     issue.send(
       {
         kind: "service",
@@ -359,7 +367,11 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
   };
 
   const agentReason =
-    agents.length === 0 && !pending ? t("apiKeys.noAgents") : undefined;
+    agents.length === 0 && !pending
+      ? t("apiKeys.noAgents")
+      : chosenAgent && agentScopes.length === 0
+        ? t("apiKeys.agentNeedsScope")
+        : undefined;
 
   return (
     <section className="web-section" aria-labelledby={titleId}>
@@ -382,7 +394,7 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
               ? undefined
               : permissionReason(t, "api_key.manage", role)
           }
-          disabled={issue.blocked || scopes.length === 0}
+          disabled={issue.blocked || grantable(false).length === 0}
           onClick={() => send(undefined)}
         >
           {t("apiKeys.issueWorkspace")}
@@ -408,7 +420,7 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
         <ReasonButton
           className="ap-button"
           reason={agentReason}
-          disabled={issue.blocked || !chosenAgent || scopes.length === 0}
+          disabled={issue.blocked || !chosenAgent || agentScopes.length === 0}
           onClick={() => send(chosenAgent)}
         >
           {t("apiKeys.issueAgent")}

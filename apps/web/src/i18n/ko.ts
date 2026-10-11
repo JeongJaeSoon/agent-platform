@@ -335,6 +335,8 @@ export const ko = {
     "에이전트 전용 key는 그 에이전트의 세션에만 쓸 수 있습니다.",
   "apiKeys.issueAgent": "에이전트 전용 key 발급",
   "apiKeys.noAgents": "관리하는 에이전트가 없습니다.",
+  "apiKeys.agentNeedsScope":
+    "에이전트 전용 key에 넣을 범위를 하나 이상 고르세요(sessions:approve는 빠집니다).",
   "apiKeys.agentNoApprove":
     "에이전트 전용 key에는 빠집니다(사람의 승인을 대신하지 않음).",
   "apiKeys.scopes": "권한 범위",
