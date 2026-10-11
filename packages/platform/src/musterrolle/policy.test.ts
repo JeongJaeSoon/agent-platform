@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AuthorizationAction,
+  type AuthorizationDecision,
   type AuthorizationRequest,
   authorizationDecisionSchema,
   type Principal,
@@ -8,6 +9,7 @@ import {
   type SessionScope,
 } from "@agent-platform/contracts";
 import { testCaller } from "@agent-platform/testkit/callers";
+import type { DecisionLog } from "../ports/decision-log.ts";
 import { createInterruptService } from "../sessions/interrupt-service.ts";
 import { createPendingRequestService } from "../sessions/pending-service.ts";
 import {
@@ -22,6 +24,9 @@ import {
   callerFor,
   createAuthorizationPolicy,
   type IdentityReader,
+  MANAGEMENT_ROLES,
+  mustRecord,
+  RECORDED_ALLOW_ACTIONS,
 } from "./policy.ts";
 
 // Any store call means the refusal came too late.
@@ -723,5 +728,117 @@ describe("callerFor records who acts", () => {
       scopes: [...SESSION_SCOPE_VALUES],
     };
     expect(callerFor(none, { kind: "api" }, "r").actor?.apiKeyId).toBeNull();
+  });
+});
+
+describe("decision log", () => {
+  const web = callerFor(member, { kind: "web" }, "req-log");
+
+  function logged(fail = false) {
+    const entries: Parameters<DecisionLog["record"]>[0][] = [];
+    const decisions: DecisionLog = {
+      async record(entry) {
+        if (fail) throw new Error("audit store down");
+        entries.push(entry);
+      },
+    };
+    return { entries, policy: createAuthorizationPolicy({ decisions }) };
+  }
+
+  test("keeps every refusal with the request that asked", async () => {
+    const { entries, policy: using } = logged();
+    const decision = await decide(
+      request(web, { action: "session.recover" }),
+      using,
+    );
+    expect(entries).toEqual([
+      { request: request(web, { action: "session.recover" }), decision },
+    ]);
+    expect(entries[0]?.request.request_id).toBe("req-log");
+  });
+
+  test("keeps an approval but not a plain read", async () => {
+    const { entries, policy: using } = logged();
+    await decide(request(web), using);
+    expect(entries).toEqual([]);
+    const approval = await decide(
+      request(web, { action: "session.approve" }),
+      using,
+    );
+    expect(approval.outcome).toBe("allow");
+    expect(entries.map((entry) => entry.decision)).toEqual([approval]);
+  });
+
+  test("keeps every Slack input, and not a Slack read that was allowed", () => {
+    const slack = callerFor(member, { kind: "slack" }, "req-slack");
+    const allowed: AuthorizationDecision = {
+      outcome: "allow",
+      reason_code: "ok",
+      effective_scopes: [],
+      policy_version: "m2",
+      decision_id: crypto.randomUUID(),
+    };
+    expect(
+      mustRecord(request(slack, { action: "session.submit" }), allowed),
+    ).toBe(true);
+    expect(mustRecord(request(slack), allowed)).toBe(false);
+    expect(
+      mustRecord(request(web, { action: "session.submit" }), allowed),
+    ).toBe(false);
+  });
+
+  test("every management action is kept when allowed", () => {
+    for (const action of Object.keys(MANAGEMENT_ROLES)) {
+      expect(RECORDED_ALLOW_ACTIONS.has(action as AuthorizationAction)).toBe(
+        true,
+      );
+    }
+  });
+
+  test("records a Slack input the policy refuses", async () => {
+    const { entries, policy: using } = logged();
+    const slack = callerFor(member, { kind: "slack" }, "req-slack");
+    await decide(request(slack, { action: "session.submit" }), using);
+    expect(entries.map((entry) => entry.request.subject.surface.kind)).toEqual([
+      "slack",
+    ]);
+  });
+
+  test("an allow that must be kept and cannot be is refused", async () => {
+    const { policy: using } = logged(true);
+    const approval = await decide(
+      request(web, { action: "session.approve" }),
+      using,
+    );
+    expect(approval).toMatchObject({ outcome: "deny", reason_code: "error" });
+    expect((await decide(request(web), using)).outcome).toBe("allow");
+  });
+
+  test("a refusal stays a refusal when it cannot be kept", async () => {
+    const { policy: using } = logged(true);
+    const decision = await decide(
+      request(web, { action: "session.recover" }),
+      using,
+    );
+    expect(decision).toMatchObject({ outcome: "deny", reason_code: "role" });
+  });
+
+  test("a malformed request is refused without a row", async () => {
+    const { entries, policy: using } = logged();
+    const decision = await decide(
+      { ...request(web), request_id: "" } as AuthorizationRequest,
+      using,
+    );
+    expect(decision.outcome).toBe("deny");
+    expect(entries).toEqual([]);
+  });
+
+  test("records the decision it returns, id included", async () => {
+    const { entries, policy: using } = logged();
+    const decision = await decide(
+      request(web, { action: "session.recover" }),
+      using,
+    );
+    expect(entries[0]?.decision.decision_id).toBe(decision.decision_id);
   });
 });
