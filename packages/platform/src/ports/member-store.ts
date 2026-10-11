@@ -8,7 +8,8 @@ export type OffboardResult =
       revokedPersonalKeys: number;
       sessionsAwaitingTakeover: number;
     }
-  | { outcome: "not_found" };
+  | { outcome: "not_found" }
+  | { outcome: "actor_inactive" };
 
 export type TakeoverRecord = {
   sessionId: string;
@@ -33,6 +34,8 @@ export interface MemberStore {
   offboard(input: {
     workspaceId: string;
     userId: string;
+    /** Re-checked as a live owner under the same locks. */
+    actingUserId: string;
   }): Promise<OffboardResult>;
   listAwaitingTakeover(
     workspaceId: string,

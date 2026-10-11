@@ -277,6 +277,16 @@ integration("members, identity and takeover on PostgreSQL", () => {
     throw new Error("the write never waited on the membership");
   }
 
+  // Offboarding as a fresh owner of the workspace.
+  async function offboardBy(workspaceId: string, userId: string) {
+    const actingUserId = await member(workspaceId, "owner");
+    return createPostgresMemberStore(db).offboard({
+      workspaceId,
+      userId,
+      actingUserId,
+    });
+  }
+
   describe("who acts is recorded", () => {
     test("a cookie caller is the session's requester, the turn's actor and the receipt's", async () => {
       const ws = await workspace();
@@ -444,10 +454,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
       const asked = await createSession(asUser(ws, leaver));
       const ownersOwn = await createSession(asUser(ws, owner));
 
-      const result = await createPostgresMemberStore(db).offboard({
-        workspaceId: ws,
-        userId: leaver,
-      });
+      const result = await offboardBy(ws, leaver);
       expect(result).toEqual({
         outcome: "offboarded",
         revokedWebSessions: 1,
@@ -491,12 +498,30 @@ integration("members, identity and takeover on PostgreSQL", () => {
         (await sessionRow(ownersOwn.session_id)).takeoverRequiredAt,
       ).toBeNull();
 
-      expect(
-        await createPostgresMemberStore(db).offboard({
-          workspaceId: ws,
-          userId: leaver,
-        }),
-      ).toEqual({ outcome: "not_found" });
+      expect(await offboardBy(ws, leaver)).toEqual({ outcome: "not_found" });
+    });
+
+    test("two owners offboarding each other leave one owner standing", async () => {
+      const ws = await workspace();
+      const first = await member(ws, "owner");
+      const second = await member(ws, "owner");
+      // The first owner's offboarding of the second is under way.
+      const commit = await offboardingInFlight(ws, second);
+      const reverse = createPostgresMemberStore(db).offboard({
+        workspaceId: ws,
+        userId: first,
+        actingUserId: second,
+      });
+      await lockWaiter();
+      await commit();
+      expect(await reverse).toEqual({ outcome: "actor_inactive" });
+      const [kept] = await db
+        .select({ disabledAt: memberships.disabledAt })
+        .from(memberships)
+        .where(
+          and(eq(memberships.workspaceId, ws), eq(memberships.userId, first)),
+        );
+      expect(kept?.disabledAt).toBeNull();
     });
 
     test("a cookie that would resolve to another workspace is ended too", async () => {
@@ -509,10 +534,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
         .insert(memberships)
         .values({ workspaceId: other, userId: leaver, role: "member" });
       const cookie = await webSession(leaver);
-      await createPostgresMemberStore(db).offboard({
-        workspaceId: left,
-        userId: leaver,
-      });
+      await offboardBy(left, leaver);
       const [row] = await db
         .select({ revokedAt: webSessions.revokedAt })
         .from(webSessions)
@@ -524,10 +546,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
       const ws = await workspace();
       const leaver = await member(ws, "member");
       const personal = await key(ws, { personalFor: leaver });
-      await createPostgresMemberStore(db).offboard({
-        workspaceId: ws,
-        userId: leaver,
-      });
+      await offboardBy(ws, leaver);
       await db
         .update(memberships)
         .set({ disabledAt: null })
@@ -549,10 +568,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
       const owner = await member(ws, "owner");
       const leaver = await member(ws, "member");
       const created = await createSession(asUser(ws, leaver));
-      await createPostgresMemberStore(db).offboard({
-        workspaceId: ws,
-        userId: leaver,
-      });
+      await offboardBy(ws, leaver);
       return { ws, owner, leaver, sessionId: created.session_id };
     }
 
@@ -645,10 +661,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
         "accepted",
       );
 
-      await createPostgresMemberStore(db).offboard({
-        workspaceId: ws,
-        userId: leaver,
-      });
+      await offboardBy(ws, leaver);
       expect((await gateway.nextInput(principal, scope)).input?.turn_id).toBe(
         "1",
       );

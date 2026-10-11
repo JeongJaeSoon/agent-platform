@@ -36,7 +36,8 @@ export function createMemberService(deps: {
         kind: "workspace",
         id: caller.ownerId,
       });
-      if (personOf(caller) === userId.toLowerCase()) {
+      const actingUserId = personOf(caller);
+      if (actingUserId === userId.toLowerCase()) {
         throw new SessionServiceError(
           "BAD_REQUEST",
           "A member cannot offboard themselves",
@@ -45,9 +46,16 @@ export function createMemberService(deps: {
       const result = await store.offboard({
         workspaceId: caller.ownerId,
         userId,
+        actingUserId,
       });
       if (result.outcome === "not_found") {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      if (result.outcome === "actor_inactive") {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "This principal is no longer an owner of the workspace",
+        );
       }
       return result;
     },

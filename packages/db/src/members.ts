@@ -6,7 +6,7 @@ import type {
   TakeOverResult,
   TakeoverRecord,
 } from "@agent-platform/platform";
-import { and, asc, eq, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -22,10 +22,32 @@ const TAKEOVER = "takeover";
 
 async function offboard(
   db: Database,
-  input: { workspaceId: string; userId: string },
+  input: { workspaceId: string; userId: string; actingUserId: string },
 ): Promise<OffboardResult> {
   const userId = input.userId.toLowerCase();
+  const actingUserId = input.actingUserId.toLowerCase();
   return db.transaction(async (tx) => {
+    // Both rows, in one order, so two owners offboarding each other queue
+    // instead of each passing a check the other is about to void.
+    const locked = await tx
+      .select({
+        userId: memberships.userId,
+        role: memberships.role,
+        disabledAt: memberships.disabledAt,
+      })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.workspaceId, input.workspaceId),
+          inArray(memberships.userId, [userId, actingUserId]),
+        ),
+      )
+      .orderBy(asc(memberships.userId))
+      .for("update");
+    const acting = locked.find((row) => row.userId === actingUserId);
+    if (!acting || acting.disabledAt !== null || acting.role !== "owner") {
+      return { outcome: "actor_inactive" };
+    }
     const disabled = await tx
       .update(memberships)
       .set({ disabledAt: DB_NOW })
