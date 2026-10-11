@@ -3,6 +3,7 @@ import type {
   AgentAdminService,
   AgentService,
   ApiKeyService,
+  CredentialBindingService,
   IdentityStore,
   InterruptService,
   InviteService,
@@ -21,6 +22,7 @@ import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
@@ -77,6 +79,7 @@ function apiApp() {
       });
       registerApiKeyRoutes(router, {} as ApiKeyService);
       registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
+      registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);

@@ -48,6 +48,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   remove_team_member: "팀에서 빠짐",
   add_agent_admin: "에이전트 관리자 지정",
   remove_agent_admin: "에이전트 관리자 해제",
+  bind_credential: "자격 연결",
+  unbind_credential: "자격 연결 해제",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

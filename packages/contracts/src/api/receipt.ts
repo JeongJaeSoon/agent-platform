@@ -71,6 +71,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "remove_team_member",
   "add_agent_admin",
   "remove_agent_admin",
+  // Binding a credential name to an agent and taking it off (94S-581).
+  "bind_credential",
+  "unbind_credential",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

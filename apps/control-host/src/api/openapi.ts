@@ -4,6 +4,7 @@ import {
   acceptInviteResponseSchema,
   activateAgentRequestSchema,
   activateAgentResponseSchema,
+  activationCredentialUnboundDetailsSchema,
   addAgentAdminRequestSchema,
   addTeamMemberRequestSchema,
   agentAdminChangeResponseSchema,
@@ -24,11 +25,14 @@ import {
   createAgentRequestSchema,
   createApiKeyRequestSchema,
   createApiKeyResponseSchema,
+  createCredentialBindingRequestSchema,
+  createCredentialBindingResponseSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
   createTeamRequestSchema,
+  credentialBindingParamsSchema,
   deleteTeamResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
@@ -44,6 +48,7 @@ import {
   listAdministeredAgentsResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
+  listCredentialBindingsResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
@@ -72,7 +77,9 @@ import {
   recoveryDecisionRequestSchema,
   resumeSessionRequestSchema,
   revokeApiKeyResponseSchema,
+  revokeCredentialBindingResponseSchema,
   type SessionScope,
+  sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
   sessionSummarySchema,
@@ -183,6 +190,8 @@ const responseComponents = {
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
+  SessionCredentialUnboundDetails: sessionCredentialUnboundDetailsSchema,
+  ActivationCredentialUnboundDetails: activationCredentialUnboundDetailsSchema,
   CreateApiKeyResponse: createApiKeyResponseSchema,
   ListApiKeysResponse: listApiKeysResponseSchema,
   RevokeApiKeyResponse: revokeApiKeyResponseSchema,
@@ -193,6 +202,10 @@ const responseComponents = {
   AgentAdmins: agentAdminsViewSchema,
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
+  CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
+  CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
+  ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
+  RevokeCredentialBindingResponse: revokeCredentialBindingResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -246,7 +259,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Agents",
     description:
-      "Write agent cards, release a version against a runtime profile and activate a release. Owners, admins, and each agent's own admins.",
+      "Write agent cards, release a version against a runtime profile, activate a release and bind the credential names it runs with. Owners, admins, and each agent's own admins.",
   },
   {
     name: "Linked accounts",
@@ -485,7 +498,7 @@ const API_ROUTE_DECLARATIONS = [
     summary: "Durably accept a session and its first input",
     scope: "write",
     description:
-      "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`.",
+      "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names.",
     body: "CreateSessionRequest",
     success: { status: 201, schema: "CreateSessionResponse" },
     errors: [400, 401, 404, 409, 413, 422, 429, 503],
@@ -494,6 +507,7 @@ const API_ROUTE_DECLARATIONS = [
         "IDEMPOTENCY_CONFLICT",
         "RELEASE_PROFILE_MISMATCH",
         "PROFILE_DIGEST_MISMATCH",
+        "CREDENTIAL_UNBOUND",
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
@@ -1027,12 +1041,58 @@ const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Point the agent at a release (compare-and-swap)",
     description:
-      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again. Sessions already pinned keep their release.",
+      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
     auth: "session",
     body: "ActivateAgentRequest",
     success: { status: 200, schema: "ActivateAgentResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT", "PROFILE_DIGEST_MISMATCH"] },
+    errorCodes: {
+      409: [
+        "REVISION_CONFLICT",
+        "PROFILE_DIGEST_MISMATCH",
+        "CREDENTIAL_UNBOUND",
+      ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/credential-bindings",
+    operationId: "listCredentialBindings",
+    tag: "Agents",
+    summary: "The credential names bound to an agent",
+    description:
+      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.",
+    auth: "session",
+    success: { status: 200, schema: "ListCredentialBindingsResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/credential-bindings",
+    operationId: "createCredentialBinding",
+    tag: "Agents",
+    summary: "Bind a credential name to an agent",
+    description:
+      "Owners, admins and the agent's admins; never an API key. `credential_ref` names a credential held outside Werft (a secret store entry, a remote MCP server connection). Binding a name already bound answers `created: false` and a null `receipt_id`; otherwise writes a `bind_credential` receipt. A name an agent identity holds answers 409 CREDENTIAL_REF_IN_USE.",
+    auth: "session",
+    body: "CreateCredentialBindingRequest",
+    success: { status: 200, schema: "CreateCredentialBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["CREDENTIAL_REF_IN_USE"] },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/credential-bindings/{binding_id}",
+    operationId: "revokeCredentialBinding",
+    tag: "Agents",
+    summary: "Unbind a credential name from an agent",
+    description:
+      "Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeCredentialBindingResponse" },
+    errors: [401, 403, 404, 503],
     idempotent: false,
   },
   {
@@ -1341,6 +1401,7 @@ function queryParameters(schema: JsonSchema) {
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
   if (path.startsWith("/v1/agents/{id}/admins/")) return agentAdminParamsSchema;
+  if (path.includes("{binding_id}")) return credentialBindingParamsSchema;
   if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
   if (path.startsWith("/v1/teams/{team_id}/members/"))
     return teamMemberParamsSchema;

@@ -6,6 +6,7 @@ export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
 export * from "./checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
+export * from "./credential-bindings.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";

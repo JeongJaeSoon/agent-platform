@@ -37,7 +37,7 @@ const liveMembership = (workspaceId: string, userId: string) =>
 
 // The issuer's role as it stands under the share lock, so a demotion that
 // commits after the policy's decision either waits for this key or is seen.
-async function lockedRole(
+export async function lockedRole(
   tx: Database,
   workspaceId: string,
   userId: string,
@@ -91,7 +91,7 @@ function keyOf(row: {
 
 // One of the roles that take the right, or, for a key bound to an agent, an
 // admin of that agent; the admin row is share-locked like the membership.
-async function holdsRight(
+export async function holdsRight(
   tx: Database,
   workspaceId: string,
   userId: string,

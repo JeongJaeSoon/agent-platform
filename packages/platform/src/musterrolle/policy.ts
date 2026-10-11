@@ -136,6 +136,19 @@ export const noAgentAuthority: AgentAuthority = {
   },
 };
 
+/** The credential names a release needs that its agent has no binding for. */
+export interface CredentialCheck {
+  unboundRefs(workspaceId: string, releaseId: string): Promise<string[]>;
+}
+
+// Without a store nothing can show a release's credentials are bound, so a
+// session that names one is refused (fail-closed).
+export const noCredentialCheck: CredentialCheck = {
+  async unboundRefs() {
+    throw new Error("no credential binding store");
+  },
+};
+
 export const POLICY_VERSION = "m13";
 
 export interface AuthorizationPolicy {
@@ -245,12 +258,14 @@ export function createAuthorizationPolicy(
   deps: {
     identity?: IdentityReader;
     agents?: AgentAuthority;
+    credentials?: CredentialCheck;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
   } = {},
 ): AuthorizationPolicy {
   const identity = deps.identity ?? authenticatedIdentity;
   const agents = deps.agents ?? noAgentAuthority;
+  const credentials = deps.credentials ?? noCredentialCheck;
 
   async function agentOfResource(
     resource: AuthorizationResource,
@@ -321,6 +336,16 @@ export function createAuthorizationPolicy(
     if (subject.surface.kind === "slack") return ["surface_ceiling", scopes];
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
+    // Re-read at every start: a binding revoked since activation stops the
+    // next session, never one already running (D11).
+    if (resource.release_id !== undefined) {
+      if (action !== "session.submit") return ["error", []];
+      const unbound = await credentials.unboundRefs(
+        resource.owner_scope,
+        resource.release_id,
+      );
+      if (unbound.length > 0) return ["credential_unbound", scopes];
+    }
     return ["ok", scopes];
   }
 

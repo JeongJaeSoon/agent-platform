@@ -26,6 +26,22 @@ export const agentSlugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, "must be lowercase kebab-case");
 export const toolNameSchema = z.string().min(1).max(128);
 
+/**
+ * The name of a credential held outside Werft — a secret store entry, a
+ * remote MCP server connection — never its value (design 4.4).
+ */
+export const CREDENTIAL_REF_PATTERN = "^[a-z0-9][a-z0-9._:/-]{0,127}$";
+export const credentialRefSchema = z
+  .string()
+  .regex(
+    new RegExp(CREDENTIAL_REF_PATTERN),
+    "must be a lowercase credential name, not a value",
+  );
+export const CREDENTIAL_BINDING_TARGET_VALUES = [
+  "agent",
+  "agent_identity",
+] as const;
+
 /** What happens when the agent calls a tool. Kiel evaluates it per call (D9). */
 export const TOOL_POLICY_VALUES = ["allow", "ask", "deny"] as const;
 export const toolPolicySchema = z.enum(TOOL_POLICY_VALUES);
@@ -72,6 +88,19 @@ export const agentCapabilitiesSchema = z
      * its content hash. Changing it makes a new version, hence a new release.
      */
     tool_policy: cardToolPolicySchema.optional(),
+    /**
+     * The credentials the agent runs with, by name. Optional for the same
+     * reason as `tool_policy`. Each must be bound to the agent before a
+     * release of this version activates or starts a session (D11).
+     */
+    credential_refs: z
+      .array(credentialRefSchema)
+      .max(32)
+      .refine(
+        (refs) => new Set(refs).size === refs.length,
+        "credential_refs must not repeat a name",
+      )
+      .optional(),
   })
   .strict();
 

@@ -16,6 +16,7 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentAdminStore,
   createPostgresAgentStore,
+  createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresTeamStore,
   memberships,
@@ -102,6 +103,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
             authorization,
             store: createPostgresAgentStore(db),
             catalog,
+            credentials: createPostgresCredentialBindingStore(db),
           }),
         );
         registerTeamRoutes(

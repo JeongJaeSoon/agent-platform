@@ -61,6 +61,7 @@ import {
   parseTurnSequence,
   receiptActorOf,
 } from "./control-shared.ts";
+import { lockUnboundRefs } from "./credential-bindings.ts";
 import {
   decodeEventCursor,
   decodeSessionCursor,
@@ -182,12 +183,24 @@ export function createPostgresSessionUnitOfWork(
             response: createSessionResponseSchema.parse(existing.result),
           };
         }
+        if (input.credentialsUnbound) return { outcome: "credential_unbound" };
 
         if (!input.repository) {
           return { outcome: "unsupported" };
         }
         if (!(await actorStillMember(tx, input.principal))) {
           return { outcome: "actor_inactive" };
+        }
+        if (
+          input.agentReleaseId !== undefined &&
+          (
+            await lockUnboundRefs(tx, {
+              workspaceId: scope.principal,
+              releaseId: input.agentReleaseId,
+            })
+          ).length > 0
+        ) {
+          return { outcome: "credential_unbound" };
         }
         const refused = await admitInput(tx, {
           sessionId: null,

@@ -570,15 +570,22 @@ export const authorizationResourceSchema = z
      * for its agent instead, never told.
      */
     agent_id: agentIdSchema.optional(),
+    /**
+     * The release that session is to run, so the decision sees the
+     * credentials it names are still bound (design 4.4).
+     */
+    release_id: agentReleaseIdSchema.optional(),
   })
   .strict()
   .superRefine((resource, ctx) => {
-    if (resource.agent_id !== undefined && resource.id !== null) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["agent_id"],
-        message: "an identified resource is read for its agent",
-      });
+    for (const key of ["agent_id", "release_id"] as const) {
+      if (resource[key] !== undefined && resource.id !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "an identified resource is read for its agent",
+        });
+      }
     }
   });
 

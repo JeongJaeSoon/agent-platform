@@ -1,6 +1,6 @@
 # 멤버·팀·권한 (Musterrolle)
 
-**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위를 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 b(팀과 팀 관리자), c(Slack 계정 연결), d(권한별 key)와 e의 판정 기록·보존 기간이다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
+**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위, 에이전트 자격 연결을 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 b(팀과 팀 관리자), c(Slack 계정 연결), d(권한별 key), e의 판정 기록·보존 기간, f(자격 연결)이다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
 
 ## Sub-features
 
@@ -8,13 +8,15 @@
 - `b-teams` 팀 생성 → 구성원 추가·제거(수락 없이, 그 사람을 대상으로 한 receipt가 알림 기록) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리하고, 팀에서 빠지거나 팀이 지워지면 다음 요청부터 403. owner·admin만 팀을 바꾼다(94S-582).
 - `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정(94S-577). 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
 - `d-scoped-keys` member는 개인 key만, owner·admin은 서비스 key, 에이전트 관리자(그 에이전트를 만든 사람)는 그 에이전트 전용 서비스 key를 `POST /v1/api-keys`로 발급한다. 권한이 없으면 403과 `details.reason_code`. 에이전트 전용 key는 그 에이전트의 세션만 만들고 읽는다. 발급자의 지금 scope를 넘는 key는 403 `SCOPE_NOT_GRANTABLE`. API key로는 발급하지 못한다. 발급자를 내보내면 개인 key는 멈추고 서비스 key는 계속 동작한다.
+- `f-credential-bindings` 에이전트 관리자가 card의 `credential_refs` 이름을 그 에이전트에 연결(`POST /v1/agents/{id}/credential-bindings`)해야 활성화가 된다. 해제하면 실행 중 세션은 그대로 두고(`running_sessions`, `revoke_notice`) 다음 세션 생성이 `409 CREDENTIAL_UNBOUND`(안내 문구·관리자·`mailto:` 링크)다(94S-581).
 - `e-authz-audit` (기록·보존 기간은 있음, 열람은 아직 없음) 위 행동이 `authz_decisions`에 남고, 감사 열람과 공유 범위가 설계대로다(감사 보존 기본 90일·하한 30일, DM 기본 "나만").
 
 ## How to get to it (user POV)
 
-- (아직 없음) 웹 콘솔의 멤버·팀·연결·key 화면. 지금 있는 것은 [web-login.md](./web-login.md)의 bootstrap·login·me뿐이다. 초대 수락 계약(`acceptInviteRequestSchema`)은 `packages/contracts/src/musterrolle/auth.ts`에 있지만 route는 아직 없다.
+- 웹 콘솔의 초대 수락·구성원 화면은 [web-members-agents.md](./web-members-agents.md)에 있다(시나리오 a의 웹 쪽). 팀·연결·key 화면은 아직 없다.
 - (아직 없음) 같은 동작의 HTTP API.
 - b: `POST /v1/teams` → `POST /v1/teams/{team_id}/members` → `POST /v1/agents/{id}/admins` `{"team_id"}` → 팀원이 `PATCH /v1/agents/{id}`, `GET /v1/administered-agents` → `DELETE /v1/teams/{team_id}/members/{user_id}`, `DELETE /v1/teams/{team_id}`. 팀 화면(M10)은 아직 없다.
+- f: `GET`·`POST /v1/agents/{id}/credential-bindings`, `DELETE /v1/agents/{id}/credential-bindings/{binding_id}`, 활성화 `POST /v1/agents/{id}/activate`, 세션 `POST /v1/sessions`(`agent_release_id`). 연결 화면(M10)은 아직 없다.
 - c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다.
 
 ## Driving it with lib.sh
@@ -82,6 +84,17 @@ Preconditions:
 - **e. 보존 기간.** bootstrap 뒤 `ap_web POST /v1/auth/login …`으로 cookie를 받은 owner가 `ap_web POST "/v1/workspaces/$WS/audit-retention" '{"audit_retention_days":45}'` → `200`, `29` → `400`, 다른 workspace id → `404`. API key는 `404`. `workspaces.settings->'audit_retention_days'`가 45. member 403은 초대 경로가 없어 route 테스트로만 본다.
 - **e. 열람.** (아직 없음) `authz_decisions` 열람 API(또는 감사 화면)에서 행동마다 한 줄씩 보이는지, 공유 범위 밖 사용자는 못 보는지. DB는 읽기 확인에만 쓴다.
 
+- **f. 자격 연결.** d의 1처럼 owner와 member 둘(`agentadmin`, `other`)을 초대·수락으로 만든다. 수락 본문은 `jq -nc --arg t "$TOKEN" '{token:$t,password:"verify-member-pass-1"}'`로 만든다(`"$(… \"$TOKEN\" …)"`처럼 명령 치환 안에서 따옴표를 escape하면 bash 3.2가 `\`를 남겨 `400`이다).
+  1. agentadmin이 `capabilities`에 `"credential_refs":["notion_token"]`을 넣은 card로 에이전트를 만들고 `claude-coding-local` release를 만든다(`REL`). 같은 사람이 그 에이전트 전용 서비스 key(`KEY`)를 발급한다.
+  2. 연결 전 `ap_web POST "/v1/agents/$AID/activate" "{\"release_id\":\"$REL\",\"expected_revision\":-1}"` → `409 CREDENTIAL_UNBOUND`, `details.missing: ["notion_token"]`.
+  3. `other`가 `ap_web POST "/v1/agents/$AID/credential-bindings" '{"credential_ref":"notion_token"}'` → `403` `reason_code: role`. 에이전트 key로 같은 요청(`curl … -H "Authorization: Bearer $KEY"`) → `403` `role`. 값처럼 생긴 이름(`"xoxb-SECRET VALUE"`) → `400`.
+  4. agentadmin이 연결 → `200`, `created: true`, `receipt_id`. 활성화 → `200`.
+  5. `ap_post /v1/sessions` 본문 `{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"…","agent_release_id":"$REL"}` → `201`. owner가 `ap_web GET "/v1/agents/$AID/credential-bindings"` → `running_sessions: 1`과 `revoke_notice`.
+  6. agentadmin이 `ap_web DELETE "/v1/agents/$AID/credential-bindings/$BID"` → `200`, `revoked_at`이 차고 `running_sessions: 1`, `revoke_notice: "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요"`.
+  7. 같은 세션 생성 → `409 CREDENTIAL_UNBOUND`, `details`에 `guidance: "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요"`, `admins`(agentadmin), `admin_link: "mailto:agentadmin%40example.test"`. 이름(`notion_token`)은 응답에 없다. 활성화를 다시 하면 `409`와 `missing`.
+  8. `SELECT action, outcome, reason_code, principal_kind, count(*) FROM authz_decisions WHERE action IN ('credential.bind','session.submit') GROUP BY 1,2,3,4` → `credential.bind allow ok user`, `credential.bind deny role user`·`api_key` 하나씩, `session.submit deny credential_unbound api_key`. receipts에 `bind_credential`·`unbind_credential`, `result`는 `{"credential_ref": "notion_token"}`뿐.
+  - 2026-10-11 run `20261011-211609-82813`에서 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-f.txt`.
+
 ## Gotchas
 
 - (구현 티켓이 채운다)
@@ -90,6 +103,7 @@ Preconditions:
 - 에이전트 전용 key는 receipt를 읽지 못한다. receipt 조회는 세션을 가리키지 않아 에이전트를 확인할 수 없기 때문이다.
 - 에이전트 관리자는 에이전트를 만든 사람(과 0139 backfill), 그리고 `POST /v1/agents/{id}/admins`로 지정한 사람·팀이다.
 - b: 팀 목록·상세(`GET /v1/teams`)도 owner·admin만 본다. member는 자기가 든 팀을 API로 볼 수 없고, 추가 알림은 아직 receipt 기록뿐이다(화면·Slack 알림 없음).
+- f: 본문 검증(`400`)은 판정보다 먼저라 판정 행을 남기지 않는다. 해제한 연결을 다시 `DELETE`하면 `404`다.
 - bootstrap은 cookie를 주지 않는다. 보존 기간을 바꾸기 전에 login한다.
 - 판정은 본문보다 먼저 묻는다. 그래서 owner의 `29` 요청(400)도 `audit_retention.manage | allow` 행을 남긴다.
 - 만료 정리는 시간을 당겨야 보이므로 E2E가 아니라 `packages/db/src/authz-decisions.integration.test.ts`로 본다.
