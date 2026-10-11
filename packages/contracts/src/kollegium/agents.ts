@@ -26,6 +26,31 @@ export const agentSlugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, "must be lowercase kebab-case");
 export const toolNameSchema = z.string().min(1).max(128);
 
+/** What happens when the agent calls a tool. Kiel evaluates it per call (D9). */
+export const TOOL_POLICY_VALUES = ["allow", "ask", "deny"] as const;
+export const toolPolicySchema = z.enum(TOOL_POLICY_VALUES);
+
+/** Remote MCP server tools are named `mcp__<server>__<tool>` by the SDK. */
+export const MCP_TOOL_PREFIX = "mcp__";
+
+export const toolPolicyDefaultsSchema = z
+  .object({ builtin: toolPolicySchema, mcp: toolPolicySchema })
+  .strict();
+
+/** Same defaults as Managed Agents (D12). */
+export const DEFAULT_TOOL_POLICY = {
+  builtin: "allow",
+  mcp: "ask",
+} as const satisfies z.infer<typeof toolPolicyDefaultsSchema>;
+
+/** A card's say over its tools; anything left out takes the default. */
+export const cardToolPolicySchema = z
+  .object({
+    default: toolPolicyDefaultsSchema.partial().strict().optional(),
+    per_tool: z.record(toolNameSchema, toolPolicySchema).optional(),
+  })
+  .strict();
+
 export const agentRuleSchema = z
   .object({
     id: z.string().min(1).max(64),
@@ -42,6 +67,11 @@ export const agentCapabilitiesSchema = z
     mcp: z.null(),
     /** Server-enforced denials, not prose in the instructions. */
     forbidden: z.array(toolNameSchema).default([]),
+    /**
+     * Optional, with no default, so a card written before it existed keeps
+     * its content hash. Changing it makes a new version, hence a new release.
+     */
+    tool_policy: cardToolPolicySchema.optional(),
   })
   .strict();
 
@@ -220,8 +250,25 @@ export const runtimeConfigSnapshotSchema = z
     assertCredentialFree(snapshot, [], ctx);
   });
 
-/** Reserved for per-tool policy (allow·ask·deny); `{}` until that lands. */
-export const policyPinsSchema = z.record(z.string(), z.unknown());
+/**
+ * The tool policy a release runs under, resolved: `per_tool` names every
+ * effective tool, plus any MCP tool the card named. `default.mcp` covers the
+ * MCP tools a remote server only reveals at run time.
+ *
+ * `tools` is absent only on a release stored before policies existed
+ * (`{}`); every release created now carries it.
+ */
+export const policyPinsSchema = z
+  .object({
+    tools: z
+      .object({
+        default: toolPolicyDefaultsSchema,
+        per_tool: z.record(toolNameSchema, toolPolicySchema),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 
 /**
  * A version pinned to the runtime settings it was released against.
@@ -353,6 +400,8 @@ export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
 export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
 export type PolicyPins = z.infer<typeof policyPinsSchema>;
+export type ToolPolicy = z.infer<typeof toolPolicySchema>;
+export type CardToolPolicy = z.infer<typeof cardToolPolicySchema>;
 export type CreateAgentReleaseRequest = z.infer<
   typeof createAgentReleaseRequestSchema
 >;

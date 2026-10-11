@@ -92,7 +92,12 @@ function storedRelease(profile: CatalogProfile = PROFILE): AgentRelease {
     profile_digest: profileFingerprint(profile),
     runtime_config_snapshot: { model: "claude-sonnet-5" },
     effective_tools: { tools: ["Read"], mcp: [] },
-    policy_pins: {},
+    policy_pins: {
+      tools: {
+        default: { builtin: "allow", mcp: "ask" },
+        per_tool: { Read: "allow" },
+      },
+    } as const,
   };
   return {
     id: deriveReleaseId(identity),

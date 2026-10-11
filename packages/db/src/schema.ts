@@ -913,6 +913,13 @@ export const pendingRequests = pgTable(
     // sequence order and the worker's answers_after cursor never skips one.
     answerSequence: integer("answer_sequence"),
     answerReceiptId: uuid("answer_receipt_id").references(() => receipts.id),
+    // Who answered, where, and the session.approve decision that let them:
+    // the answer receipt's actor shape, so a key with no person is still
+    // named. No FK on the decision: audit retention prunes authz_decisions
+    // and the approval row outlives it. Null on rows answered before 0137.
+    answeredBy: jsonb("answered_by"),
+    answerSurface: text("answer_surface"),
+    answerDecisionId: uuid("answer_decision_id"),
     settledAt: timestamp("settled_at", { withTimezone: true }),
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.
@@ -937,6 +944,14 @@ export const pendingRequests = pgTable(
       .where(
         sql`${table.answeredAt} IS NOT NULL AND ${table.settledAt} IS NULL`,
       ),
+    check(
+      "pending_requests_answer_surface_check",
+      sql`${table.answerSurface} IN ('web', 'slack', 'api')`,
+    ),
+    check(
+      "pending_requests_approval_check",
+      sql`(${table.answerSurface} IS NULL) = (${table.answerDecisionId} IS NULL) AND (${table.answerSurface} IS NULL OR ${table.answeredAt} IS NOT NULL) AND (${table.answeredBy} IS NULL OR ${table.answerSurface} IS NOT NULL)`,
+    ),
   ],
 );
 

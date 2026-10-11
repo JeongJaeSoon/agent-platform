@@ -8,6 +8,7 @@ import type { PendingRequestStore } from "../ports/pending-requests.ts";
 import {
   idempotencyConflict,
   payloadHash,
+  requireAllowed,
   requirePermitted,
   SessionServiceError,
 } from "./session-service.ts";
@@ -42,16 +43,22 @@ export function createPendingRequestService(deps: {
       sessionId: string,
       input: { idempotencyKey: string; body: PostSessionAnswerRequest },
     ): Promise<PostSessionAnswerResponse> {
-      await requirePermitted(authorization, actor, "session.approve", {
-        kind: "session",
-        id: sessionId,
-      });
+      const decision = await requireAllowed(
+        authorization,
+        actor,
+        "session.approve",
+        { kind: "session", id: sessionId },
+      );
       const result = await store.answerAtomic({
         principal: actor,
         sessionId,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         answer: input.body,
+        approval: {
+          surface: actor.subject.surface.kind,
+          decisionId: decision.decision_id,
+        },
       });
       switch (result.outcome) {
         case "conflict":

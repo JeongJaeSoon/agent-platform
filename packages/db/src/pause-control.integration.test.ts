@@ -485,6 +485,7 @@ integration("pause on PostgreSQL", () => {
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
       answer: { request_id: requestId, kind: "permission", decision: "allow" },
+      approval: { surface: "api", decisionId: crypto.randomUUID() },
     });
     expect(answered.outcome).toBe("accepted");
   });

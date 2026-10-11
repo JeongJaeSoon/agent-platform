@@ -877,6 +877,27 @@ export interface components {
                 free_text?: string;
             }[];
         };
+        PostSessionAnswerResponse: {
+            /** Format: uuid */
+            receipt_id: string;
+            /** @enum {string} */
+            receipt_status: "accepted" | "succeeded" | "failed" | "unknown";
+            approval?: {
+                answered_by: {
+                    principal: {
+                        /** @enum {string} */
+                        kind: "api_key" | "user" | "installation";
+                        id: string;
+                    };
+                    actor_user_id: string | null;
+                    agent_id: string | null;
+                } | null;
+                /** @enum {string} */
+                surface: "web" | "slack" | "api";
+                /** Format: uuid */
+                decision_id: string;
+            };
+        };
         InterruptSessionRequest: {
             target_turn_id: string;
         };
@@ -982,6 +1003,17 @@ export interface components {
                     mcp: null;
                     /** @default [] */
                     forbidden: string[];
+                    tool_policy?: {
+                        default?: {
+                            /** @enum {string} */
+                            builtin?: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp?: "allow" | "ask" | "deny";
+                        };
+                        per_tool?: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 /** @default [] */
                 rules: {
@@ -1009,6 +1041,17 @@ export interface components {
                     mcp: null;
                     /** @default [] */
                     forbidden: string[];
+                    tool_policy?: {
+                        default?: {
+                            /** @enum {string} */
+                            builtin?: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp?: "allow" | "ask" | "deny";
+                        };
+                        per_tool?: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 /** @default [] */
                 rules: {
@@ -1805,6 +1848,17 @@ export interface components {
                         mcp: null;
                         /** @default [] */
                         forbidden: string[];
+                        tool_policy?: {
+                            default?: {
+                                /** @enum {string} */
+                                builtin?: "allow" | "ask" | "deny";
+                                /** @enum {string} */
+                                mcp?: "allow" | "ask" | "deny";
+                            };
+                            per_tool?: {
+                                [key: string]: "allow" | "ask" | "deny";
+                            };
+                        };
                     };
                     /** @default [] */
                     rules: {
@@ -1836,7 +1890,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -1861,7 +1925,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -1888,7 +1962,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools?: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -4004,7 +4088,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReceiptAcceptedResponse"];
+                    "application/json": components["schemas"]["PostSessionAnswerResponse"];
                 };
             };
             /** @description Error: BAD_REQUEST */
