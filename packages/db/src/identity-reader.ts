@@ -142,7 +142,11 @@ export function createDatabaseIdentityReader(db: Database): IdentityReader {
         workspace_id: key.workspaceId,
         scopes: key.scopes === null ? [] : [...key.scopes],
       };
-      if (key.kind === "service") return { status: "ok", principal: stored };
+      if (key.kind === "service") {
+        return key.agentId == null
+          ? { status: "ok", principal: stored }
+          : { status: "ok", principal: stored, keyAgentId: key.agentId };
+      }
       if (key.createdByUserId === null || key.creatorRole === null) {
         return { status: "disabled" };
       }

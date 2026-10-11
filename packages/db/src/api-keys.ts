@@ -1,0 +1,217 @@
+import type { SessionScope } from "@agent-platform/contracts";
+import type {
+  Principal,
+  WorkspaceKey,
+  WorkspaceKeyStore,
+} from "@agent-platform/platform";
+import { and, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
+import { actorStillMember, receiptActorOf } from "./control-shared.ts";
+import { DB_NOW } from "./db-clock.ts";
+import type { Database } from "./queries.ts";
+import { agentAdmins, agents, apiKeys, receipts } from "./schema.ts";
+
+// Keys issued from the web or the API (94S-574). Lock order: the actor's
+// membership, then the agent, then the key, as the agent store takes them.
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const keyColumns = {
+  id: apiKeys.id,
+  workspaceId: apiKeys.workspaceId,
+  kind: apiKeys.kind,
+  agentId: apiKeys.agentId,
+  createdByUserId: apiKeys.createdByUserId,
+  scopes: apiKeys.scopes,
+  createdAt: apiKeys.createdAt,
+  expiresAt: apiKeys.expiresAt,
+  revokedAt: apiKeys.revokedAt,
+};
+
+function keyOf(row: {
+  id: string;
+  workspaceId: string | null;
+  kind: string;
+  agentId: string | null;
+  createdByUserId: string | null;
+  scopes: string[] | null;
+  createdAt: Date;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+}): WorkspaceKey {
+  if (row.workspaceId === null) {
+    throw new Error(`api key ${row.id} read outside a workspace`);
+  }
+  return {
+    ...row,
+    workspaceId: row.workspaceId,
+    kind: row.kind as WorkspaceKey["kind"],
+    scopes: (row.scopes ?? []) as SessionScope[],
+  };
+}
+
+async function writeReceipt(
+  tx: Database,
+  principal: Principal,
+  input: {
+    id: string;
+    operation: "create_api_key" | "revoke_api_key";
+    key: WorkspaceKey;
+  },
+) {
+  await tx.insert(receipts).values({
+    id: input.id,
+    ownerId: principal.ownerId,
+    actor: receiptActorOf(principal),
+    operation: input.operation,
+    targetRef: {
+      resource: { kind: "api_key", id: input.key.id },
+      workspace_id: input.key.workspaceId,
+    },
+    status: "succeeded",
+    // What the key may do, never the key itself.
+    result: {
+      kind: input.key.kind,
+      agent_id: input.key.agentId,
+      scopes: input.key.scopes,
+    },
+  });
+}
+
+export function createPostgresWorkspaceKeyStore(
+  db: Database,
+): WorkspaceKeyStore {
+  async function find(
+    tx: Database,
+    workspaceId: string,
+    keyId: string,
+    lock: boolean,
+  ): Promise<WorkspaceKey | null> {
+    if (!UUID.test(keyId)) return null;
+    const query = tx
+      .select(keyColumns)
+      .from(apiKeys)
+      .where(
+        and(
+          eq(apiKeys.id, keyId.toLowerCase()),
+          eq(apiKeys.workspaceId, workspaceId),
+        ),
+      )
+      .limit(1);
+    const [row] = await (lock ? query.for("update") : query);
+    return row ? keyOf(row) : null;
+  }
+
+  return {
+    issue(input) {
+      return db.transaction(async (tx) => {
+        if (!(await actorStillMember(tx, input.principal))) {
+          return { outcome: "actor_inactive" };
+        }
+        if (input.agentId !== null) {
+          const [agent] = await tx
+            .select({ id: agents.id })
+            .from(agents)
+            .where(
+              and(
+                eq(agents.id, input.agentId),
+                eq(agents.workspaceId, input.workspaceId),
+              ),
+            )
+            .limit(1)
+            .for("key share");
+          if (!agent) return { outcome: "agent_not_found" };
+        }
+        const [row] = await tx
+          .insert(apiKeys)
+          .values({
+            id: input.id,
+            keyHash: input.keyHash,
+            ownerId: input.workspaceId,
+            workspaceId: input.workspaceId,
+            scopes: [...input.scopes],
+            kind: input.kind,
+            agentId: input.agentId,
+            createdByUserId: input.createdByUserId,
+            expiresAt: input.expiresAt,
+          })
+          .returning(keyColumns);
+        if (!row) throw new Error("api key insert returned no row");
+        const key = keyOf(row);
+        await writeReceipt(tx, input.principal, {
+          id: input.receiptId,
+          operation: "create_api_key",
+          key,
+        });
+        return { outcome: "issued", key };
+      });
+    },
+
+    find: (workspaceId, keyId) => find(db, workspaceId, keyId, false),
+
+    async list(workspaceId, filter, limit) {
+      const own = and(
+        eq(apiKeys.kind, "personal"),
+        eq(apiKeys.createdByUserId, filter.personalOf),
+      );
+      const service =
+        filter.service === "all"
+          ? eq(apiKeys.kind, "service")
+          : filter.service === "administered"
+            ? and(
+                eq(apiKeys.kind, "service"),
+                isNotNull(apiKeys.agentId),
+                inArray(
+                  apiKeys.agentId,
+                  db
+                    .select({ agentId: agentAdmins.agentId })
+                    .from(agentAdmins)
+                    .where(
+                      and(
+                        eq(agentAdmins.workspaceId, workspaceId),
+                        eq(agentAdmins.userId, filter.personalOf),
+                      ),
+                    ),
+                ),
+              )
+            : undefined;
+      const rows = await db
+        .select(keyColumns)
+        .from(apiKeys)
+        .where(
+          and(
+            eq(apiKeys.workspaceId, workspaceId),
+            service ? or(own, service) : own,
+          ),
+        )
+        .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
+        .limit(limit);
+      return rows.map(keyOf);
+    },
+
+    revoke(input) {
+      return db.transaction(async (tx) => {
+        if (!(await actorStillMember(tx, input.principal))) {
+          return { outcome: "actor_inactive" };
+        }
+        const key = await find(tx, input.workspaceId, input.keyId, true);
+        if (!key) return { outcome: "not_found" };
+        if (key.revokedAt !== null) {
+          return { outcome: "already_revoked", key };
+        }
+        const [row] = await tx
+          .update(apiKeys)
+          .set({ revokedAt: DB_NOW })
+          .where(eq(apiKeys.id, key.id))
+          .returning(keyColumns);
+        if (!row) throw new Error(`api key ${key.id} vanished in its tx`);
+        const revoked = keyOf(row);
+        await writeReceipt(tx, input.principal, {
+          id: input.receiptId,
+          operation: "revoke_api_key",
+          key: revoked,
+        });
+        return { outcome: "revoked", key: revoked };
+      });
+    },
+  };
+}

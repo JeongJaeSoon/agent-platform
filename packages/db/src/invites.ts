@@ -11,7 +11,7 @@ import type {
   MembershipRole,
   RevokeInviteResult,
 } from "@agent-platform/platform";
-import { and, asc, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { createWebSession } from "./identity.ts";
@@ -81,26 +81,32 @@ const liveMember = and(
   isNull(users.disabledAt),
 );
 
-/** FOR SHARE, so a demotion or offboarding of the actor waits for this write. */
-async function actorIsLiveOwner(
+// Who manages members (design 4.1). An admin never touches the owner role.
+const MEMBER_MANAGERS = ["owner", "admin"];
+
+/**
+ * The actor's role while they still manage members, else null. FOR SHARE, so
+ * a demotion or offboarding of the actor waits for this write.
+ */
+async function liveManagerRole(
   tx: Database,
   actor: ActingOwner,
-): Promise<boolean> {
+): Promise<string | null> {
   await lockActorAccount(tx, actor.userId);
-  const rows = await tx
-    .select({ userId: memberships.userId })
+  const [row] = await tx
+    .select({ role: memberships.role })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
     .where(
       and(
         eq(memberships.workspaceId, actor.workspaceId),
         eq(memberships.userId, actor.userId),
-        eq(memberships.role, "owner"),
+        inArray(memberships.role, MEMBER_MANAGERS),
         liveMember,
       ),
     )
     .for("share", { of: memberships });
-  return rows.length > 0;
+  return row?.role ?? null;
 }
 
 async function writeReceipt(
@@ -145,8 +151,10 @@ async function createInvite(
     );
     // Invite rows before the actor's membership: the lock order above.
     await tx.select({ id: invites.id }).from(invites).where(live).for("update");
-    if (!(await actorIsLiveOwner(tx, actor))) {
-      return { outcome: "actor_inactive" };
+    const actorRole = await liveManagerRole(tx, actor);
+    if (actorRole === null) return { outcome: "actor_inactive" };
+    if (actorRole !== "owner" && input.role === "owner") {
+      return { outcome: "owner_protected" };
     }
     const [member] = await tx
       .select({ userId: memberships.userId })
@@ -209,7 +217,7 @@ async function revokeInvite(
         and(eq(invites.id, id), eq(invites.workspaceId, actor.workspaceId)),
       )
       .for("update");
-    if (!(await actorIsLiveOwner(tx, actor))) {
+    if ((await liveManagerRole(tx, actor)) === null) {
       return { outcome: "actor_inactive" };
     }
     if (!invite) return { outcome: "not_found" };
@@ -453,12 +461,18 @@ async function changeMemberRole(
     const live = (row: (typeof locked)[number]) =>
       row.membershipDisabledAt === null && row.userDisabledAt === null;
     const acting = locked.find((row) => row.userId === actor.userId);
-    if (!acting || !live(acting) || acting.role !== "owner") {
+    if (!acting || !live(acting) || !MEMBER_MANAGERS.includes(acting.role)) {
       return { outcome: "actor_inactive" };
     }
     const target = locked.find((row) => row.userId === userId);
     if (!target || target.membershipDisabledAt !== null) {
       return { outcome: "not_found" };
+    }
+    if (
+      acting.role !== "owner" &&
+      (target.role === "owner" || input.role === "owner")
+    ) {
+      return { outcome: "owner_protected" };
     }
     const member = memberRecord(target);
     if (target.role === input.role) {

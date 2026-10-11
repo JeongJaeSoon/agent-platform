@@ -10,6 +10,7 @@ export * from "./musterrolle/linked-account-service.ts";
 export * from "./musterrolle/member-service.ts";
 export * from "./musterrolle/policy.ts";
 export * from "./ports/agent-store.ts";
+export * from "./ports/api-key-store.ts";
 export * from "./ports/checkpoint-collection.ts";
 export * from "./ports/checkpoint-store.ts";
 export * from "./ports/checkpoint-verifier.ts";
