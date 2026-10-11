@@ -1781,7 +1781,7 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    tools: {
+                    tools?: {
                         default: {
                             /** @enum {string} */
                             builtin: "allow" | "ask" | "deny";
@@ -1816,7 +1816,7 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    tools: {
+                    tools?: {
                         default: {
                             /** @enum {string} */
                             builtin: "allow" | "ask" | "deny";
@@ -1853,7 +1853,7 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    tools: {
+                    tools?: {
                         default: {
                             /** @enum {string} */
                             builtin: "allow" | "ask" | "deny";
