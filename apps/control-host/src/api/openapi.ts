@@ -6,6 +6,7 @@ import {
   activateAgentResponseSchema,
   activationCredentialUnboundDetailsSchema,
   agentDetailSchema,
+  agentIdentityParamsSchema,
   agentIdParamsSchema,
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
@@ -37,7 +38,10 @@ import {
   inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
+  linkAgentIdentityRequestSchema,
+  linkAgentIdentityResponseSchema,
   linkedAccountParamsSchema,
+  listAgentIdentitiesResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
@@ -67,6 +71,7 @@ import {
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
   resumeSessionRequestSchema,
+  revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
   revokeCredentialBindingResponseSchema,
   type SessionScope,
@@ -128,6 +133,7 @@ const requestComponents = {
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
   ActivateAgentRequest: activateAgentRequestSchema,
   CreateApiKeyRequest: createApiKeyRequestSchema,
+  LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -181,6 +187,9 @@ const responseComponents = {
   CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
   ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
   RevokeCredentialBindingResponse: revokeCredentialBindingResponseSchema,
+  LinkAgentIdentityResponse: linkAgentIdentityResponseSchema,
+  ListAgentIdentitiesResponse: listAgentIdentitiesResponseSchema,
+  RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -1067,6 +1076,53 @@ const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/agents/{id}/identities",
+    operationId: "linkAgentIdentity",
+    tag: "Agents",
+    summary: "Pin the agent to its Slack app's install in one team",
+    description:
+      "Slack events from that app and team then resolve to this agent and no other; events from another app, or after the identity or the install is revoked, are dropped. The install must be verified for the workspace (409 SLACK_NOT_INSTALLED); one already pinned to another agent answers 409 AGENT_IDENTITY_TAKEN, and to this agent 409 ALREADY_EXISTS. `credential_ref` names the bot token in the secret store, never its value, and is this identity's alone: a name bound to an agent or another identity answers 409 CREDENTIAL_REF_IN_USE, and the name is freed when the identity is revoked. Owners, admins and the agent's admins; API keys are refused. Writes a `link_agent_identity` receipt.",
+    auth: "session",
+    body: "LinkAgentIdentityRequest",
+    success: { status: 201, schema: "LinkAgentIdentityResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "SLACK_NOT_INSTALLED",
+        "AGENT_IDENTITY_TAKEN",
+        "ALREADY_EXISTS",
+        "CREDENTIAL_REF_IN_USE",
+      ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/identities",
+    operationId: "listAgentIdentities",
+    tag: "Agents",
+    summary: "The agent's Slack app identities",
+    description:
+      "Active first, then revoked, newest first within each; up to 50. Owners, admins and the agent's admins.",
+    auth: "session",
+    success: { status: 200, schema: "ListAgentIdentitiesResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/identities/{identity_id}",
+    operationId: "revokeAgentIdentity",
+    tag: "Agents",
+    summary: "Revoke an agent identity",
+    description:
+      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. Linking again makes a new identity.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeAgentIdentityResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
     path: "/v1/api-keys",
     operationId: "createApiKey",
     tag: "API keys",
@@ -1230,6 +1286,8 @@ function queryParameters(schema: JsonSchema) {
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
   if (path.includes("{binding_id}")) return credentialBindingParamsSchema;
+  if (path === "/v1/agents/{id}/identities/{identity_id}")
+    return agentIdentityParamsSchema;
   if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
