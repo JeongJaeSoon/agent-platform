@@ -5,11 +5,12 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 
 # verify-agent-platform
 
-이 저장소의 사용자 표면을 실제로 띄워 사용자가 하듯 몬다. 지금 있는 표면은 셋이다.
+이 저장소의 사용자 표면을 실제로 띄워 사용자가 하듯 몬다. 지금 있는 표면은 넷이다.
 
 | 표면 | 무엇 | 몰기 |
 |---|---|---|
-| web 로그인 API | `/v1/auth/bootstrap`·`login`·`me`·`logout` (cookie 세션). 웹 화면(`apps/web`)은 아직 없다 | `ap_web` (curl + CSRF 헤더 + cookie) |
+| web 로그인 API | `/v1/auth/bootstrap`·`login`·`me`·`logout` (cookie 세션) | `ap_web` (curl + CSRF 헤더 + cookie) |
+| 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/` | 브라우저(`orca tab`·`orca snapshot`), 서빙 헤더는 curl |
 | API | `/v1/sessions/**`, `/v1/receipts`, `/v1/limits`, `/docs`, `/readyz` | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
 
