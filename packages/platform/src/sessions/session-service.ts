@@ -3,6 +3,7 @@ import type {
   AdmissionState,
   AgentRelease,
   ApiErrorCode,
+  AuditReadResponse,
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationResource,
@@ -177,8 +178,9 @@ export async function requirePermitted(
   caller: Caller,
   action: AuthorizationAction,
   resource: Omit<AuthorizationResource, "owner_scope">,
+  justification?: string,
 ): Promise<void> {
-  await requireAllowed(authorization, caller, action, resource);
+  await requireAllowed(authorization, caller, action, resource, justification);
 }
 
 /** requirePermitted, for a caller that records which decision allowed it. */
@@ -187,10 +189,16 @@ export async function requireAllowed(
   caller: Caller,
   action: AuthorizationAction,
   resource: Omit<AuthorizationResource, "owner_scope">,
+  // A manager's reason for acting outside a session's share; recorded with
+  // the decision.
+  justification?: string,
 ): Promise<AuthorizationDecision> {
   const decision = await authorization
     .authorize({
-      subject: caller.subject,
+      subject:
+        justification === undefined
+          ? caller.subject
+          : { ...caller.subject, justification },
       action,
       resource: { ...resource, owner_scope: caller.ownerId },
       request_id: caller.requestId,
@@ -199,6 +207,14 @@ export async function requireAllowed(
   if (decision?.outcome === "allow") return decision;
   if (decision?.reason_code === "not_found") {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
+  }
+  if (decision?.reason_code === "justification_required") {
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "This action on this session needs a justification",
+      undefined,
+      { reason_code: "justification_required" },
+    );
   }
   if (decision?.reason_code === "credential_unbound") {
     throw new SessionServiceError(
@@ -361,6 +377,49 @@ export function createSessionService(deps: {
     return release;
   }
 
+  async function detailOf(
+    actor: Caller,
+    sessionId: string,
+  ): Promise<SessionDetail> {
+    const record = await reader.getSession(actor.ownerId, sessionId);
+    if (!record) {
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
+    }
+    const {
+      profile_id,
+      cost_usd,
+      provider_tokens,
+      repo_url,
+      branch,
+      profile_fingerprint,
+      ...detail
+    } = record;
+    const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
+    return {
+      ...detail,
+      attention:
+        detail.attention ??
+        // The claim matches the same values (runnablePairOf), so this says
+        // exactly when no worker of this host would take the session.
+        (catalogAllows(record)
+          ? null
+          : {
+              code: "CATALOG_MISMATCH",
+              reason:
+                "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
+            }) ??
+        // Dispatch stops at the same predicate (nextInputAtomic), so what
+        // this says and what the gateway does come from one comparison.
+        (budgetExceeded(spend, budget)
+          ? {
+              code: "BUDGET_EXCEEDED",
+              reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
+            }
+          : null),
+      runtime: runtimeFor(profile_id),
+    };
+  }
+
   return {
     async createSession(
       actor: Caller,
@@ -501,19 +560,40 @@ export function createSessionService(deps: {
     async terminateSession(
       actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; body: TerminateSessionRequest },
+      input: {
+        idempotencyKey: string;
+        body: TerminateSessionRequest;
+        // An owner or admin stopping a session outside its share; the
+        // reason then also becomes the stop reason.
+        justification?: string;
+      },
     ): Promise<TerminateSessionResponse> {
-      await requirePermitted(authorization, actor, "session.control", {
-        kind: "session",
-        id: sessionId,
-      });
+      // A stop with a reason is a manager's, whoever else sees the session.
+      if (input.justification !== undefined) {
+        await requirePermitted(authorization, actor, "session.admin_list", {
+          kind: "workspace",
+          id: actor.ownerId,
+        });
+      }
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.control",
+        { kind: "session", id: sessionId },
+        input.justification,
+      );
       const result = await controls.terminateAtomic({
         principal: actor,
         sessionId,
         idempotencyKey: input.idempotencyKey,
-        payloadHash: payloadHash(input.body),
+        // The reason becomes the stop reason, so it is part of the request.
+        payloadHash: payloadHash(
+          input.justification === undefined
+            ? input.body
+            : { ...input.body, justification: input.justification },
+        ),
         expectedRevision: input.body.expected_revision,
-        reason: input.body.reason ?? null,
+        reason: input.body.reason ?? input.justification ?? null,
         now: now(),
       });
       switch (result.outcome) {
@@ -584,12 +664,20 @@ export function createSessionService(deps: {
     async decideRecovery(
       actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; body: RecoveryDecisionRequest },
+      input: {
+        idempotencyKey: string;
+        body: RecoveryDecisionRequest;
+        // An owner deciding for a session outside its share.
+        justification?: string;
+      },
     ): Promise<ControlAcceptedResponse> {
-      await requirePermitted(authorization, actor, "session.recover", {
-        kind: "session",
-        id: sessionId,
-      });
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.recover",
+        { kind: "session", id: sessionId },
+        input.justification,
+      );
       const result = await controls.decideRecoveryAtomic({
         principal: actor,
         sessionId,
@@ -733,7 +821,10 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      const page = await reader.listSessions(actor.ownerId, query);
+      const page = await reader.listSessions(actor.ownerId, query, {
+        userId: actor.actor?.userId ?? null,
+        apiKeyId: actor.actor?.apiKeyId ?? null,
+      });
       return {
         items: page.items.map(({ profile_id, ...item }) => ({
           ...item,
@@ -748,43 +839,30 @@ export function createSessionService(deps: {
         kind: "session",
         id: sessionId,
       });
-      const record = await reader.getSession(actor.ownerId, sessionId);
-      if (!record) {
+      return detailOf(actor, sessionId);
+    },
+
+    // Read-only by construction: it reads through the same reader as
+    // getSession and listTurns and allows nothing else on the session.
+    async auditRead(
+      actor: Caller,
+      sessionId: string,
+      input: { justification: string } & ListTurnsQuery,
+    ): Promise<AuditReadResponse> {
+      const { justification, ...query } = input;
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.audit_read",
+        { kind: "session", id: sessionId },
+        justification,
+      );
+      const session = await detailOf(actor, sessionId);
+      const turns = await reader.listTurns(actor.ownerId, sessionId, query);
+      if (!turns) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const {
-        profile_id,
-        cost_usd,
-        provider_tokens,
-        repo_url,
-        branch,
-        profile_fingerprint,
-        ...detail
-      } = record;
-      const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
-      return {
-        ...detail,
-        attention:
-          detail.attention ??
-          // The claim matches the same values (runnablePairOf), so this says
-          // exactly when no worker of this host would take the session.
-          (catalogAllows(record)
-            ? null
-            : {
-                code: "CATALOG_MISMATCH",
-                reason:
-                  "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
-              }) ??
-          // Dispatch stops at the same predicate (nextInputAtomic), so what
-          // this says and what the gateway does come from one comparison.
-          (budgetExceeded(spend, budget)
-            ? {
-                code: "BUDGET_EXCEEDED",
-                reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
-              }
-            : null),
-        runtime: runtimeFor(profile_id),
-      };
+      return { session, turns };
     },
 
     async listTurns(
@@ -837,7 +915,8 @@ export function createSessionService(deps: {
 
     // Any principal of the issuing owner's partition may read a receipt,
     // not only the one that issued the command; another owner sees the same
-    // 404 as for a receipt that never existed.
+    // 404 as for a receipt that never existed, and so does anyone outside
+    // the share of the session it names.
     async getReceipt(actor: Caller, receiptId: string): Promise<Receipt> {
       await requirePermitted(authorization, actor, "session.read", {
         kind: "session",
@@ -846,6 +925,12 @@ export function createSessionService(deps: {
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      if ("session_id" in receipt.target_ref) {
+        await requirePermitted(authorization, actor, "session.read", {
+          kind: "session",
+          id: receipt.target_ref.session_id,
+        });
       }
       return receipt;
     },

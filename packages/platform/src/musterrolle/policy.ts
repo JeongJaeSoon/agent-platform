@@ -16,6 +16,10 @@ import {
   type WorkspaceRole,
 } from "@agent-platform/contracts";
 import type { DecisionLog } from "../ports/decision-log.ts";
+import type {
+  SessionShareStore,
+  SessionViewer,
+} from "../ports/session-share-store.ts";
 
 export type RecordedActor = {
   principal: PrincipalRef;
@@ -149,7 +153,21 @@ export const noCredentialCheck: CredentialCheck = {
   },
 };
 
-export const POLICY_VERSION = "m13";
+/** Who made a session and whom it is shared with, read for every decision. */
+export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf">;
+
+// Without a store no session was ever re-shared, so each reads workspace;
+// whose session it is cannot be read, so nobody may change that.
+export const workspaceWideSessions: SessionAccess = {
+  async visibleTo() {
+    return true;
+  },
+  async originOf() {
+    throw new Error("no session share store");
+  },
+};
+
+export const POLICY_VERSION = "m14";
 
 export interface AuthorizationPolicy {
   authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;
@@ -184,7 +202,20 @@ export const MANAGEMENT_ROLES: Partial<
   "agent.admin.manage": ["owner", "admin"],
   "credential.bind": ["owner", "admin"],
   "binding.manage": ["owner", "admin"],
+  "session.audit_read": ["owner", "admin"],
+  "session.admin_list": ["owner", "admin"],
 };
+
+const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+
+// What a manager may do on a session outside its share, given a reason
+// (A.3 step 2): read it under audit, take it over, end it, recover it.
+export const OUT_OF_SHARE_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "session.audit_read",
+  "member.manage",
+  "session.control",
+  "session.recover",
+]);
 
 // What an agent's admin may also do on that agent, whatever their role.
 export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
@@ -223,6 +254,24 @@ function authorityScopes(reading: {
   return [...principal.scopes];
 }
 
+// A personal key looks as its creator; a service key is no member and looks
+// as itself (design 4.6).
+function viewerOf(reading: {
+  principal: AuthenticatedPrincipal;
+  keyCreator?: { userId: string };
+}): SessionViewer {
+  const { principal } = reading;
+  if (principal.kind === "user")
+    return { userId: principal.id, apiKeyId: null };
+  if (principal.kind === "api_key") {
+    return {
+      userId: reading.keyCreator?.userId ?? null,
+      apiKeyId: principal.id,
+    };
+  }
+  return { userId: null, apiKeyId: null };
+}
+
 function claimedActorMatches(
   subject: AuthorizationSubject,
   reading: Extract<IdentityReading, { status: "ok" }>,
@@ -239,9 +288,11 @@ export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
     ...(Object.keys(MANAGEMENT_ROLES) as AuthorizationAction[]),
     "routine.manage",
     "session.approve",
+    "session.share",
   ],
 );
 
+// A reason is given to be kept: every decision that carries one is.
 export function mustRecord(
   request: AuthorizationRequest,
   decision: AuthorizationDecision,
@@ -249,6 +300,7 @@ export function mustRecord(
   return (
     decision.outcome !== "allow" ||
     RECORDED_ALLOW_ACTIONS.has(request.action) ||
+    request.subject.justification !== undefined ||
     (request.subject.surface.kind === "slack" &&
       request.action === "session.submit")
   );
@@ -259,6 +311,7 @@ export function createAuthorizationPolicy(
     identity?: IdentityReader;
     agents?: AgentAuthority;
     credentials?: CredentialCheck;
+    sessions?: SessionAccess;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
   } = {},
@@ -266,6 +319,7 @@ export function createAuthorizationPolicy(
   const identity = deps.identity ?? authenticatedIdentity;
   const agents = deps.agents ?? noAgentAuthority;
   const credentials = deps.credentials ?? noCredentialCheck;
+  const sessions = deps.sessions ?? workspaceWideSessions;
 
   async function agentOfResource(
     resource: AuthorizationResource,
@@ -276,6 +330,29 @@ export function createAuthorizationPolicy(
       id: resource.id,
     });
     return agentId?.toLowerCase() ?? null;
+  }
+  // D21: a person's session is theirs alone to share; a key's session is
+  // the workspace's managers' and its agent's admins'.
+  async function mayShare(
+    principal: AuthenticatedPrincipal,
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    if (principal.kind !== "user") return false;
+    const origin = await sessions.originOf(workspaceId, sessionId);
+    if (origin === null) return false;
+    if (origin.creatorUserId !== null) {
+      return origin.creatorUserId.toLowerCase() === principal.id.toLowerCase();
+    }
+    if (WORKSPACE_MANAGERS.includes(principal.role)) return true;
+    const agentId = await agents.agentOf(workspaceId, {
+      kind: "session",
+      id: sessionId,
+    });
+    return (
+      agentId !== null &&
+      (await agents.isAdmin(workspaceId, agentId.toLowerCase(), principal.id))
+    );
   }
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
@@ -289,7 +366,9 @@ export function createAuthorizationPolicy(
     const scope = ACTION_SCOPES[action];
     const roles = MANAGEMENT_ROLES[action];
     if (
-      (scope === undefined && roles === undefined) ||
+      (scope === undefined &&
+        roles === undefined &&
+        action !== "session.share") ||
       !actionAppliesTo(action, resource.kind)
     ) {
       return ["error", []];
@@ -306,9 +385,42 @@ export function createAuthorizationPolicy(
       return ["not_found", []];
     }
 
+    const { principal } = reading;
+    const manager =
+      principal.kind === "user" && WORKSPACE_MANAGERS.includes(principal.role);
+    const justified = (subject.justification?.trim() ?? "") !== "";
+    // Step 2 goes on to the share: a session outside it does not exist for
+    // this subject, save for what a manager does with a reason.
+    if (resource.kind === "session" && resource.id !== null) {
+      const visible = await sessions.visibleTo(
+        resource.owner_scope,
+        resource.id,
+        viewerOf(reading),
+      );
+      if (action === "session.share") {
+        if (!(await mayShare(principal, resource.owner_scope, resource.id))) {
+          return [visible ? "role" : "not_found", []];
+        }
+      } else if (manager && OUT_OF_SHARE_ACTIONS.has(action)) {
+        // Audit reads and takeovers are management screens only, so asking
+        // for the reason there reveals nothing; a control without one is as
+        // blind as anyone's (owner and admin see not_found on the ordinary
+        // screens too).
+        if (!justified && (action === "session.audit_read" || !visible)) {
+          if (action === "session.audit_read" || action === "member.manage") {
+            return ["justification_required", []];
+          }
+          return ["not_found", []];
+        }
+      } else if (!visible) {
+        return ["not_found", []];
+      }
+    }
+
     const scopes = authorityScopes(reading);
-    if (roles !== undefined) {
-      const { principal } = reading;
+    if (action === "session.share") {
+      // Judged above; a key never changes a share (design 4.1).
+    } else if (roles !== undefined) {
       if (principal.kind !== "user") return ["role", scopes];
       if (!roles.includes(principal.role)) {
         const agentId = AGENT_ADMIN_ACTIONS.has(action)

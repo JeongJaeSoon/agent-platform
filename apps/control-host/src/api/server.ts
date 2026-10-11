@@ -15,6 +15,7 @@ import {
   createPostgresPendingRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
+  createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
@@ -39,6 +40,7 @@ import {
   createMemberService,
   createPendingRequestService,
   createSessionService,
+  createSessionShareService,
   createTeamService,
   createUsageService,
   createWorkerGateway,
@@ -97,6 +99,7 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -189,12 +192,14 @@ const checkpoints = createApiCheckpoints(
   checkpointGitMemoryBytes,
 );
 const credentialBindings = createPostgresCredentialBindingStore(db);
+const sessionShares = createPostgresSessionShareStore(db);
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
     : { identity: createDatabaseIdentityReader(db) }),
   agents: createDatabaseAgentAuthority(db),
   credentials: credentialBindings,
+  sessions: sessionShares,
   decisions: createPostgresDecisionLog(db),
 });
 const agents = createAgentService({
@@ -257,6 +262,10 @@ const apiKeys = createApiKeyService({
     const secret = generateApiKey();
     return { secret, hash: hashApiKey(secret) };
   },
+});
+const shares = createSessionShareService({
+  authorization,
+  store: sessionShares,
 });
 const teams = createTeamService({
   authorization,
@@ -377,6 +386,7 @@ const app = createApiApp({
       retention: createPostgresAuditRetention(db),
     });
     registerSessionRoutes(router, sessions);
+    registerSessionShareRoutes(router, shares, sessions);
     registerPauseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);

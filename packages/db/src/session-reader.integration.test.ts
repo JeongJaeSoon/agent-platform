@@ -138,7 +138,11 @@ integration("session reader on PostgreSQL", () => {
     expect((await reader.getSession(OWNER, sessionId))?.last_event_at).toBe(
       at.toISOString(),
     );
-    const listed = await reader.listSessions(OWNER, { limit: 100 });
+    const listed = await reader.listSessions(
+      OWNER,
+      { limit: 100 },
+      { userId: null, apiKeyId: null },
+    );
     expect(
       listed.items.find((item) => item.id === sessionId)?.last_event_at,
     ).toBe(at.toISOString());

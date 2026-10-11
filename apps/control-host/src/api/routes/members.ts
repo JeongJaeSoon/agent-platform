@@ -5,6 +5,7 @@ import {
   sessionIdParamsSchema,
   setAccessRequestSchema,
   setAccessResponseSchema,
+  takeOverSessionRequestSchema,
   takeOverSessionResponseSchema,
   updateMemberRequestSchema,
   updateMemberResponseSchema,
@@ -77,8 +78,17 @@ export function registerMemberRoutes(
 
   apiRoute(router, "takeOverSession", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
+    // The body is optional: a takeover inside the caller's share needs none.
+    const body =
+      (await context.req.arrayBuffer()).byteLength === 0
+        ? {}
+        : await parseJsonBody(context, takeOverSessionRequestSchema);
     const receipt = await mapped(() =>
-      service.takeOverSession(context.get("caller"), params.id),
+      service.takeOverSession(
+        context.get("caller"),
+        params.id,
+        body.justification ?? null,
+      ),
     );
     return jsonWithSchema(context, takeOverSessionResponseSchema, receipt);
   });
