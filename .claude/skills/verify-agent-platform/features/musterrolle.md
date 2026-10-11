@@ -1,11 +1,11 @@
 # 멤버·팀·권한 (Musterrolle)
 
-**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위, 에이전트 자격 연결을 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 c(Slack 계정 연결과 멘션·승인 판정), d(권한별 key), e의 판정 기록·보존 기간, f(자격 연결), g(에이전트의 Slack 앱 연결)다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
+**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위, 에이전트 자격 연결을 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 b(팀과 팀 관리자), c(Slack 계정 연결과 멘션·승인 판정), d(권한별 key), e의 판정 기록·보존 기간, f(자격 연결), g(에이전트의 Slack 앱 연결)다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
 
 ## Sub-features
 
 - `a-member-lifecycle` (아직 없음) owner 웹 로그인 → member 초대 → 수락·로그인 → 역할 변경 → 비활성화하면 웹과 key가 모두 막힌다.
-- `b-teams` (아직 없음) 팀 생성 → 구성원 추가·제거(수락 없이, 알림만) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리할 수 있고 팀 밖 member는 못 한다.
+- `b-teams` 팀 생성 → 구성원 추가·제거(수락 없이, 그 사람을 대상으로 한 receipt가 알림 기록) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리하고, 팀에서 빠지거나 팀이 지워지면 다음 요청부터 403. owner·admin만 팀을 바꾼다(94S-582).
 - `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정(94S-577). 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
 - `c-slack-decision` 연결한 사람만 Slack에서 쓴다(94S-579): 멘션·승인 버튼의 판정(`authorizeSlackInput`), 거절 안내 문구, guest 사용 설정(`POST /v1/workspaces/{id}/slack-guest`), Slack Connect 거절, 요약 상한 채널의 `redact`. Slack 채널(이벤트 수신)이 없어 판정은 api 컨테이너에서 함수로 부른다.
 - `d-scoped-keys` member는 개인 key만, owner·admin은 서비스 key, 에이전트 관리자(그 에이전트를 만든 사람)는 그 에이전트 전용 서비스 key를 `POST /v1/api-keys`로 발급한다. 권한이 없으면 403과 `details.reason_code`. 에이전트 전용 key는 그 에이전트의 세션만 만들고 읽는다. 발급자의 지금 scope를 넘는 key는 403 `SCOPE_NOT_GRANTABLE`. API key로는 발급하지 못한다. 발급자를 내보내면 개인 key는 멈추고 서비스 key는 계속 동작한다.
@@ -17,6 +17,7 @@
 
 - 웹 콘솔의 초대 수락·구성원 화면은 [web-members-agents.md](./web-members-agents.md)에 있다(시나리오 a의 웹 쪽). 팀·연결·key 화면은 아직 없다.
 - (아직 없음) 같은 동작의 HTTP API.
+- b: `POST /v1/teams` → `POST /v1/teams/{team_id}/members` → `POST /v1/agents/{id}/admins` `{"team_id"}` → 팀원이 `PATCH /v1/agents/{id}`, `GET /v1/administered-agents` → `DELETE /v1/teams/{team_id}/members/{user_id}`, `DELETE /v1/teams/{team_id}`. 팀 화면(M10)은 아직 없다.
 - f: `GET`·`POST /v1/agents/{id}/credential-bindings`, `DELETE /v1/agents/{id}/credential-bindings/{binding_id}`, 활성화 `POST /v1/agents/{id}/activate`, 세션 `POST /v1/sessions`(`agent_release_id`). 연결 화면(M10)은 아직 없다.
 - g: `POST·GET /v1/agents/{id}/identities`, `DELETE /v1/agents/{id}/identities/{identity_id}`. 화면은 아직 없다.
 - c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다. guest 설정은 `POST /v1/workspaces/{id}/slack-guest`이고 지금 값은 `GET /v1/auth/me`의 `workspace.settings.slack_guest_enabled`다.
@@ -28,7 +29,16 @@ Preconditions:
 - (구현 티켓이 채운다) 시나리오마다 필요한 사용자: owner는 [web-login.md](./web-login.md)의 bootstrap으로 만든다. member·admin은 초대 경로가 생기면 그 경로로 만든다. DB에 직접 넣지 않는다.
 
 - **a.** (아직 없음) 초대 → 수락 → 로그인 → 역할 변경 → 비활성화 뒤 `ap_web GET /v1/auth/me`와 그 사용자의 key 호출이 모두 401/403인지.
-- **b.** (아직 없음) 팀 관리자·팀원·팀 밖 member 세 cookie로 같은 에이전트 관리 요청을 보내 허용·거절을 비교.
+- **b. 팀과 팀 관리자.** d와 같이 사람마다 cookie 파일을 둔다(`as() { cp "$VERIFY_RUN/cookie.$1" "$VERIFY_RUN/cookie"; }`). owner bootstrap·login, 초대·수락으로 member와 admin(d의 1). `MEMBER_ID`는 member cookie로 `ap_web GET /v1/auth/me`의 `user.id`.
+  1. owner가 에이전트를 만든다: `ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"card\":$CARD}"` → `201`, `AID`.
+  2. member가 `ap_web PATCH "/v1/agents/$AID" "{\"card\":…}"` → `403` `reason_code: "role"`. member가 `ap_web POST /v1/teams '{"name":"mine"}'` → `403` `role`.
+  3. owner가 `ap_web POST /v1/teams '{"name":"research admins"}'` → `201`, `TID`. `ap_web POST "/v1/teams/$TID/members" "{\"user_id\":\"$MEMBER_ID\"}"` → `200`, `team.member_count: 1`, `receipt_id`. 수락 단계는 없다.
+  4. owner가 `ap_web POST "/v1/agents/$AID/admins" "{\"team_id\":\"$TID\"}"` → `200`, `admins.teams[].name`에 팀.
+  5. member가 카드 수정 → `200`. `ap_web GET /v1/administered-agents` → `items[].slug`에 `research`. member가 `PATCH "/v1/teams/$TID"`·`DELETE "/v1/teams/$TID/members/$MEMBER_ID"` → 둘 다 `403` `role`.
+  6. owner가 `ap_web DELETE "/v1/teams/$TID/members/$MEMBER_ID"` → `200`. 바로 다음 member 카드 수정 → `403` `role`.
+  7. owner가 다시 넣고(`200`) member 카드 수정 `200`, admin이 `ap_web DELETE "/v1/teams/$TID"` → `200`, member 카드 수정 → `403` `role`.
+  8. `SELECT operation, target_ref->>'user_id' IS NOT NULL, result FROM receipts WHERE operation IN ('create_team','add_team_member','remove_team_member','add_agent_admin','delete_team') ORDER BY created_at` → `add_team_member`·`remove_team_member`는 그 사람이 대상이고 `result`에 `team_id`·`team_name`, `delete_team`의 `result.agent_ids`에 에이전트. `SELECT action, outcome, reason_code, count(*) FROM authz_decisions WHERE action IN ('team.manage','agent.manage','agent.admin.manage') GROUP BY 1,2,3` → `team.manage allow`(owner·admin의 변경 다섯), `team.manage deny role`(member의 셋), `agent.manage deny role`(2·6·7의 셋), `agent.manage allow`(5·7의 둘), `agent.admin.manage allow` 하나. 모두 `policy_version` `m13`.
+  - 2026-10-11 run `20261011-210547-1353`에서 이 순서대로 확인했다(`evidence/musterrolle-b.txt`).
 - **c.** mock IdP overlay를 붙여 띄운다: `up.sh infra/compose.mock-slack.yml`(Orca에서는 `orch heavy <program> -- …`로 감싼다). Slack 설치가 있어야 연결이 시작되므로, 설치 행 하나는 repository로 만든다(설치 흐름은 아직 사용자 경로가 없다. 다른 상태는 API로만 만든다). owner cookie는 web-login.md로 만든다. `ap_slack_link` cookie도 `Secure`라 curl이 저장하지 않으니 직접 나른다.
 
   ```sh
@@ -152,9 +162,10 @@ Preconditions:
 - c: mock overlay 없이 띄운 스택은 `SLACK_OIDC_*`가 비어 있어 시작 요청이 `503 BACKEND_UNAVAILABLE`이다. state는 10분, 한 번만 쓴다. 같은 code·state를 다시 보내면 `400`.
 - d의 8은 판정이 `allow`인 채로 거절된다. 권한(`api_key.manage`)은 있고 scope만 넘친 것이라, 판정 행은 `allow`이고 응답은 `SCOPE_NOT_GRANTABLE`이다.
 - 에이전트 전용 key는 receipt를 읽지 못한다. receipt 조회는 세션을 가리키지 않아 에이전트를 확인할 수 없기 때문이다.
+- 에이전트 관리자는 에이전트를 만든 사람(과 0139 backfill), 그리고 `POST /v1/agents/{id}/admins`로 지정한 사람·팀이다.
+- b: 팀 목록·상세(`GET /v1/teams`)도 owner·admin만 본다. member는 자기가 든 팀을 API로 볼 수 없고, 추가 알림은 아직 receipt 기록뿐이다(화면·Slack 알림 없음).
 - f: 본문 검증(`400`)은 판정보다 먼저라 판정 행을 남기지 않는다. 해제한 연결을 다시 `DELETE`하면 `404`다.
 - g: 연결은 확인된(`verified`) 설치에만 된다. `registerSlackInstallation`만 하고 `verifySlackInstallation`을 빠뜨리면 `409 SLACK_NOT_INSTALLED`, 해석은 `installation_unverified`다. 같은 team·app을 다른 bot으로 다시 확인하면 연결은 남아 있어도 해석은 `bot_mismatch`다.
-- 에이전트 관리자를 따로 지정하는 API는 아직 없다. 관리자는 에이전트를 만든 사람(과 0139 backfill)뿐이다.
 - bootstrap은 cookie를 주지 않는다. 보존 기간을 바꾸기 전에 login한다.
 - 판정은 본문보다 먼저 묻는다. 그래서 owner의 `29` 요청(400)도 `audit_retention.manage | allow` 행을 남긴다.
 - 만료 정리는 시간을 당겨야 보이므로 E2E가 아니라 `packages/db/src/authz-decisions.integration.test.ts`로 본다.

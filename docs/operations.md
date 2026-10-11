@@ -581,7 +581,7 @@ curl -s -b jar -X DELETE "http://127.0.0.1:3000/v1/linked-accounts/$LINKED_ACCOU
 
 workspace 역할은 owner·admin·member 셋이다. admin은 owner와 같은 관리 권한을 갖되 세 가지가 다르다: 감사 보존 기간을 바꾸지 못하고, 보관한 에이전트를 되살리지 못하고, 세션 복구 결정(`sessions:recover`)을 하지 못한다. admin은 owner를 초대하거나 owner의 역할을 바꾸거나 누구를 owner로 올리지 못한다(`403 OWNER_PROTECTED`).
 
-에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0139 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자를 지정하는 API는 아직 없다.
+에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0139 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자 지정·해제와 팀을 관리자로 두는 방법은 아래 "팀과 에이전트 관리자 지정"에 있다.
 
 key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
@@ -605,6 +605,40 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 ```
 
 운영자 CLI(`keys create`)는 그대로 있고 이 판정을 거치지 않는다. 운영자가 쓰는 길이다.
+
+#### 팀과 에이전트 관리자 지정 (94S-582)
+
+팀은 workspace 안의 사람 묶음이다(`member_teams`, 구성원은 `member_team_members`). 팀을 에이전트 관리자로 지정하면(`agent_admin_teams`) 그 팀 구성원 모두가 그 에이전트의 관리자다. 팀(부서) 배치(94S-472)와는 별개이고 배치는 접근에 쓰이지 않는다.
+
+- 팀을 만들고, 이름을 바꾸고, 지우고, 구성원을 넣고 빼는 것은 owner·admin만 한다(`team.manage`). 에이전트 관리자와 팀 구성원도 못 한다(`403`, `reason_code: role`). 팀 목록·상세도 같은 권한이다.
+- 구성원 추가는 초대가 아니다. 수락 없이 바로 구성원이 된다. 비활성 멤버는 넣을 수 없다(`404`). 추가·제거마다 그 사람을 대상(`target_ref.user_id`)으로 한 `add_team_member`·`remove_team_member` receipt가 남고 `result`에 팀 id와 이름이 있다. 지금은 이 receipt가 추가 알림의 기록이고, 화면·Slack 알림은 아직 없다.
+- 구성원은 판정 때마다 읽는다. 팀에서 빠지거나 팀이 지워지면 그 팀으로 얻은 관리 권한이 다음 요청부터 `403`이다. 비활성 멤버는 팀에 있어도 아무 권한이 없다. 다만 비활성화는 팀 구성원 자격과 에이전트 관리자 지정을 지우지 않으므로, 다시 초대해 활성화하면 그 권한이 그대로 돌아온다. 돌려주지 않으려면 비활성화할 때 팀에서도 빼고 관리자 지정도 해제한다. 팀을 지우면 그 팀의 에이전트 관리자 지정도 함께 지워진다.
+- 에이전트 관리자 지정·해제는 owner·admin과 그 에이전트의 관리자가 한다(`agent.admin.manage`). 사람이나 팀 하나를 고른다.
+- 에이전트 관리자는 `GET /v1/administered-agents`로 자기가 지금 관리하는 에이전트(직접 지정과 팀 경유)를 본다. 여기서 얻은 `agent_id`로 그 에이전트 전용 key를 발급한다.
+
+| 요청 | 하는 일 |
+|---|---|
+| `POST /v1/teams` `{"name"}` | 팀 만들기. 살아 있는 팀 이름이 겹치면 `409 ALREADY_EXISTS` |
+| `GET /v1/teams`, `GET /v1/teams/{team_id}` | 목록, 구성원을 포함한 상세 |
+| `PATCH /v1/teams/{team_id}` `{"name"}` | 이름 변경 |
+| `DELETE /v1/teams/{team_id}` | 팀 삭제 |
+| `POST /v1/teams/{team_id}/members` `{"user_id"}` | 구성원 추가 |
+| `DELETE /v1/teams/{team_id}/members/{user_id}` | 구성원 제거 |
+| `GET /v1/agents/{id}/admins` | 에이전트의 관리자(사람·팀) |
+| `POST /v1/agents/{id}/admins` `{"user_id"}` 또는 `{"team_id"}` | 관리자 지정 |
+| `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/admins/teams/{team_id}` | 관리자 해제 |
+| `GET /v1/administered-agents` | 내가 관리하는 에이전트 |
+
+바꾼 것이 없으면(이미 구성원, 이미 관리자, 같은 이름) `receipt_id`가 `null`이다. 판정은 `team.manage`·`agent.admin.manage` 행으로 `authz_decisions`에 남는다.
+
+```bash
+curl -s -b jar -X POST http://127.0.0.1:3000/v1/teams \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"name":"리서치봇 관리팀"}'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/teams/$TEAM_ID/members" \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d "{\"user_id\":\"$USER_ID\"}"
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d "{\"team_id\":\"$TEAM_ID\"}"
+```
 
 #### 자격 연결 (94S-581)
 

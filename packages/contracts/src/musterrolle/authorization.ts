@@ -292,8 +292,9 @@ export const RESOURCE_KIND_VALUES = [
   "memory",
   "routine",
   "artifact",
-  // A receipt target only: no action is granted on a key.
+  // Receipt targets only: no action is granted on a key or a team.
   "api_key",
+  "team",
 ] as const;
 export const resourceKindSchema = z.enum(RESOURCE_KIND_VALUES);
 export const resourceRefSchema = z

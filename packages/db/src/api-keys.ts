@@ -18,17 +18,11 @@ import {
   isNull,
   or,
 } from "drizzle-orm";
+import { administers, lockedAdministers } from "./agent-admins.ts";
 import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import {
-  agentAdmins,
-  agents,
-  apiKeys,
-  memberships,
-  receipts,
-  users,
-} from "./schema.ts";
+import { agents, apiKeys, memberships, receipts, users } from "./schema.ts";
 
 // Keys issued from the web or the API (94S-574). Lock order: the actor's
 // membership, then the agent, then the key, as the agent store takes them.
@@ -109,19 +103,7 @@ export async function holdsRight(
 ): Promise<boolean> {
   if (need.roles.includes(need.role)) return true;
   if (need.agentId === null) return false;
-  const rows = await tx
-    .select({ agentId: agentAdmins.agentId })
-    .from(agentAdmins)
-    .where(
-      and(
-        eq(agentAdmins.workspaceId, workspaceId),
-        eq(agentAdmins.agentId, need.agentId),
-        eq(agentAdmins.userId, userId),
-      ),
-    )
-    .limit(1)
-    .for("share");
-  return rows.length > 0;
+  return lockedAdministers(tx, workspaceId, need.agentId, userId);
 }
 
 async function writeReceipt(
@@ -261,18 +243,7 @@ export function createPostgresWorkspaceKeyStore(
       );
       const administered = and(
         isNotNull(apiKeys.agentId),
-        inArray(
-          apiKeys.agentId,
-          db
-            .select({ agentId: agentAdmins.agentId })
-            .from(agentAdmins)
-            .where(
-              and(
-                eq(agentAdmins.workspaceId, workspaceId),
-                eq(agentAdmins.userId, filter.personalOf),
-              ),
-            ),
-        ),
+        administers(db, workspaceId, filter.personalOf, apiKeys.agentId),
       );
       const service = and(
         eq(apiKeys.kind, "service"),
