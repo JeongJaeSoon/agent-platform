@@ -80,6 +80,13 @@ async function actorIsLiveOwner(
   tx: Database,
   actor: ActingOwner,
 ): Promise<boolean> {
+  // The user row first, as accepting takes it: the invite's invited_by key
+  // check would otherwise wait on it while holding the membership.
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, actor.userId))
+    .for("key share");
   const rows = await tx
     .select({ userId: memberships.userId })
     .from(memberships)
