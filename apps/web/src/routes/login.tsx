@@ -54,14 +54,13 @@ export function LoginScreen() {
     mutationFn: () =>
       unwrap(
         client.POST("/v1/auth/login", {
-          // Declared on the operation, so the types ask for it; the
-          // middleware would set the same value anyway.
+          // The operation declares the header, so its types require it here
+          // although the client middleware sets the same value.
           params: { header: { "X-Requested-With": CSRF_HEADER_VALUE } },
           body: { email, password },
         }),
       ),
     onSuccess: async () => {
-      // A different account may be logging in: nothing cached may carry over.
       queryClient.clear();
       await navigate({ to: search.redirect ?? "/" });
     },

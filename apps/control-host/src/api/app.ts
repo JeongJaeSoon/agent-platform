@@ -188,8 +188,6 @@ export interface CreateApiAppOptions {
   readiness?: ReadinessProbe;
   // Overrides REQUEST_DEADLINE_MS, for tests.
   requestDeadlineMs?: number;
-  // apps/web's build output (WEB_DIST_DIR); served outside /v1 and /internal
-  // with an index.html fallback for the client router.
   webDistDir?: string;
 }
 

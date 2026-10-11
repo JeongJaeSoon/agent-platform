@@ -5,7 +5,6 @@ import type { paths } from "./schema.gen.ts";
 export type ApiClient = ReturnType<typeof createApiClient>;
 
 export interface ApiClientOptions {
-  /** Same origin as the page by default: the control host serves both. */
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
 }
@@ -27,13 +26,9 @@ export class ApiError extends Error {
   }
 }
 
-// Contracts are imported as types only, so the bundle does not carry zod;
-// client.test.ts holds these to CSRF_HEADER_NAME and CSRF_HEADER_VALUE.
 export const CSRF_HEADER_NAME = "x-requested-with";
 export const CSRF_HEADER_VALUE = "agent-platform-web";
 
-// The session cookie rides along on its own (same origin); the header is the
-// CSRF proof the API requires of every cookie-authenticated mutation.
 const browserSession: Middleware = {
   onRequest({ request }) {
     request.headers.set(CSRF_HEADER_NAME, CSRF_HEADER_VALUE);
@@ -45,8 +40,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
   const client = createClient<paths>({
     baseUrl: options.baseUrl ?? "",
     credentials: "same-origin",
-    // Resolved per call rather than captured, so a test can swap fetch.
-    fetch: (request) => (options.fetch ?? globalThis.fetch)(request),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
   });
   client.use(browserSession);
   return client;

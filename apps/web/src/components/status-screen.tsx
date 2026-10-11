@@ -1,11 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useI18n } from "../i18n/i18n.tsx";
 
-/**
- * The four states a screen can be in before it has anything to show. Each
- * has its own words: a reader must never confuse "still checking" with "not
- * allowed", or "log in again" with "nobody has set this up yet".
- */
 export type StatusKind =
   | "loading"
   | "login-required"

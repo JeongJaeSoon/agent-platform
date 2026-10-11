@@ -124,6 +124,18 @@ describe("workspace shell", () => {
     expect(logout?.headers.get("x-requested-with")).toBe("agent-platform-web");
     expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
   });
+  test("로그아웃이 실패해도 이전 신원을 지우고 로그인으로 간다", async () => {
+    const { history, services } = renderAt("/", {
+      ...meOk,
+      "POST /v1/auth/logout": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Storage is unavailable"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
+    expect(history.location.pathname).toBe("/login");
+    expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
+  });
 });
 
 describe("로그인", () => {

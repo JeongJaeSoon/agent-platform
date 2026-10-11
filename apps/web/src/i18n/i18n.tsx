@@ -31,7 +31,6 @@ export function translate(
   );
 }
 
-/** Error guidance for a server `error.code`, or the neutral fallback. */
 export function errorKey(code: string): MessageKey {
   const key = `error.${code}`;
   return Object.hasOwn(ko, key) ? (key as MessageKey) : "error.UNKNOWN";
@@ -41,7 +40,6 @@ function isLocale(value: unknown): value is Locale {
   return LOCALES.includes(value as Locale);
 }
 
-/** A stored choice first, then the browser's language; Korean otherwise. */
 export function initialLocale(): Locale {
   try {
     const stored = globalThis.localStorage?.getItem(LOCALE_STORAGE_KEY);

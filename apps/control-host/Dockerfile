@@ -10,8 +10,6 @@
 # apps/worker/Dockerfile for why and tests/images.test.ts for the check.
 ARG BUN_IMAGE=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
 
-# The web console (apps/web, 94S-158) is built here and only its dist/ goes
-# on: the build tools stay in this stage, and no separate web image exists.
 FROM ${BUN_IMAGE} AS web
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml tsconfig.base.json ./

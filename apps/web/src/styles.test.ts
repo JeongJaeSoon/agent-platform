@@ -14,7 +14,6 @@ describe("styles.css", () => {
     const theme = css.match(/@theme inline \{([^}]*)\}/)?.[1] ?? "";
     const mappings = [...theme.matchAll(/--([\w-]+):\s*var\(--ap-([\w-]+)\)/g)];
     expect(mappings.length).toBeGreaterThan(10);
-    // Without the prefix the mapping would point at itself.
     for (const [, name] of mappings)
       expect(name?.startsWith("ap-")).toBe(false);
   });

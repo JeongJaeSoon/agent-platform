@@ -4,7 +4,7 @@ import {
   Outlet,
   useNavigate,
 } from "@tanstack/react-router";
-import { ApiError, unwrap } from "../api/client.ts";
+import { ApiError, isApiError, unwrap } from "../api/client.ts";
 import { useMe } from "../auth/guard.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -51,7 +51,6 @@ function LocaleSwitch() {
   );
 }
 
-/** The workspace shell: who is signed in, where, and the way out. */
 export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
@@ -93,10 +92,9 @@ export function AuthedLayout() {
   );
 }
 
-/** What the authenticated layout shows when /v1/auth/me did not answer 200. */
 export function AuthedError({ error, reset }: ErrorComponentProps) {
   const { t } = useI18n();
-  if (error instanceof ApiError && error.status === 403) {
+  if (isApiError(error, "FORBIDDEN")) {
     return (
       <Main className="web-auth">
         <StatusScreen kind="forbidden" detail={error.message} />

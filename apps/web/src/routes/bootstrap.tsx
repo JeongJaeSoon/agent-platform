@@ -64,11 +64,8 @@ const EMPTY: Form = {
   workspace_slug: "",
 };
 
-/**
- * The first admin, made with the token printed at install. There is no
- * public "is bootstrap done" read, so this screen learns it from the answer:
- * 409 BOOTSTRAP_DONE sends the reader to log in instead.
- */
+// No public read says whether bootstrap is done, so this screen learns it
+// from the answer: 409 BOOTSTRAP_DONE sends the reader to log in.
 export function BootstrapScreen() {
   const { t } = useI18n();
   const { client } = useServices();

@@ -57,7 +57,6 @@ export function GuardedButton({
   );
 }
 
-/** A 403 the server answered, in its own words under ours. */
 export function ForbiddenNotice({ error }: { readonly error: unknown }) {
   const detail = error instanceof ApiError ? error.message : undefined;
   return <StatusScreen kind="forbidden" detail={detail} />;

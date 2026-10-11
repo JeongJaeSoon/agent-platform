@@ -29,7 +29,6 @@ export type ApiSettings = {
     maxStreams?: number;
     maxStreamsPerOwner?: number;
   };
-  /** apps/web's dist/; unset serves no web console. */
   webDistDir?: string;
 };
 

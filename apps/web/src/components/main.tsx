@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-/** The one page landmark; the skip link in RootLayout jumps here. */
 export const MAIN_CONTENT_ID = "main";
 
 export function Main({

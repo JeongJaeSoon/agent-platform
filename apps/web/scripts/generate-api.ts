@@ -1,8 +1,3 @@
-/**
- * src/api/schema.gen.ts from docs/openapi.json, the document the control host
- * publishes. `bun run api:generate` rewrites it; src/api/schema.gen.test.ts
- * fails when the committed file is not what this would write.
- */
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import openapiTS, { astToString } from "openapi-typescript";

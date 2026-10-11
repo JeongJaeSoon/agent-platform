@@ -222,7 +222,6 @@ export async function escapingRelativeImports(
   return offenders;
 }
 
-/** .ts and .tsx under `directory`, tests included, node_modules excluded. */
 async function scriptFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, {
     recursive: true,

@@ -2,7 +2,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext } from "react";
 import type { ApiClient } from "./api/client.ts";
 
-/** What every screen reaches the server through; tests pass their own. */
 export interface Services {
   readonly client: ApiClient;
   readonly queryClient: QueryClient;

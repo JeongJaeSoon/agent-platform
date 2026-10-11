@@ -15,7 +15,6 @@ export function meQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeys.me,
     queryFn: () => unwrap(client.GET("/v1/auth/me")) as Promise<AuthMeResponse>,
-    // A 401 or 403 is an answer, not a blip; retrying only delays the screen.
     retry: false,
     staleTime: 30_000,
   });

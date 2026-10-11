@@ -1,13 +1,6 @@
 import { join, resolve, sep } from "node:path";
 import type { Context } from "hono";
 
-/*
- * The web console's built files (apps/web/dist), served by the api role when
- * WEB_DIST_DIR is set. Any path that is not a file gets index.html so the
- * client router can take it, except under the API's own prefixes: /v1/nope
- * stays a JSON 404, never a page that answers 200.
- */
-
 const API_PREFIXES = ["/v1", "/internal"];
 
 const SECURITY_HEADERS = {
@@ -37,7 +30,6 @@ export function isApiPath(path: string): boolean {
   );
 }
 
-/** A file under `root` for the URL path, or null; never a path outside it. */
 function fileUnder(root: string, path: string): string | null {
   let decoded: string;
   try {

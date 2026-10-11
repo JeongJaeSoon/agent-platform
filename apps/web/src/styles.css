@@ -1,8 +1,7 @@
 /*
- * Tailwind reads the packages/ui tokens through `@theme inline`, so a utility
- * like `bg-canvas` resolves to var(--ap-color-canvas) at runtime and follows
- * the dark theme with no rebuild. Values live in tokens.css only.
- * 360px is the narrowest supported width: nothing here is wider than that.
+ * `@theme inline` makes a utility like `bg-canvas` resolve to
+ * var(--ap-color-canvas) at runtime, so it follows the dark theme with no
+ * rebuild.
  */
 @import "tailwindcss";
 @import "@agent-platform/ui/styles.css";
@@ -73,7 +72,6 @@ body {
   text-underline-offset: 2px;
 }
 
-/* Every interactive element shows where the keyboard is. */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
@@ -285,7 +283,6 @@ select:focus-visible,
   font-size: var(--ap-text-sm);
 }
 
-/* 768: the tablet step — more air around the forms and the shell. */
 @media (min-width: 48rem) {
   .web-auth {
     padding: var(--ap-space-10) var(--ap-space-6);
@@ -298,7 +295,6 @@ select:focus-visible,
   }
 }
 
-/* 1440: the desktop step — the content column centres in the canvas. */
 @media (min-width: 90rem) {
   .web-shell__main {
     margin: 0 auto;
