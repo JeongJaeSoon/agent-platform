@@ -207,7 +207,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Members",
     description:
-      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners only, from a browser session.",
+      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
   },
   {
     name: "Workspace settings",
