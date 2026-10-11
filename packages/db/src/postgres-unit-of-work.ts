@@ -867,8 +867,6 @@ export function createPostgresSessionReader(
         id: row.id,
         operation: row.operation,
         target_ref: target,
-        // Rows from before actors were recorded, and operator writes, have
-        // none to report.
         ...(row.actor === null ? {} : { actor: row.actor }),
         status: row.status,
         result: row.result ?? null,

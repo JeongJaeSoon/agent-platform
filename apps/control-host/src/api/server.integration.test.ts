@@ -315,8 +315,6 @@ integration("API server on PostgreSQL", () => {
   }, 60_000);
 
   afterAll(async () => {
-    // Sessions keep the key that created them, and keys are only ever
-    // revoked; the test's own rows let go of it before it is deleted.
     await db
       .update(sessions)
       .set({ createdByApiKeyId: null })

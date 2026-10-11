@@ -10,8 +10,6 @@ import {
 } from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 
-// Offboarding and takeover (design D16), both member.manage. The resource
-// is the caller's own workspace: there is no other a caller can name.
 export function createMemberService(deps: {
   authorization: AuthorizationPolicy;
   store: MemberStore;
@@ -20,7 +18,6 @@ export function createMemberService(deps: {
 
   function personOf(caller: Caller): string {
     const userId = caller.actor?.userId;
-    // member.manage is held by users only, so an allowed caller has one.
     if (!userId) {
       throw new SessionServiceError(
         "FORBIDDEN",

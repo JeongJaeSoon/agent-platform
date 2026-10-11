@@ -22,8 +22,6 @@ const DEPARTED = "019a0000-0000-7000-8000-0000000000c1";
 const OWNER_USER = "019a0000-0000-7000-8000-0000000000a1";
 const RECEIPT = "4d6d1a3e-1f1c-4c3a-9f3e-2b1c1d1e1f10";
 
-// Who may manage members is the policy's (policy.test.ts); these cases stand
-// in a policy that allows so the route's own mapping is what is under test.
 const allowing: AuthorizationPolicy = {
   authorize: async () => ({
     outcome: "allow",
@@ -56,8 +54,6 @@ function store(overrides: Partial<MemberStore> = {}): MemberStore {
   };
 }
 
-// AUTH_MODE=none authenticates every request as a key; a cookie caller
-// carries the person behind it, which is what takeover renames to.
 function asPerson(caller: Caller): Caller {
   return {
     ...caller,

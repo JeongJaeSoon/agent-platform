@@ -585,7 +585,6 @@ describe("API key queries", () => {
       .set({ disabledAt: new Date() })
       .where(eq(memberships.userId, userId));
     expect(await findApiKey(db, personal)).toBeNull();
-    // A service key outlives whoever issued it.
     expect((await findApiKey(db, service))?.kind).toBe("service");
 
     await db

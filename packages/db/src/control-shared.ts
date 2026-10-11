@@ -55,11 +55,9 @@ export type IdempotencyScope = {
   operation: string;
   resource: string;
   key: string;
-  /** What the operation's receipt records as `receipts.actor`. */
   actor: ReceiptActor | null;
 };
 
-/** `receipts.actor` for a caller; one with no actor records none. */
 export function receiptActorOf(principal: Principal): ReceiptActor | null {
   const actor = principal.actor;
   if (!actor) return null;

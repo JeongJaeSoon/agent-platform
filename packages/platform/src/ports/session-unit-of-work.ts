@@ -67,8 +67,6 @@ export type AppendMessageResult =
   // now could never be reported as durably finished, so none is accepted.
   // `reason` is the stored text, which may be one a newer build recorded.
   | { outcome: "checkpoint_unavailable"; reason: string }
-  // Its requester was offboarded; nothing is taken until an owner takes it
-  // over (design D16).
   | { outcome: "awaiting_takeover" }
   | InputLimitRefusal;
 

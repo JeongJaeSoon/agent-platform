@@ -476,7 +476,6 @@ const owner: Principal = {
   scopes: [...SESSION_SCOPE_VALUES],
 };
 
-// A key bound to workspace A, as `keys create --workspace` issues it.
 function workspaceKey(scopes: readonly SessionScope[]): Principal {
   return {
     kind: "api_key",
@@ -487,8 +486,6 @@ function workspaceKey(scopes: readonly SessionScope[]): Principal {
   };
 }
 
-// A personal key's stored identity: the key as it is now and its creator's
-// current role.
 function personalKeyReader(
   role: "owner" | "member",
   status: "ok" | "disabled" = "ok",
@@ -662,7 +659,6 @@ describe("personal and service keys", () => {
   });
 
   test("a subject naming a person the stored identity does not is an error", async () => {
-    // A service key presented as if it acted for someone.
     const claimed = {
       ...request(
         callerFor(workspaceKey(SESSION_SCOPE_VALUES), { kind: "api" }, "r"),
@@ -673,7 +669,6 @@ describe("personal and service keys", () => {
       outcome: "deny",
       reason_code: "error",
     });
-    // A personal key whose stored creator is someone else.
     const otherCreator = createAuthorizationPolicy({
       identity: {
         reread: async (subject) => ({

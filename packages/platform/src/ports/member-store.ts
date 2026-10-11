@@ -8,7 +8,6 @@ export type OffboardResult =
       revokedPersonalKeys: number;
       sessionsAwaitingTakeover: number;
     }
-  // No live membership of that user in this workspace.
   | { outcome: "not_found" };
 
 export type TakeoverRecord = {
@@ -22,7 +21,6 @@ export type TakeoverRecord = {
 export type TakeOverResult =
   | { outcome: "taken_over"; receiptId: string }
   | { outcome: "not_found" }
-  // The session is not waiting for one: never was, or someone took it first.
   | { outcome: "not_awaiting" };
 
 export interface MemberStore {
@@ -39,7 +37,6 @@ export interface MemberStore {
     workspaceId: string,
     limit: number,
   ): Promise<TakeoverRecord[]>;
-  /** The new requester is `principal.actor.userId`; the receipt names them. */
   takeOver(input: {
     principal: Principal;
     workspaceId: string;

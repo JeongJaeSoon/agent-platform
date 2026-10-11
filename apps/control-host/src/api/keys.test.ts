@@ -55,7 +55,6 @@ describe("API key issuance", () => {
       ownerId: WORKSPACE,
       workspaceId: WORKSPACE,
     });
-    // Unnamed kind is the column default: a service key.
     expect(persisted[0]?.kind).toBeUndefined();
     expect(persisted[1]).toMatchObject({
       ownerId: WORKSPACE,

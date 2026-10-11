@@ -30,7 +30,6 @@ export type NewApiKey = {
   ownerId: string;
   keyHash: Uint8Array;
   scopes: readonly SessionScope[];
-  /** Set by `--workspace`; the key's owner partition is then the workspace. */
   workspaceId?: string;
   kind?: ApiKeyKind;
   createdByUserId?: string;
@@ -90,11 +89,7 @@ export function parseScopes(value: string): SessionScope[] {
 }
 
 export type KeyIssue =
-  // The legacy form: a service key in an owner partition of its own.
   | { ownerId: string; scopes: readonly SessionScope[] }
-  // A key of a workspace, whose partition is the workspace: it sees the
-  // sessions the workspace's people see on the web. With `personalFor` it
-  // acts for that member and stops with them; without, it is a service key.
   | {
       workspaceId: string;
       scopes: readonly SessionScope[];
@@ -179,7 +174,6 @@ export function parseKeysCommand(argv: string[]): KeysCommand {
   const [command, target, ...extra] = parsed.positionals;
   const { workspace, personal } = parsed.values;
   if (command === "create" && workspace !== undefined) {
-    // The workspace is the owner; a positional one too would say two.
     if (target !== undefined) throw new Error(USAGE);
     if (parsed.values.scopes === undefined) {
       throw new Error(`--scopes is required\n${USAGE}`);
@@ -256,8 +250,6 @@ async function main(): Promise<void> {
         process.exitCode = 1;
         return;
       }
-      // A personal key is bounded by its creator's role, so it needs a
-      // live member to be bounded by.
       if (
         command.personalFor !== undefined &&
         (await findLiveRole(db, command.personalFor, command.workspaceId)) ===

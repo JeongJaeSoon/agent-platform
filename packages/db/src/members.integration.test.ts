@@ -182,8 +182,6 @@ integration("members, identity and takeover on PostgreSQL", () => {
       },
     }) as Reread;
 
-  // The Caller a cookie request carries: the workspace partition, and the
-  // person behind it.
   function asUser(workspaceId: string, userId: string): Principal {
     return {
       ownerId: workspaceId,
@@ -529,7 +527,6 @@ integration("members, identity and takeover on PostgreSQL", () => {
       };
       const first = await gateway.nextInput(principal, scope);
       expect(first.input?.turn_id).toBe("1");
-      // Queued while they were still a member.
       expect((await append(asUser(ws, leaver), sessionId)).outcome).toBe(
         "accepted",
       );
@@ -538,7 +535,6 @@ integration("members, identity and takeover on PostgreSQL", () => {
         workspaceId: ws,
         userId: leaver,
       });
-      // The turn already handed out is redelivered to the same attempt.
       expect((await gateway.nextInput(principal, scope)).input?.turn_id).toBe(
         "1",
       );

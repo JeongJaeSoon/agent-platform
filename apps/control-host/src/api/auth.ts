@@ -429,7 +429,6 @@ type Authenticated = {
   webSession?: ResolvedWebSession;
   /** Re-runs the credential check; SSE calls it so revocation ends a stream. */
   reauthenticate: () => Promise<boolean>;
-  /** The person a personal key acts for. */
   keyCreatorId?: string;
 };
 
@@ -457,8 +456,6 @@ export function unauthenticatedPrincipal(ownerId: string): Principal {
 // "everything" would hand it recovery too.
 export function apiKeyPrincipal(key: ApiKeyRecord): Principal {
   const scopes = key.scopes === null ? [] : [...key.scopes];
-  // A personal key holds no more than its creator does now; a lookup only
-  // finds one whose creator is live, so the role is there.
   const ceiling =
     key.kind === "personal" && key.creatorRole !== null
       ? new Set(scopesForRole(key.creatorRole))
@@ -516,8 +513,7 @@ export function createAuthenticator(
             ? { keyCreatorId: key.createdByUserId }
             : {}),
           // Nothing edits a key's scopes today, but a stream that outlives
-          // a narrowed key must not keep what the key no longer holds. A
-          // personal key whose creator was offboarded is no longer found.
+          // a narrowed key must not keep what the key no longer holds.
           reauthenticate: async () => {
             const current = await keyStore.find(keyHash);
             return (

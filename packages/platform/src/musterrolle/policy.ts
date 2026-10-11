@@ -15,11 +15,6 @@ import {
   type WorkspaceRole,
 } from "@agent-platform/contracts";
 
-/**
- * Who a write is recorded as: the authenticated principal, the person behind
- * it (a cookie user, or the creator of a personal key) and, for a key, its
- * id. A service key names no person.
- */
 export type RecordedActor = {
   principal: PrincipalRef;
   userId: string | null;
@@ -27,11 +22,7 @@ export type RecordedActor = {
   apiKeyId: string | null;
 };
 
-/**
- * The partition a store reads and writes under, and who the write is
- * recorded as. A caller with no actor (an operator command, a legacy
- * fixture) records none.
- */
+/** The partition a store reads and writes under. */
 export type Principal = { ownerId: string; actor?: RecordedActor };
 
 /**
@@ -44,14 +35,8 @@ export type Caller = Principal & {
   requestId: string;
 };
 
-// AUTH_MODE=none names its principal after the owner partition, which is
-// not a key row.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * `keyCreatorId` is the person a personal key acts for; a service key and
- * every other principal pass none.
- */
 export function callerFor(
   principal: AuthenticatedPrincipal,
   surface: AuthorizationSurface,
@@ -87,9 +72,7 @@ export function callerFor(
 export type IdentityReading =
   | {
       status: "ok";
-      /** As stored now: a user's current role, a key's current scopes. */
       principal: AuthenticatedPrincipal;
-      /** A personal key's creator, whose current role bounds the key. */
       keyCreator?: { userId: string; role: WorkspaceRole };
     }
   | {
@@ -107,9 +90,8 @@ export interface IdentityReader {
   ): Promise<IdentityReading>;
 }
 
-// What authentication established, re-read from nothing: AUTH_MODE=none,
-// whose principal is no row, and tests. An installation names no person
-// until linked accounts exist, so it is unlinked.
+// An installation names no person until linked accounts exist, so it is
+// unlinked.
 export const authenticatedIdentity: IdentityReader = {
   async reread(subject) {
     return subject.principal.kind === "installation"
@@ -135,9 +117,6 @@ export const ACTION_SCOPES: Partial<Record<AuthorizationAction, SessionScope>> =
     "session.recover": "sessions:recover",
   };
 
-// Who may take each management action (design 4.1). A key or an
-// installation takes none, whatever its scopes. M4 adds admin and agent
-// administrators to these rows.
 export const MANAGEMENT_ROLES: Partial<
   Record<AuthorizationAction, readonly WorkspaceRole[]>
 > = {
@@ -164,14 +143,10 @@ function authorityScopes(reading: {
   const { principal, keyCreator } = reading;
   if (principal.kind === "user")
     return within(principal.scopes, principal.role);
-  // A personal key moves no wider than its creator does now.
   if (keyCreator) return within(principal.scopes, keyCreator.role);
   return [...principal.scopes];
 }
 
-// The person the subject claims must be the one the stored identity names:
-// a user acts as itself, a personal key for its creator, anything else for
-// nobody.
 function claimedActorMatches(
   subject: AuthorizationSubject,
   reading: Extract<IdentityReading, { status: "ok" }>,

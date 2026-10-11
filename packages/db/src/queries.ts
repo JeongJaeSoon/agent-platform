@@ -39,7 +39,6 @@ export async function createApiKey(
     // Null issues the legacy all-scope key; only tests still do.
     scopes: readonly SessionScope[] | null;
     workspaceId?: string | null;
-    // Omitted: a service key.
     kind?: ApiKeyKind;
     createdByUserId?: string | null;
     expiresAt?: Date | null;
@@ -71,18 +70,10 @@ export type ApiKeyRecord = {
   // Null on keys issued before scopes existed.
   scopes: SessionScope[] | null;
   kind: ApiKeyKind;
-  // A personal key's creator; null on a service key whose issuer is unknown.
   createdByUserId: string | null;
-  // The creator's live role in the key's workspace, which bounds a personal
-  // key's scopes.
   creatorRole: WorkspaceRole | null;
 };
 
-/**
- * A key that still authenticates: not revoked, not expired, and, for a
- * personal key, a creator whose account and membership in the key's
- * workspace are both live. Judged on the database clock.
- */
 export function liveApiKey() {
   return and(
     isNull(apiKeys.revokedAt),
@@ -117,7 +108,6 @@ export function selectLiveApiKey(db: Database) {
     );
 }
 
-// The columns' CHECKs hold both vocabularies, so the casts only name them.
 export function apiKeyRecordOf(row: {
   id: string;
   ownerId: string;

@@ -1479,8 +1479,6 @@ export function createPostgresWorkerUnitOfWork(
         // A turn this attempt already holds is finished whatever it costs;
         // only a new one is refused.
         if (overBudget && !redelivery) return none;
-        // Its requester was offboarded: the turn already running was the
-        // last until an owner takes it over.
         if (fenced.session.takeoverRequiredAt !== null && !redelivery) {
           return none;
         }

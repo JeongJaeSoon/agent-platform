@@ -3,10 +3,6 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 
-/**
- * The key kind and actor backfill, run against the schema just before it.
- * Found by name so a renumbering restack does not break it.
- */
 const migrations = join(import.meta.dir, "../migrations");
 
 let client: PGlite;

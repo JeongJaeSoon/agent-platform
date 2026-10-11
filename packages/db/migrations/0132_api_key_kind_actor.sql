@@ -10,18 +10,11 @@ CREATE INDEX "sessions_created_by_user_idx" ON "sessions" USING btree ("created_
 CREATE INDEX "sessions_takeover_idx" ON "sessions" USING btree ("workspace_id","takeover_required_at") WHERE "sessions"."takeover_required_at" IS NOT NULL;--> statement-breakpoint
 ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_kind_check" CHECK ("api_keys"."kind" IN ('personal', 'service'));--> statement-breakpoint
 ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_personal_check" CHECK ("api_keys"."kind" <> 'personal' OR ("api_keys"."created_by_user_id" IS NOT NULL AND "api_keys"."workspace_id" IS NOT NULL));--> statement-breakpoint
--- Backfill (94S-152). Nothing here guesses a person.
--- * api_keys: every existing key becomes a service key (the column default)
---   with no known issuer (created_by_user_id NULL) and no expiry, so each
---   one keeps answering exactly as before (design D10, D17).
--- * sessions.workspace_id: filled only where owner_id is itself a
---   workspace id, which is what a cookie user's partition has been since
---   94S-151. Legacy owner partitions stay NULL; owner_workspace_map is not
---   read (94S-458).
--- * sessions.created_by_user_id, sessions.created_by_api_key_id,
---   turns.actor_id and receipts.actor stay NULL on existing rows: who asked
---   was never recorded, and an owner partition names no person.
--- The number of sessions filled is raised as a NOTICE when this runs.
+-- Backfill (94S-152, design D10, D17). Nothing here guesses a person: who
+-- asked was never recorded, so existing keys get no issuer and existing
+-- sessions, turns and receipts no actor. sessions.workspace_id is filled only
+-- where owner_id is itself a workspace id (94S-151); owner_workspace_map is
+-- not read (94S-458).
 DO $$
 DECLARE
   filled bigint;

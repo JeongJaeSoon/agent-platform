@@ -465,8 +465,6 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         scopes: principal.scopes,
       });
     }
-    // A key bound with `keys create --workspace` names its workspace; a
-    // legacy key stays unmapped until an owner_workspace_map row exists.
     const workspaceId =
       principal.kind === "user" ? null : principal.workspace_id;
     const workspace =

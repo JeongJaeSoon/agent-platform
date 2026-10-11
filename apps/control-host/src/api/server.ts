@@ -151,8 +151,6 @@ const checkpoints = createApiCheckpoints(
   checkpointStorage,
   checkpointGitMemoryBytes,
 );
-// AUTH_MODE=none's principal is the owner header, not a stored identity;
-// every other mode re-reads users, memberships and keys for each decision.
 const authorization = createAuthorizationPolicy(
   authMode === "none" ? {} : { identity: createDatabaseIdentityReader(db) },
 );

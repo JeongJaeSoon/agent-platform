@@ -52,8 +52,6 @@ const PASSWORD = "an adequately long password";
 const KEEPALIVE_MS = 300;
 const ALL = [...SESSION_SCOPE_VALUES] as SessionScope[];
 
-// The HTTP surface wired the way server.ts wires it: authorization re-reads
-// identity from the database on every decision.
 integration("members and actors over HTTP on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -356,7 +354,6 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     expect((await get("/v1/sessions", bearer(personal.plaintext))).status).toBe(
       200,
     );
-    // Narrowed to what its creator holds now.
     const me = authMeResponseSchema.parse(
       await (await get("/v1/auth/me", bearer(personal.plaintext))).json(),
     );
@@ -404,7 +401,6 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       bearer(service.plaintext),
     );
 
-    // The operator command, as an operator runs it.
     const cli = Bun.spawn(
       [
         "bun",
@@ -448,7 +444,6 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     expect((await get("/v1/sessions", bearer(service.plaintext))).status).toBe(
       200,
     );
-    // The service key's stream is still open.
     const alive = await Promise.race([
       serviceStream.read().then(() => true),
       Bun.sleep(KEEPALIVE_MS * 2).then(() => false),
@@ -484,7 +479,6 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     const sessionId = listed.items[0]?.session_id;
     if (!sessionId) throw new Error("nothing awaiting takeover");
 
-    // A cookie mutation still needs the CSRF header.
     const noCsrf = await app.request(`/v1/sessions/${sessionId}/takeover`, {
       method: "POST",
       headers: { Cookie: ownerCookie },

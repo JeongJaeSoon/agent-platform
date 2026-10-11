@@ -108,8 +108,6 @@ export function createPostgresMemberStore(db: Database): MemberStore {
         )
         .orderBy(asc(sessions.takeoverRequiredAt), asc(sessions.id))
         .limit(limit);
-      // Only offboarding sets the mark, and only on a row that names who
-      // asked; a takeover clears it as it renames them.
       return rows.flatMap((row) =>
         row.departedUserId === null || row.takeoverRequiredAt === null
           ? []
@@ -144,8 +142,6 @@ export function createPostgresMemberStore(db: Database): MemberStore {
         if (session.takeoverRequiredAt === null) {
           return { outcome: "not_awaiting" };
         }
-        // The owner who takes it over is its requester from here: later
-        // turns run on their authority (design D16).
         await tx
           .update(sessions)
           .set({
