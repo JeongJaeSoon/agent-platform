@@ -568,6 +568,13 @@ export function createSessionService(deps: {
         justification?: string;
       },
     ): Promise<TerminateSessionResponse> {
+      // A stop with a reason is a manager's, whoever else sees the session.
+      if (input.justification !== undefined) {
+        await requirePermitted(authorization, actor, "session.admin_list", {
+          kind: "workspace",
+          id: actor.ownerId,
+        });
+      }
       await requirePermitted(
         authorization,
         actor,
