@@ -520,6 +520,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
           disabled: true,
           revokedWebSessions: 1,
           revokedPersonalKeys: 1,
+          revokedLinkedAccounts: 0,
           sessionsAwaitingTakeover: 1,
         },
       });
@@ -645,6 +646,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
           reason: "left",
           revoked_web_sessions: 0,
           revoked_personal_keys: 0,
+          revoked_linked_accounts: 0,
           sessions_awaiting_takeover: 0,
         },
       });
@@ -845,6 +847,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
         effects: {
           revokedWebSessions: 1,
           revokedPersonalKeys: 2,
+          revokedLinkedAccounts: 0,
           sessionsAwaitingTakeover: 1,
         },
       });

@@ -20,6 +20,7 @@ import {
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import { memberColumns, memberRecord } from "./invites.ts";
+import { revokeUserLinkedAccounts } from "./linked-accounts.ts";
 import type { Database } from "./queries.ts";
 import {
   apiKeys,
@@ -71,6 +72,11 @@ async function cutOff(
       ),
     )
     .returning({ id: apiKeys.id });
+  const linkedAccountsRevoked = await revokeUserLinkedAccounts(
+    tx,
+    workspaceId,
+    userId,
+  );
   const awaiting = await tx
     .update(sessions)
     .set({ takeoverRequiredAt: DB_NOW, updatedAt: new Date() })
@@ -87,6 +93,7 @@ async function cutOff(
     disabled: true as const,
     revokedWebSessions: sessionsRevoked.length,
     revokedPersonalKeys: keysRevoked.length,
+    revokedLinkedAccounts: linkedAccountsRevoked,
     sessionsAwaitingTakeover: awaiting.length,
   };
 }
@@ -261,6 +268,7 @@ async function setAccess(
             reason: input.reason,
             revoked_web_sessions: effects.revokedWebSessions,
             revoked_personal_keys: effects.revokedPersonalKeys,
+            revoked_linked_accounts: effects.revokedLinkedAccounts,
             sessions_awaiting_takeover: effects.sessionsAwaitingTakeover,
           }
         : { reason: input.reason, sessions_released: effects.sessionsReleased },

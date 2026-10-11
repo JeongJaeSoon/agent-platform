@@ -42,6 +42,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "recover_owner",
   // An owner taking over a session whose requester was offboarded.
   "takeover",
+  // A person linking or unlinking their own Slack account.
+  "link_account",
+  "unlink_account",
   // Invites and roles (94S-153).
   "invite_member",
   "accept_invite",

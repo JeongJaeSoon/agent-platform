@@ -25,6 +25,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   reset_password: "비밀번호 재설정",
   recover_owner: "owner 복구",
   takeover: "세션 인수",
+  link_account: "Slack 계정 연결",
+  unlink_account: "Slack 계정 연결 해제",
   invite_member: "초대 발급",
   accept_invite: "초대 수락",
   revoke_invite: "초대 회수",
