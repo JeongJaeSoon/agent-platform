@@ -31,30 +31,30 @@ export const ko = {
   "login.password": "비밀번호",
   "login.submit": "로그인",
   "login.submitting": "로그인하는 중…",
-  "login.bootstrapPrompt": "처음 설치했다면 관리자부터 만드세요.",
-  "login.bootstrapLink": "첫 관리자 만들기",
+  "login.bootstrapPrompt": "처음 설치했다면 소유자부터 만드세요.",
+  "login.bootstrapLink": "첫 소유자 만들기",
   "login.notice.bootstrapDone":
-    "이미 관리자가 있습니다. 그 계정으로 로그인하세요.",
+    "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
   "login.notice.loggedOut": "로그아웃했습니다.",
   "login.notice.created":
-    "관리자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
+    "소유자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
 
-  "bootstrap.title": "첫 관리자 만들기",
+  "bootstrap.title": "첫 소유자 만들기",
   "bootstrap.intro":
-    "설치할 때 한 번 출력된 bootstrap 토큰으로 첫 관리자와 워크스페이스를 만듭니다. 토큰은 한 번만 쓸 수 있습니다.",
+    "설치할 때 한 번 출력된 bootstrap 토큰으로 첫 소유자와 워크스페이스를 만듭니다. 토큰은 한 번만 쓸 수 있습니다.",
   "bootstrap.token": "Bootstrap 토큰",
-  "bootstrap.email": "관리자 이메일",
+  "bootstrap.email": "소유자 이메일",
   "bootstrap.displayName": "이름",
   "bootstrap.password": "비밀번호",
   "bootstrap.passwordHint": "{min}자 이상",
   "bootstrap.workspaceName": "워크스페이스 이름",
   "bootstrap.workspaceSlug": "워크스페이스 주소 이름",
   "bootstrap.workspaceSlugHint": "영문 소문자, 숫자, 하이픈(-)",
-  "bootstrap.submit": "관리자 만들기",
+  "bootstrap.submit": "소유자 만들기",
   "bootstrap.submitting": "만드는 중…",
   "bootstrap.tokenInvalid":
     "Bootstrap 토큰이 맞지 않습니다 — 설치 때 출력된 값을 그대로 넣으세요.",
-  "bootstrap.loginLink": "이미 관리자가 있다면 로그인",
+  "bootstrap.loginLink": "이미 소유자가 있다면 로그인",
 
   "members.title": "구성원",
   "members.listTitle": "구성원 목록",
@@ -72,7 +72,7 @@ export const ko = {
   "members.disableFor": "{name} 비활성",
   "members.disableTitle": "{name}을(를) 비활성할까요?",
   "members.disableConsequence":
-    "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 요청한 세션은 관리자가 넘겨받을 때까지 멈춥니다. 재활성해도 끊긴 로그인과 key는 돌아오지 않습니다.",
+    "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 요청한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 재활성해도 끊긴 로그인과 key는 돌아오지 않습니다.",
   "members.disabled": "{name}을(를) 비활성했습니다.",
   "members.enable": "재활성",
   "members.enabled":
@@ -107,7 +107,7 @@ export const ko = {
   "invite.submit": "초대 수락",
   "invite.submitting": "수락하는 중…",
   "invite.wrongPassword":
-    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. Google로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 관리자에게 재활성을 요청하세요.",
+    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. Google로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 재활성을 요청하세요.",
   "invite.expired.title": "쓸 수 없는 초대입니다",
   "invite.expired.body":
     "만료됐거나 회수된 초대입니다. 초대한 사람에게 새 링크를 요청하세요.",
@@ -124,7 +124,7 @@ export const ko = {
   "home.title": "워크스페이스",
   "home.signedInAs": "{name}({email})으로 로그인했습니다",
   "home.checklist.title": "시작하기",
-  "home.checklist.admin": "관리자 계정 만들기",
+  "home.checklist.admin": "소유자 계정 만들기",
   "home.checklist.invite": "구성원 초대하기",
   "home.checklist.agent": "에이전트 준비하기",
   "home.checklist.session": "첫 세션 시작하기",
@@ -226,11 +226,11 @@ export const ko = {
   "status.loginRequired.action": "로그인 화면으로",
   "status.forbidden.title": "이 화면을 볼 권한이 없습니다",
   "status.forbidden.body":
-    "필요하면 워크스페이스 관리자에게 권한을 요청하세요.",
-  "status.bootstrapRequired.title": "아직 관리자가 없습니다",
+    "필요하면 워크스페이스 소유자나 관리자에게 권한을 요청하세요.",
+  "status.bootstrapRequired.title": "아직 소유자가 없습니다",
   "status.bootstrapRequired.body":
-    "설치 때 받은 bootstrap 토큰으로 첫 관리자를 만들어야 쓸 수 있습니다.",
-  "status.bootstrapRequired.action": "첫 관리자 만들기",
+    "설치 때 받은 bootstrap 토큰으로 첫 소유자를 만들어야 쓸 수 있습니다.",
+  "status.bootstrapRequired.action": "첫 소유자 만들기",
   "status.error.title": "문제가 생겼습니다",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
@@ -241,9 +241,9 @@ export const ko = {
 
   "error.BAD_REQUEST": "입력을 확인하고 다시 보내세요.",
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
-  "error.FORBIDDEN": "권한이 없습니다 — 관리자에게 요청하세요.",
+  "error.FORBIDDEN": "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
   "error.BOOTSTRAP_DONE":
-    "이미 관리자가 만들어져 있습니다 — 로그인 화면으로 가세요.",
+    "이미 소유자가 만들어져 있습니다 — 로그인 화면으로 가세요.",
   "error.RATE_LIMITED": "시도가 너무 많습니다 — 잠시 뒤 다시 시도하세요.",
   "error.BACKEND_UNAVAILABLE":
     "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",

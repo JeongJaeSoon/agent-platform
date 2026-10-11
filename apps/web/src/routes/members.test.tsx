@@ -127,7 +127,7 @@ describe("구성원 화면", () => {
 
   test("관리자가 소유자 역할을 주려 하면(403 OWNER_PROTECTED) 그 이유를 보인다", async () => {
     renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () => json(200, { items: [owner, teammate] }),
       ...noInvites,
       [`PATCH /v1/members/${teammate.user_id}`]: () =>

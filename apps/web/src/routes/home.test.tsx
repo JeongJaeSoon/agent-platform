@@ -29,7 +29,7 @@ async function states() {
 }
 
 describe("bootstrap checklist", () => {
-  test("처음에는 관리자만 완료이고, 초대·에이전트 단계는 각 화면으로 잇는다", async () => {
+  test("처음에는 소유자만 완료이고, 초대·에이전트 단계는 각 화면으로 잇는다", async () => {
     const server = agentServer();
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
