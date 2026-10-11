@@ -9,12 +9,30 @@ import {
   actionAppliesTo,
   authorizationRequestSchema,
   ownerScopeOf,
+  type PrincipalRef,
   type SessionScope,
   scopesForRole,
+  type WorkspaceRole,
 } from "@agent-platform/contracts";
 
-/** The partition a store reads and writes under. */
-export type Principal = { ownerId: string };
+/**
+ * Who a write is recorded as: the authenticated principal, the person behind
+ * it (a cookie user, or the creator of a personal key) and, for a key, its
+ * id. A service key names no person.
+ */
+export type RecordedActor = {
+  principal: PrincipalRef;
+  userId: string | null;
+  workspaceId: string | null;
+  apiKeyId: string | null;
+};
+
+/**
+ * The partition a store reads and writes under, and who the write is
+ * recorded as. A caller with no actor (an operator command, a legacy
+ * fixture) records none.
+ */
+export type Principal = { ownerId: string; actor?: RecordedActor };
 
 /**
  * Who calls a service. `ownerId` is what the stores partition on; the policy
@@ -26,16 +44,40 @@ export type Caller = Principal & {
   requestId: string;
 };
 
+// AUTH_MODE=none names its principal after the owner partition, which is
+// not a key row.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `keyCreatorId` is the person a personal key acts for; a service key and
+ * every other principal pass none.
+ */
 export function callerFor(
   principal: AuthenticatedPrincipal,
   surface: AuthorizationSurface,
   requestId: string,
+  keyCreatorId?: string,
 ): Caller {
+  const userId =
+    principal.kind === "user"
+      ? principal.id
+      : principal.kind === "api_key"
+        ? (keyCreatorId ?? null)
+        : null;
   return {
     ownerId: ownerScopeOf(principal),
+    actor: {
+      principal: { kind: principal.kind, id: principal.id },
+      userId,
+      workspaceId: principal.workspace_id,
+      apiKeyId:
+        principal.kind === "api_key" && UUID.test(principal.id)
+          ? principal.id
+          : null,
+    },
     subject: {
       principal,
-      ...(principal.kind === "user" ? { actor_user_id: principal.id } : {}),
+      ...(userId === null ? {} : { actor_user_id: userId }),
       surface,
     },
     requestId,
@@ -43,7 +85,13 @@ export function callerFor(
 }
 
 export type IdentityReading =
-  | { status: "ok"; principal: AuthenticatedPrincipal }
+  | {
+      status: "ok";
+      /** As stored now: a user's current role, a key's current scopes. */
+      principal: AuthenticatedPrincipal;
+      /** A personal key's creator, whose current role bounds the key. */
+      keyCreator?: { userId: string; role: WorkspaceRole };
+    }
   | {
       status: Extract<
         AuthorizationReason,
@@ -59,8 +107,8 @@ export interface IdentityReader {
   ): Promise<IdentityReading>;
 }
 
-// Nothing to re-read yet: users, memberships and keys are read at
-// authentication within the same request. An installation names no person
+// What authentication established, re-read from nothing: AUTH_MODE=none,
+// whose principal is no row, and tests. An installation names no person
 // until linked accounts exist, so it is unlinked.
 export const authenticatedIdentity: IdentityReader = {
   async reread(subject) {
@@ -70,7 +118,7 @@ export const authenticatedIdentity: IdentityReader = {
   },
 };
 
-export const POLICY_VERSION = "m1";
+export const POLICY_VERSION = "m2";
 
 export interface AuthorizationPolicy {
   authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;
@@ -87,10 +135,52 @@ export const ACTION_SCOPES: Partial<Record<AuthorizationAction, SessionScope>> =
     "session.recover": "sessions:recover",
   };
 
-function authorityScopes(principal: AuthenticatedPrincipal): SessionScope[] {
-  if (principal.kind !== "user") return [...principal.scopes];
-  const ceiling = new Set(scopesForRole(principal.role));
-  return principal.scopes.filter((scope) => ceiling.has(scope));
+// Who may take each management action (design 4.1). A key or an
+// installation takes none, whatever its scopes. M4 adds admin and agent
+// administrators to these rows.
+export const MANAGEMENT_ROLES: Partial<
+  Record<AuthorizationAction, readonly WorkspaceRole[]>
+> = {
+  "workspace.manage": ["owner"],
+  "member.manage": ["owner"],
+  "api_key.manage": ["owner"],
+  "api_key.manage_own": ["owner", "member"],
+  "agent.manage": ["owner"],
+  "binding.manage": ["owner"],
+};
+
+function within(
+  scopes: readonly SessionScope[],
+  role: WorkspaceRole,
+): SessionScope[] {
+  const ceiling = new Set(scopesForRole(role));
+  return scopes.filter((scope) => ceiling.has(scope));
+}
+
+function authorityScopes(reading: {
+  principal: AuthenticatedPrincipal;
+  keyCreator?: { role: WorkspaceRole };
+}): SessionScope[] {
+  const { principal, keyCreator } = reading;
+  if (principal.kind === "user")
+    return within(principal.scopes, principal.role);
+  // A personal key moves no wider than its creator does now.
+  if (keyCreator) return within(principal.scopes, keyCreator.role);
+  return [...principal.scopes];
+}
+
+// The person the subject claims must be the one the stored identity names:
+// a user acts as itself, a personal key for its creator, anything else for
+// nobody.
+function claimedActorMatches(
+  subject: AuthorizationSubject,
+  reading: Extract<IdentityReading, { status: "ok" }>,
+): boolean {
+  const expected =
+    reading.principal.kind === "user"
+      ? reading.principal.id
+      : reading.keyCreator?.userId;
+  return subject.actor_user_id === expected;
 }
 
 export function createAuthorizationPolicy(
@@ -106,7 +196,11 @@ export function createAuthorizationPolicy(
     if (!parsed.success) return ["error", []];
     const { subject, action, resource } = parsed.data;
     const scope = ACTION_SCOPES[action];
-    if (scope === undefined || !actionAppliesTo(action, resource.kind)) {
+    const roles = MANAGEMENT_ROLES[action];
+    if (
+      (scope === undefined && roles === undefined) ||
+      !actionAppliesTo(action, resource.kind)
+    ) {
       return ["error", []];
     }
     if (subject.principal === null) return ["no_requester", []];
@@ -116,12 +210,20 @@ export function createAuthorizationPolicy(
       principal: subject.principal,
     });
     if (reading.status !== "ok") return [reading.status, []];
+    if (!claimedActorMatches(subject, reading)) return ["error", []];
     if (resource.owner_scope !== ownerScopeOf(reading.principal)) {
       return ["not_found", []];
     }
 
-    const scopes = authorityScopes(reading.principal);
-    if (!scopes.includes(scope)) return ["role", scopes];
+    const scopes = authorityScopes(reading);
+    if (roles !== undefined) {
+      const { principal } = reading;
+      if (principal.kind !== "user" || !roles.includes(principal.role)) {
+        return ["role", scopes];
+      }
+    } else if (scope === undefined || !scopes.includes(scope)) {
+      return ["role", scopes];
+    }
     // Slack's ceiling is the binding's allowed actions, which have no table
     // yet; web and api add no ceiling of their own.
     if (subject.surface.kind === "slack") return ["surface_ceiling", scopes];

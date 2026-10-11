@@ -311,6 +311,12 @@ export const audienceRefSchema = z
 export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.read",
   "workspace.manage",
+  // Offboarding a member and taking over the sessions they leave behind.
+  "member.manage",
+  // Issuing and revoking a workspace's service keys.
+  "api_key.manage",
+  // Issuing and revoking the caller's own personal keys.
+  "api_key.manage_own",
   "agent.manage",
   "binding.manage",
   "routine.manage",
@@ -343,6 +349,9 @@ const ACTION_RESOURCE_KINDS: Record<
 > = {
   "workspace.read": new Set(["workspace"]),
   "workspace.manage": new Set(["workspace"]),
+  "member.manage": new Set(["workspace", "session"]),
+  "api_key.manage": new Set(["workspace"]),
+  "api_key.manage_own": new Set(["workspace"]),
   "agent.manage": new Set(["workspace", "agent"]),
   "binding.manage": new Set(["workspace", "agent", "surface_binding"]),
   "routine.manage": new Set(["workspace", "agent", "routine"]),

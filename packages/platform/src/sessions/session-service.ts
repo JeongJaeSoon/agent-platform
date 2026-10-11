@@ -355,6 +355,11 @@ export function createSessionService(deps: {
             "CHECKPOINT_UNAVAILABLE",
             `Session cannot be checkpointed: ${result.reason}`,
           );
+        case "awaiting_takeover":
+          throw new SessionServiceError(
+            "TAKEOVER_REQUIRED",
+            "The person who asked for this session has left; it takes no messages until an owner takes it over",
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);

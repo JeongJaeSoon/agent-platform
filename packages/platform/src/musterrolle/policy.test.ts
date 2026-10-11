@@ -278,7 +278,7 @@ describe("authorize", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: without("sessions:recover"),
-      policy_version: "m1",
+      policy_version: "m2",
     });
   });
 
@@ -389,7 +389,7 @@ describe("authorize", () => {
     expect(
       await decide(
         request(web, {
-          action: "workspace.manage",
+          action: "routine.manage",
           resource: {
             kind: "workspace",
             id: WORKSPACE_A,
@@ -462,5 +462,265 @@ describe("authorize", () => {
     const first = await decide(request(web));
     const second = await decide(request(web));
     expect(first.decision_id).not.toBe(second.decision_id);
+  });
+});
+
+const OWNER_USER = "019a0000-0000-7000-8000-0000000000c2";
+const KEY = "019a0000-0000-7000-8000-0000000000f1";
+
+const owner: Principal = {
+  kind: "user",
+  id: OWNER_USER,
+  workspace_id: WORKSPACE_A,
+  role: "owner",
+  scopes: [...SESSION_SCOPE_VALUES],
+};
+
+// A key bound to workspace A, as `keys create --workspace` issues it.
+function workspaceKey(scopes: readonly SessionScope[]): Principal {
+  return {
+    kind: "api_key",
+    id: KEY,
+    owner_id: WORKSPACE_A,
+    workspace_id: WORKSPACE_A,
+    scopes: [...scopes],
+  };
+}
+
+// A personal key's stored identity: the key as it is now and its creator's
+// current role.
+function personalKeyReader(
+  role: "owner" | "member",
+  status: "ok" | "disabled" = "ok",
+): IdentityReader {
+  return {
+    reread: async (subject) =>
+      status === "ok"
+        ? {
+            status: "ok",
+            principal: subject.principal,
+            keyCreator: { userId: USER, role },
+          }
+        : { status },
+  };
+}
+
+const MANAGEMENT_ACTIONS: AuthorizationAction[] = [
+  "workspace.manage",
+  "member.manage",
+  "api_key.manage",
+  "api_key.manage_own",
+  "agent.manage",
+  "binding.manage",
+];
+
+function onWorkspace(
+  caller: Caller,
+  action: AuthorizationAction,
+): AuthorizationRequest {
+  return request(caller, {
+    action,
+    resource: { kind: "workspace", id: WORKSPACE_A, owner_scope: WORKSPACE_A },
+  });
+}
+
+describe("management actions", () => {
+  const ownerWeb = callerFor(owner, { kind: "web" }, "req-o");
+  const memberWeb = callerFor(member, { kind: "web" }, "req-m");
+
+  test("an owner takes every management action", async () => {
+    for (const action of MANAGEMENT_ACTIONS) {
+      expect(await decide(onWorkspace(ownerWeb, action))).toMatchObject({
+        outcome: "allow",
+        reason_code: "ok",
+      });
+    }
+  });
+
+  test("a member takes only its own key's, and is refused the rest for the role", async () => {
+    for (const action of MANAGEMENT_ACTIONS) {
+      expect(await decide(onWorkspace(memberWeb, action))).toMatchObject(
+        action === "api_key.manage_own"
+          ? { outcome: "allow", reason_code: "ok" }
+          : { outcome: "deny", reason_code: "role" },
+      );
+    }
+  });
+
+  test("no key takes a management action or issues a key, whatever its scopes", async () => {
+    const service = callerFor(
+      workspaceKey(SESSION_SCOPE_VALUES),
+      { kind: "api" },
+      "req-k",
+    );
+    const personal = callerFor(
+      workspaceKey(SESSION_SCOPE_VALUES),
+      { kind: "api" },
+      "req-p",
+      USER,
+    );
+    for (const action of MANAGEMENT_ACTIONS) {
+      expect(await decide(onWorkspace(service, action))).toMatchObject({
+        outcome: "deny",
+        reason_code: "role",
+      });
+      expect(
+        await decide(
+          onWorkspace(personal, action),
+          createAuthorizationPolicy({ identity: personalKeyReader("owner") }),
+        ),
+      ).toMatchObject({ outcome: "deny", reason_code: "role" });
+    }
+  });
+
+  test("another workspace's member or session is not found", async () => {
+    expect(
+      await decide(
+        request(ownerWeb, {
+          action: "member.manage",
+          resource: { kind: "session", id: SESSION, owner_scope: WORKSPACE_B },
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "not_found" });
+  });
+
+  test("a disabled owner is refused before the role is read", async () => {
+    expect(
+      await decide(
+        onWorkspace(ownerWeb, "member.manage"),
+        createAuthorizationPolicy({
+          identity: { reread: async () => ({ status: "disabled" }) },
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "disabled" });
+  });
+});
+
+describe("personal and service keys", () => {
+  const personal = callerFor(
+    workspaceKey(SESSION_SCOPE_VALUES),
+    { kind: "api" },
+    "req-p",
+    USER,
+  );
+
+  test("a personal key holds the narrower of its scopes and its creator's current role", async () => {
+    const asMember = createAuthorizationPolicy({
+      identity: personalKeyReader("member"),
+    });
+    expect(
+      await decide(request(personal, { action: "session.recover" }), asMember),
+    ).toMatchObject({
+      outcome: "deny",
+      reason_code: "role",
+      effective_scopes: without("sessions:recover"),
+    });
+    expect(await decide(request(personal), asMember)).toMatchObject({
+      outcome: "allow",
+    });
+    const asOwner = createAuthorizationPolicy({
+      identity: personalKeyReader("owner"),
+    });
+    expect(
+      await decide(request(personal, { action: "session.recover" }), asOwner),
+    ).toMatchObject({ outcome: "allow" });
+    const narrowKey = callerFor(
+      workspaceKey(["sessions:read"]),
+      { kind: "api" },
+      "req-n",
+      USER,
+    );
+    expect(
+      await decide(request(narrowKey, { action: "session.submit" }), asOwner),
+    ).toMatchObject({
+      outcome: "deny",
+      reason_code: "role",
+      effective_scopes: ["sessions:read"],
+    });
+  });
+
+  test("a personal key whose creator is disabled is refused; a service key is not", async () => {
+    expect(
+      await decide(
+        request(personal),
+        createAuthorizationPolicy({
+          identity: personalKeyReader("owner", "disabled"),
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny", reason_code: "disabled" });
+    const service = callerFor(
+      workspaceKey(SESSION_SCOPE_VALUES),
+      { kind: "api" },
+      "req-s",
+    );
+    expect(
+      await decide(request(service, { action: "session.recover" })),
+    ).toMatchObject({
+      outcome: "allow",
+      effective_scopes: SESSION_SCOPE_VALUES,
+    });
+  });
+
+  test("a subject naming a person the stored identity does not is an error", async () => {
+    // A service key presented as if it acted for someone.
+    const claimed = {
+      ...request(
+        callerFor(workspaceKey(SESSION_SCOPE_VALUES), { kind: "api" }, "r"),
+      ),
+    };
+    claimed.subject = { ...claimed.subject, actor_user_id: USER };
+    expect(await decide(claimed)).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+    // A personal key whose stored creator is someone else.
+    const otherCreator = createAuthorizationPolicy({
+      identity: {
+        reread: async (subject) => ({
+          status: "ok",
+          principal: subject.principal,
+          keyCreator: { userId: OWNER_USER, role: "owner" },
+        }),
+      },
+    });
+    expect(await decide(request(personal), otherCreator)).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+  });
+});
+
+describe("callerFor records who acts", () => {
+  test("a cookie user is recorded as themselves in their workspace", () => {
+    expect(callerFor(member, { kind: "web" }, "r").actor).toEqual({
+      principal: { kind: "user", id: USER },
+      userId: USER,
+      workspaceId: WORKSPACE_A,
+      apiKeyId: null,
+    });
+  });
+
+  test("a service key names no person, a personal key its creator", () => {
+    const key = workspaceKey(["sessions:read"]);
+    expect(callerFor(key, { kind: "api" }, "r").actor).toEqual({
+      principal: { kind: "api_key", id: KEY },
+      userId: null,
+      workspaceId: WORKSPACE_A,
+      apiKeyId: KEY,
+    });
+    const personal = callerFor(key, { kind: "api" }, "r", USER);
+    expect(personal.actor?.userId).toBe(USER);
+    expect(personal.subject.actor_user_id).toBe(USER);
+  });
+
+  test("AUTH_MODE=none's owner-named principal is no key row", () => {
+    const none: Principal = {
+      kind: "api_key",
+      id: "owner-a",
+      owner_id: "owner-a",
+      workspace_id: null,
+      scopes: [...SESSION_SCOPE_VALUES],
+    };
+    expect(callerFor(none, { kind: "api" }, "r").actor?.apiKeyId).toBeNull();
   });
 });

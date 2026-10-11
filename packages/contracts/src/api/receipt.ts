@@ -33,6 +33,8 @@ export const RECEIPT_OPERATION_VALUES = [
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
+  // An owner taking over a session whose requester was offboarded.
+  "takeover",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
