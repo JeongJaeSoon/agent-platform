@@ -42,6 +42,8 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
+const SERVICE_ISSUERS: readonly WorkspaceRole[] = ["owner", "admin"];
+
 const PROFILE: CatalogProfile = {
   runtime_kind: "claude_agent_sdk",
   runtime_version: "0.3.270",
@@ -312,6 +314,8 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         scopes: ["sessions:read", "sessions:write"],
         expiresAt: null,
         receiptId: randomUUID(),
+        issuerRoles:
+          kind === "personal" ? ["owner", "admin", "member"] : SERVICE_ISSUERS,
       });
 
     const bound = await issue(member, "service", agent.agent.id);
@@ -333,7 +337,10 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       ids(
         await store.list(
           workspaceId,
-          { personalOf: member.actor?.userId ?? "", service: "administered" },
+          {
+            personalOf: member.actor?.userId ?? "",
+            allServiceKeysFor: SERVICE_ISSUERS,
+          },
           50,
         ),
       ),
@@ -342,7 +349,10 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       ids(
         await store.list(
           workspaceId,
-          { personalOf: owner.actor?.userId ?? "", service: "all" },
+          {
+            personalOf: owner.actor?.userId ?? "",
+            allServiceKeysFor: SERVICE_ISSUERS,
+          },
           50,
         ),
       ),
@@ -428,6 +438,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       workspaceId,
       keyId: bound.key.id,
       receiptId: randomUUID(),
+      revokerRoles: SERVICE_ISSUERS,
     });
     expect(revoked).toMatchObject({ outcome: "revoked" });
     expect(
@@ -436,12 +447,17 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         workspaceId,
         keyId: bound.key.id,
         receiptId: randomUUID(),
+        revokerRoles: SERVICE_ISSUERS,
       }),
     ).toMatchObject({ outcome: "already_revoked" });
     expect(await read(pinned)).toBe("disabled");
 
     const written = await db
-      .select({ operation: receipts.operation, result: receipts.result })
+      .select({
+        operation: receipts.operation,
+        result: receipts.result,
+        requestId: receipts.requestId,
+      })
       .from(receipts)
       .where(
         and(
@@ -456,6 +472,110 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       "create_api_key",
       "revoke_api_key",
     ]);
+    // Joins each receipt to the decision that let it through.
+    expect(written.map((row) => row.requestId)).toEqual([
+      member.requestId,
+      member.requestId,
+    ]);
     expect(JSON.stringify(written)).not.toContain("csp_");
+  });
+
+  test("a role lowered after the decision stops the key and narrows the list", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const demoted = await person(workspaceId, "owner");
+    const userId = demoted.actor?.userId ?? "";
+    const agent = await agentsService().createAgent(owner, {
+      slug: "bot",
+      name: "bot",
+      card: CARD,
+    });
+    const store = createPostgresWorkspaceKeyStore(db);
+    const workspaceWide = await store.issue({
+      principal: owner,
+      id: randomUUID(),
+      workspaceId,
+      keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
+      kind: "service",
+      agentId: null,
+      createdByUserId: owner.actor?.userId ?? "",
+      scopes: ["sessions:read"],
+      expiresAt: null,
+      receiptId: randomUUID(),
+      issuerRoles: SERVICE_ISSUERS,
+    });
+    expect(workspaceWide.outcome).toBe("issued");
+    // The policy allowed `demoted` as an owner; the role falls before the write.
+    await db
+      .update(memberships)
+      .set({ role: "member" })
+      .where(
+        and(
+          eq(memberships.workspaceId, workspaceId),
+          eq(memberships.userId, userId),
+        ),
+      );
+    const issue = (
+      agentId: string | null,
+      scopes: ("sessions:read" | "sessions:recover")[],
+    ) =>
+      store.issue({
+        principal: demoted,
+        id: randomUUID(),
+        workspaceId,
+        keyHash: new Uint8Array(32).map(() => Math.floor(Math.random() * 256)),
+        kind: "service",
+        agentId,
+        createdByUserId: userId,
+        scopes,
+        expiresAt: null,
+        receiptId: randomUUID(),
+        issuerRoles: SERVICE_ISSUERS,
+      });
+    expect(await issue(null, ["sessions:read"])).toEqual({
+      outcome: "outranked",
+    });
+    expect(await issue(agent.agent.id, ["sessions:read"])).toEqual({
+      outcome: "outranked",
+    });
+    // An agent's admin may still issue for it, within a member's scopes.
+    await db.insert(agentAdmins).values({
+      workspaceId,
+      agentId: agent.agent.id,
+      userId,
+      createdBy: owner.actor?.userId ?? "",
+    });
+    expect(await issue(agent.agent.id, ["sessions:recover"])).toEqual({
+      outcome: "scope_not_grantable",
+    });
+    const bound = await issue(agent.agent.id, ["sessions:read"]);
+    if (bound.outcome !== "issued") throw new Error(bound.outcome);
+    expect(
+      await db
+        .select()
+        .from(apiKeys)
+        .where(eq(apiKeys.workspaceId, workspaceId)),
+    ).toHaveLength(2);
+
+    const listed = await store.list(
+      workspaceId,
+      { personalOf: userId, allServiceKeysFor: SERVICE_ISSUERS },
+      50,
+    );
+    expect(listed.map((key) => key.id)).toEqual([bound.key.id]);
+
+    if (workspaceWide.outcome !== "issued") throw new Error("not issued");
+    const revoke = (keyId: string) =>
+      store.revoke({
+        principal: demoted,
+        workspaceId,
+        keyId,
+        receiptId: randomUUID(),
+        revokerRoles: SERVICE_ISSUERS,
+      });
+    expect(await revoke(workspaceWide.key.id)).toEqual({
+      outcome: "outranked",
+    });
+    expect(await revoke(bound.key.id)).toMatchObject({ outcome: "revoked" });
   });
 });

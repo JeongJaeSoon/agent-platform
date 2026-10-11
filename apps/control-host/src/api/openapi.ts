@@ -7,6 +7,7 @@ import {
   agentDetailSchema,
   agentIdParamsSchema,
   apiErrorResponseSchema,
+  apiKeyIdParamsSchema,
   apiRootResponseSchema,
   auditRetentionRequestSchema,
   auditRetentionResponseSchema,
@@ -16,6 +17,8 @@ import {
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
+  createApiKeyRequestSchema,
+  createApiKeyResponseSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   createSessionRequestSchema,
@@ -32,6 +35,7 @@ import {
   issuePasswordResetResponseSchema,
   linkedAccountParamsSchema,
   listAgentsResponseSchema,
+  listApiKeysResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
@@ -58,6 +62,7 @@ import {
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
   resumeSessionRequestSchema,
+  revokeApiKeyResponseSchema,
   type SessionScope,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
@@ -115,6 +120,7 @@ const requestComponents = {
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
   ActivateAgentRequest: activateAgentRequestSchema,
+  CreateApiKeyRequest: createApiKeyRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -159,6 +165,9 @@ const responseComponents = {
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
+  CreateApiKeyResponse: createApiKeyResponseSchema,
+  ListApiKeysResponse: listApiKeysResponseSchema,
+  RevokeApiKeyResponse: revokeApiKeyResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -198,7 +207,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Members",
     description:
-      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners only, from a browser session.",
+      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
   },
   {
     name: "Workspace settings",
@@ -213,6 +222,11 @@ export const OPENAPI_TAGS = [
     name: "Linked accounts",
     description:
       "Link and unlink the caller's own Slack account through Sign in with Slack.",
+  },
+  {
+    name: "API keys",
+    description:
+      "Issue and revoke keys, never above what the issuer holds. Signed-in people only.",
   },
   {
     name: "Limits & receipts",
@@ -992,6 +1006,46 @@ const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/api-keys",
+    operationId: "createApiKey",
+    tag: "API keys",
+    summary: "Issue a personal key, a service key, or one bound to an agent",
+    description:
+      "A personal key is the caller's own; a service key takes an owner or an admin, and one with `agent_id` also that agent's admin. `scopes` may not exceed what the caller holds now, and a key with `agent_id` never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.",
+    auth: "session",
+    body: "CreateApiKeyRequest",
+    success: { status: 201, schema: "CreateApiKeyResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "SCOPE_NOT_GRANTABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/api-keys",
+    operationId: "listApiKeys",
+    tag: "API keys",
+    summary: "The caller's personal keys and the service keys they manage",
+    description:
+      "Owners and admins see every service key; an agent's admin sees that agent's keys. Secrets are never returned.",
+    auth: "session",
+    success: { status: 200, schema: "ListApiKeysResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/api-keys/{id}",
+    operationId: "revokeApiKey",
+    tag: "API keys",
+    summary: "Revoke a key",
+    description:
+      "Takes the right issuing that kind of key takes. Revoking a key already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_api_key` receipt.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeApiKeyResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
     method: "get",
     path: "/v1/limits",
     operationId: "getInstallationLimits",
@@ -1119,6 +1173,7 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path === "/v1/invites/{id}") return inviteIdParamsSchema;
+  if (path === "/v1/api-keys/{id}") return apiKeyIdParamsSchema;
   if (path.startsWith("/v1/members/{user_id}")) return memberUserParamsSchema;
   if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
