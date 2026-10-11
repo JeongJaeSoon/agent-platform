@@ -1,0 +1,163 @@
+import { expect, test } from "bun:test";
+import {
+  type AuthorizationRequest,
+  apiErrorResponseSchema,
+  auditRetentionResponseSchema,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+  REQUEST_BODY_MAX_BYTES,
+  WEB_SESSION_COOKIE_NAME,
+} from "@agent-platform/contracts";
+import {
+  type AuditRetentionStore,
+  createAuthorizationPolicy,
+  type DecisionLog,
+  type IdentityStore,
+  type MembershipRole,
+  type ResolvedWebSession,
+} from "@agent-platform/platform";
+import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
+import { registerWorkspaceRoutes } from "./workspaces.ts";
+
+const createApiApp = recordRouteErrors("routes/workspaces.test.ts");
+
+const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
+const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
+
+const sessions = new Map<string, ResolvedWebSession>();
+function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
+  const token = generateWebSessionToken();
+  sessions.set(Buffer.from(hashWebSessionToken(token)).toString("hex"), {
+    sessionId: crypto.randomUUID(),
+    userId: crypto.randomUUID(),
+    email: `${role}@example.com`,
+    displayName: role,
+    workspaceId,
+    role,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return `${WEB_SESSION_COOKIE_NAME}=${token}`;
+}
+
+// Only what the cookie path of the middleware reads.
+const identity = {
+  async resolveWebSession(tokenHash: Uint8Array) {
+    return sessions.get(Buffer.from(tokenHash).toString("hex")) ?? null;
+  },
+  async renewWebSession() {
+    return null;
+  },
+} as unknown as IdentityStore;
+
+const recorded: AuthorizationRequest[] = [];
+const decisions: DecisionLog = {
+  async record({ request }) {
+    recorded.push(request);
+  },
+};
+const stored = new Map<string, number>([[WORKSPACE, 90]]);
+let storageDown = false;
+const retention: AuditRetentionStore = {
+  async setAuditRetentionDays(workspaceId, days) {
+    if (storageDown) {
+      throw Object.assign(new Error("connection refused"), {
+        code: "ECONNREFUSED",
+      });
+    }
+    if (!stored.has(workspaceId)) return false;
+    stored.set(workspaceId, days);
+    return true;
+  },
+};
+
+const app = createApiApp({
+  authMode: "api-key",
+  identity,
+  registerRoutes: (router) =>
+    registerWorkspaceRoutes(router, {
+      authorization: createAuthorizationPolicy({ decisions }),
+      retention,
+    }),
+});
+
+function setRetention(cookie: string, days: unknown, workspaceId = WORKSPACE) {
+  return app.request(`/v1/workspaces/${workspaceId}/audit-retention`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ audit_retention_days: days }),
+  });
+}
+
+async function errorCode(response: Response): Promise<string> {
+  return apiErrorResponseSchema.parse(await response.json()).error.code;
+}
+
+test("an owner sets the retention and the change is recorded", async () => {
+  recorded.length = 0;
+  const response = await setRetention(cookieFor("owner"), 30);
+  expect(response.status).toBe(200);
+  expect(auditRetentionResponseSchema.parse(await response.json())).toEqual({
+    audit_retention_days: 30,
+  });
+  expect(stored.get(WORKSPACE)).toBe(30);
+  expect(recorded).toEqual([
+    expect.objectContaining({
+      action: "workspace.manage",
+      resource: { kind: "workspace", id: WORKSPACE, owner_scope: WORKSPACE },
+      request_id: response.headers.get("X-Request-Id"),
+    }),
+  ]);
+});
+
+test("a member is refused, the setting is untouched, and the refusal is recorded", async () => {
+  stored.set(WORKSPACE, 90);
+  recorded.length = 0;
+  const response = await setRetention(cookieFor("member"), 60);
+  expect(response.status).toBe(403);
+  expect(await errorCode(response)).toBe("FORBIDDEN");
+  expect(stored.get(WORKSPACE)).toBe(90);
+  expect(recorded).toHaveLength(1);
+});
+
+test("fewer than 30 days is refused, even for an owner", async () => {
+  stored.set(WORKSPACE, 90);
+  for (const days of [29, 0, -1, 30.5, "45"]) {
+    const response = await setRetention(cookieFor("owner"), days);
+    expect(response.status, String(days)).toBe(400);
+  }
+  expect(stored.get(WORKSPACE)).toBe(90);
+});
+
+test("another workspace, an unknown one or a malformed id does not exist", async () => {
+  const owner = cookieFor("owner");
+  for (const id of [OTHER_WORKSPACE, "not-a-uuid"]) {
+    const response = await setRetention(owner, 45, id);
+    expect(response.status, id).toBe(404);
+  }
+  // The owner's own workspace row is gone.
+  const orphan = cookieFor("owner", OTHER_WORKSPACE);
+  expect((await setRetention(orphan, 45, OTHER_WORKSPACE)).status).toBe(404);
+});
+
+test("an oversized body is refused", async () => {
+  const response = await setRetention(
+    cookieFor("owner"),
+    "9".repeat(REQUEST_BODY_MAX_BYTES),
+  );
+  expect(response.status).toBe(413);
+});
+
+test("a storage outage answers 503", async () => {
+  storageDown = true;
+  try {
+    const response = await setRetention(cookieFor("owner"), 45);
+    expect(response.status).toBe(503);
+  } finally {
+    storageDown = false;
+  }
+});

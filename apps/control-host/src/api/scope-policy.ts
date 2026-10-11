@@ -1,4 +1,9 @@
-import type { Principal, SessionScope } from "@agent-platform/contracts";
+import type {
+  AuthorizationAction,
+  Principal,
+  SessionScope,
+} from "@agent-platform/contracts";
+import { ACTION_SCOPES } from "@agent-platform/platform";
 import { API_ROUTE_SCOPES } from "./openapi.ts";
 
 // Which session scope a /v1 request needs, read from the OpenAPI route table
@@ -40,6 +45,21 @@ export function missingScope(
   return (principal.scopes as readonly SessionScope[]).includes(scope)
     ? null
     : scope;
+}
+
+// Each session scope belongs to exactly one action, so the edge can name the
+// action it refused when it asks the policy to record that refusal.
+const ACTION_FOR_SCOPE = new Map(
+  Object.entries(ACTION_SCOPES).map(([action, scope]) => [
+    scope,
+    action as AuthorizationAction,
+  ]),
+);
+
+export function actionForScope(scope: SessionScope): AuthorizationAction {
+  const action = ACTION_FOR_SCOPE.get(scope);
+  if (action === undefined) throw new Error(`no action needs ${scope}`);
+  return action;
 }
 
 // What the check adds to every scoped route's error table.
