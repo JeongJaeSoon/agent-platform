@@ -21,6 +21,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   resume: "재개 요청",
   recovery_decision: "복구 결정",
   revoke_execution: "실행 권한 회수",
+  reset_password: "비밀번호 재설정",
+  recover_owner: "owner 복구",
   takeover: "세션 인수",
 };
 
@@ -84,6 +86,11 @@ export function ReceiptSummary({
               </div>
             ) : null}
           </>
+        ) : "user_id" in target ? (
+          <div className="ap-receipt__field">
+            <dt>사용자</dt>
+            <dd className="ap-receipt__id">{target.user_id}</dd>
+          </div>
         ) : (
           // A mutation outside a session names its resource instead.
           // The kind shows raw until a screen actually renders one of these —

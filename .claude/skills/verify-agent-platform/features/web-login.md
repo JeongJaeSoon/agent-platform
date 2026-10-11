@@ -27,7 +27,7 @@ Preconditions:
 - `$VERIFY_BOOTSTRAP_TOKEN`이 `state.env`에 있다. 값은 출력하지 않는다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh
+. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
 OWNER=$(jq -nc --arg t "$VERIFY_BOOTSTRAP_TOKEN" '{bootstrap_token:$t, email:"owner@example.test", password:"verify-owner-pass-1", display_name:"Verify Owner", workspace_name:"Verify", workspace_slug:"verify"}')
 ```
 

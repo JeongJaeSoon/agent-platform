@@ -31,5 +31,5 @@ BEGIN
   FROM "workspaces" AS w
   WHERE s."workspace_id" IS NULL AND s."owner_id" = w."id"::text;
   GET DIAGNOSTICS filled = ROW_COUNT;
-  RAISE NOTICE '0131: sessions.workspace_id filled from owner_id on % rows', filled;
+  RAISE NOTICE '0132: sessions.workspace_id filled from owner_id on % rows', filled;
 END $$;

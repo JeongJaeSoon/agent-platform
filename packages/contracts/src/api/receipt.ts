@@ -12,6 +12,7 @@ import {
   sessionIdSchema,
   timestampSchema,
   turnIdSchema,
+  userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
 
@@ -33,6 +34,10 @@ export const RECEIPT_OPERATION_VALUES = [
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
+  // Account recovery (94S-264): a password set from a one-time link, and an
+  // owner added or restored by BOOTSTRAP_TOKEN when no live owner remained.
+  "reset_password",
+  "recover_owner",
   // An owner taking over a session whose requester was offboarded.
   "takeover",
 ] as const;
@@ -62,9 +67,18 @@ export const receiptResourceTargetSchema = z
     workspace_id: workspaceIdSchema.nullable(),
   })
   .strict();
+// A user is not a grantable resource, so it has its own variant instead of a
+// resource kind.
+export const receiptUserTargetSchema = z
+  .object({
+    user_id: userIdSchema,
+    workspace_id: workspaceIdSchema,
+  })
+  .strict();
 export const receiptTargetSchema = z.union([
   receiptSessionTargetSchema,
   receiptResourceTargetSchema,
+  receiptUserTargetSchema,
 ]);
 export const receiptErrorSchema = z.object({
   code: apiErrorCodeSchema,
@@ -110,6 +124,7 @@ export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
 export type ReceiptOperation = z.infer<typeof receiptOperationSchema>;
 export type ReceiptSessionTarget = z.infer<typeof receiptSessionTargetSchema>;
 export type ReceiptResourceTarget = z.infer<typeof receiptResourceTargetSchema>;
+export type ReceiptUserTarget = z.infer<typeof receiptUserTargetSchema>;
 export type ReceiptTarget = z.infer<typeof receiptTargetSchema>;
 export type Receipt = z.infer<typeof receiptSchema>;
 export type GetReceiptResponse = z.infer<typeof getReceiptResponseSchema>;

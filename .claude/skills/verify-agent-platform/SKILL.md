@@ -21,20 +21,20 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 - **실제 모델 없이.** 항상 `--fake-model`이다. 세션은 프롬프트에 적은 GATE-SPEC 대본대로 돈다(`docs/quickstart.md` § 스크립트된 프롬프트). 실제 Claude(`local.sh up` 옵션 없음)는 유료라 이 스킬은 쓰지 않는다.
 - **비밀값을 출력하지 않는다.** API key는 변수에만 담고 앞 12자만 보인다. bootstrap token은 이 run이 만든 일회용 테스트 값이고 `state.env`(700 디렉터리)에만 있다.
 - **프로세스는 PID·project로.** `pkill`·`killall`·이름 패턴 종료는 쓰지 않는다. 내릴 때는 `down.sh`가 이 run의 project와 installation label만 지운다.
+- **run은 항상 이름으로.** 같은 머신의 여러 세션이 같은 root에 run을 만든다. 그래서 "마지막 run" 같은 기본값은 없다. `up.sh`가 출력한 run id를 기록해 두고 `lib.sh`·`doctor.sh`·`down.sh`에 매번 넘긴다. 인자 없이 부르면 사용법과 살아 있는 run 목록만 출력하고 exit 2로 끝난다(아무것도 내리지 않는다). 목록의 다른 run은 다른 세션의 것이니 넘기지 않는다.
 
 ## 상태 파일
 
 Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디렉터리를 만들고 거기에 상태를 쓴다.
 
 - run 디렉터리: `${VERIFY_AP_ROOT:-$TMPDIR/verify-agent-platform}/<run id>/`
-- `latest`: 같은 root의 `latest` 파일이 마지막 run 디렉터리를 가리킨다
 - `state.env`: `COMPOSE_PROJECT_NAME`, `EXECUTION_INSTALLATION_ID`, `COMPOSE_FILE`(compose.yaml + 이 run의 ports overlay), `API_IMAGE`·`WORKER_IMAGE`·`EGRESS_PROXY_IMAGE`(run별 태그), `VERIFY_API`, `VERIFY_BOOTSTRAP_TOKEN`
 - `evidence/`: 증거. 내린 뒤에도 남는다
 
-드라이브하는 Bash 호출은 매번 이렇게 시작한다.
+드라이브하는 Bash 호출은 매번 이렇게 시작한다. `<run id>`는 `up.sh`가 출력한 값(예: `20261011-133324-76616`)이다. run 디렉터리 경로나 project 이름(`verify-ap-<run id>`)도 받는다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh   # 인자로 run 디렉터리를 주면 latest 대신 그것
+. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
 ```
 
 ## Launch
@@ -44,7 +44,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 ```
 
 - Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh`. 내릴 때도 같다.
-- 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·gitea·api 포트를 `127.0.0.1::<port>` ephemeral로, secrets는 비공개, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml scripts/local.sh up --fake-model`을 돌린다. 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에 출력한다.
+- 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·gitea·api 포트를 `127.0.0.1::<port>` ephemeral로, secrets는 비공개, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml scripts/local.sh up --fake-model`을 돌린다. 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
 - 준비 표시: stderr 끝에 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`. 로그는 `evidence/up.log`.
 - 이미지 태그도 run마다 따로 둔다(`agent-platform-*:verify-ap-…`, `tests/e2e/run.sh`와 같은 방식). 기본 `:dev` 태그를 덮어쓰면 다른 스택의 scheduler가 이 checkout의 worker를 띄우게 된다. `down.sh`가 이 태그만 지운다.
 - 시간: 첫 빌드는 5–10분. 이 checkout에서 이미지를 매번 다시 빌드한다. bash 도구의 timeout을 15분으로 주거나 background로 돌린다.
@@ -53,7 +53,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 ## Doctor
 
 ```sh
-.claude/skills/verify-agent-platform/scripts/doctor.sh
+.claude/skills/verify-agent-platform/scripts/doctor.sh <run id>
 ```
 
 run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 않은 변경 digest, `scripts/tree-id.sh`)와 지금 checkout, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니거나 `up.sh` 뒤 HEAD나 커밋하지 않은 변경(`.claude/` 밖)이 바뀌었으면 exit 1(바뀐 코드는 `down.sh` 뒤 `up.sh`로 다시 빌드한다). 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`gitea`·`egress-proxy`·`fake-messages`·`secrets`가 모두 `running`(healthcheck가 있으면 `healthy`)이 아니면 exit 1이다. `/readyz`는 database·schema·config만 보므로 scheduler가 죽어도 ready다. `up.sh` 직후에는 scheduler가 몇 초 `starting`일 수 있으니 잠시 뒤 다시 돌린다(`migrate`·`gitea-init`·`worker`는 한 번 돌고 끝나 목록에 없다).
@@ -83,14 +83,17 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 ## Cleanup
 
 ```sh
-.claude/skills/verify-agent-platform/scripts/down.sh   # 인자로 run 디렉터리를 주면 그 run
+.claude/skills/verify-agent-platform/scripts/down.sh <run id>
 ```
+
+- run id는 필수다. 인자 없이, 또는 없는 run으로 부르면 사용법과 살아 있는 run 목록(run id, project, 실행 중인 컨테이너 수)을 stderr에 보이고 exit 2로 끝난다. 이때 compose는 하나도 부르지 않는다.
 
 - `scripts/local.sh down`을 같은 env로 돌린다(volume까지 지우고, installation label이 붙은 worker 컨테이너·네트워크·volume도 지운다).
 - 이어서 `--profile apps --profile fake-model`과 `-f compose.yaml -f ports.yml -f infra/compose.fake-model.yml`로 `down -v --remove-orphans --rmi local`(compose가 이름 붙인 `<project>-migrate` 이미지까지)을 한 번 더 한다. profile이나 fake-model overlay가 빠지면 api·scheduler·reconciler와 `fake-messages`, `<project>_default` 네트워크가 남는 일이 있었다.
 - 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너를 보여 주고 `evidence/leftovers.txt`에 쓴다. 남은 것이 있으면 exit 1.
-- 다 성공하면 `ports.yml`(token이 든 파일)과 cookie를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run 디렉터리>`를 다시 돌린다. 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
-- `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project로 넘어가지 않게 하려는 것이다.
+- 다 성공하면 `ports.yml`(token이 든 파일)과 cookie를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
+- `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project나 다른 세션의 run으로 넘어가지 않게 하려는 것이다.
+- 예전 판의 스킬은 공유 `latest` 파일을 따라가 인자 없는 `down.sh`가 다른 세션의 스택을 volume까지 지웠다. 지금 스크립트는 `latest`를 쓰지도 읽지도 않는다. root에 남은 `latest` 파일은 예전 판이 쓴 것이다.
 
 ## 알려진 함정
 

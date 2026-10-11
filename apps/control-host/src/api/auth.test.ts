@@ -5,16 +5,21 @@ import {
   bootstrapResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  issuePasswordResetResponseSchema,
   loginResponseSchema,
+  passwordResetResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@agent-platform/contracts";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   BootstrapDoneError,
   type BootstrapInput,
+  BootstrapTokenSpentError,
+  type ConsumePasswordResetInput,
   type IdentityStore,
   type IdentityUser,
   type IdentityWorkspace,
+  type IssuePasswordResetInput,
   type ResolvedWebSession,
 } from "@agent-platform/platform";
 import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
@@ -61,39 +66,140 @@ class MemoryIdentityStore implements IdentityStore {
     lastSeenAt: Date | null;
     renewals: number;
   }> = [];
+  resets: Array<{
+    workspaceId: string;
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    spent: boolean;
+  }> = [];
+  spentBootstrapTokens = new Set<string>();
+  receipts: Array<{ id: string; operation: string; targetRef: unknown }> = [];
   now = () => Date.now();
 
-  async countUsers() {
-    return this.users.length;
+  async countLiveOwners() {
+    return this.memberships.filter(
+      (m) =>
+        m.role === "owner" &&
+        m.disabledAt === null &&
+        this.users.some((u) => u.id === m.userId && u.disabledAt === null),
+    ).length;
   }
   async bootstrap(input: BootstrapInput) {
-    if (this.users.length > 0) {
+    if ((await this.countLiveOwners()) > 0) {
       throw new BootstrapDoneError();
     }
-    const user: IdentityUser = {
-      id: input.userId,
-      email: input.email,
-      passwordHash: input.passwordHash,
-      displayName: input.displayName,
-      createdAt: new Date(this.now()),
-      disabledAt: null,
-    };
-    const workspace: IdentityWorkspace = {
-      id: input.workspaceId,
-      slug: input.workspaceSlug,
-      name: input.workspaceName,
-      settings: {},
-      createdAt: new Date(this.now()),
-    };
-    this.users.push(user);
-    this.workspaces.push(workspace);
-    this.memberships.push({
-      workspaceId: workspace.id,
-      userId: user.id,
-      role: "owner",
-      disabledAt: null,
+    const spent = Buffer.from(input.bootstrapTokenHash).toString("hex");
+    if (this.spentBootstrapTokens.has(spent)) {
+      throw new BootstrapTokenSpentError();
+    }
+    this.spentBootstrapTokens.add(spent);
+    const recovered = this.users.length > 0;
+    let workspace = this.workspaces[0];
+    if (!workspace) {
+      workspace = {
+        id: input.workspaceId,
+        slug: input.workspaceSlug,
+        name: input.workspaceName,
+        settings: {},
+        createdAt: new Date(this.now()),
+      };
+      this.workspaces.push(workspace);
+    }
+    let user = this.users.find((u) => u.email === input.email);
+    if (user) {
+      user.passwordHash = input.passwordHash;
+      user.disabledAt = null;
+    } else {
+      user = {
+        id: input.userId,
+        email: input.email,
+        passwordHash: input.passwordHash,
+        displayName: input.displayName,
+        createdAt: new Date(this.now()),
+        disabledAt: null,
+      };
+      this.users.push(user);
+    }
+    const userId = user.id;
+    const membership = this.memberships.find(
+      (m) => m.workspaceId === workspace.id && m.userId === userId,
+    );
+    if (membership) {
+      membership.role = "owner";
+      membership.disabledAt = null;
+    } else {
+      this.memberships.push({
+        workspaceId: workspace.id,
+        userId,
+        role: "owner",
+        disabledAt: null,
+      });
+    }
+    if (recovered) {
+      for (const session of this.sessions) {
+        session.revokedAt ??= new Date(this.now());
+      }
+      for (const reset of this.resets) {
+        if (reset.workspaceId === workspace.id) reset.spent = true;
+      }
+      this.receipts.push({
+        id: input.receiptId,
+        operation: "recover_owner",
+        targetRef: {
+          resource: { kind: "workspace", id: workspace.id },
+          workspace_id: workspace.id,
+        },
+      });
+    }
+    return { user, workspace, recovered };
+  }
+  async retireBootstrapToken(tokenHash: Uint8Array) {
+    this.spentBootstrapTokens.add(Buffer.from(tokenHash).toString("hex"));
+  }
+  async issuePasswordReset(input: IssuePasswordResetInput) {
+    const live = this.memberships.some(
+      (m) =>
+        m.workspaceId === input.workspaceId &&
+        m.userId === input.userId &&
+        m.disabledAt === null &&
+        this.users.some((u) => u.id === m.userId && u.disabledAt === null),
+    );
+    if (!live) return null;
+    for (const reset of this.resets) {
+      if (reset.userId === input.userId) reset.spent = true;
+    }
+    const expiresAt = new Date(this.now() + input.ttlMs);
+    this.resets.push({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      tokenHash: Buffer.from(input.tokenHash).toString("hex"),
+      expiresAt,
+      spent: false,
     });
-    return { user, workspace };
+    return { expiresAt };
+  }
+  async consumePasswordReset(input: ConsumePasswordResetInput) {
+    const hex = Buffer.from(input.tokenHash).toString("hex");
+    const reset = this.resets.find(
+      (r) =>
+        r.tokenHash === hex && !r.spent && r.expiresAt.getTime() > this.now(),
+    );
+    const user = this.users.find(
+      (u) => u.id === reset?.userId && u.disabledAt === null,
+    );
+    if (!reset || !user) return null;
+    reset.spent = true;
+    user.passwordHash = input.passwordHash;
+    for (const session of this.sessions) {
+      if (session.userId === user.id) session.revokedAt ??= new Date();
+    }
+    this.receipts.push({
+      id: input.receiptId,
+      operation: "reset_password",
+      targetRef: { user_id: user.id, workspace_id: reset.workspaceId },
+    });
+    return { userId: user.id, workspaceId: reset.workspaceId };
   }
   async findUserForLogin(email: string) {
     return (
@@ -112,11 +218,16 @@ class MemoryIdentityStore implements IdentityStore {
   async createWebSession(input: {
     id: string;
     userId: string;
+    verifiedPasswordHash: string;
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
     maxLive: number;
   }) {
+    const current = this.users.find(
+      (u) => u.id === input.userId && u.disabledAt === null,
+    );
+    if (current?.passwordHash !== input.verifiedPasswordHash) return null;
     const expiresAt = new Date(this.now() + input.ttlMs);
     const mine = this.sessions.filter(
       (s) =>
@@ -217,7 +328,9 @@ function harness(
   options: {
     authMode?: string;
     lockout?: LoginLockout;
+    recoveryLockout?: LoginLockout;
     passwordWork?: WorkGate;
+    bootstrapToken?: string;
   } = {},
 ) {
   const identity = new MemoryIdentityStore();
@@ -226,9 +339,12 @@ function harness(
   const hooks: { beforeReauth?: () => void } = {};
   const auth = {
     identity,
-    bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
+    bootstrap: createBootstrapGate(options.bootstrapToken ?? BOOTSTRAP_TOKEN),
     logger,
     ...(options.lockout ? { lockout: options.lockout } : {}),
+    ...(options.recoveryLockout
+      ? { recoveryLockout: options.recoveryLockout }
+      : {}),
     ...(options.passwordWork ? { passwordWork: options.passwordWork } : {}),
   };
   const app = createApiApp({
@@ -269,7 +385,7 @@ function harness(
     });
   const bootstrap = (overrides: Record<string, unknown> = {}) =>
     json("/v1/auth/bootstrap", {
-      bootstrap_token: BOOTSTRAP_TOKEN,
+      bootstrap_token: options.bootstrapToken ?? BOOTSTRAP_TOKEN,
       email: "Owner@Example.com",
       password: PASSWORD,
       display_name: "Owner",
@@ -383,7 +499,7 @@ describe("bootstrap", () => {
     expect(h.identity.users).toHaveLength(1);
   });
 
-  test("a generated token is printed once, only while users are 0", async () => {
+  test("a generated token is printed once, only while no live owner exists", async () => {
     const identity = new MemoryIdentityStore();
     const sink = new MemoryLogSink();
     const logger = new StructuredLogger({ sinks: [sink] });
@@ -397,7 +513,13 @@ describe("bootstrap", () => {
     expect(gate.consume(token)).toBe(true);
     expect(gate.consume(token)).toBe(false);
 
-    identity.users.push({} as IdentityUser);
+    identity.users.push({ id: "u", disabledAt: null } as IdentityUser);
+    identity.memberships.push({
+      workspaceId: "w",
+      userId: "u",
+      role: "owner",
+      disabledAt: null,
+    });
     printed.length = 0;
     await bootstrapGateFromEnv(undefined, identity, logger, print);
     expect(printed).toHaveLength(0);
@@ -410,6 +532,10 @@ describe("bootstrap", () => {
     );
     expect(printed).toHaveLength(0);
     expect(given.consume("g".repeat(32))).toBe(true);
+    // Configured while an owner is live: spent, so it cannot recover later.
+    expect(identity.spentBootstrapTokens).toContain(
+      Buffer.from(hashWebSessionToken("g".repeat(32))).toString("hex"),
+    );
 
     // A configured token the request schema would refuse can never be
     // presented, so it is a startup error rather than a silent dead install.
@@ -418,9 +544,9 @@ describe("bootstrap", () => {
     ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
   });
 
-  test("an unreachable database does not stop startup; the value is printed since users is unknown", async () => {
+  test("an unreachable database does not stop startup; the value is printed since owners are unknown", async () => {
     const identity = new MemoryIdentityStore();
-    identity.countUsers = async () => {
+    identity.countLiveOwners = async () => {
       throw Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1"), {
         code: "ECONNREFUSED",
       });
@@ -443,7 +569,7 @@ describe("bootstrap", () => {
   test("an empty BOOTSTRAP_TOKEN refuses to start instead of generating one", async () => {
     const identity = new MemoryIdentityStore();
     let counted = 0;
-    identity.countUsers = async () => {
+    identity.countLiveOwners = async () => {
       counted += 1;
       return 0;
     };
@@ -454,6 +580,230 @@ describe("bootstrap", () => {
     ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
     expect(counted).toBe(0);
     expect(printed).toHaveLength(0);
+  });
+});
+
+describe("account recovery", () => {
+  const OTHER_TOKEN = "n".repeat(40);
+  const NEW_PASSWORD = "a brand new password here";
+
+  async function withMember(h: ReturnType<typeof harness>) {
+    await h.bootstrap();
+    const owner = h.identity.users[0];
+    const workspace = h.identity.workspaces[0];
+    if (!owner || !workspace) throw new Error("bootstrap left no rows");
+    const member: IdentityUser = {
+      id: "00000000-0000-4000-8000-000000000002",
+      email: "member@example.com",
+      passwordHash: await hashPassword(PASSWORD),
+      displayName: "Member",
+      createdAt: new Date(),
+      disabledAt: null,
+    };
+    h.identity.users.push(member);
+    h.identity.memberships.push({
+      workspaceId: workspace.id,
+      userId: member.id,
+      role: "member",
+      disabledAt: null,
+    });
+    const ownerCookie = cookieOf(await h.login());
+    const issue = (
+      userId = member.id,
+      cookie = ownerCookie,
+      id = workspace.id,
+    ) =>
+      h.app.request(`/v1/workspaces/${id}/members/${userId}/password-reset`, {
+        method: "POST",
+        headers: { Cookie: cookie, ...BROWSER },
+      });
+    return { owner, member, workspace, ownerCookie, issue };
+  }
+  const redeem = (
+    h: ReturnType<typeof harness>,
+    token: string,
+    password = NEW_PASSWORD,
+  ) => h.json("/v1/auth/password-reset", { token, password });
+
+  test("an owner's one-time link sets the password and ends the user's sessions", async () => {
+    const h = harness();
+    const { member, issue } = await withMember(h);
+    const memberCookie = cookieOf(await h.login("member@example.com"));
+
+    const issued = await issue();
+    expect(issued.status).toBe(201);
+    expect(issued.headers.get("Cache-Control")).toBe("no-store");
+    const { token, expires_at } = issuePasswordResetResponseSchema.parse(
+      await issued.json(),
+    );
+    expect(token).toStartWith("apr_");
+    expect(Date.parse(expires_at) - Date.now()).toBeGreaterThan(59 * 60 * 1000);
+    expect(JSON.stringify(h.identity.resets)).not.toContain(token);
+    expect(JSON.stringify(h.sink.records)).not.toContain(token);
+
+    const redeemed = await redeem(h, token);
+    expect(redeemed.status).toBe(200);
+    const body = passwordResetResponseSchema.parse(await redeemed.json());
+    expect(body.user_id).toBe(member.id);
+    expect(h.identity.receipts).toContainEqual({
+      id: body.receipt_id,
+      operation: "reset_password",
+      targetRef: { user_id: member.id, workspace_id: expect.any(String) },
+    });
+    expect(JSON.stringify(h.sink.records)).not.toContain(token);
+
+    const stale = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: memberCookie },
+    });
+    expect(stale.status).toBe(401);
+    expect((await h.login("member@example.com")).status).toBe(401);
+    expect((await h.login("member@example.com", NEW_PASSWORD)).status).toBe(
+      200,
+    );
+
+    const again = await redeem(h, token, "yet another new password");
+    expect(again.status).toBe(401);
+    expect(await errorCode(again)).toBe("UNAUTHORIZED");
+  });
+
+  test("issuing again revokes the open link, and an expired link is refused", async () => {
+    const h = harness();
+    const { issue } = await withMember(h);
+    const first = issuePasswordResetResponseSchema.parse(
+      await (await issue()).json(),
+    );
+    const second = issuePasswordResetResponseSchema.parse(
+      await (await issue()).json(),
+    );
+    expect((await redeem(h, first.token)).status).toBe(401);
+    const start = Date.now();
+    h.identity.now = () => start + 61 * 60 * 1000;
+    expect((await redeem(h, second.token)).status).toBe(401);
+  });
+
+  test("only an owner of that workspace can issue, and only for a live member", async () => {
+    const h = harness();
+    const { member, issue, workspace } = await withMember(h);
+    const memberCookie = cookieOf(await h.login("member@example.com"));
+    const byMember = await issue(member.id, memberCookie);
+    expect(byMember.status).toBe(403);
+    const byKey = await h.app.request(
+      `/v1/workspaces/${workspace.id}/members/${member.id}/password-reset`,
+      { method: "POST", headers: { Authorization: `Bearer ${API_KEY}` } },
+    );
+    expect(byKey.status).toBe(403);
+    const otherWorkspace = await issue(
+      member.id,
+      undefined,
+      "00000000-0000-4000-8000-0000000000ff",
+    );
+    expect(otherWorkspace.status).toBe(404);
+    expect((await issue("not-a-uuid")).status).toBe(404);
+    expect((await issue("00000000-0000-4000-8000-0000000000aa")).status).toBe(
+      404,
+    );
+    const disabled = h.identity.users.find((u) => u.id === member.id);
+    if (!disabled) throw new Error("member missing");
+    disabled.disabledAt = new Date();
+    expect((await issue()).status).toBe(404);
+  });
+
+  test("redeeming validates the body and maps a storage outage to 503", async () => {
+    const h = harness();
+    await withMember(h);
+    const short = await redeem(h, "apr_x", "short");
+    expect(short.status).toBe(400);
+    const oversized = await redeem(h, "apr_x", "x".repeat(65 * 1024));
+    expect(oversized.status).toBe(413);
+    h.identity.consumePasswordReset = async () => {
+      throw Object.assign(new Error("connection lost"), { code: "08006" });
+    };
+    expect((await redeem(h, "apr_x")).status).toBe(503);
+  });
+
+  test("the sixth failed reset inside the window is 429", async () => {
+    const h = harness({
+      recoveryLockout: new LoginLockout({ now: () => 1_000_000 }),
+    });
+    const { issue } = await withMember(h);
+    for (let i = 0; i < 5; i += 1) {
+      expect((await redeem(h, `apr_guess-${i}`)).status).toBe(401);
+    }
+    const { token } = issuePasswordResetResponseSchema.parse(
+      await (await issue()).json(),
+    );
+    const locked = await redeem(h, token);
+    expect(locked.status).toBe(429);
+    expect(await errorCode(locked)).toBe("RATE_LIMITED");
+    expect(Number(locked.headers.get("Retry-After"))).toBeGreaterThan(0);
+  });
+
+  test("with no live owner, a new token restores an owner in the same workspace and ends every session", async () => {
+    const h = harness();
+    const { owner, member, workspace } = await withMember(h);
+    await h.login("member@example.com");
+    const ownerMembership = h.identity.memberships.find(
+      (m) => m.userId === owner.id,
+    );
+    if (!ownerMembership) throw new Error("owner membership missing");
+
+    // A live owner still exists: done, whatever the token.
+    expect((await h.bootstrap({ bootstrap_token: OTHER_TOKEN })).status).toBe(
+      409,
+    );
+
+    ownerMembership.disabledAt = new Date();
+    // A restart re-arms the process gate with the same value, but the
+    // install token is spent in the store for good.
+    const restart = (bootstrapToken: string) => {
+      const next = harness({ bootstrapToken });
+      next.identity = Object.assign(next.identity, {
+        users: h.identity.users,
+        workspaces: h.identity.workspaces,
+        memberships: h.identity.memberships,
+        sessions: h.identity.sessions,
+        spentBootstrapTokens: h.identity.spentBootstrapTokens,
+      });
+      return next;
+    };
+    const reused = await restart(BOOTSTRAP_TOKEN).bootstrap();
+    expect(reused.status).toBe(401);
+    expect(await errorCode(reused)).toBe("UNAUTHORIZED");
+
+    const recovery = restart(OTHER_TOKEN);
+    const restored = await recovery.bootstrap({
+      workspace_slug: "ignored",
+      workspace_name: "Ignored",
+    });
+    expect(restored.status).toBe(201);
+    const body = bootstrapResponseSchema.parse(await restored.json());
+    expect(body.user_id).toBe(owner.id);
+    expect(body.workspace.id).toBe(workspace.id);
+    expect(recovery.identity.workspaces).toHaveLength(1);
+    expect(ownerMembership.disabledAt).toBeNull();
+    expect(recovery.identity.sessions.every((s) => s.revokedAt !== null)).toBe(
+      true,
+    );
+    expect(recovery.identity.receipts[0]?.operation).toBe("recover_owner");
+    expect(
+      h.identity.memberships.find((m) => m.userId === member.id)?.role,
+    ).toBe("member");
+
+    expect((await recovery.bootstrap()).status).toBe(409);
+  });
+
+  test("the sixth failed bootstrap inside the window is 429", async () => {
+    const h = harness({
+      recoveryLockout: new LoginLockout({ now: () => 1_000_000 }),
+    });
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        (await h.bootstrap({ bootstrap_token: "y".repeat(40) })).status,
+      ).toBe(401);
+    }
+    const locked = await h.bootstrap();
+    expect(locked.status).toBe(429);
+    expect(await errorCode(locked)).toBe("RATE_LIMITED");
   });
 });
 

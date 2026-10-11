@@ -18,10 +18,10 @@
 
 Preconditions:
 
-- `doctor.sh`가 ready.
+- `doctor.sh <run id>`가 ready.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh
+. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
 KEY=$(ap_key verify --scopes sessions:read,sessions:write 2>"$VERIFY_RUN/key.err")
 KID=$(sed -n 's/.*key_id \([^ ]*\).*/\1/p' "$VERIFY_RUN/key.err" | head -1)
 echo "key issued: ${KEY:0:6}… (len ${#KEY}) key_id: $KID"

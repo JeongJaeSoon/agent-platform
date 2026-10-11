@@ -849,11 +849,12 @@ export function createPostgresSessionReader(
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
       if (!row) return null;
-      // A resource target (the interface-track routes) parses as stored,
-      // strict, rather than being forced into the session shape.
+      // A resource or user target (the interface-track routes, account
+      // recovery) parses as stored, strict, rather than being forced into
+      // the session shape.
       const stored = (row.targetRef ?? {}) as Partial<ReceiptSessionTarget>;
       const target =
-        "resource" in stored
+        "resource" in stored || "user_id" in stored
           ? stored
           : {
               session_id: stored.session_id,

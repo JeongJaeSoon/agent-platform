@@ -150,6 +150,7 @@ describe("OpenAPI document", () => {
         "/v1/auth/login",
         "/v1/auth/logout",
         "/v1/auth/me",
+        "/v1/auth/password-reset",
         "/v1/limits",
         "/v1/receipts/{id}",
         "/v1/sessions",
@@ -167,6 +168,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/turns",
         "/v1/sessions/{id}/turns/{turn_id}",
         "/v1/sessions/{id}/usage",
+        "/v1/workspaces/{id}/members/{userId}/password-reset",
         "/v1/takeovers",
       ].sort(),
     );

@@ -257,6 +257,49 @@ export const webSessions = pgTable(
   ],
 );
 
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    /** sha256 of the one-time token; the token itself is never stored. */
+    tokenHash: bytea("token_hash").notNull().unique(),
+    issuedBy: uuid("issued_by")
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Issuing a new link revokes the user's open one, so at most one link
+    // per user can set a password.
+    uniqueIndex("password_resets_live_user_uniq")
+      .on(table.userId)
+      .where(sql`${table.usedAt} IS NULL AND ${table.revokedAt} IS NULL`),
+    check(
+      "password_resets_single_outcome_check",
+      sql`${table.usedAt} IS NULL OR ${table.revokedAt} IS NULL`,
+    ),
+  ],
+);
+
+// A BOOTSTRAP_TOKEN works once per installation, not once per process: a
+// value left in the environment after an install must not reopen recovery
+// the next time no live owner remains.
+export const bootstrapTokenUses = pgTable("bootstrap_token_uses", {
+  tokenHash: bytea("token_hash").primaryKey(),
+  usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // One Grant row per `grantSchema`; the refs are stored as
 // (kind, id) column pairs so the evaluator (I0-5a) matches them exactly in
 // SQL without unpacking JSON. `service_principal_id` is always a service

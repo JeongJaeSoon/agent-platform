@@ -13,6 +13,7 @@ import {
   healthResponseSchema,
   installationLimitsResponseSchema,
   interruptSessionRequestSchema,
+  issuePasswordResetResponseSchema,
   listPendingRequestsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
@@ -21,6 +22,9 @@ import {
   listTurnsResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
+  memberParamsSchema,
+  passwordResetRequestSchema,
+  passwordResetResponseSchema,
   pauseSessionRequestSchema,
   postSessionAnswerRequestSchema,
   postSessionMessageRequestSchema,
@@ -65,6 +69,7 @@ const requestComponents = {
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
+  PasswordResetRequest: passwordResetRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -88,6 +93,8 @@ const responseComponents = {
   Receipt: getReceiptResponseSchema,
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
+  IssuePasswordResetResponse: issuePasswordResetResponseSchema,
+  PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
@@ -234,11 +241,14 @@ const API_ROUTE_DECLARATIONS = [
     path: "/v1/auth/bootstrap",
     operationId: "bootstrap",
     tag: "Auth",
-    summary: "Create the first owner and default workspace (once)",
+    summary:
+      "Create the first owner and default workspace, or recover an owner",
+    description:
+      "Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation. Five failed attempts in 15 minutes answer 429.",
     auth: "public",
     body: "BootstrapRequest",
     success: { status: 201, schema: "BootstrapResponse" },
-    errors: [400, 401, 409, 413, 503],
+    errors: [400, 401, 409, 413, 429, 503],
     errorCodes: { 409: ["BOOTSTRAP_DONE"] },
     idempotent: false,
   },
@@ -253,6 +263,33 @@ const API_ROUTE_DECLARATIONS = [
     body: "LoginRequest",
     success: { status: 200, schema: "LoginResponse" },
     errors: [400, 401, 403, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/auth/password-reset",
+    operationId: "resetPassword",
+    tag: "Auth",
+    summary: "Set a new password with a one-time reset link",
+    description:
+      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. Five failed attempts in 15 minutes answer 429.",
+    auth: "public",
+    body: "PasswordResetRequest",
+    success: { status: 200, schema: "PasswordResetResponse" },
+    errors: [400, 401, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/members/{userId}/password-reset",
+    operationId: "issuePasswordReset",
+    tag: "Auth",
+    summary: "Issue a one-time password reset link for a member (owner only)",
+    description:
+      "The token is returned once and expires in one hour; issuing another revokes the member's open link.",
+    auth: "session",
+    success: { status: 201, schema: "IssuePasswordResetResponse" },
+    errors: [401, 403, 404, 503],
     idempotent: false,
   },
   {
@@ -672,6 +709,8 @@ function queryParameters(schema: JsonSchema) {
 
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
+  if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
+    return memberParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
   throw new Error(`No params schema registered for ${path}`);
