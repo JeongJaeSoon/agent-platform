@@ -134,7 +134,12 @@ async function link(
       .from(linkedAccounts)
       .where(and(byExternal(account), live))
       .for("update");
-    if (holder && holder.userId !== userId) return { outcome: "taken" };
+    if (
+      holder &&
+      (holder.userId !== userId || holder.workspaceId !== workspaceId)
+    ) {
+      return { outcome: "taken" };
+    }
     let linked: Row | undefined;
     if (holder) {
       const reactivated = holder.status !== "active";
