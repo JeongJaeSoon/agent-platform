@@ -82,7 +82,14 @@ export function ApiKeysScreen() {
       <h1 className="web-page__title">{t("apiKeys.title")}</h1>
       <OutcomeLine outcome={outcome} />
       {issued ? (
-        <IssuedSecret issued={issued} onDone={() => setIssued(null)} />
+        <IssuedSecret
+          issued={issued}
+          onDone={() => {
+            setIssued(null);
+            // Detach the observer so gcTime 0 drops the response too.
+            mutation.reset();
+          }}
+        />
       ) : null}
       <PersonalKeyForm issue={issue} />
       <ServiceKeyForm issue={issue} />
