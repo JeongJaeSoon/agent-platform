@@ -39,4 +39,4 @@ echo "key issued: ${KEY:0:6}… (len ${#KEY}) key_id: $KID"
 - `local.sh key`는 env의 project를 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 스택에 발급한다.
 - `bun run keys …`(package.json)는 기본 project 고정이라 이 스킬에서는 `ap_revoke`를 쓴다.
 - key는 다시 볼 수 없다. 잃으면 새로 발급한다.
-- 권한별 개인 key·에이전트 서비스 key는 아직 없다([musterrolle.md](./musterrolle.md) d).
+- 이 파일은 운영자 CLI의 key다. 사람이 웹에서 발급하는 권한별 개인 key·에이전트 서비스 key는 [musterrolle.md](./musterrolle.md) d다.
