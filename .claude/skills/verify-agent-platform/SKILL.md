@@ -44,6 +44,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 .claude/skills/verify-agent-platform/scripts/up.sh
 ```
 
+- 선택형 overlay는 인자로 더한다: `up.sh infra/compose.mock-slack.yml`(Slack 계정 연결의 mock IdP, [musterrolle.md](features/musterrolle.md) c). `COMPOSE_FILE`에 이어 붙으므로 이후 `lib.sh`·`down.sh`도 같은 스택을 본다.
 - Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh`. 내릴 때도 같다.
 - 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·gitea·api 포트를 `127.0.0.1::<port>` ephemeral로, secrets는 비공개, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml scripts/local.sh up --fake-model`을 돌린다. 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
 - 준비 표시: stderr 끝에 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`. 로그는 `evidence/up.log`.

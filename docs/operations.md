@@ -545,7 +545,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
 | `SLACK_OIDC_CLIENT_ID` · `SLACK_OIDC_CLIENT_SECRET` · `SLACK_OIDC_REDIRECT_URI` | 없음(연결을 끔. 시작 요청은 `503`) | 셋을 함께 설정한다. 일부만 설정하면 기동하지 않는다. redirect URI는 절대 http(s) URL이다 |
-| `SLACK_OIDC_ISSUER` | `https://slack.com` | 절대 http(s) URL. mock IdP에만 쓴다 |
+| `SLACK_OIDC_ISSUER` | `https://slack.com` | 절대 http(s) URL. mock IdP(`infra/compose.mock-slack.yml`)에만 쓴다 |
 
 흐름은 다음과 같다.
 
@@ -574,6 +574,8 @@ curl -s -b jar -c jar -X POST http://127.0.0.1:3000/v1/linked-accounts/slack/cal
 curl -s -b jar http://127.0.0.1:3000/v1/linked-accounts
 curl -s -b jar -X DELETE "http://127.0.0.1:3000/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H 'X-Requested-With: agent-platform-web'
 ```
+
+로컬에서는 `infra/compose.mock-slack.yml`을 겹쳐 띄우면 Slack 앱 없이 같은 흐름을 돌릴 수 있다. mock은 동의를 자동으로 하고 `MOCK_SLACK_TEAM_ID`·`MOCK_SLACK_USER_ID`(기본 `T0MOCK`·`U0MOCK`)를 돌려준다. `authorize_url`에 `mock_team`·`mock_user`를 붙이면 그 계정을 돌려준다. 실제 배포에는 절대 겹치지 않는다. API가 mock이 서명한 것을 믿게 된다.
 
 #### 판정 감사와 보존 기간 (94S-573)
 
