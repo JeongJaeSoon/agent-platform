@@ -3,10 +3,12 @@ import {
   type AgentAdminsView,
   agentAdminsViewSchema,
   type MemberView,
+  TEAM_LIST_LIMIT,
   type TeamDetail,
   teamDetailSchema,
 } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -302,6 +304,29 @@ describe("에이전트 관리자", () => {
     expect(
       screen.queryByRole("button", { name: "Mate 관리자 지정 해제" }),
     ).toBeNull();
+  });
+
+  test("관리 목록이 상한까지 차 있으면 이 에이전트의 관리자 목록에 직접 묻는다", async () => {
+    expect(ADMINISTERED_LIST_LIMIT).toBe(TEAM_LIST_LIMIT);
+    const agentsApi = agentServer();
+    const agent = (
+      (await (
+        await agentsApi.routes[`GET /v1/agents/${AGENT_ID}`]()
+      ).json()) as { agent: { id: string } }
+    ).agent;
+    const others = Array.from({ length: TEAM_LIST_LIMIT }, () => ({
+      ...agent,
+      id: crypto.randomUUID(),
+    }));
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...agentsApi.routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: others }),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+    });
+    expect(
+      await screen.findByRole("button", { name: "Mate 관리자 지정 해제" }),
+    ).toBeDefined();
   });
 
   test("관리 여부를 묻지 못하면 권한 문구가 아니라 실패를 보인다", async () => {
