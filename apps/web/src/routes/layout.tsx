@@ -53,6 +53,9 @@ export function AuthedLayout() {
   const { client, queryClient } = useServices();
   const navigate = useNavigate();
   const managesTeams = useHasPermission("team.manage");
+  // Admins see the screen with the owner-only parts disabled and explained.
+  const workspaceManage = useHasPermission("workspace.manage");
+  const retentionManage = useHasPermission("audit_retention.manage");
   const logout = useMutation<unknown, ApiError>({
     // A 401 means the session is already gone, which is what was asked.
     meta: { public: true },
@@ -84,6 +87,9 @@ export function AuthedLayout() {
           <Link to="/agents">{t("nav.agents")}</Link>
           <Link to="/settings/linked-accounts">{t("nav.linkedAccounts")}</Link>
           <Link to="/settings/api-keys">{t("nav.apiKeys")}</Link>
+          {workspaceManage || retentionManage ? (
+            <Link to="/settings/workspace">{t("nav.workspace")}</Link>
+          ) : null}
         </nav>
         <span className="web-shell__spacer" />
         {me?.user ? (
