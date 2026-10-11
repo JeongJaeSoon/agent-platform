@@ -4,7 +4,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { UserEvent } from "@testing-library/user-event";
 
 /*
- * Two constraints shape this helper.
+ * Three constraints shape this helper.
  *
  * 1. `bun test` runs the whole repo in one process, and happy-dom's registrator
  *    replaces fetch/Request/Response/setTimeout as well as the DOM. Leaving it
@@ -21,6 +21,26 @@ import type { UserEvent } from "@testing-library/user-event";
  */
 let registered = false;
 
+/*
+ * 3. The registrator also swaps in the window's timers, and the window dies
+ *    with `unregister`. React's scheduler keeps the setImmediate it found when
+ *    it first loaded, so a second DOM file in the same run rendered once and
+ *    then never ran an effect or an update again. The runtime's own timers
+ *    outlive every window, so they go back on the global after registering.
+ */
+const RUNTIME_TIMERS = [
+  "setTimeout",
+  "clearTimeout",
+  "setInterval",
+  "clearInterval",
+  "setImmediate",
+  "clearImmediate",
+  "queueMicrotask",
+] as const;
+const runtimeTimers = Object.fromEntries(
+  RUNTIME_TIMERS.map((name) => [name, globalThis[name]]),
+);
+
 export interface DomOptions {
   /** Viewport width; the responsive snapshots use 360 / 768 / 1440. */
   readonly width?: number;
@@ -35,6 +55,7 @@ export async function setupDom({
 }: DomOptions = {}): Promise<TestingLibrary> {
   if (!registered) {
     GlobalRegistrator.register({ url: "https://ui.test/", width, height });
+    Object.assign(globalThis, runtimeTimers);
     registered = true;
   }
   setViewport({ width, height });
