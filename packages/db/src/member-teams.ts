@@ -103,6 +103,7 @@ async function writeReceipt(
     targetRef: input.targetRef,
     result: input.result,
     status: "succeeded",
+    requestId: actor.principal.requestId ?? null,
   });
 }
 
