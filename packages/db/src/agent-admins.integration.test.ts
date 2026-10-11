@@ -42,11 +42,8 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-<<<<<<< HEAD
 const SERVICE_ISSUERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
-=======
->>>>>>> origin/feature/musterrolle
 const PROFILE: CatalogProfile = {
   runtime_kind: "claude_agent_sdk",
   runtime_version: "0.3.270",
@@ -317,11 +314,8 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         scopes: ["sessions:read", "sessions:write"],
         expiresAt: null,
         receiptId: randomUUID(),
-<<<<<<< HEAD
         issuerRoles:
           kind === "personal" ? ["owner", "admin", "member"] : SERVICE_ISSUERS,
-=======
->>>>>>> origin/feature/musterrolle
       });
 
     const bound = await issue(member, "service", agent.agent.id);
@@ -343,14 +337,10 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       ids(
         await store.list(
           workspaceId,
-<<<<<<< HEAD
           {
             personalOf: member.actor?.userId ?? "",
             allServiceKeysFor: SERVICE_ISSUERS,
           },
-=======
-          { personalOf: member.actor?.userId ?? "", service: "administered" },
->>>>>>> origin/feature/musterrolle
           50,
         ),
       ),
@@ -359,14 +349,10 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       ids(
         await store.list(
           workspaceId,
-<<<<<<< HEAD
           {
             personalOf: owner.actor?.userId ?? "",
             allServiceKeysFor: SERVICE_ISSUERS,
           },
-=======
-          { personalOf: owner.actor?.userId ?? "", service: "all" },
->>>>>>> origin/feature/musterrolle
           50,
         ),
       ),
@@ -452,10 +438,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       workspaceId,
       keyId: bound.key.id,
       receiptId: randomUUID(),
-<<<<<<< HEAD
       revokerRoles: SERVICE_ISSUERS,
-=======
->>>>>>> origin/feature/musterrolle
     });
     expect(revoked).toMatchObject({ outcome: "revoked" });
     expect(
@@ -464,24 +447,17 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         workspaceId,
         keyId: bound.key.id,
         receiptId: randomUUID(),
-<<<<<<< HEAD
         revokerRoles: SERVICE_ISSUERS,
-=======
->>>>>>> origin/feature/musterrolle
       }),
     ).toMatchObject({ outcome: "already_revoked" });
     expect(await read(pinned)).toBe("disabled");
 
     const written = await db
-<<<<<<< HEAD
       .select({
         operation: receipts.operation,
         result: receipts.result,
         requestId: receipts.requestId,
       })
-=======
-      .select({ operation: receipts.operation, result: receipts.result })
->>>>>>> origin/feature/musterrolle
       .from(receipts)
       .where(
         and(
@@ -496,7 +472,6 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       "create_api_key",
       "revoke_api_key",
     ]);
-<<<<<<< HEAD
     // Joins each receipt to the decision that let it through.
     expect(written.map((row) => row.requestId)).toEqual([
       member.requestId,
@@ -603,8 +578,4 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     });
     expect(await revoke(bound.key.id)).toMatchObject({ outcome: "revoked" });
   });
-=======
-    expect(JSON.stringify(written)).not.toContain("csp_");
-  });
->>>>>>> origin/feature/musterrolle
 });

@@ -227,7 +227,6 @@ if (slackOidc === null) {
     {},
   );
 }
-<<<<<<< HEAD
 const apiKeys = createApiKeyService({
   authorization,
   store: createPostgresWorkspaceKeyStore(db),
@@ -236,8 +235,6 @@ const apiKeys = createApiKeyService({
     return { secret, hash: hashApiKey(secret) };
   },
 });
-=======
->>>>>>> origin/feature/musterrolle
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const interrupts = createInterruptService({

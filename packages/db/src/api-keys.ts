@@ -1,18 +1,13 @@
-<<<<<<< HEAD
 import {
   type SessionScope,
   scopesForRole,
   type WorkspaceRole,
 } from "@agent-platform/contracts";
-=======
-import type { SessionScope } from "@agent-platform/contracts";
->>>>>>> origin/feature/musterrolle
 import type {
   Principal,
   WorkspaceKey,
   WorkspaceKeyStore,
 } from "@agent-platform/platform";
-<<<<<<< HEAD
 import {
   and,
   desc,
@@ -34,18 +29,10 @@ import {
   receipts,
   users,
 } from "./schema.ts";
-=======
-import { and, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
-import { actorStillMember, receiptActorOf } from "./control-shared.ts";
-import { DB_NOW } from "./db-clock.ts";
-import type { Database } from "./queries.ts";
-import { agentAdmins, agents, apiKeys, receipts } from "./schema.ts";
->>>>>>> origin/feature/musterrolle
 
 // Keys issued from the web or the API (94S-574). Lock order: the actor's
 // membership, then the agent, then the key, as the agent store takes them.
 
-<<<<<<< HEAD
 const liveMembership = (workspaceId: string, userId: string) =>
   and(
     eq(memberships.workspaceId, workspaceId),
@@ -72,8 +59,6 @@ async function lockedRole(
   return (row?.role as WorkspaceRole | undefined) ?? null;
 }
 
-=======
->>>>>>> origin/feature/musterrolle
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const keyColumns = {
@@ -110,7 +95,6 @@ function keyOf(row: {
   };
 }
 
-<<<<<<< HEAD
 // One of the roles that take the right, or, for a key bound to an agent, an
 // admin of that agent; the admin row is share-locked like the membership.
 async function holdsRight(
@@ -140,8 +124,6 @@ async function holdsRight(
   return rows.length > 0;
 }
 
-=======
->>>>>>> origin/feature/musterrolle
 async function writeReceipt(
   tx: Database,
   principal: Principal,
@@ -155,10 +137,7 @@ async function writeReceipt(
     id: input.id,
     ownerId: principal.ownerId,
     actor: receiptActorOf(principal),
-<<<<<<< HEAD
     requestId: principal.requestId ?? null,
-=======
->>>>>>> origin/feature/musterrolle
     operation: input.operation,
     targetRef: {
       resource: { kind: "api_key", id: input.key.id },
@@ -201,18 +180,12 @@ export function createPostgresWorkspaceKeyStore(
   return {
     issue(input) {
       return db.transaction(async (tx) => {
-<<<<<<< HEAD
         const role = await lockedRole(
           tx,
           input.workspaceId,
           input.createdByUserId,
         );
         if (role === null) return { outcome: "actor_inactive" };
-=======
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
->>>>>>> origin/feature/musterrolle
         if (input.agentId !== null) {
           const [agent] = await tx
             .select({ id: agents.id })
@@ -227,7 +200,6 @@ export function createPostgresWorkspaceKeyStore(
             .for("key share");
           if (!agent) return { outcome: "agent_not_found" };
         }
-<<<<<<< HEAD
         if (
           !(await holdsRight(tx, input.workspaceId, input.createdByUserId, {
             role,
@@ -241,8 +213,6 @@ export function createPostgresWorkspaceKeyStore(
         if (input.scopes.some((scope) => !ceiling.has(scope))) {
           return { outcome: "scope_not_grantable" };
         }
-=======
->>>>>>> origin/feature/musterrolle
         const [row] = await tx
           .insert(apiKeys)
           .values({
@@ -275,7 +245,6 @@ export function createPostgresWorkspaceKeyStore(
         eq(apiKeys.kind, "personal"),
         eq(apiKeys.createdByUserId, filter.personalOf),
       );
-<<<<<<< HEAD
       // Read in the same statement as the keys: the caller's role may have
       // changed since they signed in.
       const seesEveryServiceKey = exists(
@@ -313,38 +282,6 @@ export function createPostgresWorkspaceKeyStore(
         .select(keyColumns)
         .from(apiKeys)
         .where(and(eq(apiKeys.workspaceId, workspaceId), or(own, service)))
-=======
-      const service =
-        filter.service === "all"
-          ? eq(apiKeys.kind, "service")
-          : filter.service === "administered"
-            ? and(
-                eq(apiKeys.kind, "service"),
-                isNotNull(apiKeys.agentId),
-                inArray(
-                  apiKeys.agentId,
-                  db
-                    .select({ agentId: agentAdmins.agentId })
-                    .from(agentAdmins)
-                    .where(
-                      and(
-                        eq(agentAdmins.workspaceId, workspaceId),
-                        eq(agentAdmins.userId, filter.personalOf),
-                      ),
-                    ),
-                ),
-              )
-            : undefined;
-      const rows = await db
-        .select(keyColumns)
-        .from(apiKeys)
-        .where(
-          and(
-            eq(apiKeys.workspaceId, workspaceId),
-            service ? or(own, service) : own,
-          ),
-        )
->>>>>>> origin/feature/musterrolle
         .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
         .limit(limit);
       return rows.map(keyOf);
@@ -352,7 +289,6 @@ export function createPostgresWorkspaceKeyStore(
 
     revoke(input) {
       return db.transaction(async (tx) => {
-<<<<<<< HEAD
         const userId = input.principal.actor?.userId;
         const role =
           userId === undefined || userId === null
@@ -370,13 +306,6 @@ export function createPostgresWorkspaceKeyStore(
         ) {
           return { outcome: "outranked" };
         }
-=======
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" };
-        }
-        const key = await find(tx, input.workspaceId, input.keyId, true);
-        if (!key) return { outcome: "not_found" };
->>>>>>> origin/feature/musterrolle
         if (key.revokedAt !== null) {
           return { outcome: "already_revoked", key };
         }
