@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { slackInstallations } from "./schema.ts";
@@ -122,27 +122,30 @@ export async function verifySlackInstallation(
   db: Database,
   input: SlackInstallationKey & { botUserId: string },
 ): Promise<VerifySlackInstallationResult> {
-  const [verified] = await db
-    .update(slackInstallations)
-    .set({
-      status: "verified",
-      botUserId: input.botUserId,
-      verifiedAt: DB_NOW,
-    })
-    .where(
-      and(
-        byKey(input),
-        inArray(slackInstallations.status, ["pending", "verified"]),
-      ),
-    )
-    .returning(columns);
-  if (verified) {
+  // Locked so that a revoke or a re-register cannot land between reading the
+  // state and acting on it.
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select(columns)
+      .from(slackInstallations)
+      .where(byKey(input))
+      .for("update");
+    if (!current) return { outcome: "not_found" };
+    if (current.status === "revoked") {
+      return { outcome: "revoked", installation: current };
+    }
+    const [verified] = await tx
+      .update(slackInstallations)
+      .set({
+        status: "verified",
+        botUserId: input.botUserId,
+        verifiedAt: DB_NOW,
+      })
+      .where(eq(slackInstallations.id, current.id))
+      .returning(columns);
+    if (!verified) throw new Error(`Slack installation ${current.id} vanished`);
     return { outcome: "verified", installation: verified };
-  }
-  const existing = await findSlackInstallation(db, input);
-  return existing
-    ? { outcome: "revoked", installation: existing }
-    : { outcome: "not_found" };
+  });
 }
 
 /** Revokes the install; revoking it again keeps the first revoked_at. */

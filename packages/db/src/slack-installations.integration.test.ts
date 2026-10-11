@@ -231,6 +231,25 @@ integration("slack_installations on PostgreSQL", () => {
     expect(await rowsFor(key.appId)).toHaveLength(1);
   });
 
+  test("verify racing a re-register reports the state it acted on", async () => {
+    const workspaceId = await newWorkspace();
+    for (let round = 0; round < 20; round++) {
+      const key = newKey();
+      await registerSlackInstallation(db, { ...key, workspaceId });
+      await revokeSlackInstallation(db, key);
+
+      const [verify] = await Promise.all([
+        verifySlackInstallation(db, { ...key, botUserId: "U0BOT" }),
+        registerSlackInstallation(db, { ...key, workspaceId }),
+      ]);
+
+      if (verify.outcome === "not_found") throw new Error("lost the row");
+      expect(verify.installation.status).toBe(
+        verify.outcome === "revoked" ? "revoked" : "verified",
+      );
+    }
+  });
+
   test("revoke of an unknown installation is not_found", async () => {
     expect(await revokeSlackInstallation(db, newKey())).toEqual({
       outcome: "not_found",
