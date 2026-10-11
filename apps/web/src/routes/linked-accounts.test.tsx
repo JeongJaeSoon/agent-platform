@@ -133,6 +133,41 @@ describe("연동 계정", () => {
     ).toBe("/settings/linked-accounts");
   });
 
+  test("설정이 없는 설치에서 연결을 시작하면 운영자 문의를 안내한다", async () => {
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items: [] }),
+      "POST /v1/linked-accounts/slack/start": () =>
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Sign in with Slack is not configured on this installation",
+        ),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Slack 계정 연결" }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이 설치에서는 Slack 계정 연결을 쓸 수 없습니다 — 운영자에게 문의하세요.",
+    );
+  });
+
+  test("콜백 중 Slack에 닿지 못하면 다시 시도하라고 한다", async () => {
+    renderAt("/settings/linked-accounts/slack?code=c1&state=s1", {
+      ...meOk,
+      "POST /v1/linked-accounts/slack/callback": () =>
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Slack could not be reached, try again later",
+        ),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+    );
+  });
+
   test("로그인이 끊겼으면 로그인 뒤 같은 콜백으로 돌아오게 한다", async () => {
     const { history } = renderAt(
       "/settings/linked-accounts/slack?code=c1&state=s1",

@@ -29,9 +29,13 @@ function linkRefusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
+  starting = false,
 ): string {
   if (LINK_COPY_CODES.has(error.code)) return error.message;
-  if (error.code === "BACKEND_UNAVAILABLE") return t("linked.unavailable");
+  // Starting never reaches Slack, so its 503 means linking is not set up
+  // here; anywhere else it may be Slack briefly out of reach.
+  if (starting && error.code === "BACKEND_UNAVAILABLE")
+    return t("linked.unavailable");
   if (error.code === "FORBIDDEN")
     return refusalText(t, error, "account.link", role);
   return t(errorKey(error.code));
@@ -51,7 +55,7 @@ export function LinkedAccountsScreen() {
     onMutate: () => setOutcome(null),
     onSuccess: ({ authorize_url }) => leave(authorize_url),
     onError: (error) =>
-      setOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
+      setOutcome({ kind: "error", text: linkRefusal(t, error, role, true) }),
   });
 
   const unlink = useMutation<unknown, ApiError, LinkedAccount>({
