@@ -79,6 +79,7 @@ export function AuthedLayout() {
             {t("nav.home")}
           </Link>
           <Link to="/members">{t("nav.members")}</Link>
+          <Link to="/agents">{t("nav.agents")}</Link>
         </nav>
         <span className="web-shell__spacer" />
         {me?.user ? (

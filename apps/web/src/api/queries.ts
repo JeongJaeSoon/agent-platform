@@ -1,5 +1,7 @@
 import type {
+  AgentDetail,
   AuthMeResponse,
+  ListAgentsResponse,
   ListInvitesResponse,
   ListMembersResponse,
 } from "@agent-platform/contracts";
@@ -16,6 +18,8 @@ export const queryKeys = {
   viewer: ["me", "optional"] as const,
   members: ["members"] as const,
   invites: ["invites"] as const,
+  agents: ["agents"] as const,
+  agent: (id: string) => ["agents", id] as const,
 };
 
 export function meQuery(client: ApiClient) {
@@ -60,6 +64,26 @@ export function invitesQuery(client: ApiClient) {
     queryKey: queryKeys.invites,
     queryFn: () =>
       unwrap(client.GET("/v1/invites")) as Promise<ListInvitesResponse>,
+    retry: false,
+  });
+}
+
+export function agentsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.agents,
+    queryFn: () =>
+      unwrap(client.GET("/v1/agents")) as Promise<ListAgentsResponse>,
+    retry: false,
+  });
+}
+
+export function agentQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.agent(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}", { params: { path: { id } } }),
+      ) as Promise<AgentDetail>,
     retry: false,
   });
 }

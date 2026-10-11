@@ -1,4 +1,8 @@
-import { type InputHTMLAttributes, useId } from "react";
+import {
+  type InputHTMLAttributes,
+  type TextareaHTMLAttributes,
+  useId,
+} from "react";
 
 export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   readonly label: string;
@@ -16,6 +20,33 @@ export function TextField({ label, hint, ...input }: TextFieldProps) {
           className="ap-input"
           {...input}
           aria-describedby={hint ? hintId : input["aria-describedby"]}
+        />
+      </label>
+      {hint ? (
+        <span id={hintId} className="web-field__hint">
+          {hint}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export interface TextAreaFieldProps
+  extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  readonly label: string;
+  readonly hint?: string | undefined;
+}
+
+export function TextAreaField({ label, hint, ...area }: TextAreaFieldProps) {
+  const hintId = useId();
+  return (
+    <div className="web-field">
+      <label className="web-field">
+        <span>{label}</span>
+        <textarea
+          className="ap-input web-field__area"
+          {...area}
+          aria-describedby={hint ? hintId : area["aria-describedby"]}
         />
       </label>
       {hint ? (
