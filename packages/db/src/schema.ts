@@ -1651,6 +1651,85 @@ export const agentAdminTeams = pgTable(
   ],
 );
 
+// Who sees a session (design 4.6). No row reads as `workspace`, which is
+// what every session made before this table, and every web, API and channel
+// session since, starts as.
+export const sessionShares = pgTable(
+  "session_shares",
+  {
+    sessionId: uuid("session_id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    scope: text().notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revision: integer().notNull().default(1),
+  },
+  (table) => [
+    // NOT NULL workspace_id makes this pin the row to its session's
+    // workspace; a legacy session has none and cannot be shared.
+    foreignKey({
+      name: "session_shares_session_fk",
+      columns: [table.sessionId, table.ownerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }),
+    unique("session_shares_workspace_session_key").on(
+      table.workspaceId,
+      table.sessionId,
+    ),
+    check(
+      "session_shares_scope_check",
+      sql`${table.scope} IN ('private', 'people', 'team', 'workspace')`,
+    ),
+  ],
+);
+
+// The people or teams a `people` or `team` share names; a team is read for
+// its live members at every decision.
+export const sessionShareTargets = pgTable(
+  "session_share_targets",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    userId: uuid("user_id"),
+    teamId: uuid("team_id"),
+    addedBy: uuid("added_by").references(() => users.id),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "session_share_targets_share_fk",
+      columns: [table.workspaceId, table.sessionId],
+      foreignColumns: [sessionShares.workspaceId, sessionShares.sessionId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "session_share_targets_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    foreignKey({
+      name: "session_share_targets_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    check(
+      "session_share_targets_one_check",
+      sql`(${table.userId} IS NULL) <> (${table.teamId} IS NULL)`,
+    ),
+    uniqueIndex("session_share_targets_user_uniq")
+      .on(table.sessionId, table.userId)
+      .where(sql`${table.userId} IS NOT NULL`),
+    uniqueIndex("session_share_targets_team_uniq")
+      .on(table.sessionId, table.teamId)
+      .where(sql`${table.teamId} IS NOT NULL`),
+  ],
+);
+
 // "This Slack app and bot is this agent" (design A.2, M8). App and team are
 // the install's; the bot user is pinned here, so a reinstall that answers as
 // another bot resolves to no one until linked again.

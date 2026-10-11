@@ -30,6 +30,7 @@ export * from "./ports/member-store.ts";
 export * from "./ports/pending-requests.ts";
 export * from "./ports/scheduler-store.ts";
 export * from "./ports/session-control.ts";
+export * from "./ports/session-share-store.ts";
 export * from "./ports/session-unit-of-work.ts";
 export * from "./ports/team-store.ts";
 export * from "./ports/turn-interrupts.ts";

@@ -4060,7 +4060,8 @@
               "bind_credential",
               "unbind_credential",
               "link_agent_identity",
-              "revoke_agent_identity"
+              "revoke_agent_identity",
+              "share_session"
             ]
           },
           "target_ref": {
