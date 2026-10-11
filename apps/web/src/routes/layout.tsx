@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
+  Link,
   Outlet,
   useNavigate,
 } from "@tanstack/react-router";
@@ -73,6 +74,12 @@ export function AuthedLayout() {
         {me?.workspace ? (
           <span className="web-shell__workspace">{me.workspace.name}</span>
         ) : null}
+        <nav className="web-shell__nav" aria-label={t("nav.label")}>
+          <Link to="/" activeOptions={{ exact: true }}>
+            {t("nav.home")}
+          </Link>
+          <Link to="/members">{t("nav.members")}</Link>
+        </nav>
         <span className="web-shell__spacer" />
         {me?.user ? (
           <span className="web-shell__user">{me.user.display_name}</span>

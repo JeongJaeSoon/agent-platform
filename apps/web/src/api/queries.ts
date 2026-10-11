@@ -1,4 +1,8 @@
-import type { AuthMeResponse } from "@agent-platform/contracts";
+import type {
+  AuthMeResponse,
+  ListInvitesResponse,
+  ListMembersResponse,
+} from "@agent-platform/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { type ApiClient, isApiError, unwrap } from "./client.ts";
 
@@ -10,6 +14,8 @@ import { type ApiClient, isApiError, unwrap } from "./client.ts";
 export const queryKeys = {
   me: ["me"] as const,
   viewer: ["me", "optional"] as const,
+  members: ["members"] as const,
+  invites: ["invites"] as const,
 };
 
 export function meQuery(client: ApiClient) {
@@ -36,6 +42,24 @@ export function viewerQuery(client: ApiClient) {
         throw error;
       }
     },
+    retry: false,
+  });
+}
+
+export function membersQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.members,
+    queryFn: () =>
+      unwrap(client.GET("/v1/members")) as Promise<ListMembersResponse>,
+    retry: false,
+  });
+}
+
+export function invitesQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.invites,
+    queryFn: () =>
+      unwrap(client.GET("/v1/invites")) as Promise<ListInvitesResponse>,
     retry: false,
   });
 }

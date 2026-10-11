@@ -13,6 +13,7 @@ import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
+import { MembersScreen } from "./routes/members.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -77,11 +78,17 @@ const home = createRoute({
   component: HomeScreen,
 });
 
+const members = createRoute({
+  getParentRoute: () => authed,
+  path: "/members",
+  component: MembersScreen,
+});
+
 const routeTree = root.addChildren([
   login,
   bootstrap,
   invite,
-  authed.addChildren([home]),
+  authed.addChildren([home, members]),
 ]);
 
 export function createAppRouter(services: Services, history?: RouterHistory) {

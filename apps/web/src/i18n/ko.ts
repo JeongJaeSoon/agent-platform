@@ -15,6 +15,14 @@ export const ko = {
   "common.skipToContent": "본문으로 건너뛰기",
   "common.done": "완료",
   "common.pending": "예정",
+  "common.cancel": "취소",
+
+  "nav.label": "주요 메뉴",
+  "nav.home": "홈",
+  "nav.members": "구성원",
+
+  "role.owner": "관리자",
+  "role.member": "구성원",
 
   "login.title": "로그인",
   "login.email": "이메일",
@@ -45,6 +53,46 @@ export const ko = {
   "bootstrap.tokenInvalid":
     "Bootstrap 토큰이 맞지 않습니다 — 설치 때 출력된 값을 그대로 넣으세요.",
   "bootstrap.loginLink": "이미 관리자가 있다면 로그인",
+
+  "members.title": "구성원",
+  "members.listTitle": "구성원 목록",
+  "members.empty": "아직 구성원이 없습니다.",
+  "members.column.name": "이름",
+  "members.column.role": "역할",
+  "members.column.state": "상태",
+  "members.column.actions": "관리",
+  "members.state.active": "활성",
+  "members.state.disabled": "비활성",
+  "members.enableHint": "다시 들이려면 초대하지 말고 재활성하세요.",
+  "members.roleFor": "{name}의 역할",
+  "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
+  "members.disable": "비활성",
+  "members.disableFor": "{name} 비활성",
+  "members.disableTitle": "{name}을(를) 비활성할까요?",
+  "members.disableConsequence":
+    "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 요청한 세션은 관리자가 넘겨받을 때까지 멈춥니다. 재활성해도 끊긴 로그인과 key는 돌아오지 않습니다.",
+  "members.disabled": "{name}을(를) 비활성했습니다.",
+  "members.enable": "재활성",
+  "members.enabled":
+    "{name}을(를) 재활성했습니다. 다시 로그인하면 들어올 수 있습니다.",
+  "members.invite.title": "초대",
+  "members.invite.email": "이메일",
+  "members.invite.role": "역할",
+  "members.invite.submit": "초대 링크 만들기",
+  "members.invite.submitting": "만드는 중…",
+  "members.invite.disabledHint":
+    "{name}은(는) 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 재활성하세요. Google로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
+  "members.invite.link": "초대 링크",
+  "members.invite.linkOnce":
+    "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다. 초대할 사람에게 직접 전하세요.",
+  "members.invite.copy": "링크 복사",
+  "members.invite.copied": "초대 링크를 복사했습니다.",
+  "members.invites.title": "대기 중인 초대",
+  "members.invites.empty": "대기 중인 초대가 없습니다.",
+  "members.invites.expires": "{expires}까지",
+  "members.invites.revoke": "회수",
+  "members.invites.revokeFor": "{email} 초대 회수",
+  "members.invites.revoked": "{email} 초대를 회수했습니다.",
 
   "invite.title": "초대 수락",
   "invite.intro":
@@ -94,6 +142,10 @@ export const ko = {
   "status.error.title": "문제가 생겼습니다",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
+  "guard.checking": "권한을 확인하는 중입니다.",
+  "guard.missingPermission": "{permission} 권한이 있어야 할 수 있습니다.",
+  "guard.missingPermissionAs":
+    "{permission} 권한이 있어야 할 수 있습니다. 지금 역할: {role}.",
 
   "error.BAD_REQUEST": "입력을 확인하고 다시 보내세요.",
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
@@ -105,8 +157,12 @@ export const ko = {
     "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NETWORK_ERROR": "서버에 닿지 못했습니다 — 연결을 확인하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+  "error.NOT_FOUND": "찾을 수 없습니다 — 목록을 다시 불러오세요.",
+  "error.PAYLOAD_TOO_LARGE": "입력이 너무 깁니다 — 줄여서 다시 보내세요.",
   "error.INVITE_EXPIRED": "만료됐거나 회수된 초대입니다.",
   "error.INVITE_USED": "이미 쓰인 초대입니다.",
+  "error.LAST_OWNER":
+    "마지막 관리자는 역할을 바꾸거나 비활성할 수 없습니다 — 다른 관리자를 먼저 두세요. 자기 자신도 비활성할 수 없습니다.",
 } as const;
 
 export type MessageKey = keyof typeof ko;

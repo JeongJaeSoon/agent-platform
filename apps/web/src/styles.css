@@ -269,6 +269,109 @@ select:focus-visible,
   font-size: var(--ap-text-xs);
 }
 
+.web-shell__nav {
+  display: flex;
+  gap: var(--ap-space-3);
+  font-size: var(--ap-text-sm);
+}
+.web-shell__nav a {
+  color: var(--ap-color-rail-muted-foreground);
+  text-decoration: none;
+}
+.web-shell__nav a[data-status="active"] {
+  color: var(--ap-color-rail-foreground);
+  font-weight: var(--ap-weight-bold);
+}
+
+.web-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-6);
+}
+.web-page__title {
+  margin: 0;
+  font-size: var(--ap-text-xl);
+}
+.web-page__empty {
+  margin: 0;
+  color: var(--ap-color-muted-foreground);
+}
+.web-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-3);
+}
+.web-section h2 {
+  margin: 0;
+  font-size: var(--ap-text-lg);
+}
+.web-form--inline {
+  max-width: none;
+}
+.web-invite-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+  padding: var(--ap-space-3);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+}
+.web-invite-link .ap-input {
+  font-family: var(--ap-font-mono);
+}
+
+.web-table-wrap {
+  overflow-x: auto;
+}
+.web-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ap-text-sm);
+}
+.web-table th,
+.web-table td {
+  padding: var(--ap-space-2);
+  border-bottom: 1px solid var(--ap-color-border);
+  text-align: left;
+  vertical-align: top;
+}
+.web-table__primary {
+  display: block;
+  font-weight: var(--ap-weight-bold);
+  overflow-wrap: anywhere;
+}
+.web-table__secondary {
+  display: block;
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+  overflow-wrap: anywhere;
+}
+.web-table tr[data-disabled="true"] .web-table__primary {
+  color: var(--ap-color-muted-foreground);
+}
+.web-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+}
+.web-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ap-space-2) var(--ap-space-3);
+  padding: var(--ap-space-3);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+}
+.web-list__item > :last-child {
+  margin-left: auto;
+}
+
 .web-footer {
   margin-top: auto;
   padding: var(--ap-space-4);
