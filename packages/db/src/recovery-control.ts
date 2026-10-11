@@ -168,6 +168,7 @@ async function writeReceipt(
     id: receiptId,
     ownerId: input.scope.principal,
     actor: input.scope.actor,
+    requestId: input.scope.requestId,
     operation: input.scope.operation,
     targetRef: {
       session_id: input.scope.resource,
@@ -284,6 +285,7 @@ export function decideRecoveryAtomic(
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
     actor: receiptActorOf(input.principal),
+    requestId: input.principal.requestId ?? null,
     operation: RECOVERY_DECISION,
     resource: sessionId,
     key: input.idempotencyKey,
@@ -820,6 +822,7 @@ export function resumeAtomic(
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
     actor: receiptActorOf(input.principal),
+    requestId: input.principal.requestId ?? null,
     operation: RESUME,
     resource: sessionId,
     key: input.idempotencyKey,

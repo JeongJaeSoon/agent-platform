@@ -149,8 +149,8 @@ export const users = pgTable(
   {
     id: uuid().primaryKey(),
     email: text().notNull().unique(),
-    /** argon2id. */
-    passwordHash: text("password_hash").notNull(),
+    /** argon2id; null for an account that only signs in externally. */
+    passwordHash: text("password_hash"),
     displayName: text("display_name").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -231,6 +231,43 @@ export const invites = pgTable(
     check(
       "invites_single_outcome_check",
       sql`${table.acceptedAt} IS NULL OR ${table.revokedAt} IS NULL`,
+    ),
+  ],
+);
+
+export const loginMethods = pgTable(
+  "login_methods",
+  {
+    id: uuid().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    kind: text().$type<"password" | "google">().notNull(),
+    issuer: text(),
+    subject: text(),
+    /** The address the provider vouched for when the account was linked. */
+    emailAtLink: text("email_at_link"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("login_methods_external_uniq").on(
+      table.kind,
+      table.issuer,
+      table.subject,
+    ),
+    uniqueIndex("login_methods_password_user_uniq")
+      .on(table.userId)
+      .where(sql`${table.kind} = 'password'`),
+    check(
+      "login_methods_kind_check",
+      sql`${table.kind} IN ('password', 'google')`,
+    ),
+    check(
+      "login_methods_external_check",
+      sql`CASE WHEN ${table.kind} = 'password' THEN ${table.issuer} IS NULL AND ${table.subject} IS NULL ELSE ${table.issuer} IS NOT NULL AND ${table.subject} IS NOT NULL END`,
     ),
   ],
 );
@@ -771,9 +808,11 @@ export const receipts = pgTable(
       .defaultNow(),
     /** `receiptActorSchema`: principal plus the human behind it. */
     actor: jsonb(),
+    requestId: text("request_id"),
   },
   (table) => [
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
+    index("receipts_request_idx").on(table.requestId),
     // The terminate deadline sweep runs every scheduler and reconciler pass
     // and must not read the whole receipt history to find the few open ones.
     // An execution revocation is swept the same way.
@@ -782,6 +821,46 @@ export const receipts = pgTable(
       .where(
         sql`${table.operation} IN ('terminate', 'revoke_execution') AND ${table.status} = 'accepted'`,
       ),
+  ],
+);
+
+// No foreign keys, so a row outlives the session, key or user it names for
+// as long as the workspace keeps audit rows.
+export const authzDecisions = pgTable(
+  "authz_decisions",
+  {
+    id: uuid().primaryKey(),
+    at: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    ownerId: text("owner_id").notNull(),
+    workspaceId: uuid("workspace_id"),
+    principalKind: text("principal_kind"),
+    principalId: text("principal_id"),
+    actorUserId: uuid("actor_user_id"),
+    agentId: uuid("agent_id"),
+    agentReleaseId: text("agent_release_id"),
+    linkedAccountId: text("linked_account_id"),
+    linkedAccountRevision: integer("linked_account_revision"),
+    surface: jsonb().notNull(),
+    action: text().notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceId: text("resource_id"),
+    outcome: text().notNull(),
+    reasonCode: text("reason_code").notNull(),
+    justification: text(),
+    policyVersion: text("policy_version").notNull(),
+    requestId: text("request_id").notNull(),
+  },
+  (table) => [
+    index("authz_decisions_request_idx").on(table.requestId),
+    index("authz_decisions_at_idx").on(table.at),
+    check(
+      "authz_decisions_outcome_check",
+      sql`${table.outcome} IN ('allow', 'deny', 'redact', 'require_approval')`,
+    ),
+    check(
+      "authz_decisions_principal_check",
+      sql`(${table.principalKind} IS NULL) = (${table.principalId} IS NULL)`,
+    ),
   ],
 );
 

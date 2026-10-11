@@ -47,6 +47,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/takeovers",
     "POST /v1/sessions/{id}/takeover",
   ],
+  "routes/workspaces.test.ts": ["POST /v1/workspaces/{id}/audit-retention"],
   "routes/agents.test.ts": [
     "GET /v1/agents",
     "POST /v1/agents",

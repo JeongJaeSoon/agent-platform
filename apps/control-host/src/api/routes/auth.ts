@@ -162,7 +162,12 @@ async function reauthenticate(
       reservation.release();
       throw error;
     }
-    if (!found || found.id !== who.userId || !verified) {
+    if (
+      !found ||
+      found.id !== who.userId ||
+      found.passwordHash === null ||
+      !verified
+    ) {
       deps.logger?.warn("Password check failed", { user_id: who.userId });
       throw new ApiHttpError(403, "FORBIDDEN", "Current password is incorrect");
     }
@@ -223,6 +228,7 @@ export function registerPublicAuthRoutes(
           workspaceName: body.workspace_name,
           bootstrapTokenHash: hashWebSessionToken(token),
           receiptId: randomUUID(),
+          loginMethodId: randomUUID(),
         }),
       );
       deps.logger?.info(
@@ -321,6 +327,7 @@ export function registerPublicAuthRoutes(
     let membership: NonNullable<
       Awaited<ReturnType<IdentityStore["findLiveMembership"]>>
     >;
+    let verifiedPasswordHash: string;
     try {
       // Counted as a failure before the password is checked, in the same
       // synchronous step as the lockout check: a burst of concurrent
@@ -358,7 +365,7 @@ export function registerPublicAuthRoutes(
         reservation.release();
         throw error;
       }
-      if (!found || !verified || !live) {
+      if (!found || !verified || !live || found.passwordHash === null) {
         // A user with no live workspace fails like a wrong password; the
         // reservation above already counted it, so probing is bounded.
         deps.logger?.warn("Login failed", { has_user: found !== null });
@@ -366,6 +373,7 @@ export function registerPublicAuthRoutes(
       }
       user = found;
       membership = live;
+      verifiedPasswordHash = found.passwordHash;
     } finally {
       releaseSlot();
     }
@@ -375,7 +383,7 @@ export function registerPublicAuthRoutes(
       deps.identity.createWebSession({
         id: randomUUID(),
         userId: user.id,
-        verifiedPasswordHash: user.passwordHash,
+        verifiedPasswordHash,
         tokenHash: hashWebSessionToken(token),
         ttlMs: WEB_SESSION_TTL_MS,
         userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,

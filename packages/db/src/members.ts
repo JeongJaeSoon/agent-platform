@@ -174,6 +174,7 @@ export function createPostgresMemberStore(db: Database): MemberStore {
           id: receiptId,
           ownerId: input.principal.ownerId,
           actor: receiptActorOf(input.principal),
+          requestId: input.principal.requestId ?? null,
           operation: TAKEOVER,
           targetRef: { session_id: sessionId, turn_id: null, request_id: null },
           status: "succeeded",

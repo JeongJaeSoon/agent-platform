@@ -111,6 +111,7 @@ async function recordAcceptance(
     id: receipt.id,
     ownerId: scope.principal,
     actor: scope.actor,
+    requestId: scope.requestId,
     operation: scope.operation,
     targetRef: receipt.targetRef,
     result: receipt.result,
@@ -164,6 +165,7 @@ export function createPostgresSessionUnitOfWork(
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
         actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: CREATE_SESSION,
         resource: SESSIONS_RESOURCE,
         key: input.idempotencyKey,
@@ -239,6 +241,7 @@ export function createPostgresSessionUnitOfWork(
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
         actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: APPEND_MESSAGE,
         resource: sessionId,
         key: input.idempotencyKey,

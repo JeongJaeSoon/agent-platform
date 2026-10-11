@@ -27,7 +27,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0134_agents");
+    expect(expectedMigrationHead().tag).toBe("0136_agents");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -89,7 +89,7 @@ describe("readiness probe", () => {
       environment,
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
-    expect(result.ready === false && result.reason).toContain("0134_agents");
+    expect(result.ready === false && result.reason).toContain("0136_agents");
 
     // Same timestamp, different SQL behind it: not the schema this build ships.
     const rewritten = await database(true);

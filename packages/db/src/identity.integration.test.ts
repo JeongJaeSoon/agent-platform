@@ -136,7 +136,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "created_by_user_id",
     "expires_at",
   ],
-  receipts: ["actor"],
+  receipts: ["actor", "request_id"],
 };
 
 async function seedAlphaRows(pool: Pool): Promise<string[]> {
@@ -201,8 +201,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 35, total: 44 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 44 });
+      expect(first).toEqual({ adopted: 0, applied: 37, total: 46 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 46 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

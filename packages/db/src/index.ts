@@ -1,4 +1,5 @@
 export * from "./agents.ts";
+export * from "./authz-decisions.ts";
 export * from "./catalog-authority.ts";
 export * from "./checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
