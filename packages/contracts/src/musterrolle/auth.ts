@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { timestampSchema, userIdSchema } from "../shared/index.ts";
+import {
+  receiptIdSchema,
+  timestampSchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "../shared/index.ts";
 import {
   principalSchema,
   scopesExceeding,
@@ -185,6 +190,32 @@ export const acceptInviteResponseSchema = z
   })
   .strict();
 
+/**
+ * Account recovery without email (94S-264): an owner issues a one-time link
+ * and hands it over; redeeming it sets the password and ends the user's
+ * sessions. The token travels in the body, never the URL, so no access log
+ * or proxy on the way records it.
+ */
+export const PASSWORD_RESET_TTL_MINUTES = 60;
+export const passwordResetTokenSchema = z.string().min(1).max(256);
+export const memberParamsSchema = z
+  .object({ id: workspaceIdSchema, userId: userIdSchema })
+  .strict();
+export const issuePasswordResetResponseSchema = z
+  .object({
+    user_id: userIdSchema,
+    /** Shown once; only its sha256 is stored. */
+    token: passwordResetTokenSchema,
+    expires_at: timestampSchema,
+  })
+  .strict();
+export const passwordResetRequestSchema = z
+  .object({ token: passwordResetTokenSchema, password: passwordSchema })
+  .strict();
+export const passwordResetResponseSchema = z
+  .object({ user_id: userIdSchema, receipt_id: receiptIdSchema })
+  .strict();
+
 export type BootstrapRequest = z.infer<typeof bootstrapRequestSchema>;
 export type BootstrapResponse = z.infer<typeof bootstrapResponseSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
@@ -192,3 +223,8 @@ export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
 export type AcceptInviteRequest = z.infer<typeof acceptInviteRequestSchema>;
 export type AcceptInviteResponse = z.infer<typeof acceptInviteResponseSchema>;
+export type IssuePasswordResetResponse = z.infer<
+  typeof issuePasswordResetResponseSchema
+>;
+export type PasswordResetRequest = z.infer<typeof passwordResetRequestSchema>;
+export type PasswordResetResponse = z.infer<typeof passwordResetResponseSchema>;

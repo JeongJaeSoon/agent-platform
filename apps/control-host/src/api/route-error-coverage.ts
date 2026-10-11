@@ -18,7 +18,9 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "auth.test.ts": [
     "POST /v1/auth/bootstrap",
     "POST /v1/auth/login",
+    "POST /v1/auth/password-reset",
     "POST /v1/auth/logout",
+    "POST /v1/workspaces/{id}/members/{userId}/password-reset",
     "GET /v1/auth/me",
   ],
   "routes/sessions.test.ts": [

@@ -444,7 +444,7 @@ MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다(94S-151). 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 `users`가 0행일 때만 통과하며 이후 호출은 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(users가 0행일 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: agent-platform-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace를 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
+웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다(94S-151). 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과하며 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: agent-platform-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace를 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
 
 ```bash
 curl -s -X POST http://127.0.0.1:3000/v1/auth/bootstrap -H 'Content-Type: application/json' \
@@ -454,6 +454,21 @@ curl -s -c jar -X POST http://127.0.0.1:3000/v1/auth/login -H 'Content-Type: app
   -d '{"email":"owner@example.com","password":"<12+ chars>"}'
 curl -s -b jar http://127.0.0.1:3000/v1/auth/me
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With: agent-platform-web' -i
+```
+
+#### 계정 복구 (94S-264)
+
+이메일 발송은 없다. 비밀번호를 잃은 사용자는 owner에게 재설정 토큰을 받는다. owner가 cookie 세션으로 `POST /v1/workspaces/{id}/members/{userId}/password-reset`을 부르면 1회용 토큰(`apr_…`, 만료 1시간)이 응답에 한 번만 온다(`Cache-Control: no-store`). DB(`password_resets`)에는 sha256만 남고, 같은 사용자에게 다시 발급하면 앞의 토큰은 폐기된다. 계정이나 membership이 비활성인 사용자에게는 발급하지 않는다(`404`). owner는 토큰을 직접 전달하고, 사용자는 `POST /v1/auth/password-reset`에 `{token, password}`로 새 비밀번호를 정한다. 토큰을 URL에 두지 않는 것은 access log나 프록시가 경로를 남기기 때문이다. 성공하면 같은 transaction에서 비밀번호가 바뀌고, 그 사용자의 live web session이 모두 폐기되며, `reset_password` receipt(`target_ref`는 `{user_id, workspace_id}`)가 남는다. 쓴 토큰, 만료된 토큰, 폐기된 토큰은 `401`이다.
+
+유일한 owner를 잃었을 때(계정 `disabled_at` 또는 owner membership `disabled_at`, 둘 중 하나라도 있으면 live owner가 아니다)는 새 `BOOTSTRAP_TOKEN`으로 API를 재시작하고 같은 `POST /v1/auth/bootstrap`을 부른다. 이미 사용자가 있는 설치에서는 새 workspace를 만들지 않는다(`workspace_name`·`workspace_slug`는 무시). 대신 기존 workspace에 그 email의 owner를 추가하거나 복원한다. 기존 계정이면 비밀번호를 바꾸고 계정·membership 비활성을 풀고 role을 owner로 둔다. workspace의 live web session은 모두 폐기되고 `recover_owner` receipt(`target_ref`는 workspace resource)가 남는다. 한 번 쓴 `BOOTSTRAP_TOKEN`은 sha256으로 `bootstrap_token_uses`에 기록되어, 재시작해도 다시 통과하지 않는다(`401`). 설치 때 쓴 값이 env에 남아 있어도 복구 경로를 다시 열지 못한다. API는 기동할 때 live owner가 있으면 설정된 `BOOTSTRAP_TOKEN`도 쓴 것으로 기록한다. owner가 살아 있는 동안 설정된 값은 복구용 새 토큰이 아니기 때문이다. 이 기록이 생기기 전에 설치한 배포도 업그레이드 뒤 첫 기동에서 설치 토큰이 막힌다(기동 때 DB에 닿지 못하면 경고 로그만 남기고 다음 기동으로 넘어간다).
+
+두 공개 route(`bootstrap`·`password-reset`)는 login과 같은 rate limit을 받는다. 실패 5회/15분 뒤 `429`이고, 비밀번호 hash는 login과 같은 동시 4개·대기 64개 gate를 쓴다. 토큰은 주소처럼 사람에 묶이지 않으므로 창은 route마다 하나다. 그래서 공격자가 창을 채우면 그 15분 동안은 정상 복구도 `429`를 받는다. IP 단위·replica 공통 제한은 login처럼 ingress가 맡는다.
+
+```bash
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/members/$USER_ID/password-reset" \
+  -H 'X-Requested-With: agent-platform-web'
+curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: application/json' \
+  -d '{"token":"<apr_…>","password":"<12+ chars>"}'
 ```
 
 ### 세션 실행 권한 회수와 복구 (94S-321)
