@@ -21,6 +21,7 @@ export const ko = {
   "nav.home": "홈",
   "nav.members": "구성원",
   "nav.teams": "팀",
+  "nav.linkedAccounts": "연동 계정",
   "nav.agents": "에이전트",
 
   "role.owner": "소유자",
@@ -296,6 +297,25 @@ export const ko = {
   "agentAdmins.addTeam": "팀 지정",
   "agentAdmins.added": "{name}을(를) 관리자로 지정했습니다.",
   "agentAdmins.removed": "{name}의 관리자 지정을 해제했습니다.",
+
+  "linked.title": "연동 계정",
+  "linked.intro":
+    "Slack 계정을 연결하면 Slack에서 에이전트를 부를 때 이 계정의 권한으로 판정합니다. 토큰은 보관하지 않습니다.",
+  "linked.slack": "Slack",
+  "linked.none": "연결된 Slack 계정이 없습니다.",
+  "linked.connect": "Slack 계정 연결",
+  "linked.starting": "Slack으로 이동하는 중…",
+  "linked.slackAccount": "Slack 사용자 {user} (워크스페이스 {team})",
+  "linked.verified": "{at} 확인",
+  "linked.stale":
+    "Slack에서 비활성으로 알려 와 지금은 아무도 가리키지 않습니다 — 해제한 뒤 다시 연결하세요.",
+  "linked.unlink": "연결 해제",
+  "linked.unlinked": "Slack 계정 연결을 해제했습니다.",
+  "linked.unavailable":
+    "이 설치에서는 Slack 계정 연결을 쓸 수 없습니다 — 운영자에게 문의하세요.",
+  "linked.cancelled":
+    "Slack 연결이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
+  "linked.back": "연동 계정으로",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",
