@@ -50,6 +50,7 @@ export function createPostgresTurnInterrupts(
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
         actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: INTERRUPT,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -124,6 +125,7 @@ export function createPostgresTurnInterrupts(
           id: receiptId,
           ownerId: scope.principal,
           actor: scope.actor,
+          requestId: scope.requestId,
           operation: INTERRUPT,
           targetRef: {
             session_id: sessionId,
