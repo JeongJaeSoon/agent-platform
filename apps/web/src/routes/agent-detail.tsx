@@ -219,11 +219,7 @@ function AgentView({
           )}
         </section>
       ) : null}
-      <CardEditor
-        key={latestVersion(detail)?.id ?? "none"}
-        detail={detail}
-        onOutcome={onOutcome}
-      />
+      <CardEditor detail={detail} onOutcome={onOutcome} />
       <VersionHistory
         key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
         detail={detail}
@@ -259,11 +255,20 @@ function CardEditor({
   const { t } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
-  const base = latestVersion(detail);
-  const [name, setName] = useState(detail.agent.name);
-  const [draft, setDraft] = useState<CardDraft | null>(() =>
-    base ? draftFromCard(base.card) : null,
-  );
+  const latest = latestVersion(detail);
+  // The edit is tied to the version it started from, not to whatever a
+  // background refetch last brought in, so unsaved input is never replaced.
+  const [edit, setEdit] = useState(() => startEdit(detail));
+  const base = detail.versions.find((v) => v.id === edit.baseId);
+  const dirty =
+    edit.name !== detail.agent.name ||
+    JSON.stringify(edit.draft) !==
+      JSON.stringify(base ? draftFromCard(base.card) : null);
+  const stale = (latest?.id ?? null) !== edit.baseId;
+  if (stale && !dirty) setEdit(startEdit(detail));
+  const setName = (name: string) => setEdit((e) => ({ ...e, name }));
+  const setDraft = (draft: CardDraft) => setEdit((e) => ({ ...e, draft }));
+  const { name, draft } = edit;
   const titleId = useId();
 
   const save = useMutation<AgentDetail, ApiError>({
@@ -282,14 +287,15 @@ function CardEditor({
       ) as Promise<AgentDetail>,
     onMutate: () => onOutcome(null),
     onSuccess: async (updated) => {
-      const latest = latestVersion(updated);
+      const saved = latestVersion(updated);
       onOutcome({
         kind: "notice",
         text:
-          latest && latest.id !== base?.id
-            ? t("agent.saved", { version: latest.version_no })
+          saved && saved.id !== edit.baseId
+            ? t("agent.saved", { version: saved.version_no })
             : t("agent.savedNoChange"),
       });
+      setEdit(startEdit(updated));
       queryClient.setQueryData(queryKeys.agent(detail.agent.id), updated);
       await queryClient.invalidateQueries({
         queryKey: queryKeys.agents,
@@ -309,6 +315,20 @@ function CardEditor({
     <section className="web-section" aria-labelledby={titleId}>
       <h2 id={titleId}>{t("agent.card.title")}</h2>
       <p className="web-page__empty">{t("agent.card.intro")}</p>
+      {stale && latest ? (
+        <div className="web-notice">
+          <output>
+            {t("agent.card.stale", { version: latest.version_no })}
+          </output>
+          <button
+            type="button"
+            className="ap-button"
+            onClick={() => setEdit(startEdit(detail))}
+          >
+            {t("agent.card.takeLatest")}
+          </button>
+        </div>
+      ) : null}
       <form className="web-form web-form--wide" onSubmit={submit}>
         <TextField
           label={t("agents.name")}
@@ -328,6 +348,15 @@ function CardEditor({
       </form>
     </section>
   );
+}
+
+function startEdit(detail: AgentDetail) {
+  const latest = latestVersion(detail);
+  return {
+    baseId: latest?.id ?? null,
+    name: detail.agent.name,
+    draft: latest ? draftFromCard(latest.card) : null,
+  };
 }
 
 function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
