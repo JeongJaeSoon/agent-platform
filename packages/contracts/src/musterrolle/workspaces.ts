@@ -16,7 +16,8 @@ export const workspaceSlugSchema = z
   .max(64)
   .regex(/^[a-z0-9][a-z0-9-]*$/, "must be lowercase kebab-case");
 export const emailSchema = z.email().max(254);
-export const displayNameSchema = z.string().min(1).max(64);
+export const DISPLAY_NAME_MAX = 64;
+export const displayNameSchema = z.string().min(1).max(DISPLAY_NAME_MAX);
 
 /** Emails are compared lower-cased; store what this returns. */
 export function normalizeEmail(email: string): string {
@@ -147,22 +148,27 @@ export const createInviteResponseSchema = z
   })
   .strict();
 
+export const INVITE_TTL_DAYS = 7;
+export const INVITE_LIST_LIMIT = 200;
+export const inviteTokenSchema = createInviteResponseSchema.shape.invite_token;
+
+export const inviteIdParamsSchema = z.object({ id: inviteIdSchema }).strict();
+export const memberUserParamsSchema = z
+  .object({ user_id: userIdSchema })
+  .strict();
+
+// Deactivation is its own route (94S-464); this patch changes the role only.
 export const updateMemberRequestSchema = z
-  .object({
-    role: workspaceRoleSchema.optional(),
-    disabled: z.boolean().optional(),
-  })
-  .strict()
-  .refine(
-    (patch) => Object.keys(patch).length > 0,
-    "at least one field is required",
-  );
+  .object({ role: workspaceRoleSchema })
+  .strict();
+export const updateMemberResponseSchema = memberViewSchema;
 
 export const listMembersResponseSchema = z
   .object({ items: z.array(memberViewSchema) })
   .strict();
+/** Newest first; at most INVITE_LIST_LIMIT. */
 export const listInvitesResponseSchema = z
-  .object({ items: z.array(inviteSchema) })
+  .object({ items: z.array(inviteSchema).max(INVITE_LIST_LIMIT) })
   .strict();
 
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
@@ -175,5 +181,6 @@ export type Invite = z.infer<typeof inviteSchema>;
 export type CreateInviteRequest = z.infer<typeof createInviteRequestSchema>;
 export type CreateInviteResponse = z.infer<typeof createInviteResponseSchema>;
 export type UpdateMemberRequest = z.infer<typeof updateMemberRequestSchema>;
+export type UpdateMemberResponse = z.infer<typeof updateMemberResponseSchema>;
 export type ListMembersResponse = z.infer<typeof listMembersResponseSchema>;
 export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;

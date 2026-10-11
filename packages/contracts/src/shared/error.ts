@@ -39,6 +39,11 @@ export const API_ERROR_CODE_VALUES = [
   // The person who asked for the session was offboarded; it takes no input
   // until an owner takes it over.
   "TAKEOVER_REQUIRED",
+  // An invite that was revoked, replaced by a newer one, or has expired.
+  "INVITE_EXPIRED",
+  "INVITE_USED",
+  // The change would leave the workspace with no live owner.
+  "LAST_OWNER",
   "NOT_READY",
   "CURSOR_EXPIRED",
   "LEASE_EXPIRED",
