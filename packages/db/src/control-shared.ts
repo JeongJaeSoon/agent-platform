@@ -58,6 +58,7 @@ export type IdempotencyScope = {
   resource: string;
   key: string;
   actor: ReceiptActor | null;
+  requestId: string | null;
 };
 
 // Authorization read the membership before this transaction opened. The share

@@ -1,589 +1,9 @@
 {
-  "id": "2821da0c-c909-471b-8e71-0d89a7caf8ae",
+  "id": "f6c3a642-4048-410e-88dc-01371215c8b4",
   "prevId": "05603a66-c2cf-4ce5-b008-a07155a0521f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.agent_activation_events": {
-      "name": "agent_activation_events",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "release_id": {
-          "name": "release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "previous_release_id": {
-          "name": "previous_release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "activation_revision": {
-          "name": "activation_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor": {
-          "name": "actor",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "receipt_id": {
-          "name": "receipt_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "agent_activation_events_agent_idx": {
-          "name": "agent_activation_events_agent_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "agent_activation_events_workspace_id_workspaces_id_fk": {
-          "name": "agent_activation_events_workspace_id_workspaces_id_fk",
-          "tableFrom": "agent_activation_events",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_activation_events_agent_id_agents_id_fk": {
-          "name": "agent_activation_events_agent_id_agents_id_fk",
-          "tableFrom": "agent_activation_events",
-          "tableTo": "agents",
-          "columnsFrom": ["agent_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_activation_events_release_id_agent_releases_id_fk": {
-          "name": "agent_activation_events_release_id_agent_releases_id_fk",
-          "tableFrom": "agent_activation_events",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["release_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_activation_events_previous_release_id_agent_releases_id_fk": {
-          "name": "agent_activation_events_previous_release_id_agent_releases_id_fk",
-          "tableFrom": "agent_activation_events",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["previous_release_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_activation_events_actor_user_id_users_id_fk": {
-          "name": "agent_activation_events_actor_user_id_users_id_fk",
-          "tableFrom": "agent_activation_events",
-          "tableTo": "users",
-          "columnsFrom": ["actor_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_activation_events_receipt_id_receipts_id_fk": {
-          "name": "agent_activation_events_receipt_id_receipts_id_fk",
-          "tableFrom": "agent_activation_events",
-          "tableTo": "receipts",
-          "columnsFrom": ["receipt_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "agent_activation_events_kind_check": {
-          "name": "agent_activation_events_kind_check",
-          "value": "\"agent_activation_events\".\"kind\" IN ('release_created','activated')"
-        },
-        "agent_activation_events_revision_check": {
-          "name": "agent_activation_events_revision_check",
-          "value": "(\"agent_activation_events\".\"kind\" = 'activated') = (\"agent_activation_events\".\"activation_revision\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.agent_releases": {
-      "name": "agent_releases",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version_id": {
-          "name": "version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "card_sha256": {
-          "name": "card_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "runtime_profile_id": {
-          "name": "runtime_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "profile_digest": {
-          "name": "profile_digest",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "runtime_config_snapshot": {
-          "name": "runtime_config_snapshot",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "effective_tools": {
-          "name": "effective_tools",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "policy_pins": {
-          "name": "policy_pins",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "approved_by": {
-          "name": "approved_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "agent_releases_agent_id_agents_id_fk": {
-          "name": "agent_releases_agent_id_agents_id_fk",
-          "tableFrom": "agent_releases",
-          "tableTo": "agents",
-          "columnsFrom": ["agent_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_releases_created_by_users_id_fk": {
-          "name": "agent_releases_created_by_users_id_fk",
-          "tableFrom": "agent_releases",
-          "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_releases_approved_by_users_id_fk": {
-          "name": "agent_releases_approved_by_users_id_fk",
-          "tableFrom": "agent_releases",
-          "tableTo": "users",
-          "columnsFrom": ["approved_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_releases_version_fk": {
-          "name": "agent_releases_version_fk",
-          "tableFrom": "agent_releases",
-          "tableTo": "agent_versions",
-          "columnsFrom": ["agent_id", "version_id"],
-          "columnsTo": ["agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "agent_releases_agent_id_key": {
-          "name": "agent_releases_agent_id_key",
-          "nullsNotDistinct": false,
-          "columns": ["agent_id", "id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "agent_releases_approval_check": {
-          "name": "agent_releases_approval_check",
-          "value": "(\"agent_releases\".\"approved_by\" IS NULL) = (\"agent_releases\".\"approved_at\" IS NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.agent_versions": {
-      "name": "agent_versions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version_no": {
-          "name": "version_no",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "card": {
-          "name": "card",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content_sha256": {
-          "name": "content_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "agent_versions_number_idx": {
-          "name": "agent_versions_number_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "version_no",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "agent_versions_content_idx": {
-          "name": "agent_versions_content_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "content_sha256",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "agent_versions_agent_id_agents_id_fk": {
-          "name": "agent_versions_agent_id_agents_id_fk",
-          "tableFrom": "agent_versions",
-          "tableTo": "agents",
-          "columnsFrom": ["agent_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_versions_created_by_users_id_fk": {
-          "name": "agent_versions_created_by_users_id_fk",
-          "tableFrom": "agent_versions",
-          "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "agent_versions_agent_id_key": {
-          "name": "agent_versions_agent_id_key",
-          "nullsNotDistinct": false,
-          "columns": ["agent_id", "id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "agent_versions_number_check": {
-          "name": "agent_versions_number_check",
-          "value": "\"agent_versions\".\"version_no\" > 0"
-        },
-        "agent_versions_content_check": {
-          "name": "agent_versions_content_check",
-          "value": "\"agent_versions\".\"content_sha256\" ~ '^[0-9a-f]{64}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.agents": {
-      "name": "agents",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "active_release_id": {
-          "name": "active_release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "activation_revision": {
-          "name": "activation_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": -1
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "agents_workspace_slug_idx": {
-          "name": "agents_workspace_slug_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slug",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "agents_workspace_id_workspaces_id_fk": {
-          "name": "agents_workspace_id_workspaces_id_fk",
-          "tableFrom": "agents",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agents_created_by_users_id_fk": {
-          "name": "agents_created_by_users_id_fk",
-          "tableFrom": "agents",
-          "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agents_active_release_fk": {
-          "name": "agents_active_release_fk",
-          "tableFrom": "agents",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["id", "active_release_id"],
-          "columnsTo": ["agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "agents_status_check": {
-          "name": "agents_status_check",
-          "value": "\"agents\".\"status\" IN ('active','paused','archived')"
-        },
-        "agents_slug_check": {
-          "name": "agents_slug_check",
-          "value": "length(\"agents\".\"slug\") BETWEEN 1 AND 64 AND \"agents\".\"slug\" ~ '^[a-z0-9][a-z0-9-]*$'"
-        },
-        "agents_activation_check": {
-          "name": "agents_activation_check",
-          "value": "\"agents\".\"activation_revision\" >= -1 AND (\"agents\".\"active_release_id\" IS NULL) = (\"agents\".\"activation_revision\" = -1)"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.api_keys": {
       "name": "api_keys",
       "schema": "",
@@ -868,6 +288,180 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.authz_decisions": {
+      "name": "authz_decisions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "at": {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "principal_kind": {
+          "name": "principal_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "principal_id": {
+          "name": "principal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_release_id": {
+          "name": "agent_release_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linked_account_id": {
+          "name": "linked_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linked_account_revision": {
+          "name": "linked_account_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "surface": {
+          "name": "surface",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_kind": {
+          "name": "resource_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "justification": {
+          "name": "justification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "authz_decisions_request_idx": {
+          "name": "authz_decisions_request_idx",
+          "columns": [
+            {
+              "expression": "request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "authz_decisions_at_idx": {
+          "name": "authz_decisions_at_idx",
+          "columns": [
+            {
+              "expression": "at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "authz_decisions_outcome_check": {
+          "name": "authz_decisions_outcome_check",
+          "value": "\"authz_decisions\".\"outcome\" IN ('allow', 'deny', 'redact', 'require_approval')"
+        },
+        "authz_decisions_principal_check": {
+          "name": "authz_decisions_principal_check",
+          "value": "(\"authz_decisions\".\"principal_kind\" IS NULL) = (\"authz_decisions\".\"principal_id\" IS NULL)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.bootstrap_token_uses": {
@@ -2745,6 +2339,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2759,6 +2359,21 @@
             },
             {
               "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "receipts_request_idx": {
+          "name": "receipts_request_idx",
+          "columns": [
+            {
+              "expression": "request_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3221,15 +2836,6 @@
           "tableFrom": "sessions",
           "tableTo": "api_keys",
           "columnsFrom": ["created_by_api_key_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "sessions_agent_release_id_agent_releases_id_fk": {
-          "name": "sessions_agent_release_id_agent_releases_id_fk",
-          "tableFrom": "sessions",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["agent_release_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"

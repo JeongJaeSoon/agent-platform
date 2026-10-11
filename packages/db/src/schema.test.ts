@@ -56,6 +56,7 @@ describe("database schema", () => {
       "agents",
       "api_keys",
       "attempts",
+      "authz_decisions",
       "bootstrap_token_uses",
       "catalog_authority",
       "checkpoints",

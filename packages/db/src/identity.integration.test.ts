@@ -136,7 +136,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "created_by_user_id",
     "expires_at",
   ],
-  receipts: ["actor"],
+  receipts: ["actor", "request_id"],
 };
 
 async function seedAlphaRows(pool: Pool): Promise<string[]> {
