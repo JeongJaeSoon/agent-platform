@@ -390,6 +390,7 @@ export function createPostgresSessionControl(
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
         actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: TERMINATE,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -580,6 +581,7 @@ export function createPostgresSessionControl(
             id: receiptId,
             ownerId: scope.principal,
             actor: scope.actor,
+            requestId: scope.requestId,
             operation: TERMINATE,
             targetRef: {
               session_id: sessionId,

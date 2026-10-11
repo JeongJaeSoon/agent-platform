@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AuthorizationAction,
+  type AuthorizationDecision,
   type AuthorizationRequest,
   authorizationDecisionSchema,
   type Principal,
@@ -23,6 +24,9 @@ import {
   callerFor,
   createAuthorizationPolicy,
   type IdentityReader,
+  MANAGEMENT_ROLES,
+  mustRecord,
+  RECORDED_ALLOW_ACTIONS,
 } from "./policy.ts";
 
 // Any store call means the refusal came too late.
@@ -765,7 +769,33 @@ describe("decision log", () => {
     expect(entries.map((entry) => entry.decision)).toEqual([approval]);
   });
 
-  test("keeps every Slack input", async () => {
+  test("keeps every Slack input, and not a Slack read that was allowed", () => {
+    const slack = callerFor(member, { kind: "slack" }, "req-slack");
+    const allowed: AuthorizationDecision = {
+      outcome: "allow",
+      reason_code: "ok",
+      effective_scopes: [],
+      policy_version: "m2",
+      decision_id: crypto.randomUUID(),
+    };
+    expect(
+      mustRecord(request(slack, { action: "session.submit" }), allowed),
+    ).toBe(true);
+    expect(mustRecord(request(slack), allowed)).toBe(false);
+    expect(
+      mustRecord(request(web, { action: "session.submit" }), allowed),
+    ).toBe(false);
+  });
+
+  test("every management action is kept when allowed", () => {
+    for (const action of Object.keys(MANAGEMENT_ROLES)) {
+      expect(RECORDED_ALLOW_ACTIONS.has(action as AuthorizationAction)).toBe(
+        true,
+      );
+    }
+  });
+
+  test("records a Slack input the policy refuses", async () => {
     const { entries, policy: using } = logged();
     const slack = callerFor(member, { kind: "slack" }, "req-slack");
     await decide(request(slack, { action: "session.submit" }), using);

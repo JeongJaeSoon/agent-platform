@@ -24,7 +24,12 @@ export type RecordedActor = {
 };
 
 /** The partition a store reads and writes under. */
-export type Principal = { ownerId: string; actor?: RecordedActor };
+export type Principal = {
+  ownerId: string;
+  actor?: RecordedActor;
+  /** Stamped on the receipts it writes, as `authz_decisions` names it. */
+  requestId?: string;
+};
 
 /**
  * Who calls a service. `ownerId` is what the stores partition on; the policy
@@ -162,6 +167,9 @@ function claimedActorMatches(
 export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
   [
     "workspace.manage",
+    "member.manage",
+    "api_key.manage",
+    "api_key.manage_own",
     "agent.manage",
     "binding.manage",
     "routine.manage",
@@ -176,7 +184,8 @@ export function mustRecord(
   return (
     decision.outcome !== "allow" ||
     RECORDED_ALLOW_ACTIONS.has(request.action) ||
-    request.subject.surface.kind === "slack"
+    (request.subject.surface.kind === "slack" &&
+      request.action === "session.submit")
   );
 }
 
