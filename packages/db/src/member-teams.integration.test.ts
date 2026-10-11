@@ -264,4 +264,49 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
         .where(eq(memberTeamMembers.teamId, team.id)),
     ).toHaveLength(2);
   });
+
+  test("adding a member queues behind a suspension of them instead of deadlocking it", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    // The suspension below locks the lower user_id first; make that the
+    // joiner, the order in which the add used to deadlock.
+    let joiner = await person(workspaceId, "member");
+    while (idOf(joiner) > idOf(owner))
+      joiner = await person(workspaceId, "member");
+    const team = await newTeam(owner);
+
+    // Replays setAccess's lock order: both users, then memberships in
+    // user_id order.
+    const suspender = await pool.connect();
+    try {
+      await suspender.query("BEGIN");
+      await suspender.query(
+        "SELECT id FROM users WHERE id = ANY($1) ORDER BY id FOR SHARE",
+        [[idOf(owner), idOf(joiner)]],
+      );
+      await suspender.query(
+        "SELECT user_id FROM memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [workspaceId, idOf(joiner)],
+      );
+      const added = member(owner, team.id, joiner);
+      const waiting = async () =>
+        (
+          await pool.query(
+            "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+          )
+        ).rowCount;
+      for (let i = 0; i < 100 && !(await waiting()); i++) {
+        await Bun.sleep(20);
+      }
+      expect(await waiting()).toBeGreaterThan(0);
+      await suspender.query(
+        "SELECT user_id FROM memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [workspaceId, idOf(owner)],
+      );
+      await suspender.query("COMMIT");
+      expect(await added).toMatchObject({ outcome: "added" });
+    } finally {
+      suspender.release();
+    }
+  });
 });
