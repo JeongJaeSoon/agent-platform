@@ -32,5 +32,5 @@ Preconditions:
 
 ## Gotchas
 
-- `/readyz`는 인증이 없다. `/v1`은 key가 없으면 401.
+- `/readyz`는 인증이 없다. `/v1`은 key도 웹 cookie도 없으면 401.
 - `/docs`는 외부 스크립트 없이 열리는 정적 HTML이다. 브라우저 확인은 필수가 아니다.

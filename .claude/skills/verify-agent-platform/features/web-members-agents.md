@@ -1,13 +1,13 @@
 # 웹 초대·구성원·에이전트
 
-owner는 웹 콘솔 `/members`에서 초대 링크를 만들어 건네고, 받은 사람은 `/invite/{token}`에서 비밀번호를 정해 들어온다. owner는 같은 화면에서 역할을 바꾸고 비활성화·재활성화한다. `/agents`에서는 빈 카드로 에이전트를 만들고, `/agents/{id}`에서 카드를 고쳐 새 version을 저장하고, release를 만들어 활성화한다. 두 탭이 같은 활성화를 다투면 늦은 탭은 덮어쓰지 않고 409를 안내한다. 홈 checklist의 "팀원 초대"·"에이전트 만들기"는 이 상태를 그대로 보인다.
+owner·admin은 웹 콘솔 `/members`에서 초대 링크를 만들어 건네고, 받은 사람은 `/invite/{token}`에서 비밀번호를 정해 들어온다. 같은 화면에서 역할을 바꾸고(owner 역할을 주거나 owner를 바꾸는 것은 owner만) 비활성화·재활성화한다. `/agents`에서는 빈 카드로 에이전트를 만들고, `/agents/{id}`에서 카드를 고쳐 새 version을 저장하고, release를 만들어 활성화한다. release의 `policy_pins`는 서버가 카드에서 정하고 승인 대기 상태는 없다(첫 활성화가 `approved_by`를 채운다). 두 탭이 같은 활성화를 다투면 늦은 탭은 덮어쓰지 않고 409를 안내한다. 홈 checklist의 "팀원 초대"·"에이전트 만들기"는 이 상태를 그대로 보인다.
 
 ## Sub-features
 
 - `invite-create` `/members`의 초대 폼(이메일, 역할은 contracts의 역할 값)을 내면 `<origin>/invite/<token>` 링크가 한 번만 보인다. 대기 중 초대 목록에 생기고 "회수"로 지운다.
 - `invite-accept` 로그인하지 않은 브라우저로 링크를 열면 비밀번호·이름 폼. 내면 `/`에 그 사람 이름으로 로그인된다.
-- `invite-signed-in` 이미 로그인한 브라우저로 링크를 열면 "이미 로그인돼 있습니다" 안내와 로그아웃 후 수락 버튼.
-- `invite-used` / `invite-expired` 이미 쓴 링크는 409 "이미 사용된 초대", 회수했거나 없는 링크는 410 "만료됐거나 회수된 초대". 폼 대신 안내만 남는다.
+- `invite-signed-in` 이미 로그인한 브라우저로 링크를 열면 "이미 이 워크스페이스의 구성원입니다" 안내와 "로그아웃하고 다른 계정으로 수락" 버튼.
+- `invite-used` / `invite-expired` 이미 쓴 링크는 409 "이미 수락한 초대입니다", 회수했거나 없는 링크는 410 "만료됐거나 회수된 초대입니다". 폼 대신 안내만 남는다.
 - `member-forbidden` member로 `/members`를 열면 서버 403 문구와 함께 권한 없음 화면, 초대 버튼은 꺼진 채 이유가 붙는다.
 - `role-change` 역할 select를 바꾸면 바로 PATCH, 마지막 owner를 내리면 409 LAST_OWNER 문구.
 - `disable` "비활성"은 확인 대화상자를 거친다. 비활성된 사람은 다음 `me` 조회에서 로그인 화면으로 간다. "재활성"은 바로 된다.
@@ -70,5 +70,6 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 
 - `orca click`이 접힌 영역 아래 버튼(상세의 "저장")을 누르지 못할 때가 있다. 겹친 요소는 없었다. `orca eval --expression "[...document.querySelectorAll('button')].find(b=>b.textContent==='저장').click()"`로 누른다.
 - 비활성된 사람의 탭은 열린 채로는 `me`의 staleTime(30초)이 지나고 포커스가 돌아와야 로그인 화면으로 간다. 다시 열면 바로 간다.
-- `GET /v1/members`가 owner 전용이라 member는 구성원 목록을 못 본다. 권한 없음 화면이 맞는 결과다.
+- `GET /v1/members`가 owner·admin(`member.manage`) 전용이라 member는 구성원 목록을 못 본다. 권한 없음 화면이 맞는 결과다.
+- 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결·Slack 앱 연결 화면은 아직 없고 API로만 한다([musterrolle.md](./musterrolle.md) f·g).
 - 초대 token은 URL 경로에 있다. 텍스트 증거에는 링크를 남기지 않는다. 초대 링크 스크린샷의 token은 수락이나 회수 뒤 무효다.
