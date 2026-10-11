@@ -34,6 +34,10 @@ const TAKEOVER = "takeover";
 
 type SetAccessInput = Parameters<MemberStore["setAccess"]>[0];
 
+// Roles that hold member.manage; which of them may act is the policy's call,
+// this only re-checks it under the locks.
+const MANAGERS: ReadonlySet<string> = new Set(["owner", "admin"]);
+
 const OPERATIONS = {
   membership: { true: "disable_member", false: "enable_member" },
   account: { true: "disable_user", false: "enable_user" },
@@ -150,19 +154,33 @@ async function setAccess(
       .for("update", { of: memberships });
     const live = (row: (typeof locked)[number]) =>
       row.membershipDisabledAt === null && row.userDisabledAt === null;
-    const ownedBy = new Set(
+    // The actor's role in each workspace where they may manage members.
+    const managing = new Map(
       locked
         .filter(
           (row) =>
-            row.userId === actor.userId && row.role === "owner" && live(row),
+            row.userId === actor.userId && MANAGERS.has(row.role) && live(row),
         )
-        .map((row) => row.workspaceId),
+        .map((row) => [row.workspaceId, row.role]),
     );
-    if (!ownedBy.has(workspaceId)) return { outcome: "actor_inactive" };
+    if (!managing.has(workspaceId)) return { outcome: "actor_inactive" };
     const target = locked.find(
       (row) => row.userId === userId && row.workspaceId === workspaceId,
     );
     if (!target) return { outcome: "not_found" };
+    // Only an owner changes an owner's access, wherever the change reaches.
+    const reached = locked.filter(
+      (row) =>
+        row.userId === userId &&
+        (scope === "account"
+          ? row.membershipDisabledAt === null
+          : row.workspaceId === workspaceId),
+    );
+    const outranked = reached.some((row) => {
+      const role = managing.get(row.workspaceId);
+      return row.role === "owner" && role !== undefined && role !== "owner";
+    });
+    if (outranked) return { outcome: "outranked" };
 
     let current: Date | null;
     if (scope === "membership") {
@@ -184,12 +202,7 @@ async function setAccess(
       }
     } else {
       current = accounts.find((row) => row.id === userId)?.disabledAt ?? null;
-      const elsewhere = locked.some(
-        (row) =>
-          row.userId === userId &&
-          row.membershipDisabledAt === null &&
-          !ownedBy.has(row.workspaceId),
-      );
+      const elsewhere = reached.some((row) => !managing.has(row.workspaceId));
       if (elsewhere) return { outcome: "elsewhere" };
     }
     if ((current !== null) === disabled) {

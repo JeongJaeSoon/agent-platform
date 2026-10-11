@@ -129,6 +129,7 @@ describe("member access", () => {
       ["not_found", "NOT_FOUND"],
       ["last_owner", "LAST_OWNER"],
       ["elsewhere", "FORBIDDEN"],
+      ["outranked", "FORBIDDEN"],
       ["actor_inactive", "FORBIDDEN"],
     ] as const;
     for (const [outcome, code] of cases) {

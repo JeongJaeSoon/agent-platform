@@ -24,8 +24,10 @@ export type SetAccessResult =
   | { outcome: "unchanged"; member: MemberRecord }
   | { outcome: "not_found" }
   | { outcome: "last_owner" }
-  /** The account also belongs to a workspace the actor does not own. */
+  /** The account also belongs to a workspace the actor does not manage. */
   | { outcome: "elsewhere" }
+  /** The target is an owner where the actor is not. */
+  | { outcome: "outranked" }
   | { outcome: "actor_inactive" };
 
 export type TakeoverRecord = {
@@ -49,7 +51,7 @@ export interface MemberStore {
    * keys revoked, and every open session they asked for marked as awaiting
    * takeover. Enabling restores none of the sessions or keys; it only
    * releases the sessions still waiting for them. The actor is re-checked as
-   * a live owner under the same locks.
+   * a member manager under the same locks.
    */
   setAccess(input: {
     actor: ActingOwner;
