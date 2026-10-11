@@ -626,6 +626,34 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/agents/<agent_id>/credential-bindings \
   -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
   -d '{"credential_ref":"notion_token"}'
+#### 에이전트의 Slack 앱 연결 (94S-578)
+
+에이전트마다 자기 Slack 앱(bot)을 갖는다. "이 Slack 앱은 이 에이전트다"는 `agent_identities`의 행이다. 행은 확인된 Slack 설치(`slack_installations`) 하나를 가리키고, 연결할 때 설치가 답한 bot user id와 bot token의 이름(`credential_ref`, 값이 아니다)을 담는다. 설치 하나에는 살아 있는 연결이 하나뿐이다. 그래서 Slack 이벤트의 `(api_app_id, team_id)`만으로 에이전트가 하나로 정해진다.
+
+- 연결: `POST /v1/agents/{id}/identities` `{provider: "slack_bot", app_id, team_id, credential_ref}` → `201`과 `link_agent_identity` receipt. owner·admin·그 에이전트 관리자가 한다(`binding.manage`). 권한이 없으면 `403`이고 `details.reason_code`가 있다.
+- 거절: 설치가 없거나 아직 확인 전이거나 회수됐으면 `409 SLACK_NOT_INSTALLED`, 그 앱이 다른 에이전트에 연결돼 있으면 `409 AGENT_IDENTITY_TAKEN`, 이미 이 에이전트에 연결돼 있으면 `409 ALREADY_EXISTS`. 보관된 에이전트는 `404`다.
+- `credential_ref`는 그 신원만 쓴다. 에이전트에 연결된 이름이나 다른 신원의 이름이면 `409 CREDENTIAL_REF_IN_USE`다. 신원을 회수하면 이름이 풀린다(위 "자격 연결"과 같은 `credential_bindings` 행).
+- 목록: `GET /v1/agents/{id}/identities`(살아 있는 것 먼저, 최근 것 먼저, 50개).
+- 회수: `DELETE /v1/agents/{id}/identities/{identity_id}` → `revoked`, `revision` +1, `revoke_agent_identity` receipt. 이미 회수한 것은 아무것도 바꾸지 않고 `receipt_id: null`이다. 행은 지우거나 되살리지 않는다. 다시 연결하면 새 행이 생긴다.
+
+Slack ingress는 이벤트를 받을 때 `agentForSlackEvent(store, {appId, teamId, agentId?})`(`@agent-platform/platform`, 저장소 쪽은 `resolveSlackEventAgent`)로 에이전트를 정한다. `resolved`면 `{workspaceId, agentId, identity: {id, revision}, botUserId, credentialRef}`이고, 아니면 `dropped`와 이유다. 버려진 이벤트는 받았다고만 답하고 아무것도 실행하지 않는다.
+
+| 이유 | 뜻 |
+|---|---|
+| `not_installed` | 그 team에 그 앱의 설치가 없다(다른 앱으로 온 이벤트) |
+| `installation_unverified` · `installation_revoked` | 설치가 확인 전이거나 해제됐다 |
+| `unidentified` | 설치에 연결된 에이전트가 없다 |
+| `identity_revoked` | 연결이 회수됐다 |
+| `bot_mismatch` | 재설치로 bot이 바뀌었다. 다시 연결해야 한다 |
+| `agent_mismatch` | 이벤트가 다른 에이전트 앞으로 왔다 |
+| `agent_archived` | 에이전트가 보관됐다 |
+
+Slack 앱 만들기·설치·OAuth는 아직 없다(94S-179·181). 그 전까지 설치 행은 저장소 함수(`registerSlackInstallation`·`verifySlackInstallation`)로만 생긴다.
+
+```bash
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -d '{"provider":"slack_bot","app_id":"A0APP","team_id":"T0TEAM","credential_ref":"slack/research-bot-token"}'
 ```
 
 #### 판정 감사와 보존 기간 (94S-573)

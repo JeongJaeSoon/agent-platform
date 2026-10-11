@@ -1,6 +1,6 @@
 # 멤버·팀·권한 (Musterrolle)
 
-**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위, 에이전트 자격 연결을 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 c(Slack 계정 연결), d(권한별 key), e의 판정 기록·보존 기간, f(자격 연결)이다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
+**일부 있음.** workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 에이전트 서비스 key, 판정 기록(`authz_decisions`), 감사 열람·공유 범위, 에이전트 자격 연결을 사용자가 하는 순서대로 확인하는 자리다. 지금 채워진 것은 c(Slack 계정 연결), d(권한별 key), e의 판정 기록·보존 기간, f(자격 연결), g(에이전트의 Slack 앱 연결)다. 나머지는 각 시나리오를 구현하는 티켓이 실제 명령과 기대 결과로 채운다. "(아직 없음)"이 붙은 항목은 "확인됨"으로 보고하지 않는다.
 
 ## Sub-features
 
@@ -9,6 +9,7 @@
 - `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정(94S-577). 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
 - `d-scoped-keys` member는 개인 key만, owner·admin은 서비스 key, 에이전트 관리자(그 에이전트를 만든 사람)는 그 에이전트 전용 서비스 key를 `POST /v1/api-keys`로 발급한다. 권한이 없으면 403과 `details.reason_code`. 에이전트 전용 key는 그 에이전트의 세션만 만들고 읽는다. 발급자의 지금 scope를 넘는 key는 403 `SCOPE_NOT_GRANTABLE`. API key로는 발급하지 못한다. 발급자를 내보내면 개인 key는 멈추고 서비스 key는 계속 동작한다.
 - `f-credential-bindings` 에이전트 관리자가 card의 `credential_refs` 이름을 그 에이전트에 연결(`POST /v1/agents/{id}/credential-bindings`)해야 활성화가 된다. 해제하면 실행 중 세션은 그대로 두고(`running_sessions`, `revoke_notice`) 다음 세션 생성이 `409 CREDENTIAL_UNBOUND`(안내 문구·관리자·`mailto:` 링크)다(94S-581).
+- `g-agent-identity` 에이전트를 자기 Slack 앱 설치에 연결·목록·회수하고(94S-578), Slack 이벤트의 `(app_id, team_id)`가 그 에이전트로 정해지는지, 회수 뒤·다른 앱의 이벤트는 버려지는지. Slack ingress(94S-179)가 없어 해석은 api 컨테이너에서 함수로 부른다.
 - `e-authz-audit` (기록·보존 기간은 있음, 열람은 아직 없음) 위 행동이 `authz_decisions`에 남고, 감사 열람과 공유 범위가 설계대로다(감사 보존 기본 90일·하한 30일, DM 기본 "나만").
 
 ## How to get to it (user POV)
@@ -16,6 +17,7 @@
 - 웹 콘솔의 초대 수락·구성원 화면은 [web-members-agents.md](./web-members-agents.md)에 있다(시나리오 a의 웹 쪽). 팀·연결·key 화면은 아직 없다.
 - (아직 없음) 같은 동작의 HTTP API.
 - f: `GET`·`POST /v1/agents/{id}/credential-bindings`, `DELETE /v1/agents/{id}/credential-bindings/{binding_id}`, 활성화 `POST /v1/agents/{id}/activate`, 세션 `POST /v1/sessions`(`agent_release_id`). 연결 화면(M10)은 아직 없다.
+- g: `POST·GET /v1/agents/{id}/identities`, `DELETE /v1/agents/{id}/identities/{identity_id}`. 화면은 아직 없다.
 - c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다.
 
 ## Driving it with lib.sh
@@ -67,6 +69,30 @@ Preconditions:
   10. owner가 `ap_web POST "/v1/members/$MEMBER_ID/disable" '{"reason":"verify scenario d"}'` → `200`(`member.disabled_at`이 찬다). 그 뒤 member 개인 key `/v1/auth/me` → `401`, member가 발급한 에이전트 key로 4의 세션 생성 → `201`.
   11. `SELECT action, outcome, reason_code, principal_kind, count(*) FROM authz_decisions WHERE action LIKE 'api_key.%' OR reason_code = 'agent_ceiling' GROUP BY 1,2,3,4` → `api_key.manage allow`(3의 발급과 8의 두 요청), `api_key.manage deny role user`(5의 둘), `api_key.manage_own allow`, `api_key.manage_own deny role api_key`(7의 둘), `session.submit deny agent_ceiling api_key`(4의 둘), `session.read deny agent_ceiling api_key`(4의 읽기들). `SELECT operation, result FROM receipts WHERE operation IN ('create_api_key','revoke_api_key')` → 발급마다 `create_api_key`, 폐기 한 번에 `revoke_api_key`, `result`에는 kind·agent_id·scopes만.
   - 증거는 `| tee "$EVIDENCE/musterrolle-d.txt"`. 남기기 전에 `csp_`·`apv_` 값을 가린다.
+- **g. 에이전트의 Slack 앱 연결.** owner bootstrap·login은 [web-login.md](./web-login.md). 에이전트는 d의 2처럼 `ap_web POST /v1/agents`로 둘(`research`→`AID`, `finance`→`BID`) 만든다. 설치 행은 c처럼 repository로 만든다(`A0VERIFY`·`T0VERIFY`·bot `B0VERIFY`). 해석은 이벤트 수신 경로가 없어 함수로 부른다.
+
+  ```sh
+  DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@agent-platform/db"; import * as platform from "@agent-platform/platform";
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL }); const db = drizzle(pool, { schema });'
+  resolve() { ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
+  console.log(JSON.stringify(await platform.agentForSlackEvent(schema.createPostgresAgentIdentityStore(db), JSON.parse(process.argv[1])))); await pool.end();" "$1"; }
+  LINK='{"provider":"slack_bot","app_id":"A0VERIFY","team_id":"T0VERIFY","credential_ref":"slack/research-bot-token"}'
+  resolve '{"appId":"A0VERIFY","teamId":"T0VERIFY"}'          # 연결 전
+  ap_web POST "/v1/agents/$AID/identities" "$LINK"             # IID = agent_identity.id
+  resolve '{"appId":"A0VERIFY","teamId":"T0VERIFY"}'
+  resolve '{"appId":"A0OTHER","teamId":"T0VERIFY"}'
+  resolve "{\"appId\":\"A0VERIFY\",\"teamId\":\"T0VERIFY\",\"agentId\":\"$BID\"}"
+  ap_web POST "/v1/agents/$BID/identities" "$LINK"
+  ap_web POST "/v1/agents/$BID/identities" "$(echo "$LINK" | jq -c '.app_id="A0NOWHERE"')"
+  ap_web GET "/v1/agents/$AID/identities"
+  ap_web DELETE "/v1/agents/$AID/identities/$IID"              # 두 번 보낸다
+  resolve '{"appId":"A0VERIFY","teamId":"T0VERIFY"}'
+  ap_compose exec -T postgres psql -U postgres -d sessions -c "select external_principal_id, credential_ref, status, revision from agent_identities"
+  ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, result->>'app_id', result->>'revision' from receipts where operation like '%agent_identity'"
+  ap_compose logs api 2>&1 | grep -E 'Agent identity (linked|revoked)'
+  ```
+
+  기대: 연결 전 `{"status":"dropped","reason":"unidentified"}`. 연결 `201`과 `receipt_id`, `bot_user_id: "B0VERIFY"`. 그 뒤 `resolved`이고 `agentId`가 `AID`, `identity.revision` 1, `credentialRef`가 그 이름. 다른 앱은 `not_installed`, `BID` 앞으로 온 이벤트는 `agent_mismatch`. `BID`에 같은 앱 → `409 AGENT_IDENTITY_TAKEN`, 없는 앱 → `409 SLACK_NOT_INSTALLED`. 목록 한 줄. 회수 `200`(`status: revoked`, `revision: 2`, `receipt_id`), 두 번째는 `receipt_id: null`. 회수 뒤 `identity_revoked`. DB는 `B0VERIFY | slack/research-bot-token | revoked | 2`, receipt는 `link_agent_identity`(1)·`revoke_agent_identity`(2), api 로그에 linked·revoked 한 줄씩. 초대·수락한 member(관리자 아님)가 `AID`에 연결하면 `403` `reason_code: "role"`이고 `authz_decisions`에 `binding.manage | deny | role` 한 행. bot token 이름은 그 신원만 쓴다: 연결 중에 같은 이름을 `POST /v1/agents/$BID/credential-bindings '{"credential_ref":"slack/research-bot-token"}'`로 에이전트에 묶으면 `409 CREDENTIAL_REF_IN_USE`, 에이전트에 묶인 이름(`notion-token`)으로 다른 설치(`A0SECOND`)를 연결해도 `409 CREDENTIAL_REF_IN_USE`, 회수 뒤에는 같은 이름을 에이전트에 묶을 수 있다(`200`). `credential_bindings`에는 신원 행(`agent_identity`, 회수됨)과 에이전트 행이 남는다. 2026-10-11 run `20261011-220853-96733`에서 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-g.txt`.
 - **e. 판정 기록.** 응답 헤더의 `X-Request-Id`로 행을 찾는다(`H=$(mktemp)`, curl에 `-D "$H"`, `RID=$(sed -n 's/^[Xx]-[Rr]equest-[Ii]d: //p' "$H" | tr -d '\r')`).
   - 거절: `KEY=$(ap_key verify --scopes sessions:read 2>/dev/null)`로 `POST /v1/sessions` → `403`. `ap_compose exec -T postgres psql -U postgres -d sessions -c "SELECT action, outcome, reason_code, principal_kind, request_id FROM authz_decisions WHERE request_id = '$RID'"` → `session.submit | deny | role | api_key` 한 행.
   - 승인: [sessions.md](./sessions.md)의 권한 요청 대본으로 `needs_input`을 만들고 `sessions:approve` key로 `POST /v1/sessions/$SID/answers`. `... FROM authz_decisions d JOIN receipts r ON r.request_id = d.request_id WHERE d.request_id = '$RID'` → `session.approve | allow` 한 행과 `answer` receipt.
@@ -83,7 +109,7 @@ Preconditions:
   6. agentadmin이 `ap_web DELETE "/v1/agents/$AID/credential-bindings/$BID"` → `200`, `revoked_at`이 차고 `running_sessions: 1`, `revoke_notice: "실행 중인 세션은 끝날 때까지 이 자격을 써요. 바로 막으려면 외부 서비스에서 폐기하세요"`.
   7. 같은 세션 생성 → `409 CREDENTIAL_UNBOUND`, `details`에 `guidance: "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요"`, `admins`(agentadmin), `admin_link: "mailto:agentadmin%40example.test"`. 이름(`notion_token`)은 응답에 없다. 활성화를 다시 하면 `409`와 `missing`.
   8. `SELECT action, outcome, reason_code, principal_kind, count(*) FROM authz_decisions WHERE action IN ('credential.bind','session.submit') GROUP BY 1,2,3,4` → `credential.bind allow ok user`, `credential.bind deny role user`·`api_key` 하나씩, `session.submit deny credential_unbound api_key`. receipts에 `bind_credential`·`unbind_credential`, `result`는 `{"credential_ref": "notion_token"}`뿐.
-  - 2026-10-11 run `20261011-211609-82813`에서 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-f.txt`.
+  - 2026-10-11 run `20261011-211609-82813`에서 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-g.txt`.
 
 ## Gotchas
 
@@ -92,6 +118,7 @@ Preconditions:
 - d의 8은 판정이 `allow`인 채로 거절된다. 권한(`api_key.manage`)은 있고 scope만 넘친 것이라, 판정 행은 `allow`이고 응답은 `SCOPE_NOT_GRANTABLE`이다.
 - 에이전트 전용 key는 receipt를 읽지 못한다. receipt 조회는 세션을 가리키지 않아 에이전트를 확인할 수 없기 때문이다.
 - f: 본문 검증(`400`)은 판정보다 먼저라 판정 행을 남기지 않는다. 해제한 연결을 다시 `DELETE`하면 `404`다.
+- g: 연결은 확인된(`verified`) 설치에만 된다. `registerSlackInstallation`만 하고 `verifySlackInstallation`을 빠뜨리면 `409 SLACK_NOT_INSTALLED`, 해석은 `installation_unverified`다. 같은 team·app을 다른 bot으로 다시 확인하면 연결은 남아 있어도 해석은 `bot_mismatch`다.
 - 에이전트 관리자를 따로 지정하는 API는 아직 없다. 관리자는 에이전트를 만든 사람(과 0139 backfill)뿐이다.
 - bootstrap은 cookie를 주지 않는다. 보존 기간을 바꾸기 전에 login한다.
 - 판정은 본문보다 먼저 묻는다. 그래서 owner의 `29` 요청(400)도 `audit_retention.manage | allow` 행을 남긴다.
