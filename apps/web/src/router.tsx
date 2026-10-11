@@ -15,6 +15,11 @@ import {
 } from "./routes/agent-detail.tsx";
 import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
+import {
+  GoogleCallbackScreen,
+  type GoogleCallbackSearch,
+  googleCallbackSearch,
+} from "./routes/google-callback.tsx";
 import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
@@ -44,6 +49,15 @@ const bootstrap = createRoute({
   getParentRoute: () => root,
   path: "/bootstrap",
   component: BootstrapScreen,
+});
+
+// Public: Google sends the browser back here (GOOGLE_OIDC_REDIRECT_URI).
+const googleCallback = createRoute({
+  getParentRoute: () => root,
+  path: "/auth/google/callback",
+  validateSearch: (search: Record<string, unknown>): GoogleCallbackSearch =>
+    googleCallbackSearch(search),
+  component: GoogleCallbackScreen,
 });
 
 // Public: whoever opens an invite link may not have an account yet.
@@ -113,6 +127,7 @@ const agent = createRoute({
 const routeTree = root.addChildren([
   login,
   bootstrap,
+  googleCallback,
   invite,
   authed.addChildren([home, members, agents, newAgent, agent]),
 ]);

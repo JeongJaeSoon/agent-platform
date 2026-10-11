@@ -24,6 +24,18 @@ export const en: Record<MessageKey, string> = {
   "login.notice.created":
     "The owner is ready. Log in with the password you just set.",
 
+  "login.or": "or",
+  "login.alternatives": "Other ways to sign in",
+  "login.google.submit": "Sign in with Google",
+  "login.google.starting": "Going to Google…",
+  "login.google.title": "Google sign-in",
+  "login.google.rejected":
+    "Google sign-in was not accepted — check that the account is the invited address and start again.",
+  "login.google.forbidden":
+    "This Google account cannot sign in here — use an account from a domain the workspace allows.",
+  "login.google.cancelled": "Google sign-in did not finish — start again.",
+  "login.google.backToLogin": "Back to sign-in",
+
   "bootstrap.title": "Create the first owner",
   "bootstrap.intro":
     "Use the bootstrap token printed once at install to create the first owner and workspace. The token works only once.",
@@ -73,6 +85,8 @@ export const en: Record<MessageKey, string> = {
   "error.RATE_LIMITED": "Too many attempts — try again shortly.",
   "error.BACKEND_UNAVAILABLE": "The server is unavailable — try again shortly.",
   "error.NETWORK_ERROR": "Could not reach the server — check your connection.",
+  "error.LOGIN_LINK_REQUIRED":
+    "An account with this email already exists — sign in with its password.",
   "error.UNKNOWN": "That did not work — try again shortly.",
   "common.cancel": "Cancel",
   "nav.label": "Main menu",

@@ -4,6 +4,7 @@ import type {
   ListAgentsResponse,
   ListInvitesResponse,
   ListMembersResponse,
+  LoginMethodsResponse,
 } from "@agent-platform/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { type ApiClient, isApiError, unwrap } from "./client.ts";
@@ -16,6 +17,7 @@ import { type ApiClient, isApiError, unwrap } from "./client.ts";
 export const queryKeys = {
   me: ["me"] as const,
   viewer: ["me", "optional"] as const,
+  loginMethods: ["login-methods"] as const,
   members: ["members"] as const,
   invites: ["invites"] as const,
   agents: ["agents"] as const,
@@ -47,6 +49,18 @@ export function viewerQuery(client: ApiClient) {
       }
     },
     retry: false,
+  });
+}
+
+export function loginMethodsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.loginMethods,
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/auth/login-methods"),
+      ) as Promise<LoginMethodsResponse>,
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 }
 
