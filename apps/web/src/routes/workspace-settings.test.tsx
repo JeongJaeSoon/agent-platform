@@ -56,6 +56,31 @@ describe("워크스페이스 설정", () => {
     );
   });
 
+  test("고치지 않은 입력은 다시 읽은 보존 기간을 따른다", async () => {
+    let days = 90;
+    const ownerMe = () => {
+      const body = me();
+      return {
+        ...body,
+        workspace: body.workspace && {
+          ...body.workspace,
+          settings: { ...body.workspace.settings, audit_retention_days: days },
+        },
+      };
+    };
+    const { services } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, ownerMe()),
+    });
+    const input = (await screen.findByLabelText(
+      "보존 기간(일)",
+    )) as HTMLInputElement;
+    expect(input.value).toBe("90");
+    // Another owner raised it; the next read brings the new value.
+    days = 365;
+    await services.queryClient.invalidateQueries({ queryKey: ["me"] });
+    await waitFor(() => expect(input.value).toBe("365"));
+  });
+
   test("30일보다 짧으면 서버가 거절하고 그 이유를 보인다", async () => {
     const { api } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),

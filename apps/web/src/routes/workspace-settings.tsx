@@ -44,7 +44,9 @@ function AuditRetention({
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const current = me?.workspace?.settings.audit_retention_days;
-  const [days, setDays] = useState(current === undefined ? "" : `${current}`);
+  // Untouched, the field follows the server's value as it refreshes.
+  const [draft, setDraft] = useState<string | null>(null);
+  const days = draft ?? (current === undefined ? "" : `${current}`);
   const titleId = useId();
   const hintId = useId();
   const reason = useHasPermission("audit_retention.manage")
@@ -65,6 +67,7 @@ function AuditRetention({
         kind: "notice",
         text: t("workspace.retentionSaved", { days: audit_retention_days }),
       });
+      setDraft(null);
       await queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
     onError: (error) =>
@@ -97,7 +100,7 @@ function AuditRetention({
             value={days}
             disabled={reason !== undefined}
             aria-describedby={hintId}
-            onChange={(event) => setDays(event.target.value)}
+            onChange={(event) => setDraft(event.target.value)}
           />
         </label>
         <p id={hintId} className="web-field__hint">

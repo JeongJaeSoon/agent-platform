@@ -140,10 +140,15 @@ describe("API key", () => {
   });
 
   test("에이전트 관리자인 구성원은 자기 에이전트 전용 key를 받고, 값은 한 번만 보인다", async () => {
-    const { api } = renderAt("/settings/api-keys", {
+    const { api, services } = renderAt("/settings/api-keys", {
       ...memberOk,
       ...keysServer(),
     });
+    const cached = () =>
+      services.queryClient
+        .getMutationCache()
+        .getAll()
+        .some((m) => JSON.stringify(m.state.data ?? null).includes(SECRET));
     const user = await setupUser();
     await screen.findByRole("option", { name: "Billing" });
     expect(screen.queryByRole("option", { name: "Support" })).toBeNull();
@@ -182,6 +187,7 @@ describe("API key", () => {
     ).toBe(false);
     expect(screen.queryByRole("region", { name: "새 key" })).toBeNull();
     expect(screen.queryByDisplayValue(SECRET)).toBeNull();
+    await waitFor(() => expect(cached()).toBe(false));
   });
 
   test("관리하는 에이전트가 없으면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
