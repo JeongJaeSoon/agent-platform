@@ -100,7 +100,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
      >/tmp/first-session-events.txt || true
    sed -n 's/^data: *//p' /tmp/first-session-events.txt |
      jq -s -c '[.[] | select(.turn_id == "1")] as $t
-       | [$t[] | .data.message.content[]? | select(.type == "tool_use" and ((.input.command // "") | test("git commit"))) | .id] as $ids
+       | [$t[] | .data.message.content[]? | select(.type == "tool_use" and ((.input.command // "") | test("git .*commit"))) | .id] as $ids
        | $t[] | .data | select(.type == "tool_result" and (.tool_use_id as $u | $ids | index($u))) | {is_error, content}'
    ```
 
