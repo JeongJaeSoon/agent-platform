@@ -1,11 +1,14 @@
 import {
   auditRetentionRequestSchema,
   auditRetentionResponseSchema,
+  slackGuestRequestSchema,
+  slackGuestResponseSchema,
   workspaceParamsSchema,
 } from "@agent-platform/contracts";
 import type {
   AuditRetentionStore,
   AuthorizationPolicy,
+  SlackGuestSettingStore,
 } from "@agent-platform/platform";
 import {
   ApiHttpError,
@@ -19,6 +22,7 @@ import { requireParams } from "./errors.ts";
 export interface WorkspaceRouteDeps {
   authorization: AuthorizationPolicy;
   retention: AuditRetentionStore;
+  slackGuests: SlackGuestSettingStore;
 }
 
 export function registerWorkspaceRoutes(
@@ -70,5 +74,46 @@ export function registerWorkspaceRoutes(
       throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
     }
     return jsonWithSchema(context, auditRetentionResponseSchema, body);
+  });
+  apiRoute(router, "setSlackGuest", async (context) => {
+    const caller = context.get("caller");
+    const principal = context.get("principal");
+    const params = requireParams(context, workspaceParamsSchema);
+    const workspaceId = params.id.toLowerCase();
+    // Asked before the body is read, as for audit retention.
+    const decision = await deps.authorization.authorize({
+      subject: caller.subject,
+      action: "workspace.manage",
+      resource: {
+        kind: "workspace",
+        id: workspaceId,
+        owner_scope: workspaceId,
+      },
+      request_id: caller.requestId,
+    });
+    if (decision.reason_code === "not_found") {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    if (decision.outcome !== "allow" || principal.kind !== "user") {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "Only an owner or admin can change the Slack guest setting",
+        false,
+        undefined,
+        { reason_code: decision.reason_code },
+      );
+    }
+    const body = await parseJsonBody(context, slackGuestRequestSchema);
+    if (
+      !(await deps.slackGuests.setSlackGuestEnabled({
+        workspaceId,
+        actorUserId: principal.id,
+        enabled: body.slack_guest_enabled,
+      }))
+    ) {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    return jsonWithSchema(context, slackGuestResponseSchema, body);
   });
 }

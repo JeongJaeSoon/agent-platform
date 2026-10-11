@@ -344,7 +344,12 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
         },
         actor_user_id: waiting.userId,
         linked_account: waiting.linkedAccount,
-        surface: { kind: "slack" },
+        surface: {
+          kind: "slack",
+          slack_user_kind: "member",
+          ceiling: { actions: ["session.submit"], disclosure: "full" },
+          agent_id: crypto.randomUUID(),
+        },
       },
       action: "session.submit",
       resource: { kind: "surface_binding", id: null, owner_scope: workspaceId },

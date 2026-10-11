@@ -521,6 +521,9 @@ export const AUTHORIZATION_REASON_VALUES = [
   "stale_link",
   "credential_unbound",
   "guest_disabled",
+  // A Slack Connect user from another organization, whatever the guest
+  // setting says: they are no member of this workspace to link.
+  "external_user",
   // An audit read, or a manager's action on a session outside its share,
   // that gave no reason.
   "justification_required",
@@ -530,8 +533,65 @@ export const AUTHORIZATION_REASON_VALUES = [
 ] as const;
 export const authorizationReasonSchema = z.enum(AUTHORIZATION_REASON_VALUES);
 
-export const SLACK_USER_KIND_VALUES = ["member", "guest"] as const;
+export const SLACK_USER_KIND_VALUES = ["member", "guest", "external"] as const;
 export const slackUserKindSchema = z.enum(SLACK_USER_KIND_VALUES);
+
+/**
+ * The fields of a Slack user object the decision reads (design A.3 step 4).
+ * Not strict: Slack sends many more, and they are dropped.
+ */
+export const slackUserSchema = z.object({
+  id: opaqueIdSchema,
+  team_id: opaqueIdSchema,
+  is_restricted: z.boolean().optional(),
+  is_ultra_restricted: z.boolean().optional(),
+  is_stranger: z.boolean().optional(),
+  is_external: z.boolean().optional(),
+});
+
+/**
+ * Who a Slack user is to the workspace that installed the app in
+ * `installedTeamId`. A Slack Connect user is not a guest — `is_restricted`
+ * stays false for them — so they are told apart first, by the flags Slack
+ * sets on strangers and by a team that is not the install's.
+ */
+export function slackUserKindOf(
+  user: z.infer<typeof slackUserSchema>,
+  installedTeamId: string,
+): SlackUserKind {
+  if (user.is_stranger || user.is_external || user.team_id !== installedTeamId)
+    return "external";
+  if (user.is_restricted || user.is_ultra_restricted) return "guest";
+  return "member";
+}
+
+/**
+ * What a Slack installation can ever do: read, ask, steer and approve.
+ * Recovery, sharing, audit reads, the admin list and deletion are web
+ * actions, so no channel setting can hand them to Slack.
+ */
+export const SLACK_SURFACE_ACTION_VALUES = [
+  "session.read",
+  "session.submit",
+  "session.control",
+  "session.approve",
+] as const;
+export const slackSurfaceActionSchema = z.enum(SLACK_SURFACE_ACTION_VALUES);
+
+/** `summary`: reads in this channel get a summary and a web link (D13). */
+export const SURFACE_DISCLOSURE_VALUES = ["full", "summary"] as const;
+export const surfaceDisclosureSchema = z.enum(SURFACE_DISCLOSURE_VALUES);
+
+/**
+ * A channel's ceiling: the actions its binding allows — approvals only when
+ * `session.approve` is listed — and how much of a session it may show.
+ */
+export const surfaceCeilingSchema = z
+  .object({
+    actions: z.array(slackSurfaceActionSchema),
+    disclosure: surfaceDisclosureSchema,
+  })
+  .strict();
 
 export const authorizationSurfaceSchema = z
   .object({
@@ -539,8 +599,27 @@ export const authorizationSurfaceSchema = z
     binding_id: surfaceBindingIdSchema.optional(),
     channel_kind: surfaceChannelKindSchema.optional(),
     slack_user_kind: slackUserKindSchema.optional(),
+    // Until bindings are stored (94S-177) the Slack channel hands its
+    // binding's ceiling in. It can only narrow: a slack request without one
+    // is refused.
+    ceiling: surfaceCeilingSchema.optional(),
+    // The agent whose Slack app received the input. An installation speaks
+    // for that agent alone, so a slack request without one is refused.
+    agent_id: agentIdSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((surface, ctx) => {
+    if (surface.kind === "slack") return;
+    for (const key of ["slack_user_kind", "ceiling", "agent_id"] as const) {
+      if (surface[key] !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `only a slack surface carries ${key}`,
+        });
+      }
+    }
+  });
 
 /**
  * Who is asking. The whole authenticated principal travels here rather than
@@ -644,6 +723,10 @@ export const authorizationDecisionSchema = z
 export type AuthorizationOutcome = z.infer<typeof authorizationOutcomeSchema>;
 export type AuthorizationReason = z.infer<typeof authorizationReasonSchema>;
 export type AuthorizationSurface = z.infer<typeof authorizationSurfaceSchema>;
+export type SlackUserKind = z.infer<typeof slackUserKindSchema>;
+export type SlackUser = z.infer<typeof slackUserSchema>;
+export type SlackSurfaceAction = z.infer<typeof slackSurfaceActionSchema>;
+export type SurfaceCeiling = z.infer<typeof surfaceCeilingSchema>;
 export type AuthorizationSubject = z.infer<typeof authorizationSubjectSchema>;
 export type AuthorizationResource = z.infer<typeof authorizationResourceSchema>;
 export type AuthorizationRequest = z.infer<typeof authorizationRequestSchema>;

@@ -292,7 +292,7 @@ describe("authorize", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: without("sessions:recover"),
-      policy_version: "m14",
+      policy_version: "m15",
     });
   });
 
@@ -357,7 +357,12 @@ describe("authorize", () => {
         workspace_id: WORKSPACE_A,
         scopes: ["sessions:read"],
       },
-      { kind: "slack", channel_kind: "public_channel" },
+      {
+        kind: "slack",
+        channel_kind: "public_channel",
+        slack_user_kind: "member",
+        agent_id: "019a0000-0000-7000-8000-00000000b0c1",
+      },
       "req-2",
     );
     expect(await decide(request(installation))).toMatchObject({
@@ -373,11 +378,15 @@ describe("authorize", () => {
     ).toMatchObject({ outcome: "deny", reason_code: "unlinked" });
   });
 
-  test("slack has no ceiling to judge against yet", async () => {
-    const slack = callerFor(member, { kind: "slack" }, "req-3");
+  test("slack speaks only through an installation that names the user's kind", async () => {
+    const slack = callerFor(
+      member,
+      { kind: "slack", slack_user_kind: "member" },
+      "req-3",
+    );
     expect(await decide(request(slack))).toMatchObject({
       outcome: "deny",
-      reason_code: "surface_ceiling",
+      reason_code: "error",
     });
   });
 
@@ -891,7 +900,7 @@ describe("decision log", () => {
       outcome: "allow",
       reason_code: "ok",
       effective_scopes: [],
-      policy_version: "m14",
+      policy_version: "m15",
       decision_id: crypto.randomUUID(),
     };
     expect(

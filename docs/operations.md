@@ -701,6 +701,8 @@ curl -s -b jar http://127.0.0.1:3000/v1/admin/sessions
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/agents/<agent_id>/credential-bindings \
   -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
   -d '{"credential_ref":"notion_token"}'
+```
+
 #### 에이전트의 Slack 앱 연결 (94S-578)
 
 에이전트마다 자기 Slack 앱(bot)을 갖는다. "이 Slack 앱은 이 에이전트다"는 `agent_identities`의 행이다. 행은 확인된 Slack 설치(`slack_installations`) 하나를 가리키고, 연결할 때 설치가 답한 bot user id와 bot token의 이름(`credential_ref`, 값이 아니다)을 담는다. 설치 하나에는 살아 있는 연결이 하나뿐이다. 그래서 Slack 이벤트의 `(api_app_id, team_id)`만으로 에이전트가 하나로 정해진다.
@@ -730,6 +732,40 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
   -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
   -d '{"provider":"slack_bot","app_id":"A0APP","team_id":"T0TEAM","credential_ref":"slack/research-bot-token"}'
 ```
+
+#### Slack 멘션·승인 판정과 guest 설정 (94S-579)
+
+Slack 채널은 멘션·스레드 답글·승인 버튼마다 `authorizeSlackInput(deps, input)`(`@agent-platform/platform`) 하나를 부른다. 이 함수가 설계 3.2의 판정 쪽을 끝까지 한다: 에이전트 해석(`agentForSlackEvent`), 말하거나 누른 Slack 계정의 연결 해석(`resolveLinkedSubject`), `authorize`, 거절 안내 문구. 승인 버튼은 요청자가 아니라 **누른 사람**의 Slack user로 같은 함수를 부른다(`action: "session.approve"`).
+
+- 입력: `event`(`appId`·`teamId`, URL이 가리키는 `agentId`), `user`(Slack user 객체의 `id`·`team_id`·`is_restricted`·`is_ultra_restricted`·`is_stranger`·`is_external`), `action`(`session.read`·`submit`·`control`·`approve`), `resource`(새 대화는 `surface_binding`, 이어 쓰기·버튼은 `session`), `binding`(`channelKind`와 상한 `ceiling: {actions, disclosure}`), `connectUrl`(웹의 Slack 연결 화면).
+- 결과: `dropped`(이유는 위 표)이거나 `decided`와 `decision`·`actorUserId`(진행할 때만)·`notice`(그 사람에게만 스레드마다 한 번 보일 문구, 없으면 `null`).
+- binding 테이블(94S-177)이 생기기 전까지 채널 상한은 Slack 채널이 입력으로 넘긴다. 상한이 없으면 `surface_ceiling`으로 거절한다. 상한은 좁히기만 한다: 결과 권한은 사람의 역할, installation 상한(`session.read`·`submit`·`control`·`approve`), 채널 상한의 교집합이다. 복구·공유 범위 변경·감사 열람·관리 목록·삭제는 Slack에서 할 수 없다.
+
+판정 순서와 안내 문구는 다음과 같다. 위에서 먼저 걸리는 것이 이유가 된다.
+
+| 순서 | 이유 코드 | 사용자가 보는 것 |
+|---|---|---|
+| Slack Connect 외부 사용자(`is_stranger`·`is_external`, 또는 설치와 다른 `team_id`). guest 설정과 상관없다 | `external_user` | 이 에이전트는 이 워크스페이스 멤버만 쓸 수 있어요 |
+| guest(`is_restricted`, 단일 채널 guest는 `is_ultra_restricted`도)인데 설정이 꺼져 있다 | `guest_disabled` | 이 워크스페이스는 guest의 에이전트 사용을 허용하지 않아요 |
+| 연결이 없거나 해제됐다 | `unlinked` | 웹에서 Slack 계정을 연결해 주세요 + 연결 링크 |
+| 연결이 stale이거나 해석 뒤 바뀌었다 | `stale_link` | 같은 문구와 연결 링크 |
+| 사람이 비활성(오프보딩)이다 | `disabled` | 이 채널에서 이 에이전트에게 요청할 권한이 없어요 |
+| 역할·installation·채널 상한에 없다 | `role` · `surface_ceiling` | 같은 문구. 승인 버튼이면 "이 요청을 승인할 권한이 없어요" |
+| 세션이 이 앱의 에이전트 것이 아니다(같은 workspace의 다른 에이전트 세션, 또는 에이전트를 알 수 없는 대상) | `agent_ceiling` | 같은 문구 |
+| 세션이 이 워크스페이스에 없다 | `not_found` | 이 세션은 공유 범위 밖이라 요청할 수 없어요. 세션을 만든 사람에게 공유를 요청하세요 |
+| 새 세션의 자격 연결이 없다 | `credential_unbound` | 연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요 |
+
+공개 상한이 요약까지(`disclosure: "summary"`)인 채널의 읽기는 거절이 아니라 `redact`(`reason_code: surface_ceiling`, `redact: {view: "summary"}`)다. 채널은 본문 대신 요약과 웹 링크를 보이고, 웹은 링크를 연 사람을 다시 판정한다(D13). 같은 채널의 요청·승인은 좁아지지 않는다. Slack 입력과 승인은 허용도 모두 `authz_decisions`에 남고, 거절과 redact도 남는다. 이 기록을 쓰지 못하면 허용과 redact 모두 `error`로 거절한다(안내는 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요"). 판정 행의 `policy_version`은 `m15`다.
+
+guest 사용 설정은 `workspace.settings.slack_guest_enabled`(기본 `false`)다. owner·admin이 cookie 세션으로 바꾼다.
+
+```bash
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack-guest" \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -d '{"slack_guest_enabled":true}'
+```
+
+member는 `403`(`details.reason_code: role`), 다른 workspace는 `404`다. 켜도 guest는 Slack 계정을 연결해야 쓴다. Slack은 에이전트 기능(`agent_view`)을 켠 앱을 guest에게 막으므로(D25), 이 설정은 그 기능을 끈 앱에만 의미가 있다. 이 경우 guest는 이 안내 대신 Slack의 차단 화면을 본다.
 
 #### 판정 감사와 보존 기간 (94S-573)
 

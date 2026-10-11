@@ -17,6 +17,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
+  createPostgresSlackGuestSetting,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
@@ -192,6 +193,7 @@ const checkpoints = createApiCheckpoints(
   checkpointGitMemoryBytes,
 );
 const credentialBindings = createPostgresCredentialBindingStore(db);
+const slackGuests = createPostgresSlackGuestSetting(db);
 const sessionShares = createPostgresSessionShareStore(db);
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
@@ -199,6 +201,7 @@ const authorization = createAuthorizationPolicy({
     : { identity: createDatabaseIdentityReader(db) }),
   agents: createDatabaseAgentAuthority(db),
   credentials: credentialBindings,
+  slackGuests,
   sessions: sessionShares,
   decisions: createPostgresDecisionLog(db),
 });
@@ -384,6 +387,7 @@ const app = createApiApp({
     registerWorkspaceRoutes(router, {
       authorization,
       retention: createPostgresAuditRetention(db),
+      slackGuests,
     });
     registerSessionRoutes(router, sessions);
     registerSessionShareRoutes(router, shares, sessions);
