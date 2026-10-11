@@ -150,13 +150,15 @@ export async function bootstrapOwner(
         .where(eq(memberships.workspaceId, workspace.id));
       // Every member's row, in id order, before links and sessions: a login
       // holds its user's row while it inserts a session, so this waits for
-      // it to commit and the revocation below sees that session too.
+      // it to commit and the revocation below sees that session too. NO KEY
+      // UPDATE still waits for that FOR UPDATE but not for the KEY SHARE an
+      // in-flight reset issue holds on its issuer through the FK.
       await tx
         .select({ id: users.id })
         .from(users)
         .where(inArray(users.id, members))
         .orderBy(asc(users.id))
-        .for("update");
+        .for("no key update");
       // A link issued before recovery would let its holder take the
       // recovered account straight back. Links before sessions: the same
       // user -> link -> session lock order consumePasswordReset takes.

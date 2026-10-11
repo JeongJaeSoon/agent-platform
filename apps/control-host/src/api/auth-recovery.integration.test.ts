@@ -410,6 +410,44 @@ integration("account recovery on PostgreSQL", () => {
     }
   });
 
+  test("recovery and a reset issue already in flight do not deadlock", async () => {
+    const { db, pool, start, ownerId, memberId, workspace } = await install();
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, ownerId));
+    // issuePasswordReset by the old owner, between its member lock and the
+    // insert whose FK takes KEY SHARE on the issuer.
+    const issue = await pool.connect();
+    try {
+      await issue.query("BEGIN");
+      await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        memberId,
+      ]);
+      const recovery = start(RECOVERY_TOKEN).bootstrap();
+      await Bun.sleep(300);
+      await issue.query(
+        `INSERT INTO password_resets
+           (id, workspace_id, user_id, token_hash, issued_by, expires_at)
+         VALUES ($1, $2, $3, $4, $5, now() + interval '1 hour')`,
+        [
+          randomUUID(),
+          workspace.id,
+          memberId,
+          Buffer.from(hashWebSessionToken("apr_inflight")),
+          ownerId,
+        ],
+      );
+      await issue.query("COMMIT");
+      expect((await recovery).status).toBe(201);
+      // Issued before recovery took the links, so recovery revoked it.
+      const [link] = await db.select().from(passwordResets);
+      expect(link?.revokedAt).not.toBeNull();
+    } finally {
+      issue.release();
+    }
+  });
+
   test("recovery revokes a reset link issued before it", async () => {
     const { db, start, first, ownerId, workspace } = await install();
     const ownerCookie = cookieOf(await first.login("owner@example.com"));
