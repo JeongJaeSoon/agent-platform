@@ -254,6 +254,9 @@ export const runtimeConfigSnapshotSchema = z
  * The tool policy a release runs under, resolved: `per_tool` names every
  * effective tool, plus any MCP tool the card named. `default.mcp` covers the
  * MCP tools a remote server only reveals at run time.
+ *
+ * `tools` is absent only on a release stored before policies existed
+ * (`{}`); every release created now carries it.
  */
 export const policyPinsSchema = z
   .object({
@@ -262,7 +265,8 @@ export const policyPinsSchema = z
         default: toolPolicyDefaultsSchema,
         per_tool: z.record(toolNameSchema, toolPolicySchema),
       })
-      .strict(),
+      .strict()
+      .optional(),
   })
   .strict();
 
