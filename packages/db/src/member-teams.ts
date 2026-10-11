@@ -257,12 +257,15 @@ export function createPostgresTeamStore(db: Database): TeamStore {
 
     async list(workspaceId, limit) {
       if (!UUID.test(workspaceId)) return [];
+      // Inside a select list drizzle renders a column without its table, so a
+      // bare "id" here would bind to member_team_members.id.
+      const outerTeamId = sql`${memberTeams}.${sql.identifier(memberTeams.id.name)}`;
       const rows = await db
         .select({
           team: memberTeams,
           memberCount: sql<number>`(
             SELECT count(*)::int FROM ${memberTeamMembers}
-            WHERE ${memberTeamMembers.teamId} = ${memberTeams.id}
+            WHERE ${memberTeamMembers.teamId} = ${outerTeamId}
               AND ${memberTeamMembers.removedAt} IS NULL
           )`,
         })
