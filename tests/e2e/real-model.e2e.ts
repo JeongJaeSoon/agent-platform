@@ -10,13 +10,17 @@ import { Api, e2eEnv, poll, type SseEvent, type Turn } from "./client.ts";
  * checkpoint, the engine session, usage).
  */
 const api = new Api(e2eEnv({ needsMessages: false }));
-// `--local-model` names the profiles of config/local-model here, comma
-// separated, and the same path runs once on each.
-const PROFILE_IDS = (process.env.E2E_PROFILE_IDS ?? "claude-coding-real").split(
-  ",",
-);
-// `real` or `local`, for the test's name and the run record's key.
-const MODE = process.env.E2E_MODEL_MODE ?? "real";
+// Set by run.sh from its flag; the same path runs once on each profile of
+// the mode's catalog. Also the test's name and the run record's key.
+const PROFILES = {
+  real: ["claude-coding-real"],
+  local: ["local-ollama", "local-litellm"],
+} as const;
+const MODE = process.env.E2E_MODEL_MODE || "real";
+if (!Object.hasOwn(PROFILES, MODE)) {
+  throw new Error(`E2E_MODEL_MODE ${MODE} is neither real nor local`);
+}
+const PROFILE_IDS = PROFILES[MODE as keyof typeof PROFILES];
 const TURN_TIMEOUT = 300_000;
 
 const nonce = crypto.randomUUID().slice(0, 8);

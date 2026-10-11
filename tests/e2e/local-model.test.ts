@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { loadSessionCatalog } from "@agent-platform/control-host/src/api/catalog-config.ts";
 import { egressProxyConfigFromEnv } from "@agent-platform/egress-proxy/src/config.ts";
 import { providerUpstreamOf } from "@agent-platform/platform";
-import { LOCAL_LAYERS, layeredServices } from "../compose-layers.ts";
+import {
+  COMPOSE_RENDER_TIMEOUT_MS,
+  LOCAL_LAYERS,
+  layeredServices,
+} from "../compose-layers.ts";
 
 /**
  * The plumbing of `tests/e2e/run.sh --local-model`, without Docker or
@@ -130,11 +134,55 @@ describe("local-model compose overlay", () => {
     });
   });
 
-  test("the proxy's private credential list takes the caller's override", async () => {
-    const value = (await overlay())["egress-proxy"]?.environment
-      ?.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST;
-    expect(value).toMatch(/^\$\{EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-[^}]+\}$/);
-  });
+  test(
+    "a caller's private credential list does not change the overlay's",
+    () => {
+      // The default stack's value, as .env.example exports it: without the
+      // two routes the stack comes up healthy and every model call gets 403.
+      const variables = {
+        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:
+          "gitea:3000,fake-messages:4010,localstack:4566",
+      };
+      const { PATH = "", HOME = "" } = Bun.env;
+      const result = Bun.spawnSync(
+        [
+          "docker",
+          "compose",
+          "--env-file",
+          "/dev/null",
+          "--profile",
+          "apps",
+          ...[...LOCAL_LAYERS, OVERLAY].flatMap((file) => [
+            "-f",
+            join(ROOT, file),
+          ]),
+          "config",
+          "--format",
+          "json",
+        ],
+        { env: { PATH, HOME, ...variables } },
+      );
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      const proxy = egressProxyConfigFromEnv(
+        JSON.parse(result.stdout.toString()).services["egress-proxy"]
+          .environment,
+      );
+      for (const kept of [
+        { host: "gitea", port: 3000 },
+        { host: "localstack", port: 4566 },
+        { host: "ollama.internal", port: 11434 },
+        { host: "litellm", port: 4000 },
+      ]) {
+        expect(proxy.credential?.allowPrivate).toContainEqual(kept);
+      }
+      expect(proxy.credential?.allowPrivate).not.toContainEqual({
+        host: "fake-messages",
+        port: 4010,
+      });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
   test("the API waits for a healthy relay and LiteLLM", async () => {
     const services = await overlay();
@@ -166,9 +214,10 @@ describe("run.sh --local-model", () => {
         `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >>"$STUB_ARGV"\nexit 1\n`,
       ],
       // No Ollama unless STUB_TAGS is set; then /api/tags answers with it.
+      // STUB_TAGS_FAIL: Ollama answers everything but /api/tags.
       [
         "curl",
-        `#!/usr/bin/env bash\n[ -n "\${STUB_TAGS:-}" ] || exit 7\ncase "$*" in *api/tags*) printf '%s' "$STUB_TAGS" ;; *) printf '{"version":"0.40.0"}' ;; esac\n`,
+        `#!/usr/bin/env bash\n[ -n "\${STUB_TAGS:-}\${STUB_TAGS_FAIL:-}" ] || exit 7\ncase "$*" in *api/tags*) [ -z "\${STUB_TAGS_FAIL:-}" ] || exit 22; printf '%s' "$STUB_TAGS" ;; *) printf '{"version":"0.40.0"}' ;; esac\n`,
       ],
       ["openssl", "#!/usr/bin/env bash\nexit 1\n"],
     ] as const) {
@@ -200,6 +249,16 @@ describe("run.sh --local-model", () => {
     expect(stderr).toContain(
       "no Ollama on 127.0.0.1:11434; nothing was started",
     );
+    expect(await Bun.file(argv).exists()).toBe(false);
+  });
+
+  test("when Ollama does not answer /api/tags it says so, not that a model is missing", async () => {
+    const { result, stderr, argv } = run({ STUB_TAGS_FAIL: "1" });
+    expect(result.exitCode).toBe(2);
+    expect(stderr).toContain(
+      "Ollama on 127.0.0.1:11434 did not answer /api/tags (curl exit 22); nothing was started",
+    );
+    expect(stderr).not.toContain("is not pulled");
     expect(await Bun.file(argv).exists()).toBe(false);
   });
 

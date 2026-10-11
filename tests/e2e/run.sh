@@ -52,20 +52,27 @@ cd "$root"
 real_model=""
 model_overlay=infra/compose.fake-model.yml
 local_model=""
+# E2E_MODEL_MODE is set here alone, over whatever the shell (say, a sourced
+# vars.sh of another run) left: tests/e2e/real-model.e2e.ts picks its
+# profiles from it.
 case "$*" in
-  "") ;;
-  --real-model) real_model=1; model_overlay=infra/compose.real-model.yml ;;
-  --local-model) local_model=1; model_overlay=infra/compose.local-model.yml ;;
+  "") unset E2E_MODEL_MODE ;;
+  --real-model) real_model=1; model_overlay=infra/compose.real-model.yml; export E2E_MODEL_MODE=real ;;
+  --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local ;;
   *) echo "usage: tests/e2e/run.sh [--real-model | --local-model]" >&2; exit 2 ;;
 esac
 if [ -n "$local_model" ]; then
-  if ! curl -sf -m 5 http://127.0.0.1:11434/api/version >/dev/null; then
+  tags_status=0
+  tags="$(curl -sf -m 5 http://127.0.0.1:11434/api/tags)" || tags_status=$?
+  if [ "$tags_status" = 7 ]; then
     echo "e2e --local-model: no Ollama on 127.0.0.1:11434; nothing was started" >&2
+    exit 2
+  elif [ "$tags_status" != 0 ]; then
+    echo "e2e --local-model: Ollama on 127.0.0.1:11434 did not answer /api/tags (curl exit ${tags_status}); nothing was started" >&2
     exit 2
   fi
   # Every Ollama model the two routes call: the catalog's models less the
   # names LiteLLM serves, and what LiteLLM maps those to.
-  tags="$(curl -sf -m 5 http://127.0.0.1:11434/api/tags)" || tags=""
   litellm_names="$(sed -n 's/^ *- model_name: //p' infra/local-model/litellm.yaml)"
   for model in $(
     {
@@ -220,8 +227,6 @@ export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
 [ -n "$real_model$local_model" ] ||
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
-# Before the E2E_UP_ONLY exit, so vars.sh carries it too.
-[ -z "$local_model" ] || export E2E_PROFILE_IDS=local-ollama,local-litellm E2E_MODEL_MODE=local
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
