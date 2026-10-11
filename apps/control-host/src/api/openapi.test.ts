@@ -159,6 +159,7 @@ describe("OpenAPI document", () => {
         "/v1/auth/google/callback",
         "/v1/auth/google/start",
         "/v1/auth/login",
+        "/v1/auth/login-methods",
         "/v1/auth/logout",
         "/v1/auth/me",
         "/v1/auth/password-reset",

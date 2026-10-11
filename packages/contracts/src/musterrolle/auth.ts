@@ -7,6 +7,7 @@ import {
   workspaceIdSchema,
 } from "../shared/index.ts";
 import {
+  authorizationActionSchema,
   principalSchema,
   scopesExceeding,
   scopesForRole,
@@ -119,6 +120,13 @@ export const googleLoginCallbackRequestSchema = z
   })
   .strict();
 
+/** How a person can sign in on this installation; the login page offers these. */
+export const LOGIN_METHOD_VALUES = ["password", "google"] as const;
+export const loginMethodSchema = z.enum(LOGIN_METHOD_VALUES);
+export const loginMethodsResponseSchema = z
+  .object({ methods: z.array(loginMethodSchema) })
+  .strict();
+
 /** What the web app boots from: who is authenticated and under which key. */
 export const authMeResponseSchema = z
   .object({
@@ -134,6 +142,12 @@ export const authMeResponseSchema = z
     workspace: workspaceSchema.nullable(),
     /** The effective ceiling; it can narrow the principal's, never widen it. */
     scopes: z.array(sessionScopeSchema),
+    /**
+     * The management actions the principal's role holds on its workspace
+     * now, so a screen can hide a menu it could never use. An agent's admin
+     * holds more on that agent than this says; an API key holds none.
+     */
+    permissions: z.array(authorizationActionSchema),
   })
   .strict()
   .superRefine((response, ctx) => {
@@ -177,6 +191,13 @@ export const authMeResponseSchema = z
         code: "custom",
         path: ["user"],
         message: "an api key principal has no user",
+      });
+    }
+    if (response.permissions.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["permissions"],
+        message: "an api key principal holds no management action",
       });
     }
     const expected = principal.workspace_id;
@@ -248,6 +269,8 @@ export type BootstrapResponse = z.infer<typeof bootstrapResponseSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
+export type LoginMethod = z.infer<typeof loginMethodSchema>;
+export type LoginMethodsResponse = z.infer<typeof loginMethodsResponseSchema>;
 export type StartGoogleLoginResponse = z.infer<
   typeof startGoogleLoginResponseSchema
 >;
