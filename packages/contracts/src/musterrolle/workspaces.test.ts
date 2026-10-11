@@ -193,9 +193,14 @@ describe("auth requests", () => {
         remember: true,
       }).success,
     ).toBe(false);
-    expect(acceptInviteRequestSchema.safeParse({}).success).toBe(true);
+    const token = `apv_${"a".repeat(43)}`;
+    expect(acceptInviteRequestSchema.safeParse({ token }).success).toBe(false);
+    expect(
+      acceptInviteRequestSchema.safeParse({ password: PASSWORD }).success,
+    ).toBe(false);
     expect(
       acceptInviteRequestSchema.safeParse({
+        token,
         password: PASSWORD,
         display_name: "Invitee",
       }).success,

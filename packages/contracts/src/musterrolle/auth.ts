@@ -16,6 +16,7 @@ import {
 import {
   displayNameSchema,
   emailSchema,
+  inviteTokenSchema,
   workspaceSchema,
   workspaceSlugSchema,
 } from "./workspaces.ts";
@@ -174,11 +175,14 @@ export const authMeResponseSchema = z
 
 /**
  * Redeeming an invite. It never touches an existing account's password: a
- * known email joins the workspace, an unknown one gets an account (A02).
+ * known email proves it and joins the workspace, an unknown one gets an
+ * account with it (A02).
  */
 export const acceptInviteRequestSchema = z
   .object({
-    password: passwordSchema.optional(),
+    /** In the body, never the URL, for the same reason as a reset token. */
+    token: inviteTokenSchema,
+    password: passwordSchema,
     display_name: displayNameSchema.optional(),
   })
   .strict();
