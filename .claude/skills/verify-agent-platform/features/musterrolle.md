@@ -8,7 +8,7 @@
 - `b-teams` (아직 없음) 팀 생성 → 구성원 추가·제거(수락 없이, 알림만) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리할 수 있고 팀 밖 member는 못 한다.
 - `c-slack-signin` (아직 없음) Sign in with Slack 연결·해제. 실제 Slack 동의는 사람이 하고, 자동 확인은 mock IdP로 한다.
 - `d-scoped-keys` (아직 없음) member는 개인 key만, owner·admin·에이전트 관리자는 그 에이전트의 서비스 key를 발급한다. 권한이 없으면 403과 이유. 서비스 key는 그 에이전트 API만 부른다. 발급자를 비활성화하면 개인 key는 멈추고 서비스 key는 계속 동작한다.
-- `e-authz-audit` (아직 없음) 위 행동이 `authz_decisions`에 남고, 감사 열람과 공유 범위가 설계대로다(감사 보존 기본 90일·하한 30일, DM 기본 "나만").
+- `e-authz-audit` (기록·보존 기간은 있음, 열람은 아직 없음) 위 행동이 `authz_decisions`에 남고, 감사 열람과 공유 범위가 설계대로다(감사 보존 기본 90일·하한 30일, DM 기본 "나만").
 
 ## How to get to it (user POV)
 
@@ -25,9 +25,17 @@ Preconditions:
 - **b.** (아직 없음) 팀 관리자·팀원·팀 밖 member 세 cookie로 같은 에이전트 관리 요청을 보내 허용·거절을 비교.
 - **c.** (아직 없음) mock IdP를 띄우는 방법과 연결·해제 뒤 `me`의 연결 표시.
 - **d.** (아직 없음) 역할별 key 발급 요청과 403 이유, 서비스 key로 다른 에이전트 API 403, 발급자 비활성화 뒤 개인 key 401·서비스 key 200.
-- **e.** (아직 없음) 위 행동 뒤 `authz_decisions` 열람 API(또는 감사 화면)에서 행동마다 한 줄씩 보이는지, 공유 범위 밖 사용자는 못 보는지. DB는 읽기 확인에만 쓴다.
+- **e. 판정 기록.** 응답 헤더의 `X-Request-Id`로 행을 찾는다(`H=$(mktemp)`, curl에 `-D "$H"`, `RID=$(sed -n 's/^[Xx]-[Rr]equest-[Ii]d: //p' "$H" | tr -d '\r')`).
+  - 거절: `KEY=$(ap_key verify --scopes sessions:read 2>/dev/null)`로 `POST /v1/sessions` → `403`. `ap_compose exec -T postgres psql -U postgres -d sessions -c "SELECT action, outcome, reason_code, principal_kind, request_id FROM authz_decisions WHERE request_id = '$RID'"` → `session.submit | deny | role | api_key` 한 행.
+  - 승인: [sessions.md](./sessions.md)의 권한 요청 대본으로 `needs_input`을 만들고 `sessions:approve` key로 `POST /v1/sessions/$SID/answers`. `... FROM authz_decisions d JOIN receipts r ON r.request_id = d.request_id WHERE d.request_id = '$RID'` → `session.approve | allow` 한 행과 `answer` receipt.
+  - 허용된 API 생성(`POST /v1/sessions` 201)은 행을 남기지 않는다.
+- **e. 보존 기간.** bootstrap 뒤 `ap_web POST /v1/auth/login …`으로 cookie를 받은 owner가 `ap_web POST "/v1/workspaces/$WS/audit-retention" '{"audit_retention_days":45}'` → `200`, `29` → `400`, 다른 workspace id → `404`. API key는 `404`. `workspaces.settings->'audit_retention_days'`가 45. member 403은 초대 경로가 없어 route 테스트로만 본다.
+- **e. 열람.** (아직 없음) `authz_decisions` 열람 API(또는 감사 화면)에서 행동마다 한 줄씩 보이는지, 공유 범위 밖 사용자는 못 보는지. DB는 읽기 확인에만 쓴다.
 
 ## Gotchas
 
 - (구현 티켓이 채운다)
+- bootstrap은 cookie를 주지 않는다. 보존 기간을 바꾸기 전에 login한다.
+- 판정은 본문보다 먼저 묻는다. 그래서 owner의 `29` 요청(400)도 `workspace.manage | allow` 행을 남긴다.
+- 만료 정리는 시간을 당겨야 보이므로 E2E가 아니라 `packages/db/src/authz-decisions.integration.test.ts`로 본다.
 - 실제 Slack 앱·OAuth 동의는 사람만 한다. 자동 확인은 mock IdP로만 하고 실제 Slack 연결은 "사람 확인 필요"로 보고한다.
