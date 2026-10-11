@@ -6,7 +6,7 @@
 
 - `a-member-lifecycle` (아직 없음) owner 웹 로그인 → member 초대 → 수락·로그인 → 역할 변경 → 비활성화하면 웹과 key가 모두 막힌다.
 - `b-teams` (아직 없음) 팀 생성 → 구성원 추가·제거(수락 없이, 알림만) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리할 수 있고 팀 밖 member는 못 한다.
-- `c-slack-signin` (아직 없음) Sign in with Slack 연결·해제. 실제 Slack 동의는 사람이 하고, 자동 확인은 mock IdP로 한다.
+- `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정(94S-577). 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
 - `d-scoped-keys` (아직 없음) member는 개인 key만, owner·admin·에이전트 관리자는 그 에이전트의 서비스 key를 발급한다. 권한이 없으면 403과 이유. 서비스 key는 그 에이전트 API만 부른다. 발급자를 비활성화하면 개인 key는 멈추고 서비스 key는 계속 동작한다.
 - `e-authz-audit` (기록·보존 기간은 있음, 열람은 아직 없음) 위 행동이 `authz_decisions`에 남고, 감사 열람과 공유 범위가 설계대로다(감사 보존 기본 90일·하한 30일, DM 기본 "나만").
 
@@ -14,6 +14,7 @@
 
 - (아직 없음) 웹 콘솔의 멤버·팀·연결·key 화면. 지금 있는 것은 [web-login.md](./web-login.md)의 bootstrap·login·me뿐이다. 초대 수락 계약(`acceptInviteRequestSchema`)은 `packages/contracts/src/musterrolle/auth.ts`에 있지만 route는 아직 없다.
 - (아직 없음) 같은 동작의 HTTP API.
+- c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다.
 
 ## Driving it with lib.sh
 
@@ -23,7 +24,33 @@ Preconditions:
 
 - **a.** (아직 없음) 초대 → 수락 → 로그인 → 역할 변경 → 비활성화 뒤 `ap_web GET /v1/auth/me`와 그 사용자의 key 호출이 모두 401/403인지.
 - **b.** (아직 없음) 팀 관리자·팀원·팀 밖 member 세 cookie로 같은 에이전트 관리 요청을 보내 허용·거절을 비교.
-- **c.** (아직 없음) mock IdP를 띄우는 방법과 연결·해제 뒤 `me`의 연결 표시.
+- **c.** mock IdP overlay를 붙여 띄운다: `up.sh infra/compose.mock-slack.yml`(Orca에서는 `orch heavy <program> -- …`로 감싼다). Slack 설치가 있어야 연결이 시작되므로, 설치 행 하나는 repository로 만든다(설치 흐름은 아직 사용자 경로가 없다. 다른 상태는 API로만 만든다). owner cookie는 web-login.md로 만든다. `ap_slack_link` cookie도 `Secure`라 curl이 저장하지 않으니 직접 나른다.
+
+  ```sh
+  . .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
+  # owner bootstrap + login: web-login.md. WS·ME는 login 응답의 workspace_id·user_id
+  DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@agent-platform/db";
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL }); const db = drizzle(pool, { schema });'
+  ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
+  const key = { appId: \"A0VERIFY\", teamId: \"T0MOCK\" };
+  await schema.registerSlackInstallation(db, { ...key, workspaceId: process.argv[1] });
+  console.log((await schema.verifySlackInstallation(db, { ...key, botUserId: \"B0VERIFY\" })).outcome); await pool.end();" "$WS"
+  H=$(mktemp)
+  START=$(curl -sS -D "$H" -X POST "$API/v1/linked-accounts/slack/start" -H 'x-requested-with: agent-platform-web' -H "Cookie: $(cat "$VERIFY_RUN/cookie")")
+  LINK=$(sed -n 's/^[Ss]et-[Cc]ookie: \(ap_slack_link=[^;]*\).*/\1/p' "$H" | tr -d '\r')
+  # authorize_url의 호스트(mock-slack)는 compose 네트워크 안에서만 닿는다: api 컨테이너에서 동의한다
+  BACK=$(ap_compose exec -T api bun -e 'const r = await fetch(process.argv[1], { redirect: "manual" }); console.log(r.headers.get("location"))' "$(echo "$START" | jq -r .authorize_url)")
+  CODE=$(echo "$BACK" | sed -n 's/.*[?&]code=\([^&]*\).*/\1/p'); STATE=$(echo "$BACK" | sed -n 's/.*[?&]state=\([^&]*\).*/\1/p')
+  curl -sS -w '\n%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/callback" -H 'x-requested-with: agent-platform-web' \
+    -H 'Content-Type: application/json' -H "Cookie: $(cat "$VERIFY_RUN/cookie"); $LINK" -d "$(jq -nc --arg c "$CODE" --arg s "$STATE" '{code:$c,state:$s}')"
+  ap_web GET /v1/linked-accounts
+  ap_web DELETE "/v1/linked-accounts/<id>"
+  ap_compose exec -T postgres psql -U postgres -d sessions -c 'select status, revoked_reason, revision from linked_accounts'
+  ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
+  console.log(JSON.stringify(await schema.resolveLinkedSubject(db, { provider: \"slack\", externalTenant: \"T0MOCK\", externalUserId: \"U0MOCK\" }))); await pool.end();"
+  ```
+
+  기대: callback `201`과 `receipt_id`, 목록에 `active` 한 줄, 해제 `200`(`receipt_status: succeeded`) 뒤 목록이 비고 DB는 `revoked | unlinked | 2`. `mock_team=T0OTHER`를 붙인 authorize URL로 다시 하면 `409 LINK_TEAM_MISMATCH`. 해제 뒤 `resolveLinkedSubject`는 `{"status":"unlinked"}`다. 대기 중이던 입력의 처리 시점 재판정(`createDatabaseIdentityReader(db).reread`에 `linked_account: {id, revision}`)도 `unlinked`로 거절한다. Slack 입력(M9) 전까지는 사용자 경로가 없어 위처럼 api 컨테이너에서 부른다. 2026-10-11 run `20261011-152911-92718`에서 이 순서대로 확인했다.
 - **d.** (아직 없음) 역할별 key 발급 요청과 403 이유, 서비스 key로 다른 에이전트 API 403, 발급자 비활성화 뒤 개인 key 401·서비스 key 200.
 - **e. 판정 기록.** 응답 헤더의 `X-Request-Id`로 행을 찾는다(`H=$(mktemp)`, curl에 `-D "$H"`, `RID=$(sed -n 's/^[Xx]-[Rr]equest-[Ii]d: //p' "$H" | tr -d '\r')`).
   - 거절: `KEY=$(ap_key verify --scopes sessions:read 2>/dev/null)`로 `POST /v1/sessions` → `403`. `ap_compose exec -T postgres psql -U postgres -d sessions -c "SELECT action, outcome, reason_code, principal_kind, request_id FROM authz_decisions WHERE request_id = '$RID'"` → `session.submit | deny | role | api_key` 한 행.
@@ -35,6 +62,7 @@ Preconditions:
 ## Gotchas
 
 - (구현 티켓이 채운다)
+- c: mock overlay 없이 띄운 스택은 `SLACK_OIDC_*`가 비어 있어 시작 요청이 `503 BACKEND_UNAVAILABLE`이다. state는 10분, 한 번만 쓴다. 같은 code·state를 다시 보내면 `400`.
 - bootstrap은 cookie를 주지 않는다. 보존 기간을 바꾸기 전에 login한다.
 - 판정은 본문보다 먼저 묻는다. 그래서 owner의 `29` 요청(400)도 `workspace.manage | allow` 행을 남긴다.
 - 만료 정리는 시간을 당겨야 보이므로 E2E가 아니라 `packages/db/src/authz-decisions.integration.test.ts`로 본다.
