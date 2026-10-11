@@ -232,8 +232,10 @@ describe("tool policy", () => {
 
   test("a release pins both defaults and a policy per tool", () => {
     expect(policyPinsSchema.parse(PINS)).toEqual(PINS);
+    // A release stored before tool policies existed still reads.
+    expect(policyPinsSchema.parse({})).toEqual({});
     for (const pins of [
-      {},
+      { tools: {} },
       { tools: { per_tool: { Read: "allow" } } },
       { tools: { default: { builtin: "allow" }, per_tool: {} } },
       { tools: { ...PINS.tools, per_tool: { Read: "maybe" } } },

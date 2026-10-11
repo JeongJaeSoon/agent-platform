@@ -86,6 +86,22 @@ describe("deriveReleaseId", () => {
     expect(cardContentSha256(cardReordered)).toBe(cardContentSha256(card));
   });
 
+  test("a release stored before tool policies still hashes to its v1 id", () => {
+    expect(
+      deriveReleaseId({
+        agent_id: AGENT_ID,
+        card_sha256: "a".repeat(64),
+        runtime_profile_id: "coding",
+        profile_digest: `sha256:${"c".repeat(64)}`,
+        runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
+        effective_tools: { tools: ["Read"], mcp: [] },
+        policy_pins: {},
+      }),
+    ).toBe(
+      "sha256:d5076011600b9dde731f137c927e17e39a8dee6a1c6a3e4d42867d6d6b68f594",
+    );
+  });
+
   test("keeps stored ids valid: changing the hashed shape needs a version bump", () => {
     expect(
       deriveReleaseId({
@@ -136,8 +152,8 @@ describe("deriveReleaseId", () => {
         ...base,
         policy_pins: {
           tools: {
-            ...base.policy_pins.tools,
-            per_tool: { ...base.policy_pins.tools.per_tool, Read: "ask" },
+            default: { builtin: "allow", mcp: "ask" },
+            per_tool: { ...base.policy_pins.tools?.per_tool, Read: "ask" },
           },
         },
       },
@@ -291,7 +307,7 @@ describe("resolveReleaseContent", () => {
         },
       }),
     );
-    expect(asked.policy_pins.tools.per_tool.Read).toBe("ask");
+    expect(asked.policy_pins.tools?.per_tool.Read).toBe("ask");
     expect(deriveReleaseId(asked)).not.toBe(deriveReleaseId(identityOf()));
   });
 
