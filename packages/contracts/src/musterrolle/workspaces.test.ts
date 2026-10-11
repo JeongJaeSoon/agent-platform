@@ -45,6 +45,7 @@ describe("workspace", () => {
       daily_cost_limit_usd: null,
       idle_pause_minutes: 30,
       audit_retention_days: 90,
+      slack_guest_enabled: false,
     });
     expect(
       workspaceSchema.safeParse({ ...workspace, slug: "Acme" }).success,

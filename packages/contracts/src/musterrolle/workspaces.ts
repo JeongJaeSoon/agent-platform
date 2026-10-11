@@ -49,6 +49,11 @@ export const workspaceSettingsSchema = z
     audit_retention_days: auditRetentionDaysSchema.default(
       AUDIT_RETENTION_DEFAULT_DAYS,
     ),
+    /**
+     * Whether a Slack guest may call an agent at all. On, a guest still has
+     * to link their Slack account like anyone else (D25).
+     */
+    slack_guest_enabled: z.boolean().default(false),
   })
   .strict();
 
@@ -60,6 +65,11 @@ export const auditRetentionRequestSchema = z
   .object({ audit_retention_days: auditRetentionDaysSchema })
   .strict();
 export const auditRetentionResponseSchema = auditRetentionRequestSchema;
+
+export const slackGuestRequestSchema = z
+  .object({ slack_guest_enabled: z.boolean() })
+  .strict();
+export const slackGuestResponseSchema = slackGuestRequestSchema;
 
 export const workspaceSchema = z
   .object({
@@ -227,6 +237,7 @@ export const listInvitesResponseSchema = z
 
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
+export type SlackGuestRequest = z.infer<typeof slackGuestRequestSchema>;
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Membership = z.infer<typeof membershipSchema>;

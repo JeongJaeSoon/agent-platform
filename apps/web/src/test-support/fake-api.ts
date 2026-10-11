@@ -118,6 +118,7 @@ export function me(
         daily_cost_limit_usd: null,
         idle_pause_minutes: 30,
         audit_retention_days: 90,
+        slack_guest_enabled: false,
       },
       created_at: "2026-10-01T00:00:00.000Z",
     },
