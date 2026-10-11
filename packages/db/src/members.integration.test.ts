@@ -753,6 +753,37 @@ integration("members, identity and takeover on PostgreSQL", () => {
       });
     });
 
+    test("an admin manages members but never an owner", async () => {
+      // The admin role arrives with M4's migration; this database stands in.
+      await pool.query(
+        "ALTER TABLE memberships DROP CONSTRAINT IF EXISTS memberships_role_check",
+      );
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const admin = await member(ws, "member");
+      await db
+        .update(memberships)
+        .set({ role: "admin" })
+        .where(
+          and(eq(memberships.workspaceId, ws), eq(memberships.userId, admin)),
+        );
+      const target = await member(ws, "member");
+      for (const scope of ["membership", "account"] as const) {
+        expect(await setAccess(ws, admin, target, { scope })).toMatchObject({
+          outcome: "changed",
+        });
+        expect(await setAccess(ws, admin, owner, { scope })).toEqual({
+          outcome: "outranked",
+        });
+      }
+      expect(await setAccess(ws, owner, admin)).toMatchObject({
+        outcome: "changed",
+      });
+      expect(await setAccess(ws, admin, target)).toEqual({
+        outcome: "actor_inactive",
+      });
+    });
+
     test("an account in a workspace the actor does not own is refused; one in two they own is cut off in both", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");
