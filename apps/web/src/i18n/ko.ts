@@ -170,6 +170,15 @@ export const ko = {
     "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 쓰려면 release를 만들고 활성화하세요.",
   "agent.savedNoChange":
     "저장했습니다. 카드 내용이 같아 새 version은 생기지 않았습니다.",
+  "agent.activated":
+    "활성화됐습니다 — 이제 새 세션은 {release}(으)로 시작합니다.",
+  "agent.alreadyActive": "이미 활성 release입니다. 바뀐 것은 없습니다.",
+  "agent.conflict.title": "다른 곳에서 먼저 활성화를 바꿨습니다",
+  "agent.conflict.body":
+    "이 화면을 연 뒤 다른 사람이나 다른 탭이 활성 release를 바꿔, 덮어쓰지 않고 멈췄습니다. 최신 상태를 불러와 무엇이 바뀌었는지 확인한 뒤 다시 결정하세요.",
+  "agent.conflict.reload": "최신 상태 불러오기",
+  "agent.conflict.reloaded":
+    "보던 화면의 활성 release는 {seen}였고, 지금은 {now}입니다. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
   "agent.card.title": "카드",
   "agent.card.intro":
     "저장하면 새 version이 생깁니다. 활성 release는 그대로입니다.",
@@ -179,6 +188,25 @@ export const ko = {
   "agent.versions.active": "활성",
   "agent.versions.before": "비교 기준",
   "agent.versions.after": "비교 대상",
+  "agent.releases.title": "release",
+  "agent.releases.intro":
+    "release는 version을 runtime profile에 고정한 것입니다. 만든다고 바로 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
+  "agent.releases.version": "version",
+  "agent.releases.profile": "runtime profile",
+  "agent.releases.profileHint": "플랫폼 설정(profiles.yaml)의 profile id",
+  "agent.releases.create": "release 만들기",
+  "agent.releases.creating": "만드는 중…",
+  "agent.releases.empty": "아직 release가 없습니다.",
+  "agent.releases.approved": "{at} 승인",
+  "agent.releases.notApproved": "아직 활성화된 적 없음",
+  "agent.releases.active": "활성",
+  "agent.releases.activate": "활성화",
+  "agent.releases.activating": "활성화하는 중…",
+  "agent.releases.activateFor": "{release} 활성화",
+  "agent.releaseCreated":
+    "release를 만들었습니다(version {version}). 아직 활성화되지 않았습니다.",
+  "agent.releaseExisted":
+    "같은 내용의 release가 이미 있어 그것을 씁니다. 아직 활성화되지 않았다면 활성화하세요.",
   "diff.caption": "{before} → {after}",
   "diff.added": "추가: ",
   "diff.removed": "삭제: ",
@@ -222,6 +250,9 @@ export const ko = {
     "마지막 관리자는 역할을 바꾸거나 비활성할 수 없습니다 — 다른 관리자를 먼저 두세요. 자기 자신도 비활성할 수 없습니다.",
   "error.UNSUPPORTED_CAPABILITY":
     "이 runtime profile에서 쓸 수 없는 모델·도구가 카드에 있거나 모르는 profile입니다.",
+  "error.REVISION_CONFLICT": "다른 곳에서 먼저 바꿨습니다 — 다시 불러오세요.",
+  "error.PROFILE_DIGEST_MISMATCH":
+    "runtime profile 설정이 release 뒤에 바뀌었습니다 — 새 release를 만드세요.",
   "error.ALREADY_EXISTS": "같은 주소 이름이 이미 있습니다.",
 } as const;
 

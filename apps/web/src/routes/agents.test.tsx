@@ -5,18 +5,27 @@ import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen } = await appHarness();
+const { renderAt, screen, waitFor, within } = await appHarness();
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
+const PROFILE = "claude-coding-local";
+
+async function seedRelease(server: ReturnType<typeof agentServer>) {
+  const handler = server.routes[`POST /v1/agents/${AGENT_ID}/releases`];
+  const versionId = server.versions.at(-1)?.id ?? "";
+  await handler?.(
+    new Request("https://console.test/", {
+      method: "POST",
+      body: JSON.stringify({
+        version_id: versionId,
+        runtime_profile_id: PROFILE,
+      }),
+    }),
+  );
+}
 
 describe("에이전트 목록", () => {
-  test("fake 서버의 응답은 서버가 보낼 수 있는 모양이다", () => {
-    expect(agentDetailSchema.safeParse(agentServer().detail()).success).toBe(
-      true,
-    );
-  });
-
   test("목록과 상태를 보이고 상세로 잇는다", async () => {
     const server = agentServer();
     renderAt("/agents", { ...meOk, ...server.routes });
@@ -121,5 +130,108 @@ describe("에이전트 상세", () => {
         "저장했습니다. 카드 내용이 같아 새 version은 생기지 않았습니다.",
       ),
     ).toBeDefined();
+  });
+
+  test("release를 만들고 활성화한다: 저장·release·활성화는 서로 다른 문구다", async () => {
+    const server = agentServer();
+    const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const profile = await screen.findByLabelText("runtime profile");
+    await user.type(profile, "no-such-profile");
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Unknown runtime profile no-such-profile",
+    );
+    await user.clear(profile);
+    await user.type(profile, PROFILE);
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    expect(
+      await screen.findByText(
+        "release를 만들었습니다(version 1). 아직 활성화되지 않았습니다.",
+      ),
+    ).toBeDefined();
+    await user.click(
+      await screen.findByRole("button", {
+        name: `version 1 · ${PROFILE} 활성화`,
+      }),
+    );
+    expect(
+      await screen.findByText(
+        `활성화됐습니다 — 이제 새 세션은 version 1 · ${PROFILE}(으)로 시작합니다.`,
+      ),
+    ).toBeDefined();
+    const activate = api.calls.find((c) => c.path.endsWith("/activate"));
+    expect(activate?.body).toEqual({
+      release_id: server.releases[0]?.id,
+      expected_revision: -1,
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText(new RegExp(`활성 release: version 1 · ${PROFILE}`)),
+      ).toBeDefined(),
+    );
+    expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
+  });
+});
+
+describe("두 탭 동시 활성화", () => {
+  test("늦은 탭은 덮어쓰지 않고(409) 재조회와 차이를 안내한 뒤에야 다시 활성화한다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    server.versions.push({
+      ...(server.versions[0] as (typeof server.versions)[number]),
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      card: { ...CARD, instructions: "환불도 맡는다." },
+      content_sha256: "f".repeat(64),
+    });
+    await seedRelease(server);
+    const [first, second] = server.releases;
+    const label = (no: number) => `version ${no} · ${PROFILE}`;
+
+    const tabA = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const tabB = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const a = within(tabA.container);
+    const b = within(tabB.container);
+    const user = await setupUser();
+    const activateB = await b.findByRole("button", {
+      name: `${label(2)} 활성화`,
+    });
+    await user.click(
+      await a.findByRole("button", { name: `${label(1)} 활성화` }),
+    );
+    expect(await a.findByText(/활성화됐습니다/)).toBeDefined();
+
+    await user.click(activateB);
+    const conflict = await b.findByText("다른 곳에서 먼저 활성화를 바꿨습니다");
+    const panel = conflict.closest("section") as HTMLElement;
+    expect(panel.textContent).toContain("덮어쓰지 않고 멈췄습니다");
+    expect(b.queryByText(/활성화됐습니다/)).toBeNull();
+    const fromB = tabB.api.calls.filter((c) => c.path.endsWith("/activate"));
+    expect(fromB).toHaveLength(1);
+    expect(fromB[0]?.body).toEqual({
+      release_id: second?.id,
+      expected_revision: -1,
+    });
+
+    await user.click(
+      within(panel).getByRole("button", { name: "최신 상태 불러오기" }),
+    );
+    expect(
+      await b.findByText(
+        `보던 화면의 활성 release는 없음였고, 지금은 ${label(1)}입니다. 아래 차이를 확인하고 필요하면 다시 활성화하세요.`,
+      ),
+    ).toBeDefined();
+    expect(b.getByText(`없음 → ${label(1)}`)).toBeDefined();
+
+    await user.click(b.getByRole("button", { name: `${label(2)} 활성화` }));
+    expect(await b.findByText(/활성화됐습니다/)).toBeDefined();
+    const retry = tabB.api.calls.filter((c) => c.path.endsWith("/activate"));
+    expect(retry.at(-1)?.body).toEqual({
+      release_id: second?.id,
+      expected_revision: 0,
+    });
+    expect(server.detail().agent.active_release_id).toBe(second?.id ?? "");
+    expect(first).toBeDefined();
   });
 });

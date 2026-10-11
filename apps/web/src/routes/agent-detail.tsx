@@ -1,4 +1,10 @@
-import type { AgentDetail, AgentVersion } from "@agent-platform/contracts";
+import type {
+  ActivateAgentResponse,
+  AgentDetail,
+  AgentRelease,
+  AgentVersion,
+  CreateAgentReleaseResponse,
+} from "@agent-platform/contracts";
 import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
@@ -31,6 +37,12 @@ type Outcome =
   | { readonly kind: "notice"; readonly text: string }
   | { readonly kind: "error"; readonly text: string };
 
+/** What the screen showed when its activation lost the race. */
+interface Conflict {
+  readonly seenRevision: number;
+  readonly seenActiveReleaseId: string | null;
+}
+
 const latestVersion = (detail: AgentDetail) =>
   detail.versions.reduce<AgentVersion | undefined>(
     (latest, version) =>
@@ -61,7 +73,12 @@ export function AgentDetailScreen() {
     );
   }
   return (
-    <AgentView detail={detail.data} outcome={outcome} onOutcome={setOutcome} />
+    <AgentView
+      detail={detail.data}
+      outcome={outcome}
+      onOutcome={setOutcome}
+      onReload={() => detail.refetch()}
+    />
   );
 }
 
@@ -69,12 +86,17 @@ function AgentView({
   detail,
   outcome,
   onOutcome,
+  onReload,
 }: {
   readonly detail: AgentDetail;
   readonly outcome: Outcome | null;
   readonly onOutcome: (outcome: Outcome | null) => void;
+  readonly onReload: () => void;
 }) {
   const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const role = useRole();
+  const [conflict, setConflict] = useState<Conflict | null>(null);
   const { agent } = detail;
   const versionNo = (versionId: string) =>
     detail.versions.find((version) => version.id === versionId)?.version_no;
@@ -87,6 +109,53 @@ function AgentView({
         })
       : t("agent.noActive");
   };
+
+  const activate = useMutation<
+    ActivateAgentResponse,
+    ApiError,
+    { release: AgentRelease; expected: number; seenActive: string | null }
+  >({
+    mutationFn: ({ release, expected }) =>
+      unwrap(
+        client.POST("/v1/agents/{id}/activate", {
+          params: { path: { id: agent.id } },
+          body: { release_id: release.id, expected_revision: expected },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async (result) => {
+      setConflict(null);
+      onOutcome({
+        kind: "notice",
+        text:
+          result.receipt_id === null
+            ? t("agent.alreadyActive")
+            : t("agent.activated", {
+                release: releaseLabel(result.active_release_id),
+              }),
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.agents });
+    },
+    onError: (error, { expected, seenActive }) => {
+      // Someone else moved the pointer since this page loaded. Retrying with
+      // a fresh revision would silently undo their choice, so stop and let
+      // the person look at what changed first.
+      if (error.code === "REVISION_CONFLICT") {
+        setConflict({
+          seenRevision: expected,
+          seenActiveReleaseId: seenActive,
+        });
+        return;
+      }
+      onOutcome({ kind: "error", text: agentRefusal(t, error, role) });
+    },
+  });
+
+  const seenRelease = detail.releases.find(
+    (release) => release.id === conflict?.seenActiveReleaseId,
+  );
+  const reloaded =
+    conflict !== null && agent.activation_revision !== conflict.seenRevision;
 
   return (
     <div className="web-page">
@@ -116,6 +185,40 @@ function AgentView({
           <output className="web-notice">{outcome.text}</output>
         )
       ) : null}
+      {conflict ? (
+        <section className="web-status" data-status="conflict" role="alert">
+          <h2 className="web-status__title">{t("agent.conflict.title")}</h2>
+          <p className="web-status__body">
+            {reloaded
+              ? t("agent.conflict.reloaded", {
+                  seen: releaseLabel(conflict.seenActiveReleaseId),
+                  now: releaseLabel(agent.active_release_id),
+                })
+              : t("agent.conflict.body")}
+          </p>
+          {reloaded ? (
+            <RevisionDiff
+              before={
+                detail.versions.find((v) => v.id === seenRelease?.version_id)
+                  ?.card ?? null
+              }
+              after={
+                detail.active_release
+                  ? (detail.versions.find(
+                      (v) => v.id === detail.active_release?.version_id,
+                    )?.card ?? null)
+                  : null
+              }
+              beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
+              afterLabel={releaseLabel(agent.active_release_id)}
+            />
+          ) : (
+            <button type="button" className="ap-button" onClick={onReload}>
+              {t("agent.conflict.reload")}
+            </button>
+          )}
+        </section>
+      ) : null}
       <CardEditor
         key={latestVersion(detail)?.id ?? "none"}
         detail={detail}
@@ -124,6 +227,21 @@ function AgentView({
       <VersionHistory
         key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
         detail={detail}
+      />
+      <Releases
+        detail={detail}
+        versionNo={versionNo}
+        onOutcome={onOutcome}
+        activating={
+          activate.isPending ? activate.variables?.release.id : undefined
+        }
+        onActivate={(release) =>
+          activate.mutate({
+            release,
+            expected: agent.activation_revision,
+            seenActive: agent.active_release_id,
+          })
+        }
       />
     </div>
   );
@@ -302,5 +420,144 @@ function VersionSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+function Releases({
+  detail,
+  versionNo,
+  onOutcome,
+  activating,
+  onActivate,
+}: {
+  readonly detail: AgentDetail;
+  readonly versionNo: (versionId: string) => number | undefined;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+  readonly activating: string | undefined;
+  readonly onActivate: (release: AgentRelease) => void;
+}) {
+  const { t } = useI18n();
+  const { client, queryClient } = useServices();
+  const role = useRole();
+  const titleId = useId();
+  const latest = latestVersion(detail);
+  const [versionId, setVersionId] = useState(latest?.id ?? "");
+  const [profile, setProfile] = useState(
+    detail.releases.at(-1)?.runtime_profile_id ?? "",
+  );
+  const ordered = [...detail.releases].sort((a, b) =>
+    b.created_at.localeCompare(a.created_at),
+  );
+
+  const release = useMutation<CreateAgentReleaseResponse, ApiError>({
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/agents/{id}/releases", {
+          params: { path: { id: detail.agent.id } },
+          body: { version_id: versionId, runtime_profile_id: profile.trim() },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async (result) => {
+      onOutcome({
+        kind: "notice",
+        text: result.created
+          ? t("agent.releaseCreated", {
+              version: versionNo(result.release.version_id) ?? "?",
+            })
+          : t("agent.releaseExisted"),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.agent(detail.agent.id),
+      });
+    },
+    onError: (error) =>
+      onOutcome({ kind: "error", text: agentRefusal(t, error, role) }),
+  });
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    release.mutate();
+  };
+
+  return (
+    <section className="web-section" aria-labelledby={titleId}>
+      <h2 id={titleId}>{t("agent.releases.title")}</h2>
+      <p className="web-page__empty">{t("agent.releases.intro")}</p>
+      <form className="web-form web-form--inline" onSubmit={submit}>
+        <VersionSelect
+          label={t("agent.releases.version")}
+          versions={[...detail.versions].sort(
+            (a, b) => b.version_no - a.version_no,
+          )}
+          value={versionId}
+          onChange={setVersionId}
+        />
+        <TextField
+          label={t("agent.releases.profile")}
+          hint={t("agent.releases.profileHint")}
+          required
+          maxLength={128}
+          value={profile}
+          onChange={(event) => setProfile(event.target.value)}
+        />
+        <button
+          type="submit"
+          className="ap-button"
+          disabled={release.isPending || versionId === ""}
+        >
+          {release.isPending
+            ? t("agent.releases.creating")
+            : t("agent.releases.create")}
+        </button>
+      </form>
+      {ordered.length === 0 ? (
+        <p className="web-page__empty">{t("agent.releases.empty")}</p>
+      ) : (
+        <ul className="web-list">
+          {ordered.map((item) => {
+            const active = item.id === detail.agent.active_release_id;
+            const label = t("agent.releaseLabel", {
+              version: versionNo(item.version_id) ?? "?",
+              profile: item.runtime_profile_id,
+            });
+            return (
+              <li key={item.id} className="web-list__item" data-active={active}>
+                <span>
+                  <span className="web-table__primary">{label}</span>
+                  <span className="web-table__secondary">
+                    {formatTimestamp(item.created_at)} ·{" "}
+                    {item.approved_at
+                      ? t("agent.releases.approved", {
+                          at: formatTimestamp(item.approved_at),
+                        })
+                      : t("agent.releases.notApproved")}
+                  </span>
+                </span>
+                {active ? (
+                  <span className="web-badge" data-tone="ok">
+                    {t("agent.releases.active")}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="ap-button"
+                    disabled={activating !== undefined}
+                    aria-label={t("agent.releases.activateFor", {
+                      release: label,
+                    })}
+                    onClick={() => onActivate(item)}
+                  >
+                    {activating === item.id
+                      ? t("agent.releases.activating")
+                      : t("agent.releases.activate")}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
