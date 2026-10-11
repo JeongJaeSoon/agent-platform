@@ -53,6 +53,9 @@ export const createTeamRequestSchema = z
   .object({ name: teamNameSchema })
   .strict();
 export const updateTeamRequestSchema = createTeamRequestSchema;
+export const addTeamMemberRequestSchema = z
+  .object({ user_id: userIdSchema })
+  .strict();
 
 export const teamChangeResponseSchema = z
   .object({
@@ -84,6 +87,20 @@ export const agentAdminParamsSchema = z
     subject_id: z.uuid(),
   })
   .strict();
+
+/** A person or a team, never both. */
+export const addAgentAdminRequestSchema = z
+  .object({
+    user_id: userIdSchema.optional(),
+    team_id: teamIdSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (body) => (body.user_id === undefined) !== (body.team_id === undefined),
+    {
+      message: "name exactly one of user_id and team_id",
+    },
+  );
 
 export const agentAdminsViewSchema = z
   .object({
@@ -129,6 +146,8 @@ export type TeamMemberView = z.infer<typeof teamMemberViewSchema>;
 export type TeamDetail = z.infer<typeof teamDetailSchema>;
 export type CreateTeamRequest = z.infer<typeof createTeamRequestSchema>;
 export type UpdateTeamRequest = z.infer<typeof updateTeamRequestSchema>;
+export type AddTeamMemberRequest = z.infer<typeof addTeamMemberRequestSchema>;
+export type AddAgentAdminRequest = z.infer<typeof addAgentAdminRequestSchema>;
 export type TeamChangeResponse = z.infer<typeof teamChangeResponseSchema>;
 export type DeleteTeamResponse = z.infer<typeof deleteTeamResponseSchema>;
 export type ListTeamsResponse = z.infer<typeof listTeamsResponseSchema>;
