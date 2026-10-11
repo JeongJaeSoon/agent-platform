@@ -158,9 +158,9 @@ export const ko = {
   "agentCard.toolsAll": "runtime profile이 허용하는 도구 전부",
   "agentCard.toolsList": "고른 도구만",
   "agentCard.toolNames": "도구 이름",
-  "agentCard.listHint": "쉼표나 공백으로 구분",
+  "agentCard.listHint": "한 줄에 하나",
   "agentCard.forbidden": "금지 도구",
-  "agentCard.forbiddenHint": "쉼표나 공백으로 구분. 서버가 막습니다",
+  "agentCard.forbiddenHint": "한 줄에 하나. 서버가 막습니다",
   "agent.created":
     "에이전트를 만들었습니다(version 1). release를 만들고 활성화해야 세션에서 쓸 수 있습니다.",
   "agent.noActive": "없음",
