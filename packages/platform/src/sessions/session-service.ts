@@ -3,6 +3,7 @@ import type {
   AdmissionState,
   AgentRelease,
   ApiErrorCode,
+  AuditReadResponse,
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationResource,
@@ -177,8 +178,9 @@ export async function requirePermitted(
   caller: Caller,
   action: AuthorizationAction,
   resource: Omit<AuthorizationResource, "owner_scope">,
+  justification?: string,
 ): Promise<void> {
-  await requireAllowed(authorization, caller, action, resource);
+  await requireAllowed(authorization, caller, action, resource, justification);
 }
 
 /** requirePermitted, for a caller that records which decision allowed it. */
@@ -187,10 +189,16 @@ export async function requireAllowed(
   caller: Caller,
   action: AuthorizationAction,
   resource: Omit<AuthorizationResource, "owner_scope">,
+  // A manager's reason for acting outside a session's share; recorded with
+  // the decision.
+  justification?: string,
 ): Promise<AuthorizationDecision> {
   const decision = await authorization
     .authorize({
-      subject: caller.subject,
+      subject:
+        justification === undefined
+          ? caller.subject
+          : { ...caller.subject, justification },
       action,
       resource: { ...resource, owner_scope: caller.ownerId },
       request_id: caller.requestId,
@@ -369,6 +377,49 @@ export function createSessionService(deps: {
     return release;
   }
 
+  async function detailOf(
+    actor: Caller,
+    sessionId: string,
+  ): Promise<SessionDetail> {
+    const record = await reader.getSession(actor.ownerId, sessionId);
+    if (!record) {
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
+    }
+    const {
+      profile_id,
+      cost_usd,
+      provider_tokens,
+      repo_url,
+      branch,
+      profile_fingerprint,
+      ...detail
+    } = record;
+    const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
+    return {
+      ...detail,
+      attention:
+        detail.attention ??
+        // The claim matches the same values (runnablePairOf), so this says
+        // exactly when no worker of this host would take the session.
+        (catalogAllows(record)
+          ? null
+          : {
+              code: "CATALOG_MISMATCH",
+              reason:
+                "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
+            }) ??
+        // Dispatch stops at the same predicate (nextInputAtomic), so what
+        // this says and what the gateway does come from one comparison.
+        (budgetExceeded(spend, budget)
+          ? {
+              code: "BUDGET_EXCEEDED",
+              reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
+            }
+          : null),
+      runtime: runtimeFor(profile_id),
+    };
+  }
+
   return {
     async createSession(
       actor: Caller,
@@ -509,19 +560,28 @@ export function createSessionService(deps: {
     async terminateSession(
       actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; body: TerminateSessionRequest },
+      input: {
+        idempotencyKey: string;
+        body: TerminateSessionRequest;
+        // An owner or admin stopping a session outside its share; the
+        // reason then also becomes the stop reason.
+        justification?: string;
+      },
     ): Promise<TerminateSessionResponse> {
-      await requirePermitted(authorization, actor, "session.control", {
-        kind: "session",
-        id: sessionId,
-      });
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.control",
+        { kind: "session", id: sessionId },
+        input.justification,
+      );
       const result = await controls.terminateAtomic({
         principal: actor,
         sessionId,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         expectedRevision: input.body.expected_revision,
-        reason: input.body.reason ?? null,
+        reason: input.body.reason ?? input.justification ?? null,
         now: now(),
       });
       switch (result.outcome) {
@@ -759,43 +819,30 @@ export function createSessionService(deps: {
         kind: "session",
         id: sessionId,
       });
-      const record = await reader.getSession(actor.ownerId, sessionId);
-      if (!record) {
+      return detailOf(actor, sessionId);
+    },
+
+    // Read-only by construction: it reads through the same reader as
+    // getSession and listTurns and allows nothing else on the session.
+    async auditRead(
+      actor: Caller,
+      sessionId: string,
+      input: { justification: string } & ListTurnsQuery,
+    ): Promise<AuditReadResponse> {
+      const { justification, ...query } = input;
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.audit_read",
+        { kind: "session", id: sessionId },
+        justification,
+      );
+      const session = await detailOf(actor, sessionId);
+      const turns = await reader.listTurns(actor.ownerId, sessionId, query);
+      if (!turns) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const {
-        profile_id,
-        cost_usd,
-        provider_tokens,
-        repo_url,
-        branch,
-        profile_fingerprint,
-        ...detail
-      } = record;
-      const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
-      return {
-        ...detail,
-        attention:
-          detail.attention ??
-          // The claim matches the same values (runnablePairOf), so this says
-          // exactly when no worker of this host would take the session.
-          (catalogAllows(record)
-            ? null
-            : {
-                code: "CATALOG_MISMATCH",
-                reason:
-                  "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
-              }) ??
-          // Dispatch stops at the same predicate (nextInputAtomic), so what
-          // this says and what the gateway does come from one comparison.
-          (budgetExceeded(spend, budget)
-            ? {
-                code: "BUDGET_EXCEEDED",
-                reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
-              }
-            : null),
-        runtime: runtimeFor(profile_id),
-      };
+      return { session, turns };
     },
 
     async listTurns(

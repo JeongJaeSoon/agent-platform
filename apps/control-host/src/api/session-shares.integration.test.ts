@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  auditReadResponseSchema,
   bootstrapResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   createSessionResponseSchema,
+  listAdminSessionsResponseSchema,
   listSessionsResponseSchema,
   type SessionShareScope,
+  setSessionShareResponseSchema,
 } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
@@ -14,6 +17,8 @@ import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresDecisionLog,
+  createPostgresInviteStore,
+  createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -24,6 +29,8 @@ import {
   memberships,
   memberTeamMembers,
   memberTeams,
+  receipts,
+  sessions,
   users,
 } from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
@@ -32,8 +39,11 @@ import {
   callerFor,
   createAuthorizationPolicy,
   createInterruptService,
+  createInviteService,
+  createMemberService,
   createPendingRequestService,
   createSessionService,
+  createSessionShareService,
   createUsageService,
   type SessionCatalog,
 } from "@agent-platform/platform";
@@ -51,9 +61,11 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
@@ -148,6 +160,25 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
         registerSessionRoutes(router, service);
         registerPauseRoutes(router, service);
         registerReceiptRoutes(router, service);
+        registerSessionShareRoutes(
+          router,
+          createSessionShareService({
+            authorization,
+            store: createPostgresSessionShareStore(db),
+          }),
+          service,
+        );
+        registerMemberRoutes(
+          router,
+          createMemberService({
+            authorization,
+            store: createPostgresMemberStore(db),
+          }),
+          createInviteService({
+            authorization,
+            store: createPostgresInviteStore(db),
+          }),
+        );
         registerUsageRoutes(
           router,
           createUsageService({
@@ -544,5 +575,242 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       .set({ removedAt: new Date() })
       .where(eq(memberTeamMembers.teamId, teamId));
     expect(await listed("teammate")).not.toContain(sessionId);
+  });
+
+  const decisionsOf = (action: string, who: Who) =>
+    db
+      .select({
+        outcome: authzDecisions.outcome,
+        reasonCode: authzDecisions.reasonCode,
+        justification: authzDecisions.justification,
+      })
+      .from(authzDecisions)
+      .where(
+        and(
+          eq(authzDecisions.resourceId, sessionId),
+          eq(authzDecisions.action, action),
+          eq(authzDecisions.actorUserId, ids[who]),
+        ),
+      );
+  const shareOver = (who: Who, body: unknown, id = sessionId) =>
+    send("POST", `/v1/sessions/${id}/share`, asCookie(cookies[who]), body);
+
+  test("over HTTP, only the creator changes who sees a person's session", async () => {
+    const changed = await shareOver("creator", { scope: "private" });
+    expect(changed.status).toBe(200);
+    const first = setSessionShareResponseSchema.parse(await changed.json());
+    expect(first.share.scope).toBe("private");
+    expect(first.receipt_id).not.toBeNull();
+    const again = await shareOver("creator", { scope: "private" });
+    expect(setSessionShareResponseSchema.parse(await again.json())).toEqual({
+      share: first.share,
+      receipt_id: null,
+    });
+    // Outside the share the session is not there to share.
+    for (const who of ["owner", "admin", "outsider"] as const) {
+      expect((await shareOver(who, { scope: "workspace" })).status).toBe(404);
+      const read = await send(
+        "GET",
+        `/v1/sessions/${sessionId}/share`,
+        asCookie(cookies[who]),
+      );
+      expect(read.status).toBe(404);
+    }
+    // Inside it, nobody but the creator may change it.
+    await shareOver("creator", { scope: "workspace" });
+    for (const who of ["owner", "admin", "outsider"] as const) {
+      const refused = await shareOver(who, { scope: "private" });
+      expect(refused.status).toBe(403);
+    }
+    const stale = await shareOver("creator", {
+      scope: "private",
+      expected_revision: first.share.revision,
+    });
+    expect(stale.status).toBe(409);
+    const narrowed = await shareOver("creator", {
+      scope: "people",
+      user_ids: [ids.outsider],
+    });
+    expect(narrowed.status).toBe(200);
+    expect(await listed("outsider")).toContain(sessionId);
+    expect(await listed("owner")).not.toContain(sessionId);
+    await shareOver("creator", { scope: "private" });
+    const [receipt] = await db
+      .select({ result: receipts.result })
+      .from(receipts)
+      .where(eq(receipts.id, first.receipt_id ?? ""));
+    expect(receipt?.result).toEqual({ scope: "private" });
+  });
+
+  test("an audit read needs a reason, is kept each time and changes nothing", async () => {
+    const path = `/v1/sessions/${sessionId}/audit-read`;
+    const before = await db
+      .select({ revision: sessions.revision, updatedAt: sessions.updatedAt })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    for (const body of [{}, { justification: "  " }]) {
+      const refused = await send("POST", path, asCookie(cookies.owner), body);
+      expect(refused.status).toBe(400);
+    }
+    for (const reason of ["incident 42", "incident 43"]) {
+      const read = await send("POST", path, asCookie(cookies.owner), {
+        justification: reason,
+      });
+      expect(read.status).toBe(200);
+      const body = auditReadResponseSchema.parse(await read.json());
+      expect(body.session.id).toBe(sessionId);
+      expect(body.turns.items.length).toBeGreaterThan(0);
+    }
+    const kept = await decisionsOf("session.audit_read", "owner");
+    expect(kept.map((row) => [row.outcome, row.justification])).toEqual([
+      ["allow", "incident 42"],
+      ["allow", "incident 43"],
+    ]);
+    // Read-only: the read opens nothing else on the session.
+    for (const [surface, call] of surfaces) {
+      expect({ surface, status: (await call("owner")).status }).toEqual({
+        surface,
+        status: 404,
+      });
+    }
+    const after = await db
+      .select({ revision: sessions.revision, updatedAt: sessions.updatedAt })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(after).toEqual(before);
+    // A member is no auditor, reason or not: outside the share the session
+    // is not there, and inside it the role refuses.
+    const member = await send("POST", path, asCookie(cookies.outsider), {
+      justification: "curious",
+    });
+    expect(member.status).toBe(404);
+    await shareOver("creator", { scope: "workspace" });
+    const inside = await send("POST", path, asCookie(cookies.outsider), {
+      justification: "curious",
+    });
+    expect(inside.status).toBe(403);
+    expect((await codeOf(inside)).details).toEqual({ reason_code: "role" });
+    await shareOver("creator", { scope: "private" });
+  });
+
+  test("the admin list shows every session's metadata and no content", async () => {
+    const response = await send(
+      "GET",
+      "/v1/admin/sessions",
+      asCookie(cookies.admin),
+    );
+    expect(response.status).toBe(200);
+    const raw = (await response.json()) as { items: Record<string, unknown>[] };
+    const item = raw.items.find((row) => row.session_id === sessionId);
+    expect(Object.keys(item ?? {}).sort()).toEqual([
+      "admission_state",
+      "agent_release_id",
+      "created_at",
+      "created_by_api_key_id",
+      "created_by_user_id",
+      "session_id",
+      "share_scope",
+      "status",
+      "takeover_required_at",
+    ]);
+    expect(item?.share_scope).toBe("private");
+    expect(JSON.stringify(raw)).not.toContain("Summarise the minutes.");
+    expect(listAdminSessionsResponseSchema.parse(raw).items.length).toBe(1);
+    const member = await send(
+      "GET",
+      "/v1/admin/sessions",
+      asCookie(cookies.creator),
+    );
+    expect(member.status).toBe(403);
+  });
+
+  test("a manager stops a session outside the share only with a reason, which is kept", async () => {
+    const [row] = await db
+      .select({ revision: sessions.revision })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const revision = row?.revision ?? 0;
+    const headers = () => ({
+      ...asCookie(cookies.owner),
+      "Idempotency-Key": crypto.randomUUID(),
+    });
+    const ordinary = await send(
+      "POST",
+      `/v1/sessions/${sessionId}/terminate`,
+      headers(),
+      { expected_revision: revision, reason: "no audit" },
+    );
+    expect(ordinary.status).toBe(404);
+    const path = `/v1/admin/sessions/${sessionId}/terminate`;
+    const unreasoned = await send("POST", path, headers(), {
+      expected_revision: revision,
+    });
+    expect(unreasoned.status).toBe(400);
+    const stopped = await send("POST", path, headers(), {
+      expected_revision: revision,
+      justification: "runaway cost",
+    });
+    expect(stopped.status).toBe(202);
+    const kept = await decisionsOf("session.control", "owner");
+    expect(kept.map((d) => [d.outcome, d.reasonCode, d.justification])).toEqual(
+      expect.arrayContaining([
+        ["deny", "not_found", null],
+        ["allow", "ok", "runaway cost"],
+      ]),
+    );
+  });
+
+  test("taking over a departed member's private session needs a reason, kept on the receipt", async () => {
+    const created = await send(
+      "POST",
+      "/v1/sessions",
+      { ...asCookie(cookies.creator), "Idempotency-Key": crypto.randomUUID() },
+      {
+        profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
+        message: "Draft the follow-up.",
+      },
+    );
+    expect(created.status).toBe(201);
+    const orphan = createSessionResponseSchema.parse(
+      await created.json(),
+    ).session_id;
+    expect(
+      (await shareOver("creator", { scope: "private" }, orphan)).status,
+    ).toBe(200);
+    const disabled = await send(
+      "POST",
+      `/v1/members/${ids.creator}/disable`,
+      asCookie(cookies.owner),
+      {},
+    );
+    expect(disabled.status).toBe(200);
+    const path = `/v1/sessions/${orphan}/takeover`;
+    const unreasoned = await app.request(path, {
+      method: "POST",
+      headers: asCookie(cookies.owner),
+    });
+    expect(unreasoned.status).toBe(403);
+    expect((await codeOf(unreasoned)).details).toEqual({
+      reason_code: "justification_required",
+    });
+    const taken = await send("POST", path, asCookie(cookies.owner), {
+      justification: "creator left; customer waiting",
+    });
+    expect(taken.status).toBe(200);
+    const { receipt_id } = (await taken.json()) as { receipt_id: string };
+    const [receipt] = await db
+      .select({ result: receipts.result })
+      .from(receipts)
+      .where(eq(receipts.id, receipt_id));
+    expect(receipt?.result).toEqual({
+      justification: "creator left; customer waiting",
+    });
+    // The taker stands where the creator stood, the share included.
+    expect(await listed("owner")).toContain(orphan);
+    expect(await listed("admin")).not.toContain(orphan);
+    expect(
+      (await shareOver("owner", { scope: "workspace" }, orphan)).status,
+    ).toBe(200);
   });
 });

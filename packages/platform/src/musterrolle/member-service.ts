@@ -152,16 +152,23 @@ export function createMemberService(deps: {
     async takeOverSession(
       caller: Caller,
       sessionId: string,
+      // Required by the policy when the session is outside the caller's
+      // share; it then rides on the decision and the receipt.
+      justification: string | null = null,
     ): Promise<TakeOverSessionResponse> {
-      await requirePermitted(authorization, caller, "member.manage", {
-        kind: "session",
-        id: sessionId,
-      });
+      await requirePermitted(
+        authorization,
+        caller,
+        "member.manage",
+        { kind: "session", id: sessionId },
+        justification ?? undefined,
+      );
       const result = await store.takeOver({
         principal: caller,
         workspaceId: caller.ownerId,
         sessionId,
         newRequesterId: personOf(caller),
+        justification,
       });
       switch (result.outcome) {
         case "not_found":

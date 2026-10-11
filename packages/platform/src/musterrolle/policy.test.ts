@@ -87,7 +87,12 @@ const entryPoints: [
   [
     "terminateSession",
     "session.control",
-    (s, actor) => s.sessions.terminateSession(actor, id, input),
+    // `input` answers every property; a justification would ride along.
+    (s, actor) =>
+      s.sessions.terminateSession(actor, id, {
+        idempotencyKey: "key-1",
+        body: input,
+      }),
   ],
   [
     "pauseSession",
