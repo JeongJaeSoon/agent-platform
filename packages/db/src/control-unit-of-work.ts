@@ -132,7 +132,7 @@ function sessionIdFromTarget(target: unknown): string | undefined {
 
 type SessionRow = typeof sessions.$inferSelect;
 
-function rowsOf<T>(result: unknown): T[] {
+export function rowsOf<T>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[];
   if (
     result !== null &&

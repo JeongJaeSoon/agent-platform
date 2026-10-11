@@ -768,9 +768,12 @@ export const receipts = pgTable(
       .defaultNow(),
     /** `receiptActorSchema`: principal plus the human behind it. */
     actor: jsonb(),
+    /** The request that wrote it, as `authz_decisions.request_id` names it. */
+    requestId: text("request_id"),
   },
   (table) => [
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
+    index("receipts_request_idx").on(table.requestId),
     // The terminate deadline sweep runs every scheduler and reconciler pass
     // and must not read the whole receipt history to find the few open ones.
     // An execution revocation is swept the same way.
@@ -779,6 +782,52 @@ export const receipts = pgTable(
       .where(
         sql`${table.operation} IN ('terminate', 'revoke_execution') AND ${table.status} = 'accepted'`,
       ),
+  ],
+);
+
+// One row per recorded authorize() decision (Musterrolle D8). Append-only: a
+// migration-defined trigger refuses UPDATE, and only the retention pass
+// deletes. No foreign keys, so a row outlives the session, key or user it
+// names for as long as the workspace keeps audit rows.
+export const authzDecisions = pgTable(
+  "authz_decisions",
+  {
+    /** The decision's `decision_id`. */
+    id: uuid().primaryKey(),
+    at: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    ownerId: text("owner_id").notNull(),
+    /** Null for an unmapped legacy key or a request with no principal. */
+    workspaceId: uuid("workspace_id"),
+    principalKind: text("principal_kind"),
+    principalId: text("principal_id"),
+    actorUserId: uuid("actor_user_id"),
+    agentId: uuid("agent_id"),
+    agentReleaseId: text("agent_release_id"),
+    linkedAccountId: text("linked_account_id"),
+    linkedAccountRevision: integer("linked_account_revision"),
+    /** `authorizationSurfaceSchema`. */
+    surface: jsonb().notNull(),
+    action: text().notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceId: text("resource_id"),
+    outcome: text().notNull(),
+    reasonCode: text("reason_code").notNull(),
+    justification: text(),
+    policyVersion: text("policy_version").notNull(),
+    /** The request's X-Request-Id; `receipts.request_id` carries the same. */
+    requestId: text("request_id").notNull(),
+  },
+  (table) => [
+    index("authz_decisions_request_idx").on(table.requestId),
+    index("authz_decisions_at_idx").on(table.at),
+    check(
+      "authz_decisions_outcome_check",
+      sql`${table.outcome} IN ('allow', 'deny', 'redact', 'require_approval')`,
+    ),
+    check(
+      "authz_decisions_principal_check",
+      sql`(${table.principalKind} IS NULL) = (${table.principalId} IS NULL)`,
+    ),
   ],
 );
 
