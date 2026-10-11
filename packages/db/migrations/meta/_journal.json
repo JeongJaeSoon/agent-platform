@@ -288,6 +288,13 @@
       "when": 1791691780418,
       "tag": "0131_account_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1791694677938,
+      "tag": "0132_slack_installations",
+      "breakpoints": true
     }
   ]
 }
