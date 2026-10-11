@@ -1,6 +1,6 @@
 ---
 name: verify-agent-platform
-description: Drive the agent-platform stack the way a user does — launch it locally with scripts/local.sh under a project of its own (fake model, ephemeral ports), then exercise the web login API, API keys from the key CLI, and the sessions API with curl, and tear down only what it started. Use to prove a user-facing change in this repo (API route, auth, key CLI, session flow) in the running app, not only in tests.
+description: Drive the agent-platform stack the way a user does — launch it locally with scripts/local.sh under a project of its own (fake model, ephemeral ports, optional mock Slack IdP), then exercise the web login API, the web console in a browser, members, teams, agents, scoped API keys, the key CLI, and the sessions API with curl, and tear down only what it started. Use to prove a user-facing change in this repo (API route, auth, web screen, key CLI, session flow) in the running app, not only in tests.
 ---
 
 # verify-agent-platform
@@ -9,8 +9,8 @@ description: Drive the agent-platform stack the way a user does — launch it lo
 
 | 표면 | 무엇 | 몰기 |
 |---|---|---|
-| web 로그인 API | `/v1/auth/bootstrap`·`login`·`me`·`logout` (cookie 세션) | `ap_web` (curl + CSRF 헤더 + cookie) |
-| 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/` | 브라우저(`orca tab`·`orca snapshot`), 서빙 헤더는 curl |
+| web API (cookie) | `/v1/auth/**`(bootstrap·login-methods·login·me·logout, Google), 초대·구성원·팀·에이전트·권한별 key·연동 계정·공유·감사 열람·워크스페이스 설정 | `ap_web` (curl + CSRF 헤더 + cookie) |
+| 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/teams`·`/agents`·`/settings/*` | 브라우저(`orca tab`·`orca snapshot`), 서빙 헤더는 curl |
 | API | `/v1/sessions/**`, `/v1/receipts`, `/v1/limits`, `/docs`, `/readyz` | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
 
@@ -66,7 +66,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 | 함수 | 용도 |
 |---|---|
-| `ap_web METHOD PATH [JSON]` | 브라우저처럼 부른다: `x-requested-with: agent-platform-web` 헤더, `$VERIFY_RUN/cookie`의 세션 cookie를 보내고 응답의 `__Host-ap_session`을 저장한다 |
+| `ap_web METHOD PATH [JSON]` | 브라우저처럼 부른다: `x-requested-with: agent-platform-web` 헤더, `$VERIFY_RUN/cookie`의 세션 cookie를 보내고 응답의 `__Host-ap_session`을 저장한다. cookie 파일은 하나라 여러 사람을 몰 때는 사람마다 복사해 둔다([musterrolle.md](features/musterrolle.md) Preconditions). `Idempotency-Key`는 붙이지 않는다: 세션 POST(생성·메시지·답·제어·관리 종료)는 그 헤더를 더한 curl로 보낸다 |
 | `ap_key <owner> --scopes a,b` | key CLI로 key를 발급한다. stdout에 key, stderr에 `key_id …` |
 | `ap_revoke <key_id>` | key 폐기 |
 | `ap_get PATH` / `ap_post PATH JSON` | `$KEY`로 Bearer 호출. `ap_post`는 `Idempotency-Key`를 새로 붙인다 |

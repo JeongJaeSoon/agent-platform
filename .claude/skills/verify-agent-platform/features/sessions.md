@@ -40,4 +40,5 @@ body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"
 - 응답 마지막 줄이 상태 코드다. jq에 넘길 때는 `| head -1`.
 - worker 컨테이너는 끝나면 scheduler가 지운다. 로그가 필요하면 `docs/quickstart.md`의 "로그 보기" 루프에서 label을 `agent-platform.installation=$EXECUTION_INSTALLATION_ID`로 바꿔 건다.
 - `finalDelayMs`로 느린 turn을 만들 수 있다(interrupt·terminate 시험용).
-- 세션을 에이전트·팀 권한과 묶는 것은 아직 없다([musterrolle.md](./musterrolle.md) b, d).
+- 본문에 `agent_release_id`를 넣으면 세션이 그 에이전트 release에 묶인다(`profile_id`가 release와 다르면 `409 RELEASE_PROFILE_MISMATCH`). 에이전트 전용 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [musterrolle.md](./musterrolle.md) d). 운영자 key·workspace key는 release 없이 만든다.
+- 세션 POST는 인증 방식과 상관없이 `Idempotency-Key`가 없으면 `400`, 같은 key에 다른 본문이면 `409 IDEMPOTENCY_CONFLICT`다.
