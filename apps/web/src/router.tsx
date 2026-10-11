@@ -14,6 +14,7 @@ import {
   agentSearch,
 } from "./routes/agent-detail.tsx";
 import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
+import { ApiKeysScreen } from "./routes/api-keys.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
 import {
   GoogleCallbackScreen,
@@ -138,6 +139,12 @@ const slackLink = createRoute({
   component: SlackLinkCallbackScreen,
 });
 
+const apiKeys = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys",
+  component: ApiKeysScreen,
+});
+
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
@@ -173,6 +180,7 @@ const routeTree = root.addChildren([
     agent,
     linkedAccounts,
     slackLink,
+    apiKeys,
   ]),
 ]);
 
