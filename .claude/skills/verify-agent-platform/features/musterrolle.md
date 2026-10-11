@@ -14,12 +14,12 @@
 
 ## How to get to it (user POV)
 
-- 웹 콘솔의 초대 수락·구성원 화면은 [web-members-agents.md](./web-members-agents.md)에 있다(시나리오 a의 웹 쪽). 팀·연결·key 화면은 아직 없다.
+- 웹 콘솔의 초대 수락·구성원 화면은 [web-members-agents.md](./web-members-agents.md)에 있다(시나리오 a의 웹 쪽). 팀·에이전트 관리자·Slack 연결·key·감사 보존 화면은 [web-settings.md](./web-settings.md)에 있다.
 - (아직 없음) 같은 동작의 HTTP API.
-- b: `POST /v1/teams` → `POST /v1/teams/{team_id}/members` → `POST /v1/agents/{id}/admins` `{"team_id"}` → 팀원이 `PATCH /v1/agents/{id}`, `GET /v1/administered-agents` → `DELETE /v1/teams/{team_id}/members/{user_id}`, `DELETE /v1/teams/{team_id}`. 팀 화면(M10)은 아직 없다.
+- b: `POST /v1/teams` → `POST /v1/teams/{team_id}/members` → `POST /v1/agents/{id}/admins` `{"team_id"}` → 팀원이 `PATCH /v1/agents/{id}`, `GET /v1/administered-agents` → `DELETE /v1/teams/{team_id}/members/{user_id}`, `DELETE /v1/teams/{team_id}`. 화면은 [web-settings.md](./web-settings.md)의 `teams`·`agent-admins`.
 - f: `GET`·`POST /v1/agents/{id}/credential-bindings`, `DELETE /v1/agents/{id}/credential-bindings/{binding_id}`, 활성화 `POST /v1/agents/{id}/activate`, 세션 `POST /v1/sessions`(`agent_release_id`). 연결 화면(M10)은 아직 없다.
 - g: `POST·GET /v1/agents/{id}/identities`, `DELETE /v1/agents/{id}/identities/{identity_id}`. 화면은 아직 없다.
-- c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 연결 화면(M10)은 아직 없다.
+- c: `POST /v1/linked-accounts/slack/start` → IdP 동의 → `POST /v1/linked-accounts/slack/callback` → `GET /v1/linked-accounts` → `DELETE /v1/linked-accounts/{id}`. 화면은 [web-settings.md](./web-settings.md)의 `linked-slack`.
 
 ## Driving it with lib.sh
 

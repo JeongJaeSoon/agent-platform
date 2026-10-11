@@ -293,6 +293,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       user: null,
       workspace: null,
       scopes: ALL,
+      permissions: [],
     });
     const created = await createSession(bearer(legacy.plaintext));
     const receipt = await get(

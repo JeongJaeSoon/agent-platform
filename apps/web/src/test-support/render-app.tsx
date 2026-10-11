@@ -17,15 +17,17 @@ export async function appHarness() {
 
   function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
     const api = fakeApi(routes);
+    const left: string[] = [];
     const services = createServices({
       baseUrl: "https://console.test",
       fetch: api.fetch,
+      leave: (url) => left.push(url),
     });
     const history = createMemoryHistory({ initialEntries: [path] });
     const { container } = testing.render(
       <App services={services} history={history} locale={locale} />,
     );
-    return { api, history, services, container };
+    return { api, history, services, container, left };
   }
 
   // Testing Library's own `screen` is bound to the document that existed when
