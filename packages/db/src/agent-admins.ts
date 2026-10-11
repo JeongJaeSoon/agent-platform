@@ -16,7 +16,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { agentOf } from "./agents.ts";
-import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
+import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdmins,
@@ -176,30 +176,31 @@ async function listAdmins(
 }
 
 // The acting person may change this agent's admins: a live member whose role
-// holds the right, or who administers the agent themselves.
+// holds the right, or who administers the agent themselves. `people` are
+// locked first by lockPeople; the agent row, locked before the admin rows,
+// queues changes to one agent's admins so two admins removing each other
+// cannot each hold the row the other deletes.
 async function actorMayManage(
   tx: Database,
   actor: TeamActor,
+  people: Awaited<ReturnType<typeof lockPeople>>,
   agentId: string,
   managerRoles: readonly string[],
-): Promise<boolean> {
-  await lockActorAccount(tx, actor.userId);
-  const [row] = await tx
-    .select({ role: memberships.role })
-    .from(memberships)
-    .innerJoin(users, eq(users.id, memberships.userId))
+): Promise<"yes" | "no" | "no_agent"> {
+  const me = people.find((p) => p.userId === actor.userId);
+  if (!me?.live) return "no";
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agents)
     .where(
-      and(
-        eq(memberships.workspaceId, actor.workspaceId),
-        eq(memberships.userId, actor.userId),
-        isNull(memberships.disabledAt),
-        isNull(users.disabledAt),
-      ),
+      and(eq(agents.workspaceId, actor.workspaceId), eq(agents.id, agentId)),
     )
-    .for("share", { of: memberships });
-  if (!row) return false;
-  if (managerRoles.includes(row.role)) return true;
-  return lockedAdministers(tx, actor.workspaceId, agentId, actor.userId);
+    .for("no key update");
+  if (!agent) return managerRoles.includes(me.role) ? "no_agent" : "no";
+  if (managerRoles.includes(me.role)) return "yes";
+  return (await lockedAdministers(tx, actor.workspaceId, agentId, actor.userId))
+    ? "yes"
+    : "no";
 }
 
 async function change(
@@ -214,32 +215,25 @@ async function change(
   const subjectId = subject.id.toLowerCase();
   const workspaceId = actor.workspaceId;
   return db.transaction(async (tx) => {
-    if (!(await actorMayManage(tx, actor, agentId, input.managerRoles))) {
-      return { outcome: "actor_inactive" };
-    }
-    const [agent] = await tx
-      .select({ id: agents.id })
-      .from(agents)
-      .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)))
-      .for("share");
-    if (!agent) return { outcome: "not_found" };
+    const people = await lockPeople(
+      tx,
+      workspaceId,
+      subject.kind === "user" ? [actor.userId, subjectId] : [actor.userId],
+    );
+    const may = await actorMayManage(
+      tx,
+      actor,
+      people,
+      agentId,
+      input.managerRoles,
+    );
+    if (may === "no") return { outcome: "actor_inactive" };
+    if (may === "no_agent") return { outcome: "not_found" };
 
     let changed: boolean;
     if (subject.kind === "user") {
       if (add) {
-        const [live] = await tx
-          .select({ userId: memberships.userId })
-          .from(memberships)
-          .innerJoin(users, eq(users.id, memberships.userId))
-          .where(
-            and(
-              eq(memberships.workspaceId, workspaceId),
-              eq(memberships.userId, subjectId),
-              isNull(memberships.disabledAt),
-              isNull(users.disabledAt),
-            ),
-          )
-          .for("share", { of: memberships });
+        const live = people.some((p) => p.userId === subjectId && p.live);
         if (!live) return { outcome: "subject_not_found" };
         const inserted = await tx
           .insert(agentAdmins)

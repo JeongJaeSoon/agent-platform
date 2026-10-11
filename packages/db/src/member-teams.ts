@@ -5,21 +5,20 @@ import type {
   TeamMembershipResult,
   TeamStore,
 } from "@agent-platform/platform";
-import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
-import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
+import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
+import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdminTeams,
-  memberships,
   memberTeamMembers,
   memberTeams,
   receipts,
   users,
 } from "./schema.ts";
 
-// Teams (94S-582, design 4.7). Lock order, everywhere here: the acting user,
-// their membership, the team, then team member rows — the user -> membership
-// order the rest of the identity writes take.
+// Teams (94S-582, design 4.7). Lock order, everywhere here: the people
+// involved (users, then memberships, in user_id order), the team, then team
+// member rows — the order the rest of the identity writes take.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,24 +35,14 @@ type TeamOperation =
 async function actorManagesTeams(
   tx: Database,
   actor: TeamActor,
-): Promise<boolean> {
-  await lockActorAccount(tx, actor.userId);
-  const rows = await tx
-    .select({ userId: memberships.userId })
-    .from(memberships)
-    .innerJoin(users, eq(users.id, memberships.userId))
-    .where(
-      and(
-        eq(memberships.workspaceId, actor.workspaceId),
-        eq(memberships.userId, actor.userId),
-        inArray(memberships.role, TEAM_MANAGERS),
-        isNull(memberships.disabledAt),
-        isNull(users.disabledAt),
-      ),
-    )
-    .limit(1)
-    .for("share", { of: memberships });
-  return rows.length > 0;
+  others: readonly string[] = [],
+) {
+  const people = await lockPeople(tx, actor.workspaceId, [
+    actor.userId,
+    ...others,
+  ]);
+  const me = people.find((p) => p.userId === actor.userId);
+  return me?.live === true && TEAM_MANAGERS.includes(me.role) ? people : null;
 }
 
 async function lockLiveTeam(tx: Database, workspaceId: string, teamId: string) {
@@ -340,9 +329,8 @@ async function changeMember(
   }
   const userId = input.userId.toLowerCase();
   return db.transaction(async (tx) => {
-    if (!(await actorManagesTeams(tx, actor))) {
-      return { outcome: "actor_inactive" };
-    }
+    const people = await actorManagesTeams(tx, actor, [userId]);
+    if (!people) return { outcome: "actor_inactive" };
     const team = await lockLiveTeam(tx, actor.workspaceId, input.teamId);
     if (!team) return { outcome: "not_found" };
     const [current] = await tx
@@ -362,20 +350,9 @@ async function changeMember(
       }
       // A disabled member stays out: they would hold nothing through the
       // team, and adding them would read as if they did.
-      const [live] = await tx
-        .select({ userId: memberships.userId })
-        .from(memberships)
-        .innerJoin(users, eq(users.id, memberships.userId))
-        .where(
-          and(
-            eq(memberships.workspaceId, actor.workspaceId),
-            eq(memberships.userId, userId),
-            isNull(memberships.disabledAt),
-            isNull(users.disabledAt),
-          ),
-        )
-        .for("share", { of: memberships });
-      if (!live) return { outcome: "not_member" };
+      if (!people.some((p) => p.userId === userId && p.live)) {
+        return { outcome: "not_member" };
+      }
       await tx.insert(memberTeamMembers).values({
         id: crypto.randomUUID(),
         workspaceId: actor.workspaceId,
