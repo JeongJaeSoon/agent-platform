@@ -4,9 +4,9 @@
 
 ## 기본 전제
 
-- `scripts/up.sh`로 이 run만의 스택을 띄웠다(fake model, ephemeral 포트, 이 run의 bootstrap token).
-- `scripts/doctor.sh`가 exit 0이고 checkout SHA가 확인하려는 커밋이다.
-- 드라이브하는 Bash 호출마다 `. .claude/skills/verify-agent-platform/scripts/lib.sh`를 source한다.
+- `scripts/up.sh`로 이 run만의 스택을 띄웠고, 출력된 run id를 기록했다(fake model, ephemeral 포트, 이 run의 bootstrap token).
+- `scripts/doctor.sh <run id>`가 exit 0이고 checkout SHA가 확인하려는 커밋이다.
+- 드라이브하는 Bash 호출마다 `. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>`를 source한다. run id는 `up.sh`가 출력한 값이고 기본값은 없다.
 - 이 run이 띄우지 않은 스택(기본 project `agent-platform`, 다른 `verify-ap-*`)은 몰지 않는다.
 
 ## 몰기 규칙
@@ -14,7 +14,7 @@
 - 경로·헤더·JSON 키는 적힌 그대로 쓴다.
 - 웹 사용자 행동은 `ap_web`, key 호출자는 `ap_get`·`ap_post`, 운영자 CLI는 `ap_key`·`ap_revoke`로 한다.
 - 응답 마지막 줄이 HTTP 상태 코드다. 판정은 상태 코드와 본문의 `error.code`로 한다.
-- bootstrap은 한 run에 한 번만 된다. 다른 상태에서 시작해야 하면 `down.sh` 뒤 `up.sh`.
+- bootstrap은 한 run에 한 번만 된다. 다른 상태에서 시작해야 하면 `down.sh <run id>` 뒤 `up.sh`.
 
 ## 증거와 생략 보고
 
