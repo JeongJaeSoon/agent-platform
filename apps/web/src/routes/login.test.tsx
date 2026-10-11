@@ -60,6 +60,12 @@ describe("로그인 수단 선택", () => {
       await screen.findByRole("button", { name: "Google로 로그인" }),
     );
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+    // Coming back from Google's page (back button) can start again.
+    expect(
+      screen
+        .getByRole("button", { name: "Google로 로그인" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
     const start = api.calls.find((c) => c.path === "/v1/auth/google/start");
     expect(start?.headers.get("x-requested-with")).toBe("agent-platform-web");
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
