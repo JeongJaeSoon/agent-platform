@@ -70,6 +70,7 @@ describe("database schema", () => {
       "queue_messages",
       "receipts",
       "sessions",
+      "slack_installations",
       "storage_usage",
       "turns",
       "unassigned_sessions",
