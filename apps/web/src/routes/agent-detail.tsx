@@ -151,8 +151,8 @@ function CardEditor({
   const { name, draft } = edit;
   const titleId = useId();
 
-  const save = useMutation<AgentDetail, ApiError>({
-    mutationFn: () =>
+  const save = useMutation<AgentDetail, ApiError, Edit>({
+    mutationFn: ({ name, draft }) =>
       unwrap(
         client.PATCH("/v1/agents/{id}", {
           params: {
@@ -166,16 +166,22 @@ function CardEditor({
         }),
       ) as Promise<AgentDetail>,
     onMutate: () => onOutcome(null),
-    onSuccess: async (updated) => {
+    onSuccess: async (updated, submitted) => {
       const saved = latestVersion(updated);
       onOutcome({
         kind: "notice",
         text:
-          saved && saved.id !== edit.baseId
+          saved && saved.id !== submitted.baseId
             ? t("agent.saved", { version: saved.version_no })
             : t("agent.savedNoChange"),
       });
-      setEdit(startEdit(updated));
+      // Input typed while the request was in flight stays; it is now an edit
+      // of the version just saved.
+      setEdit((current) =>
+        sameEdit(current, submitted)
+          ? startEdit(updated)
+          : { ...current, baseId: saved?.id ?? null },
+      );
       queryClient.setQueryData(queryKeys.agent(detail.agent.id), updated);
       await queryClient.invalidateQueries({
         queryKey: queryKeys.agents,
@@ -188,7 +194,7 @@ function CardEditor({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    save.mutate();
+    save.mutate(edit);
   };
 
   return (
@@ -230,7 +236,16 @@ function CardEditor({
   );
 }
 
-function startEdit(detail: AgentDetail) {
+interface Edit {
+  readonly baseId: string | null;
+  readonly name: string;
+  readonly draft: CardDraft | null;
+}
+
+const sameEdit = (a: Edit, b: Edit) =>
+  a.name === b.name && JSON.stringify(a.draft) === JSON.stringify(b.draft);
+
+function startEdit(detail: AgentDetail): Edit {
   const latest = latestVersion(detail);
   return {
     baseId: latest?.id ?? null,
