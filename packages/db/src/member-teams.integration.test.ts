@@ -266,6 +266,26 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     ).toHaveLength(2);
   });
 
+  test("the team list counts each team's current members", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const first = await person(workspaceId, "member");
+    const second = await person(workspaceId, "member");
+    const team = await newTeam(owner, "a-staffed");
+    const empty = await newTeam(owner, "b-empty");
+
+    await member(owner, team.id, first);
+    await member(owner, team.id, second);
+    await member(owner, team.id, first, false);
+
+    expect(
+      (await teams().list(workspaceId, 50)).map((t) => [t.id, t.memberCount]),
+    ).toEqual([
+      [team.id, 1],
+      [empty.id, 0],
+    ]);
+  });
+
   test("adding a member queues behind a suspension of them instead of deadlocking it", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
