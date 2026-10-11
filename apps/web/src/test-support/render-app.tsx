@@ -22,10 +22,10 @@ export async function appHarness() {
       fetch: api.fetch,
     });
     const history = createMemoryHistory({ initialEntries: [path] });
-    testing.render(
+    const { container } = testing.render(
       <App services={services} history={history} locale={locale} />,
     );
-    return { api, history, services };
+    return { api, history, services, container };
   }
 
   // Testing Library's own `screen` is bound to the document that existed when

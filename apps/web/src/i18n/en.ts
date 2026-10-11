@@ -152,6 +152,24 @@ export const en: Record<MessageKey, string> = {
   "error.INVITE_USED": "The invite was already used.",
   "error.LAST_OWNER":
     "The last owner cannot change role or be disabled — make someone else an owner first. You cannot disable yourself either.",
+  "nav.agents": "Agents",
+  "agents.title": "Agents",
+  "agents.new": "New agent",
+  "agents.empty": "No agents yet. Create a card with New agent.",
+  "agents.updated": "updated {at}",
+  "agents.state.notReleased": "No active release",
+  "agents.status.active": "Active",
+  "agents.status.paused": "Paused",
+  "agents.status.archived": "Archived",
+  "agents.newTitle": "New agent",
+  "agents.newIntro":
+    "Start from a blank card. Saving makes its first version; a session can use it once you create a release and activate it.",
+  "agents.name": "Name",
+  "agents.slug": "Short name",
+  "agents.slugHint":
+    "Lowercase letters, digits and hyphens (-). Cannot be changed later",
+  "agents.create": "Create agent",
+  "agents.creating": "Creating…",
   "agentCard.role": "Role",
   "agentCard.roleHint": "One line: what this agent is for",
   "agentCard.instructions": "Instructions",
@@ -169,8 +187,30 @@ export const en: Record<MessageKey, string> = {
   "agentCard.forbidden": "Forbidden tools",
   "agentCard.forbiddenHint":
     "Separated by commas or spaces. The server enforces it",
+  "agent.created":
+    "Agent created (version 1). Create a release and activate it before sessions can use it.",
+  "agent.noActive": "none",
+  "agent.activeRelease": "Active release: {release}",
+  "agent.releaseLabel": "version {version} · {profile}",
+  "agent.versionLabel": "version {version}",
+  "agent.saved":
+    "Saved — version {version}. It is not active yet; create a release and activate it to use it.",
+  "agent.savedNoChange":
+    "Saved. The card is unchanged, so no new version was made.",
+  "agent.card.title": "Card",
+  "agent.card.intro":
+    "Saving makes a new version. The active release stays as it is.",
+  "agent.card.save": "Save",
+  "agent.card.saving": "Saving…",
+  "agent.versions.title": "Version history",
+  "agent.versions.active": "active",
+  "agent.versions.before": "Compare from",
+  "agent.versions.after": "Compare to",
   "diff.caption": "{before} → {after}",
   "diff.added": "added: ",
   "diff.removed": "removed: ",
   "diff.same": "The two versions have the same card.",
+  "error.UNSUPPORTED_CAPABILITY":
+    "The card names a model or tool this runtime profile does not allow, or the profile is unknown.",
+  "error.ALREADY_EXISTS": "That short name is already taken.",
 };

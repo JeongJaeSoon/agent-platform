@@ -20,6 +20,7 @@ export const ko = {
   "nav.label": "주요 메뉴",
   "nav.home": "홈",
   "nav.members": "구성원",
+  "nav.agents": "에이전트",
 
   "role.owner": "관리자",
   "role.member": "구성원",
@@ -127,6 +128,22 @@ export const ko = {
   "home.checklist.agent": "에이전트 준비하기",
   "home.checklist.session": "첫 세션 시작하기",
 
+  "agents.title": "에이전트",
+  "agents.new": "새 에이전트",
+  "agents.empty": "아직 에이전트가 없습니다. 새 에이전트로 카드를 만드세요.",
+  "agents.updated": "{at} 수정",
+  "agents.state.notReleased": "활성 release 없음",
+  "agents.status.active": "활성",
+  "agents.status.paused": "일시정지",
+  "agents.status.archived": "보관됨",
+  "agents.newTitle": "새 에이전트",
+  "agents.newIntro":
+    "빈 카드에서 시작합니다. 저장하면 첫 version이 생기고, release를 만들어 활성화해야 세션에서 쓸 수 있습니다.",
+  "agents.name": "이름",
+  "agents.slug": "주소 이름",
+  "agents.slugHint": "영문 소문자, 숫자, 하이픈(-). 나중에 바꿀 수 없습니다",
+  "agents.create": "에이전트 만들기",
+  "agents.creating": "만드는 중…",
   "agentCard.role": "역할",
   "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
   "agentCard.instructions": "지시",
@@ -143,6 +160,25 @@ export const ko = {
   "agentCard.listHint": "쉼표나 공백으로 구분",
   "agentCard.forbidden": "금지 도구",
   "agentCard.forbiddenHint": "쉼표나 공백으로 구분. 서버가 막습니다",
+  "agent.created":
+    "에이전트를 만들었습니다(version 1). release를 만들고 활성화해야 세션에서 쓸 수 있습니다.",
+  "agent.noActive": "없음",
+  "agent.activeRelease": "활성 release: {release}",
+  "agent.releaseLabel": "version {version} · {profile}",
+  "agent.versionLabel": "version {version}",
+  "agent.saved":
+    "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 쓰려면 release를 만들고 활성화하세요.",
+  "agent.savedNoChange":
+    "저장했습니다. 카드 내용이 같아 새 version은 생기지 않았습니다.",
+  "agent.card.title": "카드",
+  "agent.card.intro":
+    "저장하면 새 version이 생깁니다. 활성 release는 그대로입니다.",
+  "agent.card.save": "저장",
+  "agent.card.saving": "저장하는 중…",
+  "agent.versions.title": "version 기록",
+  "agent.versions.active": "활성",
+  "agent.versions.before": "비교 기준",
+  "agent.versions.after": "비교 대상",
   "diff.caption": "{before} → {after}",
   "diff.added": "추가: ",
   "diff.removed": "삭제: ",
@@ -184,6 +220,9 @@ export const ko = {
   "error.INVITE_USED": "이미 쓰인 초대입니다.",
   "error.LAST_OWNER":
     "마지막 관리자는 역할을 바꾸거나 비활성할 수 없습니다 — 다른 관리자를 먼저 두세요. 자기 자신도 비활성할 수 없습니다.",
+  "error.UNSUPPORTED_CAPABILITY":
+    "이 runtime profile에서 쓸 수 없는 모델·도구가 카드에 있거나 모르는 profile입니다.",
+  "error.ALREADY_EXISTS": "같은 주소 이름이 이미 있습니다.",
 } as const;
 
 export type MessageKey = keyof typeof ko;
