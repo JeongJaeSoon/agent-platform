@@ -480,6 +480,27 @@ integration("members, identity and takeover on PostgreSQL", () => {
       expect(await appending).toEqual({ outcome: "actor_inactive" });
     });
 
+    test("a message sent while the account is suspended is refused", async () => {
+      const ws = await workspace();
+      const leaver = await member(ws, "member");
+      const created = await createSession(asUser(ws, leaver));
+      const client = await pool.connect();
+      await client.query("BEGIN");
+      // An account suspension's order: the user row, then its memberships.
+      await client.query("UPDATE users SET disabled_at = now() WHERE id = $1", [
+        leaver,
+      ]);
+      await client.query(
+        "SELECT 1 FROM memberships WHERE user_id = $1 FOR UPDATE",
+        [leaver],
+      );
+      const appending = append(asUser(ws, leaver), created.session_id);
+      await lockWaiter();
+      await client.query("COMMIT");
+      client.release();
+      expect(await appending).toEqual({ outcome: "actor_inactive" });
+    });
+
     test("one transaction disables the member, ends their web sessions and personal keys, and marks what they asked for", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");

@@ -12,7 +12,7 @@ import type {
   RevokeInviteResult,
 } from "@agent-platform/platform";
 import { and, asc, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
-import { receiptActorOf } from "./control-shared.ts";
+import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { createWebSession } from "./identity.ts";
 import type { Database } from "./queries.ts";
@@ -80,21 +80,6 @@ const liveMember = and(
   isNull(memberships.disabledAt),
   isNull(users.disabledAt),
 );
-
-/**
- * The actor's user row, before any membership: accepting takes it in that
- * order, and the invite's invited_by key check would otherwise wait on it
- * while holding the membership. A share lock rather than a key share, so an
- * account disable either waits for this write or is seen by it — re-checked
- * after a membership lock wait, a joined user row is the old snapshot's.
- */
-export async function lockActorAccount(tx: Database, userId: string) {
-  await tx
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.id, userId))
-    .for("share");
-}
 
 /** FOR SHARE, so a demotion or offboarding of the actor waits for this write. */
 async function actorIsLiveOwner(
