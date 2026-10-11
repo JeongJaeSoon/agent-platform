@@ -62,7 +62,7 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("역할"), CARD.role);
     await user.type(screen.getByLabelText("지시"), CARD.instructions);
     await user.type(screen.getByLabelText("모델"), CARD.model);
-    await user.type(screen.getByLabelText("금지 도구"), "Bash, Write");
+    await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
     await user.click(screen.getByRole("button", { name: "에이전트 만들기" }));
     expect(
       await screen.findByText(/에이전트를 만들었습니다\(version 1\)/),
