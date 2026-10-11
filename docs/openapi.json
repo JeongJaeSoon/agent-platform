@@ -692,6 +692,50 @@
                       "minLength": 1,
                       "maxLength": 128
                     }
+                  },
+                  "tool_policy": {
+                    "type": "object",
+                    "properties": {
+                      "default": {
+                        "type": "object",
+                        "properties": {
+                          "builtin": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          },
+                          "mcp": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "per_tool": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "allow",
+                            "ask",
+                            "deny"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -817,6 +861,50 @@
                       "minLength": 1,
                       "maxLength": 128
                     }
+                  },
+                  "tool_policy": {
+                    "type": "object",
+                    "properties": {
+                      "default": {
+                        "type": "object",
+                        "properties": {
+                          "builtin": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          },
+                          "mcp": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "per_tool": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "allow",
+                            "ask",
+                            "deny"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -4788,6 +4876,50 @@
                             "minLength": 1,
                             "maxLength": 128
                           }
+                        },
+                        "tool_policy": {
+                          "type": "object",
+                          "properties": {
+                            "default": {
+                              "type": "object",
+                              "properties": {
+                                "builtin": {
+                                  "type": "string",
+                                  "enum": [
+                                    "allow",
+                                    "ask",
+                                    "deny"
+                                  ]
+                                },
+                                "mcp": {
+                                  "type": "string",
+                                  "enum": [
+                                    "allow",
+                                    "ask",
+                                    "deny"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "per_tool": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "additionalProperties": {
+                                "type": "string",
+                                "enum": [
+                                  "allow",
+                                  "ask",
+                                  "deny"
+                                ]
+                              }
+                            }
+                          },
+                          "additionalProperties": false
                         }
                       },
                       "required": [
@@ -4943,10 +5075,64 @@
                 },
                 "policy_pins": {
                   "type": "object",
-                  "propertyNames": {
-                    "type": "string"
+                  "properties": {
+                    "tools": {
+                      "type": "object",
+                      "properties": {
+                        "default": {
+                          "type": "object",
+                          "properties": {
+                            "builtin": {
+                              "type": "string",
+                              "enum": [
+                                "allow",
+                                "ask",
+                                "deny"
+                              ]
+                            },
+                            "mcp": {
+                              "type": "string",
+                              "enum": [
+                                "allow",
+                                "ask",
+                                "deny"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "builtin",
+                            "mcp"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "per_tool": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "additionalProperties": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "default",
+                        "per_tool"
+                      ],
+                      "additionalProperties": false
+                    }
                   },
-                  "additionalProperties": {}
+                  "required": [
+                    "tools"
+                  ],
+                  "additionalProperties": false
                 },
                 "created_by": {
                   "anyOf": [
@@ -5077,10 +5263,64 @@
                   },
                   "policy_pins": {
                     "type": "object",
-                    "propertyNames": {
-                      "type": "string"
+                    "properties": {
+                      "tools": {
+                        "type": "object",
+                        "properties": {
+                          "default": {
+                            "type": "object",
+                            "properties": {
+                              "builtin": {
+                                "type": "string",
+                                "enum": [
+                                  "allow",
+                                  "ask",
+                                  "deny"
+                                ]
+                              },
+                              "mcp": {
+                                "type": "string",
+                                "enum": [
+                                  "allow",
+                                  "ask",
+                                  "deny"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "builtin",
+                              "mcp"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "per_tool": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "additionalProperties": {
+                              "type": "string",
+                              "enum": [
+                                "allow",
+                                "ask",
+                                "deny"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "default",
+                          "per_tool"
+                        ],
+                        "additionalProperties": false
+                      }
                     },
-                    "additionalProperties": {}
+                    "required": [
+                      "tools"
+                    ],
+                    "additionalProperties": false
                   },
                   "created_by": {
                     "anyOf": [
@@ -5225,10 +5465,64 @@
               },
               "policy_pins": {
                 "type": "object",
-                "propertyNames": {
-                  "type": "string"
+                "properties": {
+                  "tools": {
+                    "type": "object",
+                    "properties": {
+                      "default": {
+                        "type": "object",
+                        "properties": {
+                          "builtin": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          },
+                          "mcp": {
+                            "type": "string",
+                            "enum": [
+                              "allow",
+                              "ask",
+                              "deny"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "builtin",
+                          "mcp"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "per_tool": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "allow",
+                            "ask",
+                            "deny"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "default",
+                      "per_tool"
+                    ],
+                    "additionalProperties": false
+                  }
                 },
-                "additionalProperties": {}
+                "required": [
+                  "tools"
+                ],
+                "additionalProperties": false
               },
               "created_by": {
                 "anyOf": [

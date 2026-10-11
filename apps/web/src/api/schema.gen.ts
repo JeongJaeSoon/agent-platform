@@ -898,6 +898,17 @@ export interface components {
                     mcp: null;
                     /** @default [] */
                     forbidden: string[];
+                    tool_policy?: {
+                        default?: {
+                            /** @enum {string} */
+                            builtin?: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp?: "allow" | "ask" | "deny";
+                        };
+                        per_tool?: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 /** @default [] */
                 rules: {
@@ -925,6 +936,17 @@ export interface components {
                     mcp: null;
                     /** @default [] */
                     forbidden: string[];
+                    tool_policy?: {
+                        default?: {
+                            /** @enum {string} */
+                            builtin?: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp?: "allow" | "ask" | "deny";
+                        };
+                        per_tool?: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 /** @default [] */
                 rules: {
@@ -1717,6 +1739,17 @@ export interface components {
                         mcp: null;
                         /** @default [] */
                         forbidden: string[];
+                        tool_policy?: {
+                            default?: {
+                                /** @enum {string} */
+                                builtin?: "allow" | "ask" | "deny";
+                                /** @enum {string} */
+                                mcp?: "allow" | "ask" | "deny";
+                            };
+                            per_tool?: {
+                                [key: string]: "allow" | "ask" | "deny";
+                            };
+                        };
                     };
                     /** @default [] */
                     rules: {
@@ -1748,7 +1781,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -1773,7 +1816,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */
@@ -1800,7 +1853,17 @@ export interface components {
                     mcp: string[];
                 };
                 policy_pins: {
-                    [key: string]: unknown;
+                    tools: {
+                        default: {
+                            /** @enum {string} */
+                            builtin: "allow" | "ask" | "deny";
+                            /** @enum {string} */
+                            mcp: "allow" | "ask" | "deny";
+                        };
+                        per_tool: {
+                            [key: string]: "allow" | "ask" | "deny";
+                        };
+                    };
                 };
                 created_by: string | null;
                 /** Format: date-time */

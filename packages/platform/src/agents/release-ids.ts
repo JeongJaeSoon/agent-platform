@@ -3,8 +3,11 @@ import {
   type AgentCard,
   type AgentRelease,
   canonicalJsonOfJson,
+  DEFAULT_TOOL_POLICY,
   type EffectiveTools,
+  MCP_TOOL_PREFIX,
   type PolicyPins,
+  type ToolPolicy,
 } from "@agent-platform/contracts";
 import {
   type CatalogProfile,
@@ -16,7 +19,8 @@ import {
 
 // Bumped when the hashed shape changes, so an old id can never equal a new
 // one by accident.
-const RELEASE_ID_VERSION = 1;
+// 2: `policy_pins` went from a placeholder `{}` to the resolved tool policy.
+const RELEASE_ID_VERSION = 2;
 
 function sha256Hex(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -112,7 +116,9 @@ export function resolveReleaseContent(
     (tool) => asked.has(tool) && !forbidden.has(tool),
   );
   const effective_tools: EffectiveTools = { tools, mcp: [] };
-  const policy_pins: PolicyPins = {};
+  const policy = resolveToolPolicy(card, profileId, tools);
+  if (!policy.ok) return policy;
+  const policy_pins = policy.pins;
   return {
     ok: true,
     content: {
@@ -134,6 +140,58 @@ export function resolveReleaseContent(
       },
       effective_tools,
       policy_pins,
+    },
+  };
+}
+
+/**
+ * Pins a policy for every tool the release runs, so a later change to the
+ * defaults cannot move a release that already exists. A built-in tool the
+ * card names must be one the release runs: a policy for a tool it cannot
+ * call would read as a permission it does not have.
+ */
+function resolveToolPolicy(
+  card: AgentCard,
+  profileId: string,
+  tools: string[],
+):
+  | { ok: true; pins: PolicyPins }
+  | { ok: false; error: ReleaseCompatibilityError } {
+  const declared = card.capabilities.tool_policy;
+  const defaults = {
+    builtin: declared?.default?.builtin ?? DEFAULT_TOOL_POLICY.builtin,
+    mcp: declared?.default?.mcp ?? DEFAULT_TOOL_POLICY.mcp,
+  };
+  const named = declared?.per_tool ?? {};
+  const running = new Set(tools);
+  const unknown = Object.keys(named).filter(
+    (tool) => !tool.startsWith(MCP_TOOL_PREFIX) && !running.has(tool),
+  );
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.tool_policy.per_tool",
+        message: `release under runtime profile ${profileId} does not run ${unknown.join(", ")}`,
+      },
+    };
+  }
+  // Entries, not property writes: a tool named `__proto__` stays a tool.
+  const per_tool: [string, ToolPolicy][] = [
+    ...tools.map((tool): [string, ToolPolicy] => [
+      tool,
+      Object.hasOwn(named, tool)
+        ? (named[tool] as ToolPolicy)
+        : defaults.builtin,
+    ]),
+    ...Object.entries(named).filter(([tool]) =>
+      tool.startsWith(MCP_TOOL_PREFIX),
+    ),
+  ];
+  return {
+    ok: true,
+    pins: {
+      tools: { default: defaults, per_tool: Object.fromEntries(per_tool) },
     },
   };
 }

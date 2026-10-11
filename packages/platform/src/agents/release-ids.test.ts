@@ -95,10 +95,15 @@ describe("deriveReleaseId", () => {
         profile_digest: `sha256:${"c".repeat(64)}`,
         runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
         effective_tools: { tools: ["Read"], mcp: [] },
-        policy_pins: {},
+        policy_pins: {
+          tools: {
+            default: { builtin: "allow", mcp: "ask" },
+            per_tool: { Read: "allow" },
+          },
+        },
       }),
     ).toBe(
-      "sha256:d5076011600b9dde731f137c927e17e39a8dee6a1c6a3e4d42867d6d6b68f594",
+      "sha256:eddfa8338a8973b96ed536dcc05d4cbecad64de2967e0d4d16023e5d3d57e89b",
     );
   });
 
@@ -127,7 +132,15 @@ describe("deriveReleaseId", () => {
         ...base,
         runtime_config_snapshot: { ...base.runtime_config_snapshot, x: 1 },
       },
-      { ...base, policy_pins: { Bash: "ask" } },
+      {
+        ...base,
+        policy_pins: {
+          tools: {
+            ...base.policy_pins.tools,
+            per_tool: { ...base.policy_pins.tools.per_tool, Read: "ask" },
+          },
+        },
+      },
     ];
     for (const variant of variants) {
       expect(deriveReleaseId(variant)).not.toBe(id);
@@ -232,6 +245,77 @@ describe("resolveReleaseContent", () => {
       "card.capabilities.tools",
     );
     expect(!resolved.ok && resolved.error.message).toContain("WebFetch");
+  });
+
+  test("pins built-in allow and MCP ask unless the card says otherwise", () => {
+    expect(identityOf().policy_pins).toEqual({
+      tools: {
+        default: { builtin: "allow", mcp: "ask" },
+        per_tool: { Read: "allow", Grep: "allow" },
+      },
+    });
+    const declared = identityOf(
+      agentCardSchema.parse({
+        ...card,
+        capabilities: {
+          tools: ["Read", "Grep", "Bash"],
+          mcp: null,
+          forbidden: [],
+          tool_policy: {
+            default: { mcp: "deny" },
+            per_tool: { Bash: "ask", Grep: "deny", mcp__docs__search: "allow" },
+          },
+        },
+      }),
+    );
+    expect(declared.policy_pins).toEqual({
+      tools: {
+        default: { builtin: "allow", mcp: "deny" },
+        per_tool: {
+          Read: "allow",
+          Grep: "deny",
+          Bash: "ask",
+          mcp__docs__search: "allow",
+        },
+      },
+    });
+  });
+
+  test("a changed policy is a different release", () => {
+    const asked = identityOf(
+      agentCardSchema.parse({
+        ...card,
+        capabilities: {
+          ...card.capabilities,
+          tool_policy: { per_tool: { Read: "ask" } },
+        },
+      }),
+    );
+    expect(asked.policy_pins.tools.per_tool.Read).toBe("ask");
+    expect(deriveReleaseId(asked)).not.toBe(deriveReleaseId(identityOf()));
+  });
+
+  test("refuses a policy for a built-in tool the release does not run", () => {
+    for (const capabilities of [
+      { tools: ["Read"], mcp: null, forbidden: [] },
+      { tools: null, mcp: null, forbidden: ["Bash"] },
+    ]) {
+      const resolved = resolveReleaseContent(
+        agentCardSchema.parse({
+          ...card,
+          capabilities: {
+            ...capabilities,
+            tool_policy: { per_tool: { Bash: "allow" } },
+          },
+        }),
+        "coding",
+        profile,
+      );
+      expect(!resolved.ok && resolved.error.field).toBe(
+        "card.capabilities.tool_policy.per_tool",
+      );
+      expect(!resolved.ok && resolved.error.message).toContain("Bash");
+    }
   });
 
   test("refuses a card on a model the profile does not run", () => {
