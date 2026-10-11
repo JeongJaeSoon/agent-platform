@@ -52,6 +52,10 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
   LAST_OWNER:
     "워크스페이스에는 owner가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 owner로 바꾸세요.",
+  SCOPE_NOT_GRANTABLE:
+    "발급하는 사람이 지금 가진 권한보다 넓은 key는 만들 수 없고, 에이전트 전용 key는 승인 권한을 갖지 못합니다 — scope를 줄여 다시 발급하세요.",
+  RELEASE_PROFILE_MISMATCH:
+    "이 release는 다른 실행 프로필로 만들어졌습니다 — release의 실행 프로필로 세션을 만드세요.",
   OWNER_PROTECTED:
     "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
   PROFILE_DIGEST_MISMATCH:

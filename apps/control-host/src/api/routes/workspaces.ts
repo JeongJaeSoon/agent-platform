@@ -35,7 +35,7 @@ export function registerWorkspaceRoutes(
     // about the request shape and every attempt leaves a decision row.
     const decision = await deps.authorization.authorize({
       subject: caller.subject,
-      action: "workspace.manage",
+      action: "audit_retention.manage",
       resource: {
         kind: "workspace",
         id: workspaceId,
@@ -46,8 +46,8 @@ export function registerWorkspaceRoutes(
     if (decision.reason_code === "not_found") {
       throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
     }
-    // workspace.manage may later reach roles below owner; this setting
-    // stays the owner's (design 4.1).
+    // The policy already holds this to owners; the principal check keeps
+    // the store's ownerUserId a person's.
     if (
       decision.outcome !== "allow" ||
       principal.kind !== "user" ||

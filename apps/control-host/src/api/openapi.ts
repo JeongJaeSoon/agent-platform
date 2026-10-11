@@ -207,7 +207,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Agents",
     description:
-      "Write agent cards, release a version against a runtime profile and activate a release. Owners only.",
+      "Write agent cards, release a version against a runtime profile and activate a release. Owners, admins, and each agent's own admins.",
   },
   {
     name: "Linked accounts",
@@ -440,11 +440,17 @@ const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
     scope: "write",
+    description:
+      "`agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`.",
     body: "CreateSessionRequest",
     success: { status: 201, schema: "CreateSessionResponse" },
-    errors: [400, 401, 409, 413, 422, 429, 503],
+    errors: [400, 401, 404, 409, 413, 422, 429, 503],
     errorCodes: {
-      409: ["IDEMPOTENCY_CONFLICT"],
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "RELEASE_PROFILE_MISMATCH",
+        "PROFILE_DIGEST_MISMATCH",
+      ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
   },
@@ -693,6 +699,7 @@ const API_ROUTE_DECLARATIONS = [
     body: "CreateInviteRequest",
     success: { status: 201, schema: "CreateInviteResponse" },
     errors: [400, 401, 403, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
     idempotent: false,
   },
   {
@@ -759,7 +766,7 @@ const API_ROUTE_DECLARATIONS = [
     body: "UpdateMemberRequest",
     success: { status: 200, schema: "MemberView" },
     errors: [400, 401, 403, 404, 409, 413, 503],
-    errorCodes: { 409: ["LAST_OWNER"] },
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
     idempotent: false,
   },
   {

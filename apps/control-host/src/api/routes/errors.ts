@@ -18,6 +18,7 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   NOT_FOUND: 404,
   FORBIDDEN: 403,
   OWNER_PROTECTED: 403,
+  SCOPE_NOT_GRANTABLE: 403,
   IDEMPOTENCY_CONFLICT: 409,
   REVISION_CONFLICT: 409,
   REQUEST_STALE: 409,
@@ -36,6 +37,7 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   LINK_TAKEN: 409,
   LINK_EXISTS: 409,
   PROFILE_DIGEST_MISMATCH: 409,
+  RELEASE_PROFILE_MISMATCH: 409,
   ALREADY_EXISTS: 409,
   INVITE_USED: 409,
   LAST_OWNER: 409,
@@ -58,6 +60,7 @@ export async function mapped<T>(work: () => Promise<T>): Promise<T> {
         error.message,
         error.retry !== undefined,
         error.retry?.afterSeconds,
+        error.details,
       );
     }
     if (error instanceof InvalidCursorError) {

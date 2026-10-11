@@ -1,6 +1,7 @@
 import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
+  createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentStore,
   createPostgresAuditRetention,
@@ -177,7 +178,13 @@ const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
     : { identity: createDatabaseIdentityReader(db) }),
+  agents: createDatabaseAgentAuthority(db),
   decisions: createPostgresDecisionLog(db),
+});
+const agents = createAgentService({
+  authorization,
+  store: createPostgresAgentStore(db),
+  catalog,
 });
 const sessions = createSessionService({
   authorization,
@@ -188,6 +195,7 @@ const sessions = createSessionService({
   }),
   reader: createPostgresSessionReader(db, { logger }),
   catalog,
+  releases: agents,
   limits,
 });
 // The same parsed limits admission and dispatch run under, so what this
@@ -216,11 +224,6 @@ if (slackOidc === null) {
     {},
   );
 }
-const agents = createAgentService({
-  authorization,
-  store: createPostgresAgentStore(db),
-  catalog,
-});
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const interrupts = createInterruptService({

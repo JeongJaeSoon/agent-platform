@@ -202,6 +202,7 @@ export class ApiHttpError extends Error {
     readonly retryable = false,
     // Sent as Retry-After: when a retry is worth making, not a promise.
     readonly retryAfterSeconds?: number,
+    readonly details: unknown = null,
   ) {
     super(message);
   }
@@ -652,6 +653,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         error.code,
         error.message,
         error.retryable,
+        error.details,
       );
     }
     // The key lookup in the auth middleware runs before any route, so a
