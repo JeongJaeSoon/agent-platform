@@ -15,6 +15,7 @@ import {
   invites,
   loginMethods,
   memberships,
+  receipts,
   users,
   workspaces,
 } from "./schema.ts";
@@ -68,6 +69,7 @@ integration("external sign-in first-entry rules", () => {
       ...options,
       newUserId: randomUUID(),
       newLoginMethodId: randomUUID(),
+      receiptId: randomUUID(),
       session: {
         id: randomUUID(),
         tokenHash: createHash("sha256").update(randomUUID()).digest(),
@@ -107,6 +109,18 @@ integration("external sign-in first-entry rules", () => {
       .from(invites)
       .where(eq(invites.id, inviteId));
     expect(accepted?.acceptedAt).not.toBeNull();
+    const written = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.operation, "accept_invite"));
+    expect(written).toHaveLength(1);
+    expect(written[0]?.result).toMatchObject({
+      new_account: true,
+      login_method: "google",
+    });
+    expect(written[0]?.actor).toMatchObject({
+      actor_user_id: result.outcome === "signed_in" ? result.userId : "",
+    });
   });
 
   test("a linked subject signs in as its user whatever address it now reports", async () => {

@@ -110,6 +110,7 @@ describe("OpenAPI document", () => {
     "/v1/auth/login",
     "/v1/auth/google/start",
     "/v1/auth/google/callback",
+    "/v1/invites/accept",
   ]);
   test("every cookie-authenticated mutation documents the CSRF header and 403", () => {
     const document = buildOpenApiDocument();
@@ -129,7 +130,7 @@ describe("OpenAPI document", () => {
           // These set a cookie, so every caller sends the header.
           expect(header?.required, path).toBe(true);
           expect(operation.responses, path).toHaveProperty("403");
-        } else if (method === "post" && cookie) {
+        } else if (method !== "get" && cookie) {
           checked.push(`${method} ${path}`);
           expect(header?.required, path).toBe(false);
           expect(operation.responses, path).toHaveProperty("403");
@@ -140,6 +141,8 @@ describe("OpenAPI document", () => {
     }
     expect(checked).toContain("post /v1/sessions");
     expect(checked).toContain("post /v1/auth/logout");
+    expect(checked).toContain("patch /v1/members/{user_id}");
+    expect(checked).toContain("delete /v1/invites/{id}");
     expect(checked).not.toContain("post /v1/auth/login");
   });
 
@@ -178,6 +181,11 @@ describe("OpenAPI document", () => {
         "/v1/workspaces/{id}/audit-retention",
         "/v1/workspaces/{id}/members/{userId}/password-reset",
         "/v1/takeovers",
+        "/v1/invites",
+        "/v1/invites/accept",
+        "/v1/invites/{id}",
+        "/v1/members",
+        "/v1/members/{user_id}",
       ].sort(),
     );
     const rendered = renderOpenApiDocument();

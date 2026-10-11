@@ -5,6 +5,7 @@ export * from "./checkpoints/checkpoint-service.ts";
 export * from "./checkpoints/durability.ts";
 export * from "./limits/installation-limits.ts";
 export * from "./limits/model-prices.ts";
+export * from "./musterrolle/invite-service.ts";
 export * from "./musterrolle/member-service.ts";
 export * from "./musterrolle/policy.ts";
 export * from "./ports/agent-store.ts";

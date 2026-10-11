@@ -14,6 +14,7 @@ import {
 import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
+  createPostgresInviteStore,
   createPostgresMemberStore,
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -25,6 +26,7 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   createAuthorizationPolicy,
+  createInviteService,
   createMemberService,
   createSessionService,
 } from "@agent-platform/platform";
@@ -129,7 +131,14 @@ integration("members and actors over HTTP on PostgreSQL", () => {
         registerAuthRoutes(router, auth);
         registerSessionRoutes(router, service);
         registerReceiptRoutes(router, service);
-        registerMemberRoutes(router, members);
+        registerMemberRoutes(
+          router,
+          members,
+          createInviteService({
+            authorization,
+            store: createPostgresInviteStore(db),
+          }),
+        );
         registerEventRoutes(router, service, {
           wakeup: {
             wait: (_, signal) =>
