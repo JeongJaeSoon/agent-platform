@@ -135,7 +135,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "This installation or the session's runtime cannot serve the request.",
   RATE_LIMITED: "Too many requests; wait for `Retry-After` and retry.",
   BACKEND_UNAVAILABLE:
-    "Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request after `Retry-After`; it did not take effect, or a retry with the same `Idempotency-Key` returns what did.",
+    "Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
   NOT_READY:
     "A readiness check failed; `error.details.check` names it (`database`, `schema` or `config`).",
   CURSOR_EXPIRED:
