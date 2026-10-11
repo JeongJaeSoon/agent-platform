@@ -42,6 +42,7 @@ export async function createApiKey(
     kind?: ApiKeyKind;
     createdByUserId?: string | null;
     expiresAt?: Date | null;
+    agentId?: string | null;
   },
 ) {
   const [created] = await db
@@ -72,6 +73,7 @@ export type ApiKeyRecord = {
   kind: ApiKeyKind;
   createdByUserId: string | null;
   creatorRole: WorkspaceRole | null;
+  agentId?: string | null;
 };
 
 export function liveApiKey() {
@@ -95,6 +97,7 @@ export function selectLiveApiKey(db: Database) {
       kind: apiKeys.kind,
       createdByUserId: apiKeys.createdByUserId,
       creatorRole: memberships.role,
+      agentId: apiKeys.agentId,
     })
     .from(apiKeys)
     .leftJoin(users, eq(users.id, apiKeys.createdByUserId))
@@ -116,6 +119,7 @@ export function apiKeyRecordOf(row: {
   kind: string;
   createdByUserId: string | null;
   creatorRole: string | null;
+  agentId: string | null;
 }): ApiKeyRecord {
   return {
     ...row,

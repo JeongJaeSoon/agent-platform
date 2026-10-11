@@ -19,6 +19,7 @@ import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentActivationEvents,
+  agentAdmins,
   agentReleases,
   agents,
   agentVersions,
@@ -217,6 +218,13 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           versionNo: 1,
           card: input.card,
           contentSha256: input.contentSha256,
+          createdBy: input.createdBy,
+        });
+        // D3: whoever creates an agent administers it.
+        await tx.insert(agentAdmins).values({
+          workspaceId: input.workspaceId,
+          agentId,
+          userId: input.createdBy,
           createdBy: input.createdBy,
         });
         await writeReceipt(tx, input.principal, {

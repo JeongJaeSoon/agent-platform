@@ -188,7 +188,10 @@ export const memberships = pgTable(
     primaryKey({ columns: [table.workspaceId, table.userId] }),
     // Login resolves a user's workspaces; the PK leads with workspace_id.
     index("memberships_user_idx").on(table.userId),
-    check("memberships_role_check", sql`${table.role} IN ('owner', 'member')`),
+    check(
+      "memberships_role_check",
+      sql`${table.role} IN ('owner', 'admin', 'member')`,
+    ),
   ],
 );
 
@@ -220,7 +223,10 @@ export const invites = pgTable(
     uniqueIndex("invites_live_email_uniq")
       .on(table.workspaceId, table.email)
       .where(sql`${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL`),
-    check("invites_role_check", sql`${table.role} IN ('owner', 'member')`),
+    check(
+      "invites_role_check",
+      sql`${table.role} IN ('owner', 'admin', 'member')`,
+    ),
     // Same rule as users.email, or the live-invite unique above would let
     // two spellings of one address stay redeemable at once.
     check(
@@ -1405,8 +1411,23 @@ export const apiKeys = pgTable(
     kind: text().notNull().default("service"),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** A service key that reaches this agent's sessions and nothing else. */
+    agentId: uuid("agent_id"),
   },
   (table) => [
+    foreignKey({
+      name: "api_keys_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    index("api_keys_agent_idx")
+      .on(table.agentId)
+      .where(sql`${table.agentId} IS NOT NULL`),
+    // A person's key carries their authority, never an agent's.
+    check(
+      "api_keys_agent_check",
+      sql`${table.agentId} IS NULL OR (${table.kind} = 'service' AND ${table.workspaceId} IS NOT NULL)`,
+    ),
     index("api_keys_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
@@ -1472,6 +1493,9 @@ export const agents = pgTable(
   },
   (table) => [
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    // What agent_admins and api_keys reference, so neither can name another
+    // workspace's agent.
+    unique("agents_workspace_id_key").on(table.workspaceId, table.id),
     foreignKey({
       name: "agents_active_release_fk",
       columns: [table.id, table.activeReleaseId],
@@ -1489,6 +1513,36 @@ export const agents = pgTable(
       "agents_activation_check",
       sql`${table.activationRevision} >= -1 AND (${table.activeReleaseId} IS NULL) = (${table.activationRevision} = -1)`,
     ),
+  ],
+);
+
+// An agent's admins (design 4.1): a member gains that agent's management
+// actions. Whoever creates an agent is its first (D3). A team as admin is M13.
+export const agentAdmins = pgTable(
+  "agent_admins",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentId, table.userId] }),
+    foreignKey({
+      name: "agent_admins_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // An admin is a member of the agent's workspace, never someone else's.
+    foreignKey({
+      name: "agent_admins_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    index("agent_admins_user_idx").on(table.workspaceId, table.userId),
   ],
 );
 
