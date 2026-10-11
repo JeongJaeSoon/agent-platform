@@ -110,7 +110,7 @@ describe("에이전트 상세", () => {
       "환불 문의에도 답한다.",
     );
     const patch = api.calls.find((c) => c.method === "PATCH");
-    expect(patch?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(patch?.headers.get("idempotency-key")).toBeNull();
     expect((patch?.body as { card: unknown }).card).toEqual({
       ...CARD,
       instructions: "환불 문의에도 답한다.",
