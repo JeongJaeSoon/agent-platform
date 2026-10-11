@@ -323,6 +323,35 @@ describe("편집 중 다른 곳의 저장", () => {
     ).toBe(PROFILE);
   });
 
+  test("저장 응답을 기다리는 동안 이어서 쓴 내용은 응답이 와도 남는다", async () => {
+    const server = agentServer();
+    const patch = server.routes[`PATCH /v1/agents/${AGENT_ID}`];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: async (request: Request) => {
+        await gate;
+        return patch ? patch(request) : json(500, {});
+      },
+    });
+    const user = await setupUser();
+    const instructions = await screen.findByLabelText("지시");
+    await user.clear(instructions);
+    await user.type(instructions, "첫 저장.");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.type(screen.getByLabelText("지시"), " 이어서 쓴 줄.");
+    release();
+    expect(await screen.findByText(/저장했습니다 — version 2/)).toBeDefined();
+    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
+      "첫 저장. 이어서 쓴 줄.",
+    );
+    expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
+  });
+
   test("고친 것이 없으면 최신 카드를 그대로 받아들인다", async () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });

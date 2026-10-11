@@ -23,23 +23,81 @@ let registered = false;
 
 /*
  * 3. The registrator also swaps in the window's timers, and the window dies
- *    with `unregister`. React's scheduler keeps the setImmediate it found when
- *    it first loaded, so a second DOM file in the same run rendered once and
- *    then never ran an effect or an update again. The runtime's own timers
- *    outlive every window, so they go back on the global after registering.
+ *    with `unregister`. React's scheduler and other libraries keep the timers
+ *    they found when they first loaded, so a second DOM file in the same run
+ *    rendered once and then never ran an effect or an update again. The
+ *    runtime's own timers outlive every window, so they go back on the global,
+ *    but tracked: whatever a file left pending (Radix schedules a focus event
+ *    on unmount) is cancelled when its window closes instead of firing into
+ *    the next file's DOM.
  */
-const RUNTIME_TIMERS = [
-  "setTimeout",
-  "clearTimeout",
-  "setInterval",
-  "clearInterval",
-  "setImmediate",
-  "clearImmediate",
-  "queueMicrotask",
-] as const;
-const runtimeTimers = Object.fromEntries(
-  RUNTIME_TIMERS.map((name) => [name, globalThis[name]]),
-);
+const runtime = {
+  setTimeout: globalThis.setTimeout,
+  clearTimeout: globalThis.clearTimeout,
+  setInterval: globalThis.setInterval,
+  clearInterval: globalThis.clearInterval,
+  setImmediate: globalThis.setImmediate,
+  clearImmediate: globalThis.clearImmediate,
+  queueMicrotask: globalThis.queueMicrotask,
+};
+type Pending = ReturnType<typeof setTimeout> | ReturnType<typeof setImmediate>;
+const pendingTimeouts = new Set<Pending>();
+const pendingImmediates = new Set<Pending>();
+
+const trackedTimers = {
+  setTimeout: ((
+    callback: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    const id = runtime.setTimeout(() => {
+      pendingTimeouts.delete(id);
+      callback(...args);
+    }, ms);
+    pendingTimeouts.add(id);
+    return id;
+  }) as typeof setTimeout,
+  clearTimeout: ((id?: Parameters<typeof clearTimeout>[0]) => {
+    pendingTimeouts.delete(id as Pending);
+    runtime.clearTimeout(id);
+  }) as typeof clearTimeout,
+  setInterval: ((
+    callback: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    const id = runtime.setInterval(callback, ms, ...args);
+    pendingTimeouts.add(id);
+    return id;
+  }) as typeof setInterval,
+  clearInterval: ((id?: Parameters<typeof clearInterval>[0]) => {
+    pendingTimeouts.delete(id as Pending);
+    runtime.clearInterval(id);
+  }) as typeof clearInterval,
+  setImmediate: ((
+    callback: (...args: unknown[]) => void,
+    ...args: unknown[]
+  ) => {
+    const id = runtime.setImmediate(() => {
+      pendingImmediates.delete(id);
+      callback(...args);
+    });
+    pendingImmediates.add(id);
+    return id;
+  }) as typeof setImmediate,
+  clearImmediate: ((id?: Parameters<typeof clearImmediate>[0]) => {
+    pendingImmediates.delete(id as Pending);
+    runtime.clearImmediate(id);
+  }) as typeof clearImmediate,
+  queueMicrotask: runtime.queueMicrotask,
+};
+
+function cancelPendingTimers() {
+  for (const id of pendingTimeouts) runtime.clearTimeout(id as never);
+  for (const id of pendingImmediates) runtime.clearImmediate(id as never);
+  pendingTimeouts.clear();
+  pendingImmediates.clear();
+}
 
 export interface DomOptions {
   /** Viewport width; the responsive snapshots use 360 / 768 / 1440. */
@@ -55,7 +113,7 @@ export async function setupDom({
 }: DomOptions = {}): Promise<TestingLibrary> {
   if (!registered) {
     GlobalRegistrator.register({ url: "https://ui.test/", width, height });
-    Object.assign(globalThis, runtimeTimers);
+    Object.assign(globalThis, trackedTimers);
     registered = true;
   }
   setViewport({ width, height });
@@ -69,6 +127,7 @@ export async function setupDom({
   afterAll(async () => {
     if (!registered) return;
     registered = false;
+    cancelPendingTimers();
     await GlobalRegistrator.unregister();
   });
 
