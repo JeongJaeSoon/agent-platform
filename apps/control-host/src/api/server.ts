@@ -60,6 +60,7 @@ import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
+import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -251,8 +252,15 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
+const google = googleLoginConfigFromEnv(process.env);
+if (google.problems.length > 0) {
+  throw new Error(
+    `Invalid Google sign-in settings: ${google.problems.join("; ")}`,
+  );
+}
 const auth = {
   identity,
+  ...(google.config ? { google: createGoogleLogin(google.config) } : {}),
   bootstrap: await bootstrapGateFromEnv(
     process.env.BOOTSTRAP_TOKEN,
     identity,
@@ -312,6 +320,7 @@ const app = createApiApp({
       configProblems: (environment) => [
         ...installationLimitProblems(environment),
         ...apiSettingsProblems(environment),
+        ...googleLoginConfigFromEnv(environment).problems,
       ],
     }),
   ),

@@ -106,6 +106,11 @@ describe("OpenAPI document", () => {
     expect([...used].sort()).toEqual([...declared].sort());
   });
 
+  const SETS_SESSION_COOKIE = new Set([
+    "/v1/auth/login",
+    "/v1/auth/google/start",
+    "/v1/auth/google/callback",
+  ]);
   test("every cookie-authenticated mutation documents the CSRF header and 403", () => {
     const document = buildOpenApiDocument();
     const checked: string[] = [];
@@ -120,8 +125,8 @@ describe("OpenAPI document", () => {
         const header = operation.parameters.find(
           (p) => p.in === "header" && p.name === "X-Requested-With",
         );
-        if (path === "/v1/auth/login") {
-          // Login sets the cookie, so every caller sends the header.
+        if (SETS_SESSION_COOKIE.has(path)) {
+          // These set a cookie, so every caller sends the header.
           expect(header?.required, path).toBe(true);
           expect(operation.responses, path).toHaveProperty("403");
         } else if (method === "post" && cookie) {
@@ -147,6 +152,8 @@ describe("OpenAPI document", () => {
         "/v1",
         "/v1/openapi.json",
         "/v1/auth/bootstrap",
+        "/v1/auth/google/callback",
+        "/v1/auth/google/start",
         "/v1/auth/login",
         "/v1/auth/logout",
         "/v1/auth/me",
