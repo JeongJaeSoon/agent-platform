@@ -263,6 +263,31 @@ integration("teams as agent admins on PostgreSQL", () => {
     ).toEqual(["add_agent_admin", "add_agent_admin", "remove_agent_admin"]);
   });
 
+  test("two admins removing each other at once: one wins, the other is refused", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    for (let round = 0; round < 5; round++) {
+      const a = await person(workspaceId, "member");
+      const b = await person(workspaceId, "member");
+      const agentId = await agent(workspaceId, idOf(owner));
+      const change = (by: Caller, who: Caller, add = true) =>
+        admins()[add ? "add" : "remove"]({
+          actor: acting(by),
+          receiptId: randomUUID(),
+          agentId,
+          subject: { kind: "user", id: idOf(who) },
+          managerRoles: MANAGERS,
+        });
+      await change(owner, a);
+      await change(owner, b);
+
+      const outcomes = (
+        await Promise.all([change(a, b, false), change(b, a, false)])
+      ).map((r) => r.outcome);
+      expect(outcomes.sort()).toEqual(["actor_inactive", "removed"]);
+    }
+  });
+
   test("a team admin issues and sees the agent's keys until they leave the team", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
