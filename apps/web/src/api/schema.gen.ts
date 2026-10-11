@@ -272,6 +272,8 @@ export interface paths {
         /**
          * Let Slack guests call agents, or stop them (owner or admin)
          * @description Off by default. While off, a Slack guest (`is_restricted`) who calls an agent is refused with `guest_disabled`; while on, a guest still has to link their Slack account. Slack Connect users from other organizations are refused either way. An app with Slack's agent features on is closed to guests by Slack itself. The current value is `workspace.settings.slack_guest_enabled` in GET /v1/auth/me.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["setSlackGuest"];
         delete?: never;
@@ -4100,15 +4102,17 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SlackGuestResponse"];
                 };
             };
-            /** @description Error: BAD_REQUEST */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4120,9 +4124,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: UNAUTHORIZED */
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4134,9 +4139,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: FORBIDDEN */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4148,9 +4154,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: NOT_FOUND */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4162,9 +4169,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: REQUEST_TIMEOUT */
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4176,9 +4184,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description Error: PAYLOAD_TOO_LARGE */
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB, or `message` is longer than 32 KiB of UTF-8. */
             413: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4191,9 +4200,11 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description Error: BACKEND_UNAVAILABLE */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
                     [name: string]: unknown;
                 };
                 content: {

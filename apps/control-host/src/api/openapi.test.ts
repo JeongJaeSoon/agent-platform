@@ -90,6 +90,7 @@ const UNDOCUMENTED_OPERATIONS = new Set<ApiOperationId>([
   "revokeCredentialBinding",
   "revokeInvite",
   "setAuditRetention",
+  "setSlackGuest",
   "slackLinkCallback",
   "startGoogleLogin",
   "startSlackLink",
