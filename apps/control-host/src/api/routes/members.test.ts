@@ -375,7 +375,7 @@ describe("PATCH /v1/members/{user_id}", () => {
   });
 
   test("a body that is not a role patch is refused", async () => {
-    expect((await patch(app(), { role: "admin" })).status).toBe(400);
+    expect((await patch(app(), { role: "guest" })).status).toBe(400);
     expect((await patch(app(), { disabled: true })).status).toBe(400);
     const huge = JSON.stringify({ role: "owner", pad: "x".repeat(2_000_000) });
     expect((await patch(app(), huge)).status).toBe(413);

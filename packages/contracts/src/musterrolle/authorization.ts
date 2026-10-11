@@ -33,13 +33,14 @@ export const SESSION_SCOPE_VALUES = [
 ] as const;
 export const sessionScopeSchema = z.enum(SESSION_SCOPE_VALUES);
 
-export const WORKSPACE_ROLE_VALUES = ["owner", "member"] as const;
+export const WORKSPACE_ROLE_VALUES = ["owner", "admin", "member"] as const;
 export const workspaceRoleSchema = z.enum(WORKSPACE_ROLE_VALUES);
 
 export type SessionScope = z.infer<typeof sessionScopeSchema>;
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;
 
-// 03 §3.2: owner gets everything, member everything but recovery.
+// 03 §3.2: owner gets everything; admin and member everything but recovery
+// (design 4.1: admin's session rights are a member's).
 const MEMBER_SCOPES = SESSION_SCOPE_VALUES.filter(
   (scope) => scope !== "sessions:recover",
 );
@@ -291,6 +292,8 @@ export const RESOURCE_KIND_VALUES = [
   "memory",
   "routine",
   "artifact",
+  // A receipt target only: no action is granted on a key.
+  "api_key",
 ] as const;
 export const resourceKindSchema = z.enum(RESOURCE_KIND_VALUES);
 export const resourceRefSchema = z
@@ -311,15 +314,25 @@ export const audienceRefSchema = z
 export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.read",
   "workspace.manage",
-  // Offboarding a member and taking over the sessions they leave behind.
+  // Owner-only, unlike the rest of the workspace settings (design 4.1).
+  "audit_retention.manage",
+  // Invites, roles, offboarding and taking over what a member leaves behind.
   "member.manage",
-  // Issuing and revoking a workspace's service keys.
+  "team.manage",
+  // Issuing and revoking a workspace's service keys; on an agent, the keys
+  // bound to that agent.
   "api_key.manage",
   // Issuing and revoking the caller's own personal keys.
   "api_key.manage_own",
   // Linking and unlinking the caller's own account on another service.
   "account.link",
+  // Any member may create an agent and becomes its admin (D3).
+  "agent.create",
   "agent.manage",
+  // Bringing an archived agent back is the owner's alone.
+  "agent.restore",
+  "agent.admin.manage",
+  "credential.bind",
   "binding.manage",
   "routine.manage",
   "session.read",
@@ -351,11 +364,17 @@ const ACTION_RESOURCE_KINDS: Record<
 > = {
   "workspace.read": new Set(["workspace"]),
   "workspace.manage": new Set(["workspace"]),
+  "audit_retention.manage": new Set(["workspace"]),
   "member.manage": new Set(["workspace", "session"]),
-  "api_key.manage": new Set(["workspace"]),
+  "team.manage": new Set(["workspace"]),
+  "api_key.manage": new Set(["workspace", "agent"]),
   "api_key.manage_own": new Set(["workspace"]),
   "account.link": new Set(["workspace"]),
+  "agent.create": new Set(["workspace"]),
   "agent.manage": new Set(["workspace", "agent"]),
+  "agent.restore": new Set(["agent"]),
+  "agent.admin.manage": new Set(["agent"]),
+  "credential.bind": new Set(["agent"]),
   "binding.manage": new Set(["workspace", "agent", "surface_binding"]),
   "routine.manage": new Set(["workspace", "agent", "routine"]),
   "session.read": new Set(["session", "session_link"]),
@@ -544,8 +563,23 @@ export const authorizationResourceSchema = z
     kind: resourceKindSchema,
     id: z.string().min(1).max(512).nullable(),
     owner_scope: ownerScopeSchema,
+    /**
+     * The agent a resource not yet identified will belong to: a session about
+     * to be created on one of its releases. A resource that exists is read
+     * for its agent instead, never told.
+     */
+    agent_id: agentIdSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((resource, ctx) => {
+    if (resource.agent_id !== undefined && resource.id !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["agent_id"],
+        message: "an identified resource is read for its agent",
+      });
+    }
+  });
 
 export const authorizationRequestSchema = z
   .object({

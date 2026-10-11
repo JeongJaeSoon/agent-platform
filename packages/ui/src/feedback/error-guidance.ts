@@ -52,6 +52,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
   LAST_OWNER:
     "워크스페이스에는 owner가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 owner로 바꾸세요.",
+  OWNER_PROTECTED:
+    "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
   PROFILE_DIGEST_MISMATCH:
     "이 release를 만든 뒤 실행 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
   ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
