@@ -652,12 +652,20 @@ export function createSessionService(deps: {
     async decideRecovery(
       actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; body: RecoveryDecisionRequest },
+      input: {
+        idempotencyKey: string;
+        body: RecoveryDecisionRequest;
+        // An owner deciding for a session outside its share.
+        justification?: string;
+      },
     ): Promise<ControlAcceptedResponse> {
-      await requirePermitted(authorization, actor, "session.recover", {
-        kind: "session",
-        id: sessionId,
-      });
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.recover",
+        { kind: "session", id: sessionId },
+        input.justification,
+      );
       const result = await controls.decideRecoveryAtomic({
         principal: actor,
         sessionId,

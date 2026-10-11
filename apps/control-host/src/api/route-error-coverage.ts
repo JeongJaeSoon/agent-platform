@@ -44,6 +44,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/audit-read",
     "GET /v1/admin/sessions",
     "POST /v1/admin/sessions/{id}/terminate",
+    "POST /v1/admin/sessions/{id}/recovery-decisions",
   ],
   "routes/receipts.test.ts": ["GET /v1/receipts/{id}"],
   "routes/pending.test.ts": [

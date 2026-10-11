@@ -155,6 +155,7 @@ describe("OpenAPI document", () => {
         "/readyz",
         "/v1",
         "/v1/admin/sessions",
+        "/v1/admin/sessions/{id}/recovery-decisions",
         "/v1/admin/sessions/{id}/terminate",
         "/v1/openapi.json",
         "/v1/auth/bootstrap",

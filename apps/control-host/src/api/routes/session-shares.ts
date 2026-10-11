@@ -2,7 +2,9 @@ import {
   adminTerminateSessionRequestSchema,
   auditReadRequestSchema,
   auditReadResponseSchema,
+  controlAcceptedResponseSchema,
   listAdminSessionsResponseSchema,
+  recoveryDecisionRequestSchema,
   sessionIdParamsSchema,
   sessionShareSchema,
   setSessionShareRequestSchema,
@@ -24,7 +26,10 @@ import { mapped, requireIdempotencyKey, requireParams } from "./errors.ts";
 export function registerSessionShareRoutes(
   router: ApiRouter,
   shares: SessionShareService,
-  sessions: Pick<SessionService, "auditRead" | "terminateSession">,
+  sessions: Pick<
+    SessionService,
+    "auditRead" | "terminateSession" | "decideRecovery"
+  >,
 ) {
   apiRoute(router, "getSessionShare", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
@@ -74,6 +79,25 @@ export function registerSessionShareRoutes(
     return jsonWithSchema(
       context,
       terminateSessionResponseSchema,
+      accepted,
+      202,
+    );
+  });
+  // The decision's reason doubles as the justification the policy asks for.
+  apiRoute(router, "adminDecideSessionRecovery", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const key = requireIdempotencyKey(context);
+    const body = await parseJsonBody(context, recoveryDecisionRequestSchema);
+    const accepted = await mapped(() =>
+      sessions.decideRecovery(context.get("caller"), params.id, {
+        idempotencyKey: key,
+        body,
+        justification: body.reason,
+      }),
+    );
+    return jsonWithSchema(
+      context,
+      controlAcceptedResponseSchema,
       accepted,
       202,
     );
