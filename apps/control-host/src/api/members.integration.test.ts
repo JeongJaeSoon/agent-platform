@@ -1,0 +1,530 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  authMeResponseSchema,
+  bootstrapResponseSchema,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+  createSessionResponseSchema,
+  getReceiptResponseSchema,
+  listTakeoversResponseSchema,
+  SESSION_SCOPE_VALUES,
+  type SessionScope,
+  scopesForRole,
+} from "@agent-platform/contracts";
+import * as schema from "@agent-platform/db";
+import {
+  createDatabaseIdentityReader,
+  createPostgresMemberStore,
+  createPostgresSessionControl,
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+  memberships,
+  sessions,
+  users,
+} from "@agent-platform/db";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import {
+  createAuthorizationPolicy,
+  createMemberService,
+  createSessionService,
+} from "@agent-platform/platform";
+import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+import { eq, sql } from "drizzle-orm";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { createApiApp } from "./app.ts";
+import {
+  createBootstrapGate,
+  DatabaseIdentityStore,
+  LoginLockout,
+} from "./auth.ts";
+import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
+import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerEventRoutes } from "./routes/events.ts";
+import { registerMemberRoutes } from "./routes/members.ts";
+import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionRoutes } from "./routes/sessions.ts";
+
+const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
+
+const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
+const PASSWORD = "an adequately long password";
+const KEEPALIVE_MS = 300;
+const ALL = [...SESSION_SCOPE_VALUES] as SessionScope[];
+
+// The HTTP surface wired the way server.ts wires it: authorization re-reads
+// identity from the database on every decision.
+integration("members and actors over HTTP on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+  let app: ReturnType<typeof createApiApp>;
+  let keys: DatabaseApiKeyStore;
+  const sink = new MemoryLogSink();
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "members_api" });
+    pool = new Pool({ connectionString: database.url, max: 8 });
+    db = drizzle(pool, { schema });
+    keys = new DatabaseApiKeyStore(db);
+    const identity = new DatabaseIdentityStore(db);
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const auth = {
+      identity,
+      bootstrap: createBootstrapGate(BOOTSTRAP_TOKEN),
+      lockout: new LoginLockout(),
+      logger,
+    };
+    const authorization = createAuthorizationPolicy({
+      identity: createDatabaseIdentityReader(db),
+    });
+    const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      },
+      authorization,
+      inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
+      reader: createPostgresSessionReader(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": {
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Bash"],
+            permission_mode: "default",
+            provider: {
+              kind: "litellm",
+              endpoint: "https://litellm.invalid",
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider-key",
+                ref: { value_env: "PROVIDER_KEY" },
+              },
+            },
+          },
+        },
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
+      },
+    });
+    const members = createMemberService({
+      authorization,
+      store: createPostgresMemberStore(db),
+    });
+    app = createApiApp({
+      authMode: "api-key",
+      logger,
+      keyStore: keys,
+      identity,
+      registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+      registerRoutes: (router) => {
+        registerAuthRoutes(router, auth);
+        registerSessionRoutes(router, service);
+        registerReceiptRoutes(router, service);
+        registerMemberRoutes(router, members);
+        registerEventRoutes(router, service, {
+          wakeup: {
+            wait: (_, signal) =>
+              new Promise((resolve) =>
+                signal.addEventListener("abort", () => resolve(), {
+                  once: true,
+                }),
+              ),
+          },
+          keepaliveMs: KEEPALIVE_MS,
+          logger,
+        });
+      },
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await database?.drop();
+  });
+
+  const post = (path: string, body: unknown, headers: HeadersInit = {}) =>
+    app.request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+  const get = (path: string, headers: HeadersInit) =>
+    app.request(path, { headers });
+  const bearer = (plaintext: string) => ({
+    Authorization: `Bearer ${plaintext}`,
+  });
+  const cookieOf = (response: Response) =>
+    (response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
+  const asCookie = (cookie: string) => ({
+    Cookie: cookie,
+    [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+  });
+  const sessionBody = {
+    profile_id: "claude-coding-v1",
+    repository_id: "sample-app",
+    message: "Inspect the failing unit test and propose a fix.",
+  };
+
+  async function login(email: string) {
+    const response = await post(
+      "/v1/auth/login",
+      { email, password: PASSWORD },
+      { "X-Requested-With": "agent-platform-web" },
+    );
+    expect(response.status).toBe(200);
+    return cookieOf(response);
+  }
+
+  async function createSession(headers: HeadersInit) {
+    const response = await post("/v1/sessions", sessionBody, {
+      ...headers,
+      "Idempotency-Key": crypto.randomUUID(),
+    });
+    expect(response.status).toBe(201);
+    return createSessionResponseSchema.parse(await response.json());
+  }
+
+  async function sessionRow(id: string) {
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, id));
+    if (!row) throw new Error("session vanished");
+    return row;
+  }
+
+  async function stream(sessionId: string, headers: HeadersInit) {
+    const response = await get(`/v1/sessions/${sessionId}/events`, headers);
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("no stream body");
+    return reader;
+  }
+
+  async function endOf(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    since: number,
+  ): Promise<number> {
+    for (;;) {
+      const chunk = await Promise.race([
+        reader.read(),
+        Bun.sleep(5_000).then(() => ({ done: false, value: undefined })),
+      ]);
+      if (chunk.value === undefined && !chunk.done) throw new Error("hung");
+      if (chunk.done) return Date.now() - since;
+    }
+  }
+
+  let workspaceId = "";
+  let ownerId = "";
+  let ownerCookie = "";
+  let memberId = "";
+
+  async function addMember(email: string) {
+    const [user] = await db
+      .insert(users)
+      .values({
+        id: crypto.randomUUID(),
+        email,
+        passwordHash: await Bun.password.hash(PASSWORD, {
+          algorithm: "argon2id",
+        }),
+        displayName: email,
+      })
+      .returning({ id: users.id });
+    if (!user) throw new Error("no user");
+    await db
+      .insert(memberships)
+      .values({ workspaceId, userId: user.id, role: "member" });
+    return user.id;
+  }
+
+  test("setup: an owner, a member, and their cookies", async () => {
+    const boot = await post("/v1/auth/bootstrap", {
+      bootstrap_token: BOOTSTRAP_TOKEN,
+      email: "owner@example.com",
+      password: PASSWORD,
+      display_name: "Owner",
+      workspace_name: "Acme",
+      workspace_slug: "acme",
+    });
+    expect(boot.status).toBe(201);
+    const body = bootstrapResponseSchema.parse(await boot.json());
+    workspaceId = body.workspace.id;
+    ownerId = body.user_id;
+    ownerCookie = await login("owner@example.com");
+    memberId = await addMember("member@example.com");
+  });
+
+  test("a legacy key answers exactly as before and records only itself", async () => {
+    const legacy = await issueApiKey(keys, {
+      ownerId: "legacy-owner",
+      scopes: ALL,
+    });
+    const me = authMeResponseSchema.parse(
+      await (await get("/v1/auth/me", bearer(legacy.plaintext))).json(),
+    );
+    expect(me).toEqual({
+      principal: {
+        kind: "api_key",
+        id: legacy.keyId,
+        owner_id: "legacy-owner",
+        workspace_id: null,
+        scopes: ALL,
+      },
+      user: null,
+      workspace: null,
+      scopes: ALL,
+    });
+    const created = await createSession(bearer(legacy.plaintext));
+    const receipt = await get(
+      `/v1/receipts/${created.receipt_id}`,
+      bearer(legacy.plaintext),
+    );
+    expect(receipt.status).toBe(200);
+    const view = getReceiptResponseSchema.parse(await receipt.json());
+    expect(Object.keys(view).sort()).toEqual(
+      [
+        "created_at",
+        "error",
+        "id",
+        "operation",
+        "result",
+        "status",
+        "target_ref",
+        "updated_at",
+        "actor",
+      ].sort(),
+    );
+    expect(view.actor).toEqual({
+      principal: { kind: "api_key", id: legacy.keyId },
+      actor_user_id: null,
+      agent_id: null,
+    });
+    const row = await sessionRow(created.session_id);
+    expect(row.workspaceId).toBeNull();
+    expect(row.createdByUserId).toBeNull();
+    expect(row.createdByApiKeyId).toBe(legacy.keyId);
+  });
+
+  test("a workspace key sees the sessions the web sees, and /auth/me names the workspace", async () => {
+    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
+    const byCookie = await createSession(asCookie(ownerCookie));
+    const listed = await get("/v1/sessions", bearer(service.plaintext));
+    expect(listed.status).toBe(200);
+    const ids = (
+      (await listed.json()) as { items: { id: string }[] }
+    ).items.map((item) => item.id);
+    expect(ids).toContain(byCookie.session_id);
+    const me = authMeResponseSchema.parse(
+      await (await get("/v1/auth/me", bearer(service.plaintext))).json(),
+    );
+    expect(me.workspace?.id).toBe(workspaceId);
+  });
+
+  test("an API key takes no management action, whatever its scopes", async () => {
+    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
+    const personal = await issueApiKey(keys, {
+      workspaceId,
+      scopes: ALL,
+      personalFor: ownerId,
+    });
+    for (const plaintext of [service.plaintext, personal.plaintext]) {
+      expect((await get("/v1/takeovers", bearer(plaintext))).status).toBe(403);
+    }
+    expect((await get("/v1/takeovers", { Cookie: ownerCookie })).status).toBe(
+      200,
+    );
+  });
+
+  test("a personal key stops when its creator is disabled; a service key does not", async () => {
+    const creatorId = await addMember("creator@example.com");
+    const personal = await issueApiKey(keys, {
+      workspaceId,
+      scopes: ALL,
+      personalFor: creatorId,
+    });
+    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
+    expect((await get("/v1/sessions", bearer(personal.plaintext))).status).toBe(
+      200,
+    );
+    // Narrowed to what its creator holds now.
+    const me = authMeResponseSchema.parse(
+      await (await get("/v1/auth/me", bearer(personal.plaintext))).json(),
+    );
+    const memberScopes = scopesForRole("member");
+    expect(memberScopes.length).toBeLessThan(ALL.length);
+    expect(me.scopes).toEqual(ALL.filter((s) => memberScopes.includes(s)));
+
+    await db
+      .update(users)
+      .set({ disabledAt: sql`clock_timestamp()` })
+      .where(eq(users.id, creatorId));
+    expect((await get("/v1/sessions", bearer(personal.plaintext))).status).toBe(
+      401,
+    );
+    expect((await get("/v1/sessions", bearer(service.plaintext))).status).toBe(
+      200,
+    );
+  });
+
+  test("offboarding blocks the web session and personal key, cuts open streams, and parks what they asked for", async () => {
+    const memberCookie = await login("member@example.com");
+    const personal = await issueApiKey(keys, {
+      workspaceId,
+      scopes: ALL,
+      personalFor: memberId,
+    });
+    const service = await issueApiKey(keys, { workspaceId, scopes: ALL });
+    const asked = await createSession(asCookie(memberCookie));
+    const row = await sessionRow(asked.session_id);
+    expect(row.workspaceId).toBe(workspaceId);
+    expect(row.createdByUserId).toBe(memberId);
+    expect(row.createdByApiKeyId).toBeNull();
+    const byKey = await createSession(bearer(personal.plaintext));
+    expect((await sessionRow(byKey.session_id)).createdByUserId).toBe(memberId);
+
+    const cookieStream = await stream(asked.session_id, {
+      Cookie: memberCookie,
+    });
+    const keyStream = await stream(
+      asked.session_id,
+      bearer(personal.plaintext),
+    );
+    const serviceStream = await stream(
+      asked.session_id,
+      bearer(service.plaintext),
+    );
+
+    // The operator command, as an operator runs it.
+    const cli = Bun.spawn(
+      [
+        "bun",
+        "run",
+        "src/api/members.ts",
+        "offboard",
+        memberId,
+        "--by",
+        ownerId,
+      ],
+      {
+        cwd: `${import.meta.dir}/../..`,
+        env: { ...process.env, DATABASE_URL: database.url },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [out, err, code] = await Promise.all([
+      new Response(cli.stdout).text(),
+      new Response(cli.stderr).text(),
+      cli.exited,
+    ]);
+    expect(code, err).toBe(0);
+    expect(out).toContain(
+      "web_sessions_revoked=1 personal_keys_revoked=1 sessions_awaiting_takeover=2",
+    );
+    const offboardedAt = Date.now();
+
+    expect(await endOf(cookieStream, offboardedAt)).toBeLessThan(
+      KEEPALIVE_MS + 50,
+    );
+    expect(await endOf(keyStream, offboardedAt)).toBeLessThan(
+      KEEPALIVE_MS + 50,
+    );
+    expect((await get("/v1/sessions", { Cookie: memberCookie })).status).toBe(
+      401,
+    );
+    expect((await get("/v1/sessions", bearer(personal.plaintext))).status).toBe(
+      401,
+    );
+    expect((await get("/v1/sessions", bearer(service.plaintext))).status).toBe(
+      200,
+    );
+    // The service key's stream is still open.
+    const alive = await Promise.race([
+      serviceStream.read().then(() => true),
+      Bun.sleep(KEEPALIVE_MS * 2).then(() => false),
+    ]);
+    expect(alive).toBe(true);
+    await serviceStream.cancel();
+
+    const refused = await post(
+      `/v1/sessions/${asked.session_id}/messages`,
+      { message: "continue" },
+      { ...asCookie(ownerCookie), "Idempotency-Key": crypto.randomUUID() },
+    );
+    expect(refused.status).toBe(409);
+    expect(
+      ((await refused.json()) as { error: { code: string } }).error.code,
+    ).toBe("TAKEOVER_REQUIRED");
+
+    const listed = listTakeoversResponseSchema.parse(
+      await (await get("/v1/takeovers", { Cookie: ownerCookie })).json(),
+    );
+    expect(listed.items.map((item) => item.session_id).sort()).toEqual(
+      [asked.session_id, byKey.session_id].sort(),
+    );
+    expect(
+      listed.items.every((item) => item.departed_user_id === memberId),
+    ).toBe(true);
+  });
+
+  test("an owner's takeover leaves them on the receipt and as the requester", async () => {
+    const listed = listTakeoversResponseSchema.parse(
+      await (await get("/v1/takeovers", { Cookie: ownerCookie })).json(),
+    );
+    const sessionId = listed.items[0]?.session_id;
+    if (!sessionId) throw new Error("nothing awaiting takeover");
+
+    // A cookie mutation still needs the CSRF header.
+    const noCsrf = await app.request(`/v1/sessions/${sessionId}/takeover`, {
+      method: "POST",
+      headers: { Cookie: ownerCookie },
+    });
+    expect(noCsrf.status).toBe(403);
+
+    const taken = await app.request(`/v1/sessions/${sessionId}/takeover`, {
+      method: "POST",
+      headers: asCookie(ownerCookie),
+    });
+    expect(taken.status).toBe(200);
+    const { receipt_id } = (await taken.json()) as { receipt_id: string };
+    const receipt = getReceiptResponseSchema.parse(
+      await (
+        await get(`/v1/receipts/${receipt_id}`, { Cookie: ownerCookie })
+      ).json(),
+    );
+    expect(receipt).toMatchObject({
+      operation: "takeover",
+      status: "succeeded",
+      actor: {
+        principal: { kind: "user", id: ownerId },
+        actor_user_id: ownerId,
+        agent_id: null,
+      },
+    });
+    const row = await sessionRow(sessionId);
+    expect(row.createdByUserId).toBe(ownerId);
+    expect(row.takeoverRequiredAt).toBeNull();
+
+    const accepted = await post(
+      `/v1/sessions/${sessionId}/messages`,
+      { message: "continue" },
+      { ...asCookie(ownerCookie), "Idempotency-Key": crypto.randomUUID() },
+    );
+    expect(accepted.status).toBe(202);
+    const again = await app.request(`/v1/sessions/${sessionId}/takeover`, {
+      method: "POST",
+      headers: asCookie(ownerCookie),
+    });
+    expect(again.status).toBe(409);
+  });
+});

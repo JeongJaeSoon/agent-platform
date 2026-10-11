@@ -77,16 +77,14 @@ export function createDatabaseIdentityReader(db: Database): IdentityReader {
         scopes: key.scopes === null ? [] : [...key.scopes],
       };
       if (key.kind === "service") return { status: "ok", principal: stored };
-      // The personal_check constraint guarantees both.
-      if (key.createdByUserId === null || key.workspaceId === null) {
+      // A live personal key has a live creator (liveApiKey).
+      if (key.createdByUserId === null || key.creatorRole === null) {
         return { status: "disabled" };
       }
-      const role = await findLiveRole(db, key.createdByUserId, key.workspaceId);
-      if (role === null) return { status: "disabled" };
       return {
         status: "ok",
         principal: stored,
-        keyCreator: { userId: key.createdByUserId, role },
+        keyCreator: { userId: key.createdByUserId, role: key.creatorRole },
       };
     },
   };

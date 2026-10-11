@@ -209,6 +209,7 @@ const API_KEY_RECORD = {
   workspaceId: null,
   kind: "service" as const,
   createdByUserId: null,
+  creatorRole: null,
   scopes: ["sessions:read" as const],
 };
 

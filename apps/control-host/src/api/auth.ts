@@ -425,12 +425,19 @@ export function unauthenticatedPrincipal(ownerId: string): Principal {
 // before scopes existed (NULL) holds none and has to be reissued: guessing
 // "everything" would hand it recovery too.
 export function apiKeyPrincipal(key: ApiKeyRecord): Principal {
+  const scopes = key.scopes === null ? [] : [...key.scopes];
+  // A personal key holds no more than its creator does now; a lookup only
+  // finds one whose creator is live, so the role is there.
+  const ceiling =
+    key.kind === "personal" && key.creatorRole !== null
+      ? new Set(scopesForRole(key.creatorRole))
+      : null;
   return {
     kind: "api_key",
     id: key.id,
     owner_id: key.ownerId,
     workspace_id: key.workspaceId,
-    scopes: key.scopes === null ? [] : [...key.scopes],
+    scopes: ceiling === null ? scopes : scopes.filter((s) => ceiling.has(s)),
   };
 }
 

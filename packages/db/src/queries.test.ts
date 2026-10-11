@@ -489,6 +489,7 @@ describe("API key queries", () => {
       scopes: ["sessions:read", "sessions:write"],
       kind: "service",
       createdByUserId: null,
+      creatorRole: null,
     });
     expect(await findApiKey(db, new Uint8Array(32))).toBeNull();
   });

@@ -1,4 +1,8 @@
-import type { SessionScope, TurnStatus } from "@agent-platform/contracts";
+import type {
+  SessionScope,
+  TurnStatus,
+  WorkspaceRole,
+} from "@agent-platform/contracts";
 import {
   and,
   asc,
@@ -69,6 +73,9 @@ export type ApiKeyRecord = {
   kind: ApiKeyKind;
   // A personal key's creator; null on a service key whose issuer is unknown.
   createdByUserId: string | null;
+  // The creator's live role in the key's workspace, which bounds a personal
+  // key's scopes.
+  creatorRole: WorkspaceRole | null;
 };
 
 /**
@@ -96,6 +103,7 @@ export function selectLiveApiKey(db: Database) {
       scopes: apiKeys.scopes,
       kind: apiKeys.kind,
       createdByUserId: apiKeys.createdByUserId,
+      creatorRole: memberships.role,
     })
     .from(apiKeys)
     .leftJoin(users, eq(users.id, apiKeys.createdByUserId))
@@ -117,11 +125,13 @@ export function apiKeyRecordOf(row: {
   scopes: string[] | null;
   kind: string;
   createdByUserId: string | null;
+  creatorRole: string | null;
 }): ApiKeyRecord {
   return {
     ...row,
     scopes: row.scopes as SessionScope[] | null,
     kind: row.kind as ApiKeyKind,
+    creatorRole: row.creatorRole as WorkspaceRole | null,
   };
 }
 

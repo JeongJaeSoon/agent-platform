@@ -42,6 +42,7 @@ const KEY = {
   workspaceId: null,
   kind: "service" as const,
   createdByUserId: null,
+  creatorRole: null,
   scopes: ["sessions:read" as const],
 };
 

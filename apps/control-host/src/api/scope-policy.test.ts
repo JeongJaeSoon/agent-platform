@@ -53,6 +53,7 @@ function appWithKey(scopes: readonly SessionScope[], calls: string[]) {
               workspaceId: null,
               kind: "service" as const,
               createdByUserId: null,
+              creatorRole: null,
               scopes: [...scopes],
             }
           : null;
