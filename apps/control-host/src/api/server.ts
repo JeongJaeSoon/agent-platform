@@ -17,12 +17,14 @@ import {
   createPostgresUsageReader,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
+  createPostgresWorkspaceKeyStore,
   hasUncollectedCheckpoint,
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
   catalogRevision,
   createAgentService,
+  createApiKeyService,
   createAuthorizationPolicy,
   createInterruptService,
   createInviteService,
@@ -68,10 +70,11 @@ import {
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
-import { DatabaseApiKeyStore } from "./keys.ts";
+import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
@@ -224,6 +227,14 @@ if (slackOidc === null) {
     {},
   );
 }
+const apiKeys = createApiKeyService({
+  authorization,
+  store: createPostgresWorkspaceKeyStore(db),
+  mint: () => {
+    const secret = generateApiKey();
+    return { secret, hash: hashApiKey(secret) };
+  },
+});
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const interrupts = createInterruptService({
@@ -347,6 +358,7 @@ const app = createApiApp({
     });
     registerMemberRoutes(router, members, invites);
     registerAgentRoutes(router, agents);
+    registerApiKeyRoutes(router, apiKeys);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
