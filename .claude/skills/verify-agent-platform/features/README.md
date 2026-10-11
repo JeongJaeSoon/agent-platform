@@ -34,4 +34,4 @@ H1 제목과 사용자에게 보이는 동작 한 문단, 그다음 H2 넷을 �
 - [API key](./api-keys.md): key CLI로 발급, scope 검사, 폐기 후 401.
 - [세션](./sessions.md): fake model 대본으로 세션 생성·turn 완료·권한 요청·pause/resume (전체 경로는 `docs/quickstart.md` 3장).
 - [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`, 세션 usage.
-- [멤버·팀·권한 (Musterrolle)](./musterrolle.md): 시나리오 a–e. c(Slack 계정 연결), d(웹에서 권한별 key 발급), e의 판정 기록·보존 기간은 있고, 나머지는 구현 예정.
+- [멤버·팀·권한 (Musterrolle)](./musterrolle.md): 시나리오 a–f. c(Slack 계정 연결), d(웹에서 권한별 key 발급), e의 판정 기록·보존 기간, f(자격 연결)는 있고, 나머지는 구현 예정.
