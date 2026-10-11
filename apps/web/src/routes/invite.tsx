@@ -1,4 +1,3 @@
-import { DISPLAY_NAME_MAX } from "@agent-platform/contracts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
@@ -9,7 +8,7 @@ import {
   unwrap,
 } from "../api/client.ts";
 import { viewerQuery } from "../api/queries.ts";
-import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
+import { DISPLAY_NAME_MAX, PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { TextField } from "../components/field.tsx";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   authMeResponseSchema,
+  DISPLAY_NAME_MAX as CONTRACT_DISPLAY_NAME_MAX,
   CSRF_HEADER_NAME as CONTRACT_HEADER_NAME,
   CSRF_HEADER_VALUE as CONTRACT_HEADER_VALUE,
   PASSWORD_MIN_LENGTH as CONTRACT_PASSWORD_MIN_LENGTH,
 } from "@agent-platform/contracts";
-import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
+import { DISPLAY_NAME_MAX, PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { apiError, fakeApi, json, me } from "../test-support/fake-api.ts";
 import {
   ApiError,
@@ -20,6 +21,7 @@ describe("API client", () => {
     expect(CSRF_HEADER_NAME).toBe(CONTRACT_HEADER_NAME);
     expect(CSRF_HEADER_VALUE).toBe(CONTRACT_HEADER_VALUE);
     expect(PASSWORD_MIN_LENGTH).toBe(CONTRACT_PASSWORD_MIN_LENGTH);
+    expect(DISPLAY_NAME_MAX).toBe(CONTRACT_DISPLAY_NAME_MAX);
   });
 
   test("the test principal is one the server could send", () => {
