@@ -411,6 +411,29 @@ integration("invite store on PostgreSQL", () => {
     expect(joined).toHaveLength(0);
   });
 
+  test("issuing and accepting lock the actor's user row before its membership", async () => {
+    const ws = await workspace();
+    const owner = await member(ws, "owner");
+    const other = await pool.connect();
+    try {
+      // The accept order: user row, then membership.
+      await other.query("BEGIN");
+      await other.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        owner,
+      ]);
+      const issued = issue(acting(ws, owner), "order@example.invalid");
+      await Bun.sleep(300);
+      await other.query(
+        "SELECT 1 FROM memberships WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [ws, owner],
+      );
+      await other.query("COMMIT");
+      expect((await issued).result.outcome).toBe("created");
+    } finally {
+      other.release();
+    }
+  });
+
   test("roles: the last live owner stays, and two owners demoting each other leave one", async () => {
     const ws = await workspace();
     const first = await member(ws, "owner");
