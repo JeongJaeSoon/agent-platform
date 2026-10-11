@@ -2,6 +2,10 @@ import {
   type ApiErrorCode,
   acceptInviteRequestSchema,
   acceptInviteResponseSchema,
+  activateAgentRequestSchema,
+  activateAgentResponseSchema,
+  agentDetailSchema,
+  agentIdParamsSchema,
   apiErrorResponseSchema,
   apiRootResponseSchema,
   auditRetentionRequestSchema,
@@ -9,6 +13,9 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  createAgentReleaseRequestSchema,
+  createAgentReleaseResponseSchema,
+  createAgentRequestSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   createSessionRequestSchema,
@@ -23,6 +30,7 @@ import {
   inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
+  listAgentsResponseSchema,
   listInvitesResponseSchema,
   listMembersResponseSchema,
   listPendingRequestsResponseSchema,
@@ -60,6 +68,7 @@ import {
   terminateSessionResponseSchema,
   turnIdParamsSchema,
   turnSummarySchema,
+  updateAgentRequestSchema,
   updateMemberRequestSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
@@ -94,6 +103,10 @@ const requestComponents = {
   SetAccessRequest: setAccessRequestSchema,
   GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
+  CreateAgentRequest: createAgentRequestSchema,
+  UpdateAgentRequest: updateAgentRequestSchema,
+  CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
+  ActivateAgentRequest: activateAgentRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -131,6 +144,10 @@ const responseComponents = {
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
+  ListAgentsResponse: listAgentsResponseSchema,
+  AgentDetail: agentDetailSchema,
+  CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
+  ActivateAgentResponse: activateAgentResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -175,6 +192,11 @@ export const OPENAPI_TAGS = [
   {
     name: "Workspace settings",
     description: "Change workspace-wide settings. Owners only.",
+  },
+  {
+    name: "Agents",
+    description:
+      "Write agent cards, release a version against a runtime profile and activate a release. Owners only.",
   },
   {
     name: "Limits & receipts",
@@ -810,6 +832,84 @@ const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/agents",
+    operationId: "listAgents",
+    tag: "Agents",
+    summary: "The workspace's agents",
+    description: "Up to 500, oldest first. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ListAgentsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents",
+    operationId: "createAgent",
+    tag: "Agents",
+    summary: "Create an agent and its first card version",
+    description:
+      "Nothing is released or activated. A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.",
+    auth: "session",
+    body: "CreateAgentRequest",
+    success: { status: 201, schema: "AgentDetail" },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}",
+    operationId: "getAgent",
+    tag: "Agents",
+    summary: "An agent with its versions, releases and active release",
+    auth: "session",
+    success: { status: 200, schema: "AgentDetail" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/agents/{id}",
+    operationId: "updateAgent",
+    tag: "Agents",
+    summary: "Rename an agent or add a card version",
+    description:
+      "A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.",
+    auth: "session",
+    body: "UpdateAgentRequest",
+    success: { status: 200, schema: "AgentDetail" },
+    errors: [400, 401, 403, 404, 413, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/releases",
+    operationId: "createAgentRelease",
+    tag: "Agents",
+    summary: "Release a version against a runtime profile",
+    description:
+      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.",
+    auth: "session",
+    body: "CreateAgentReleaseRequest",
+    success: { status: 200, schema: "CreateAgentReleaseResponse" },
+    errors: [400, 401, 403, 404, 413, 422, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/activate",
+    operationId: "activateAgent",
+    tag: "Agents",
+    summary: "Point the agent at a release (compare-and-swap)",
+    description:
+      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again. Sessions already pinned keep their release.",
+    auth: "session",
+    body: "ActivateAgentRequest",
+    success: { status: 200, schema: "ActivateAgentResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT", "PROFILE_DIGEST_MISMATCH"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
     path: "/v1/limits",
     operationId: "getInstallationLimits",
     tag: "Limits & receipts",
@@ -932,6 +1032,7 @@ function queryParameters(schema: JsonSchema) {
 
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
+  if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path === "/v1/invites/{id}") return inviteIdParamsSchema;
