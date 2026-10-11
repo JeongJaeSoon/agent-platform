@@ -103,35 +103,40 @@ export async function lockedAdministers(
     .limit(1)
     .for("share");
   if (direct.length > 0) return true;
-  const viaTeam = await tx
-    .select({ teamId: agentAdminTeams.teamId })
-    .from(agentAdminTeams)
-    .innerJoin(
-      memberTeams,
-      and(
-        eq(memberTeams.id, agentAdminTeams.teamId),
-        isNull(memberTeams.archivedAt),
-      ),
-    )
-    .innerJoin(
-      memberTeamMembers,
-      and(
-        eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
-        isNull(memberTeamMembers.removedAt),
-      ),
-    )
-    .where(
-      and(
-        eq(agentAdminTeams.workspaceId, workspaceId),
-        eq(agentAdminTeams.agentId, agentId),
-        eq(memberTeamMembers.userId, userId),
-      ),
-    )
+  const viaTeam = () =>
+    tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .innerJoin(
+        memberTeams,
+        and(
+          eq(memberTeams.id, agentAdminTeams.teamId),
+          isNull(memberTeams.archivedAt),
+        ),
+      )
+      .innerJoin(
+        memberTeamMembers,
+        and(
+          eq(memberTeamMembers.teamId, agentAdminTeams.teamId),
+          isNull(memberTeamMembers.removedAt),
+        ),
+      )
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          eq(agentAdminTeams.agentId, agentId),
+          eq(memberTeamMembers.userId, userId),
+        ),
+      );
+  // Team rows first, in a statement of their own: a team's writers lock it
+  // before its other rows, and one statement locks its rows in no set order
+  // whatever FOR SHARE OF lists.
+  const teams = await viaTeam().for("share", { of: memberTeams });
+  if (teams.length === 0) return false;
+  const held = await viaTeam()
     .limit(1)
-    // Team row first: a team's writers lock it before its other rows, and
-    // locking the agent_admin_teams row ahead of it deadlocks a team delete.
     .for("share", { of: [memberTeams, agentAdminTeams, memberTeamMembers] });
-  return viaTeam.length > 0;
+  return held.length > 0;
 }
 
 async function listAdmins(
