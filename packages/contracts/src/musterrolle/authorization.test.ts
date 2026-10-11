@@ -1,9 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  AUTHORIZATION_OUTCOME_VALUES,
+  AUTHORIZATION_REASON_VALUES,
+  type AuthorizationDecision,
+  type AuthorizationRequest,
+  actionAppliesTo,
   authorizationContextSchema,
+  authorizationDecisionSchema,
+  authorizationRequestSchema,
+  authorizationResourceSchema,
+  authorizationSubjectSchema,
   type Grant,
   grantSchema,
+  ownerScopeOf,
+  type Principal,
   principalSchema,
   receiptActorSchema,
   SESSION_SCOPE_VALUES,
@@ -287,5 +298,105 @@ describe("actor provenance", () => {
         token: "leak",
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("authorize contract", () => {
+  const key: Principal = {
+    kind: "api_key",
+    id: "owner-a",
+    owner_id: "owner-a",
+    workspace_id: null,
+    scopes: ["sessions:read"],
+  };
+  const request: AuthorizationRequest = {
+    subject: { principal: key, surface: { kind: "api" } },
+    action: "session.read",
+    resource: { kind: "session", id: SESSION_ID, owner_scope: "owner-a" },
+    request_id: "req-1",
+  };
+  const decision: AuthorizationDecision = {
+    outcome: "allow",
+    reason_code: "ok",
+    effective_scopes: ["sessions:read"],
+    policy_version: "m1",
+    decision_id: GRANT_ID,
+  };
+
+  test("carries the A.3 input and output", () => {
+    expect(authorizationRequestSchema.parse(request)).toEqual(request);
+    expect(authorizationDecisionSchema.parse(decision)).toEqual(decision);
+  });
+
+  test("names both refusals the v1 agent rules need", () => {
+    expect(AUTHORIZATION_REASON_VALUES).toContain("no_requester");
+    expect(AUTHORIZATION_REASON_VALUES).toContain("unlinked");
+    expect(AUTHORIZATION_OUTCOME_VALUES).toEqual([
+      "allow",
+      "deny",
+      "redact",
+      "require_approval",
+    ]);
+  });
+
+  test("an autonomous run is a subject with no principal", () => {
+    expect(
+      authorizationSubjectSchema.safeParse({
+        principal: null,
+        surface: { kind: "slack", channel_kind: "dm" },
+      }).success,
+    ).toBe(true);
+  });
+
+  test("an id-less resource is one not read yet; an empty id is not", () => {
+    const resource = { kind: "session", owner_scope: "owner-a" };
+    expect(
+      authorizationResourceSchema.safeParse({ ...resource, id: null }).success,
+    ).toBe(true);
+    expect(
+      authorizationResourceSchema.safeParse({ ...resource, id: "" }).success,
+    ).toBe(false);
+  });
+
+  test("allow is always ok and deny never is", () => {
+    for (const [outcome, reason_code] of [
+      ["allow", "role"],
+      ["deny", "ok"],
+    ]) {
+      expect(
+        authorizationDecisionSchema.safeParse({
+          ...decision,
+          outcome,
+          reason_code,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("rejects a scope name where an action belongs", () => {
+    expect(
+      authorizationRequestSchema.safeParse({
+        ...request,
+        action: "sessions:read",
+      }).success,
+    ).toBe(false);
+  });
+
+  test("actionAppliesTo reads the action-resource table", () => {
+    expect(actionAppliesTo("session.read", "session")).toBe(true);
+    expect(actionAppliesTo("session.read", "workspace")).toBe(false);
+  });
+
+  test("ownerScopeOf is the workspace for a user and the owner otherwise", () => {
+    expect(ownerScopeOf(key)).toBe("owner-a");
+    expect(
+      ownerScopeOf({
+        kind: "user",
+        id: USER_ID,
+        workspace_id: WORKSPACE_ID,
+        role: "member",
+        scopes: [],
+      }),
+    ).toBe(WORKSPACE_ID);
   });
 });
