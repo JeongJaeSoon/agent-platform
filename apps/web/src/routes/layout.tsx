@@ -6,7 +6,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "../api/client.ts";
-import { useMe } from "../auth/guard.tsx";
+import { useHasPermission, useMe } from "../auth/guard.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
@@ -52,6 +52,10 @@ export function AuthedLayout() {
   const me = useMe();
   const { client, queryClient } = useServices();
   const navigate = useNavigate();
+  const managesTeams = useHasPermission("team.manage");
+  // Admins see the screen with the owner-only parts disabled and explained.
+  const workspaceManage = useHasPermission("workspace.manage");
+  const retentionManage = useHasPermission("audit_retention.manage");
   const logout = useMutation<unknown, ApiError>({
     // A 401 means the session is already gone, which is what was asked.
     meta: { public: true },
@@ -79,7 +83,13 @@ export function AuthedLayout() {
             {t("nav.home")}
           </Link>
           <Link to="/members">{t("nav.members")}</Link>
+          {managesTeams ? <Link to="/teams">{t("nav.teams")}</Link> : null}
           <Link to="/agents">{t("nav.agents")}</Link>
+          <Link to="/settings/linked-accounts">{t("nav.linkedAccounts")}</Link>
+          <Link to="/settings/api-keys">{t("nav.apiKeys")}</Link>
+          {workspaceManage || retentionManage ? (
+            <Link to="/settings/workspace">{t("nav.workspace")}</Link>
+          ) : null}
         </nav>
         <span className="web-shell__spacer" />
         {me?.user ? (

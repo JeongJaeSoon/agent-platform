@@ -116,16 +116,22 @@ describe("slackUserKindOf", () => {
 });
 
 describe("authorizationSurfaceSchema", () => {
-  test("only a slack surface carries the user's kind and a channel ceiling", () => {
+  test("only a slack surface carries the user's kind, a channel ceiling and its agent", () => {
     const ceiling = { actions: ["session.submit"], disclosure: "full" };
+    const agent_id = "019a0000-0000-7000-8000-0000000000a2";
     expect(
       authorizationSurfaceSchema.safeParse({
         kind: "slack",
         slack_user_kind: "external",
         ceiling,
+        agent_id,
       }).success,
     ).toBe(true);
-    for (const extra of [{ slack_user_kind: "member" }, { ceiling }]) {
+    for (const extra of [
+      { slack_user_kind: "member" },
+      { ceiling },
+      { agent_id },
+    ]) {
       expect(
         authorizationSurfaceSchema.safeParse({ kind: "web", ...extra }).success,
       ).toBe(false);

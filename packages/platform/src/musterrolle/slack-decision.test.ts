@@ -19,6 +19,8 @@ const AGENT = "019a0000-0000-7000-8000-0000000000a2";
 const INSTALLATION = "019a0000-0000-7000-8000-0000000000a3";
 const BINDING = "019a0000-0000-7000-8000-0000000000a4";
 const SESSION = "019a0000-0000-7000-8000-0000000000a5";
+const OTHER_AGENT = "019a0000-0000-7000-8000-0000000000a6";
+const OTHER_SESSION = "019a0000-0000-7000-8000-0000000000a7";
 const APP = "A0RESEARCH";
 const TEAM = "T0OPS";
 const CONNECT_URL = "https://app.example/settings/accounts";
@@ -35,6 +37,7 @@ type Account = {
 let accounts: Map<string, Account>;
 let guestsEnabled: boolean;
 let recorded: Parameters<DecisionLog["record"]>[0][];
+let recordFails: boolean;
 
 const userId = (n: number) =>
   `019a0000-0000-7000-8000-0000000001${String(n).padStart(2, "0")}`;
@@ -53,6 +56,7 @@ beforeEach(() => {
   accounts = new Map();
   guestsEnabled = false;
   recorded = [];
+  recordFails = false;
 });
 
 // What the database reader does with a linked account: read it again by
@@ -86,8 +90,21 @@ const deps = () => ({
     identity,
     slackGuests: { enabled: async () => guestsEnabled },
     credentials: { unboundRefs: async () => [] },
+    agents: {
+      async agentOf(_workspaceId, resource) {
+        if (resource.kind === "agent") return resource.id;
+        if (resource.id === OTHER_SESSION) return OTHER_AGENT;
+        return resource.id === SESSION || resource.id === BINDING
+          ? AGENT
+          : null;
+      },
+      async isAdmin() {
+        return false;
+      },
+    },
     decisions: {
       async record(entry) {
+        if (recordFails) throw new Error("authz_decisions unavailable");
         recorded.push(entry);
       },
     },
@@ -375,6 +392,26 @@ describe("a channel whose ceiling is a summary (D13)", () => {
     expect(recorded.map((entry) => entry.decision.outcome)).toEqual(["redact"]);
   });
 
+  test("a summary that cannot be recorded is refused", async () => {
+    link("U0B", 1);
+    recordFails = true;
+    const read = await judge(
+      input(slackUser("U0B"), {
+        action: "session.read",
+        resource: { kind: "session", id: SESSION },
+        binding: { channelKind: "public_channel", ceiling: summary },
+      }),
+    );
+    expect(read).toMatchObject({
+      decision: { outcome: "deny", reason_code: "error", effective_scopes: [] },
+      actorUserId: null,
+      notice: { text: SLACK_NOTICE_MESSAGES.failed },
+    });
+    if (read.status !== "decided") throw new Error("expected a decision");
+    expect(read.decision.redact).toBeUndefined();
+    expect(authorizationDecisionSchema.parse(read.decision)).toBeTruthy();
+  });
+
   test("asking in that channel is not narrowed", async () => {
     link("U0B", 1);
     const asked = await judge(
@@ -486,6 +523,7 @@ describe("what an installation can never do", () => {
             kind: "slack",
             slack_user_kind: "member",
             ceiling: everything,
+            agent_id: AGENT,
           },
         },
         action: action as SlackSurfaceAction,
@@ -523,7 +561,7 @@ describe("what an installation can never do", () => {
         },
         actor_user_id: userId(1),
         linked_account: { id: accounts.get("U0B")?.id ?? "", revision: 1 },
-        surface: { kind: "slack", slack_user_kind: "member" },
+        surface: { kind: "slack", slack_user_kind: "member", agent_id: AGENT },
       },
       action: "session.submit",
       resource: { kind: "session", id: SESSION, owner_scope: WORKSPACE },
@@ -533,5 +571,53 @@ describe("what an installation can never do", () => {
       outcome: "deny",
       reason_code: "surface_ceiling",
     });
+  });
+
+  test("a Slack request that names no agent is refused", async () => {
+    link("U0B", 1);
+    const decision = await deps().authorization.authorize({
+      subject: {
+        principal: {
+          kind: "installation",
+          id: INSTALLATION,
+          owner_id: WORKSPACE,
+          workspace_id: WORKSPACE,
+          scopes: ["sessions:read", "sessions:write"],
+        },
+        actor_user_id: userId(1),
+        linked_account: { id: accounts.get("U0B")?.id ?? "", revision: 1 },
+        surface: {
+          kind: "slack",
+          slack_user_kind: "member",
+          ceiling: everything,
+        },
+      },
+      action: "session.submit",
+      resource: { kind: "session", id: SESSION, owner_scope: WORKSPACE },
+      request_id: crypto.randomUUID(),
+    });
+    expect(decision).toMatchObject({ outcome: "deny", reason_code: "error" });
+  });
+
+  test("one agent's app never reaches another agent's session", async () => {
+    link("U0B", 1);
+    for (const action of [
+      "session.read",
+      "session.submit",
+      "session.control",
+      "session.approve",
+    ] as const) {
+      expect(
+        await judge(
+          input(slackUser("U0B"), {
+            action,
+            resource: { kind: "session", id: OTHER_SESSION },
+          }),
+        ),
+      ).toMatchObject({
+        decision: { outcome: "deny", reason_code: "agent_ceiling" },
+        actorUserId: null,
+      });
+    }
   });
 });

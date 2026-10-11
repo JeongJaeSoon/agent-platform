@@ -162,7 +162,7 @@ export const slackGuestsDisabled: SlackGuestSetting = {
   },
 };
 
-export const POLICY_VERSION = "m9";
+export const POLICY_VERSION = "m14";
 
 export interface AuthorizationPolicy {
   authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;
@@ -321,7 +321,8 @@ export function createAuthorizationPolicy(
       // and the guest setting is not theirs to pass (design A.3 step 4).
       if (
         subject.principal.kind !== "installation" ||
-        surface.slack_user_kind === undefined
+        surface.slack_user_kind === undefined ||
+        surface.agent_id === undefined
       ) {
         return ["error", []];
       }
@@ -395,6 +396,13 @@ export function createAuthorizationPolicy(
       ) {
         return ["surface_ceiling", scopes];
       }
+      // One agent's app never reaches another agent's sessions, even in the
+      // same workspace.
+      if (
+        (await agentOfResource(resource)) !== surface.agent_id?.toLowerCase()
+      ) {
+        return ["agent_ceiling", scopes];
+      }
       redact =
         action === "session.read" && surface.ceiling?.disclosure === "summary";
     }
@@ -449,9 +457,11 @@ export function createAuthorizationPolicy(
         await decisions.record({ request: parsed.data, decision });
         return decision;
       } catch {
-        if (decision.outcome !== "allow") return decision;
+        // A redact grants a summary, so an unrecorded one is refused too.
+        if (decision.outcome === "deny") return decision;
+        const { redact: _summary, ...unrecorded } = decision;
         return {
-          ...decision,
+          ...unrecorded,
           outcome: "deny",
           reason_code: "error",
           effective_scopes: [],

@@ -249,6 +249,7 @@ describe("auth requests", () => {
         created_at: AT,
       },
       scopes: ["sessions:read"],
+      permissions: ["member.manage"],
     };
     expect(authMeResponseSchema.safeParse(me).success).toBe(true);
     expect(
@@ -298,6 +299,7 @@ describe("auth requests", () => {
         created_at: AT,
       },
       scopes: ["sessions:read", "sessions:control"],
+      permissions: [],
     };
     expect(authMeResponseSchema.safeParse(me).success).toBe(false);
     expect(authMeResponseSchema.safeParse({ ...me, scopes: [] }).success).toBe(
@@ -326,6 +328,7 @@ describe("auth requests", () => {
       user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
       workspace,
       scopes: ["sessions:read"],
+      permissions: ["team.manage"],
     };
     expect(authMeResponseSchema.safeParse(me).success).toBe(true);
     expect(
@@ -356,8 +359,17 @@ describe("auth requests", () => {
       user: null,
       workspace: null,
       scopes: [],
+      permissions: [],
     };
     expect(authMeResponseSchema.safeParse(keyMe).success).toBe(true);
+    expect(
+      authMeResponseSchema.safeParse({ ...keyMe, permissions: ["team.manage"] })
+        .success,
+    ).toBe(false);
+    expect(
+      authMeResponseSchema.safeParse({ ...me, permissions: ["not.an.action"] })
+        .success,
+    ).toBe(false);
     expect(
       authMeResponseSchema.safeParse({ ...keyMe, workspace }).success,
     ).toBe(false);
