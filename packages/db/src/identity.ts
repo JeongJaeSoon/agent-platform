@@ -1,8 +1,12 @@
 import {
   BootstrapDoneError,
   type BootstrapInput,
+  type BootstrapResult,
+  BootstrapTokenSpentError,
+  type ConsumePasswordResetInput,
   type IdentityUser,
   type IdentityWorkspace,
+  type IssuePasswordResetInput,
   type LiveMembership,
   type MembershipRole,
   type ResolvedWebSession,
@@ -13,6 +17,7 @@ import {
   desc,
   eq,
   gt,
+  inArray,
   isNotNull,
   isNull,
   lt,
@@ -24,7 +29,15 @@ import {
 } from "drizzle-orm";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { memberships, users, webSessions, workspaces } from "./schema.ts";
+import {
+  bootstrapTokenUses,
+  memberships,
+  passwordResets,
+  receipts,
+  users,
+  webSessions,
+  workspaces,
+} from "./schema.ts";
 
 // Identity queries for the cookie-session path. API keys keep
 // their own helpers in queries.ts so that path is untouched.
@@ -36,50 +49,256 @@ export async function countUsers(db: Database): Promise<number> {
   return Number(row?.count ?? 0);
 }
 
+// A disabled account and a disabled membership both leave nobody able to
+// act as owner, so either one makes the owner "not live" (94S-264).
+export async function countLiveOwners(db: Database): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<string>`count(*)::text` })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.role, "owner"),
+        isNull(memberships.disabledAt),
+        isNull(users.disabledAt),
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
+
 /**
- * First owner + default workspace, only while `users` is empty. The advisory
- * lock serialises two installers racing for the same empty table; the count
- * is re-read under it so the loser sees the winner's row and gets
- * BootstrapDoneError instead of a unique violation.
+ * First owner + default workspace on an empty install; once users exist and
+ * no live owner remains, the owner is added to (or restored in) the existing
+ * workspace instead and every session in it ends (03 §3.1: one workspace).
+ * The advisory lock serialises racing installers; the owner count is re-read
+ * under it so the loser gets BootstrapDoneError, not a unique violation.
  */
-export async function bootstrapFirstOwner(
+export async function bootstrapOwner(
   db: Database,
   input: BootstrapInput,
-): Promise<{ user: IdentityUser; workspace: IdentityWorkspace }> {
+): Promise<BootstrapResult> {
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))`,
     );
-    if ((await countUsers(tx)) > 0) {
+    if ((await countLiveOwners(tx)) > 0) {
       throw new BootstrapDoneError();
     }
-    const [user] = await tx
-      .insert(users)
-      .values({
-        id: input.userId,
-        email: input.email,
-        passwordHash: input.passwordHash,
-        displayName: input.displayName,
-      })
-      .returning();
-    const [workspace] = await tx
-      .insert(workspaces)
-      .values({
-        id: input.workspaceId,
-        slug: input.workspaceSlug,
-        name: input.workspaceName,
-      })
-      .returning();
+    const [spent] = await tx
+      .insert(bootstrapTokenUses)
+      .values({ tokenHash: input.bootstrapTokenHash })
+      .onConflictDoNothing()
+      .returning({ tokenHash: bootstrapTokenUses.tokenHash });
+    if (!spent) {
+      throw new BootstrapTokenSpentError();
+    }
+    const [existing] = await tx
+      .select()
+      .from(workspaces)
+      .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
+      .limit(1);
+    const recovered = (await countUsers(tx)) > 0;
+    const workspace =
+      existing ??
+      (
+        await tx
+          .insert(workspaces)
+          .values({
+            id: input.workspaceId,
+            slug: input.workspaceSlug,
+            name: input.workspaceName,
+          })
+          .returning()
+      )[0];
+    // The recovering operator proves control of the install, not of the
+    // address; an existing account with this email gets the new password,
+    // the same power a password reset would give.
+    const [restored] = recovered
+      ? await tx
+          .update(users)
+          .set({ passwordHash: input.passwordHash, disabledAt: null })
+          .where(eq(users.email, input.email))
+          .returning()
+      : [];
+    const user =
+      restored ??
+      (
+        await tx
+          .insert(users)
+          .values({
+            id: input.userId,
+            email: input.email,
+            passwordHash: input.passwordHash,
+            displayName: input.displayName,
+          })
+          .returning()
+      )[0];
     if (!user || !workspace) {
       throw new Error("bootstrap insert returned no row");
     }
-    await tx.insert(memberships).values({
-      workspaceId: workspace.id,
-      userId: user.id,
-      role: "owner",
-    });
-    return { user, workspace };
+    await tx
+      .insert(memberships)
+      .values({ workspaceId: workspace.id, userId: user.id, role: "owner" })
+      .onConflictDoUpdate({
+        target: [memberships.workspaceId, memberships.userId],
+        set: { role: "owner", disabledAt: null },
+      });
+    if (recovered) {
+      const members = tx
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .where(eq(memberships.workspaceId, workspace.id));
+      const revoked = await tx
+        .update(webSessions)
+        .set({ revokedAt: DB_NOW })
+        .where(
+          and(
+            isNull(webSessions.revokedAt),
+            inArray(webSessions.userId, members),
+          ),
+        )
+        .returning({ id: webSessions.id });
+      await tx.insert(receipts).values({
+        id: input.receiptId,
+        ownerId: workspace.id,
+        operation: "recover_owner",
+        targetRef: {
+          resource: { kind: "workspace", id: workspace.id },
+          workspace_id: workspace.id,
+        },
+        status: "succeeded",
+        result: {
+          user_id: user.id,
+          existing_user: restored !== undefined,
+          sessions_revoked: revoked.length,
+        },
+      });
+    }
+    return { user, workspace, recovered };
   });
+}
+
+/**
+ * Replaces the user's open link, if any. Null when the user is not a live
+ * member of the workspace: a link for a disabled account would set a
+ * password nobody can log in with.
+ */
+export async function issuePasswordReset(
+  db: Database,
+  input: IssuePasswordResetInput,
+): Promise<{ expiresAt: Date } | null> {
+  return db.transaction(async (tx) => {
+    const [member] = await tx
+      .select({ userId: users.id })
+      .from(users)
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.userId, users.id),
+          eq(memberships.workspaceId, input.workspaceId),
+          isNull(memberships.disabledAt),
+        ),
+      )
+      .where(and(eq(users.id, input.userId), isNull(users.disabledAt)))
+      .for("update", { of: users });
+    if (!member) {
+      return null;
+    }
+    await tx
+      .update(passwordResets)
+      .set({ revokedAt: DB_NOW })
+      .where(
+        and(
+          eq(passwordResets.userId, input.userId),
+          isNull(passwordResets.usedAt),
+          isNull(passwordResets.revokedAt),
+        ),
+      );
+    const [row] = await tx
+      .insert(passwordResets)
+      .values({
+        id: input.id,
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        tokenHash: input.tokenHash,
+        issuedBy: input.issuedBy,
+        expiresAt: fromDbNow(input.ttlMs),
+      })
+      .returning({ expiresAt: passwordResets.expiresAt });
+    if (!row) {
+      throw new Error("password reset insert returned no row");
+    }
+    return row;
+  });
+}
+
+/**
+ * Spends the link, sets the password and ends every live session of the
+ * user in one transaction. The row lock makes a second redemption wait and
+ * then miss on `used_at`, so a token sets a password at most once.
+ */
+export async function consumePasswordReset(
+  db: Database,
+  input: ConsumePasswordResetInput,
+): Promise<{ userId: string; workspaceId: string } | null> {
+  return db.transaction(async (tx) => {
+    const [reset] = await tx
+      .select({
+        id: passwordResets.id,
+        userId: passwordResets.userId,
+        workspaceId: passwordResets.workspaceId,
+        issuedBy: passwordResets.issuedBy,
+      })
+      .from(passwordResets)
+      .where(
+        and(
+          eq(passwordResets.tokenHash, input.tokenHash),
+          isNull(passwordResets.usedAt),
+          isNull(passwordResets.revokedAt),
+          gt(passwordResets.expiresAt, DB_NOW),
+        ),
+      )
+      .for("update");
+    if (!reset) {
+      return null;
+    }
+    // Disabled after the link was issued: the link dies with the account.
+    const [user] = await tx
+      .update(users)
+      .set({ passwordHash: input.passwordHash })
+      .where(and(eq(users.id, reset.userId), isNull(users.disabledAt)))
+      .returning({ id: users.id });
+    if (!user) {
+      return null;
+    }
+    await tx
+      .update(passwordResets)
+      .set({ usedAt: DB_NOW })
+      .where(eq(passwordResets.id, reset.id));
+    const revoked = await revokeUserWebSessions(tx, reset.userId);
+    await tx.insert(receipts).values({
+      id: input.receiptId,
+      ownerId: reset.workspaceId,
+      operation: "reset_password",
+      targetRef: { user_id: reset.userId, workspace_id: reset.workspaceId },
+      status: "succeeded",
+      result: { issued_by: reset.issuedBy, sessions_revoked: revoked },
+    });
+    return { userId: reset.userId, workspaceId: reset.workspaceId };
+  });
+}
+
+/** Ends every live session of the user; walks web_sessions_user_live_idx. */
+export async function revokeUserWebSessions(
+  db: Database,
+  userId: string,
+): Promise<number> {
+  const rows = await db
+    .update(webSessions)
+    .set({ revokedAt: DB_NOW })
+    .where(and(eq(webSessions.userId, userId), isNull(webSessions.revokedAt)))
+    .returning({ id: webSessions.id });
+  return rows.length;
 }
 
 /** Login lookup; a disabled account is indistinguishable from a missing one. */
