@@ -55,7 +55,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 .claude/skills/verify-agent-platform/scripts/doctor.sh
 ```
 
-run, project, checkout SHA, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니면 exit 1. 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`gitea`·`egress-proxy`·`fake-messages`·`secrets`가 `running`이면 정상이다(`migrate`·`gitea-init`·`worker`는 한 번 돌고 끝나 목록에 없다).
+run, project, 이미지를 빌드한 커밋(`up.sh` 때의 HEAD)과 지금 checkout, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니거나 `up.sh` 뒤 checkout HEAD가 바뀌었으면 exit 1(바뀐 코드는 `down.sh` 뒤 `up.sh`로 다시 빌드한다). 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`gitea`·`egress-proxy`·`fake-messages`·`secrets`가 `running`이면 정상이다(`migrate`·`gitea-init`·`worker`는 한 번 돌고 끝나 목록에 없다).
 
 ## Drive
 

@@ -47,6 +47,7 @@ EOF
   printf 'export EXECUTION_INSTALLATION_ID=%q\n' "$project"
   printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml"
   printf 'VERIFY_BOOTSTRAP_TOKEN=%q\n' "$token"
+  printf 'VERIFY_BUILT_FROM=%q\n' "$(git -C "$repo" rev-parse HEAD)"
 } >"$run/state.env"
 echo "$run" >"$root/latest"
 echo "run: $run (project $project)" >&2

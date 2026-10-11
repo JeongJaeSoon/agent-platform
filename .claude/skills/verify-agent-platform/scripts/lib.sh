@@ -44,7 +44,9 @@ ap_web() {
   curl -sS -w '\n%{http_code}\n' -X "$method" "$API$route" -D "$headers" \
     -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' \
     "${extra[@]}"
+  local status=$?
   sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p' "$headers" |
     tr -d '\r' | while read -r c; do printf '%s' "$c" >"$VERIFY_RUN/cookie"; done
   rm -f "$headers"
+  return "$status"
 }
