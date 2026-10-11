@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { agentDetailSchema } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import { queryKeys } from "../api/queries.ts";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -104,6 +105,10 @@ describe("에이전트 상세", () => {
         /저장했습니다 — version 2\. 아직 활성화되지 않았습니다/,
       ),
     ).toBeDefined();
+    expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
+    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
+      "환불 문의에도 답한다.",
+    );
     const patch = api.calls.find((c) => c.method === "PATCH");
     expect(patch?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
     expect((patch?.body as { card: unknown }).card).toEqual({
@@ -252,5 +257,85 @@ describe("두 탭 동시 활성화", () => {
     });
     expect(server.detail().agent.active_release_id).toBe(second?.id ?? "");
     expect(first).toBeDefined();
+  });
+});
+
+describe("편집 중 다른 곳의 저장", () => {
+  function otherTabSaves(server: ReturnType<typeof agentServer>) {
+    server.versions.push({
+      ...(server.versions[0] as (typeof server.versions)[number]),
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      card: { ...CARD, instructions: "다른 탭이 고친 지시." },
+      content_sha256: "e".repeat(64),
+    });
+  }
+
+  test("고치던 내용은 재조회로 사라지지 않고, 최신이 생겼다고 알린 뒤 원할 때만 불러온다", async () => {
+    const server = agentServer();
+    const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const instructions = await screen.findByLabelText("지시");
+    await user.clear(instructions);
+    await user.type(instructions, "내가 고치던 지시.");
+    otherTabSaves(server);
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.agent(AGENT_ID),
+    });
+    expect(
+      await screen.findByText(
+        "다른 곳에서 카드를 저장해 최신이 version 2입니다. 고치던 내용은 그대로 두었습니다. 이대로 저장하면 이 내용이 다음 version이 됩니다.",
+      ),
+    ).toBeDefined();
+    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
+      "내가 고치던 지시.",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "최신 카드 불러오기" }),
+    );
+    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
+      "다른 탭이 고친 지시.",
+    );
+    expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
+  });
+
+  test("release 폼은 적어 둔 profile을 지키면서 새 version을 기본으로 고른다", async () => {
+    const server = agentServer();
+    const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("runtime profile"), PROFILE);
+    otherTabSaves(server);
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.agent(AGENT_ID),
+    });
+    const release = screen
+      .getByRole("heading", { name: "release" })
+      .closest("section") as HTMLElement;
+    await waitFor(() =>
+      expect(
+        (within(release).getByLabelText("version") as HTMLSelectElement)
+          .selectedOptions[0]?.textContent,
+      ).toBe("version 2"),
+    );
+    expect(
+      (within(release).getByLabelText("runtime profile") as HTMLInputElement)
+        .value,
+    ).toBe(PROFILE);
+  });
+
+  test("고친 것이 없으면 최신 카드를 그대로 받아들인다", async () => {
+    const server = agentServer();
+    const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    await screen.findByLabelText("지시");
+    otherTabSaves(server);
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.agent(AGENT_ID),
+    });
+    await waitFor(() =>
+      expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
+        "다른 탭이 고친 지시.",
+      ),
+    );
+    expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
 });

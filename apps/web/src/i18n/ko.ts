@@ -185,6 +185,9 @@ export const ko = {
     "저장하면 새 version이 생깁니다. 활성 release는 그대로입니다.",
   "agent.card.save": "저장",
   "agent.card.saving": "저장하는 중…",
+  "agent.card.stale":
+    "다른 곳에서 카드를 저장해 최신이 version {version}입니다. 고치던 내용은 그대로 두었습니다. 이대로 저장하면 이 내용이 다음 version이 됩니다.",
+  "agent.card.takeLatest": "최신 카드 불러오기",
   "agent.versions.title": "version 기록",
   "agent.versions.active": "활성",
   "agent.versions.before": "비교 기준",
