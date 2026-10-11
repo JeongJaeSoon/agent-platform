@@ -48,9 +48,24 @@ export type IssuePasswordResetInput = {
   workspaceId: string;
   userId: string;
   issuedBy: string;
+  /** The issuer's hash their current password was just checked against. */
+  issuerPasswordHash: string;
   tokenHash: Uint8Array;
   ttlMs: number;
+  receiptId: string;
 };
+
+/**
+ * `not_found`: the target is not a live member of the workspace.
+ * `issuer_changed`: the issuer stopped being a live owner, or their password
+ * changed, after it was checked. `owner_elsewhere`: the target owns another
+ * workspace, which this workspace's owner has no say over.
+ */
+export type IssuePasswordResetResult =
+  | { outcome: "issued"; expiresAt: Date }
+  | { outcome: "not_found" }
+  | { outcome: "issuer_changed" }
+  | { outcome: "owner_elsewhere" };
 
 export type ConsumePasswordResetInput = {
   tokenHash: Uint8Array;
@@ -79,11 +94,13 @@ export interface IdentityStore {
   bootstrap(input: BootstrapInput): Promise<BootstrapResult>;
   /** Record a BOOTSTRAP_TOKEN as spent without using it. */
   retireBootstrapToken(tokenHash: Uint8Array): Promise<void>;
-  /** Null when the user is not a live member of the workspace. */
   issuePasswordReset(
     input: IssuePasswordResetInput,
-  ): Promise<{ expiresAt: Date } | null>;
-  /** Null when the token is unknown, used, revoked or expired. */
+  ): Promise<IssuePasswordResetResult>;
+  /**
+   * Null when the token is unknown, used, revoked or expired, or the user's
+   * account or membership in the link's workspace is disabled.
+   */
   consumePasswordReset(
     input: ConsumePasswordResetInput,
   ): Promise<{ userId: string; workspaceId: string } | null>;

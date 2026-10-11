@@ -71,7 +71,7 @@ integration("account recovery on PostgreSQL", () => {
       const auth = {
         identity,
         bootstrap: createBootstrapGate(bootstrapToken),
-        recoveryLockout: new LoginLockout(),
+        lockout: new LoginLockout(),
         logger,
       };
       const app = createApiApp({
@@ -121,6 +121,12 @@ integration("account recovery on PostgreSQL", () => {
           }),
         login: async (email: string, password = PASSWORD) =>
           json("/v1/auth/login", { email, password }, BROWSER),
+        issue: (cookie: string, workspaceId: string, userId: string) =>
+          json(
+            `/v1/workspaces/${workspaceId}/members/${userId}/password-reset`,
+            { current_password: PASSWORD },
+            { Cookie: cookie, ...BROWSER },
+          ),
       };
     };
     const first = start(INSTALL_TOKEN);
@@ -153,10 +159,7 @@ integration("account recovery on PostgreSQL", () => {
     const memberCookie = cookieOf(await first.login("member@example.com"));
     const otherMemberCookie = cookieOf(await first.login("member@example.com"));
 
-    const issued = await first.app.request(
-      `/v1/workspaces/${workspace.id}/members/${memberId}/password-reset`,
-      { method: "POST", headers: { Cookie: ownerCookie, ...BROWSER } },
-    );
+    const issued = await first.issue(ownerCookie, workspace.id, memberId);
     expect(issued.status).toBe(201);
     const { token, expires_at } = issuePasswordResetResponseSchema.parse(
       await issued.json(),
@@ -244,9 +247,10 @@ integration("account recovery on PostgreSQL", () => {
       await first.login("owner@example.com");
       await first.login("member@example.com");
 
-      // A live owner exists: done.
-      const early = start(RECOVERY_TOKEN);
+      // A live owner exists: done, and the token shown then is spent.
+      const early = start(`${RECOVERY_TOKEN}-early`);
       expect((await early.bootstrap()).status).toBe(409);
+      expect(await db.$count(bootstrapTokenUses)).toBe(2);
 
       if (how === "account") {
         await db
@@ -326,12 +330,7 @@ integration("account recovery on PostgreSQL", () => {
       .from(users)
       .where(eq(users.id, memberId));
     const { token } = issuePasswordResetResponseSchema.parse(
-      await (
-        await first.app.request(
-          `/v1/workspaces/${workspace.id}/members/${memberId}/password-reset`,
-          { method: "POST", headers: { Cookie: ownerCookie, ...BROWSER } },
-        )
-      ).json(),
+      await (await first.issue(ownerCookie, workspace.id, memberId)).json(),
     );
     expect(
       (
@@ -416,14 +415,15 @@ integration("account recovery on PostgreSQL", () => {
       .update(users)
       .set({ disabledAt: new Date() })
       .where(eq(users.id, ownerId));
-    // issuePasswordReset by the old owner, between its member lock and the
-    // insert whose FK takes KEY SHARE on the issuer.
+    // issuePasswordReset by the old owner, between its issuer and target
+    // locks and the insert of the link.
     const issue = await pool.connect();
     try {
       await issue.query("BEGIN");
-      await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
-        memberId,
-      ]);
+      await issue.query(
+        "SELECT 1 FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE",
+        [[ownerId, memberId]],
+      );
       const recovery = start(RECOVERY_TOKEN).bootstrap();
       await Bun.sleep(300);
       await issue.query(
@@ -448,13 +448,46 @@ integration("account recovery on PostgreSQL", () => {
     }
   });
 
+  test("recovery restoring a user an in-flight issue is about to lock does not deadlock", async () => {
+    const { db, pool, start, ownerId, workspace } = await install();
+    // Sorts after the issuer, so an issue locks the issuer first and this
+    // user second.
+    const lateId = "ffffffff-ffff-4fff-bfff-ffffffffffff";
+    await db.insert(users).values({
+      id: lateId,
+      email: "late@example.com",
+      passwordHash: await hashPassword(PASSWORD),
+      displayName: "Late",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: workspace.id, userId: lateId, role: "member" });
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, ownerId));
+    const issue = await pool.connect();
+    try {
+      await issue.query("BEGIN");
+      await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        ownerId,
+      ]);
+      const recovery = start(RECOVERY_TOKEN).bootstrap("late@example.com");
+      await Bun.sleep(300);
+      await issue.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+        lateId,
+      ]);
+      await issue.query("COMMIT");
+      expect((await recovery).status).toBe(201);
+    } finally {
+      issue.release();
+    }
+  });
+
   test("recovery revokes a reset link issued before it", async () => {
-    const { db, start, first, ownerId, workspace } = await install();
+    const { db, start, first, ownerId, memberId, workspace } = await install();
     const ownerCookie = cookieOf(await first.login("owner@example.com"));
-    const issued = await first.app.request(
-      `/v1/workspaces/${workspace.id}/members/${ownerId}/password-reset`,
-      { method: "POST", headers: { Cookie: ownerCookie, ...BROWSER } },
-    );
+    const issued = await first.issue(ownerCookie, workspace.id, memberId);
     const { token } = issuePasswordResetResponseSchema.parse(
       await issued.json(),
     );
@@ -469,17 +502,13 @@ integration("account recovery on PostgreSQL", () => {
       password: NEW_PASSWORD,
     });
     expect(stale.status).toBe(401);
-    expect((await recovery.login("owner@example.com")).status).toBe(200);
+    expect((await recovery.login("member@example.com")).status).toBe(200);
   });
 
   test("issuing a link while the user's open one is redeemed never deadlocks", async () => {
     const { first, memberId, workspace } = await install();
     const ownerCookie = cookieOf(await first.login("owner@example.com"));
-    const issue = () =>
-      first.app.request(
-        `/v1/workspaces/${workspace.id}/members/${memberId}/password-reset`,
-        { method: "POST", headers: { Cookie: ownerCookie, ...BROWSER } },
-      );
+    const issue = () => first.issue(ownerCookie, workspace.id, memberId);
     for (let round = 0; round < 4; round += 1) {
       const { token } = issuePasswordResetResponseSchema.parse(
         await (await issue()).json(),
@@ -522,19 +551,90 @@ integration("account recovery on PostgreSQL", () => {
     expect(old?.disabledAt).not.toBeNull();
   });
 
-  test("the sixth failed reset is 429 against the real store", async () => {
-    const { first } = await install();
-    for (let i = 0; i < 5; i += 1) {
-      const guess = await first.json("/v1/auth/password-reset", {
+  test("issuing needs the issuer's password, never targets the issuer, and is recorded", async () => {
+    const { db, first, ownerId, memberId, workspace } = await install();
+    const ownerCookie = cookieOf(await first.login("owner@example.com"));
+    const path = `/v1/workspaces/${workspace.id}/members/${memberId}/password-reset`;
+    const headers = { Cookie: ownerCookie, ...BROWSER };
+    expect((await first.json(path, {}, headers)).status).toBe(400);
+    expect(
+      (await first.json(path, { current_password: NEW_PASSWORD }, headers))
+        .status,
+    ).toBe(403);
+    expect((await first.issue(ownerCookie, workspace.id, ownerId)).status).toBe(
+      403,
+    );
+    expect(await db.$count(passwordResets)).toBe(0);
+
+    await db
+      .update(memberships)
+      .set({ role: "owner" })
+      .where(eq(memberships.userId, memberId));
+    expect(
+      (await first.issue(ownerCookie, workspace.id, memberId)).status,
+    ).toBe(201);
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.operation, "issue_password_reset"));
+    expect(receipt).toMatchObject({
+      ownerId: workspace.id,
+      targetRef: { user_id: memberId, workspace_id: workspace.id },
+      status: "succeeded",
+      result: { target_role: "owner" },
+      actor: {
+        principal: { kind: "user", id: ownerId },
+        actor_user_id: ownerId,
+        agent_id: null,
+      },
+    });
+  });
+
+  test("a member who owns another workspace cannot be reset from this one", async () => {
+    const { db, first, memberId, workspace } = await install();
+    const ownerCookie = cookieOf(await first.login("owner@example.com"));
+    const elsewhere = randomUUID();
+    await db
+      .insert(schema.workspaces)
+      .values({ id: elsewhere, slug: "elsewhere", name: "Elsewhere" });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: elsewhere, userId: memberId, role: "owner" });
+    expect(
+      (await first.issue(ownerCookie, workspace.id, memberId)).status,
+    ).toBe(403);
+    expect(await db.$count(passwordResets)).toBe(0);
+  });
+
+  test("failed redemptions never lock out a valid link; a disabled membership kills it", async () => {
+    const { db, first, memberId, workspace } = await install();
+    const ownerCookie = cookieOf(await first.login("owner@example.com"));
+    for (let i = 0; i < 10; i += 1) {
+      const wrong = await first.json("/v1/auth/password-reset", {
         token: `apr_guess-${i}`,
         password: NEW_PASSWORD,
       });
-      expect(guess.status).toBe(401);
+      expect(wrong.status).toBe(401);
     }
-    const locked = await first.json("/v1/auth/password-reset", {
-      token: "apr_guess-6",
+    const issue = async () =>
+      issuePasswordResetResponseSchema.parse(
+        await (await first.issue(ownerCookie, workspace.id, memberId)).json(),
+      ).token;
+    const valid = await first.json("/v1/auth/password-reset", {
+      token: await issue(),
       password: NEW_PASSWORD,
     });
-    expect(locked.status).toBe(429);
+    expect(valid.status).toBe(200);
+
+    const token = await issue();
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, memberId));
+    const dead = await first.json("/v1/auth/password-reset", {
+      token,
+      password: PASSWORD,
+    });
+    expect(dead.status).toBe(401);
   });
 });

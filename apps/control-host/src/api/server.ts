@@ -253,7 +253,9 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
-// Shared by login and invite accept: both check an account's password.
+// One window and one hashing gate for every account password check (login,
+// the reset issuer's re-check, invite accept), so no route resets another's
+// count.
 const lockout = new LoginLockout();
 const passwordWork = new WorkGate();
 const auth = {

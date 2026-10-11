@@ -34,8 +34,10 @@ export const RECEIPT_OPERATION_VALUES = [
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
-  // Account recovery (94S-264): a password set from a one-time link, and an
-  // owner added or restored by BOOTSTRAP_TOKEN when no live owner remained.
+  // Account recovery (94S-264): a one-time link issued and the password set
+  // from it, and an owner added or restored by BOOTSTRAP_TOKEN when no live
+  // owner remained.
+  "issue_password_reset",
   "reset_password",
   "recover_owner",
   // An owner taking over a session whose requester was offboarded.

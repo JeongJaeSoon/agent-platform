@@ -205,6 +205,13 @@ export const passwordResetTokenSchema = z.string().min(1).max(256);
 export const memberParamsSchema = z
   .object({ id: workspaceIdSchema, userId: userIdSchema })
   .strict();
+/**
+ * The issuer re-enters their own password: a stolen session cookie alone
+ * must not turn into a link that takes over another account.
+ */
+export const issuePasswordResetRequestSchema = z
+  .object({ current_password: passwordSchema })
+  .strict();
 export const issuePasswordResetResponseSchema = z
   .object({
     user_id: userIdSchema,
@@ -227,6 +234,9 @@ export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
 export type AcceptInviteRequest = z.infer<typeof acceptInviteRequestSchema>;
 export type AcceptInviteResponse = z.infer<typeof acceptInviteResponseSchema>;
+export type IssuePasswordResetRequest = z.infer<
+  typeof issuePasswordResetRequestSchema
+>;
 export type IssuePasswordResetResponse = z.infer<
   typeof issuePasswordResetResponseSchema
 >;
