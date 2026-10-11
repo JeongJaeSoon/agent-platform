@@ -409,7 +409,18 @@ integration("pending requests and answers on PostgreSQL", () => {
       }),
       store: createPostgresPendingRequests(db),
     });
-    const accepted = await audited.answer(owner, sessionId, {
+    // The person behind a key, answering from the web console.
+    const approver = {
+      ...owner,
+      subject: { ...owner.subject, surface: { kind: "web" as const } },
+      actor: {
+        principal: { kind: "api_key" as const, id: owner.ownerId },
+        userId: crypto.randomUUID(),
+        workspaceId: null,
+        apiKeyId: owner.ownerId,
+      },
+    };
+    const accepted = await audited.answer(approver, sessionId, {
       idempotencyKey: crypto.randomUUID(),
       body: { request_id: requestId, kind: "permission", decision: "allow" },
     });
@@ -418,6 +429,33 @@ integration("pending requests and answers on PostgreSQL", () => {
       .from(authzDecisions)
       .where(eq(authzDecisions.requestId, owner.requestId));
     expect(rows).toHaveLength(1);
+    const [approval] = await db
+      .select({
+        answeredBy: pendingRequests.answeredBy,
+        answerSurface: pendingRequests.answerSurface,
+        answerDecisionId: pendingRequests.answerDecisionId,
+      })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, requestId));
+    expect(approval).toEqual({
+      answeredBy: {
+        principal: { kind: "api_key", id: owner.ownerId },
+        actor_user_id: approver.actor.userId,
+        agent_id: null,
+      },
+      answerSurface: "web",
+      answerDecisionId: rows[0]?.id ?? "missing",
+    });
+    // A surface without the decision that admitted it is not a record.
+    const orphaned = await db
+      .update(pendingRequests)
+      .set({ answerDecisionId: null })
+      .where(eq(pendingRequests.requestId, requestId))
+      .then(
+        () => "accepted",
+        (error: { cause?: Error }) => String(error.cause?.message ?? error),
+      );
+    expect(orphaned).toMatch(/pending_requests_approval_check/);
     expect(rows[0]).toMatchObject({
       action: "session.approve",
       resourceKind: "session",

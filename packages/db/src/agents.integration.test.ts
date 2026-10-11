@@ -659,6 +659,77 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(session?.agentReleaseId).toBe(r1.id);
   });
 
+  test("a policy change is a new release; a pinned session keeps the policy it started with", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const withPolicy = (bash: "ask" | "deny") =>
+      agentCardSchema.parse({
+        ...cardWith("policy", ["Read", "Bash"]),
+        capabilities: {
+          tools: ["Read", "Bash"],
+          mcp: null,
+          forbidden: [],
+          tool_policy: { per_tool: { Bash: bash } },
+        },
+      });
+    const created = await newAgent(agentsService, owner, withPolicy("ask"));
+    const v1 = created.versions[0];
+    if (!v1) throw new Error("no version");
+    const { release: r1 } = await agentsService.createRelease(
+      owner,
+      created.agent.id,
+      { version_id: v1.id, runtime_profile_id: "coding" },
+    );
+    expect(r1.policy_pins).toEqual({
+      tools: {
+        default: { builtin: "allow", mcp: "ask" },
+        per_tool: { Read: "allow", Bash: "ask" },
+      },
+    });
+    await agentsService.activateAgent(owner, created.agent.id, {
+      release_id: r1.id,
+      expected_revision: -1,
+    });
+    const sessionId = randomUUID();
+    await db.insert(sessions).values({
+      id: sessionId,
+      ownerId: workspaceId,
+      workspaceId,
+      repoUrl: "https://example.invalid/app.git",
+      branch: "main",
+      agentReleaseId: r1.id,
+    });
+
+    const updated = await agentsService.updateAgent(owner, created.agent.id, {
+      card: withPolicy("deny"),
+    });
+    const v2 = updated.versions[1];
+    if (!v2) throw new Error("a policy change did not make a version");
+    const { release: r2 } = await agentsService.createRelease(
+      owner,
+      created.agent.id,
+      { version_id: v2.id, runtime_profile_id: "coding" },
+    );
+    expect(r2.id).not.toBe(r1.id);
+    expect(r2.policy_pins.tools.per_tool.Bash).toBe("deny");
+    await agentsService.activateAgent(owner, created.agent.id, {
+      release_id: r2.id,
+      expected_revision: 0,
+    });
+
+    const [session] = await db
+      .select({ agentReleaseId: sessions.agentReleaseId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(session?.agentReleaseId).toBe(r1.id);
+    const pinned = await agentsService.resolveRelease(
+      workspaceId,
+      session?.agentReleaseId ?? "",
+    );
+    expect(pinned.policy_pins.tools.per_tool.Bash).toBe("ask");
+  });
+
   test("members and API keys cannot manage agents; a slug is taken once", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

@@ -405,6 +405,9 @@ export function createPostgresPendingRequests(
             resolvedAt: at,
             answerSequence: sequence,
             answerReceiptId: receiptId,
+            answeredBy: scope.actor,
+            answerSurface: input.approval.surface,
+            answerDecisionId: input.approval.decisionId,
           })
           .where(eq(pendingRequests.requestId, pending.requestId));
         await announceInputWaitEnded(tx, {

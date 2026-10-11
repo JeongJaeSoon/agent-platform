@@ -4,6 +4,7 @@ import type {
   PostSessionAnswerRequest,
   ReceiptAcceptedResponse,
   RegisterPendingRequest,
+  SurfaceKind,
 } from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { FenceRejection, WorkerFence } from "./worker-unit-of-work.ts";
@@ -14,6 +15,9 @@ export type AnswerRequestInput = {
   idempotencyKey: string;
   payloadHash: string;
   answer: PostSessionAnswerRequest;
+  // What the approval row keeps besides the principal: where the answer
+  // came from and the session.approve decision that let it through.
+  approval: { surface: SurfaceKind; decisionId: string };
 };
 
 export type AnswerRequestResult =
