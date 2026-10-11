@@ -178,7 +178,7 @@ export const ko = {
     "이 화면을 연 뒤 다른 사람이나 다른 탭이 활성 release를 바꿔, 덮어쓰지 않고 멈췄습니다. 최신 상태를 불러와 무엇이 바뀌었는지 확인한 뒤 다시 결정하세요.",
   "agent.conflict.reload": "최신 상태 불러오기",
   "agent.conflict.reloaded":
-    "보던 화면의 활성 release는 {seen}였고, 지금은 {now}입니다. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
+    "보던 화면의 활성 release: {seen}. 지금 활성 release: {now}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
   "agent.card.title": "카드",
   "agent.card.intro":
     "저장하면 새 version이 생깁니다. 활성 release는 그대로입니다.",

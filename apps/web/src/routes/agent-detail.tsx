@@ -229,6 +229,8 @@ function AgentView({
         detail={detail}
       />
       <Releases
+        // A new version becomes the one the form offers to release.
+        key={latestVersion(detail)?.id ?? "none"}
         detail={detail}
         versionNo={versionNo}
         onOutcome={onOutcome}

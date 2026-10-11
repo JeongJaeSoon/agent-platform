@@ -172,6 +172,25 @@ describe("에이전트 상세", () => {
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
+  test("새 version을 저장하면 release 폼도 그 version을 고른다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const instructions = await screen.findByLabelText("지시");
+    await user.clear(instructions);
+    await user.type(instructions, "환불 문의에도 답한다.");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다 — version 2/);
+    const release = screen
+      .getByRole("heading", { name: "release" })
+      .closest("section") as HTMLElement;
+    await waitFor(() =>
+      expect(
+        (within(release).getByLabelText("version") as HTMLSelectElement)
+          .selectedOptions[0]?.textContent,
+      ).toBe("version 2"),
+    );
+  });
 });
 
 describe("두 탭 동시 활성화", () => {
@@ -219,7 +238,7 @@ describe("두 탭 동시 활성화", () => {
     );
     expect(
       await b.findByText(
-        `보던 화면의 활성 release는 없음였고, 지금은 ${label(1)}입니다. 아래 차이를 확인하고 필요하면 다시 활성화하세요.`,
+        `보던 화면의 활성 release: 없음. 지금 활성 release: ${label(1)}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.`,
       ),
     ).toBeDefined();
     expect(b.getByText(`없음 → ${label(1)}`)).toBeDefined();
