@@ -1,7 +1,8 @@
 export type IdentityUser = {
   id: string;
   email: string;
-  passwordHash: string;
+  /** Null for an account that only signs in externally. */
+  passwordHash: string | null;
   displayName: string;
   createdAt: Date;
   disabledAt: Date | null;
@@ -29,6 +30,8 @@ export type BootstrapInput = {
   bootstrapTokenHash: Uint8Array;
   /** The recovery receipt's id, used only when an owner is recovered. */
   receiptId: string;
+  /** The owner's kind=password login method, unless it already has one. */
+  loginMethodId: string;
 };
 
 /**
@@ -54,7 +57,8 @@ export type IssuePasswordResetInput = {
 };
 
 /**
- * `not_found`: the target is not a live member of the workspace.
+ * `not_found`: the target is not a live member of the workspace, or has no
+ * password to reset.
  * `issuer_changed`: the issuer stopped being a live owner, or their password
  * changed, after it was checked. `owner_elsewhere`: the target owns another
  * workspace, which this workspace's owner has no say over.
@@ -85,6 +89,52 @@ export type ResolvedWebSession = {
   role: MembershipRole;
   expiresAt: Date;
 };
+
+/**
+ * An external account the provider vouched for: `email` is verified and
+ * already normalized, and every domain restriction has been applied.
+ */
+export type ExternalSignInInput = {
+  kind: "google";
+  issuer: string;
+  subject: string;
+  email: string;
+  displayName: string;
+  /** Set when the email's domain may join by itself (JIT) as this role. */
+  jitRole: MembershipRole | null;
+  /**
+   * The provider vouches the person owns `email` today, not only when the
+   * account was made. Without it the address claims no invite and learns
+   * nothing about an account that has it.
+   */
+  ownsEmail: boolean;
+  newUserId: string;
+  newLoginMethodId: string;
+  session: {
+    id: string;
+    tokenHash: Uint8Array;
+    ttlMs: number;
+    userAgent: string | null;
+    maxLive: number;
+  };
+};
+
+/**
+ * The first rule that matched (design 3.1). `link_required` is only for
+ * a caller whose address the provider verified, so it may say an account
+ * exists; `rejected` must not.
+ */
+export type ExternalSignInResult =
+  | {
+      outcome: "signed_in";
+      via: "linked" | "invite" | "jit";
+      userId: string;
+      workspaceId: string;
+      role: MembershipRole;
+      expiresAt: Date;
+    }
+  | { outcome: "link_required" }
+  | { outcome: "rejected" };
 
 export interface IdentityStore {
   /** Owners whose account and membership are both enabled. */
@@ -118,6 +168,10 @@ export interface IdentityStore {
     userAgent: string | null;
     maxLive: number;
   }): Promise<{ expiresAt: Date } | null>;
+  /** Applies the first-entry rules and, when one admits, opens a session. */
+  signInWithExternalIdentity(
+    input: ExternalSignInInput,
+  ): Promise<ExternalSignInResult>;
   resolveWebSession(tokenHash: Uint8Array): Promise<ResolvedWebSession | null>;
   renewWebSession(
     sessionId: string,
