@@ -28,6 +28,7 @@ import type {
   AppendMessageInput,
   AppendMessageResult,
   EventPage,
+  Principal,
   ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
@@ -86,9 +87,11 @@ import {
   events,
   executions,
   idempotencyKeys,
+  memberships,
   receipts,
   sessions,
   turns,
+  users,
 } from "./schema.ts";
 import { recordStatus } from "./session-events.ts";
 
@@ -155,6 +158,33 @@ async function insertQueuedTurn(
   });
 }
 
+// Authorization read the membership before this transaction opened. The share
+// lock makes an offboarding that commits since then either wait for this write
+// (and mark what it creates) or be seen here. Taken before any session row
+// lock, in offboarding's order.
+async function actorStillMember(
+  tx: Database,
+  principal: Principal,
+): Promise<boolean> {
+  const actor = principal.actor;
+  if (!actor?.userId || !actor.workspaceId) return true;
+  const live = await tx
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, actor.workspaceId),
+        eq(memberships.userId, actor.userId),
+        isNull(memberships.disabledAt),
+        isNull(users.disabledAt),
+      ),
+    )
+    .limit(1)
+    .for("share", { of: memberships });
+  return live.length > 0;
+}
+
 export function createPostgresSessionUnitOfWork(
   db: Database,
 ): SessionUnitOfWork {
@@ -182,6 +212,9 @@ export function createPostgresSessionUnitOfWork(
 
         if (!input.repository) {
           return { outcome: "unsupported" };
+        }
+        if (!(await actorStillMember(tx, input.principal))) {
+          return { outcome: "actor_inactive" };
         }
         const refused = await admitInput(tx, {
           sessionId: null,
@@ -252,6 +285,9 @@ export function createPostgresSessionUnitOfWork(
           };
         }
 
+        if (!(await actorStillMember(tx, input.principal))) {
+          return { outcome: "actor_inactive" };
+        }
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
         const [session] = await tx

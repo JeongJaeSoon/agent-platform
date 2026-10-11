@@ -47,6 +47,7 @@ export type AcceptSessionInput = {
 export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
   | { outcome: "conflict" | "unsupported" }
+  | { outcome: "actor_inactive" }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {
@@ -68,6 +69,7 @@ export type AppendMessageResult =
   // `reason` is the stored text, which may be one a newer build recorded.
   | { outcome: "checkpoint_unavailable"; reason: string }
   | { outcome: "awaiting_takeover" }
+  | { outcome: "actor_inactive" }
   | InputLimitRefusal;
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
