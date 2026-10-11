@@ -32,6 +32,7 @@ import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   bootstrapTokenUses,
+  invites,
   memberships,
   passwordResets,
   receipts,
@@ -100,6 +101,19 @@ export async function bootstrapOwner(
       .limit(1);
     const recovered = (await countUsers(tx)) > 0;
     if (recovered && existing) {
+      // An invite issued before recovery would let its holder in as whatever
+      // role the lost owners chose. Revoked before any user row is locked:
+      // accepting and issuing take the invite before the user.
+      await tx
+        .update(invites)
+        .set({ revokedAt: DB_NOW })
+        .where(
+          and(
+            eq(invites.workspaceId, existing.id),
+            isNull(invites.acceptedAt),
+            isNull(invites.revokedAt),
+          ),
+        );
       // Every user this transaction will write, in id order, before the
       // first write: a reset issue locks its issuer and target the same way,
       // so restoring one of them cannot hold a row the issue needs while

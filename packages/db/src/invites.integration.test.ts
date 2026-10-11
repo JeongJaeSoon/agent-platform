@@ -14,6 +14,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { bootstrapOwner } from "./identity.ts";
 import { createPostgresInviteStore } from "./invites.ts";
 import * as schema from "./schema.ts";
 import {
@@ -487,5 +488,86 @@ integration("invite store on PostgreSQL", () => {
       (m) => m.userId === userId,
     );
     expect(listed?.disabledAt?.toISOString()).toBe(at.toISOString());
+  });
+});
+
+// Owner recovery counts live owners across the install, so it gets a database
+// of its own.
+integration("invites across owner recovery on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "invites_recovery_it" });
+    pool = new Pool({ connectionString: database.url, max: 4 });
+    db = drizzle(pool, { schema });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  test("recovering an owner revokes every invite issued before it", async () => {
+    const store = createPostgresInviteStore(db);
+    const ws = randomUUID();
+    await db.insert(workspaces).values({ id: ws, slug: "recover", name: "r" });
+    const owner = randomUUID();
+    await db.insert(users).values({
+      id: owner,
+      email: "lost@example.invalid",
+      passwordHash: "old",
+      displayName: "Lost",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws, userId: owner, role: "owner" });
+    const token = `apv_${randomUUID()}`;
+    const created = await store.createInvite({
+      id: randomUUID(),
+      actor: {
+        principal: callerFor(
+          {
+            kind: "user",
+            id: owner,
+            workspace_id: ws,
+            role: "owner",
+            scopes: [...SESSION_SCOPE_VALUES],
+          },
+          { kind: "web" },
+          randomUUID(),
+        ),
+        workspaceId: ws,
+        userId: owner,
+      },
+      email: "outsider@example.invalid",
+      role: "owner",
+      tokenHash: hashOf(token),
+      ttlMs: 7 * DAY_MS,
+      receiptId: randomUUID(),
+    });
+    expect(created.outcome).toBe("created");
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, owner));
+
+    await bootstrapOwner(db, {
+      userId: randomUUID(),
+      email: "lost@example.invalid",
+      passwordHash: "recovered",
+      displayName: "Lost",
+      workspaceId: randomUUID(),
+      workspaceSlug: "unused",
+      workspaceName: "unused",
+      bootstrapTokenHash: hashOf("recovery token"),
+      receiptId: randomUUID(),
+    });
+
+    expect(await store.peekInvite(hashOf(token))).toEqual({
+      outcome: "expired",
+    });
+    expect((await store.listInvites(ws, 10))[0]?.status).toBe("revoked");
   });
 });
