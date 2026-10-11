@@ -117,7 +117,7 @@ export function registerEventRoutes(
     // The UUID contract accepts either case; Postgres renders lowercase and
     // NOTIFY carries that spelling, so the waiter key must match it.
     const sessionId = params.id.toLowerCase();
-    const actor = { ownerId: context.get("ownerId") };
+    const actor = context.get("caller");
     const reauthenticate = context.get("reauthenticate");
     const after = requireLastEventId(context.req.header("Last-Event-ID"));
     let release: () => void;

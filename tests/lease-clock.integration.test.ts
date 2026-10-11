@@ -22,7 +22,7 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
   type SessionCatalog,
@@ -120,7 +120,7 @@ integration("worker lease on the monotonic clock end to end", () => {
     db = drizzle(pool, { schema });
     const logger = createLogger({ sinks: [] });
     const sessions = createSessionService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),

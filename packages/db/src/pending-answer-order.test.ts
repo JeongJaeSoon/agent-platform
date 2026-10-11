@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WorkerScope } from "@agent-platform/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createPendingRequestService,
   createSessionService,
   createWorkerGateway,
@@ -10,6 +10,7 @@ import {
   type WorkerGateway,
   type WorkerPrincipal,
 } from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -32,7 +33,7 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
  */
 
 const PROFILE_ID = "claude-coding-v1";
-const OWNER = { ownerId: "owner-a" };
+const OWNER = testCaller("owner-a");
 const CATALOG: SessionCatalog = {
   profiles: {
     [PROFILE_ID]: {
@@ -95,7 +96,7 @@ afterEach(async () => {
 /** A session whose first turn has a permission request open on its worker. */
 async function askingSession() {
   const service = createSessionService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),
@@ -173,7 +174,7 @@ async function askingSession() {
 
 async function answerCode(sessionId: string, requestId: string) {
   const service = createPendingRequestService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     store: createPostgresPendingRequests(db),
   });
   try {

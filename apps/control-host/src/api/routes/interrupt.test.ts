@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { apiErrorResponseSchema } from "@agent-platform/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createInterruptService,
   type InterruptTurnInput,
   type InterruptTurnResult,
@@ -21,7 +21,7 @@ function interrupt(
 ) {
   const seen: InterruptTurnInput[] = [];
   const service = createInterruptService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     store: {
       interruptAtomic: async (input) => {
         seen.push(input);

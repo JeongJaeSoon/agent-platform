@@ -16,7 +16,7 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
   apiRoute(router, "getSessionUsage", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const usage = await mapped(() =>
-      service.getSessionUsage({ ownerId: context.get("ownerId") }, params.id),
+      service.getSessionUsage(context.get("caller"), params.id),
     );
     return jsonWithSchema(context, sessionUsageResponseSchema, usage);
   });
