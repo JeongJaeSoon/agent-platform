@@ -143,14 +143,22 @@ export function registerEventRoutes(
       const wake = new AbortController();
       const unlink = () => wake.abort();
       closed.addEventListener("abort", unlink, { once: true });
-      return {
+      const notified = options.wakeup.wait(sessionId, wake.signal);
+      const armed = {
         signal: wake.signal,
-        notified: options.wakeup.wait(sessionId, wake.signal),
+        notified,
+        // Set by a NOTIFY, which may be a share change: the page being sent
+        // stops there and the next read decides whether the stream may go on.
+        fired: false,
         release() {
           closed.removeEventListener("abort", unlink);
           wake.abort();
         },
       };
+      notified.then(() => {
+        if (!wake.signal.aborted) armed.fired = true;
+      });
+      return armed;
     };
     const closed = new AbortController();
     const closeWith = (reason: string) => {
@@ -275,8 +283,13 @@ export function registerEventRoutes(
       try {
         let page = firstPage;
         while (!closed.signal.aborted) {
+          let interrupted = false;
           for (const event of page.items) {
             if (closed.signal.aborted) break;
+            if (armed.fired) {
+              interrupted = true;
+              break;
+            }
             // The watchdog closes the stream on a "no"; this guard keeps a
             // frame from going out while the answer is still pending.
             if (Date.now() > verifiedUntil) {
@@ -307,7 +320,7 @@ export function registerEventRoutes(
           // bounded by the keepalive so a lost notification costs at most
           // one interval. Otherwise keep replaying; the high-watermark is
           // simply the last id sent.
-          if (!page.more) {
+          if (!page.more && !interrupted) {
             const outcome = await Promise.race([
               armed.notified.then(() => "notify" as const),
               sleep(keepaliveMs, armed.signal),
