@@ -4,7 +4,17 @@ import {
   type SessionBudget,
   storedPendingReasonHoldsWork,
 } from "@agent-platform/platform";
-import { and, eq, inArray, isNull, lt, min, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  min,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   idempotencyKeys,
@@ -74,6 +84,42 @@ export async function lockActorAccount(tx: Database, userId: string) {
     .from(users)
     .where(eq(users.id, userId))
     .for("share");
+}
+
+/**
+ * Several people's user rows, then their memberships of `workspaceId`, each
+ * in user_id order as a suspension and a role change take them, so a write
+ * that reads the actor and the person it acts on queues behind those
+ * instead of deadlocking them.
+ */
+export async function lockPeople(
+  tx: Database,
+  workspaceId: string,
+  userIds: readonly string[],
+) {
+  const ids = [...new Set(userIds)];
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.id, ids))
+    .orderBy(asc(users.id))
+    .for("share");
+  return tx
+    .select({
+      userId: memberships.userId,
+      role: memberships.role,
+      live: sql<boolean>`${memberships.disabledAt} is null and ${users.disabledAt} is null`,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, workspaceId),
+        inArray(memberships.userId, ids),
+      ),
+    )
+    .orderBy(asc(memberships.userId))
+    .for("share", { of: memberships });
 }
 
 // Authorization read the membership before this transaction opened. The share

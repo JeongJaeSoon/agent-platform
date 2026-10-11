@@ -5,6 +5,11 @@ import {
   activateAgentRequestSchema,
   activateAgentResponseSchema,
   activationCredentialUnboundDetailsSchema,
+  addAgentAdminRequestSchema,
+  addTeamMemberRequestSchema,
+  agentAdminChangeResponseSchema,
+  agentAdminParamsSchema,
+  agentAdminsViewSchema,
   agentDetailSchema,
   agentIdentityParamsSchema,
   agentIdParamsSchema,
@@ -27,7 +32,9 @@ import {
   createInviteResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  createTeamRequestSchema,
   credentialBindingParamsSchema,
+  deleteTeamResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getTurnResponseSchema,
@@ -41,6 +48,7 @@ import {
   linkAgentIdentityRequestSchema,
   linkAgentIdentityResponseSchema,
   linkedAccountParamsSchema,
+  listAdministeredAgentsResponseSchema,
   listAgentIdentitiesResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
@@ -52,6 +60,7 @@ import {
   listSessionsQuerySchema,
   listSessionsResponseSchema,
   listTakeoversResponseSchema,
+  listTeamsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
   loginRequestSchema,
@@ -89,12 +98,17 @@ import {
   sseEventSchema,
   startGoogleLoginResponseSchema,
   startSlackLinkResponseSchema,
+  teamChangeResponseSchema,
+  teamDetailSchema,
+  teamIdParamsSchema,
+  teamMemberParamsSchema,
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
   turnIdParamsSchema,
   turnSummarySchema,
   updateAgentRequestSchema,
   updateMemberRequestSchema,
+  updateTeamRequestSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
 } from "@agent-platform/contracts";
@@ -136,6 +150,10 @@ const requestComponents = {
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
   ActivateAgentRequest: activateAgentRequestSchema,
   CreateApiKeyRequest: createApiKeyRequestSchema,
+  CreateTeamRequest: createTeamRequestSchema,
+  UpdateTeamRequest: updateTeamRequestSchema,
+  AddTeamMemberRequest: addTeamMemberRequestSchema,
+  AddAgentAdminRequest: addAgentAdminRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
@@ -187,6 +205,13 @@ const responseComponents = {
   CreateApiKeyResponse: createApiKeyResponseSchema,
   ListApiKeysResponse: listApiKeysResponseSchema,
   RevokeApiKeyResponse: revokeApiKeyResponseSchema,
+  ListTeamsResponse: listTeamsResponseSchema,
+  TeamDetail: teamDetailSchema,
+  TeamChangeResponse: teamChangeResponseSchema,
+  DeleteTeamResponse: deleteTeamResponseSchema,
+  AgentAdmins: agentAdminsViewSchema,
+  AgentAdminChangeResponse: agentAdminChangeResponseSchema,
+  ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
   CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
   CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
   ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
@@ -234,6 +259,11 @@ export const OPENAPI_TAGS = [
     name: "Members",
     description:
       "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
+  },
+  {
+    name: "Teams",
+    description:
+      "Group people into teams; a team named an agent's admin makes every member of it one. Owners and admins change teams, from a browser session. A person added joins at once, without accepting.",
   },
   {
     name: "Workspace settings",
@@ -1180,6 +1210,147 @@ const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/teams",
+    operationId: "createTeam",
+    tag: "Teams",
+    summary: "Create a team",
+    description:
+      "Owners and admins (`team.manage`). A live team's name is unique in its workspace (409 ALREADY_EXISTS). Writes a `create_team` receipt.",
+    auth: "session",
+    body: "CreateTeamRequest",
+    success: { status: 201, schema: "TeamChangeResponse" },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/teams",
+    operationId: "listTeams",
+    tag: "Teams",
+    summary: "The workspace's teams, by name",
+    auth: "session",
+    success: { status: 200, schema: "ListTeamsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/teams/{team_id}",
+    operationId: "getTeam",
+    tag: "Teams",
+    summary: "A team and its members",
+    auth: "session",
+    success: { status: 200, schema: "TeamDetail" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/teams/{team_id}",
+    operationId: "updateTeam",
+    tag: "Teams",
+    summary: "Rename a team",
+    description:
+      "Writes a `rename_team` receipt unless the name is unchanged (`receipt_id` null).",
+    auth: "session",
+    body: "UpdateTeamRequest",
+    success: { status: 200, schema: "TeamChangeResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/teams/{team_id}",
+    operationId: "deleteTeam",
+    tag: "Teams",
+    summary: "Delete a team",
+    description:
+      "Every agent the team administered loses it from the next request on; its members keep whatever they hold on their own. Writes a `delete_team` receipt.",
+    auth: "session",
+    success: { status: 200, schema: "DeleteTeamResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/teams/{team_id}/members",
+    operationId: "addTeamMember",
+    tag: "Teams",
+    summary: "Add a member of the workspace to a team",
+    description:
+      "No invite and no acceptance: the person is a member of the team at once. A disabled member is not found. Writes an `add_team_member` receipt naming the person, unless they already were in (`receipt_id` null).",
+    auth: "session",
+    body: "AddTeamMemberRequest",
+    success: { status: 200, schema: "TeamChangeResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/teams/{team_id}/members/{user_id}",
+    operationId: "removeTeamMember",
+    tag: "Teams",
+    summary: "Take a member out of a team",
+    description:
+      "What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).",
+    auth: "session",
+    success: { status: 200, schema: "TeamChangeResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/admins",
+    operationId: "listAgentAdmins",
+    tag: "Agents",
+    summary: "The people and teams who administer an agent",
+    description:
+      "Owners, admins and the agent's own admins (`agent.admin.manage`).",
+    auth: "session",
+    success: { status: 200, schema: "AgentAdmins" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/admins",
+    operationId: "addAgentAdmin",
+    tag: "Agents",
+    summary: "Name a person or a team an agent's admin",
+    description:
+      "Owners, admins and the agent's own admins. A team's members administer the agent while they are in it. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).",
+    auth: "session",
+    body: "AddAgentAdminRequest",
+    success: { status: 200, schema: "AgentAdminChangeResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/admins/{kind}/{subject_id}",
+    operationId: "removeAgentAdmin",
+    tag: "Agents",
+    summary: "Stop a person or a team administering an agent",
+    description:
+      "`kind` is `users` or `teams`. Writes a `remove_agent_admin` receipt unless they were not one (`receipt_id` null).",
+    auth: "session",
+    success: { status: 200, schema: "AgentAdminChangeResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/administered-agents",
+    operationId: "listAdministeredAgents",
+    tag: "Agents",
+    summary: "The agents the caller administers",
+    description:
+      "Directly or through a team, as of this request: what an agent's admin needs to issue that agent's own key.",
+    auth: "session",
+    success: { status: 200, schema: "ListAdministeredAgentsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
     method: "get",
     path: "/v1/limits",
     operationId: "getInstallationLimits",
@@ -1303,10 +1474,14 @@ function queryParameters(schema: JsonSchema) {
 
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
+  if (path.startsWith("/v1/agents/{id}/admins/")) return agentAdminParamsSchema;
   if (path.includes("{binding_id}")) return credentialBindingParamsSchema;
   if (path === "/v1/agents/{id}/identities/{identity_id}")
     return agentIdentityParamsSchema;
   if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
+  if (path.startsWith("/v1/teams/{team_id}/members/"))
+    return teamMemberParamsSchema;
+  if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path === "/v1/invites/{id}") return inviteIdParamsSchema;

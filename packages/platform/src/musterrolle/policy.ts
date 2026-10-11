@@ -118,6 +118,7 @@ export interface AgentAuthority {
     workspaceId: string,
     resource: { kind: AuthorizationResource["kind"]; id: string },
   ): Promise<string | null>;
+  /** An admin row of their own, or a live team they are a live member of. */
   isAdmin(
     workspaceId: string,
     agentId: string,
