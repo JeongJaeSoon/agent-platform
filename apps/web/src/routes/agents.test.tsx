@@ -125,6 +125,36 @@ describe("에이전트 상세", () => {
     );
   });
 
+  test("이미 있는 version과 같은 카드로 저장하면 그 version을 저장 결과로 본다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const instructions = await screen.findByLabelText("지시");
+    await user.clear(instructions);
+    await user.type(instructions, "환불 문의에도 답한다.");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다 — version 2/);
+    await user.clear(screen.getByLabelText("지시"));
+    await user.type(screen.getByLabelText("지시"), CARD.instructions);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect(
+      await screen.findByText(
+        "저장했습니다. 같은 카드가 이미 있어(version 1) 새 version은 생기지 않았습니다.",
+      ),
+    ).toBeDefined();
+    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
+      CARD.instructions,
+    );
+    expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
+    const release = screen
+      .getByRole("heading", { name: "release" })
+      .closest("section") as HTMLElement;
+    expect(
+      (within(release).getByLabelText("version") as HTMLSelectElement)
+        .selectedOptions[0]?.textContent,
+    ).toBe("version 1");
+  });
+
   test("바뀐 것 없이 저장하면 새 version이 없다고 말한다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });

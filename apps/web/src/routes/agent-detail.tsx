@@ -100,6 +100,8 @@ function AgentView({
   readonly onReload: () => void;
 }) {
   const { t } = useI18n();
+  // Until a version is picked or saved the release form offers the latest.
+  const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   const { client, queryClient } = useServices();
   const role = useRole();
   const [conflict, setConflict] = useState<Conflict | null>(null);
@@ -225,13 +227,19 @@ function AgentView({
           )}
         </section>
       ) : null}
-      <CardEditor detail={detail} onOutcome={onOutcome} />
+      <CardEditor
+        detail={detail}
+        onOutcome={onOutcome}
+        onSaved={setReleaseVersion}
+      />
       <VersionHistory
         key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
         detail={detail}
       />
       <Releases
         detail={detail}
+        picked={releaseVersion}
+        onPick={setReleaseVersion}
         versionNo={versionNo}
         onOutcome={onOutcome}
         activating={
@@ -252,9 +260,12 @@ function AgentView({
 function CardEditor({
   detail,
   onOutcome,
+  onSaved,
 }: {
   readonly detail: AgentDetail;
   readonly onOutcome: (outcome: Outcome | null) => void;
+  /** The version the save resolved to, which the release form then offers. */
+  readonly onSaved: (versionId: string) => void;
 }) {
   const { t } = useI18n();
   const { client, queryClient } = useServices();
@@ -268,7 +279,7 @@ function CardEditor({
     edit.name !== edit.baseName ||
     JSON.stringify(edit.draft) !==
       JSON.stringify(base ? draftFromCard(base.card) : null);
-  const stale = (latest?.id ?? null) !== edit.baseId;
+  const stale = (latest?.id ?? null) !== edit.seenLatestId;
   if ((stale || detail.agent.name !== edit.baseName) && !dirty)
     setEdit(startEdit(detail));
   const setName = (name: string) => setEdit((e) => ({ ...e, name }));
@@ -294,22 +305,29 @@ function CardEditor({
       ) as Promise<AgentDetail>,
     onMutate: () => onOutcome(null),
     onSuccess: async (updated, submitted) => {
-      const saved = latestVersion(updated);
+      // The server keeps one version per card content, so the card just saved
+      // may be an older version rather than the highest one.
+      const saved = savedVersion(updated, submitted);
+      if (saved) onSaved(saved.id);
+      const isNew =
+        saved !== undefined && !detail.versions.some((v) => v.id === saved.id);
       onOutcome({
         kind: "notice",
-        text:
-          saved && saved.id !== submitted.baseId
-            ? t("agent.saved", { version: saved.version_no })
+        text: isNew
+          ? t("agent.saved", { version: saved.version_no })
+          : saved && saved.id !== submitted.baseId
+            ? t("agent.savedExisting", { version: saved.version_no })
             : t("agent.savedNoChange"),
       });
       // Input typed while the request was in flight stays; it is now an edit
       // of the version just saved.
       setEdit((current) =>
         sameEdit(current, submitted)
-          ? startEdit(updated)
+          ? startEdit(updated, saved)
           : {
               ...current,
               baseId: saved?.id ?? null,
+              seenLatestId: latestVersion(updated)?.id ?? null,
               baseName: updated.agent.name,
             },
       );
@@ -369,6 +387,8 @@ function CardEditor({
 
 interface Edit {
   readonly baseId: string | null;
+  /** The newest version when the edit started; a newer one means another save. */
+  readonly seenLatestId: string | null;
   readonly baseName: string;
   readonly name: string;
   readonly draft: CardDraft | null;
@@ -377,14 +397,29 @@ interface Edit {
 const sameEdit = (a: Edit, b: Edit) =>
   a.name === b.name && JSON.stringify(a.draft) === JSON.stringify(b.draft);
 
-function startEdit(detail: AgentDetail): Edit {
+function startEdit(detail: AgentDetail, from?: AgentVersion): Edit {
   const latest = latestVersion(detail);
+  const base = from ?? latest;
   return {
-    baseId: latest?.id ?? null,
+    baseId: base?.id ?? null,
+    seenLatestId: latest?.id ?? null,
     baseName: detail.agent.name,
     name: detail.agent.name,
-    draft: latest ? draftFromCard(latest.card) : null,
+    draft: base ? draftFromCard(base.card) : null,
   };
+}
+
+function savedVersion(
+  detail: AgentDetail,
+  submitted: Edit,
+): AgentVersion | undefined {
+  const sent = JSON.stringify(submitted.draft);
+  const matching = detail.versions.filter(
+    (version) => JSON.stringify(draftFromCard(version.card)) === sent,
+  );
+  return (
+    latestVersion({ ...detail, versions: matching }) ?? latestVersion(detail)
+  );
 }
 
 function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
@@ -484,12 +519,17 @@ function VersionSelect({
 
 function Releases({
   detail,
+  picked,
+  onPick,
   versionNo,
   onOutcome,
   activating,
   onActivate,
 }: {
   readonly detail: AgentDetail;
+  /** The version to release; null offers the latest. */
+  readonly picked: string | null;
+  readonly onPick: (versionId: string) => void;
   readonly versionNo: (versionId: string) => number | undefined;
   readonly onOutcome: (outcome: Outcome | null) => void;
   readonly activating: string | undefined;
@@ -500,9 +540,6 @@ function Releases({
   const role = useRole();
   const titleId = useId();
   const latest = latestVersion(detail);
-  // Until a version is picked the form offers the latest, so a version saved
-  // after the page opened is the default without remounting the form.
-  const [picked, setPicked] = useState<string | null>(null);
   const versionId = picked ?? latest?.id ?? "";
   const [profile, setProfile] = useState(
     detail.releases.at(-1)?.runtime_profile_id ?? "",
@@ -553,7 +590,7 @@ function Releases({
             (a, b) => b.version_no - a.version_no,
           )}
           value={versionId}
-          onChange={setPicked}
+          onChange={onPick}
         />
         <TextField
           label={t("agent.releases.profile")}

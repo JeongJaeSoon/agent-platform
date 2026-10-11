@@ -169,6 +169,8 @@ export const ko = {
   "agent.versionLabel": "version {version}",
   "agent.saved":
     "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 쓰려면 release를 만들고 활성화하세요.",
+  "agent.savedExisting":
+    "저장했습니다. 같은 카드가 이미 있어(version {version}) 새 version은 생기지 않았습니다.",
   "agent.savedNoChange":
     "저장했습니다. 카드 내용이 같아 새 version은 생기지 않았습니다.",
   "agent.activated":
