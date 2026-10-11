@@ -118,7 +118,8 @@ Preconditions:
   6. owner가 `ap_web GET /v1/admin/sessions` → 그 항목의 키가 정확히 `admission_state, agent_release_id, created_at, created_by_api_key_id, created_by_user_id, session_id, share_scope, status, takeover_required_at`이고 `share_scope: "private"`, 본문에 `confidential minutes`가 없다. `b` → `403`.
   7. owner가 `POST "/v1/admin/sessions/$SID/terminate" '{"expected_revision":N}'` → `400`, 일반 `POST "/v1/sessions/$SID/terminate"` → `404`, `{"expected_revision":N,"justification":"stop"}` → `202`(N은 감사 열람 응답의 `session.revision`).
   8. `SELECT action, outcome, reason_code, justification, count(*) FROM authz_decisions WHERE resource_id = '$SID' GROUP BY 1,2,3,4` → `session.audit_read allow ok <사유>`(읽을 때마다 한 행), `session.control allow ok <사유>`, `session.control deny not_found`, `session.read deny not_found`, `session.submit deny not_found`, `session.share allow ok`. `receipts`에 `share_session`이 바꾼 횟수만큼(`result.scope`), `session_shares`는 `private | 3`.
-  - 2026-10-11 run `20261011-234200-5962`에서 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-e.txt`, `musterrolle-e-sse.txt`, `musterrolle-e-admin-list.json`.
+  - 7의 앞에 세션을 만든 member `a`가 같은 관리 종료를 보내면 `403` `role`이다(사유를 단 종료는 owner·admin 판정을 먼저 받는다).
+  - 2026-10-12 run `20261011-235937-79730`(리뷰 수정 뒤 head `ad893b5`)에서 이 순서대로 다시 확인했다. 증거는 `$EVIDENCE/musterrolle-e.txt`, `musterrolle-e-sse.txt`, `musterrolle-e-admin-list.json`.
 
 - **f. 자격 연결.** d의 1처럼 owner와 member 둘(`agentadmin`, `other`)을 초대·수락으로 만든다. 수락 본문은 `jq -nc --arg t "$TOKEN" '{token:$t,password:"verify-member-pass-1"}'`로 만든다(`"$(… \"$TOKEN\" …)"`처럼 명령 치환 안에서 따옴표를 escape하면 bash 3.2가 `\`를 남겨 `400`이다).
   1. agentadmin이 `capabilities`에 `"credential_refs":["notion_token"]`을 넣은 card로 에이전트를 만들고 `claude-coding-local` release를 만든다(`REL`). 같은 사람이 그 에이전트 전용 서비스 key(`KEY`)를 발급한다.
