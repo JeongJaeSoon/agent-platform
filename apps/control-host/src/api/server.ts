@@ -62,6 +62,7 @@ import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
+import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -259,6 +260,12 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
+const google = googleLoginConfigFromEnv(process.env);
+if (google.problems.length > 0) {
+  throw new Error(
+    `Invalid Google sign-in settings: ${google.problems.join("; ")}`,
+  );
+}
 // One window and one hashing gate for every account password check (login,
 // the reset issuer's re-check, invite accept), so no route resets another's
 // count.
@@ -266,6 +273,7 @@ const lockout = new LoginLockout();
 const passwordWork = new WorkGate();
 const auth = {
   identity,
+  ...(google.config ? { google: createGoogleLogin(google.config) } : {}),
   lockout,
   passwordWork,
   bootstrap: await bootstrapGateFromEnv(
@@ -333,6 +341,7 @@ const app = createApiApp({
       configProblems: (environment) => [
         ...installationLimitProblems(environment),
         ...apiSettingsProblems(environment),
+        ...googleLoginConfigFromEnv(environment).problems,
       ],
     }),
   ),

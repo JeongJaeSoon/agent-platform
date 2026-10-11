@@ -3,6 +3,9 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  GOOGLE_LOGIN_COOKIE_NAME,
+  GOOGLE_LOGIN_FLOW_TTL_MINUTES,
+  googleLoginCallbackRequestSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
   loginRequestSchema,
@@ -13,6 +16,7 @@ import {
   passwordResetRequestSchema,
   passwordResetResponseSchema,
   scopesForRole,
+  startGoogleLoginResponseSchema,
   type Workspace,
   workspaceSettingsSchema,
 } from "@agent-platform/contracts";
@@ -24,6 +28,7 @@ import {
   type IdentityWorkspace,
 } from "@agent-platform/platform";
 import type { Context } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import {
   ApiHttpError,
@@ -51,6 +56,12 @@ import {
   WorkGate,
   webSessionCookie,
 } from "../auth.ts";
+import {
+  domainAdmission,
+  type GoogleLogin,
+  GoogleLoginInvalidError,
+  GoogleUnavailableError,
+} from "../google-login.ts";
 import { requireParams } from "./errors.ts";
 
 export interface AuthRouteDeps {
@@ -60,6 +71,8 @@ export interface AuthRouteDeps {
   lockout?: LoginLockout;
   passwordWork?: WorkGate;
   logger?: StructuredLogger;
+  /** Absent: Google sign-in is not configured and its routes answer 404. */
+  google?: GoogleLogin;
 }
 
 const INVALID_CREDENTIALS = "Invalid email or password";
@@ -404,6 +417,159 @@ export function registerPublicAuthRoutes(
       expires_at: expiresAt.toISOString(),
     });
   });
+
+  const requireGoogle = (): GoogleLogin => {
+    if (!deps.google) {
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Google sign-in is not configured",
+      );
+    }
+    return deps.google;
+  };
+  const providerMapped = async <T>(work: () => Promise<T>): Promise<T> => {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof GoogleUnavailableError) {
+        deps.logger?.warn("Google sign-in provider unavailable", {
+          reason: error.message,
+        });
+        throw new ApiHttpError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Google sign-in is unavailable, try again later",
+          true,
+        );
+      }
+      throw error;
+    }
+  };
+
+  apiRoute(router, "startGoogleLogin", ingestThenStopClock, async (context) => {
+    const violation = browserRequestViolation(context);
+    if (violation) {
+      throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
+    }
+    const google = requireGoogle();
+    const flow = await providerMapped(() => google.start());
+    setCookie(context, GOOGLE_LOGIN_COOKIE_NAME, flow.cookieValue, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: GOOGLE_LOGIN_FLOW_TTL_MINUTES * 60,
+    });
+    context.header("Cache-Control", "no-store");
+    return jsonWithSchema(context, startGoogleLoginResponseSchema, {
+      authorization_url: flow.authorizationUrl,
+    });
+  });
+
+  apiRoute(
+    router,
+    "googleLoginCallback",
+    ingestThenStopClock,
+    async (context) => {
+      const violation = browserRequestViolation(context);
+      if (violation) {
+        throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
+      }
+      const google = requireGoogle();
+      const body = await parseJsonBody(
+        context,
+        googleLoginCallbackRequestSchema,
+      );
+      const cookieValue = getCookie(context, GOOGLE_LOGIN_COOKIE_NAME);
+      deleteCookie(context, GOOGLE_LOGIN_COOKIE_NAME, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax",
+        path: "/",
+      });
+      let identity: Awaited<ReturnType<GoogleLogin["finish"]>>;
+      try {
+        identity = await providerMapped(() =>
+          google.finish({ cookieValue, code: body.code, state: body.state }),
+        );
+      } catch (error) {
+        if (error instanceof GoogleLoginInvalidError) {
+          deps.logger?.warn("Google sign-in refused", {
+            reason: error.message,
+          });
+          throw new ApiHttpError(401, "UNAUTHORIZED", GOOGLE_REJECTED);
+        }
+        throw error;
+      }
+      const admission = domainAdmission(google.config, identity);
+      if (!admission) {
+        deps.logger?.warn("Google sign-in refused: domain not allowed", {
+          hosted_domain: identity.hostedDomain,
+        });
+        throw new ApiHttpError(
+          403,
+          "FORBIDDEN",
+          "This Google account's domain is not allowed here",
+        );
+      }
+      const token = generateWebSessionToken();
+      const result = await storageMapped(() =>
+        deps.identity.signInWithExternalIdentity({
+          kind: "google",
+          issuer: identity.issuer,
+          subject: identity.subject,
+          email: identity.email,
+          displayName: displayNameFor(identity),
+          jitRole: admission.jitRole,
+          ownsEmail: admission.ownsEmail,
+          newUserId: randomUUID(),
+          newLoginMethodId: randomUUID(),
+          receiptId: randomUUID(),
+          session: {
+            id: randomUUID(),
+            tokenHash: hashWebSessionToken(token),
+            ttlMs: WEB_SESSION_TTL_MS,
+            userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
+            maxLive: WEB_SESSIONS_PER_USER,
+          },
+        }),
+      );
+      if (result.outcome === "link_required") {
+        deps.logger?.info("Google sign-in needs linking to an account");
+        throw new ApiHttpError(
+          409,
+          "LOGIN_LINK_REQUIRED",
+          "Sign in with your existing account, then connect Google in settings",
+        );
+      }
+      if (result.outcome === "rejected") {
+        deps.logger?.warn("Google sign-in refused: no rule admits it");
+        throw new ApiHttpError(401, "UNAUTHORIZED", GOOGLE_REJECTED);
+      }
+      deps.logger?.info("Google sign-in", {
+        user_id: result.userId,
+        workspace_id: result.workspaceId,
+        via: result.via,
+      });
+      setWebSessionCookie(context, token, result.expiresAt);
+      return jsonWithSchema(context, loginResponseSchema, {
+        user_id: result.userId,
+        workspace_id: result.workspaceId,
+        role: result.role,
+        scopes: [...scopesForRole(result.role)],
+        expires_at: result.expiresAt.toISOString(),
+      });
+    },
+  );
+}
+
+const GOOGLE_REJECTED = "Google sign-in was not accepted";
+
+function displayNameFor(identity: { name: string | null; email: string }) {
+  const name = identity.name?.trim().slice(0, 64);
+  if (name) return name;
+  return identity.email.slice(0, identity.email.indexOf("@")).slice(0, 64);
 }
 
 /** Mounted inside the auth middleware. */

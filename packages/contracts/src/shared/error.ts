@@ -44,6 +44,9 @@ export const API_ERROR_CODE_VALUES = [
   "INVITE_USED",
   // The change would leave the workspace with no live owner.
   "LAST_OWNER",
+  // An external login whose verified address already has an account: it is
+  // never joined by email, the owner links it after signing in (design 3.1).
+  "LOGIN_LINK_REQUIRED",
   // A release was made against a runtime profile whose settings have changed
   // since; it has to be released again before it can run.
   "PROFILE_DIGEST_MISMATCH",
