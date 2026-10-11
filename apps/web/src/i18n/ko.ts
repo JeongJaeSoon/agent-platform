@@ -127,6 +127,7 @@ export const ko = {
   "home.checklist.invite": "구성원 초대하기",
   "home.checklist.agent": "에이전트 준비하기",
   "home.checklist.session": "첫 세션 시작하기",
+  "home.checklist.unknown": "확인할 수 없음",
 
   "agents.title": "에이전트",
   "agents.new": "새 에이전트",
