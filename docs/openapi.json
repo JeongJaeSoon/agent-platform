@@ -5240,9 +5240,6 @@
                       "additionalProperties": false
                     }
                   },
-                  "required": [
-                    "tools"
-                  ],
                   "additionalProperties": false
                 },
                 "created_by": {
@@ -5428,9 +5425,6 @@
                         "additionalProperties": false
                       }
                     },
-                    "required": [
-                      "tools"
-                    ],
                     "additionalProperties": false
                   },
                   "created_by": {
@@ -5630,9 +5624,6 @@
                     "additionalProperties": false
                   }
                 },
-                "required": [
-                  "tools"
-                ],
                 "additionalProperties": false
               },
               "created_by": {
