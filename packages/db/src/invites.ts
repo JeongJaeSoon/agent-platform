@@ -11,7 +11,7 @@ import type {
   MembershipRole,
   RevokeInviteResult,
 } from "@agent-platform/platform";
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { receiptActorOf } from "./control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { createWebSession } from "./identity.ts";
@@ -252,7 +252,19 @@ async function peekInvite(
   };
 }
 
+class ExpiredWhileWaiting extends Error {}
+
 async function acceptInvite(
+  db: Database,
+  input: AcceptInviteInput,
+): Promise<AcceptInviteResult> {
+  return acceptInviteOnce(db, input).catch((error: unknown) => {
+    if (error instanceof ExpiredWhileWaiting) return { outcome: "expired" };
+    throw error;
+  });
+}
+
+async function acceptInviteOnce(
   db: Database,
   input: AcceptInviteInput,
 ): Promise<AcceptInviteResult> {
@@ -344,10 +356,14 @@ async function acceptInvite(
           ),
         );
     }
-    await tx
+    // The invite was live when locked; the row and unique-index waits since
+    // then can outlast it, so the spend re-reads the clock.
+    const spent = await tx
       .update(invites)
       .set({ acceptedAt: DB_NOW })
-      .where(eq(invites.id, invite.id));
+      .where(and(eq(invites.id, invite.id), gt(invites.expiresAt, DB_NOW)))
+      .returning({ id: invites.id });
+    if (spent.length === 0) throw new ExpiredWhileWaiting();
     const session = await createWebSession(tx, {
       ...input.session,
       userId,
