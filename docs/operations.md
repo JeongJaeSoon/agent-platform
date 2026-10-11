@@ -663,6 +663,7 @@ owner·admin은 범위 밖 세션을 두 길로만 다룬다. 둘 다 사유(`ju
 
 - **감사 열람** `POST /v1/sessions/{id}/audit-read` `{"justification"}`: 세션 상세와 turn 한 페이지(`cursor`·`limit`)를 돌려준다. 읽을 때마다 `session.audit_read` 행이 하나씩 남는다. 읽기만 한다. 열람한 뒤에도 그 세션의 다른 표면(메시지·응답·종료 등)은 여전히 `404`다. 사유가 없으면 `400`, member는 `404`(범위 밖) 또는 `403`(`reason_code: role`)이다.
 - **관리 종료** `POST /v1/admin/sessions/{id}/terminate` `{"expected_revision","justification"}`: 범위와 관계없이 세션을 멈춘다. 사유는 판정 행과 stop 이벤트의 reason에 남는다. 사유가 없으면 `400`이다. 같은 세션에 일반 `POST /v1/sessions/{id}/terminate`를 보내면 `404`이고 거절도 판정 행(`not_found`)으로 남는다.
+- **관리 복구** `POST /v1/admin/sessions/{id}/recovery-decisions`: 결과를 모르는 세션의 복구 결정을 owner만 범위와 관계없이 내린다. 본문은 일반 복구 결정과 같고, 그 `reason`이 사유다. 공백뿐인 사유는 사유가 없는 것과 같아 `404`다.
 
 세션 관리 목록 `GET /v1/admin/sessions`는 owner·admin이 범위와 관계없이 workspace의 세션을 최근 것부터 200개 본다. 항목은 메타데이터뿐이다: `session_id`, `created_by_user_id`, `created_by_api_key_id`, `agent_release_id`, `status`, `admission_state`, `share_scope`, `created_at`, `takeover_required_at`. 메시지·제목·요약은 없다.
 
