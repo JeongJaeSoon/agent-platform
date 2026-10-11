@@ -127,6 +127,27 @@ export const ko = {
   "home.checklist.agent": "에이전트 준비하기",
   "home.checklist.session": "첫 세션 시작하기",
 
+  "agentCard.role": "역할",
+  "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
+  "agentCard.instructions": "지시",
+  "agentCard.tone": "말투",
+  "agentCard.optional": "선택",
+  "agentCard.language": "언어",
+  "agentCard.model": "모델",
+  "agentCard.modelHint":
+    "release할 runtime profile이 허용하는 모델이어야 합니다",
+  "agentCard.tools": "쓸 수 있는 도구",
+  "agentCard.toolsAll": "runtime profile이 허용하는 도구 전부",
+  "agentCard.toolsList": "고른 도구만",
+  "agentCard.toolNames": "도구 이름",
+  "agentCard.listHint": "쉼표나 공백으로 구분",
+  "agentCard.forbidden": "금지 도구",
+  "agentCard.forbiddenHint": "쉼표나 공백으로 구분. 서버가 막습니다",
+  "diff.caption": "{before} → {after}",
+  "diff.added": "추가: ",
+  "diff.removed": "삭제: ",
+  "diff.same": "두 version의 카드가 같습니다.",
+
   "status.loading.title": "로그인 상태를 확인하는 중입니다",
   "status.loginRequired.title": "다시 로그인하세요",
   "status.loginRequired.body":

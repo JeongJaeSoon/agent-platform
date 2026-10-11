@@ -152,4 +152,25 @@ export const en: Record<MessageKey, string> = {
   "error.INVITE_USED": "The invite was already used.",
   "error.LAST_OWNER":
     "The last owner cannot change role or be disabled — make someone else an owner first. You cannot disable yourself either.",
+  "agentCard.role": "Role",
+  "agentCard.roleHint": "One line: what this agent is for",
+  "agentCard.instructions": "Instructions",
+  "agentCard.tone": "Tone",
+  "agentCard.optional": "Optional",
+  "agentCard.language": "Language",
+  "agentCard.model": "Model",
+  "agentCard.modelHint":
+    "Must be a model the runtime profile you release to allows",
+  "agentCard.tools": "Tools it may use",
+  "agentCard.toolsAll": "Every tool the runtime profile allows",
+  "agentCard.toolsList": "Only the tools I pick",
+  "agentCard.toolNames": "Tool names",
+  "agentCard.listHint": "Separated by commas or spaces",
+  "agentCard.forbidden": "Forbidden tools",
+  "agentCard.forbiddenHint":
+    "Separated by commas or spaces. The server enforces it",
+  "diff.caption": "{before} → {after}",
+  "diff.added": "added: ",
+  "diff.removed": "removed: ",
+  "diff.same": "The two versions have the same card.",
 };
