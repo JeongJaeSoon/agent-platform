@@ -287,35 +287,44 @@ export function createPostgresTeamStore(db: Database): TeamStore {
 
     async get(workspaceId, teamId) {
       if (!UUID.test(workspaceId) || !UUID.test(teamId)) return null;
-      const [row] = await db
-        .select()
-        .from(memberTeams)
-        .where(
-          and(
-            eq(memberTeams.workspaceId, workspaceId),
-            eq(memberTeams.id, teamId.toLowerCase()),
-            isNull(memberTeams.archivedAt),
-          ),
-        );
-      if (!row) return null;
-      const members: TeamMember[] = await db
-        .select({
-          userId: memberTeamMembers.userId,
-          email: users.email,
-          displayName: users.displayName,
-          addedBy: memberTeamMembers.addedBy,
-          addedAt: memberTeamMembers.addedAt,
-        })
-        .from(memberTeamMembers)
-        .innerJoin(users, eq(users.id, memberTeamMembers.userId))
-        .where(
-          and(
-            eq(memberTeamMembers.teamId, row.id),
-            isNull(memberTeamMembers.removedAt),
-          ),
-        )
-        .orderBy(asc(memberTeamMembers.addedAt), asc(memberTeamMembers.userId));
-      return { ...(await teamOf(db, row)), members };
+      // One snapshot, so the revision, the count and the members agree.
+      return db.transaction(
+        async (tx) => {
+          const [row] = await tx
+            .select()
+            .from(memberTeams)
+            .where(
+              and(
+                eq(memberTeams.workspaceId, workspaceId),
+                eq(memberTeams.id, teamId.toLowerCase()),
+                isNull(memberTeams.archivedAt),
+              ),
+            );
+          if (!row) return null;
+          const members: TeamMember[] = await tx
+            .select({
+              userId: memberTeamMembers.userId,
+              email: users.email,
+              displayName: users.displayName,
+              addedBy: memberTeamMembers.addedBy,
+              addedAt: memberTeamMembers.addedAt,
+            })
+            .from(memberTeamMembers)
+            .innerJoin(users, eq(users.id, memberTeamMembers.userId))
+            .where(
+              and(
+                eq(memberTeamMembers.teamId, row.id),
+                isNull(memberTeamMembers.removedAt),
+              ),
+            )
+            .orderBy(
+              asc(memberTeamMembers.addedAt),
+              asc(memberTeamMembers.userId),
+            );
+          return { ...(await teamOf(tx, row)), members };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
     },
   };
 }
