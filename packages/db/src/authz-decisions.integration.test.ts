@@ -285,6 +285,9 @@ integration("authz_decisions on PostgreSQL", () => {
     const owner = await joined(workspaceId, "owner");
     expect(await set(await joined(workspaceId, "member"), 60)).toBe(false);
     expect(await set(await joined(workspaceId, "owner", true), 60)).toBe(false);
+    for (const days of [29, 3651, 30.5]) {
+      await expect(set(owner, days)).rejects.toThrow();
+    }
     expect(await set(owner, 45)).toBe(true);
     const [row] = await db
       .select({ settings: workspaces.settings })

@@ -1,6 +1,7 @@
 import {
   AUDIT_RETENTION_DEFAULT_DAYS,
   AUDIT_RETENTION_MIN_DAYS,
+  auditRetentionDaysSchema,
 } from "@agent-platform/contracts";
 import type {
   AuditRetentionStore,
@@ -45,6 +46,8 @@ export function createPostgresAuditRetention(
 ): AuditRetentionStore {
   return {
     async setAuditRetentionDays({ workspaceId, ownerUserId, days }) {
+      // A value the settings schema refuses would break every later read.
+      auditRetentionDaysSchema.parse(days);
       // Same lock as offboarding takes, so an owner disabled mid-request
       // cannot still write the setting.
       return db.transaction(async (tx) => {
