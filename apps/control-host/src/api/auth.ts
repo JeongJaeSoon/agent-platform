@@ -12,13 +12,15 @@ import {
 } from "@agent-platform/contracts";
 import {
   type ApiKeyRecord,
-  bootstrapFirstOwner,
-  countUsers,
+  bootstrapOwner,
+  consumePasswordReset,
+  countLiveOwners,
   createWebSession,
   type Database,
   findLiveMembership,
   findUserForLogin,
   findWorkspace,
+  issuePasswordReset,
   renewWebSession,
   resolveWebSession,
   revokeWebSession,
@@ -26,7 +28,9 @@ import {
 import type { StructuredLogger } from "@agent-platform/observability";
 import type {
   BootstrapInput,
+  ConsumePasswordResetInput,
   IdentityStore,
+  IssuePasswordResetInput,
   ResolvedWebSession,
 } from "@agent-platform/platform";
 import type { Context } from "hono";
@@ -48,11 +52,17 @@ const LOGIN_LOCKOUT_WINDOW_MS = LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000;
 
 export class DatabaseIdentityStore implements IdentityStore {
   constructor(private readonly db: Database) {}
-  countUsers() {
-    return countUsers(this.db);
+  countLiveOwners() {
+    return countLiveOwners(this.db);
   }
   bootstrap(input: BootstrapInput) {
-    return bootstrapFirstOwner(this.db, input);
+    return bootstrapOwner(this.db, input);
+  }
+  issuePasswordReset(input: IssuePasswordResetInput) {
+    return issuePasswordReset(this.db, input);
+  }
+  consumePasswordReset(input: ConsumePasswordResetInput) {
+    return consumePasswordReset(this.db, input);
   }
   findUserForLogin(email: string) {
     return findUserForLogin(this.db, email);
@@ -94,6 +104,10 @@ export function generateWebSessionToken(): string {
 }
 
 export const hashWebSessionToken = hashApiKey;
+
+export function generatePasswordResetToken(): string {
+  return `apr_${randomBytes(32).toString("base64url")}`;
+}
 
 export function hashPassword(password: string): Promise<string> {
   return Bun.password.hash(password, { algorithm: "argon2id" });
@@ -159,15 +173,16 @@ function generateBootstrapToken(): string {
 
 /**
  * Take the operator's token or mint one. A minted token is printed once, and
- * only while the install still needs it, so an established deployment that
- * forgot the variable does not print a secret nobody can use. It goes
+ * only while the install needs it — no live owner, first install or
+ * recovery — so an established deployment that forgot the variable does
+ * not print a secret nobody can use. It goes
  * through `print`, not the structured logger: that logger redacts any
  * `*token*` field on purpose, and this is the one value that must reach the
  * operator's terminal in the clear.
  */
 export async function bootstrapGateFromEnv(
   value: string | undefined,
-  store: Pick<IdentityStore, "countUsers">,
+  store: Pick<IdentityStore, "countLiveOwners">,
   logger: StructuredLogger,
   print: (line: string) => void = (line) => console.error(line),
 ): Promise<BootstrapGate> {
@@ -186,20 +201,20 @@ export async function bootstrapGateFromEnv(
     return createBootstrapGate(parsed.data);
   }
   const token = generateBootstrapToken();
-  let users: number | null;
+  let owners: number | null;
   try {
-    users = await store.countUsers();
+    owners = await store.countLiveOwners();
   } catch (error) {
     // The API starts without its database and answers readiness 503
     // so an unreachable database cannot stop startup here. The
     // count is unknown; print anyway, since the value only ever works while
-    // users is 0.
-    users = null;
-    logger.warn("BOOTSTRAP_TOKEN not set and users could not be counted", {
+    // no live owner exists.
+    owners = null;
+    logger.warn("BOOTSTRAP_TOKEN not set and owners could not be counted", {
       error_name: error instanceof Error ? error.name : typeof error,
     });
   }
-  if (users === null || users === 0) {
+  if (owners === null || owners === 0) {
     logger.warn(
       "BOOTSTRAP_TOKEN not set; a value for this process was printed to stderr",
     );
@@ -220,7 +235,6 @@ const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
 // work one process admits no matter how many addresses are tried.
 // Per-client (IP) and cross-replica limits need the ingress's view of the
 // client and are left to the deployment.
-// TODO(94S-264): Add product-owned account recovery and shared rate limits.
 const PASSWORD_WORK_CONCURRENCY = 4;
 const PASSWORD_WORK_QUEUE = 64;
 

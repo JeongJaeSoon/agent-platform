@@ -3,9 +3,14 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  issuePasswordResetResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
+  memberParamsSchema,
   normalizeEmail,
+  PASSWORD_RESET_TTL_MINUTES,
+  passwordResetRequestSchema,
+  passwordResetResponseSchema,
   scopesForRole,
   type Workspace,
   workspaceSettingsSchema,
@@ -13,6 +18,7 @@ import {
 import type { StructuredLogger } from "@agent-platform/observability";
 import {
   BootstrapDoneError,
+  BootstrapTokenSpentError,
   type IdentityStore,
   type IdentityWorkspace,
 } from "@agent-platform/platform";
@@ -32,6 +38,7 @@ import {
   type BootstrapGate,
   browserRequestViolation,
   clearWebSessionCookie,
+  generatePasswordResetToken,
   generateWebSessionToken,
   hashPassword,
   hashWebSessionToken,
@@ -43,16 +50,25 @@ import {
   WorkGate,
   webSessionCookie,
 } from "../auth.ts";
+import { requireParams } from "./errors.ts";
 
 export interface AuthRouteDeps {
   identity: IdentityStore;
   bootstrap: BootstrapGate;
   lockout?: LoginLockout;
+  /** Failed bootstrap tokens and reset links, counted per route. */
+  recoveryLockout?: LoginLockout;
   passwordWork?: WorkGate;
   logger?: StructuredLogger;
 }
 
 const INVALID_CREDENTIALS = "Invalid email or password";
+const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
+// Recovery credentials are not tied to an address, so each route keeps one
+// failure window for every caller: guessing a token is bounded the way
+// guessing one account's password is.
+const BOOTSTRAP_LOCKOUT_KEY = "bootstrap";
+const PASSWORD_RESET_LOCKOUT_KEY = "password-reset";
 
 // The token is read on its own and checked before the rest of the body is
 // validated, so a caller without it learns nothing about the schema and gets
@@ -103,21 +119,38 @@ export function registerPublicAuthRoutes(
   deps: AuthRouteDeps,
 ) {
   const lockout = deps.lockout ?? new LoginLockout();
+  const recoveryLockout = deps.recoveryLockout ?? new LoginLockout();
   const passwordWork = deps.passwordWork ?? new WorkGate();
 
   apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
-    // Done is answered before the token is looked at: once the first owner
+    // Done is answered before the token is looked at: while a live owner
     // exists the token has nothing left to protect, and 409 is not a hint.
-    if ((await storageMapped(() => deps.identity.countUsers())) > 0) {
+    if ((await storageMapped(() => deps.identity.countLiveOwners())) > 0) {
       throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
     }
-    const raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
+    const reservation = recoveryLockout.reserve(BOOTSTRAP_LOCKOUT_KEY);
+    if (reservation.retryAfterMs > 0) {
+      throw rateLimited(
+        context,
+        reservation.retryAfterMs,
+        "Too many failed bootstrap attempts",
+      );
+    }
+    let raw: z.infer<typeof bootstrapTokenOnlySchema>;
+    try {
+      raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
+    } catch (error) {
+      reservation.release();
+      throw error;
+    }
     const token =
       typeof raw.bootstrap_token === "string" ? raw.bootstrap_token : null;
     if (token === null || !deps.bootstrap.matches(token)) {
       deps.logger?.warn("Bootstrap refused: token mismatch");
       throw new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
     }
+    // The right token is not a guess, whatever happens next.
+    reservation.release();
     const parsed = bootstrapRequestSchema.safeParse(raw);
     if (!parsed.success) {
       // The token stays unspent: a typo in the form is not a used install.
@@ -130,7 +163,7 @@ export function registerPublicAuthRoutes(
     }
     try {
       const passwordHash = await hashPassword(body.password);
-      const { user, workspace } = await storageMapped(() =>
+      const { user, workspace, recovered } = await storageMapped(() =>
         deps.identity.bootstrap({
           userId: randomUUID(),
           email: normalizeEmail(body.email),
@@ -139,12 +172,14 @@ export function registerPublicAuthRoutes(
           workspaceId: randomUUID(),
           workspaceSlug: body.workspace_slug,
           workspaceName: body.workspace_name,
+          bootstrapTokenHash: hashWebSessionToken(token),
+          receiptId: randomUUID(),
         }),
       );
-      deps.logger?.info("Bootstrap completed", {
-        user_id: user.id,
-        workspace_id: workspace.id,
-      });
+      deps.logger?.info(
+        recovered ? "Bootstrap recovered an owner" : "Bootstrap completed",
+        { user_id: user.id, workspace_id: workspace.id },
+      );
       return jsonWithSchema(
         context,
         bootstrapResponseSchema,
@@ -159,11 +194,76 @@ export function registerPublicAuthRoutes(
       if (error instanceof BootstrapDoneError) {
         throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
       }
+      if (error instanceof BootstrapTokenSpentError) {
+        // Recorded in the database, so a restart does not revive it.
+        throw new ApiHttpError(
+          401,
+          "UNAUTHORIZED",
+          "Bootstrap token was already used; set a new BOOTSTRAP_TOKEN",
+        );
+      }
       // The insert failed (storage down, slug race); the token is still the
       // operator's to spend.
       deps.bootstrap.release();
       throw error;
     }
+  });
+
+  apiRoute(router, "resetPassword", ingestThenStopClock, async (context) => {
+    const body = await parseJsonBody(context, passwordResetRequestSchema);
+    const lockedFor = recoveryLockout.retryAfterMs(PASSWORD_RESET_LOCKOUT_KEY);
+    if (lockedFor > 0) {
+      throw rateLimited(context, lockedFor, "Too many failed password resets");
+    }
+    const slot = passwordWork.tryAcquire();
+    if (!slot) {
+      throw rateLimited(context, 1000, "Too many password changes in progress");
+    }
+    const releaseSlot = await slot;
+    let reset: Awaited<ReturnType<IdentityStore["consumePasswordReset"]>>;
+    const receiptId = randomUUID();
+    try {
+      const reservation = recoveryLockout.reserve(PASSWORD_RESET_LOCKOUT_KEY);
+      if (reservation.retryAfterMs > 0) {
+        throw rateLimited(
+          context,
+          reservation.retryAfterMs,
+          "Too many failed password resets",
+        );
+      }
+      try {
+        const passwordHash = await hashPassword(body.password);
+        reset = await storageMapped(() =>
+          deps.identity.consumePasswordReset({
+            tokenHash: hashWebSessionToken(body.token),
+            passwordHash,
+            receiptId,
+          }),
+        );
+      } catch (error) {
+        reservation.release();
+        throw error;
+      }
+      if (!reset) {
+        deps.logger?.warn("Password reset refused: link invalid or expired");
+        throw new ApiHttpError(
+          401,
+          "UNAUTHORIZED",
+          "Password reset link is invalid or has expired",
+        );
+      }
+      reservation.release();
+    } finally {
+      releaseSlot();
+    }
+    deps.logger?.info("Password reset completed", {
+      user_id: reset.userId,
+      workspace_id: reset.workspaceId,
+    });
+    return jsonWithSchema(context, passwordResetResponseSchema, {
+      user_id: reset.userId,
+      receipt_id: receiptId,
+    });
   });
 
   apiRoute(router, "login", ingestThenStopClock, async (context) => {
@@ -278,6 +378,58 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     );
     clearWebSessionCookie(context);
     return context.body(null, 204);
+  });
+
+  apiRoute(router, "issuePasswordReset", async (context) => {
+    const principal = context.get("principal");
+    const params = requireParams(context, memberParamsSchema);
+    if (principal.kind !== "user") {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "Password reset links are issued from an owner's session",
+      );
+    }
+    if (principal.workspace_id !== params.id) {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    if (principal.role !== "owner") {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "Only an owner can issue a password reset link",
+      );
+    }
+    const token = generatePasswordResetToken();
+    const issued = await storageMapped(() =>
+      deps.identity.issuePasswordReset({
+        id: randomUUID(),
+        workspaceId: params.id,
+        userId: params.userId,
+        issuedBy: principal.id,
+        tokenHash: hashWebSessionToken(token),
+        ttlMs: PASSWORD_RESET_TTL_MS,
+      }),
+    );
+    if (!issued) {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    deps.logger?.info("Password reset link issued", {
+      user_id: params.userId,
+      workspace_id: params.id,
+      issued_by: principal.id,
+    });
+    context.header("Cache-Control", "no-store");
+    return jsonWithSchema(
+      context,
+      issuePasswordResetResponseSchema,
+      {
+        user_id: params.userId,
+        token,
+        expires_at: issued.expiresAt.toISOString(),
+      },
+      201,
+    );
   });
 
   apiRoute(router, "getAuthMe", async (context) => {
