@@ -51,6 +51,7 @@ describe("database schema", () => {
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
       "agent_activation_events",
+      "agent_admin_teams",
       "agent_admins",
       "agent_releases",
       "agent_versions",
@@ -69,6 +70,8 @@ describe("database schema", () => {
       "invites",
       "linked_accounts",
       "login_methods",
+      "member_team_members",
+      "member_teams",
       "memberships",
       "owner_workspace_map",
       "password_resets",

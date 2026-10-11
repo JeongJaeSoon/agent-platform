@@ -24,6 +24,7 @@ export * from "./ports/pending-requests.ts";
 export * from "./ports/scheduler-store.ts";
 export * from "./ports/session-control.ts";
 export * from "./ports/session-unit-of-work.ts";
+export * from "./ports/team-store.ts";
 export * from "./ports/turn-interrupts.ts";
 export * from "./ports/usage-reader.ts";
 export * from "./ports/worker-unit-of-work.ts";

@@ -1517,7 +1517,8 @@ export const agents = pgTable(
 );
 
 // An agent's admins (design 4.1): a member gains that agent's management
-// actions. Whoever creates an agent is its first (D3). A team as admin is M13.
+// actions. Whoever creates an agent is its first (D3). A team as admin is a
+// row of agent_admin_teams.
 export const agentAdmins = pgTable(
   "agent_admins",
   {
@@ -1543,6 +1544,98 @@ export const agentAdmins = pgTable(
       foreignColumns: [memberships.workspaceId, memberships.userId],
     }),
     index("agent_admins_user_idx").on(table.workspaceId, table.userId),
+  ],
+);
+
+// A group of people in a workspace (design 4.7). Named apart from the
+// session teams Lotse will add.
+export const memberTeams = pgTable(
+  "member_teams",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    revision: integer().notNull().default(1),
+  },
+  (table) => [
+    unique("member_teams_workspace_id_key").on(table.workspaceId, table.id),
+    uniqueIndex("member_teams_live_name_uniq")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.archivedAt} IS NULL`),
+    check(
+      "member_teams_name_check",
+      sql`length(${table.name}) BETWEEN 1 AND 100`,
+    ),
+  ],
+);
+
+// Read at every decision: a removed row stops granting from the next request.
+export const memberTeamMembers = pgTable(
+  "member_team_members",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    addedBy: uuid("added_by").references(() => users.id),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "member_team_members_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    // Only a member of the team's own workspace can join it.
+    foreignKey({
+      name: "member_team_members_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    uniqueIndex("member_team_members_live_uniq")
+      .on(table.teamId, table.userId)
+      .where(sql`${table.removedAt} IS NULL`),
+    index("member_team_members_user_idx")
+      .on(table.workspaceId, table.userId)
+      .where(sql`${table.removedAt} IS NULL`),
+  ],
+);
+
+// A team as an agent's admin: every live member of it administers the agent.
+export const agentAdminTeams = pgTable(
+  "agent_admin_teams",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentId, table.teamId] }),
+    foreignKey({
+      name: "agent_admin_teams_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "agent_admin_teams_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    index("agent_admin_teams_team_idx").on(table.teamId),
   ],
 );
 

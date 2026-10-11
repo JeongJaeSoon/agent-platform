@@ -1,0 +1,267 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { scopesForRole, type WorkspaceRole } from "@agent-platform/contracts";
+import {
+  type Caller,
+  callerFor,
+  type TeamActor,
+} from "@agent-platform/platform";
+import {
+  createTempDatabase,
+  type TempDatabase,
+  testDatabaseUrl,
+} from "@agent-platform/testkit/postgres";
+import { and, eq } from "drizzle-orm";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { createPostgresTeamStore } from "./member-teams.ts";
+import * as schema from "./schema.ts";
+import {
+  memberships,
+  memberTeamMembers,
+  receipts,
+  users,
+  workspaces,
+} from "./schema.ts";
+
+const integration = testDatabaseUrl() ? describe : describe.skip;
+
+integration("teams and teams as agent admins on PostgreSQL", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({ prefix: "member_teams_it" });
+    pool = new Pool({ connectionString: database.url, max: 8 });
+    db = drizzle(pool, { schema });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  async function workspace() {
+    const workspaceId = randomUUID();
+    const slug = `ws-${workspaceId.slice(0, 8)}`;
+    await db.insert(workspaces).values({ id: workspaceId, slug, name: slug });
+    return workspaceId;
+  }
+
+  async function person(workspaceId: string, role: WorkspaceRole) {
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: role,
+    });
+    await db.insert(memberships).values({ workspaceId, userId, role });
+    return callerFor(
+      {
+        kind: "user",
+        id: userId,
+        workspace_id: workspaceId,
+        role,
+        scopes: [...scopesForRole(role)],
+      },
+      { kind: "web" },
+      randomUUID(),
+    );
+  }
+
+  const idOf = (caller: Caller) => caller.actor?.userId ?? "";
+
+  function acting(caller: Caller): TeamActor {
+    return {
+      principal: caller,
+      workspaceId: caller.ownerId,
+      userId: idOf(caller),
+    };
+  }
+
+  const teams = () => createPostgresTeamStore(db);
+
+  async function newTeam(by: Caller, name = `team-${randomUUID()}`) {
+    const result = await teams().create({
+      actor: acting(by),
+      receiptId: randomUUID(),
+      teamId: randomUUID(),
+      name,
+    });
+    if (result.outcome !== "created") throw new Error(result.outcome);
+    return result.team;
+  }
+
+  const member = (by: Caller, teamId: string, who: Caller, add = true) =>
+    teams()[add ? "addMember" : "removeMember"]({
+      actor: acting(by),
+      receiptId: randomUUID(),
+      teamId,
+      userId: idOf(who),
+    });
+
+  test("owners and admins create, rename and delete teams; names are unique while live", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const admin = await person(workspaceId, "admin");
+    const plain = await person(workspaceId, "member");
+
+    const team = await newTeam(owner, "research");
+    expect(team).toMatchObject({ name: "research", memberCount: 0 });
+    expect(
+      await teams().create({
+        actor: acting(admin),
+        receiptId: randomUUID(),
+        teamId: randomUUID(),
+        name: "research",
+      }),
+    ).toEqual({ outcome: "name_taken" });
+    expect(
+      await teams().create({
+        actor: acting(plain),
+        receiptId: randomUUID(),
+        teamId: randomUUID(),
+        name: "mine",
+      }),
+    ).toEqual({ outcome: "actor_inactive" });
+
+    const other = await newTeam(admin, "ops");
+    expect(
+      await teams().rename({
+        actor: acting(admin),
+        receiptId: randomUUID(),
+        teamId: other.id,
+        name: "research",
+      }),
+    ).toEqual({ outcome: "name_taken" });
+    const renamed = await teams().rename({
+      actor: acting(admin),
+      receiptId: randomUUID(),
+      teamId: other.id,
+      name: "operations",
+    });
+    expect(renamed).toMatchObject({
+      outcome: "renamed",
+      team: { name: "operations", revision: 2 },
+    });
+    expect(
+      await teams().rename({
+        actor: acting(plain),
+        receiptId: randomUUID(),
+        teamId: other.id,
+        name: "x",
+      }),
+    ).toEqual({ outcome: "actor_inactive" });
+
+    expect(
+      await teams().delete({
+        actor: acting(plain),
+        receiptId: randomUUID(),
+        teamId: team.id,
+      }),
+    ).toEqual({ outcome: "actor_inactive" });
+    expect(
+      await teams().delete({
+        actor: acting(owner),
+        receiptId: randomUUID(),
+        teamId: team.id,
+      }),
+    ).toEqual({ outcome: "deleted" });
+    expect(await teams().get(workspaceId, team.id)).toBeNull();
+    expect(
+      await teams().delete({
+        actor: acting(owner),
+        receiptId: randomUUID(),
+        teamId: team.id,
+      }),
+    ).toEqual({ outcome: "not_found" });
+    // A deleted team's name is free again.
+    await newTeam(owner, "research");
+    expect((await teams().list(workspaceId, 50)).map((t) => t.name)).toEqual([
+      "operations",
+      "research",
+    ]);
+
+    // Another workspace's team does not exist here.
+    const elsewhere = await workspace();
+    const stranger = await person(elsewhere, "owner");
+    expect(
+      await teams().rename({
+        actor: acting(stranger),
+        receiptId: randomUUID(),
+        teamId: other.id,
+        name: "taken over",
+      }),
+    ).toEqual({ outcome: "not_found" });
+  });
+
+  test("members join at once, leave at once, and the receipt names the person", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const joiner = await person(workspaceId, "member");
+    const disabled = await person(workspaceId, "member");
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, idOf(disabled)));
+    const outsider = await person(await workspace(), "member");
+    const team = await newTeam(owner);
+
+    const added = await member(owner, team.id, joiner);
+    expect(added).toMatchObject({ outcome: "added", team: { memberCount: 1 } });
+    expect(await member(owner, team.id, joiner)).toMatchObject({
+      outcome: "unchanged",
+    });
+    expect(await member(owner, team.id, disabled)).toEqual({
+      outcome: "not_member",
+    });
+    expect(await member(owner, team.id, outsider)).toEqual({
+      outcome: "not_member",
+    });
+    expect(await member(joiner, team.id, owner)).toEqual({
+      outcome: "actor_inactive",
+    });
+
+    const detail = await teams().get(workspaceId, team.id);
+    expect(detail?.members.map((m) => m.userId)).toEqual([idOf(joiner)]);
+    expect(detail?.members[0]?.addedBy).toBe(idOf(owner));
+
+    const written = await db
+      .select()
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.ownerId, workspaceId),
+          eq(receipts.operation, "add_team_member"),
+        ),
+      );
+    expect(written).toHaveLength(1);
+    expect(written[0]?.targetRef).toEqual({
+      user_id: idOf(joiner),
+      workspace_id: workspaceId,
+    });
+    expect(written[0]?.result).toEqual({
+      team_id: team.id,
+      team_name: team.name,
+    });
+    expect(written[0]?.actor).toMatchObject({ actor_user_id: idOf(owner) });
+
+    expect(await member(owner, team.id, joiner, false)).toMatchObject({
+      outcome: "removed",
+      team: { memberCount: 0 },
+    });
+    expect(await member(owner, team.id, joiner, false)).toMatchObject({
+      outcome: "unchanged",
+    });
+    // Rejoining is a new row; the old one stays as history.
+    await member(owner, team.id, joiner);
+    expect(
+      await db
+        .select()
+        .from(memberTeamMembers)
+        .where(eq(memberTeamMembers.teamId, team.id)),
+    ).toHaveLength(2);
+  });
+});
