@@ -381,6 +381,29 @@ integration("invite store on PostgreSQL", () => {
     expect((await store.peekInvite(hashOf(token))).outcome).toBe("pending");
   });
 
+  test("a new account waits on the email lock an external first sign-in holds", async () => {
+    const ws = await workspace();
+    const actor = acting(ws, await member(ws, "owner"));
+    const { token } = await issue(actor, "shared@example.invalid");
+    const other = await pool.connect();
+    try {
+      await other.query("BEGIN");
+      await other.query(
+        "SELECT pg_advisory_xact_lock(hashtext('login-email:shared@example.invalid'))",
+      );
+      let settled = false;
+      const pending = store.acceptInvite(newAccount(token)).finally(() => {
+        settled = true;
+      });
+      await Bun.sleep(300);
+      expect(settled).toBe(false);
+      await other.query("COMMIT");
+      expect((await pending).outcome).toBe("accepted");
+    } finally {
+      other.release();
+    }
+  });
+
   test("an invite that expires while the accept waits on a lock is not accepted", async () => {
     const ws = await workspace();
     const actor = acting(ws, await member(ws, "owner"));

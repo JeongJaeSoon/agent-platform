@@ -282,6 +282,17 @@ async function acceptInviteOnce(
   input: AcceptInviteInput,
 ): Promise<AcceptInviteResult> {
   return db.transaction(async (tx) => {
+    // External first sign-in creates accounts under this lock, then takes
+    // invites; taking it first keeps the same order. An invite's email
+    // never changes, so reading it unlocked is enough to name the lock.
+    const [named] = await tx
+      .select({ email: invites.email })
+      .from(invites)
+      .where(eq(invites.tokenHash, input.tokenHash));
+    if (!named) return { outcome: "expired" };
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`login-email:${named.email}`}))`,
+    );
     // The invite's row lock is what makes a token redeem once: a second tab,
     // a revoke or a re-issue racing this one waits here, then sees the
     // outcome this transaction wrote.
