@@ -18,7 +18,10 @@ import {
   webSessions,
 } from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import { allowAllPolicy, createSessionService } from "@agent-platform/platform";
+import {
+  createAuthorizationPolicy,
+  createSessionService,
+} from "@agent-platform/platform";
 import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { eq, isNull } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -87,7 +90,7 @@ integration("account recovery on PostgreSQL", () => {
                 sessionCostLimitUsd: 1,
                 sessionTokenLimit: null,
               },
-              authorization: allowAllPolicy,
+              authorization: createAuthorizationPolicy(),
               inputs: createPostgresSessionUnitOfWork(db),
               controls: createPostgresSessionControl(db),
               reader: createPostgresSessionReader(db),
