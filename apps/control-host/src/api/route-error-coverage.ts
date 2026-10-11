@@ -44,8 +44,16 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
   "routes/members.test.ts": [
+    "GET /v1/members",
+    "PATCH /v1/members/{user_id}",
     "GET /v1/takeovers",
     "POST /v1/sessions/{id}/takeover",
+  ],
+  "routes/invites.test.ts": [
+    "POST /v1/invites",
+    "GET /v1/invites",
+    "DELETE /v1/invites/{id}",
+    "POST /v1/invites/accept",
   ],
 };
 
@@ -89,14 +97,15 @@ const OPERATIONS: Operation[] = Object.entries(
 
 // What the app answers around a handler: the error hook everywhere, the
 // auth middleware on authenticated routes, the body deadline and the cookie
-// CSRF refusal on POSTs, and the scope check.
+// CSRF refusal on every other method, and the scope check.
 function middlewareErrors(operation: Operation): number[] {
-  const post = operation.route.startsWith("POST /v1");
+  const mutation =
+    operation.route.includes(" /v1") && !operation.route.startsWith("GET ");
   return [
     ...globalRouteErrors,
     ...(operation.authenticated ? rootRouteErrors : []),
-    ...(post ? bodyRouteErrors : []),
-    ...(post && operation.authenticated ? mutationRouteErrors : []),
+    ...(mutation ? bodyRouteErrors : []),
+    ...(mutation && operation.authenticated ? mutationRouteErrors : []),
     ...(SCOPED.has(operation.route) ? scopedRouteErrors : []),
   ];
 }

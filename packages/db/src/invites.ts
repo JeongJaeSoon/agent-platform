@@ -1,0 +1,504 @@
+import type {
+  AcceptInviteInput,
+  AcceptInviteResult,
+  ActingOwner,
+  ChangeRoleResult,
+  CreateInviteResult,
+  InvitePeek,
+  InviteRecord,
+  InviteStore,
+  MemberRecord,
+  MembershipRole,
+  RevokeInviteResult,
+} from "@agent-platform/platform";
+import { and, asc, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { receiptActorOf } from "./control-shared.ts";
+import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
+import { createWebSession } from "./identity.ts";
+import type { Database } from "./queries.ts";
+import { invites, memberships, receipts, users } from "./schema.ts";
+
+// Invites and roles (94S-153). Lock order, everywhere here: invite, then
+// user, then membership, then web session — the user -> link -> session
+// order of identity.ts with the invite in front of it.
+
+type InviteRow = typeof invites.$inferSelect;
+
+function statusOf(row: InviteRow, now: Date): InviteRecord["status"] {
+  if (row.acceptedAt) return "accepted";
+  if (row.revokedAt) return "revoked";
+  return row.expiresAt <= now ? "expired" : "pending";
+}
+
+function inviteRecord(row: InviteRow, now: Date): InviteRecord {
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    email: row.email,
+    role: row.role as MembershipRole,
+    invitedBy: row.invitedBy,
+    status: statusOf(row, now),
+    expiresAt: row.expiresAt,
+    acceptedAt: row.acceptedAt,
+    revokedAt: row.revokedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+const memberColumns = {
+  userId: users.id,
+  email: users.email,
+  displayName: users.displayName,
+  role: memberships.role,
+  disabledAt: sql<Date | null>`least(${memberships.disabledAt}, ${users.disabledAt})`,
+  createdAt: memberships.createdAt,
+};
+
+function memberRecord(row: {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: string;
+  disabledAt: Date | string | null;
+  createdAt: Date;
+}): MemberRecord {
+  return {
+    ...row,
+    role: row.role as MembershipRole,
+    // A raw SQL expression comes back from the driver as text.
+    disabledAt: row.disabledAt === null ? null : new Date(row.disabledAt),
+  };
+}
+
+const liveMember = and(
+  isNull(memberships.disabledAt),
+  isNull(users.disabledAt),
+);
+
+/** FOR SHARE, so a demotion or offboarding of the actor waits for this write. */
+async function actorIsLiveOwner(
+  tx: Database,
+  actor: ActingOwner,
+): Promise<boolean> {
+  // The user row first, as accepting takes it: the invite's invited_by key
+  // check would otherwise wait on it while holding the membership.
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, actor.userId))
+    .for("key share");
+  const rows = await tx
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, actor.workspaceId),
+        eq(memberships.userId, actor.userId),
+        eq(memberships.role, "owner"),
+        liveMember,
+      ),
+    )
+    .for("share", { of: memberships });
+  return rows.length > 0;
+}
+
+async function writeReceipt(
+  tx: Database,
+  input: {
+    id: string;
+    ownerId: string;
+    actor: ReturnType<typeof receiptActorOf>;
+    operation:
+      | "invite_member"
+      | "accept_invite"
+      | "revoke_invite"
+      | "change_member_role";
+    targetRef: unknown;
+    result: unknown;
+  },
+) {
+  await tx.insert(receipts).values({ ...input, status: "succeeded" });
+}
+
+function inviteTarget(id: string, workspaceId: string) {
+  return { resource: { kind: "invite", id }, workspace_id: workspaceId };
+}
+
+async function createInvite(
+  db: Database,
+  input: Parameters<InviteStore["createInvite"]>[0],
+): Promise<CreateInviteResult> {
+  const { actor } = input;
+  return db.transaction(async (tx) => {
+    // The live-invite unique index would turn two owners inviting the same
+    // address at once into a 500; this makes the second one wait and
+    // replace the first instead. Taken before any row lock.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`invite:${actor.workspaceId}:${input.email}`}))`,
+    );
+    const live = and(
+      eq(invites.workspaceId, actor.workspaceId),
+      eq(invites.email, input.email),
+      isNull(invites.acceptedAt),
+      isNull(invites.revokedAt),
+    );
+    // Invite rows before the actor's membership: the lock order above.
+    await tx.select({ id: invites.id }).from(invites).where(live).for("update");
+    if (!(await actorIsLiveOwner(tx, actor))) {
+      return { outcome: "actor_inactive" };
+    }
+    const [member] = await tx
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(
+        and(
+          eq(memberships.workspaceId, actor.workspaceId),
+          eq(users.email, input.email),
+          isNull(memberships.disabledAt),
+        ),
+      )
+      .limit(1);
+    if (member) return { outcome: "already_member" };
+    const replaced = await tx
+      .update(invites)
+      .set({ revokedAt: DB_NOW })
+      .where(live)
+      .returning({ id: invites.id });
+    const [row] = await tx
+      .insert(invites)
+      .values({
+        id: input.id,
+        workspaceId: actor.workspaceId,
+        email: input.email,
+        role: input.role,
+        tokenHash: input.tokenHash,
+        invitedBy: actor.userId,
+        expiresAt: fromDbNow(input.ttlMs),
+        createdAt: DB_NOW,
+      })
+      .returning();
+    if (!row) throw new Error("invite insert returned no row");
+    await writeReceipt(tx, {
+      id: input.receiptId,
+      ownerId: actor.principal.ownerId,
+      actor: receiptActorOf(actor.principal),
+      operation: "invite_member",
+      targetRef: inviteTarget(row.id, actor.workspaceId),
+      result: {
+        role: input.role,
+        replaced_invite_ids: replaced.map((invite) => invite.id),
+      },
+    });
+    return { outcome: "created", invite: inviteRecord(row, row.createdAt) };
+  });
+}
+
+async function revokeInvite(
+  db: Database,
+  input: Parameters<InviteStore["revokeInvite"]>[0],
+): Promise<RevokeInviteResult> {
+  const { actor } = input;
+  const id = input.id.toLowerCase();
+  return db.transaction(async (tx) => {
+    const [invite] = await tx
+      .select()
+      .from(invites)
+      .where(
+        and(eq(invites.id, id), eq(invites.workspaceId, actor.workspaceId)),
+      )
+      .for("update");
+    if (!(await actorIsLiveOwner(tx, actor))) {
+      return { outcome: "actor_inactive" };
+    }
+    if (!invite) return { outcome: "not_found" };
+    if (invite.acceptedAt) return { outcome: "accepted" };
+    if (invite.revokedAt) return { outcome: "already_revoked" };
+    await tx
+      .update(invites)
+      .set({ revokedAt: DB_NOW })
+      .where(eq(invites.id, id));
+    await writeReceipt(tx, {
+      id: input.receiptId,
+      ownerId: actor.principal.ownerId,
+      actor: receiptActorOf(actor.principal),
+      operation: "revoke_invite",
+      targetRef: inviteTarget(id, actor.workspaceId),
+      result: null,
+    });
+    return { outcome: "revoked" };
+  });
+}
+
+async function peekInvite(
+  db: Database,
+  tokenHash: Uint8Array,
+): Promise<InvitePeek> {
+  const [row] = await db
+    .select({
+      invite: invites,
+      userId: users.id,
+      passwordHash: users.passwordHash,
+    })
+    .from(invites)
+    .leftJoin(users, eq(users.email, invites.email))
+    .where(eq(invites.tokenHash, tokenHash))
+    .limit(1);
+  if (!row) return { outcome: "unknown" };
+  const status = statusOf(row.invite, await dbNow(db));
+  if (status === "accepted") return { outcome: "used" };
+  if (status !== "pending") return { outcome: "expired" };
+  return {
+    outcome: "pending",
+    email: row.invite.email,
+    existingUser:
+      row.userId === null || row.passwordHash === null
+        ? null
+        : { id: row.userId, passwordHash: row.passwordHash },
+  };
+}
+
+class ExpiredWhileWaiting extends Error {}
+
+async function acceptInvite(
+  db: Database,
+  input: AcceptInviteInput,
+): Promise<AcceptInviteResult> {
+  return acceptInviteOnce(db, input).catch((error: unknown) => {
+    if (error instanceof ExpiredWhileWaiting) return { outcome: "expired" };
+    throw error;
+  });
+}
+
+async function acceptInviteOnce(
+  db: Database,
+  input: AcceptInviteInput,
+): Promise<AcceptInviteResult> {
+  return db.transaction(async (tx) => {
+    // The invite's row lock is what makes a token redeem once: a second tab,
+    // a revoke or a re-issue racing this one waits here, then sees the
+    // outcome this transaction wrote.
+    const [invite] = await tx
+      .select()
+      .from(invites)
+      .where(eq(invites.tokenHash, input.tokenHash))
+      .for("update");
+    if (!invite) return { outcome: "expired" };
+    const status = statusOf(invite, await dbNow(tx));
+    if (status === "accepted") return { outcome: "used" };
+    if (status !== "pending") return { outcome: "expired" };
+
+    const [account] = await tx
+      .select({
+        id: users.id,
+        passwordHash: users.passwordHash,
+        disabledAt: users.disabledAt,
+      })
+      .from(users)
+      .where(eq(users.email, invite.email))
+      .for("update");
+    const { account: expected } = input;
+    let userId: string;
+    let verifiedPasswordHash: string;
+    if (expected.kind === "existing") {
+      // Checked against what the caller's password was verified with, so a
+      // password reset or disable in between is not bypassed.
+      if (
+        account?.id !== expected.userId ||
+        account.disabledAt !== null ||
+        account.passwordHash !== expected.verifiedPasswordHash
+      ) {
+        return { outcome: "account_changed" };
+      }
+      userId = account.id;
+      verifiedPasswordHash = account.passwordHash;
+    } else {
+      if (account) return { outcome: "account_changed" };
+      // No row to lock yet: another path creating this address at the same
+      // time (a second workspace's invite, an external sign-in) wins here.
+      const created = await tx
+        .insert(users)
+        .values({
+          id: expected.userId,
+          email: invite.email,
+          passwordHash: expected.passwordHash,
+          displayName: expected.displayName,
+        })
+        .onConflictDoNothing({ target: users.email })
+        .returning({ id: users.id });
+      if (created.length === 0) return { outcome: "account_changed" };
+      userId = expected.userId;
+      verifiedPasswordHash = expected.passwordHash;
+    }
+
+    const [membership] = await tx
+      .select({ role: memberships.role, disabledAt: memberships.disabledAt })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.workspaceId, invite.workspaceId),
+          eq(memberships.userId, userId),
+        ),
+      )
+      .for("update");
+    // A member who joined some other way since the invite was issued keeps
+    // their role: an invite never demotes anyone.
+    const role =
+      membership && membership.disabledAt === null
+        ? (membership.role as MembershipRole)
+        : (invite.role as MembershipRole);
+    if (!membership) {
+      await tx
+        .insert(memberships)
+        .values({ workspaceId: invite.workspaceId, userId, role });
+    } else if (membership.disabledAt !== null) {
+      await tx
+        .update(memberships)
+        .set({ role, disabledAt: null })
+        .where(
+          and(
+            eq(memberships.workspaceId, invite.workspaceId),
+            eq(memberships.userId, userId),
+          ),
+        );
+    }
+    // The invite was live when locked; the row and unique-index waits since
+    // then can outlast it, so the spend re-reads the clock.
+    const spent = await tx
+      .update(invites)
+      .set({ acceptedAt: DB_NOW })
+      .where(and(eq(invites.id, invite.id), gt(invites.expiresAt, DB_NOW)))
+      .returning({ id: invites.id });
+    if (spent.length === 0) throw new ExpiredWhileWaiting();
+    const session = await createWebSession(tx, {
+      ...input.session,
+      userId,
+      verifiedPasswordHash,
+    });
+    if (!session) throw new Error("web session refused under the user lock");
+    await writeReceipt(tx, {
+      id: input.receiptId,
+      ownerId: invite.workspaceId,
+      actor: {
+        principal: { kind: "user", id: userId },
+        actor_user_id: userId,
+        agent_id: null,
+      },
+      operation: "accept_invite",
+      targetRef: inviteTarget(invite.id, invite.workspaceId),
+      result: {
+        user_id: userId,
+        role,
+        new_account: expected.kind === "new",
+      },
+    });
+    return {
+      outcome: "accepted",
+      userId,
+      workspaceId: invite.workspaceId,
+      role,
+      sessionExpiresAt: session.expiresAt,
+    };
+  });
+}
+
+async function changeMemberRole(
+  db: Database,
+  input: Parameters<InviteStore["changeMemberRole"]>[0],
+): Promise<ChangeRoleResult> {
+  const { actor } = input;
+  const userId = input.userId.toLowerCase();
+  return db.transaction(async (tx) => {
+    // Every owner row, the target and the actor, locked in user_id order —
+    // the order offboarding takes its two rows in — so two owners demoting
+    // each other queue, and the second one counts what the first left.
+    const locked = await tx
+      .select({
+        ...memberColumns,
+        membershipDisabledAt: memberships.disabledAt,
+        userDisabledAt: users.disabledAt,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(
+        and(
+          eq(memberships.workspaceId, actor.workspaceId),
+          or(
+            eq(memberships.role, "owner"),
+            eq(memberships.userId, userId),
+            eq(memberships.userId, actor.userId),
+          ),
+        ),
+      )
+      .orderBy(asc(memberships.userId))
+      .for("update", { of: memberships });
+    const live = (row: (typeof locked)[number]) =>
+      row.membershipDisabledAt === null && row.userDisabledAt === null;
+    const acting = locked.find((row) => row.userId === actor.userId);
+    if (!acting || !live(acting) || acting.role !== "owner") {
+      return { outcome: "actor_inactive" };
+    }
+    const target = locked.find((row) => row.userId === userId);
+    if (!target || target.membershipDisabledAt !== null) {
+      return { outcome: "not_found" };
+    }
+    const member = memberRecord(target);
+    if (target.role === input.role) {
+      return { outcome: "changed", member };
+    }
+    const otherLiveOwners = locked.filter(
+      (row) => row.role === "owner" && live(row) && row.userId !== userId,
+    );
+    if (target.role === "owner" && otherLiveOwners.length === 0) {
+      return { outcome: "last_owner" };
+    }
+    await tx
+      .update(memberships)
+      .set({ role: input.role })
+      .where(
+        and(
+          eq(memberships.workspaceId, actor.workspaceId),
+          eq(memberships.userId, userId),
+        ),
+      );
+    await writeReceipt(tx, {
+      id: input.receiptId,
+      ownerId: actor.principal.ownerId,
+      actor: receiptActorOf(actor.principal),
+      operation: "change_member_role",
+      targetRef: { user_id: userId, workspace_id: actor.workspaceId },
+      result: { from: target.role, to: input.role },
+    });
+    return { outcome: "changed", member: { ...member, role: input.role } };
+  });
+}
+
+export function createPostgresInviteStore(db: Database): InviteStore {
+  return {
+    createInvite: (input) => createInvite(db, input),
+    async listInvites(workspaceId, limit) {
+      const rows = await db
+        .select()
+        .from(invites)
+        .where(eq(invites.workspaceId, workspaceId))
+        .orderBy(desc(invites.createdAt), desc(invites.id))
+        .limit(limit);
+      const now = await dbNow(db);
+      return rows.map((row) => inviteRecord(row, now));
+    },
+    revokeInvite: (input) => revokeInvite(db, input),
+    peekInvite: (tokenHash) => peekInvite(db, tokenHash),
+    acceptInvite: (input) => acceptInvite(db, input),
+    async listMembers(workspaceId) {
+      const rows = await db
+        .select(memberColumns)
+        .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .where(eq(memberships.workspaceId, workspaceId))
+        .orderBy(asc(memberships.createdAt), asc(memberships.userId));
+      return rows.map(memberRecord);
+    },
+    changeMemberRole: (input) => changeMemberRole(db, input),
+  };
+}

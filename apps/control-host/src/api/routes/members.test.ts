@@ -1,14 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  listMembersResponseSchema,
   listTakeoversResponseSchema,
   takeOverSessionResponseSchema,
+  updateMemberResponseSchema,
 } from "@agent-platform/contracts";
 import {
   type AuthorizationPolicy,
   type Caller,
   createAuthorizationPolicy,
+  createInviteService,
   createMemberService,
+  type InviteService,
+  type InviteStore,
+  type MemberRecord,
   type MemberService,
   type MemberStore,
 } from "@agent-platform/platform";
@@ -66,14 +72,58 @@ function asPerson(caller: Caller): Caller {
   };
 }
 
+const MEMBER: MemberRecord = {
+  userId: DEPARTED,
+  email: "member@example.com",
+  displayName: "Member",
+  role: "member",
+  disabledAt: null,
+  createdAt: new Date("2026-10-11T00:00:00.000Z"),
+};
+
+function roleStore(overrides: Partial<InviteStore> = {}): InviteStore {
+  const unused = async () => {
+    throw new Error("not used by the member routes");
+  };
+  return {
+    createInvite: unused,
+    listInvites: unused,
+    revokeInvite: unused,
+    peekInvite: unused,
+    acceptInvite: unused,
+    listMembers: async () => [MEMBER],
+    changeMemberRole: async (input) => ({
+      outcome: "changed",
+      member: { ...MEMBER, role: input.role },
+    }),
+    ...overrides,
+  };
+}
+
 function app(
   memberStore: MemberStore = store(),
-  options: { authorization?: AuthorizationPolicy; person?: boolean } = {},
+  options: {
+    authorization?: AuthorizationPolicy;
+    person?: boolean;
+    roles?: InviteStore;
+  } = {},
 ) {
   const service = createMemberService({
     authorization: options.authorization ?? allowing,
     store: memberStore,
   });
+  const invites = createInviteService({
+    authorization: options.authorization ?? allowing,
+    store: options.roles ?? roleStore(),
+  });
+  const roles: Pick<InviteService, "listMembers" | "changeMemberRole"> =
+    options.person === false
+      ? invites
+      : {
+          listMembers: (caller) => invites.listMembers(asPerson(caller)),
+          changeMemberRole: (caller, userId, role) =>
+            invites.changeMemberRole(asPerson(caller), userId, role),
+        };
   const routed: Pick<MemberService, "listTakeovers" | "takeOverSession"> =
     options.person === false
       ? service
@@ -84,7 +134,7 @@ function app(
         };
   return createApiApp({
     authMode: "none",
-    registerRoutes: (router) => registerMemberRoutes(router, routed),
+    registerRoutes: (router) => registerMemberRoutes(router, routed, roles),
   });
 }
 
@@ -210,6 +260,143 @@ describe("POST /v1/sessions/{id}/takeover", () => {
 
   test("maps a storage outage to 503", async () => {
     const response = await post(app(store({ takeOver: outage })));
+    expect(response.status).toBe(503);
+  });
+});
+
+describe("GET /v1/members", () => {
+  test("lists the workspace's members", async () => {
+    const response = await app().request("/v1/members", { headers: owner });
+    expect(response.status).toBe(200);
+    expect(listMembersResponseSchema.parse(await response.json())).toEqual({
+      items: [
+        {
+          user_id: DEPARTED,
+          email: "member@example.com",
+          display_name: "Member",
+          role: "member",
+          disabled_at: null,
+          created_at: "2026-10-11T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+
+  test("refuses an API key whatever its scopes", async () => {
+    const response = await app(store(), {
+      authorization: createAuthorizationPolicy(),
+      person: false,
+    }).request("/v1/members", { headers: owner });
+    expect(response.status).toBe(403);
+  });
+
+  test("maps a storage outage to 503", async () => {
+    const response = await app(store(), {
+      roles: roleStore({ listMembers: outage }),
+    }).request("/v1/members", { headers: owner });
+    expect(response.status).toBe(503);
+  });
+});
+
+describe("PATCH /v1/members/{user_id}", () => {
+  const patch = (
+    api: ReturnType<typeof app>,
+    body: unknown = { role: "owner" },
+    id = DEPARTED,
+  ) =>
+    api.request(`/v1/members/${id}`, {
+      method: "PATCH",
+      headers: { ...owner, "Content-Type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+
+  test("changes the role and answers the member", async () => {
+    let asked: { userId: string; role: string; actor: string } | undefined;
+    const response = await patch(
+      app(store(), {
+        roles: roleStore({
+          changeMemberRole: async (input) => {
+            asked = {
+              userId: input.userId,
+              role: input.role,
+              actor: input.actor.userId,
+            };
+            return {
+              outcome: "changed",
+              member: { ...MEMBER, role: input.role },
+            };
+          },
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(updateMemberResponseSchema.parse(await response.json()).role).toBe(
+      "owner",
+    );
+    expect(asked).toEqual({
+      userId: DEPARTED,
+      role: "owner",
+      actor: OWNER_USER,
+    });
+  });
+
+  test("the last owner cannot be demoted", async () => {
+    const response = await patch(
+      app(store(), {
+        roles: roleStore({
+          changeMemberRole: async () => ({ outcome: "last_owner" }),
+        }),
+      }),
+      { role: "member" },
+    );
+    expect(response.status).toBe(409);
+    expect((await errorOf(response)).code).toBe("LAST_OWNER");
+  });
+
+  test("a member who is not here, or a malformed id, is not found", async () => {
+    const missing = await patch(
+      app(store(), {
+        roles: roleStore({
+          changeMemberRole: async () => ({ outcome: "not_found" }),
+        }),
+      }),
+    );
+    expect(missing.status).toBe(404);
+    expect((await patch(app(), { role: "owner" }, "nope")).status).toBe(404);
+  });
+
+  test("a body that is not a role patch is refused", async () => {
+    expect((await patch(app(), { role: "admin" })).status).toBe(400);
+    expect((await patch(app(), { disabled: true })).status).toBe(400);
+    const huge = JSON.stringify({ role: "owner", pad: "x".repeat(2_000_000) });
+    expect((await patch(app(), huge)).status).toBe(413);
+  });
+
+  test("an owner who was demoted meanwhile is refused", async () => {
+    const response = await patch(
+      app(store(), {
+        roles: roleStore({
+          changeMemberRole: async () => ({ outcome: "actor_inactive" }),
+        }),
+      }),
+    );
+    expect(response.status).toBe(403);
+  });
+
+  test("refuses an API key whatever its scopes", async () => {
+    const response = await patch(
+      app(store(), {
+        authorization: createAuthorizationPolicy(),
+        person: false,
+      }),
+    );
+    expect(response.status).toBe(403);
+  });
+
+  test("maps a storage outage to 503", async () => {
+    const response = await patch(
+      app(store(), { roles: roleStore({ changeMemberRole: outage }) }),
+    );
     expect(response.status).toBe(503);
   });
 });

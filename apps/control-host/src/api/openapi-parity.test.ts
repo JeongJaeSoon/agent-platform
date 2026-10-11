@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import type {
   IdentityStore,
   InterruptService,
+  InviteService,
+  InviteStore,
   MemberService,
   PendingRequestService,
   SessionService,
@@ -14,6 +16,10 @@ import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import {
+  registerInviteRoutes,
+  registerPublicInviteRoutes,
+} from "./routes/invites.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
@@ -36,14 +42,21 @@ function apiApp() {
   };
   return createApiApp({
     authMode: "none",
-    registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+    registerPublicRoutes: (router) => {
+      registerPublicAuthRoutes(router, auth);
+      registerPublicInviteRoutes(router, {
+        invites: {} as InviteStore,
+        identity: auth.identity,
+      });
+    },
     registerRoutes: (router) => {
       registerAuthRoutes(router, auth);
+      registerInviteRoutes(router, {} as InviteService);
       registerSessionRoutes(router, {} as SessionService);
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
-      registerMemberRoutes(router, {} as MemberService);
+      registerMemberRoutes(router, {} as MemberService, {} as InviteService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerEventRoutes(router, {} as SessionService, {
