@@ -316,6 +316,55 @@ integration("account recovery on PostgreSQL", () => {
     });
   }
 
+  test("recovery revokes a reset link issued before it", async () => {
+    const { db, start, first, ownerId, workspace } = await install();
+    const ownerCookie = cookieOf(await first.login("owner@example.com"));
+    const issued = await first.app.request(
+      `/v1/workspaces/${workspace.id}/members/${ownerId}/password-reset`,
+      { method: "POST", headers: { Cookie: ownerCookie, ...BROWSER } },
+    );
+    const { token } = issuePasswordResetResponseSchema.parse(
+      await issued.json(),
+    );
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, ownerId));
+    const recovery = start(RECOVERY_TOKEN);
+    expect((await recovery.bootstrap()).status).toBe(201);
+    const stale = await recovery.json("/v1/auth/password-reset", {
+      token,
+      password: NEW_PASSWORD,
+    });
+    expect(stale.status).toBe(401);
+    expect((await recovery.login("owner@example.com")).status).toBe(200);
+  });
+
+  test("issuing a link while the user's open one is redeemed never deadlocks", async () => {
+    const { first, memberId, workspace } = await install();
+    const ownerCookie = cookieOf(await first.login("owner@example.com"));
+    const issue = () =>
+      first.app.request(
+        `/v1/workspaces/${workspace.id}/members/${memberId}/password-reset`,
+        { method: "POST", headers: { Cookie: ownerCookie, ...BROWSER } },
+      );
+    for (let round = 0; round < 4; round += 1) {
+      const { token } = issuePasswordResetResponseSchema.parse(
+        await (await issue()).json(),
+      );
+      const [issued, redeemed] = await Promise.all([
+        issue(),
+        first.json("/v1/auth/password-reset", {
+          token,
+          password: NEW_PASSWORD,
+        }),
+      ]);
+      expect(issued.status).toBe(201);
+      // Either order is fine; a 500 from an aborted transaction is not.
+      expect([200, 401]).toContain(redeemed.status);
+    }
+  });
+
   test("recovery with a new email adds a second owner to the existing workspace", async () => {
     const { db, start, ownerId, workspace } = await install();
     await db

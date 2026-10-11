@@ -140,6 +140,9 @@ class MemoryIdentityStore implements IdentityStore {
       for (const session of this.sessions) {
         session.revokedAt ??= new Date(this.now());
       }
+      for (const reset of this.resets) {
+        if (reset.workspaceId === workspace.id) reset.spent = true;
+      }
       this.receipts.push({
         id: input.receiptId,
         operation: "recover_owner",

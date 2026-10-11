@@ -158,6 +158,18 @@ export async function bootstrapOwner(
           ),
         )
         .returning({ id: webSessions.id });
+      // A link issued before recovery would let its holder take the
+      // recovered account straight back.
+      await tx
+        .update(passwordResets)
+        .set({ revokedAt: DB_NOW })
+        .where(
+          and(
+            eq(passwordResets.workspaceId, workspace.id),
+            isNull(passwordResets.usedAt),
+            isNull(passwordResets.revokedAt),
+          ),
+        );
       await tx.insert(receipts).values({
         id: input.receiptId,
         ownerId: workspace.id,
@@ -234,14 +246,32 @@ export async function issuePasswordReset(
 
 /**
  * Spends the link, sets the password and ends every live session of the
- * user in one transaction. The row lock makes a second redemption wait and
- * then miss on `used_at`, so a token sets a password at most once.
+ * user in one transaction. Locks run user row first, then the link, the same
+ * order as issuePasswordReset and recovery, so neither can deadlock this.
+ * The link's lock makes a second redemption wait and then miss on
+ * `used_at`, so a token sets a password at most once.
  */
 export async function consumePasswordReset(
   db: Database,
   input: ConsumePasswordResetInput,
 ): Promise<{ userId: string; workspaceId: string } | null> {
   return db.transaction(async (tx) => {
+    const [candidate] = await tx
+      .select({ userId: passwordResets.userId })
+      .from(passwordResets)
+      .where(eq(passwordResets.tokenHash, input.tokenHash));
+    if (!candidate) {
+      return null;
+    }
+    // Disabled after the link was issued: the link dies with the account.
+    const [user] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, candidate.userId), isNull(users.disabledAt)))
+      .for("update");
+    if (!user) {
+      return null;
+    }
     const [reset] = await tx
       .select({
         id: passwordResets.id,
@@ -262,15 +292,10 @@ export async function consumePasswordReset(
     if (!reset) {
       return null;
     }
-    // Disabled after the link was issued: the link dies with the account.
-    const [user] = await tx
+    await tx
       .update(users)
       .set({ passwordHash: input.passwordHash })
-      .where(and(eq(users.id, reset.userId), isNull(users.disabledAt)))
-      .returning({ id: users.id });
-    if (!user) {
-      return null;
-    }
+      .where(eq(users.id, reset.userId));
     await tx
       .update(passwordResets)
       .set({ usedAt: DB_NOW })
