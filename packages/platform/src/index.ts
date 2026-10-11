@@ -12,6 +12,7 @@ export * from "./musterrolle/invite-service.ts";
 export * from "./musterrolle/linked-account-service.ts";
 export * from "./musterrolle/member-service.ts";
 export * from "./musterrolle/policy.ts";
+export * from "./musterrolle/slack-decision.ts";
 export * from "./ports/agent-identity-store.ts";
 export * from "./ports/agent-store.ts";
 export * from "./ports/api-key-store.ts";

@@ -12,6 +12,7 @@ import {
   ownerScopeOf,
   type PrincipalRef,
   type SessionScope,
+  SLACK_SURFACE_ACTION_VALUES,
   scopesForRole,
   type WorkspaceRole,
 } from "@agent-platform/contracts";
@@ -148,7 +149,19 @@ export const noCredentialCheck: CredentialCheck = {
   },
 };
 
-export const POLICY_VERSION = "m12";
+/** The workspace's Slack guest setting, read for every guest's decision. */
+export interface SlackGuestSetting {
+  enabled(workspaceId: string): Promise<boolean>;
+}
+
+// Without a settings store the setting is its default: off (D25).
+export const slackGuestsDisabled: SlackGuestSetting = {
+  async enabled() {
+    return false;
+  },
+};
+
+export const POLICY_VERSION = "m9";
 
 export interface AuthorizationPolicy {
   authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;
@@ -253,11 +266,18 @@ export function mustRecord(
   );
 }
 
+const SLACK_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
+  SLACK_SURFACE_ACTION_VALUES,
+);
+
+type Judgement = [AuthorizationReason, SessionScope[], redact?: true];
+
 export function createAuthorizationPolicy(
   deps: {
     identity?: IdentityReader;
     agents?: AgentAuthority;
     credentials?: CredentialCheck;
+    slackGuests?: SlackGuestSetting;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
   } = {},
@@ -265,6 +285,7 @@ export function createAuthorizationPolicy(
   const identity = deps.identity ?? authenticatedIdentity;
   const agents = deps.agents ?? noAgentAuthority;
   const credentials = deps.credentials ?? noCredentialCheck;
+  const slackGuests = deps.slackGuests ?? slackGuestsDisabled;
 
   async function agentOfResource(
     resource: AuthorizationResource,
@@ -279,9 +300,7 @@ export function createAuthorizationPolicy(
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
-  async function decide(
-    request: AuthorizationRequest,
-  ): Promise<[AuthorizationReason, SessionScope[]]> {
+  async function decide(request: AuthorizationRequest): Promise<Judgement> {
     const parsed = authorizationRequestSchema.safeParse(request);
     if (!parsed.success) return ["error", []];
     const { subject, action, resource } = parsed.data;
@@ -294,6 +313,27 @@ export function createAuthorizationPolicy(
       return ["error", []];
     }
     if (subject.principal === null) return ["no_requester", []];
+    const { surface } = subject;
+    if (surface.kind === "slack") {
+      // Only an installation speaks for Slack, and it always says who the
+      // person is to Slack. Strangers go first: they are no one to link,
+      // and the guest setting is not theirs to pass (design A.3 step 4).
+      if (
+        subject.principal.kind !== "installation" ||
+        surface.slack_user_kind === undefined
+      ) {
+        return ["error", []];
+      }
+      if (surface.slack_user_kind === "external") {
+        return ["external_user", []];
+      }
+      if (
+        surface.slack_user_kind === "guest" &&
+        !(await slackGuests.enabled(subject.principal.workspace_id))
+      ) {
+        return ["guest_disabled", []];
+      }
+    }
 
     const reading = await identity.reread({
       ...subject,
@@ -305,7 +345,7 @@ export function createAuthorizationPolicy(
       return ["not_found", []];
     }
 
-    const scopes = authorityScopes(reading);
+    let scopes = authorityScopes(reading);
     if (roles !== undefined) {
       const { principal } = reading;
       if (principal.kind !== "user") return ["role", scopes];
@@ -330,9 +370,33 @@ export function createAuthorizationPolicy(
       // else, a list across agents included.
       return ["agent_ceiling", scopes];
     }
-    // Slack's ceiling is the binding's allowed actions, which have no table
-    // yet; web and api add no ceiling of their own.
-    if (subject.surface.kind === "slack") return ["surface_ceiling", scopes];
+    // Web and api add no ceiling of their own. On Slack the person acts
+    // through the installation and the channel: the smallest of the three.
+    let redact = false;
+    if (surface.kind === "slack") {
+      const installation = new Set<SessionScope>(
+        subject.principal.kind === "installation"
+          ? subject.principal.scopes
+          : [],
+      );
+      const channel = new Set(
+        (surface.ceiling?.actions ?? []).map(
+          (allowed) => ACTION_SCOPES[allowed],
+        ),
+      );
+      scopes = scopes.filter(
+        (held) => installation.has(held) && channel.has(held),
+      );
+      if (
+        !SLACK_ACTIONS.has(action) ||
+        scope === undefined ||
+        !scopes.includes(scope)
+      ) {
+        return ["surface_ceiling", scopes];
+      }
+      redact =
+        action === "session.read" && surface.ceiling?.disclosure === "summary";
+    }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
     // Re-read at every start: a binding revoked since activation stops the
@@ -345,7 +409,8 @@ export function createAuthorizationPolicy(
       );
       if (unbound.length > 0) return ["credential_unbound", scopes];
     }
-    return ["ok", scopes];
+    // A summary is still a ceiling: the reason names it.
+    return redact ? ["surface_ceiling", scopes, true] : ["ok", scopes];
   }
 
   return {
@@ -353,18 +418,28 @@ export function createAuthorizationPolicy(
       const decision_id = newDecisionId();
       let reason: AuthorizationReason;
       let effective_scopes: SessionScope[];
+      let redact: true | undefined;
       try {
-        [reason, effective_scopes] = await decide(request);
+        [reason, effective_scopes, redact] = await decide(request);
       } catch {
-        [reason, effective_scopes] = ["error", []];
+        [reason, effective_scopes, redact] = ["error", [], undefined];
       }
-      const decision: AuthorizationDecision = {
-        outcome: reason === "ok" ? "allow" : "deny",
-        reason_code: reason,
-        effective_scopes,
-        policy_version: POLICY_VERSION,
-        decision_id,
-      };
+      const decision: AuthorizationDecision = redact
+        ? {
+            outcome: "redact",
+            reason_code: reason,
+            effective_scopes,
+            redact: { view: "summary" },
+            policy_version: POLICY_VERSION,
+            decision_id,
+          }
+        : {
+            outcome: reason === "ok" ? "allow" : "deny",
+            reason_code: reason,
+            effective_scopes,
+            policy_version: POLICY_VERSION,
+            decision_id,
+          };
       const parsed = authorizationRequestSchema.safeParse(request);
       if (!decisions || !parsed.success || !mustRecord(parsed.data, decision)) {
         return decision;
