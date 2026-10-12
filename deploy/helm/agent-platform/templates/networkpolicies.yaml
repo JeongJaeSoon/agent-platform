@@ -1,11 +1,10 @@
 {{- if .Values.networkPolicy.enabled }}
 {{- $installation := include "ap.installationId" . -}}
 # Worker Pods, by the labels the kubernetes execution backend puts on them:
-# nothing reaches them, and they reach the egress proxy and the cluster DNS
-# alone. No other worker, no database, no node or cloud metadata address.
-# DNS is there because HTTP(S)_PROXY names the proxy Service. It lets a
-# worker resolve any name, though it reaches none of the addresses it gets
-# back; the queries themselves still leave through the cluster resolver.
+# nothing reaches them, and they reach the egress proxy alone. No DNS (a
+# query is a way out too), no other worker, no database, no node or cloud
+# metadata address. The backend writes the proxy Service's ClusterIP into
+# each Pod's hosts file, so HTTP(S)_PROXY still names the proxy.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -28,16 +27,6 @@ spec:
       ports:
         - {protocol: TCP, port: 3128}
         - {protocol: TCP, port: 3129}
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              {{- toYaml .Values.networkPolicy.dns.namespaceSelector | nindent 14 }}
-          podSelector:
-            matchLabels:
-              {{- toYaml .Values.networkPolicy.dns.podSelector | nindent 14 }}
-      ports:
-        - {protocol: UDP, port: 53}
-        - {protocol: TCP, port: 53}
     {{- if .Values.networkPolicy.worker.allowDirectGateway }}
     - to:
         - podSelector:

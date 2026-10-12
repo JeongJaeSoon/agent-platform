@@ -57,10 +57,20 @@ type PodShape = {
     volumes: unknown;
     enableServiceLinks: boolean;
     terminationGracePeriodSeconds: number;
+    dnsConfig: unknown;
+    dnsPolicy: string;
+    hostAliases: unknown;
   };
 };
 
-const pod = podFor(config, intent, "secret-name", "fingerprint") as PodShape;
+const PROXY_ADDRESS = "10.96.12.34";
+const pod = podFor(
+  config,
+  intent,
+  "secret-name",
+  "fingerprint",
+  PROXY_ADDRESS,
+) as PodShape;
 const [container] = pod.spec.containers;
 if (container === undefined) throw new Error("no container");
 
@@ -89,6 +99,25 @@ describe("worker Pod", () => {
     );
   });
 
+  test("asks no DNS server and finds the proxy in its hosts file", () => {
+    expect(pod.spec.dnsPolicy).toBe("None");
+    expect(pod.spec.dnsConfig).toEqual({ nameservers: ["127.0.0.1"] });
+    expect(pod.spec.hostAliases).toEqual([
+      { hostnames: ["egress-proxy"], ip: PROXY_ADDRESS },
+    ]);
+    // The env still names the proxy, as the Docker backend's does.
+    expect(container.env.find((e) => e.name === "HTTPS_PROXY")?.value).toBe(
+      "http://egress-proxy:3128",
+    );
+  });
+
+  test("a proxy address change is another isolation stamp", () => {
+    expect(isolationStampFor(config, "10.96.0.1")).not.toBe(
+      isolationStampFor(config, PROXY_ADDRESS),
+    );
+    expect(isolationStampFor(config, PROXY_ADDRESS)).toStartWith("2:");
+  });
+
   test("takes its limits from the intent, requests equal to limits", () => {
     const limits = { cpu: "1500m", memory: String(1024 * 1024 * 1024) };
     expect(container.resources).toEqual({ limits, requests: limits });
@@ -106,7 +135,7 @@ describe("worker Pod", () => {
     });
     expect(pod.metadata.annotations).toEqual({
       "agent-platform.bootstrap-fingerprint": "fingerprint",
-      "agent-platform.isolation": isolationStampFor(config),
+      "agent-platform.isolation": isolationStampFor(config, PROXY_ADDRESS),
       "agent-platform.launch-spec": "f".repeat(64),
       "agent-platform.operation-id": "op-1",
     });
@@ -176,6 +205,7 @@ describe("worker Pod", () => {
         { ...intent, resources: { ...intent.resources, memoryBytes: 0 } },
         "s",
         "f",
+        PROXY_ADDRESS,
       ),
     ).toThrow("memoryBytes");
   });

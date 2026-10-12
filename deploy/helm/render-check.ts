@@ -1,8 +1,9 @@
 // Renders the chart with helm and fails on any manifest that breaks the
 // chart's promises: every container hardened, sized and pinned by digest,
 // probes on every long-running one, a token only where the scheduler needs
-// one, the scheduler Role exactly the kubernetes backend's verbs, and worker
-// traffic held to the egress proxy and DNS. Run from the repository root:
+// one, the scheduler Role exactly the kubernetes backend's verbs, worker
+// traffic held to the egress proxy (no DNS), and the Ingress routing only
+// the api's public paths. Run from the repository root:
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
 
 import { spawnSync } from "node:child_process";
@@ -202,13 +203,17 @@ function check(
         ports: ["TCP/3128", "TCP/3129"],
         peers: 1,
       },
-      {
-        component: "kube-dns",
-        hasNamespace: true,
-        ports: ["UDP/53", "TCP/53"],
-        peers: 1,
-      },
     ];
+    // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
+    const dns = (spec.egress ?? []).some((rule: any) =>
+      // No port is every port.
+      ((rule.ports ?? [{}]) as { port?: number }[]).some(
+        (p) => p.port === undefined || p.port === 53,
+      ),
+    );
+    if (dns) {
+      fail(workerPolicy, "egress reaches DNS: a query is a way out");
+    }
     if (JSON.stringify(targets) !== JSON.stringify(expected)) {
       fail(workerPolicy, `egress ${JSON.stringify(targets)}`);
     }
@@ -291,6 +296,52 @@ function checkObjectStoreKeys(
   return errors;
 }
 
+// The api's public mounts (apps/control-host/src/api/app.ts). /internal is
+// the workers' gateway and must never be reachable from the load balancer.
+const PUBLIC_PATHS = [
+  "Prefix /v1",
+  "Prefix /docs",
+  "Exact /healthz",
+  "Exact /readyz",
+];
+
+function checkIngress(
+  label: string,
+  manifests: Manifest[],
+  enabled: boolean,
+): string[] {
+  const errors: string[] = [];
+  const ingresses = manifests.filter((m) => m.kind === "Ingress");
+  if (ingresses.length !== (enabled ? 1 : 0)) {
+    errors.push(
+      `${label}: expected ${enabled ? 1 : 0} Ingress, got ${ingresses.length}`,
+    );
+  }
+  for (const ingress of ingresses) {
+    const fail = (message: string) =>
+      errors.push(`${label}: Ingress/${ingress.metadata.name}: ${message}`);
+    if (ingress.spec.defaultBackend !== undefined) {
+      fail("a default backend routes every path");
+    }
+    for (const rule of ingress.spec.rules ?? []) {
+      const paths: { path: string; pathType: string }[] =
+        rule.http?.paths ?? [];
+      for (const { path } of paths) {
+        if ("/internal/".startsWith(path) || path.startsWith("/internal")) {
+          fail(`${path} routes /internal`);
+        }
+      }
+      const got = paths.map((p) => `${p.pathType} ${p.path}`);
+      if (JSON.stringify(got) !== JSON.stringify(PUBLIC_PATHS)) {
+        fail(
+          `paths ${JSON.stringify(got)} are not ${JSON.stringify(PUBLIC_PATHS)}`,
+        );
+      }
+    }
+  }
+  return errors;
+}
+
 // Renders that must fail, each with the message that says why.
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
@@ -343,6 +394,12 @@ errors.push(
     "aws example",
     render(["-f", ciDigests, "-f", awsExample]),
     false,
+  ),
+  ...checkIngress("default", render(["-f", ciDigests]), false),
+  ...checkIngress(
+    "aws example",
+    render(["-f", ciDigests, "-f", awsExample]),
+    true,
   ),
 );
 for (const [label, args, message] of MUST_FAIL) {
