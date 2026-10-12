@@ -196,7 +196,7 @@ const pushExecutor = createPushExecutor({
   catalog,
   forges,
   bundles: checkpoints.pushSource,
-  pusher: createGitPusher(),
+  pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   logger,
 }).start();
 const interrupts = createInterruptService({

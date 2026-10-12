@@ -21,8 +21,13 @@ import {
   type SessionCatalog,
 } from "./catalog.ts";
 
-/** Longer than any one push takes, so only a dead pusher loses its row. */
+/**
+ * How long a claim holds its row. The push's git is cut off at
+ * `PUSH_DEADLINE_SHARE` of it, so only a dead pusher loses its row, and the
+ * rest is slack for clock skew between this host and the database.
+ */
 export const PUSH_LEASE_MS = 15 * 60_000;
+export const PUSH_DEADLINE_SHARE = 0.8;
 /** Claims of one request before it is failed instead of taken up again. */
 export const PUSH_MAX_ATTEMPTS = 3;
 export const PUSH_POLL_INTERVAL_MS = 3_000;
@@ -64,7 +69,7 @@ export function createPushExecutor(deps: {
   const leaseMs = deps.leaseMs ?? PUSH_LEASE_MS;
   const maxAttempts = deps.maxAttempts ?? PUSH_MAX_ATTEMPTS;
 
-  async function execute(job: PushJob): Promise<PushOutcome> {
+  async function execute(job: PushJob, deadline: number): Promise<PushOutcome> {
     const refuse = (
       refusal: PushRefusal,
       remote?: { remoteUrl: string; remoteRef: string },
@@ -139,6 +144,7 @@ export function createPushExecutor(deps: {
         remoteUrl: repository.url,
         ref: remote.remoteRef,
         headers,
+        deadline,
       });
       if (pushed.status === "refused") {
         logger.warn("Push refused", {
@@ -160,11 +166,14 @@ export function createPushExecutor(deps: {
 
   /** Runs one claimed request to its end. False when none was waiting. */
   async function runOnce(): Promise<boolean> {
+    // Read before the claim, so the deadline cannot trail the lease the
+    // database starts at the claim.
+    const claimedAt = Date.now();
     const job = await store.claimNextApproved(leaseMs);
     if (job === null) return false;
     let outcome: PushOutcome;
     try {
-      outcome = await execute(job);
+      outcome = await execute(job, claimedAt + leaseMs * PUSH_DEADLINE_SHARE);
     } catch (error) {
       // A forge or git failure carries no secret in its message
       // (ForgeCredentialError, the pusher's own wording).

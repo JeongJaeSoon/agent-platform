@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   GitPusher,
@@ -5,8 +6,10 @@ import type {
   GitPushResult,
 } from "@agent-platform/platform";
 import {
+  DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
   type GitCommandRunner,
+  type GitResourceLimits,
   gitRefNameAcceptable,
 } from "@agent-platform/storage";
 
@@ -28,18 +31,35 @@ export const DEFAULT_GIT_PUSH_TIMEOUT_MS = 5 * 60_000;
  * file, and only to the remote's own URL, with redirects off. git refuses to
  * prompt, so a credential the remote rejects fails at once.
  *
+ * Each git runs under the same memory cap as checkpoint verification
+ * (`maxGitMemoryBytes`), with no file larger than the whole chain plus one
+ * delta base, and is killed at `input.deadline` if not before.
+ *
  * Errors carry exit codes and fixed wording only. What git prints comes in
  * part from the remote, and is not passed on.
  */
 export function createGitPusher(
-  options: { gitRunner?: GitCommandRunner; timeoutMs?: number } = {},
+  options: {
+    gitRunner?: GitCommandRunner;
+    timeoutMs?: number;
+    maxGitMemoryBytes?: number;
+  } = {},
 ): GitPusher {
   const gitRunner = options.gitRunner ?? defaultGitRunner;
   const timeoutMs = options.timeoutMs ?? DEFAULT_GIT_PUSH_TIMEOUT_MS;
+  const memoryBytes = options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;
 
   return {
     async push(input: GitPushInput): Promise<GitPushResult> {
       const repository = join(input.directory, "repo.git");
+      let chainBytes = 0;
+      for (const bundle of input.bundles)
+        chainBytes += (await stat(bundle)).size;
+      const limits: GitResourceLimits = {
+        cpuSeconds: Math.ceil(timeoutMs / 1000),
+        fileSizeBytes: chainBytes + memoryBytes + 1024 * 1024,
+        memoryBytes,
+      };
       const baseEnv = {
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
@@ -59,8 +79,10 @@ export function createGitPusher(
           `http.${input.remoteUrl}.extraHeader`;
         remoteEnv[`GIT_CONFIG_VALUE_${index + 1}`] = `${name}: ${value}`;
       });
-      const git = (args: readonly string[], remote = false) =>
-        gitRunner(
+      const git = (args: readonly string[], remote = false) => {
+        const left = Math.min(timeoutMs, input.deadline - Date.now());
+        if (left <= 0) throw new Error("the push ran past its deadline");
+        return gitRunner(
           [
             "-c",
             "core.hooksPath=/dev/null",
@@ -76,9 +98,11 @@ export function createGitPusher(
             clearGitEnvironment: true,
             cwd: input.directory,
             env: remote ? remoteEnv : baseEnv,
-            timeoutMs,
+            limits,
+            timeoutMs: left,
           },
         );
+      };
       const must = async (what: string, args: readonly string[]) => {
         const result = await git(args);
         if (result.exitCode !== 0) {

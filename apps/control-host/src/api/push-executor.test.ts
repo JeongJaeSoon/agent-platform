@@ -13,7 +13,9 @@ import {
   type SessionCatalog,
 } from "@agent-platform/platform";
 import {
+  DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
+  type GitCommandOptions,
   type GitCommandRunner,
 } from "@agent-platform/storage";
 import {
@@ -108,6 +110,7 @@ function jobFor(
 type Run = {
   outcome: PushOutcome | undefined;
   argv: string[][];
+  gitOptions: GitCommandOptions[];
   /** Files under the push's directory, as each git command saw them. */
   leaked: string[];
 };
@@ -118,6 +121,7 @@ async function run(
   options: {
     bundles?: readonly GitBundleFixture[];
     forges?: ForgeResolver;
+    leaseMs?: number;
   } = {},
 ): Promise<Run> {
   const finished: PushOutcome[] = [];
@@ -129,9 +133,11 @@ async function run(
     },
   } as unknown as PushRequestStore;
   const argv: string[][] = [];
+  const recorded: GitCommandOptions[] = [];
   const leaked: string[] = [];
   const recording: GitCommandRunner = async (args, gitOptions) => {
     argv.push([...args]);
+    recorded.push(gitOptions);
     if (gitOptions.cwd !== undefined) {
       leaked.push(...(await credentialsUnder(gitOptions.cwd)));
     }
@@ -157,9 +163,10 @@ async function run(
     pusher: createGitPusher({ gitRunner: recording }),
     logger: { info() {}, warn() {} },
     tempRoot,
+    ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
   });
   expect(await executor.runOnce()).toBe(true);
-  return { outcome: finished[0], argv, leaked };
+  return { outcome: finished[0], argv, gitOptions: recorded, leaked };
 }
 
 // A token or a Basic login anywhere under the push's own directory: the
@@ -421,6 +428,31 @@ describe("the platform's push", () => {
         refusal: "no_push_credential",
       },
     );
+  });
+
+  test("every git runs under resource limits and is cut off before the lease runs out", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const leaseMs = 60_000;
+    const startedAt = Date.now();
+    const result = await run(catalog, jobFor(catalog, "app"), { leaseMs });
+    expect(result.outcome).toMatchObject({ state: "pushed" });
+    expect(result.gitOptions.length).toBeGreaterThan(0);
+    const chainBytes = chain.base.bytes.length + chain.tip.bytes.length;
+    for (const options of result.gitOptions) {
+      expect(options.limits?.memoryBytes).toBe(DEFAULT_MAX_GIT_MEMORY_BYTES);
+      expect(options.limits?.fileSizeBytes).toBeGreaterThan(chainBytes);
+      expect(options.timeoutMs).toBeLessThanOrEqual(leaseMs * 0.8);
+    }
+    expect(Date.now() - startedAt).toBeLessThan(leaseMs * 0.8);
+  });
+
+  test("a push whose deadline has passed starts no git and fails", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const gitBefore = github.gitRequests.length;
+    const result = await run(catalog, jobFor(catalog, "app"), { leaseMs: 1 });
+    expect(result.outcome).toEqual({ state: "failed", refusal: "push_failed" });
+    expect(result.argv).toEqual([]);
+    expect(github.gitRequests.length).toBe(gitBefore);
   });
 
   test("a bundle chain without the pinned commit fails the push", async () => {

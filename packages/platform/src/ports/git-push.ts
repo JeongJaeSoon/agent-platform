@@ -15,6 +15,11 @@ export type GitPushInput = {
    * They never reach an argument list, a URL, a config file or the disk.
    */
   headers: ReadonlyArray<readonly [string, string]>;
+  /**
+   * Epoch milliseconds by which every git command has ended, ahead of the
+   * claim's lease, so no second pusher takes the row while this one writes.
+   */
+  deadline: number;
 };
 
 export type GitPushResult =
