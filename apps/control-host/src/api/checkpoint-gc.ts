@@ -132,14 +132,7 @@ function connect(
       "checkpoint-gc",
       JOB_POOL_TIMEOUTS,
     );
-    const client = createStorageS3Client({
-      s3: {
-        accessKeyId: config.accessKeyId,
-        ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
-        region: config.region,
-        secretAccessKey: config.secretAccessKey,
-      },
-    });
+    const client = createStorageS3Client({ s3: config });
     return {
       collector: createCheckpointObjectCollector({ bucket, client }),
       objects: createCheckpointObjectStore({ bucket, client }),

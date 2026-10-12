@@ -858,11 +858,13 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
 
 function storageConfig(target: LocalstackBucket): CheckpointStorageConfig {
   return {
-    accessKeyId: target.env.accessKeyId,
     bucket: target.bucket,
+    credentials: {
+      accessKeyId: target.env.accessKeyId,
+      secretAccessKey: target.env.secretAccessKey,
+    },
     endpoint: target.env.endpoint,
     protection: "locked",
     region: target.env.region,
-    secretAccessKey: target.env.secretAccessKey,
   };
 }
