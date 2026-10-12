@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import type {
   CheckpointRef,
@@ -145,6 +145,10 @@ export class GitWorkspace implements WorkspacePreparer {
     restore: CheckpointRef | null;
     signal: AbortSignal;
   }): Promise<WorkspacePlan["action"]> {
+    // The Kubernetes backend mounts the volume one level up: a fresh
+    // volume's own root belongs to root, and git refuses a repository whose
+    // top directory another user owns. The restorer needs the root to exist.
+    await mkdir(this.root, { recursive: true });
     const { access, url } = input.descriptor.repository;
     const remote = routed(splitSecret(url), access, this.egressTransport);
     const redact = redactor(

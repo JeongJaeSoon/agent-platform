@@ -141,6 +141,25 @@ describe("GitWorkspace", () => {
     ).rejects.toThrow("another repository");
   });
 
+  test("makes a root the volume does not have yet, for a clone and for the restorer", async () => {
+    await rm(root, { recursive: true });
+    expect(await prepare(descriptor())).toBe("clone");
+
+    await rm(root, { recursive: true });
+    expect(
+      await new GitWorkspace(root).prepare({
+        descriptor: descriptor(),
+        restore: {
+          revision: 3,
+          manifest_ref: "sessions/x/manifest-3.json",
+          manifest_sha256: "a".repeat(64),
+        },
+        signal: new AbortController().signal,
+      }),
+    ).toBe("restore");
+    expect(await readdir(root)).toEqual([]);
+  });
+
   test("leaves a committed checkpoint to the restorer", async () => {
     await writeFile(join(root, "stray.txt"), "?\n");
 

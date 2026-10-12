@@ -5,6 +5,7 @@
 - worker Pod 하나. 이름은 `ap-worker-<installation>-<execution>-g<generation>`이다.
 - 그 Pod가 소유하는 nonce Secret.
 - 세션의 workspace PVC(`ap-ws-<installation>-<session>`)를 Pod에 마운트한다.
+  마운트 지점은 `workspaceDir`(`/workspace`)이고, worker는 그 아래 `repo/`에 checkout한다(`WORKER_WORKSPACE_DIR`). 새 볼륨의 루트는 root 소유라(fsGroup은 그룹만 바꾼다) git이 그 자리의 저장소를 "dubious ownership"으로 거부하기 때문이다. `repo/`는 worker가 자기 uid로 만든다.
 
 `providerRef`는 Pod UID다. Pod와 PVC를 지울 때는 `DeleteOptions.preconditions.uid`를 붙여서, 같은 이름에 새로 생긴 다른 Pod·PVC를 건드리지 않는다.
 
