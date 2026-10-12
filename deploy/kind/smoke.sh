@@ -195,6 +195,7 @@ cluster_ip() { kubectl -n "$1" get svc "$2" -o jsonpath='{.spec.clusterIP}'; }
 proxy_svc="$(k get svc -l app.kubernetes.io/component=egress-proxy -o name | head -n 1)"
 proxy="$(cluster_ip "$NAMESPACE" "${proxy_svc#service/}")"
 api="$(cluster_ip "$NAMESPACE" "${fullname}-api")"
+authorizer="$(cluster_ip "$NAMESPACE" "${fullname}-api-authorizer")"
 postgres="$(cluster_ip "$NAMESPACE" postgres)"
 localstack="$(cluster_ip "$NAMESPACE" localstack)"
 dns="$(cluster_ip kube-system kube-dns)"
@@ -254,8 +255,8 @@ for pod in k8s-smoke-worker k8s-smoke-control; do
   check "$pod" "dns ${dns}:53/udp" "$closed" nslookup kubernetes.default.svc.cluster.local "$dns"
 done
 # Only the egress proxy may reach these, so the unlabelled Pod is blocked too.
-check k8s-smoke-worker "authorizer ${api}:3100" blocked $(tcp "$api" 3100)
-check k8s-smoke-control "authorizer ${api}:3100" blocked $(tcp "$api" 3100)
+check k8s-smoke-worker "authorizer ${authorizer}:3100" blocked $(tcp "$authorizer" 3100)
+check k8s-smoke-control "authorizer ${authorizer}:3100" blocked $(tcp "$authorizer" 3100)
 # Nothing answers there on kind; on a cloud node the policy is what stops it.
 check k8s-smoke-worker "metadata 169.254.169.254:80" blocked $(tcp 169.254.169.254 80)
 k delete pod k8s-smoke-worker k8s-smoke-control --wait=false >/dev/null
