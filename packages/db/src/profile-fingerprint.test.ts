@@ -6,6 +6,7 @@ import {
   createWorkerGateway,
   profileFingerprint,
   type SessionCatalog,
+  SessionServiceError,
   type WorkerGateway,
   WorkerGatewayError,
 } from "@agent-platform/platform";
@@ -430,5 +431,87 @@ describe("billing none pinned at create", () => {
     });
     expect(priced.pricedBy).toBe("fallback");
     expect((await stored(sessionId))?.costUsd).toBe(priced.costUsd);
+  });
+});
+
+describe("a model named at create", () => {
+  const OFFERS = catalogOf(profile({ models: ["claude-opus-5-5"] }));
+  const opus = () =>
+    profileFingerprint({ ...profile(), model: "claude-opus-5-5" });
+
+  async function create(catalog: SessionCatalog, model?: string) {
+    return serviceOf(catalog).createSession(OWNER, {
+      idempotencyKey: crypto.randomUUID(),
+      body: {
+        profile_id: PROFILE_ID,
+        repository_id: "sample-app",
+        message: "hello",
+        ...(model === undefined ? {} : { model }),
+      },
+    });
+  }
+
+  test("an offered model is pinned, read back, claimed and routed as that model", async () => {
+    const { session_id: sessionId } = await create(OFFERS, "claude-opus-5-5");
+    expect(await storedFingerprint(sessionId)).toBe(opus());
+    expect(
+      (await serviceOf(OFFERS).getSession(OWNER, sessionId)).runtime,
+    ).toEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+      profile_id: PROFILE_ID,
+      model: "claude-opus-5-5",
+    });
+    const gateway = gatewayOf(OFFERS);
+    const claimed = await claim(
+      gateway,
+      await launch(gateway, sessionId, false),
+    );
+    expect(claimed.session_id).toBe(sessionId);
+    expect(claimed.runtime_config.model).toBe("claude-opus-5-5");
+    expect(claimed.profile_fingerprint).toBe(opus());
+    const granted = await gateway.authorizeEgress({
+      token: claimed.runtime_config.provider.auth.token,
+      purpose: "provider",
+    });
+    expect(granted.session_id).toBe(sessionId);
+    expect(granted.upstream.url).toBe("https://litellm.invalid");
+  });
+
+  test("omitted, the default runs with the fingerprint a profile without models has", async () => {
+    const { session_id: sessionId } = await create(OFFERS);
+    expect(await storedFingerprint(sessionId)).toBe(
+      profileFingerprint(profile()),
+    );
+    // Listing more models stops nothing created before the list.
+    const before = (await create(ORIGINAL)).session_id;
+    const gateway = gatewayOf(OFFERS);
+    const claimed = await claim(gateway, await launch(gateway, before, true));
+    expect(claimed.runtime_config.model).toBe("claude-sonnet-5");
+  });
+
+  test("a model the profile does not offer is refused and stores nothing", async () => {
+    for (const [catalog, model] of [
+      [OFFERS, "claude-fable-5-1"],
+      [ORIGINAL, "claude-opus-5-5"],
+    ] as const) {
+      const error = await create(catalog, model).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(SessionServiceError);
+      expect((error as SessionServiceError).code).toBe(
+        "UNSUPPORTED_CAPABILITY",
+      );
+    }
+    expect(await db.select({ id: sessions.id }).from(sessions)).toEqual([]);
+  });
+
+  test("taking the session's model off the list stops it, as editing the profile would", async () => {
+    const { session_id: sessionId } = await create(OFFERS, "claude-opus-5-5");
+    expect(
+      (await serviceOf(ORIGINAL).getSession(OWNER, sessionId)).attention?.code,
+    ).toBe("CATALOG_MISMATCH");
+    const narrowed = gatewayOf(ORIGINAL);
+    expect(
+      await refusal(claim(narrowed, await launch(narrowed, sessionId, true))),
+    ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
   });
 });

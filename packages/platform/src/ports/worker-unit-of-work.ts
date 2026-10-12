@@ -51,6 +51,8 @@ export type WorkerBinding = {
   // arrived; what the worker tracks, on its own monotonic clock.
   leaseRemainingMs: number;
   profileId: string | null;
+  // Pins which of the profile's models the session runs.
+  profileFingerprint: string | null;
   // The session's profile declared `billing: none` when it was accepted.
   unmetered: boolean;
   // The session's owner partition, straight from the row; the claim hands
@@ -118,6 +120,7 @@ export type EgressIssue = {
   bindingsOf(session: {
     id: string;
     profileId: string | null;
+    profileFingerprint: string | null;
     repositoryId: string | null;
   }): Record<EgressPurpose, string>;
 };

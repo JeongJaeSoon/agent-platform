@@ -13,6 +13,11 @@
 # created with: change a setting under a new id, since editing one
 # in place stops every session made with it (CATALOG_MISMATCH).
 #
+# `models` (optional) lists other models a session may name with `model`
+# on POST /v1/sessions; `model` stays the default. A session is pinned to
+# the profile as its model made it, so adding a model stops nothing, and
+# taking a session's model off the list stops that session.
+#
 # `provider.billing: none` marks an endpoint that does not bill per token (a
 # model served on your own hardware): its sessions are recorded at no cost
 # and run with no dollar limit. Only a private address or a name public DNS

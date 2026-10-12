@@ -167,6 +167,9 @@ export const catalogProfileConfigSchema = z
     runtime_kind: z.literal("claude_agent_sdk"),
     runtime_version: z.string().min(1),
     model: z.string().min(1),
+    // Other models a session may name at create; `model` is the default.
+    // Not part of what a session is pinned to, so adding one stops nothing.
+    models: z.array(z.string().min(1)).min(1).optional(),
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: catalogProviderSchema,
@@ -280,6 +283,7 @@ export type CatalogProfile = {
   runtime_kind: "claude_agent_sdk";
   runtime_version: string;
   model: string;
+  models?: string[] | undefined;
   tools: string[];
   permission_mode: z.infer<typeof permissionModeSchema>;
   project_settings?: z.infer<typeof projectSettingsSchema> | undefined;
@@ -413,10 +417,48 @@ const FINGERPRINT_VERSION = 1;
  * and the engine's components); snapshots and compares this one.
  */
 export function profileFingerprint(profile: CatalogProfile): string {
+  const { models: _models, ...runs } = withoutSecret(profile);
   return sha256({
     fingerprint_version: FINGERPRINT_VERSION,
-    profile: withoutSecret(profile),
+    profile: runs,
   });
+}
+
+/** The models a session of this profile may name, the default first. */
+export function profileModels(profile: CatalogProfile): string[] {
+  return [...new Set([profile.model, ...(profile.models ?? [])])];
+}
+
+/**
+ * The profile as a session that named `model` runs it, or null when the
+ * profile does not offer that model. Everything downstream — fingerprint,
+ * runtime config, egress route — takes this, never the catalog entry.
+ */
+export function profileWithModel(
+  profile: CatalogProfile,
+  model: string = profile.model,
+): CatalogProfile | null {
+  if (!profileModels(profile).includes(model)) return null;
+  const { models: _models, ...rest } = profile;
+  return { ...rest, model };
+}
+
+/**
+ * The profile a session pinned to `fingerprint` runs: the offered model
+ * whose settings still hash to it, or null when none does (the model was
+ * taken off the list, or the profile changed). A row from before the pin
+ * runs the default model, which its first claim then pins.
+ */
+export function sessionProfile(
+  profile: CatalogProfile,
+  fingerprint: string | null,
+): CatalogProfile | null {
+  if (fingerprint === null) return profileWithModel(profile);
+  for (const model of profileModels(profile)) {
+    const runs = profileWithModel(profile, model);
+    if (runs && profileFingerprint(runs) === fingerprint) return runs;
+  }
+  return null;
 }
 
 /**

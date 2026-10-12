@@ -16,7 +16,7 @@ import type {
   RecoveryDecisionRequest,
   ResumeSessionRequest,
   SessionDetail,
-  SessionRuntime,
+  SessionRuntimeView,
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
@@ -43,7 +43,9 @@ import {
   allowedPair,
   isUnmetered,
   profileFingerprint,
+  profileWithModel,
   type SessionCatalog,
+  sessionProfile,
 } from "./catalog.ts";
 
 export class SessionServiceError extends Error {
@@ -225,18 +227,25 @@ export function createSessionService(deps: {
       pair !== null &&
       pair.repository.url === record.repo_url &&
       pair.repository.branch === record.branch &&
-      (record.profile_fingerprint === null ||
-        profileFingerprint(pair.profile) === record.profile_fingerprint)
+      sessionProfile(pair.profile, record.profile_fingerprint) !== null
     );
   }
 
-  function runtimeFor(profileId: string | null): SessionRuntime | null {
-    const profile = profileId ? own(catalog.profiles, profileId) : undefined;
+  function runtimeFor(record: {
+    profile_id: string | null;
+    profile_fingerprint: string | null;
+  }): SessionRuntimeView | null {
+    const profileId = record.profile_id;
+    const listed = profileId ? own(catalog.profiles, profileId) : undefined;
+    const profile = listed
+      ? sessionProfile(listed, record.profile_fingerprint)
+      : null;
     if (!profile || !profileId) return null;
     return {
       kind: profile.runtime_kind,
       version: profile.runtime_version,
       profile_id: profileId,
+      model: profile.model,
     };
   }
 
@@ -264,11 +273,18 @@ export function createSessionService(deps: {
       requirePermitted(authorization, actor, "sessions:write");
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
-      const pair = allowedPair(
+      const allowed = allowedPair(
         catalog,
         input.body.profile_id,
         input.body.repository_id,
       );
+      // A model the profile does not offer is refused like a pair the
+      // catalog does not allow; a replay of an earlier acceptance still
+      // succeeds.
+      const runs = allowed
+        ? profileWithModel(allowed.profile, input.body.model)
+        : null;
+      const pair = allowed && runs ? { ...allowed, profile: runs } : null;
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
@@ -299,7 +315,9 @@ export function createSessionService(deps: {
         case "unsupported":
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
-            "Unknown profile_id or repository_id, or a pair the catalog does not allow",
+            allowed && !runs
+              ? `Profile ${input.body.profile_id} does not offer model ${input.body.model}`
+              : "Unknown profile_id or repository_id, or a pair the catalog does not allow",
           );
         default:
           return result.response;
@@ -564,10 +582,12 @@ export function createSessionService(deps: {
       requirePermitted(authorization, actor, "sessions:read");
       const page = await reader.listSessions(actor.ownerId, query);
       return {
-        items: page.items.map(({ profile_id, ...item }) => ({
-          ...item,
-          runtime: runtimeFor(profile_id),
-        })),
+        items: page.items.map(
+          ({ profile_id, profile_fingerprint, ...item }) => ({
+            ...item,
+            runtime: runtimeFor({ profile_id, profile_fingerprint }),
+          }),
+        ),
         next_cursor: page.next_cursor,
       };
     },
@@ -612,7 +632,7 @@ export function createSessionService(deps: {
                 reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
               }
             : null),
-        runtime: runtimeFor(profile_id),
+        runtime: runtimeFor({ profile_id, profile_fingerprint }),
       };
     },
 

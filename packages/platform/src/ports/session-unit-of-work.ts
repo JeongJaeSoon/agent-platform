@@ -72,6 +72,8 @@ export type AppendMessageResult =
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
 export type SessionRecord = Omit<SessionSummary, "runtime"> & {
   profile_id: string | null;
+  // Which of the profile's models the session runs; never exposed.
+  profile_fingerprint: string | null;
 };
 export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   profile_id: string | null;
