@@ -66,12 +66,17 @@ step() { current="$1"; echo; echo "== k8s-smoke: $*"; }
 pass() { echo "PASS ${current}"; }
 fail() { echo "FAIL ${current}: $*" >&2; exit 1; }
 
+# A kind or docker error must not read as "no cluster": the teardown below
+# would then delete a cluster this run did not create.
+clusters="$(kind get clusters)"
 created=""
-kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME" || created=1
+printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME" || created=1
 forward=""
+auth="$STATE_DIR/smoke-auth-header"
 finish() {
   local status=$?
   [ -z "$forward" ] || kill "$forward" 2>/dev/null || true
+  rm -f "$auth"
   if [ "$status" != 0 ] && [ -f "$KUBECONFIG" ]; then
     echo "== k8s-smoke: state after the failure" >&2
     k get deploy,pods,pvc,networkpolicy -o wide >&2 || true
@@ -90,13 +95,15 @@ trap finish EXIT
 
 step install
 "$here/up.sh"
+# up.sh needed it for KIND_MODEL=real; nothing after this does.
+unset ANTHROPIC_API_KEY
 pass
 
 step session
 # A key for this run alone, read from the key CLI's stdout into a 0600
 # header file, so it never reaches an argument or the log.
+{ set +x; } 2>/dev/null
 umask 077
-auth="$STATE_DIR/smoke-auth-header"
 key="$(k exec "deploy/${fullname}-api" -- bun run apps/control-host/src/api/keys.ts create kind-smoke \
   --scopes sessions:read,sessions:write,sessions:control 2>/dev/null)"
 [ -n "$key" ] || fail "the key CLI printed no key"
@@ -104,8 +111,12 @@ printf 'Authorization: Bearer %s\n' "$key" >"$auth"
 unset key
 k port-forward "svc/${fullname}-api" "${API_PORT}:3000" >"$STATE_DIR/smoke-port-forward.log" 2>&1 &
 forward=$!
+# Only through our own forward: one that failed (the port taken) would hand
+# the key below to whatever listens there.
 for _ in $(seq 1 30); do
-  curl -s -o /dev/null "$API/healthz" && break
+  kill -0 "$forward" 2>/dev/null || fail "kubectl port-forward on ${API_PORT} exited; set SMOKE_API_PORT"
+  grep -q "Forwarding from" "$STATE_DIR/smoke-port-forward.log" &&
+    curl -s -o /dev/null "$API/healthz" && break
   sleep 1
 done
 get() { curl -sS --fail-with-body "$API$1" -H @"$auth"; }

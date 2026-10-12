@@ -44,7 +44,8 @@ REGISTRY_IMAGE="${REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa0
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
-mkdir -p -m 700 "$STATE_DIR"
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
 
 if [ "${1:-}" = down ]; then
   kind delete cluster --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
@@ -56,6 +57,11 @@ case "$KIND_MODEL" in
   none | fake | real) ;;
   *) echo "KIND_MODEL must be none, fake or real, not '${KIND_MODEL}'" >&2; exit 1 ;;
 esac
+# It goes into a sed replacement below.
+if ! [[ "${KIND_IMAGE_MIRROR:-}" =~ ^[a-z0-9./:-]*$ ]]; then
+  echo "KIND_IMAGE_MIRROR must be a registry path, not '${KIND_IMAGE_MIRROR}'" >&2
+  exit 1
+fi
 
 # The manifest with each image moved to the mirror: `<path>/<name>:<tag>@<digest>`
 # becomes `$KIND_IMAGE_MIRROR/<name>@<digest>`, the mirror's naming.
