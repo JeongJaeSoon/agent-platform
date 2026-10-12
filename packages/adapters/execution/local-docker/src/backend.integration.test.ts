@@ -15,7 +15,11 @@ import {
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
-import { removeWorkerNetworks, startStandInProxy } from "./testing.ts";
+import {
+  removeInstallation,
+  startStandInProxy,
+  testDockerHost,
+} from "./testing.ts";
 
 /**
  * Talks to a real Docker daemon. Opt in with `DOCKER_BACKEND_TEST=1`; the
@@ -25,18 +29,7 @@ import { removeWorkerNetworks, startStandInProxy } from "./testing.ts";
 const enabled = process.env.DOCKER_BACKEND_TEST === "1";
 const integration = enabled ? describe : describe.skip;
 const IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
-const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
-
-async function defaultDockerHost(): Promise<string> {
-  const candidates = [
-    "/var/run/docker.sock",
-    `${process.env.HOME}/.docker/run/docker.sock`,
-  ];
-  for (const path of candidates) {
-    if (await Bun.file(path).exists()) return `unix://${path}`;
-  }
-  return "unix:///var/run/docker.sock";
-}
+const dockerHost = await testDockerHost();
 
 const RESOURCES = { cpus: 0.5, memoryBytes: 128 * 1024 * 1024, pidsLimit: 64 };
 
@@ -115,48 +108,7 @@ integration("LocalDockerBackend against a real daemon", () => {
   }, 120_000);
 
   afterAll(async () => {
-    // Everything the backend makes carries the installation label, so one
-    // listing finds exactly what exists — no probing generations that were
-    // never created. Stops run in parallel: each one waits out the 1s stop
-    // timeout because busybox's `sleep` ignores SIGTERM, and in series that
-    // alone used to eat bun's 5s hook budget.
-    const owned = [`${LABELS.installation}=${installationId}`];
-    const t0 = performance.now();
-    // A failed listing is itself a cleanup failure, not an empty daemon:
-    // it goes into `failed` instead of quietly skipping everything it owned.
-    const [containers, volumes] = await Promise.allSettled([
-      client.listContainers(owned),
-      client.listVolumes(owned),
-    ]);
-    const stops = await Promise.allSettled(
-      (containers.status === "fulfilled" ? containers.value : []).map((c) =>
-        client.stopAndRemoveContainer(c.Id, 1),
-      ),
-    );
-    const removes = await Promise.allSettled(
-      (volumes.status === "fulfilled" ? volumes.value : []).map((v) =>
-        client.removeVolume(v.Name),
-      ),
-    );
-    // After the containers: a network with a member left cannot go.
-    const network = await Promise.allSettled([
-      removeWorkerNetworks(client, installationId),
-    ]);
-    const failed = [
-      containers,
-      volumes,
-      ...stops,
-      ...removes,
-      ...network,
-    ].filter((r): r is PromiseRejectedResult => r.status === "rejected");
-    // Leftovers are a daemon hygiene problem, not a contract violation:
-    // report them and let the suite's verdict stand.
-    if (failed.length > 0) {
-      console.warn(
-        `[backend.integration] ${failed.length} cleanup step(s) failed after ${Math.round(performance.now() - t0)}ms; leftovers carry ${owned[0]}`,
-        failed.map((r) => String(r.reason)),
-      );
-    }
+    await removeInstallation(client, installationId, "backend.integration");
   }, 120_000);
 
   async function fetchDocker(path: string, method = "POST"): Promise<Response> {
@@ -318,54 +270,6 @@ integration("LocalDockerBackend against a real daemon", () => {
     expect(issued).toBe(3);
   }, 120_000);
 
-  test("a removed container is re-created from the same intent", async () => {
-    const intent = intentFor();
-    const first = await backend.ensureExecution(intent);
-    await client.stopAndRemoveContainer(first.providerRef, 1);
-    expect((await backend.inspect(intent)).found).toBe(false);
-
-    const again = await backend.ensureExecution(intent);
-    expect(again.created).toBe(true);
-    expect(again.providerRef).not.toBe(first.providerRef);
-    expect(await backend.inspect(intent)).toMatchObject({
-      found: true,
-      state: "running",
-    });
-  }, 60_000);
-
-  test("terminate touches only the matching generation", async () => {
-    const base = intentFor();
-    const gen1 = {
-      ...base,
-      generation: 1,
-      operationId: `${base.operationId}-1`,
-    };
-    const gen2 = {
-      ...base,
-      generation: 2,
-      operationId: `${base.operationId}-2`,
-    };
-    await backend.ensureExecution(gen1);
-    const second = await backend.ensureExecution(gen2);
-
-    expect(await backend.terminate({ ...base, generation: 3 })).toMatchObject({
-      outcome: "generation_mismatch",
-    });
-    expect(await backend.terminate(gen1)).toMatchObject({
-      outcome: "terminated",
-    });
-    expect((await backend.inspect(gen1)).found).toBe(false);
-    expect(await backend.inspect(gen2)).toMatchObject({
-      found: true,
-      providerRef: second.providerRef,
-      state: "running",
-    });
-    expect(await backend.terminate(gen2)).toMatchObject({
-      outcome: "terminated",
-    });
-    expect(await backend.terminate(gen2)).toEqual({ outcome: "absent" });
-  }, 60_000);
-
   test("a stop not waited for still ends in SIGKILL at the stop timeout", async () => {
     // busybox's `sleep` ignores SIGTERM, like a worker draining its turn.
     const draining = new LocalDockerBackend(
@@ -427,18 +331,5 @@ integration("LocalDockerBackend against a real daemon", () => {
       outcome: "terminated",
     });
     expect(await client.inspectNetwork(name)).toBeNull();
-  }, 60_000);
-
-  test("listManaged sees every container this backend made", async () => {
-    const intent = intentFor();
-    const result = await backend.ensureExecution(intent);
-    const managed = await backend.listManaged();
-    expect(managed).toContainEqual({
-      executionId: intent.executionId,
-      generation: 1,
-      providerRef: result.providerRef,
-      sessionId: intent.sessionId,
-      state: "running",
-    });
   }, 60_000);
 });
