@@ -135,10 +135,7 @@ export function useSessionEvents(id: string, enabled: boolean) {
     const source = new EventSource(
       `/v1/sessions/${encodeURIComponent(id)}/events`,
     );
-    const seen = new Set<string>();
     const receive = (message: MessageEvent<string>) => {
-      if (seen.has(message.lastEventId)) return;
-      seen.add(message.lastEventId);
       let envelope: Envelope;
       try {
         envelope = JSON.parse(message.data);
@@ -154,15 +151,24 @@ export function useSessionEvents(id: string, enabled: boolean) {
           data: envelope.data,
         } as SessionEventPayload,
       };
-      setEvents((current) => [...current, event].slice(-EVENT_WINDOW));
+      // A resumed stream starts after Last-Event-ID, so a repeat can only be
+      // one still on screen.
+      setEvents((current) =>
+        current.some((held) => held.id === event.id)
+          ? current
+          : [...current, event].slice(-EVENT_WINDOW),
+      );
     };
     for (const name of EVENT_NAMES) {
       source.addEventListener(name, receive);
     }
     source.onopen = () => setState("open");
+    // A session's own `event: error` frame reaches onerror too, with the
+    // connection still open, so the state follows readyState alone.
     source.onerror = () => {
       if (source.readyState === EventSource.CLOSED) setState("closed");
-      else setState("connecting");
+      else if (source.readyState === EventSource.CONNECTING)
+        setState("connecting");
     };
     return () => source.close();
   }, [id, enabled]);

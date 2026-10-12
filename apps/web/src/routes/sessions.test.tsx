@@ -23,7 +23,7 @@ class FakeEventSource extends EventTarget {
   static opened: FakeEventSource[] = [];
   readyState = FakeEventSource.CONNECTING;
   onopen: (() => void) | null = null;
-  onerror: (() => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
   constructor(readonly url: string) {
     super();
     FakeEventSource.opened.push(this);
@@ -41,16 +41,22 @@ class FakeEventSource extends EventTarget {
       occurred_at: AT,
       data,
     };
-    this.dispatchEvent(
-      new MessageEvent(event, {
-        data: JSON.stringify(envelope),
-        lastEventId: id,
-      }),
-    );
+    const message = new MessageEvent(event, {
+      data: JSON.stringify(envelope),
+      lastEventId: id,
+    });
+    this.dispatchEvent(message);
+    // As in the browser: onerror is the handler for every "error" event,
+    // a stream's own `event: error` frame included.
+    if (event === "error") this.onerror?.(message);
+  }
+  drop() {
+    this.readyState = FakeEventSource.CONNECTING;
+    this.onerror?.(new Event("error"));
   }
   fail() {
     this.readyState = FakeEventSource.CLOSED;
-    this.onerror?.();
+    this.onerror?.(new Event("error"));
   }
   close() {
     this.readyState = FakeEventSource.CLOSED;
@@ -246,6 +252,20 @@ describe("session detail", () => {
     expect(screen.getAllByText("Listing files")).toHaveLength(1);
     expect(screen.getByText("작업 중")).toBeTruthy();
     expect(screen.getByText("tool_use")).toBeTruthy();
+
+    // The session reporting an error is an event, not a lost connection.
+    act(() =>
+      stream.emit("ev_4", "error", { message: "engine crashed", code: "X" }),
+    );
+    expect(await screen.findByText("engine crashed")).toBeTruthy();
+    expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull();
+
+    act(() => stream.drop());
+    expect(await screen.findByText("이벤트에 연결하는 중…")).toBeTruthy();
+    act(() => stream.open());
+    await waitFor(() =>
+      expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull(),
+    );
 
     act(() => stream.fail());
     expect(
