@@ -1,0 +1,261 @@
+# Defaults run on plain Kubernetes (kind included). Everything AWS-only
+# (ALB Ingress, IRSA, ECR, External Secrets) is off here and shown in
+# values-aws.example.yaml. Every default below is the compose value
+# (infra/compose.core.yml); size them per installation.
+
+# EXECUTION_INSTALLATION_ID. Also the value of the
+# agent-platform.installation label the worker NetworkPolicy selects on, so
+# it must be a valid label value.
+installationId: local
+
+# Every image renders as <registry>/<repository>@<digest>. There is no tag
+# field and no default digest: a missing or malformed digest fails the
+# render, so nothing installs an image nobody pinned. images.yml records the
+# digests of each build.
+images:
+  # Prefix for every repository below, e.g. an ECR registry host. Empty
+  # uses the repositories as given.
+  registry: ""
+  pullPolicy: IfNotPresent
+  # Secret names for pulling the images; handed to the worker Pods too
+  # (EXECUTION_K8S_IMAGE_PULL_SECRETS).
+  pullSecrets: []
+  # api, scheduler, reconciler, migrate and checkpoint GC.
+  controlHost:
+    repository: ghcr.io/jeongjaesoon/agent-platform-control-host
+    digest: ""
+  egressProxy:
+    repository: ghcr.io/jeongjaesoon/agent-platform-egress-proxy
+    digest: ""
+  # Not deployed by the chart: the scheduler launches it per session
+  # (WORKER_IMAGE).
+  worker:
+    repository: ghcr.io/jeongjaesoon/agent-platform-worker
+    digest: ""
+
+# The chart never holds a secret value. Each workload reads only the keys it
+# needs from this one Secret:
+#   DATABASE_URL            api, scheduler, reconciler, migrate, checkpoint GC
+#   EGRESS_AUTHORIZER_TOKEN api, egress-proxy (the same value on both sides)
+#   AWS_ACCESS_KEY_ID,
+#   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store;
+#                           required, it reads no other credential source)
+secrets:
+  name: agent-platform
+  # Further keys handed to the api alone, as environment variables of the
+  # same name: the credentials the catalog names by value_env.
+  catalogEnv: [ANTHROPIC_API_KEY]
+  # Have the External Secrets Operator write the Secret above from a secret
+  # store instead of creating it by hand. Needs the operator's CRDs.
+  externalSecret:
+    enabled: false
+    secretStoreRef:
+      kind: ClusterSecretStore
+      name: ""
+    # The store entry holding every key above as JSON properties.
+    remoteKey: ""
+    refreshInterval: 1h
+
+serviceAccounts:
+  # The only ServiceAccount meant to carry cloud credentials (IRSA on EKS).
+  # Today the api's object store takes the static keys above only, and they
+  # also win over the role in the Secrets Manager client's credential chain.
+  # The checkpoint GC runs as this one too: it releases object holds with
+  # the api's object store settings.
+  api:
+    annotations: {}
+  scheduler:
+    annotations: {}
+
+# The operator catalog, mounted at PLATFORM_CONFIG_DIR. Same schema as
+# config/profiles.yaml and config/repositories.yaml; an invalid catalog stops
+# the api.
+catalog:
+  profiles:
+    claude-coding-real:
+      runtime_kind: claude_agent_sdk
+      runtime_version: "0.3.270"
+      model: claude-sonnet-5
+      tools: [Read, Edit, Write, Glob, Grep, Bash]
+      permission_mode: default
+      provider:
+        kind: anthropic
+        endpoint: https://api.anthropic.com
+        auth:
+          kind: api_key
+          value_env: ANTHROPIC_API_KEY
+      project_settings:
+        claude_md: true
+  # At least one, or the api does not start. The example is
+  # config/repositories.yaml's compose Gitea; name your own.
+  repositories:
+    sample-app:
+      url: http://gitea:3000/agent/sample-app.git
+      branch: main
+      profiles: [claude-coding-real]
+
+config:
+  logLevel: info
+  # api-key, not none: workers reach the api through the proxy, and in
+  # `none` mode /v1 takes any X-Owner-Id as the caller.
+  authMode: api-key
+  heartbeatTtlSec: 30
+  # Read by the api and the scheduler with one parser.
+  limits:
+    EXECUTION_SLOT_LIMIT: 10
+    QUEUED_INPUT_LIMIT_PER_SESSION: 20
+    STORAGE_LIMIT_BYTES: 1073741824
+    MAX_TURN_SECONDS: 3600
+    SESSION_COST_LIMIT_USD: 25
+    SESSION_TOKEN_LIMIT: 0
+    PROVIDER_MAX_RETRIES: 2
+  aws:
+    region: ap-northeast-1
+    # An S3-compatible endpoint (LocalStack, MinIO); empty is AWS.
+    endpointUrl: ""
+    # The Secrets Manager the catalog's secret_id references read; empty is AWS.
+    secretsManagerEndpointUrl: ""
+  checkpoints:
+    bucket: claude-sessions
+    # locked | unversioned (see infra/compose.core.yml).
+    protection: locked
+    # Sized with api.resources.limits.memory (2 x 2 x this + 512 MiB).
+    gitMemoryMb: 1536
+  egress:
+    # Public hosts a worker may reach through the forward proxy. None: its one
+    # public destination is its provider, through the credential route.
+    allowlist: ""
+    # Private hosts reachable through the forward proxy. Empty is the api
+    # Service's gateway port alone.
+    privateAllowlist: ""
+    # Upstreams only the credential routes reach: provider, repository,
+    # object store.
+    credentialAllowlist: "api.anthropic.com:443"
+    credentialPrivateAllowlist: ""
+
+api:
+  replicas: 2
+  # Above SHUTDOWN_DRAIN_MS + SHUTDOWN_CLOSE_MS (35s + 5s).
+  terminationGracePeriodSeconds: 45
+  # 2 bundle verifications x (git fetch + index-pack) x gitMemoryMb + 512 MiB.
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 7168Mi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: {}
+
+# One replica, replaced with Recreate: a second scheduler never gets the
+# pass lock, so its health goes stale and liveness restarts it in a loop.
+scheduler:
+  # Off until the scheduler can select its kubernetes execution backend
+  # (94S-523, 94S-524); the image on main only has the Docker one, which has
+  # no socket here. 94S-524 turns this back on.
+  enabled: false
+  terminationGracePeriodSeconds: 45
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  intervalSec: 5
+  maxConsecutiveFailures: 3
+  # Above intervalSec + passTimeoutSec.
+  healthStaleSec: 200
+  passTimeoutSec: 180
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: {}
+
+# Passes are re-judged under row locks, so no leader election is needed;
+# one replica is enough.
+reconciler:
+  replicas: 1
+  terminationGracePeriodSeconds: 20
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  intervalSec: 10
+  passTimeoutSec: 60
+  maxConsecutiveFailures: 3
+  healthStaleSec: 90
+  batchSize: 100
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: {}
+
+egressProxy:
+  replicas: 2
+  # 512 MiB credential bodies + 64 MiB response queues + 2048 MiB forward
+  # queues + 256 MiB Bun = 2880 MiB, under this.
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 3072Mi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: {}
+
+# A pre-install/pre-upgrade hook: the schema is migrated before any new pod
+# of the release starts.
+migrate:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+# Must not run while a backup is being taken (docs/backup-restore.md).
+checkpointGc:
+  enabled: true
+  schedule: "0 4 * * 0"
+  dryRun: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+
+# Settings the scheduler hands the worker Pods it launches.
+worker:
+  # StorageClass of workspace PVCs; empty is the cluster default.
+  storageClass: ""
+  # A dedicated node group, e.g. with podPidsLimit set on its kubelet.
+  nodeSelector: {}
+  tolerations: []
+  cpus: 1
+  memoryMb: 2048
+  workspace:
+    quotaMb: 4096
+    gcMinAgeSec: 3600
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  #  - host: agent-platform.example.com
+  tls: []
+
+networkPolicy:
+  enabled: true
+  # Workers resolve the egress-proxy Service name, so they may query the
+  # cluster DNS. These select it.
+  dns:
+    namespaceSelector:
+      kubernetes.io/metadata.name: kube-system
+    podSelector:
+      k8s-app: kube-dns
+  api:
+    # Peers allowed to reach the public port 3000 besides the egress proxy
+    # (NetworkPolicy `from` entries). Empty allows any source: the Ingress
+    # controller or load balancer reaches pods from outside the namespace.
+    ingressFrom: []
+  worker:
+    # Workers reach the gateway through the egress proxy, whose NO_PROXY
+    # names only localhost and the proxy, so they need no direct route.
+    allowDirectGateway: false
