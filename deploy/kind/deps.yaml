@@ -1,0 +1,100 @@
+# Development stand-ins for what an installation brings itself (RDS, S3),
+# for a kind check of the chart only. Local defaults like compose's; nothing
+# here is meant for a real cluster. ClusterIP Services only: nothing outside
+# the cluster reaches them, and the chart's worker NetworkPolicy keeps
+# workers off them too.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: {app: postgres}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+          env:
+            - {name: POSTGRES_DB, value: sessions}
+            - {name: POSTGRES_USER, value: postgres}
+            - {name: POSTGRES_PASSWORD, value: dev}
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U postgres -d sessions"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: {app: postgres}
+  ports:
+    - port: 5432
+---
+# S3 alone, with the bucket infra/localstack/init/10-create-resources.sh makes
+# (Object Lock and AES256, which the api checks at startup). up.sh puts that
+# script in the localstack-init ConfigMap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  labels: {app: localstack}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: localstack}
+  template:
+    metadata:
+      labels: {app: localstack}
+    spec:
+      containers:
+        - name: localstack
+          image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+          env:
+            - {name: SERVICES, value: s3}
+            - {name: AWS_DEFAULT_REGION, value: ap-northeast-1}
+          ports:
+            - containerPort: 4566
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null &&
+                  [ "$(awslocal s3api get-bucket-encryption --bucket claude-sessions
+                  --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm'
+                  --output text)" = AES256 ]
+            periodSeconds: 5
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: init
+              mountPath: /etc/localstack/init/ready.d
+      volumes:
+        - name: init
+          configMap:
+            name: localstack-init
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+spec:
+  selector: {app: localstack}
+  ports:
+    - port: 4566
