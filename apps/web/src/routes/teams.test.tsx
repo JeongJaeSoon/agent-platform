@@ -187,7 +187,7 @@ describe("팀 화면", () => {
     await user.selectOptions(screen.getByLabelText("추가할 사람"), MATE_ID);
     await user.click(screen.getByRole("button", { name: "구성원 추가" }));
     expect((await screen.findByRole("status")).textContent).toBe(
-      "Mate님을 팀에 넣었습니다.",
+      "Mate님을 팀에 추가했습니다.",
     );
     expect(
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/members"))
@@ -281,12 +281,12 @@ describe("에이전트 관리자", () => {
     const user = await setupUser();
     await screen.findByRole("option", { name: "결제팀" });
     await user.selectOptions(
-      screen.getByLabelText("관리자로 지정할 팀"),
+      screen.getByLabelText("관리자로 추가할 팀"),
       TEAM_ID,
     );
-    await user.click(screen.getByRole("button", { name: "팀 지정" }));
+    await user.click(screen.getByRole("button", { name: "팀 추가" }));
     expect((await screen.findByRole("status")).textContent).toBe(
-      "결제팀을(를) 관리자로 지정했습니다.",
+      "결제팀을(를) 관리자로 추가했습니다.",
     );
     expect(
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
@@ -294,15 +294,15 @@ describe("에이전트 관리자", () => {
     ).toEqual({ team_id: TEAM_ID });
 
     await user.click(
-      screen.getByRole("button", { name: "Mate 관리자 지정 해제" }),
+      screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     );
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe(
-        "Mate의 관리자 지정을 해제했습니다.",
+        "Mate을(를) 관리자에서 뺐습니다.",
       ),
     );
     expect(
-      screen.queryByRole("button", { name: "Mate 관리자 지정 해제" }),
+      screen.queryByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeNull();
   });
 
@@ -325,7 +325,7 @@ describe("에이전트 관리자", () => {
       [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
     });
     expect(
-      await screen.findByRole("button", { name: "Mate 관리자 지정 해제" }),
+      await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
   });
 
@@ -354,7 +354,7 @@ describe("에이전트 관리자", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "Backend unavailable"),
     });
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+      "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
     );
   });
 
@@ -386,9 +386,9 @@ describe("에이전트 관리자", () => {
       [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
     });
     expect(
-      await screen.findByRole("button", { name: "Mate 관리자 지정 해제" }),
+      await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
-    const person = screen.getByRole("button", { name: "사람 지정" });
+    const person = screen.getByRole("button", { name: "사람 추가" });
     expect(person.hasAttribute("disabled")).toBe(true);
     expect(
       document.getElementById(person.getAttribute("aria-describedby") ?? "")

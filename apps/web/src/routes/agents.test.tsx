@@ -69,7 +69,7 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("이름"), "결제 담당");
     await user.type(screen.getByLabelText("주소 이름"), "billing");
     await user.type(screen.getByLabelText("역할"), CARD.role);
-    await user.type(screen.getByLabelText("지시"), CARD.instructions);
+    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
     await user.type(screen.getByLabelText("모델"), CARD.model);
     await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
     await user.click(screen.getByRole("button", { name: "에이전트 만들기" }));
@@ -96,7 +96,7 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const instructions = await screen.findByLabelText("지시");
+    const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -106,9 +106,9 @@ describe("에이전트 상세", () => {
       ),
     ).toBeDefined();
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
-    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
-      "환불 문의에도 답한다.",
-    );
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe("환불 문의에도 답한다.");
     const patch = api.calls.find((c) => c.method === "PATCH");
     expect(patch?.headers.get("idempotency-key")).toBeNull();
     expect((patch?.body as { card: unknown }).card).toEqual({
@@ -129,22 +129,22 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const instructions = await screen.findByLabelText("지시");
+    const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다 — version 2/);
-    await user.clear(screen.getByLabelText("지시"));
-    await user.type(screen.getByLabelText("지시"), CARD.instructions);
+    await user.clear(screen.getByLabelText("지시 사항"));
+    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
         "저장했습니다. 같은 카드가 이미 있어(version 1) 새 version은 생기지 않았습니다.",
       ),
     ).toBeDefined();
-    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
-      CARD.instructions,
-    );
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe(CARD.instructions);
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
     const release = screen
       .getByRole("heading", { name: "release" })
@@ -184,7 +184,7 @@ describe("에이전트 상세", () => {
     );
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const instructions = await screen.findByLabelText("지시");
+    const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, CARD.instructions);
     await user.type(screen.getByLabelText("모델"), "  ");
@@ -252,7 +252,7 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const instructions = await screen.findByLabelText("지시");
+    const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -298,7 +298,9 @@ describe("두 탭 동시 활성화", () => {
     expect(await a.findByText(/활성화됐습니다/)).toBeDefined();
 
     await user.click(activateB);
-    const conflict = await b.findByText("다른 곳에서 먼저 활성화를 바꿨습니다");
+    const conflict = await b.findByText(
+      "다른 곳에서 활성 release를 먼저 바꿨습니다",
+    );
     const panel = conflict.closest("section") as HTMLElement;
     expect(panel.textContent).toContain("덮어쓰지 않고 멈췄습니다");
     expect(b.queryByText(/활성화됐습니다/)).toBeNull();
@@ -346,7 +348,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const instructions = await screen.findByLabelText("지시");
+    const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "내가 고치던 지시.");
     otherTabSaves(server);
@@ -358,15 +360,15 @@ describe("편집 중 다른 곳의 저장", () => {
         "다른 곳에서 카드를 저장해 최신이 version 2입니다. 고치던 내용은 그대로 두었습니다. 이대로 저장하면 이 내용이 다음 version이 됩니다.",
       ),
     ).toBeDefined();
-    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
-      "내가 고치던 지시.",
-    );
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe("내가 고치던 지시.");
     await user.click(
       screen.getByRole("button", { name: "최신 카드 불러오기" }),
     );
-    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
-      "다른 탭이 고친 지시.",
-    );
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe("다른 탭이 고친 지시.");
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
 
@@ -410,16 +412,16 @@ describe("편집 중 다른 곳의 저장", () => {
       },
     });
     const user = await setupUser();
-    const instructions = await screen.findByLabelText("지시");
+    const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "첫 저장.");
     await user.click(screen.getByRole("button", { name: "저장" }));
-    await user.type(screen.getByLabelText("지시"), " 이어서 쓴 줄.");
+    await user.type(screen.getByLabelText("지시 사항"), " 이어서 쓴 줄.");
     release();
     expect(await screen.findByText(/저장했습니다 — version 2/)).toBeDefined();
-    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
-      "첫 저장. 이어서 쓴 줄.",
-    );
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe("첫 저장. 이어서 쓴 줄.");
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
 
@@ -447,14 +449,14 @@ describe("편집 중 다른 곳의 저장", () => {
     history.push(DETAIL);
     await screen.findByRole("heading", { name: "결제 담당" });
     const user = await setupUser();
-    const instructions = screen.getByLabelText("지시");
+    const instructions = screen.getByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "결제 담당에게만 쓴 지시.");
     history.push(`/agents/${OTHER}`);
     await screen.findByRole("heading", { name: "환불 담당" });
-    expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
-      "환불 문의에 답한다.",
-    );
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe("환불 문의에 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다/);
     const patch = api.calls.find((c) => c.method === "PATCH");
@@ -478,7 +480,7 @@ describe("편집 중 다른 곳의 저장", () => {
       [`GET /v1/agents/${AGENT_ID}`]: get,
     });
     const user = await setupUser();
-    const instructions = await screen.findByLabelText("지시");
+    const instructions = await screen.findByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "카드만 고친다.");
     renamed = true;
@@ -495,15 +497,15 @@ describe("편집 중 다른 곳의 저장", () => {
   test("고친 것이 없으면 최신 카드를 그대로 받아들인다", async () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
-    await screen.findByLabelText("지시");
+    await screen.findByLabelText("지시 사항");
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
       queryKey: queryKeys.agent(AGENT_ID),
     });
     await waitFor(() =>
-      expect((screen.getByLabelText("지시") as HTMLTextAreaElement).value).toBe(
-        "다른 탭이 고친 지시.",
-      ),
+      expect(
+        (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+      ).toBe("다른 탭이 고친 지시."),
     );
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });

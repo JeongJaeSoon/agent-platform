@@ -70,7 +70,9 @@ describe("구성원 화면", () => {
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
     expect(within(goneRow as HTMLElement).getByText("비활성")).toBeDefined();
     expect(
-      within(goneRow as HTMLElement).getByRole("button", { name: "재활성" }),
+      within(goneRow as HTMLElement).getByRole("button", {
+        name: "다시 활성화",
+      }),
     ).toBeDefined();
   });
 
@@ -121,7 +123,7 @@ describe("구성원 화면", () => {
       "member",
     );
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "마지막 소유자는 역할을 바꾸거나 비활성할 수 없습니다",
+      "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다",
     );
   });
 
@@ -156,17 +158,21 @@ describe("구성원 화면", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Mate 비활성" }),
+      await screen.findByRole("button", { name: "Mate 비활성화" }),
     );
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
       "웹 로그인과 개인 API key가 바로 끊기고",
     );
-    await user.click(within(dialog).getByRole("button", { name: "비활성" }));
-    expect(await screen.findByText("Mate을(를) 비활성했습니다.")).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "비활성화" }));
+    expect(
+      await screen.findByText("Mate을(를) 비활성화했습니다."),
+    ).toBeDefined();
     const row = (await screen.findByText("Mate")).closest("tr") as HTMLElement;
     await waitFor(() =>
-      expect(within(row).getByRole("button", { name: "재활성" })).toBeDefined(),
+      expect(
+        within(row).getByRole("button", { name: "다시 활성화" }),
+      ).toBeDefined(),
     );
     expect(api.calls.find((c) => c.path.endsWith("/disable"))?.body).toEqual(
       {},
@@ -185,10 +191,12 @@ describe("구성원 화면", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "재활성" }));
+    await user.click(
+      await screen.findByRole("button", { name: "다시 활성화" }),
+    );
     expect(
       await screen.findByText(
-        "Gone을(를) 재활성했습니다. 다시 로그인하면 들어올 수 있습니다.",
+        "Gone을(를) 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다.",
       ),
     ).toBeDefined();
   });
@@ -213,7 +221,7 @@ describe("구성원 화면", () => {
       email.getAttribute("aria-describedby") ?? "",
     );
     expect(hint?.textContent).toContain(
-      "다시 초대하지 말고 목록에서 재활성하세요",
+      "다시 초대하지 말고 목록에서 다시 활성화하세요",
     );
     await user.clear(email);
     await user.type(email, "new@example.com");

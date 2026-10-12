@@ -95,7 +95,7 @@ describe("workspace shell", () => {
     renderAt("/", meOk);
     expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
     expect(
-      screen.getByText("Owner(owner@example.com)으로 로그인했습니다"),
+      screen.getByText("Owner(owner@example.com) 계정으로 로그인했습니다"),
     ).toBeDefined();
     const steps = screen.getAllByRole("listitem");
     expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([
