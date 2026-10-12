@@ -21,7 +21,7 @@ const withGuest = (body: ReturnType<typeof me>, enabled: boolean) => ({
     settings: { ...body.workspace.settings, slack_guest_enabled: enabled },
   },
 });
-const GUEST_SWITCH = { name: "Slack 게스트가 에이전트를 부를 수 있게 합니다" };
+const GUEST_SWITCH = { name: "Slack 게스트도 에이전트를 쓸 수 있게 하기" };
 
 describe("워크스페이스 설정", () => {
   test("소유자는 보존 기간을 바꾸고, 저장한 값으로 다시 읽는다", async () => {
@@ -188,7 +188,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(toggle);
     expect((await screen.findByRole("status")).textContent).toBe(
-      "Slack 게스트가 에이전트를 부를 수 있습니다.",
+      "이제 Slack 게스트도 에이전트를 쓸 수 있습니다.",
     );
     expect(
       api.calls.filter((c) => c.path === GUEST).map((c) => c.body),
@@ -207,7 +207,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("switch", GUEST_SWITCH));
     expect((await screen.findByRole("status")).textContent).toBe(
-      "Slack 게스트는 에이전트를 부를 수 없습니다.",
+      "이제 Slack 게스트는 에이전트를 쓸 수 없습니다.",
     );
     expect(
       api.calls.filter((c) => c.path === GUEST).map((c) => c.body),
