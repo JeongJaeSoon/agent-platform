@@ -9,7 +9,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const { renderAt, screen, waitFor, within } = await appHarness();
 
 const owner = {
   user_id: USER_ID,
@@ -126,5 +126,52 @@ describe("bootstrap checklist", () => {
       expect(read()).toEqual(["done", "unknown", "unknown", "pending"]),
     );
     expect(screen.getAllByText("확인할 수 없음")).toHaveLength(2);
+  });
+});
+
+describe("내가 속한 팀", () => {
+  const TEAM = { id: "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b", name: "결제팀" };
+  const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
+
+  test("구성원은 홈에서 속한 팀 이름을 본다. 팀 화면은 열 수 없으니 링크가 아니다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/members": forbidden,
+      "GET /v1/invites": forbidden,
+      "GET /v1/agents": forbidden,
+      "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "내가 속한 팀",
+    });
+    expect(within(section).getByText("결제팀")).toBeDefined();
+    expect(within(section).queryByRole("link")).toBeNull();
+  });
+
+  test("팀을 관리하는 사람에게는 팀 화면 링크다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
+    });
+    const link = await screen.findByRole("link", { name: "결제팀" });
+    expect(link.getAttribute("href")).toBe(`/teams/${TEAM.id}`);
+  });
+
+  test("속한 팀이 없으면 홈에 섹션을 두지 않는다", async () => {
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/members": forbidden,
+      "GET /v1/invites": forbidden,
+      "GET /v1/agents": forbidden,
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+    });
+    await screen.findByRole("heading", { name: "Acme" });
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(true),
+    );
+    expect(screen.queryByRole("heading", { name: "내가 속한 팀" })).toBeNull();
   });
 });

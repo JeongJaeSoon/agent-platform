@@ -179,6 +179,38 @@ describe("팀 화면", () => {
     ).toBeDefined();
   });
 
+  test("구성원이 주소로 열면 권한 안내 아래에 자기가 속한 팀을 본다", async () => {
+    const refused = () =>
+      apiError(403, "FORBIDDEN", "This principal does not hold team.manage");
+    const joined = renderAt("/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/teams": refused,
+      "GET /v1/my-teams": () =>
+        json(200, { items: [{ id: TEAM_ID, name: "결제팀" }] }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "내가 속한 팀",
+    });
+    expect(within(section).getByText("결제팀")).toBeDefined();
+    expect(within(section).queryByRole("link")).toBeNull();
+    joined.container.remove();
+
+    renderAt("/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/teams": refused,
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+    });
+    expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
+  });
+
+  test("팀을 관리하는 사람의 팀 화면에는 전체 목록만 있다", async () => {
+    const server = teamServer();
+    const { api } = renderAt("/teams", server.routes);
+    await screen.findByRole("link", { name: "결제팀" });
+    expect(screen.queryByRole("heading", { name: "내가 속한 팀" })).toBeNull();
+    expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(false);
+  });
+
   test("구성원을 수락 없이 넣고 빼며, 이름을 바꾸고 지운다", async () => {
     const server = teamServer();
     const { api, history } = renderAt(`/teams/${TEAM_ID}`, server.routes);

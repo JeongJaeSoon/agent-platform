@@ -8,6 +8,7 @@ import type {
   ListInvitesResponse,
   ListLinkedAccountsResponse,
   ListMembersResponse,
+  ListMyTeamsResponse,
   ListTeamsResponse,
   LoginMethodsResponse,
   TeamDetail,
@@ -31,6 +32,7 @@ export const queryKeys = {
   agentAdmins: (id: string) => ["agents", id, "admins"] as const,
   administeredAgents: ["administered-agents"] as const,
   teams: ["teams"] as const,
+  myTeams: ["my-teams"] as const,
   linkedAccounts: ["linked-accounts"] as const,
   apiKeys: ["api-keys"] as const,
   team: (id: string) => ["teams", id] as const,
@@ -155,6 +157,16 @@ export function administeredAgentsQuery(client: ApiClient) {
       unwrap(
         client.GET("/v1/administered-agents"),
       ) as Promise<ListAdministeredAgentsResponse>,
+    retry: false,
+  });
+}
+
+/** The teams the caller is in now, names only. */
+export function myTeamsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.myTeams,
+    queryFn: () =>
+      unwrap(client.GET("/v1/my-teams")) as Promise<ListMyTeamsResponse>,
     retry: false,
   });
 }

@@ -87,6 +87,10 @@ export const en: Record<MessageKey, string> = {
   "teams.listTitle": "All teams",
   "teams.empty": "No teams yet.",
   "teams.memberCount": "{count} members",
+  "teams.mine.title": "Your teams",
+  "teams.mine.intro":
+    "An owner or admin put you in these teams. When a team is named an agent's admin, you manage that agent.",
+  "teams.mine.empty": "You are not in any team yet.",
   "teams.back": "← All teams",
   "teams.settings": "Team settings",
   "teams.rename": "Rename",

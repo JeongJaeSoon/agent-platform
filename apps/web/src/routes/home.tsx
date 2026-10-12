@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useId } from "react";
 import { agentsQuery, invitesQuery, membersQuery } from "../api/queries.ts";
 import { useMe } from "../auth/guard.tsx";
+import { MyTeams } from "../components/my-teams.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
@@ -106,6 +107,7 @@ export function HomeScreen() {
           ))}
         </ol>
       </section>
+      <MyTeams showEmpty={false} />
     </div>
   );
 }
