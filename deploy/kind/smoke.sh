@@ -132,8 +132,13 @@ sid="$(echo "$created_session" | jq -r .session_id)"
 pod=""
 turn=""
 for _ in $(seq 1 600); do
-  [ -n "$pod" ] || pod="$(k get pods -l "$workers" -o name 2>/dev/null | head -n 1)"
-  [ -z "$pod" ] || [ -n "${pod_listing:-}" ] || pod_listing="$(k get "$pod" -o wide --show-labels)"
+  [ -n "$pod" ] || pod="$(k get pods -l "${workers},agent-platform.session-id=${sid}" -o name 2>/dev/null | head -n 1)"
+  if [ -n "$pod" ] && [ -z "${pod_listing:-}" ]; then
+    # Gone again before it was read: look for the next one.
+    pod_listing="$(k get "$pod" -o wide --show-labels 2>/dev/null)" &&
+      execution="$(k get "$pod" -o jsonpath='{.metadata.labels.agent-platform\.session-execution-id}' 2>/dev/null)" ||
+      { pod=""; pod_listing=""; }
+  fi
   turn="$(get "/v1/sessions/${sid}/turns/1" | jq -r .status)"
   case "$turn" in completed | failed | interrupted | cancelled | outcome_unknown) break ;; esac
   sleep 1
@@ -150,23 +155,26 @@ echo "$usage" | jq -e '.token_count > 0 and .cost.reported_turn_count >= 1' >/de
 pass
 
 step reclaim
-session_selector="agent-platform.installation=${installation},app.kubernetes.io/component in (worker,bootstrap,workspace)"
+# This session's alone: the Pod and PVC by its id, the nonce Secret by the
+# execution the Pod ran.
+[ -n "${execution:-}" ] || fail "no execution id on ${pod}"
 session_resources() {
-  k get pods,secrets,pvc -l "$session_selector" -o name 2>/dev/null
+  k get pods,pvc -l "agent-platform.session-id=${sid}" "$@"
+  k get secrets -l "agent-platform.session-execution-id=${execution}" "$@"
 }
 echo "before terminate:"
-k get pods,secrets,pvc -l "$session_selector"
+session_resources
 revision="$(get "/v1/sessions/${sid}" | jq .revision)"
 post "/v1/sessions/${sid}/terminate" \
   "$(jq -nc --argjson r "$revision" '{expected_revision: $r, reason: "kind smoke"}')" | jq -c .
 left=""
 for _ in $(seq 1 180); do
-  left="$(session_resources)"
+  left="$(session_resources -o name 2>/dev/null)"
   [ -z "$left" ] && break
   sleep 1
 done
 echo "after terminate:"
-k get pods,secrets,pvc -l "$session_selector" 2>&1
+session_resources 2>&1
 [ -z "$left" ] || fail "still there after 180s: $(echo "$left" | tr '\n' ' ')"
 get "/v1/sessions/${sid}" | jq -c '{status, admission_state}'
 pass
