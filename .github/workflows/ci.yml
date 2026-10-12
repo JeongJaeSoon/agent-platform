@@ -237,6 +237,7 @@ jobs:
               - packages/runtime-core/
               - packages/system/
               - packages/testkit/src/fake-anthropic.
+              - packages/testkit/src/fake-github.
               - packages/testkit/src/scripted-messages.
               - packages/testkit/src/workspace.
               - tests/architecture.
