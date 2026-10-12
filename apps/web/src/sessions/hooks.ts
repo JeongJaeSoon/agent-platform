@@ -1,4 +1,5 @@
 import type {
+  ChangeSessionProfileRequest,
   ListPendingRequestsResponse,
   ListSessionsResponse,
   SessionDetail,
@@ -6,9 +7,9 @@ import type {
   SessionEventPayload,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { unwrap } from "../api/client.ts";
+import { type ApiError, unwrap } from "../api/client.ts";
 import { useServices } from "../services.tsx";
 
 /*
@@ -86,6 +87,25 @@ export function usePendingRequests(id: string, enabled: boolean) {
     enabled,
     retry: false,
     refetchInterval: LIVE_REFETCH_MS,
+  });
+}
+
+/** Moves the session onto another profile from its next turn on. */
+export function useChangeSessionProfile(id: string) {
+  const { client, queryClient } = useServices();
+  return useMutation<unknown, ApiError, ChangeSessionProfileRequest>({
+    mutationFn: (body) =>
+      unwrap(
+        client.POST("/v1/sessions/{id}/profile", {
+          params: {
+            path: { id },
+            header: { "Idempotency-Key": crypto.randomUUID() },
+          },
+          body,
+        }),
+      ),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: sessionKeys.detail(id) }),
   });
 }
 
