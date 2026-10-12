@@ -615,6 +615,34 @@ compose의 Postgres는 `POSTGRES_USER`(`postgres`)·`POSTGRES_PASSWORD`(`dev`)·
 
 worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(10), `WORKER_IDLE_TIMEOUT_SEC`(1800), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `QUESTION_TIMEOUT_SEC`(1800), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).
 
+## Kubernetes 실행 backend (94S-523)
+
+`packages/adapters/execution/kubernetes`는 launch 하나에 worker Pod 하나를 만든다. Pod마다 그 Pod가 소유하는 nonce Secret이 하나 붙고, 세션의 workspace PVC가 마운트된다. scheduler에 연결하는 일과 `EXECUTION_BACKEND` 선택은 94S-524가 맡는다. 공유 env(`WORKER_IMAGE`, `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT`, `EXECUTION_INSTALLATION_ID`, `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `S3_BUCKET`, `AWS_REGION`)는 Docker backend와 같다. kubernetes 모드에서는 다음 두 값에 제약이 더 붙는다.
+
+- `WORKER_IMAGE`는 `repository@sha256:<digest>` 형식이어야 한다.
+- `EXECUTION_INSTALLATION_ID`는 32자 이하의 소문자 DNS label이어야 한다.
+
+kubernetes 모드에서만 읽는 설정은 다음과 같다.
+
+| 변수 | 뜻 |
+| --- | --- |
+| `EXECUTION_K8S_NAMESPACE` | worker Pod·Secret·PVC를 두는 namespace. 기본값은 scheduler 자신의 namespace다. 클러스터 밖에서 돌리면 반드시 줘야 한다. |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | worker Pod의 ServiceAccount. token은 늘 마운트하지 않는다. |
+| `EXECUTION_K8S_STORAGE_CLASS` | workspace PVC의 StorageClass. 비우면 클러스터 기본값을 쓴다. |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 선택. 쉼표로 구분한 Secret 이름. |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 선택. JSON object. |
+| `EXECUTION_K8S_WORKER_TOLERATIONS` | 선택. JSON array. |
+
+API server 인증은 `KUBECONFIG`가 있으면 그것을 쓰고, 없으면 Pod의 ServiceAccount를 쓴다. ServiceAccount 경로는 `KUBERNETES_SERVICE_HOST`·`KUBERNETES_SERVICE_PORT`와 token·CA 파일을 읽는다. scheduler의 Role 동사와 pidsLimit 처리는 패키지 README에 있다.
+
+kind에 대한 테스트는 opt-in이다. `K8S_BACKEND_TEST=1`과 `KUBECONFIG`를 주면 실행된다. `K8S_BACKEND_TEST_IMAGE`로 digest 형식의 이미지를 바꿀 수 있고, `K8S_BACKEND_TEST_KEEP=1`을 주면 테스트 namespace를 지우지 않고 남긴다.
+
+```sh
+K8S_BACKEND_TEST=1 KUBECONFIG=<kind kubeconfig> \
+  bun test packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts \
+  packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+```
+
 ## 이미지와 Compose `apps` profile
 
 앱 이미지는 `apps/{control-host,worker,egress-proxy}/Dockerfile` 셋이 정의한다(94S-117). 셋 다 저장소 루트를 context로 `oven/bun:1.3.14`의 multi-arch index digest 하나를 base로 pin한다(`tests/images.test.ts`가 digest 일치를 검사). control-host 이미지 하나가 api·scheduler·reconciler 세 role을 모두 돌린다 — compose에서는 `api`만 빌드하고 scheduler·reconciler는 같은 `API_IMAGE`를 쓴다. 같은 태그를 두 서비스가 함께 빌드하면 export가 경합하기 때문이다. control-host·worker는 `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사하고, egress-proxy는 `bun install` 없이 자기 소스만 담은 한 stage다(94S-323).
