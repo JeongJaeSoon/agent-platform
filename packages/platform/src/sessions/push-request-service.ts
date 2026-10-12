@@ -71,7 +71,7 @@ function settled(result: PushWriteResult): PushRequest {
  * Push requests (94S-628): a human asks for the session's latest checkpoint
  * to be pushed to `agent/<session-id>`, and a human holding sessions:approve
  * approves or rejects exactly that commit. The push itself is the platform's
- * (94S-629), through claimNextApproved and finish.
+ * (94S-629, push-executor.ts).
  */
 export function createPushRequestService(deps: {
   store: PushRequestStore;

@@ -92,7 +92,6 @@ export const PUSH_REFUSAL_VALUES = [
   "already_decided",
   "checkpoint_moved",
   "commit_mismatch",
-  // The platform's push of an approved request.
   "catalog_changed",
   "target_refused",
   "default_branch",

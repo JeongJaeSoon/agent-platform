@@ -25,16 +25,6 @@ export const DEFAULT_GIT_PUSH_TIMEOUT_MS = 5 * 60_000;
  * reads no user or system config. A bundle carries refs and objects only, not
  * config.
  *
- * The credential travels as an `http.<url>.extraHeader` set through
- * `GIT_CONFIG_*` variables in git's own environment: not in an argument any
- * user of the host can list, not in the URL, the repository config or any
- * file, and only to the remote's own URL, with redirects off. git refuses to
- * prompt, so a credential the remote rejects fails at once.
- *
- * Each git runs under the same memory cap as checkpoint verification
- * (`maxGitMemoryBytes`), with no file larger than the whole chain plus one
- * delta base, and is killed at `input.deadline` if not before.
- *
  * Errors carry exit codes and fixed wording only. What git prints comes in
  * part from the remote, and is not passed on.
  */
@@ -173,7 +163,6 @@ export function createGitPusher(
         return refused("default_branch", "the target is the remote's HEAD");
       }
       const previousCommit = remote.refs.get(input.ref) ?? null;
-      // Already there: a pusher that died after its push leaves exactly this.
       if (previousCommit === input.commit) {
         return { status: "pushed", previousCommit };
       }
@@ -201,7 +190,6 @@ export function createGitPusher(
         true,
       );
       if (pushed.exitCode !== 0) {
-        // Raced by another writer between the listing and the push.
         return /^!\t.*\[rejected\]/m.test(pushed.stdout)
           ? refused("non_fast_forward", "the remote rejected the update")
           : refused("push_failed", `git push exited ${pushed.exitCode}`);

@@ -103,8 +103,6 @@ export function createPushExecutor(deps: {
     if (forge !== null && repo !== null) {
       const { defaultBranch } = await forge.getRepository(repo);
       if (branch === defaultBranch) return refuse("default_branch", remote);
-      // The forge re-issues a token near its expiry, so this one outlives
-      // the push.
       headers = repositoryUpstreamOf(
         repository,
         await forge.gitCredential(repo, "write"),

@@ -389,7 +389,6 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
     },
 
     async claimNextApproved(leaseMs): Promise<PushJob | null> {
-      // A lease that is null on a pushing row was never taken under one.
       const [row] = await db
         .update(pushRequests)
         .set({

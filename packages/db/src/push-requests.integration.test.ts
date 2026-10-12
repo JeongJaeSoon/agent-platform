@@ -413,7 +413,6 @@ integration("postgres push requests", () => {
     const finished = await session();
     const done = written(await create(finished));
     written(await decide(finished, done.id));
-    // Drains whatever else earlier tests left approved too.
     const drain = async () => {
       const seen: string[] = [];
       for (;;) {
@@ -436,7 +435,6 @@ integration("postgres push requests", () => {
     written(await decide(sessionId, request.id));
     const first = await store.claimNextApproved(LEASE_MS);
     expect(first).toMatchObject({ id: request.id, attempt: 1 });
-    // Still leased: nobody else takes it.
     expect(await store.claimNextApproved(LEASE_MS)).toBeNull();
     await db
       .update(pushRequests)
@@ -447,7 +445,6 @@ integration("postgres push requests", () => {
     if (!first || !second) throw new Error("not claimed");
     expect(await store.finish(first, PUSHED)).toBe(false);
     expect(await store.finish(second, PUSHED)).toBe(true);
-    // The session is free for a new request.
     written(await create(sessionId, "k-again"));
   });
 

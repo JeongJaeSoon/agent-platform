@@ -111,8 +111,8 @@ type Run = {
   outcome: PushOutcome | undefined;
   argv: string[][];
   gitOptions: GitCommandOptions[];
-  /** Files under the push's directory, as each git command saw them. */
-  leaked: string[];
+  credentialFiles: string[];
+  logged: string[];
 };
 
 async function run(
@@ -134,12 +134,13 @@ async function run(
   } as unknown as PushRequestStore;
   const argv: string[][] = [];
   const recorded: GitCommandOptions[] = [];
-  const leaked: string[] = [];
+  const credentialFiles: string[] = [];
+  const logged: string[] = [];
   const recording: GitCommandRunner = async (args, gitOptions) => {
     argv.push([...args]);
     recorded.push(gitOptions);
     if (gitOptions.cwd !== undefined) {
-      leaked.push(...(await credentialsUnder(gitOptions.cwd)));
+      credentialFiles.push(...(await credentialsUnder(gitOptions.cwd)));
     }
     return defaultGitRunner(args, gitOptions);
   };
@@ -161,16 +162,25 @@ async function run(
       },
     },
     pusher: createGitPusher({ gitRunner: recording }),
-    logger: { info() {}, warn() {} },
+    logger: {
+      info: (message, fields) =>
+        logged.push(JSON.stringify({ message, fields })),
+      warn: (message, fields) =>
+        logged.push(JSON.stringify({ message, fields })),
+    },
     tempRoot,
     ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
   });
   expect(await executor.runOnce()).toBe(true);
-  return { outcome: finished[0], argv, gitOptions: recorded, leaked };
+  return {
+    outcome: finished[0],
+    argv,
+    gitOptions: recorded,
+    credentialFiles,
+    logged,
+  };
 }
 
-// A token or a Basic login anywhere under the push's own directory: the
-// repository config, the bundles, anything git wrote.
 async function credentialsUnder(directory: string): Promise<string[]> {
   const found: string[] = [];
   const entries = await readdir(directory, {
@@ -189,7 +199,10 @@ async function credentialsUnder(directory: string): Promise<string[]> {
 }
 
 function expectNoCredentialIn(result: Run) {
-  expect(result.leaked).toEqual([]);
+  expect(result.credentialFiles).toEqual([]);
+  for (const line of result.logged) {
+    expect(line).not.toMatch(/ghs_|pat-value|authorization/i);
+  }
   for (const args of result.argv) {
     expect(args.join(" ")).not.toMatch(/ghs_|pat-value|authorization/i);
   }
@@ -222,7 +235,6 @@ describe("the platform's push", () => {
       repositories: ["app"],
       permissions: { contents: "write" },
     });
-    // Only the pinned commit's ref went out: no tag, no other branch.
     const refs = await github.refs("acme", "app");
     expect(Object.keys(refs).sort()).toEqual(
       ["refs/heads/main", `refs/heads/${job.targetBranch}`].sort(),
@@ -237,7 +249,6 @@ describe("the platform's push", () => {
     expect(
       (await run(catalog, first, { bundles: [chain.base] })).outcome,
     ).toMatchObject({ state: "pushed", previousCommit: null });
-    // A pusher that died after its push left the ref where the retry finds it.
     expect(
       (await run(catalog, { ...first, attempt: 2 }, { bundles: [chain.base] }))
         .outcome,
@@ -299,7 +310,6 @@ describe("the platform's push", () => {
       ).outcome,
     ).toMatchObject({ state: "failed", refusal: "default_branch" });
 
-    // A repository whose own default branch is the session's.
     const sessionId = "00000000-0000-4000-8000-0000000000ff";
     await github.createRepository(
       "acme",
@@ -341,18 +351,15 @@ describe("the platform's push", () => {
     const gitBefore = github.gitRequests.length;
     const tokensBefore = github.tokenRequests.length;
     for (const changed of [
-      // Re-pointed at another repository.
       catalogOf({
         app: appRepository("app", `${github.origin}/acme/other.git`),
       }),
-      // Another credential reference.
       catalogOf({
         app: {
           ...appRepository(),
           auth: { ...appRepository().auth, ref: { value_env: "OTHER_KEY" } },
         },
       }),
-      // Taken out of the catalog.
       catalogOf({ other: appRepository("other") }),
     ]) {
       expect((await run(changed, job)).outcome).toEqual({
@@ -360,7 +367,6 @@ describe("the platform's push", () => {
         refusal: "catalog_changed",
       });
     }
-    // A request from before the binding was pinned.
     expect(
       (await run(pinned, { ...job, repositoryBinding: null })).outcome,
     ).toMatchObject({ refusal: "catalog_changed" });
@@ -379,13 +385,20 @@ describe("the platform's push", () => {
 
   test("a token the forge would not issue fails the push and says nothing of why in the outcome", async () => {
     const catalog = catalogOf({ app: appRepository() });
-    // A fresh resolver: the shared one may hold a cached token.
-    const forges = forgesOf(catalog);
+    const uncachedForges = forgesOf(catalog);
     github.failTokens(true);
     try {
-      expect(
-        (await run(catalog, jobFor(catalog, "app"), { forges })).outcome,
-      ).toEqual({ state: "failed", refusal: "push_failed" });
+      const result = await run(catalog, jobFor(catalog, "app"), {
+        forges: uncachedForges,
+      });
+      expect(result.outcome).toEqual({
+        state: "failed",
+        refusal: "push_failed",
+      });
+      expect(result.logged.some((line) => line.includes("Push failed"))).toBe(
+        true,
+      );
+      expectNoCredentialIn(result);
     } finally {
       github.failTokens(false);
     }

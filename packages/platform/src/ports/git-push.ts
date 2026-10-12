@@ -1,6 +1,3 @@
-// Pushing one checkpoint commit to its remote branch with git. The platform
-// decides what may be pushed where (push-executor.ts); this is only the git.
-
 export type GitPushInput = {
   /** Owned by the caller, empty but for `bundles`, removed by the caller. */
   directory: string;
