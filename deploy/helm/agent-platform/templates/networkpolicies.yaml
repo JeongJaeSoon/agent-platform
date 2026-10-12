@@ -1,0 +1,122 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $installation := include "ap.installationId" . -}}
+# Worker Pods, by the labels the kubernetes execution backend puts on them:
+# nothing reaches them, and they reach the egress proxy and the cluster DNS
+# alone. No other worker, no database, no node or cloud metadata address.
+# DNS is there because HTTP(S)_PROXY names the proxy Service. It lets a
+# worker resolve any name, though it reaches none of the addresses it gets
+# back; the queries themselves still leave through the cluster resolver.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ap.fullname" . }}-worker
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "worker") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: agent-platform
+      app.kubernetes.io/component: worker
+      agent-platform.installation: {{ $installation | quote }}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 3128}
+        - {protocol: TCP, port: 3129}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dns.namespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dns.podSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- if .Values.networkPolicy.worker.allowDirectGateway }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 3000}
+    {{- end }}
+---
+# The proxy takes connections from workers only; its own egress is open, and
+# its allowlists decide what a worker reaches through it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ap.proxyHost" . }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "egress-proxy") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: agent-platform
+              app.kubernetes.io/component: worker
+              agent-platform.installation: {{ $installation | quote }}
+      ports:
+        - {protocol: TCP, port: 3128}
+        - {protocol: TCP, port: 3129}
+---
+# 3000 is public (through the Ingress); 3100, the authorizer that hands out
+# catalog credentials, answers the egress proxy alone.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ap.apiHost" . }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 3000}
+      {{- with .Values.networkPolicy.api.ingressFrom }}
+      from:
+        # Workers' gateway calls arrive through the proxy.
+        - podSelector:
+            matchLabels:
+              {{- include "ap.selectorLabels" (dict "root" $ "component" "egress-proxy") | nindent 14 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 3100}
+---
+# The rest serve nothing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ap.fullname" . }}-no-ingress
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "control") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [scheduler, reconciler, migrate, checkpoint-gc]
+  policyTypes: [Ingress]
+  ingress: []
+{{- end }}

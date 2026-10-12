@@ -1,0 +1,8 @@
+# Laid over the chart's defaults for a kind check (up.sh): the stand-ins in
+# deps.yaml as the object store, and the images up.sh pushed to the local
+# registry. up.sh sets the repositories and digests on the command line.
+config:
+  aws:
+    endpointUrl: http://localstack:4566
+  egress:
+    credentialPrivateAllowlist: "localstack:4566"

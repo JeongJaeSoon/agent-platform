@@ -66,6 +66,12 @@ export async function migrateWorkspaces(
 ): Promise<number> {
   const args = parseMigrateWorkspaceArgs(argv, environment);
   const config = schedulerConfigFromEnv(environment);
+  if (config.execution.backend !== "local_docker") {
+    throw new Error(
+      `migrate-workspace moves Docker volumes; EXECUTION_BACKEND is ${config.execution.backend}`,
+    );
+  }
+  const { docker } = config.execution;
   const logger = createLogger({ level: config.logLevel });
   const pool = createEnforcedPool(
     config.databaseUrl,
@@ -84,7 +90,7 @@ export async function migrateWorkspaces(
     });
     // The copy lands under the ceiling this host enforces; a daemon that
     // cannot carry it would only fail the copy later and less clearly.
-    await new LocalDockerBackend(config.docker).verifyWorkspaceQuota();
+    await new LocalDockerBackend(docker).verifyWorkspaceQuota();
     const lock = await store.acquirePassLock();
     if (lock === null) {
       logger.error("A scheduler pass holds the lock; run again once it ends");
@@ -92,7 +98,7 @@ export async function migrateWorkspaces(
     }
     let failed = 0;
     try {
-      const migrator = new WorkspaceMigrator(config.docker);
+      const migrator = new WorkspaceMigrator(docker);
       for (const sessionId of args.sessionIds) {
         try {
           const [row] = await db

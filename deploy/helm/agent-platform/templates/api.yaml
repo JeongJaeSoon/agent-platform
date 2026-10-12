@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ap.apiHost" . }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "api") | nindent 8 }}
+      annotations:
+        checksum/catalog: {{ include (print $.Template.BasePath "/catalog-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "ap.fullname" . }}-api
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: api
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "apps/control-host/src/main.ts", "api"]
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: authorizer
+              containerPort: 3100
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+            {{- include "ap.secretEnv" (dict "root" . "key" "EGRESS_AUTHORIZER_TOKEN") | nindent 12 }}
+            {{- range .Values.secrets.catalogEnv }}
+            {{- include "ap.secretEnv" (dict "root" $ "key" .) | nindent 12 }}
+            {{- end }}
+            - name: AUTH_MODE
+              value: {{ .Values.config.authMode | quote }}
+            {{- range $name, $value := .Values.config.limits }}
+            - name: {{ $name }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+            - name: HEARTBEAT_TTL_SEC
+              value: {{ .Values.config.heartbeatTtlSec | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: PORT
+              value: "3000"
+            - name: EGRESS_AUTHORIZER_PORT
+              value: "3100"
+            - name: PLATFORM_CONFIG_DIR
+              value: /app/config
+            - name: CHECKPOINT_GIT_MEMORY_MB
+              value: {{ .Values.config.checkpoints.gitMemoryMb | quote }}
+            {{- with .Values.config.aws.secretsManagerEndpointUrl }}
+            - name: AWS_ENDPOINT_URL_SECRETS_MANAGER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- include "ap.checkpointEnv" . | nindent 12 }}
+            {{- include "ap.extraEnv" .Values.api.extraEnv | nindent 12 }}
+          # /healthz answers while the process serves HTTP; /readyz also
+          # needs the database, so only readiness reads it.
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+            - name: catalog
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+        - name: catalog
+          configMap:
+            name: {{ include "ap.fullname" . }}-catalog
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# The public listener and the worker gateway (through the egress proxy).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ap.apiHost" . }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+# The egress proxy's authorizer, apart from the public Service so no Ingress
+# can name it. ClusterIP only, and the NetworkPolicy admits the proxy alone.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ap.apiHost" . }}-authorizer
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - name: authorizer
+      port: 3100
+      targetPort: authorizer

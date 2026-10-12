@@ -378,7 +378,7 @@ describe("WorkerGateway", () => {
         generation: 1,
         // A caller outside TypeScript can still send this, and the value is
         // read back through the public session contract.
-        backend: "kubernetes" as never,
+        backend: "nomad" as never,
       }),
     ).rejects.toMatchObject({ status: 400, code: "BAD_REQUEST" });
     expect(persisted).toBe(0);
