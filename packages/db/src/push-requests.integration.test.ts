@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ReceiptActor } from "@agent-platform/contracts";
+import type { PushRequest, ReceiptActor } from "@agent-platform/contracts";
 import type {
   DecidePushRequestInput,
   PushRequestStore,
@@ -312,9 +312,10 @@ integration("postgres push requests", () => {
   test("the pusher claims each approved request once and records the outcome", async () => {
     const pushed = await session();
     const failed = await session();
+    const approvals = new Map<string, PushRequest>();
     for (const sessionId of [pushed, failed]) {
       const request = written(await create(sessionId));
-      written(await decide(sessionId, request.id));
+      approvals.set(sessionId, written(await decide(sessionId, request.id)));
     }
     const claimed = new Set<string>();
     for (;;) {
@@ -352,6 +353,17 @@ integration("postgres push requests", () => {
     expect(await receipt(done?.pushReceiptId ?? "")).toMatchObject({
       operation: "push",
       status: "failed",
+    });
+    // A decision's replay shows the request as it is now, still naming
+    // that decision.
+    const approval = approvals.get(pushed);
+    expect(await decide(pushed, approval?.id ?? "")).toMatchObject({
+      outcome: "replayed",
+      request: {
+        state: "pushed",
+        decided_by: APPROVER,
+        decision_receipt_id: approval?.decision_receipt_id,
+      },
     });
   });
 
