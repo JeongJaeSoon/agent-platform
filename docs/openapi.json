@@ -89,6 +89,11 @@
             "type": "string",
             "minLength": 1,
             "description": "At most 32768 bytes of UTF-8"
+          },
+          "model": {
+            "description": "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the profile's default `model`. Fixed for the session's life.",
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [
@@ -784,12 +789,18 @@
                   "profile_id": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The model the session runs: the one named at create, or the profile's default."
                   }
                 },
                 "required": [
                   "kind",
                   "version",
-                  "profile_id"
+                  "profile_id",
+                  "model"
                 ],
                 "additionalProperties": false
               },
@@ -921,12 +932,18 @@
                   "profile_id": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The model the session runs: the one named at create, or the profile's default."
                   }
                 },
                 "required": [
                   "kind",
                   "version",
-                  "profile_id"
+                  "profile_id",
+                  "model"
                 ],
                 "additionalProperties": false
               },
@@ -4953,7 +4970,7 @@
           "Sessions"
         ],
         "summary": "Durably accept a session and its first input",
-        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. A session waits in `queued` while no execution slot is free; it is never refused for that. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog) and is fixed for the session's life; omitted, the profile's default runs. A session waits in `queued` while no execution slot is free; it is never refused for that. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -5242,7 +5259,7 @@
             }
           },
           "422": {
-            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. `profile_id` or `repository_id` is not in the catalog, or the catalog does not allow the pair.",
+            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. `profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, or the profile does not offer `model`.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -5436,7 +5453,8 @@
                       "runtime": {
                         "kind": "claude_agent_sdk",
                         "version": "0.2.1",
-                        "profile_id": "claude-coding-real"
+                        "profile_id": "claude-coding-real",
+                        "model": "claude-sonnet-5"
                       },
                       "repository_id": "sample-app",
                       "current_turn_id": "3",
@@ -5654,7 +5672,8 @@
                   "runtime": {
                     "kind": "claude_agent_sdk",
                     "version": "0.2.1",
-                    "profile_id": "claude-coding-real"
+                    "profile_id": "claude-coding-real",
+                    "model": "claude-sonnet-5"
                   },
                   "repository_id": "sample-app",
                   "current_turn_id": "3",
