@@ -838,6 +838,7 @@ async function bindingOf(
     leaseExpiresAt: attempt.leaseExpiresAt,
     leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
     profileId: session.profileId,
+    profileFingerprint: session.profileFingerprint,
     unmetered: session.unmetered,
     ownerScope: session.ownerId,
     repository: {
@@ -855,7 +856,10 @@ async function issueCredentials(
   tx: Database,
   input: Pick<ClaimInput, "credentialHash" | "credentialTtlMs" | "egress">,
   attemptId: string,
-  session: Pick<SessionRow, "id" | "profileId" | "repositoryId">,
+  session: Pick<
+    SessionRow,
+    "id" | "profileId" | "profileFingerprint" | "repositoryId"
+  >,
 ) {
   const expiresAt = fromDbNow(input.credentialTtlMs);
   const bindings = input.egress.bindingsOf(session);

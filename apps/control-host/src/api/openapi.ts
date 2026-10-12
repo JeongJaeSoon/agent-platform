@@ -236,6 +236,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     kind: "claude_agent_sdk",
     version: "0.2.1",
     profile_id: "claude-coding-real",
+    model: "claude-sonnet-5",
   },
   repository_id: "sample-app",
   current_turn_id: "3",
@@ -475,7 +476,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
     description:
-      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. A session waits in `queued` while no execution slot is free; it is never refused for that. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
+      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog) and is fixed for the session's life; omitted, the profile's default runs. A session waits in `queued` while no execution slot is free; it is never refused for that. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
     scope: "write",
     body: "CreateSessionRequest",
     requestExample: {
@@ -503,7 +504,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       UNSUPPORTED_CAPABILITY:
-        "`profile_id` or `repository_id` is not in the catalog, or the catalog does not allow the pair.",
+        "`profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, or the profile does not offer `model`.",
       RATE_LIMITED:
         "Reserved here: the per-session input queue limit applies to later messages, not to the first, so this operation does not currently return it.",
     },

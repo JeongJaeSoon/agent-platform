@@ -138,6 +138,7 @@ describe("session contracts", () => {
       kind: "claude_agent_sdk",
       version: "0.3.270",
       profile_id: "claude-coding-v1",
+      model: "claude-sonnet-5",
     } as const;
     expect(sessionSummarySchema.parse({ ...summary, runtime }).runtime).toEqual(
       runtime,
@@ -145,6 +146,7 @@ describe("session contracts", () => {
     for (const partial of [
       { ...runtime, profile_id: null },
       { ...runtime, version: null },
+      { ...runtime, model: null },
     ]) {
       expect(
         sessionSummarySchema.safeParse({ ...summary, runtime: partial })
@@ -165,6 +167,7 @@ describe("session contracts", () => {
         kind: "claude_agent_sdk",
         version: "0.3.270",
         profile_id: "claude-coding-v1",
+        model: "claude-sonnet-5",
       },
       repository_id: "sample-app",
       current_turn_id: "1",
@@ -383,6 +386,7 @@ describe("answers, pending requests and control", () => {
         kind: "claude_agent_sdk",
         version: "0.3.270",
         profile_id: "claude-coding-v1",
+        model: "claude-sonnet-5",
       },
       repository_id: "sample-app",
       current_turn_id: null,

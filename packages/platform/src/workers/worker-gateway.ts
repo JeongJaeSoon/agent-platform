@@ -62,11 +62,14 @@ import {
   catalogRevision,
   type EgressUpstream,
   profileFingerprint,
+  profileModels,
+  profileWithModel,
   providerUpstreamOf,
   repositoryBinding,
   repositoryUpstreamOf,
   runtimeConfigOf,
   type SessionCatalog,
+  sessionProfile,
 } from "../sessions/catalog.ts";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
@@ -433,16 +436,23 @@ export function createWorkerGateway(deps: {
     ([repositoryId, repository]) =>
       repository.profiles.flatMap((profileId) => {
         const profile = own(catalog.profiles, profileId);
+        // One pair per model the profile offers, its default first: a row
+        // from before the pin binds to the first pair that matches it.
         return profile
-          ? [
-              {
-                profileId,
-                profileFingerprint: profileFingerprint(profile),
-                repositoryId,
-                url: repository.url,
-                branch: repository.branch,
-              },
-            ]
+          ? profileModels(profile).flatMap((model) => {
+              const runs = profileWithModel(profile, model);
+              return runs
+                ? [
+                    {
+                      profileId,
+                      profileFingerprint: profileFingerprint(runs),
+                      repositoryId,
+                      url: repository.url,
+                      branch: repository.branch,
+                    },
+                  ]
+                : [];
+            })
           : [];
       }),
   );
@@ -460,13 +470,15 @@ export function createWorkerGateway(deps: {
   // repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(
     profileId: string | null,
+    fingerprint: string | null,
     providerToken: string,
   ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
     runtime_config: RuntimeConfig;
   } {
-    const profile = profileId ? own(catalog.profiles, profileId) : undefined;
+    const listed = profileId ? own(catalog.profiles, profileId) : undefined;
+    const profile = listed ? sessionProfile(listed, fingerprint) : null;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
         503,
@@ -492,11 +504,15 @@ export function createWorkerGateway(deps: {
   function egressBindingsOf(session: {
     id: string;
     profileId: string | null;
+    profileFingerprint: string | null;
     repositoryId: string | null;
   }): Record<EgressPurpose, string> {
-    const profile = session.profileId
+    const listed = session.profileId
       ? own(catalog.profiles, session.profileId)
       : undefined;
+    const profile = listed
+      ? sessionProfile(listed, session.profileFingerprint)
+      : null;
     const repository = session.repositoryId
       ? own(catalog.repositories, session.repositoryId)
       : undefined;
@@ -761,7 +777,11 @@ export function createWorkerGateway(deps: {
             session_credential: sessionToken,
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
-            ...resolveProfile(binding.profileId, providerToken),
+            ...resolveProfile(
+              binding.profileId,
+              binding.profileFingerprint,
+              providerToken,
+            ),
             workspace: {
               repository: {
                 ...binding.repository,
@@ -844,10 +864,11 @@ export function createWorkerGateway(deps: {
             "The session has reached its cost or token limit",
           );
         }
-        const profile = result.profileId
+        const listed = result.profileId
           ? own(catalog.profiles, result.profileId)
           : undefined;
-        if (!profile || profileFingerprint(profile) !== result.binding) {
+        const profile = listed ? sessionProfile(listed, result.binding) : null;
+        if (!profile) {
           moved("session's profile");
         }
         return grant(providerUpstreamOf(profile));

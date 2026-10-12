@@ -559,6 +559,7 @@ integration("sessions API on PostgreSQL", () => {
         kind: "claude_agent_sdk",
         version: "0.3.270",
         profile_id: "claude-coding-v1",
+        model: "claude-sonnet-5",
       },
       repository_id: "sample-app",
       current_turn_id: null,
