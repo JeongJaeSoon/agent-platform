@@ -9,6 +9,7 @@ import {
   TEST_IMAGE,
   testClient,
   testConfig,
+  testResolver,
 } from "./testing.ts";
 
 describeExecutionBackendContract("KubernetesBackend", {
@@ -20,6 +21,7 @@ describeExecutionBackendContract("KubernetesBackend", {
     const backend = new KubernetesBackend(
       testConfig(namespace, installationId),
       client,
+      testResolver,
     );
     return {
       backend,
