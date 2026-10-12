@@ -172,6 +172,8 @@ describe("내가 속한 팀", () => {
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(true),
     );
+    // Let the empty answer render before checking that nothing did.
+    await Bun.sleep(50);
     expect(screen.queryByRole("heading", { name: "내가 속한 팀" })).toBeNull();
   });
 });

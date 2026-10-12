@@ -32,7 +32,8 @@ export const queryKeys = {
   agentAdmins: (id: string) => ["agents", id, "admins"] as const,
   administeredAgents: ["administered-agents"] as const,
   teams: ["teams"] as const,
-  myTeams: ["my-teams"] as const,
+  // Under "teams", so every team change refreshes it too.
+  myTeams: ["teams", "mine"] as const,
   linkedAccounts: ["linked-accounts"] as const,
   apiKeys: ["api-keys"] as const,
   team: (id: string) => ["teams", id] as const,
