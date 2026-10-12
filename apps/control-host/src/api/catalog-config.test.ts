@@ -3,12 +3,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ALLOW_UNATTENDED_SETTING,
   DEFAULT_CONFIG_DIR,
   loadSessionCatalog,
   PROFILES_FILE,
   REPOSITORIES_FILE,
   readCatalogConfig,
   type SecretReader,
+  unattendedProfiles,
 } from "./catalog-config.ts";
 
 const PROFILES = `profiles:
@@ -196,6 +198,51 @@ describe("loadSessionCatalog", () => {
         }),
       ),
     ).toContain("SESSION_CATALOG_JSON is no longer read");
+  });
+});
+
+describe("unattended permission modes", () => {
+  const bypass = PROFILES.replace(
+    "tools: [Read]\n    permission_mode: default",
+    "tools: [Read]\n    permission_mode: bypassPermissions",
+  );
+
+  test("a profile that skips approval stops the load until the installation allows it", async () => {
+    expect(bypass).not.toBe(PROFILES);
+    const message = await failure(
+      loadSessionCatalog({
+        dir: await dirWith({ [PROFILES_FILE]: bypass }),
+        env: { PROVIDER_KEY: ENV_VALUE },
+        readSecret: secrets,
+      }),
+    );
+    expect(message).toContain("from-secrets");
+    expect(message).toContain(`${ALLOW_UNATTENDED_SETTING}=true`);
+    expect(message).not.toContain("claude-coding-v1");
+  });
+
+  test("anything but the literal true keeps it refused", async () => {
+    for (const value of ["1", "TRUE", "yes", ""]) {
+      await failure(
+        loadSessionCatalog({
+          dir: await dirWith({ [PROFILES_FILE]: bypass }),
+          env: { PROVIDER_KEY: ENV_VALUE, [ALLOW_UNATTENDED_SETTING]: value },
+          readSecret: secrets,
+        }),
+      );
+    }
+  });
+
+  test("with the switch on, the profile loads with its mode", async () => {
+    const catalog = await loadSessionCatalog({
+      dir: await dirWith({ [PROFILES_FILE]: bypass }),
+      env: { PROVIDER_KEY: ENV_VALUE, [ALLOW_UNATTENDED_SETTING]: "true" },
+      readSecret: secrets,
+    });
+    expect(catalog.profiles["from-secrets"]?.permission_mode).toBe(
+      "bypassPermissions",
+    );
+    expect(unattendedProfiles(catalog)).toEqual(["from-secrets"]);
   });
 });
 
