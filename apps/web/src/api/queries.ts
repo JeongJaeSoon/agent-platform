@@ -8,6 +8,7 @@ import type {
   ListInvitesResponse,
   ListLinkedAccountsResponse,
   ListMembersResponse,
+  ListProfilesResponse,
   ListTeamsResponse,
   LoginMethodsResponse,
   TeamDetail,
@@ -33,6 +34,7 @@ export const queryKeys = {
   teams: ["teams"] as const,
   linkedAccounts: ["linked-accounts"] as const,
   apiKeys: ["api-keys"] as const,
+  profiles: ["profiles"] as const,
   team: (id: string) => ["teams", id] as const,
 };
 
@@ -71,6 +73,17 @@ export function loginMethodsQuery(client: ApiClient) {
       unwrap(
         client.GET("/v1/auth/login-methods"),
       ) as Promise<LoginMethodsResponse>,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The catalog is read once at API startup, so it rarely changes under a page. */
+export function profilesQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.profiles,
+    queryFn: () =>
+      unwrap(client.GET("/v1/profiles")) as Promise<ListProfilesResponse>,
     retry: false,
     staleTime: 5 * 60_000,
   });

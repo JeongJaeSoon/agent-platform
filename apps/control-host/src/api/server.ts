@@ -99,6 +99,7 @@ import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerProfileRoutes } from "./routes/profiles.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -394,6 +395,7 @@ const app = createApiApp({
     registerPauseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
+    registerProfileRoutes(router, catalog);
     registerPendingRoutes(router, pendingRequests);
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {

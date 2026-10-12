@@ -36,6 +36,7 @@ import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerProfileRoutes } from "./routes/profiles.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -94,6 +95,7 @@ function apiApp() {
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
+      registerProfileRoutes(router, { profiles: {}, repositories: {} });
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerEventRoutes(router, {} as SessionService, {
         wakeup: { wait: async () => {} },

@@ -379,7 +379,10 @@ export const en: Record<MessageKey, string> = {
   "agent.releases.version": "Version",
   "agent.releases.profile": "Runtime profile",
   "agent.releases.profileHint":
-    "A profile id from the platform settings (profiles.yaml)",
+    "The profiles in the platform settings (profiles.yaml) and the model each runs",
+  "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profilesLoading": "Loading profiles…",
+  "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
   "agent.releases.create": "Create release",
   "agent.releases.creating": "Creating…",
   "agent.releases.empty": "No releases yet.",
