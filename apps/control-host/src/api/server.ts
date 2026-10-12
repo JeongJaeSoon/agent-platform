@@ -51,6 +51,7 @@ import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
+import { forgesOf } from "./forge-github.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -191,6 +192,7 @@ const workers = createWorkerGateway({
     ? {}
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
+  forges: forgesOf(catalog, { logger }),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,

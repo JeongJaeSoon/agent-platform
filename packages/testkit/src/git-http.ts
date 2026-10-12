@@ -57,7 +57,7 @@ export async function startGitHttpServer(
           headers: { "www-authenticate": 'Basic realm="git"' },
         });
       }
-      return await cgi(root, request, url);
+      return await serveGitHttp(root, request, url);
     },
   });
   return {
@@ -107,7 +107,8 @@ export async function createServedRepository(
   }
 }
 
-async function cgi(
+/** One smart-HTTP request answered by `git http-backend` over `root`. */
+export async function serveGitHttp(
   root: string,
   request: Request,
   url: URL,

@@ -382,9 +382,42 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다(94S-253). 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
 
-### GitHub 저장소 (94S-626)
+### GitHub 저장소 (94S-626, 94S-627)
 
-github.com과 GitHub Enterprise Server(GHES)의 저장소도 Gitea와 같은 저장소 route로 clone한다. 코드 변경 없이 카탈로그와 allowlist만 바꾼다. 지금은 fine-grained PAT를 쓴다. GitHub App 설치 토큰은 94S-627에서 붙인다.
+github.com과 GitHub Enterprise Server(GHES)의 저장소도 Gitea와 같은 저장소 route로 clone한다. 인증은 GitHub App이 기본이고 fine-grained PAT도 쓸 수 있다. 둘 다 worker에는 가지 않는다.
+
+#### GitHub App (기본)
+
+API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다.
+
+- **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 끈다(94S-625 전까지 쓰지 않는다). Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(94S-629·94S-630)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 둔다.
+- **설치:** App 페이지 → Install App → 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 설치 뒤 주소 `…/settings/installations/<숫자>`의 숫자가 **installation id**다.
+- **private key:** App 페이지 → Private keys → Generate a private key로 PEM 파일을 받는다. 키는 API만 읽는다. 둘 중 하나로 둔다.
+  - Secrets Manager: PEM 본문을 secret 값으로 넣고 카탈로그에 `secret_id`를 적는다(`aws secretsmanager create-secret --name <id> --secret-string file://<pem 파일>`).
+  - 환경 변수: PEM 파일을 `chmod 600`으로 두고 API를 띄우는 셸에서 `export GITHUB_APP_KEY="$(cat <pem 파일>)"`로 넘긴다. 한 줄로 넣어야 하는 곳에서는 줄바꿈을 `\n`으로 적어도 된다. compose의 `api`에는 overlay로 `environment: { GITHUB_APP_KEY: ${GITHUB_APP_KEY:?} }`를 더한다.
+  - 내려받은 PEM 파일은 위 둘 중 하나에 넣은 뒤 지운다. 키를 바꾸면 같은 참조 뒤의 값만 바꾸고 API를 재기동한다(binding·revision은 그대로다).
+- **카탈로그:**
+
+  ```yaml
+  repositories:
+    app:
+      url: https://github.com/<owner>/<repo>.git     # GHES: https://<ghes-host>/<owner>/<repo>.git
+      branch: main
+      profiles: [claude-coding-real]
+      auth:
+        kind: github_app
+        app_id: 123456
+        installation_id: 7890123
+        secret_id: agent-platform/github-app-key     # 또는 value_env: GITHUB_APP_KEY
+        api_base: https://api.github.com             # 생략하면 이 값. GHES: https://<ghes-host>/api/v3
+  ```
+
+  URL은 `/<owner>/<repo>` 모양이어야 한다(토큰을 그 저장소 이름으로 좁히기 때문이다). `api_base`는 https만 받는다. 사설 이름·주소의 host(로컬 fake)만 http를 허용한다. API는 기동할 때 키를 RSA private key로 읽어 보고, 읽히지 않으면 `repositories.<id>.auth.<참조>: … is not an RSA private key PEM`으로 기동을 거부한다(값은 출력하지 않는다). `app_id`·`installation_id`·`api_base`·참조 위치를 바꾸면 그 저장소의 binding이 바뀌어 이미 만든 세션은 `CATALOG_MISMATCH`가 된다.
+- **토큰:** 저장소 route가 요청마다 API에 물으면 API는 `POST {api_base}/app/installations/{installation_id}/access_tokens`에 `repositories: [<repo>]`, `permissions: { contents: read }`를 보내 그 저장소 하나·읽기 권한으로 좁힌 토큰을 받는다. 토큰은 저장소·권한별로 API 프로세스 메모리에 두고 `expires_at` 10분 전부터 새로 받는다. 같은 토큰을 동시에 묻는 요청은 발급 한 번을 같이 기다린다. 진행 중인 clone은 시작할 때의 토큰으로 끝까지 받는다. JWT는 `@octokit/auth-app`이 만든다(iat는 30초 앞당기고 수명은 10분).
+- **실패:** 발급이 실패하면(키·installation이 틀림, GitHub 장애, App 설치 해제) 저장소 route는 `503`으로 닫힌다. 남은 토큰이 아직 유효해도 갱신 시점이 지났으면 쓰지 않는다. clone은 시작 단계에서 실패해 세션 attention이 `STARTUP_FAILED`다. API 로그에는 `GitHub request failed`(`request: installation token request`, `status`, `error`)와 egress authorizer의 `Egress authorization refused`(`status: 503`, `code: BACKEND_UNAVAILABLE`)가 남는다. 토큰·JWT·키는 로그와 오류 메시지에 나오지 않는다. status가 401이면 App ID·키 짝, 404면 installation id와 그 설치에 저장소가 들어 있는지, 422면 저장소 이름을 확인한다.
+- **allowlist:** 토큰 발급은 API가 직접 한다(`api.github.com:443` 또는 GHES의 `<ghes-host>:443`로 API 컨테이너의 outbound가 열려 있어야 한다). clone은 아래 PAT와 같이 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 `github.com:443`(GHES는 `<ghes-host>:443`)을 더한다.
+
+#### fine-grained PAT
 
 - **PAT 발급:** GitHub Settings → Developer settings → Fine-grained personal access tokens. Resource owner는 저장소의 owner(조직이면 조직이 승인해야 할 수 있다), Repository access는 `Only select repositories`로 그 저장소만 고른다. Repository permissions는 **Contents: Read-only** 하나다(Metadata: Read-only는 자동으로 붙는다). 만료일을 두고, 만료 전에 같은 참조 뒤의 값만 바꾼 뒤 API를 재기동한다(fingerprint·revision은 그대로다). push·PR은 이 route로 하지 않으므로 쓰기 권한은 주지 않는다.
 - **카탈로그:** URL은 https clone URL 그대로 `.git`까지 적는다. GHES는 host만 다르다. 로그인 이름은 `x-access-token`이고 PAT를 비밀번호 자리에 둔다. 공개 저장소는 `auth` 없이 등록해도 clone된다.
