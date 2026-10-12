@@ -3,6 +3,7 @@ import type {
   AgentDetail,
   AgentRelease,
   AgentVersion,
+  ProfileSummary,
 } from "@agent-platform/contracts";
 import { apiError, json, USER_ID, WORKSPACE_ID } from "./fake-api.ts";
 
@@ -70,6 +71,15 @@ export function agentServer() {
   const path = `/v1/agents/${AGENT_ID}`;
   const routes = {
     "GET /v1/agents": () => json(200, { items: [detail().agent] }),
+    // Only claude-coding-local releases; the first one is refused, as when
+    // the catalog changed under an open page.
+    "GET /v1/profiles": () =>
+      json(200, {
+        items: [
+          profile("claude-coding-fast", "claude-haiku-5"),
+          profile("claude-coding-local", "claude-sonnet-5"),
+        ],
+      }),
     [`GET ${path}`]: () => json(200, detail()),
     [`GET ${path}/admins`]: () => json(200, { users: [], teams: [] }),
     [`PATCH ${path}`]: async (request: Request) => {
@@ -145,4 +155,15 @@ export function agentServer() {
   };
 
   return { routes, detail, versions, releases };
+}
+
+function profile(id: string, model: string): ProfileSummary {
+  return {
+    id,
+    model,
+    tools: ["Read"],
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    billing: "metered",
+  };
 }

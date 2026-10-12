@@ -20,6 +20,7 @@ import {
   DEFAULT_MAX_MANIFEST_OBJECTS,
   DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   MAX_WORKSPACE_BUNDLE_CHAIN,
+  runtimeFor,
   transcriptGenerationOf,
   transcriptParts,
   transcriptSizeProblem,
@@ -1282,7 +1283,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   async function restoreFrom(
     manifest: CheckpointManifest,
     checkpoint: CheckpointPointer,
-    runtime: RuntimeFingerprint,
+    { runtime, alternates }: RestoreRuntime,
     protect: () => Promise<void> | undefined,
     fallback?: RestoreFallback,
   ): Promise<RestorePlanResult> {
@@ -1294,7 +1295,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         reason: `no codec for checkpoint engine: ${manifest.engine}`,
       };
     }
-    const compatibility = codec.validateCompatibility(manifest, runtime);
+    const compatibility = codec.validateCompatibility(
+      manifest,
+      runtimeFor(manifest, runtime, alternates),
+    );
     // Judged on the newest intact revision only. Walking further back past
     // an incompatible one would make how much history a session loses
     // depend on which runtime happens to ask.
@@ -1447,6 +1451,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      */
     async getRestorePlan(input: {
       runtime: RuntimeFingerprint;
+      /** Profile digests the session ran before its profile was changed. */
+      alternateProfileSha256s?: readonly string[];
       sessionId: string;
       /** As for requestCheckpoint: the caller's fenced snapshot, when it has one. */
       pointer?: CheckpointPointer | null;
@@ -1456,6 +1462,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           ? await store.readPointer(input.sessionId)
           : input.pointer;
       if (pointer === null) return { status: "none" };
+      const asked: RestoreRuntime = {
+        runtime: input.runtime,
+        alternates: input.alternateProfileSha256s ?? [],
+      };
       const pinned = pinnedVersions();
       const verdict = await judgeManifest({
         pinned,
@@ -1472,7 +1482,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         // none of it, and is held before any worker is told to download it.
         // The pointer keeps saying it was not, so the next restore hashes it
         // again: restore does not write the pointer.
-        return restoreFrom(verdict.manifest, pointer, input.runtime, () =>
+        return restoreFrom(verdict.manifest, pointer, asked, () =>
           protection === "locked" ? holdAll(pinned.unheld()) : undefined,
         );
       }
@@ -1520,16 +1530,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
               `${verdict.reason}; earlier revision ${candidate.revision} is refused, and a refusal is not damage to walk past: ${judged.reason}`,
             );
           default:
-            return restoreFrom(
-              judged.manifest,
-              candidate,
-              input.runtime,
-              noop,
-              {
-                pointerRevision: pointer.revision,
-                skipped,
-              },
-            );
+            return restoreFrom(judged.manifest, candidate, asked, noop, {
+              pointerRevision: pointer.revision,
+              skipped,
+            });
         }
       }
       return unavailable(
@@ -1544,6 +1548,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
 function noop() {
   return undefined;
 }
+
+type RestoreRuntime = {
+  runtime: RuntimeFingerprint;
+  alternates: readonly string[];
+};
 
 type Problem = { damaged: boolean; reason: string };
 

@@ -2254,6 +2254,33 @@ describe("getRestorePlan falls back to an earlier revision", () => {
     });
   });
 
+  test("a fallback made under the profile the session ran before verifies against that one's digest", async () => {
+    const [, latest] = await commitRevisions(1);
+    objects.remove(latest?.manifest_ref as string);
+    const switched = { ...runtime, profileSha256: "c".repeat(64) };
+
+    expect(
+      await service.getRestorePlan({ runtime: switched, sessionId }),
+    ).toMatchObject({ status: "incompatible" });
+    expect(
+      await service.getRestorePlan({
+        runtime: switched,
+        alternateProfileSha256s: [runtime.profileSha256],
+        sessionId,
+      }),
+    ).toMatchObject({
+      status: "ready",
+      plan: { revision: 0, fallback: { pointerRevision: 1 } },
+    });
+    expect(
+      await service.getRestorePlan({
+        runtime: { ...switched, sdkVersion: "0.0.0" },
+        alternateProfileSha256s: [runtime.profileSha256],
+        sessionId,
+      }),
+    ).toMatchObject({ status: "incompatible" });
+  });
+
   test("walks down past every broken revision and lists each one it skipped", async () => {
     const [, second, third] = await commitRevisions(2);
     objects.remove(third?.manifest_ref as string);

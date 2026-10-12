@@ -766,6 +766,13 @@ export class WorkerHost {
           });
           return;
         }
+        if (next.draining === true) {
+          this.stop({
+            kind: "idle",
+            reason: "The gateway hands this attempt no more input",
+          });
+          return;
+        }
         const idleFor = performance.now() - lastInputAt;
         if (idleFor >= this.options.timeouts.idleTimeoutMs) {
           this.stop({

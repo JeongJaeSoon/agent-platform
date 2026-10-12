@@ -9,7 +9,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const { renderAt, screen, waitFor, within } = await appHarness();
 
 const owner = {
   user_id: USER_ID,
@@ -120,11 +120,119 @@ describe("bootstrap checklist", () => {
       "GET /v1/members": forbidden,
       "GET /v1/invites": forbidden,
       "GET /v1/agents": forbidden,
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
     const read = await states();
     await waitFor(() =>
       expect(read()).toEqual(["done", "unknown", "unknown", "pending"]),
     );
     expect(screen.getAllByText("확인할 수 없음")).toHaveLength(2);
+  });
+});
+
+describe("내가 속한 팀", () => {
+  const TEAM = { id: "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b", name: "결제팀" };
+  const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
+
+  test("구성원은 홈에서 속한 팀 이름을 본다. 팀 화면은 열 수 없으니 링크가 아니다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/members": forbidden,
+      "GET /v1/invites": forbidden,
+      "GET /v1/agents": forbidden,
+      "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "내가 속한 팀",
+    });
+    expect(within(section).getByText("결제팀")).toBeDefined();
+    expect(within(section).queryByRole("link")).toBeNull();
+  });
+
+  test("팀을 관리하는 사람에게는 팀 화면 링크다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [TEAM] }),
+    });
+    const link = await screen.findByRole("link", { name: "결제팀" });
+    expect(link.getAttribute("href")).toBe(`/teams/${TEAM.id}`);
+  });
+
+  test("속한 팀이 없으면 홈에 섹션을 두지 않는다", async () => {
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/members": forbidden,
+      "GET /v1/invites": forbidden,
+      "GET /v1/agents": forbidden,
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+    });
+    await screen.findByRole("heading", { name: "Acme" });
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(true),
+    );
+    // Let the empty answer render before checking that nothing did.
+    await Bun.sleep(50);
+    expect(screen.queryByRole("heading", { name: "내가 속한 팀" })).toBeNull();
+  });
+});
+
+describe("내가 관리하는 에이전트", () => {
+  const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
+  const memberRoutes = {
+    "GET /v1/auth/me": () => json(200, memberMe()),
+    "GET /v1/members": forbidden,
+    "GET /v1/invites": forbidden,
+    "GET /v1/agents": forbidden,
+  };
+
+  test("관리자로 지정된 에이전트를 상세 링크로 보인다", async () => {
+    const agent = agentServer().detail().agent;
+    renderAt("/", {
+      ...memberRoutes,
+      "GET /v1/administered-agents": () => json(200, { items: [agent] }),
+    });
+    await screen.findByRole("heading", { name: "내가 관리하는 에이전트" });
+    expect(
+      screen.getByRole("link", { name: agent.name }).getAttribute("href"),
+    ).toBe(`/agents/${AGENT_ID}`);
+  });
+
+  test("관리하는 에이전트가 없으면 섹션을 보이지 않는다", async () => {
+    const { api } = renderAt("/", {
+      ...memberRoutes,
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+    });
+    await screen.findByRole("heading", { name: "Acme" });
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/administered-agents")).toBe(
+        true,
+      ),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "내가 관리하는 에이전트" }),
+    ).toBeNull();
+  });
+
+  test("모든 에이전트를 관리하는 소유자에게는 묻지도 보이지도 않는다", async () => {
+    const server = agentServer();
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": server.routes["GET /v1/agents"],
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual(["done", "pending", "pending", "pending"]),
+    );
+    expect(api.calls.some((c) => c.path === "/v1/administered-agents")).toBe(
+      false,
+    );
+    expect(
+      screen.queryByRole("heading", { name: "내가 관리하는 에이전트" }),
+    ).toBeNull();
   });
 });

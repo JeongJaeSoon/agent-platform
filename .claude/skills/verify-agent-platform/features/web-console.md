@@ -9,7 +9,7 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 - `login-required` 로그인 없이 `/`를 열면 `/login?redirect=%2F`로 가고 "다시 로그인하세요"가 보인다.
 - `bootstrap` `/bootstrap`은 제목 "첫 소유자 만들기"로 열리고, 제출하면 `/login?notice=created`.
 - `bootstrap-done` 소유자가 이미 있으면 제출 결과가 409라 `/login?notice=bootstrap_done`.
-- `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>)으로 로그인했습니다", checklist 넷(첫째만 완료).
+- `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>) 계정으로 로그인했습니다", checklist 넷(첫째만 완료).
 - `logout` 로그아웃하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
 - `session-ended` 로그인한 채 다른 곳에서 세션이 끝나면(다른 탭 로그아웃), 다음 `me` 재조회가 401을 받아 `/login?redirect=…`로 간다.
 - `locale` 오른쪽 아래 언어 선택(한국어·English).

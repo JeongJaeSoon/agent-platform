@@ -32,6 +32,7 @@ import {
 } from "./routes/linked-accounts.tsx";
 import { LoginScreen, type LoginSearch, loginSearch } from "./routes/login.tsx";
 import { MembersScreen } from "./routes/members.tsx";
+import { SessionDetailScreen, SessionsScreen } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import type { Services } from "./services.tsx";
@@ -125,6 +126,18 @@ const team = createRoute({
   component: TeamDetailScreen,
 });
 
+const sessions = createRoute({
+  getParentRoute: () => authed,
+  path: "/sessions",
+  component: SessionsScreen,
+});
+
+const session = createRoute({
+  getParentRoute: () => authed,
+  path: "/sessions/$id",
+  component: SessionDetailScreen,
+});
+
 const linkedAccounts = createRoute({
   getParentRoute: () => authed,
   path: "/settings/linked-accounts",
@@ -185,6 +198,8 @@ const routeTree = root.addChildren([
     agents,
     newAgent,
     agent,
+    sessions,
+    session,
     linkedAccounts,
     slackLink,
     apiKeys,

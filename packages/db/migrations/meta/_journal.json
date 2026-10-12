@@ -372,6 +372,13 @@
       "when": 1791727360730,
       "tag": "0143_session_shares",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1791823779679,
+      "tag": "0144_attempt_checkpoint_profile",
+      "breakpoints": true
     }
   ]
 }

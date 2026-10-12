@@ -5,6 +5,7 @@ import type {
 } from "@agent-platform/contracts";
 import type { StructuredLogger } from "@agent-platform/observability";
 import type {
+  ChangeProfileInput,
   PauseSessionInput,
   RecoveryDecisionInput,
   ResumeSessionInput,
@@ -32,6 +33,7 @@ import {
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
 import { publicStatus } from "./pending-requests.ts";
+import { changeProfileAtomic } from "./profile-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
@@ -627,6 +629,9 @@ export function createPostgresSessionControl(
 
     resumeAtomic(input: ResumeSessionInput) {
       return resumeAtomic(db, input);
+    },
+    changeProfileAtomic(input: ChangeProfileInput) {
+      return changeProfileAtomic(db, input);
     },
   };
 }

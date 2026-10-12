@@ -24,6 +24,7 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  changeSessionProfileRequestSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -60,7 +61,9 @@ import {
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
+  listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
+  listProfilesResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
   listTakeoversResponseSchema,
@@ -152,6 +155,7 @@ const requestComponents = {
   PauseSessionRequest: pauseSessionRequestSchema,
   TerminateSessionRequest: terminateSessionRequestSchema,
   ResumeSessionRequest: resumeSessionRequestSchema,
+  ChangeSessionProfileRequest: changeSessionProfileRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
@@ -225,6 +229,7 @@ const responseComponents = {
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
+  ListProfilesResponse: listProfilesResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
@@ -240,6 +245,7 @@ const responseComponents = {
   AgentAdmins: agentAdminsViewSchema,
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
+  ListMyTeamsResponse: listMyTeamsResponseSchema,
   CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
   CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
   ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
@@ -1111,6 +1117,7 @@ export const API_ROUTE_DECLARATIONS = [
             execution_generation: 1,
             started_at: "2026-10-11T08:00:05Z",
             ended_at: "2026-10-11T08:03:12Z",
+            profile_id: "claude-coding-real",
           },
         ],
       },
@@ -1341,6 +1348,47 @@ export const API_ROUTE_DECLARATIONS = [
       RECOVERY_REQUIRED: RESERVED_HERE,
       UNSUPPORTED_CAPABILITY:
         "The session runs on a legacy pod binding with no kill path.",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/profile",
+    operationId: "changeSessionProfile",
+    tag: "Session control",
+    summary: "Run the session's next turns on another profile",
+    description:
+      "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.",
+    scope: "control",
+    body: "ChangeSessionProfileRequest",
+    requestExample: { expected_revision: 8, profile_id: "claude-coding-fast" },
+    success: {
+      status: 200,
+      schema: "ReceiptAcceptedResponse",
+      description: "The session runs `profile_id` from its next turn on.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID, receipt_status: "succeeded" },
+    },
+    errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "SESSION_CLOSED",
+        "RECOVERY_REQUIRED",
+        "RELEASE_PROFILE_MISMATCH",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Also when the session's profile changed between the read and the change.",
+      SESSION_PAUSED: "The session is pausing.",
+      SESSION_STOPPED: "The session is stopping.",
+      RELEASE_PROFILE_MISMATCH:
+        "The session belongs to an agent release, which sets its profile.",
+      UNSUPPORTED_CAPABILITY:
+        "The profile is not in the catalog, not allowed with the session's repository, runs another runtime, or is billed differently.",
     },
   },
   {
@@ -1912,6 +1960,30 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/my-teams",
+    operationId: "listMyTeams",
+    tag: "Teams",
+    summary: "The teams the caller belongs to",
+    description:
+      "Any signed-in person, as of this request: each team's id and name, never who else is in it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListMyTeamsResponse",
+      description: "The caller's live teams, by name.",
+      example: {
+        items: [
+          {
+            id: "019a0000-0000-7000-8000-00000000b0a1",
+            name: "research admins",
+          },
+        ],
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
     path: "/v1/teams/{team_id}",
     operationId: "getTeam",
     tag: "Teams",
@@ -2025,6 +2097,34 @@ export const API_ROUTE_DECLARATIONS = [
     auth: "session",
     success: { status: 200, schema: "ListAdministeredAgentsResponse" },
     errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/profiles",
+    operationId: "listProfiles",
+    tag: "Limits & receipts",
+    summary: "The runtime profiles this installation can run",
+    description:
+      "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs. The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListProfilesResponse",
+      description: "Every profile in the catalog, ordered by `id`.",
+      example: {
+        items: [
+          {
+            id: "claude-coding-real",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            billing: "metered",
+          },
+        ],
+      },
+    },
+    errors: [401, 503],
   },
   {
     method: "get",

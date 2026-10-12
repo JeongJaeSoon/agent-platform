@@ -866,6 +866,7 @@ export function createPostgresSessionReader(
           execution_generation: attempt.executionGeneration,
           started_at: attempt.startedAt.toISOString(),
           ended_at: attempt.endedAt?.toISOString() ?? null,
+          profile_id: attempt.profileId,
         })),
       };
     },

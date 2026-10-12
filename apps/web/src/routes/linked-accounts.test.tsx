@@ -164,7 +164,7 @@ describe("연동 계정", () => {
         ),
     });
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+      "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
     );
   });
 

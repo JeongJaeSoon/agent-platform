@@ -6,6 +6,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   listAdministeredAgentsResponseSchema,
+  listMyTeamsResponseSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
 } from "@agent-platform/contracts";
@@ -178,6 +179,12 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
   let agentId = "";
   let teamId = "";
 
+  async function myTeams(cookie: string) {
+    const response = await send("GET", "/v1/my-teams", cookie);
+    expect(response.status).toBe(200);
+    return listMyTeamsResponseSchema.parse(await response.json()).items;
+  }
+
   const editCard = (instructions: string) =>
     send("PATCH", `/v1/agents/${agentId}`, member, {
       card: { ...card, instructions },
@@ -224,6 +231,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       details: { reason_code: "role" },
     });
     expect((await send("GET", "/v1/teams", member)).status).toBe(403);
+    expect(await myTeams(member)).toEqual([]);
   });
 
   test("an owner makes a team, adds the member at once and names the team the agent's admin", async () => {
@@ -257,6 +265,12 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       await (await send("GET", `/v1/teams/${teamId}`, admin)).json(),
     );
     expect(detail.members.map((m) => m.user_id)).toEqual([memberId]);
+    // The member sees the team they are in, but still not who else is.
+    expect(await myTeams(member)).toEqual([
+      { id: teamId, name: "research admins" },
+    ]);
+    expect(await myTeams(admin)).toEqual([]);
+    expect((await send("GET", `/v1/teams/${teamId}`, member)).status).toBe(403);
 
     // Still nothing on the agent until the team is named its admin.
     expect((await editCard("v2")).status).toBe(403);
@@ -306,6 +320,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
         await (await send("GET", "/v1/administered-agents", member)).json(),
       ).items,
     ).toEqual([]);
+    expect(await myTeams(member)).toEqual([]);
   });
 
   test("back in, then the team deleted: refused again", async () => {
@@ -313,9 +328,11 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       user_id: memberId,
     });
     expect((await editCard("v3")).status).toBe(200);
+    expect(await myTeams(member)).toHaveLength(1);
     expect((await send("DELETE", `/v1/teams/${teamId}`, admin)).status).toBe(
       200,
     );
+    expect(await myTeams(member)).toEqual([]);
     const refused = await editCard("v4");
     expect(refused.status).toBe(403);
     expect(await errorOf(refused)).toMatchObject({

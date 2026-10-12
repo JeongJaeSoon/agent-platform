@@ -120,12 +120,15 @@ function harness(
     captureWorkspace?: ConstructorParameters<
       typeof SessionCheckpoints
     >[0]["captureWorkspace"];
-    fingerprint?: RuntimeFingerprint;
+    fingerprint?:
+      | RuntimeFingerprint
+      | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     instructionsCommit?: () => string | null;
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   } = {},
 ) {
   const gateway = options.gateway ?? new FakeWorkerGateway();
+  const { fingerprint } = options;
   const objects = options.objects ?? createMemoryCheckpointObjectStore();
   const infos: Logged[] = [];
   const warnings: Logged[] = [];
@@ -136,7 +139,10 @@ function harness(
     error: (event, fields) => errors.push({ event, fields }),
   };
   const port = new SessionCheckpoints({
-    fingerprint: () => options.fingerprint ?? runtime,
+    fingerprint: (claim) =>
+      typeof fingerprint === "function"
+        ? fingerprint(claim)
+        : (fingerprint ?? runtime),
     gateway,
     logger,
     now: () => new Date("2026-09-23T00:00:00.000Z"),
@@ -1327,7 +1333,9 @@ function restoring(
   options: {
     answer?: (request: RestorePlanRequest) => RestorePlanResponse;
     claimed?: Partial<CheckpointRef>;
-    fingerprint?: RuntimeFingerprint;
+    fingerprint?:
+      | RuntimeFingerprint
+      | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   } = {},
 ) {
@@ -1612,6 +1620,65 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(h.errors.map(({ event }) => event)).toEqual([
       "worker.checkpoint.restore_refused",
     ]);
+  });
+
+  test("a checkpoint made under the profile the session ran before is checked against that one, and the next is stamped with the new", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const switched = { ...runtime, profileSha256: "c".repeat(64) };
+    const h = restoring(from, {
+      fingerprint: (claim) =>
+        claim.runtime_config.model === "claude-haiku-5" ? switched : runtime,
+    });
+    const claimed = await claimOf(h.gateway);
+    const claim: BootstrapClaimResponse = {
+      ...claimed,
+      runtime_config: { ...claimed.runtime_config, model: "claude-haiku-5" },
+      restore_runtime_configs: [claimed.runtime_config],
+    };
+
+    const plan = await h.port.restorePlan(claim, neverStopped());
+
+    expect(h.errors).toEqual([]);
+    expect(plan.mode).toBe("resume");
+    expect(h.gateway.restorePlans[0]).toMatchObject({
+      runtime: { profile_sha256: switched.profileSha256 },
+      alternate_profile_sha256s: [runtime.profileSha256],
+    });
+    const next = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    if (next === null) throw new Error(`nothing published: ${h.warnings}`);
+    const bytes = await from.objects.get(next.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    expect(claudeCheckpointCodec.decode(bytes).runtime.profileSha256).toBe(
+      switched.profileSha256,
+    );
+  });
+
+  test("without the earlier profile's config, a checkpoint from it is refused as incompatible", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const h = restoring(from, {
+      fingerprint: (claim) =>
+        claim.runtime_config.model === "claude-haiku-5"
+          ? { ...runtime, profileSha256: "c".repeat(64) }
+          : runtime,
+    });
+    const claimed = await claimOf(h.gateway);
+    await expect(
+      h.port.restorePlan(
+        {
+          ...claimed,
+          runtime_config: {
+            ...claimed.runtime_config,
+            model: "claude-haiku-5",
+          },
+        },
+        neverStopped(),
+      ),
+    ).rejects.toMatchObject({ code: "INCOMPATIBLE_CHECKPOINT" });
   });
 
   test("holds the manifest to this worker's runtime even when the gateway plans it", async () => {

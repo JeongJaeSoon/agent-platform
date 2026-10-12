@@ -451,3 +451,27 @@ describe("GET /v1/administered-agents", () => {
     }
   });
 });
+
+describe("GET /v1/my-teams", () => {
+  test("lists, refuses and fails closed", async () => {
+    const listed = await call(
+      app({
+        listMyTeams: async () => ({ items: [{ id: TEAM, name: "research" }] }),
+      }),
+      "GET",
+      "/v1/my-teams",
+    );
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual({
+      items: [{ id: TEAM, name: "research" }],
+    });
+    for (const [fail, status] of [
+      [forbidden, 403],
+      [outage, 503],
+    ] as const) {
+      expect(
+        (await call(app({ listMyTeams: fail }), "GET", "/v1/my-teams")).status,
+      ).toBe(status);
+    }
+  });
+});
