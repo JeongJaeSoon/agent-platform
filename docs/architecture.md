@@ -43,6 +43,7 @@
 | `packages/adapters/runtimes/claude-codec` | Claude checkpoint manifest codec(`claudeCheckpointCodec`)·transcript digest·pin된 SDK/CLI 버전 상수. SDK 의존이 없어 api 이미지와 운영 스크립트(`scripts/lib`)가 읽는다(94S-201). `runtime-claude`는 worker와 테스트가 쓰는 codec·버전 상수만 이름으로 재수출한다 |
 | `apps/worker` | worker 컨테이너의 진입점(`src/main.ts`). scheduler가 넘긴 bootstrap identity로 세션 하나를 claim하고 WorkerHost 루프(Gateway claim → Claude adapter 실행 → 이벤트 발행 → pending 등록 → checkpoint publish·restore)를 돈다(94S-122·246). SDK·DB driver·cloud SDK를 직접 의존하지 않는다(`tests/architecture.test.ts`가 검사) |
 | `packages/adapters/execution/local-docker` | `ExecutionBackend` port의 Docker Engine API 구현. 컨테이너 이름·label로 launch intent와 1:1, non-root·read-only rootfs·세션 전용 volume·자원 상한·전용 internal 네트워크 |
+| `packages/adapters/execution/kubernetes` | `ExecutionBackend` port의 Kubernetes core/v1 API 구현(94S-523). launch intent 하나에 worker Pod 하나, Pod가 소유한 nonce Secret, 세션별 workspace PVC. ServiceAccount token을 mount하지 않는 non-root·read-only rootfs Pod이고, 삭제는 Pod UID precondition을 건다. worker의 바깥 연결을 egress proxy로 좁히는 NetworkPolicy와 Role은 Helm chart(94S-526)가 만든다. scheduler 연결과 `EXECUTION_BACKEND` 선택은 94S-524의 일이다 |
 | `apps/egress-proxy` | worker 네트워크에서 유일하게 바깥으로 나가는 forward proxy. CONNECT·absolute-form HTTP만 받고 목적지 allowlist를 DNS 해석 결과의 IP 대역까지 검사한다. workspace 의존이 없어 `apps/egress-proxy/Dockerfile`이 install 없이 자기 `src`만 복사한 이미지로 기동한다(94S-323) |
 | `packages/testkit` | 테스트 fixture: fake Messages API(`fake-anthropic`·`scripted-messages`), PostgreSQL·LocalStack opt-in 헬퍼(`postgres`·`localstack`), 격리 workspace(`workspace`), 메모리 checkpoint object store(`checkpoint-objects`), git bundle·HTTP 저장소 헬퍼(`git-bundle`·`git-http`). 각 패키지가 devDependency로만 참조한다. `fake-messages-main.ts`는 로컬 compose의 `fake-messages` 서비스가 실행하는 진입점이다 |
 | `packages/ui` | 웹 콘솔 화면이 공유하는 표현 계층. 서버가 준 상태를 그리기만 한다([packages/ui/README.md](../packages/ui/README.md)) |
@@ -56,8 +57,8 @@
 
 - `@anthropic-ai/claude-agent-sdk`는 Claude adapter의 `runtime`·`run` 모듈만 import한다. 그 dependency를 선언하는 패키지도 adapter 하나다.
 - `packages/runtime-core`는 `packages/contracts`에만 의존한다. `packages/platform`은 contracts·runtime-core·zod에만 의존하고, driver·ORM·SDK를 import하지 않는다.
-- Claude adapter는 platform·db·storage에 닿지 않는다. Docker backend는 platform·contracts에만 의존하고 db·pg·Docker SDK에 닿지 않는다.
-- 앱끼리는 import하지 않는다. control host는 실행물 하나에 role 셋이고, Docker backend에 닿는 것은 scheduler role뿐이다. worker 컨테이너에는 Docker socket도 host bind mount도 없다.
+- Claude adapter는 platform·db·storage에 닿지 않는다. Docker·Kubernetes backend는 platform·contracts에만 의존하고 db·pg·provider SDK(Docker SDK·Kubernetes client)에 닿지 않는다.
+- 앱끼리는 import하지 않는다. control host는 실행물 하나에 role 셋이고, Docker backend에 닿는 것은 scheduler role뿐이다. worker 컨테이너에는 Docker socket도 host bind mount도 없고, worker Pod에는 hostPath·hostNetwork·hostPID·hostIPC가 없다.
 - worker는 runtime-core·Claude adapter·contracts·storage·system·observability만 import하고, storage는 worker의 object store 모듈 하나만 import한다.
 - DNS 조회와 git 실행 도구는 `packages/system`에 있고 runtime-core에는 없다. checkpoint 상한은 worker와 platform이 따로 선언하지 않고 runtime-core에서 가져온다.
 - Claude adapter의 진입점은 export할 심볼을 이름으로 적는다(`export *` 없음). `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
