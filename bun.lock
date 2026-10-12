@@ -16,6 +16,7 @@
       "dependencies": {
         "@agent-platform/contracts": "workspace:*",
         "@agent-platform/db": "workspace:*",
+        "@agent-platform/execution-kubernetes": "workspace:*",
         "@agent-platform/execution-local-docker": "workspace:*",
         "@agent-platform/observability": "workspace:*",
         "@agent-platform/platform": "workspace:*",

@@ -320,7 +320,7 @@ describe("PostgresSchedulerStore", () => {
     });
     if (!intent) throw new Error("no intent");
     const foreign = await insertUnassigned();
-    await seedLaunch("exec-foreign", foreign, "eks_job");
+    await seedLaunch("exec-foreign", foreign, "kubernetes");
     const legacySession = await insertUnassigned();
     await seedLaunch("exec-legacy", legacySession, "local_docker");
     // An executions row nobody registered is not in the ledger at all: its
@@ -393,7 +393,7 @@ describe("PostgresSchedulerStore", () => {
     const sessionId = await insertUnassigned();
     const intent = await store.reserveLaunch({
       ...SPEC,
-      backend: "eks_job",
+      backend: "kubernetes",
       now: NOW,
       sessionId,
       slotLimit: 10,
@@ -401,7 +401,7 @@ describe("PostgresSchedulerStore", () => {
     if (!intent) throw new Error("no intent");
     expect(await store.listActiveExecutions("local_docker")).toEqual([]);
     expect(await store.filterKnown([intent], "local_docker")).toEqual([]);
-    expect(await store.filterKnown([intent], "eks_job")).toEqual([intent]);
+    expect(await store.filterKnown([intent], "kubernetes")).toEqual([intent]);
   });
 
   test("recordObservation updates state, time and provider ref for the exact generation", async () => {
