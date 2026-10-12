@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createPostgresPendingRequests,
+  createPostgresPushRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -17,6 +18,7 @@ import {
   catalogRevision,
   createInterruptService,
   createPendingRequestService,
+  createPushRequestService,
   createSessionService,
   createUsageService,
   createWorkerGateway,
@@ -59,6 +61,7 @@ import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -176,6 +179,10 @@ const pendingRequests = createPendingRequestService({
   authorization: allowAllPolicy,
   store: createPostgresPendingRequests(db),
 });
+const pushRequests = createPushRequestService({
+  store: createPostgresPushRequests(db),
+  source: checkpoints.pushSource,
+});
 const interrupts = createInterruptService({
   authorization: allowAllPolicy,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -260,6 +267,7 @@ const app = createApiApp({
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
+    registerPushRequestRoutes(router, pushRequests);
     registerInterruptRoutes(router, interrupts);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,

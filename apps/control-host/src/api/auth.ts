@@ -394,6 +394,8 @@ export interface AuthenticatorOptions {
 
 type Authenticated = {
   principal: Principal;
+  /** False when nothing checked the caller: AUTH_MODE=none's X-Owner-Id. */
+  verified: boolean;
   /** Set on the cookie path; GET /v1/auth/me and logout read it. */
   webSession?: ResolvedWebSession;
   /** Re-runs the credential check; SSE calls it so revocation ends a stream. */
@@ -458,6 +460,7 @@ export function createAuthenticator(
         return ownerId
           ? {
               principal: unauthenticatedPrincipal(ownerId),
+              verified: false,
               reauthenticate: async () => true,
             }
           : null;
@@ -479,6 +482,7 @@ export function createAuthenticator(
         const principal = apiKeyPrincipal(key);
         return {
           principal,
+          verified: true,
           // Nothing edits a key's scopes today, but a stream that outlives
           // a narrowed key must not keep what the key no longer holds.
           reauthenticate: async () => {
@@ -531,6 +535,7 @@ export function createAuthenticator(
           role: session.role,
           scopes: [...scopesForRole(session.role)],
         },
+        verified: true,
         webSession: session,
         reauthenticate,
       };

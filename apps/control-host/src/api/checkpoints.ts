@@ -6,6 +6,7 @@ import {
   type CheckpointVerifier,
   createCheckpointService,
   type ObjectProtection,
+  type PushSource,
   rejectUnverifiedCheckpoints,
   serviceCheckpointVerifier,
 } from "@agent-platform/platform";
@@ -221,6 +222,7 @@ function required(value: string | undefined, name: string): string {
 export type ApiCheckpoints = {
   verifier: CheckpointVerifier;
   protocol: CheckpointProtocol | undefined;
+  pushSource: PushSource;
 };
 
 /**
@@ -234,7 +236,16 @@ export function createApiCheckpoints(
   maxGitMemoryBytes?: number,
 ): ApiCheckpoints {
   if (config === "disabled") {
-    return { verifier: rejectUnverifiedCheckpoints, protocol: undefined };
+    return {
+      verifier: rejectUnverifiedCheckpoints,
+      protocol: undefined,
+      pushSource: {
+        readPushSource: async () => ({
+          status: "unavailable",
+          reason: "the checkpoint object store is disabled",
+        }),
+      },
+    };
   }
   const service = createApiCheckpointService({
     codecs: API_CHECKPOINT_CODECS,
@@ -246,7 +257,11 @@ export function createApiCheckpoints(
     store: createPostgresCheckpointStore(db),
     ...(maxGitMemoryBytes === undefined ? {} : { maxGitMemoryBytes }),
   });
-  return { verifier: serviceCheckpointVerifier(service), protocol: service };
+  return {
+    verifier: serviceCheckpointVerifier(service),
+    protocol: service,
+    pushSource: service,
+  };
 }
 
 function checkpointS3Client(config: CheckpointStorageConfig) {

@@ -160,6 +160,13 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The target turn is still queued; there is nothing to interrupt yet.",
   PAUSE_COMMITTING:
     "The pause has already committed its stop and can no longer be cancelled; wait for it, then resume.",
+  PUSH_SOURCE_MISSING:
+    "The session has no repository, or no committed checkpoint, to push.",
+  PUSH_REQUEST_OPEN:
+    "The session already has an open push request (`requested`, `approved` or `pushing`); the refusal receipt's `result.push_request_id` names it.",
+  PUSH_REQUEST_DECIDED: "The push request was already approved or rejected.",
+  CHECKPOINT_MOVED:
+    "The commit or checkpoint named no longer matches what the push request pinned.",
 };
 
 function when(
