@@ -87,6 +87,17 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @hono/zod-openapi | 1.6.3 | MIT | control-host, worker |
 | @hono/zod-validator | 0.9.1 | MIT | control-host, worker |
 | @modelcontextprotocol/sdk | 1.31.0 | MIT | worker |
+| @octokit/auth-app | 8.3.1 | MIT | control-host, worker |
+| @octokit/auth-oauth-app | 9.0.5 | MIT | control-host, worker |
+| @octokit/auth-oauth-device | 8.0.5 | MIT | control-host, worker |
+| @octokit/auth-oauth-user | 6.0.4 | MIT | control-host, worker |
+| @octokit/endpoint | 11.0.5 | MIT | control-host, worker |
+| @octokit/oauth-authorization-url | 8.0.0 | MIT | control-host, worker |
+| @octokit/oauth-methods | 6.0.5 | MIT | control-host, worker |
+| @octokit/openapi-types | 29.0.1 | MIT | control-host, worker |
+| @octokit/request | 10.0.16 | MIT | control-host, worker |
+| @octokit/request-error | 7.1.2 | MIT | control-host, worker |
+| @octokit/types | 18.0.0 | MIT | control-host, worker |
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT | worker |
@@ -131,6 +142,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | content-disposition | 1.1.0 | MIT | worker |
 | content-type | 1.0.5 | MIT | worker |
 | content-type | 2.1.0 | MIT | worker |
+| content-type | 3.1.1 | MIT | control-host, worker |
 | cookie | 0.7.2 | MIT | worker |
 | cookie-signature | 1.2.2 | MIT | worker |
 | cors | 2.8.6 | MIT | worker |
@@ -177,6 +189,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | json-schema-to-ts | 3.1.1 | MIT | worker |
 | json-schema-traverse | 1.0.0 | MIT | worker |
 | json-schema-typed | 8.0.2 | BSD-2-Clause | worker |
+| json-with-bigint | 3.5.12 | MIT | control-host, worker |
 | math-intrinsics | 1.1.0 | MIT | worker |
 | media-typer | 1.1.1 | MIT | worker |
 | merge-descriptors | 2.0.0 | MIT | worker |
@@ -230,11 +243,14 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | split2 | 4.2.0 | ISC | control-host, worker |
 | standardwebhooks | 1.1.1 | MIT | worker |
 | statuses | 2.0.2 | MIT | worker |
+| toad-cache | 3.7.4 | MIT | control-host, worker |
 | toidentifier | 1.0.1 | MIT | worker |
 | ts-algebra | 2.0.0 | MIT | worker |
 | tslib | 2.8.1 | 0BSD | control-host, worker |
 | type-is | 2.1.0 | MIT | worker |
 | undici-types | 8.9.0 | MIT | control-host, worker |
+| universal-github-app-jwt | 2.2.2 | MIT | control-host, worker |
+| universal-user-agent | 7.0.3 | ISC | control-host, worker |
 | unpipe | 1.0.0 | MIT | worker |
 | use-callback-ref | 1.3.3 | MIT | worker |
 | use-sidecar | 1.1.3 | MIT | worker |
