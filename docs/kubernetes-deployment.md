@@ -10,7 +10,7 @@ Docker 단일 서버 알파(`local-docker` 실행 기반, compose)는 그대로 
 
 | 리소스 | 수 | 비고 |
 |---|---|---|
-| api Deployment + Service(3000) + authorizer Service(3100) | 2 | 3100은 egress-proxy만 닿는다(NetworkPolicy). Ingress는 3000만 연다 |
+| api Deployment + Service(3000) + authorizer Service(3100) | 2 | 3100은 egress-proxy만 닿는다(NetworkPolicy). Ingress는 3000의 `/v1`·`/docs`·`/healthz`·`/readyz`만 route한다. worker용 `/internal`은 열지 않는다 |
 | scheduler Deployment + Role/RoleBinding | 1, `Recreate` | worker Pod·nonce Secret·workspace PVC를 같은 namespace에서만 만들고 지운다 |
 | reconciler Deployment | 1 | |
 | egress-proxy Deployment + Service(3128, 3129) | 2 | worker의 유일한 바깥 경로 |
@@ -96,7 +96,7 @@ helm upgrade --install agent-platform deploy/helm/agent-platform \
 | `images.registry`, `images.*.digest` | ECR host와 그 이미지의 digest |
 | `secrets.objectStoreKeys: false`, `serviceAccounts.api.annotations` | 정적 AWS key 대신 IRSA. api와 checkpoint GC가 이 role로 S3·Secrets Manager에 서명한다. scheduler와 worker는 S3 권한이 없다 |
 | `secrets.externalSecret` | External Secrets Operator가 Secrets Manager의 `remoteKey`(JSON, 위 Secret 키 전부. IRSA면 AWS key 둘은 뺀다)로 Secret을 쓴다. 운영자 CRD가 필요하다 |
-| `ingress` | ALB Ingress. `scheme`은 `internal`로 바꾼다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 3000만 연결하고 authorizer(3100)는 열지 않는다 |
+| `ingress` | ALB Ingress. `scheme`은 `internal`로 바꾼다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 공개 경로(`/v1`·`/docs`·`/healthz`·`/readyz`)만 route하고 `/internal`과 authorizer(3100)는 열지 않는다 |
 | `config.egress.credentialAllowlist` | provider host에 checkpoint bucket의 virtual-hosted endpoint를 더한다. worker의 checkpoint upload·restore가 credential route로 나간다 |
 | `worker.storageClass`, `worker.nodeSelector`, `worker.tolerations` | worker 전용 node group과 workspace PVC의 StorageClass(gp3) |
 | `networkPolicy.enabled` | VPC CNI의 network policy agent가 켜져 있어야 효력이 있다 |
