@@ -317,24 +317,24 @@ const MUST_FAIL: [string, string[], RegExp][] = [
 ];
 
 const errors = [
-  ...check("default", render(["-f", ciDigests]), false),
+  ...check("default", render(["-f", ciDigests]), true),
   ...check(
-    "scheduler on",
-    render(["-f", ciDigests, "--set", "scheduler.enabled=true"]),
-    true,
+    "scheduler off",
+    render(["-f", ciDigests, "--set", "scheduler.enabled=false"]),
+    false,
   ),
-  ...check("aws example", render(["-f", ciDigests, "-f", awsExample]), false),
+  ...check("aws example", render(["-f", ciDigests, "-f", awsExample]), true),
   ...check(
-    "aws example, scheduler on",
+    "aws example, scheduler off",
     render([
       "-f",
       ciDigests,
       "-f",
       awsExample,
       "--set",
-      "scheduler.enabled=true",
+      "scheduler.enabled=false",
     ]),
-    true,
+    false,
   ),
 ];
 errors.push(

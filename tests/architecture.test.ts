@@ -536,19 +536,22 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("only the control host's scheduler role reaches the Docker backend", async () => {
-    const host = join(root, "apps", "control-host");
-    const importing = (
-      await filesImporting(
-        await sourceFiles(join(host, "src")),
-        "@agent-platform/execution-local-docker",
-      )
-    ).map((file) => relative(join(host, "src"), file));
-    expect(importing.length).toBeGreaterThan(0);
-    expect(
-      importing.filter((file) => !file.startsWith(`scheduler${sep}`)),
-    ).toEqual([]);
-  });
+  test.each([
+    ["Docker", "@agent-platform/execution-local-docker"],
+    ["Kubernetes", "@agent-platform/execution-kubernetes"],
+  ])(
+    "only the control host's scheduler role reaches the %s backend",
+    async (_, backend) => {
+      const host = join(root, "apps", "control-host");
+      const importing = (
+        await filesImporting(await sourceFiles(join(host, "src")), backend)
+      ).map((file) => relative(join(host, "src"), file));
+      expect(importing.length).toBeGreaterThan(0);
+      expect(
+        importing.filter((file) => !file.startsWith(`scheduler${sep}`)),
+      ).toEqual([]);
+    },
+  );
 
   test("the worker keeps its process layout: entry, composition, host, transport, heartbeat", async () => {
     // The composition root is a named file rather than a habit: it is what

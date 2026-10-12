@@ -119,8 +119,7 @@ export class WorkspaceClaimError extends Error {
  * with the Pod UID as `providerRef`; see README.md for the RBAC it needs.
  */
 export class KubernetesBackend implements ExecutionBackend {
-  // The contracts enum has no "kubernetes" yet; 94S-524 settles the name.
-  readonly kind = "eks_job" as const;
+  readonly kind = "kubernetes" as const;
   private readonly config: KubernetesBackendConfig;
   /**
    * The UID of the claim `assertReplaceable` found, per session; see the
