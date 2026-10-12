@@ -23,7 +23,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
-import type { RuntimeConfig } from "@agent-platform/contracts";
+import {
+  MAX_RESTORE_PROFILES,
+  type RuntimeConfig,
+} from "@agent-platform/contracts";
 import {
   allowedPair,
   profileFingerprint,
@@ -200,6 +203,41 @@ export function sessionClaim(
  */
 export function earlierProfileKey(sessionId: string, profileId: string) {
   return `${sessionId}#${profileId}`;
+}
+
+/**
+ * The claims for the profiles a session's restorable checkpoints were made
+ * under other than the one it runs now (`earlier`, newest first), keyed by
+ * earlierProfileKey and chosen as the gateway's claim chooses them: the
+ * catalog must still hold the profile with the same fingerprint, the
+ * repository need not allow it any longer, and no more than
+ * MAX_RESTORE_PROFILES are offered.
+ */
+export function earlierProfileClaims(
+  session: { readonly id: string; readonly ownerId: string },
+  earlier: readonly {
+    readonly profileId: string;
+    readonly profileFingerprint: string;
+  }[],
+  catalog: SessionCatalog,
+): [key: string, claim: ReturnType<typeof sessionClaim>][] {
+  return earlier
+    .flatMap(({ profileId, profileFingerprint: made }) => {
+      const profile = Object.hasOwn(catalog.profiles, profileId)
+        ? catalog.profiles[profileId]
+        : undefined;
+      if (!profile || profileFingerprint(profile) !== made) return [];
+      return [
+        [
+          earlierProfileKey(session.id, profileId),
+          {
+            principal: { owner_scope: session.ownerId },
+            runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
+          },
+        ] as [string, ReturnType<typeof sessionClaim>],
+      ];
+    })
+    .slice(0, MAX_RESTORE_PROFILES);
 }
 
 /**

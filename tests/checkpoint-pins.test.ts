@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { MAX_RESTORE_PROFILES } from "@agent-platform/contracts";
 import {
   type CatalogProfile,
   type CheckpointPointer,
@@ -43,6 +44,7 @@ import {
   type CheckpointRow,
   captureCheckpointObjects,
   describeMismatches,
+  earlierProfileClaims,
   earlierProfileKey,
   parseImageRuntime,
   planRepin,
@@ -838,6 +840,62 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       ).status,
     ).toBe("ready");
     expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
+  });
+
+  test("earlier profiles are offered as the gateway's claim offers them", async () => {
+    const resolved = await catalog();
+    const base = resolved.profiles[PROFILE_ID] as CatalogProfile;
+    const repository = resolved.repositories[REPOSITORY_ID];
+    if (repository === undefined) throw new Error("no sample repository");
+    const extra = Array.from({ length: 18 }, (_, n) => `p${n}`);
+    const switched = {
+      profiles: {
+        ...resolved.profiles,
+        ...Object.fromEntries(
+          extra.map((id) => [id, { ...base, model: `model-${id}` }]),
+        ),
+      },
+      // The repository no longer allows the first profile it ran.
+      repositories: {
+        ...resolved.repositories,
+        [REPOSITORY_ID]: { ...repository, profiles: ["p0"] },
+      },
+    };
+    const made = (id: string) => ({
+      profileId: id,
+      profileFingerprint: profileFingerprint(
+        switched.profiles[id] as CatalogProfile,
+      ),
+    });
+    const session = { id: "s1", ownerId: "owner-1" };
+
+    const unpaired = earlierProfileClaims(
+      session,
+      [made(PROFILE_ID)],
+      switched,
+    );
+    expect(unpaired.map(([key]) => key)).toEqual([
+      earlierProfileKey("s1", PROFILE_ID),
+    ]);
+    expect(unpaired[0]?.[1].principal.owner_scope).toBe("owner-1");
+
+    expect(
+      earlierProfileClaims(
+        session,
+        [
+          { profileId: PROFILE_ID, profileFingerprint: "sha256:other" },
+          { profileId: "gone", profileFingerprint: "sha256:x" },
+        ],
+        switched,
+      ),
+    ).toEqual([]);
+
+    const many = earlierProfileClaims(session, extra.map(made), switched);
+    expect(many.map(([key]) => key)).toEqual(
+      extra
+        .slice(0, MAX_RESTORE_PROFILES)
+        .map((id) => earlierProfileKey("s1", id)),
+    );
   });
 
   test("an image of another CLI build makes the plan incompatible", async () => {

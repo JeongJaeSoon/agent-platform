@@ -40,7 +40,7 @@ import {
   type CheckpointRow,
   captureCheckpointObjects,
   describeMismatches,
-  earlierProfileKey,
+  earlierProfileClaims,
   type ImageRuntime,
   parseImageRuntime,
   planRepin,
@@ -281,29 +281,22 @@ async function plans(
         claimErrors.set(pointer.id, (error as Error).message);
       }
     }
-    for (const row of earlier) {
-      const pointer = pointers.find(({ id }) => id === row.session_id);
-      if (pointer === undefined) continue;
-      try {
-        const key = earlierProfileKey(row.session_id, row.profile_id);
-        claims[key] = sessionClaim(
-          {
-            branch: pointer.branch,
-            ownerId: pointer.owner_id,
-            profileFingerprint: row.profile_fingerprint,
+    for (const pointer of pointers) {
+      const made = earlierProfileClaims(
+        { id: pointer.id, ownerId: pointer.owner_id },
+        earlier
+          .filter((row) => row.session_id === pointer.id)
+          .map((row) => ({
             profileId: row.profile_id,
-            repoUrl: pointer.repo_url,
-            repositoryId: pointer.repository_id,
-          },
-          catalog,
-        );
-        earlierKeys.set(row.session_id, [
-          ...(earlierKeys.get(row.session_id) ?? []),
-          key,
-        ]);
-      } catch {
-        // Gone from the catalog as it was: no worker is offered it either.
-      }
+            profileFingerprint: row.profile_fingerprint,
+          })),
+        catalog,
+      );
+      for (const [key, claim] of made) claims[key] = claim;
+      earlierKeys.set(
+        pointer.id,
+        made.map(([key]) => key),
+      );
     }
     imageRuntime = await readImageRuntime(image.name, claims);
   }
