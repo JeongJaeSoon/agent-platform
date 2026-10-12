@@ -695,6 +695,8 @@ export interface paths {
          * Read one push request
          * @description One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who decided it.
          *
+         *     The API pushes an approved request within seconds: exactly the pinned commit, to `refs/heads/agent/<session-id>` on the repository the request pinned, never by force. It refuses, as `failed`, when the catalog entry for the repository changed after the request, the target is the repository's default branch, or the remote branch holds a commit the pinned one does not build on. `finished_at` and `push_receipt_id` are set once it ends; that `push` receipt (`GET /v1/receipts/{receipt_id}`) names the remote, the ref, the commit it replaced, the approver, and on failure the `refusal`.
+         *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getPushRequest"];
@@ -2672,6 +2674,8 @@ export interface components {
             /** Format: uuid */
             request_receipt_id: string;
             decision_receipt_id: string | null;
+            finished_at: string | null;
+            push_receipt_id: string | null;
         };
         ListPushRequestsResponse: {
             items: components["schemas"]["PushRequest"][];
@@ -7235,7 +7239,9 @@ export interface operations {
                      *           "decided_at": null,
                      *           "decision_reason": null,
                      *           "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *           "decision_receipt_id": null
+                     *           "decision_receipt_id": null,
+                     *           "finished_at": null,
+                     *           "push_receipt_id": null
                      *         }
                      *       ]
                      *     }
@@ -7357,7 +7363,9 @@ export interface operations {
                      *       "decided_at": null,
                      *       "decision_reason": null,
                      *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": null
+                     *       "decision_receipt_id": null,
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];
@@ -7534,7 +7542,9 @@ export interface operations {
                      *       "decided_at": null,
                      *       "decision_reason": null,
                      *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": null
+                     *       "decision_receipt_id": null,
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];
@@ -7667,7 +7677,9 @@ export interface operations {
                      *       "decided_at": "2026-10-11T08:35:00Z",
                      *       "decision_reason": null,
                      *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678"
+                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];

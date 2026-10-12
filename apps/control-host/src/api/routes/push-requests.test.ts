@@ -14,6 +14,7 @@ import {
   type PushRefusalRecord,
   type PushRequestStore,
   type PushSourceResult,
+  type SessionCatalog,
 } from "@agent-platform/platform";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
@@ -49,7 +50,20 @@ const PINNED: PushRequest = {
   decision_reason: null,
   request_receipt_id: RECEIPT,
   decision_receipt_id: null,
+  finished_at: null,
+  push_receipt_id: null,
 };
+
+const CATALOG = {
+  profiles: {},
+  repositories: {
+    "sample-app": {
+      url: "https://git.example/acme/sample-app.git",
+      branch: "main",
+      profiles: ["default"],
+    },
+  },
+} satisfies SessionCatalog;
 
 type Seen = {
   created: CreatePushRequestInput[];
@@ -97,6 +111,7 @@ function app(
   const service = createPushRequestService({
     authorization: createAuthorizationPolicy(),
     store,
+    catalog: CATALOG,
     source: {
       readPushSource: async () =>
         options.source ?? { status: "ready", revision: 2, gitCommit: COMMIT },
@@ -176,6 +191,7 @@ describe("push request routes", () => {
         idempotencyKey: "key-1",
         payloadHash: expect.any(String),
         repositoryId: "sample-app",
+        repositoryBinding: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         checkpointRevision: 2,
         gitCommit: COMMIT,
       },

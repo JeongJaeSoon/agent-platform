@@ -114,6 +114,7 @@ integration("checkpoint collection store on PostgreSQL", () => {
         idempotencyKey: key,
         payloadHash: "h",
         repositoryId: "sample-app",
+        repositoryBinding: "sha256:binding",
         checkpointRevision: revision,
         gitCommit: "a".repeat(40),
       });

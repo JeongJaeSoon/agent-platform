@@ -2,7 +2,11 @@ import { createPublicKey, randomBytes, verify } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServedRepository, serveGitHttp } from "./git-http.ts";
+import {
+  createServedRepository,
+  runTestGit,
+  serveGitHttp,
+} from "./git-http.ts";
 
 /** One `POST /app/installations/:id/access_tokens` as the fake read it. */
 export type FakeGitHubTokenRequest = {
@@ -20,6 +24,8 @@ export type FakeGitHubGitRequest = {
   at: string;
   method: string;
   path: string;
+  /** True for a push (receive-pack), whether or not it was taken. */
+  push: boolean;
   /** 1-based index of the issued token it carried, or null. */
   token: number | null;
   status: number;
@@ -40,6 +46,19 @@ export type FakeGitHub = {
     files: Record<string, string>,
     options?: { branch?: string; private?: boolean },
   ): Promise<void>;
+  /** Every branch and tag of a served repository, ref → commit. */
+  refs(owner: string, name: string): Promise<Record<string, string>>;
+  /**
+   * Points `branch` at a new commit with no parent, so that nothing pushed
+   * from the repository's own history fast-forwards it. Returns the commit.
+   */
+  writeUnrelatedCommit(
+    owner: string,
+    name: string,
+    branch: string,
+  ): Promise<string>;
+  /** What `GET /repos` and the git `HEAD` both report as the default. */
+  setDefaultBranch(owner: string, name: string, branch: string): Promise<void>;
   stop(): Promise<void>;
 };
 
@@ -70,8 +89,9 @@ type Served = { id: number; defaultBranch: string; private: boolean };
  * installation token endpoint (RS256 JWT checked against the App's public
  * key), `GET /repos/:owner/:name`, and git smart HTTP that takes only an
  * unexpired installation token scoped to the repository. API paths are
- * also served under `/api/v3`, as on GHES. Clone only: receive-pack stays
- * off, as `git http-backend` leaves it.
+ * also served under `/api/v3`, as on GHES. A push (receive-pack) needs a
+ * token whose permissions say `contents: write`; a read token gets a 403,
+ * as on GitHub.
  */
 export async function startFakeGitHub(
   options: FakeGitHubOptions,
@@ -227,20 +247,34 @@ export async function startFakeGitHub(
           request.headers.get("authorization"),
           "basic",
         );
+        const push =
+          url.pathname.endsWith("/git-receive-pack") ||
+          url.searchParams.get("service") === "git-receive-pack";
         const allowed =
           carried !== undefined &&
           carried[1].permissions.contents !== undefined &&
           reaches(carried[1], git[1], git[2]);
-        const response = allowed
-          ? await serveGitHttp(join(root, git[1]), request, gitUrl(url, git[1]))
-          : new Response("authentication required\n", {
+        const writes = carried?.[1].permissions.contents === "write";
+        const response = !allowed
+          ? new Response("authentication required\n", {
               status: 401,
               headers: { "www-authenticate": 'Basic realm="GitHub"' },
-            });
+            })
+          : push && !writes
+            ? new Response("Write access to repository not granted.\n", {
+                status: 403,
+              })
+            : await serveGitHttp(
+                join(root, git[1]),
+                request,
+                gitUrl(url, git[1]),
+                push ? { remoteUser: "x-access-token" } : {},
+              );
         gitRequests.push({
           at: now().toISOString(),
           method: request.method,
           path: `${url.pathname}${url.search}`,
+          push,
           token: carried?.[1].index ?? null,
           status: response.status,
         });
@@ -273,6 +307,47 @@ export async function startFakeGitHub(
         defaultBranch: branch,
         private: repoOptions.private ?? true,
       });
+    },
+    async refs(owner, name) {
+      const listed = await runTestGit(
+        ["for-each-ref", "--format=%(refname) %(objectname)"],
+        join(root, owner, `${name}.git`),
+      );
+      return Object.fromEntries(
+        listed
+          .split("\n")
+          .filter((line) => line !== "")
+          .map((line) => line.split(" ") as [string, string]),
+      );
+    },
+    async writeUnrelatedCommit(owner, name, branch) {
+      const bare = join(root, owner, `${name}.git`);
+      const commit = (
+        await runTestGit(
+          [
+            "-c",
+            "user.name=testkit",
+            "-c",
+            "user.email=testkit@example.test",
+            "commit-tree",
+            "HEAD^{tree}",
+            "-m",
+            "unrelated",
+          ],
+          bare,
+        )
+      ).trim();
+      await runTestGit(["update-ref", `refs/heads/${branch}`, commit], bare);
+      return commit;
+    },
+    async setDefaultBranch(owner, name, branch) {
+      const found = served.get(`${owner}/${name}`);
+      if (!found) throw new Error(`no repository ${owner}/${name}`);
+      await runTestGit(
+        ["symbolic-ref", "HEAD", `refs/heads/${branch}`],
+        join(root, owner, `${name}.git`),
+      );
+      found.defaultBranch = branch;
     },
     async stop() {
       server.stop(true);
