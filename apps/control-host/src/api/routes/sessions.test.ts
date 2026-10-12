@@ -94,6 +94,9 @@ function app(
       resumeAtomic: async () => {
         throw new Error("not reached");
       },
+      changeProfileAtomic: async () => {
+        throw new Error("not reached");
+      },
       ...overrides,
     },
     reader: {
@@ -863,6 +866,9 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
           throw new Error("must not reach the transaction");
         },
         resumeAtomic: async () => {
+          throw new Error("not reached");
+        },
+        changeProfileAtomic: async () => {
           throw new Error("not reached");
         },
       },

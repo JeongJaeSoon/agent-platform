@@ -31,6 +31,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "terminate",
   "resume",
   "recovery_decision",
+  // A session moved onto another catalog profile from its next turn on.
+  "change_profile",
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",

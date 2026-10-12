@@ -1,4 +1,5 @@
 import {
+  changeSessionProfileRequestSchema,
   controlAcceptedResponseSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
@@ -115,6 +116,22 @@ export function registerSessionRoutes(
       accepted,
       202,
     );
+  });
+
+  apiRoute(router, "changeSessionProfile", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const key = requireIdempotencyKey(context);
+    const body = await parseJsonBody(
+      context,
+      changeSessionProfileRequestSchema,
+    );
+    const settled = await mapped(() =>
+      service.changeSessionProfile(context.get("caller"), params.id, {
+        idempotencyKey: key,
+        body,
+      }),
+    );
+    return jsonWithSchema(context, controlAcceptedResponseSchema, settled, 200);
   });
 
   apiRoute(router, "decideSessionRecovery", async (context) => {

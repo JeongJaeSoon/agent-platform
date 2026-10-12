@@ -7,6 +7,7 @@ import type {
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationResource,
+  ChangeSessionProfileRequest,
   ControlAcceptedResponse,
   CreateSessionRequest,
   CreateSessionResponse,
@@ -655,6 +656,86 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
             "This session runs on a legacy pod binding that cannot be paused",
+          );
+        default:
+          return result.response;
+      }
+    },
+
+    async changeSessionProfile(
+      actor: Caller,
+      sessionId: string,
+      input: { idempotencyKey: string; body: ChangeSessionProfileRequest },
+    ): Promise<ControlAcceptedResponse> {
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
+      const record = await reader.getSession(actor.ownerId, sessionId);
+      if (!record) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      const wanted = input.body.profile_id;
+      const pair = record.repository_id
+        ? allowedPair(catalog, wanted, record.repository_id)
+        : null;
+      const current = record.profile_id
+        ? own(catalog.profiles, record.profile_id)
+        : undefined;
+      // The next attempt restores checkpoints the current runtime took, so
+      // the runtime has to stay; the model, tools and provider may change.
+      const refusal =
+        pair === null ||
+        pair.repository.url !== record.repo_url ||
+        pair.repository.branch !== record.branch
+          ? `Profile ${wanted} is not in this host's catalog or not allowed with the session's repository`
+          : current !== undefined &&
+              (current.runtime_kind !== pair.profile.runtime_kind ||
+                current.runtime_version !== pair.profile.runtime_version)
+            ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
+            : null;
+      const result = await controls.changeProfileAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        expectedRevision: input.body.expected_revision,
+        profile:
+          refusal === null && pair !== null
+            ? {
+                id: wanted,
+                fingerprint: profileFingerprint(pair.profile),
+                unmetered: isUnmetered(pair.profile),
+              }
+            : null,
+        judgedFrom: record.profile_id,
+        now: now(),
+      });
+      switch (result.outcome) {
+        case "conflict":
+          return idempotencyConflict();
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "revision_conflict":
+          return revisionConflict(result.currentRevision);
+        case "rejected": {
+          const rejection = ADMISSION_REJECTIONS[result.admissionState];
+          throw new SessionServiceError(rejection.code, rejection.message);
+        }
+        case "release_bound":
+          throw new SessionServiceError(
+            "RELEASE_PROFILE_MISMATCH",
+            `The session runs agent release ${result.releaseId}, which sets its profile`,
+          );
+        case "billing_mismatch":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            `Profile ${wanted} is billed differently from the session's (billing: none on one side only), so the session's cost limit would change`,
+          );
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            refusal ?? `Profile ${wanted} cannot run this session`,
           );
         default:
           return result.response;
