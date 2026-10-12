@@ -56,6 +56,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/profile.test.ts": ["POST /v1/sessions/{id}/profile"],
   "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
+  "routes/profiles.test.ts": ["GET /v1/profiles"],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
   "routes/members.test.ts": [
     "GET /v1/members",
@@ -91,6 +92,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/teams.test.ts": [
     "POST /v1/teams",
     "GET /v1/teams",
+    "GET /v1/my-teams",
     "GET /v1/teams/{team_id}",
     "PATCH /v1/teams/{team_id}",
     "DELETE /v1/teams/{team_id}",

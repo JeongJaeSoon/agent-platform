@@ -29,7 +29,10 @@ function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
   return { api, history, services };
 }
 
-const meOk = { "GET /v1/auth/me": () => json(200, me()) };
+const meOk = {
+  "GET /v1/auth/me": () => json(200, me()),
+  "GET /v1/my-teams": () => json(200, { items: [] }),
+};
 const callsTo = (calls: Recorded[], path: string) =>
   calls.filter((call) => call.path === path);
 
@@ -95,7 +98,7 @@ describe("workspace shell", () => {
     renderAt("/", meOk);
     expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
     expect(
-      screen.getByText("Owner(owner@example.com)으로 로그인했습니다"),
+      screen.getByText("Owner(owner@example.com) 계정으로 로그인했습니다"),
     ).toBeDefined();
     const steps = screen.getAllByRole("listitem");
     expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([

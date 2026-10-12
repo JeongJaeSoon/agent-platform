@@ -46,7 +46,7 @@ Preconditions:
 - **b. 팀과 팀 관리자.** d와 같이 사람마다 cookie 파일을 둔다(`as() { cp "$VERIFY_RUN/cookie.$1" "$VERIFY_RUN/cookie"; }`). owner bootstrap·login, 초대·수락으로 member와 admin(d의 1). `MEMBER_ID`는 member cookie로 `ap_web GET /v1/auth/me`의 `user.id`.
   1. owner가 에이전트를 만든다: `ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"card\":$CARD}"` → `201`, `AID`.
   2. member가 `ap_web PATCH "/v1/agents/$AID" "{\"card\":…}"` → `403` `reason_code: "role"`. member가 `ap_web POST /v1/teams '{"name":"mine"}'` → `403` `role`.
-  3. owner가 `ap_web POST /v1/teams '{"name":"research admins"}'` → `201`, `TID`. `ap_web POST "/v1/teams/$TID/members" "{\"user_id\":\"$MEMBER_ID\"}"` → `200`, `team.member_count: 1`, `receipt_id`. 수락 단계는 없다.
+  3. owner가 `ap_web POST /v1/teams '{"name":"research admins"}'` → `201`, `TID`. `ap_web POST "/v1/teams/$TID/members" "{\"user_id\":\"$MEMBER_ID\"}"` → `200`, `team.member_count: 1`, `receipt_id`. 수락 단계는 없다. member가 `ap_web GET /v1/my-teams` → `200` `items: [{id: TID, name: "research admins"}]`(6에서 뺀 뒤에는 `[]`).
   4. owner가 `ap_web POST "/v1/agents/$AID/admins" "{\"team_id\":\"$TID\"}"` → `200`, `admins.teams[].name`에 팀.
   5. member가 카드 수정 → `200`. `ap_web GET /v1/administered-agents` → `items[].slug`에 `research`. member가 `PATCH "/v1/teams/$TID"`·`DELETE "/v1/teams/$TID/members/$MEMBER_ID"` → 둘 다 `403` `role`.
   6. owner가 `ap_web DELETE "/v1/teams/$TID/members/$MEMBER_ID"` → `200`. 바로 다음 member 카드 수정 → `403` `role`.
@@ -187,7 +187,7 @@ Preconditions:
 - d의 8은 판정이 `allow`인 채로 거절된다. 권한(`api_key.manage`)은 있고 scope만 넘친 것이라, 판정 행은 `allow`이고 응답은 `SCOPE_NOT_GRANTABLE`이다.
 - 에이전트 전용 key는 receipt를 읽지 못한다. receipt 조회는 세션을 가리키지 않아 에이전트를 확인할 수 없기 때문이다.
 - 에이전트 관리자는 에이전트를 만든 사람(과 0139 backfill), 그리고 `POST /v1/agents/{id}/admins`로 지정한 사람·팀이다.
-- b: 팀 목록·상세(`GET /v1/teams`)도 owner·admin만 본다. member는 자기가 든 팀을 API로 볼 수 없고, 추가 알림은 아직 receipt 기록뿐이다(화면·Slack 알림 없음).
+- b: 팀 목록·상세(`GET /v1/teams`)는 owner·admin만 본다. member는 `GET /v1/my-teams`로 자기가 든 팀의 `id`·`name`만 본다(다른 팀원 없음, 94S-619). 추가 알림은 아직 receipt 기록뿐이다(Slack 알림 없음).
 - f: 본문 검증(`400`)은 판정보다 먼저라 판정 행을 남기지 않는다. 해제한 연결을 다시 `DELETE`하면 `404`다.
 - g: 연결은 확인된(`verified`) 설치에만 된다. `registerSlackInstallation`만 하고 `verifySlackInstallation`을 빠뜨리면 `409 SLACK_NOT_INSTALLED`, 해석은 `installation_unverified`다. 같은 team·app을 다른 bot으로 다시 확인하면 연결은 남아 있어도 해석은 `bot_mismatch`다.
 - e: 감사 열람 사유가 없으면 본문 검증(`400`)에서 끝나 판정 행이 없다. 판정의 `justification_required`(`403`)는 사유 없는 인수(`POST /v1/sessions/{id}/takeover` 빈 본문)에서 본다. member의 감사 열람은 범위 밖이면 `404`, 범위 안이면 `403` `role`이다.

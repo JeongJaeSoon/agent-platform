@@ -3,6 +3,7 @@ import type {
   AgentAdminKind,
 } from "@agent-platform/contracts";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import {
@@ -310,5 +311,66 @@ function AdminList({
         </ReasonButton>
       </form>
     </>
+  );
+}
+
+/**
+ * The agents the viewer was named admin of. Owners and admins hold the right
+ * on every agent, so a list of some would mislead them and they get nothing.
+ */
+export function AdministeredAgents({
+  showEmpty,
+}: {
+  /** Off where an empty section would only be noise (home). */
+  readonly showEmpty: boolean;
+}) {
+  const { t } = useI18n();
+  const { client } = useServices();
+  const everywhere = useHasPermission("agent.admin.manage");
+  const administered = useQuery({
+    ...administeredAgentsQuery(client),
+    enabled: !everywhere,
+  });
+  const titleId = useId();
+  if (everywhere || administered.isPending) return null;
+  const items = administered.data?.items ?? [];
+  if (!administered.error && items.length === 0 && !showEmpty) return null;
+
+  return (
+    <section className="web-section" aria-labelledby={titleId}>
+      <h2 id={titleId}>{t("agentAdmins.mine.title")}</h2>
+      {administered.error ? (
+        <p className="web-form__error" role="alert">
+          {t(errorKey((administered.error as ApiError).code))}
+        </p>
+      ) : items.length === 0 ? (
+        <p className="web-page__empty">{t("agentAdmins.mine.empty")}</p>
+      ) : (
+        <>
+          <p className="web-field__hint">{t("agentAdmins.mine.intro")}</p>
+          <ul className="web-list">
+            {items.map((agent) => (
+              <li key={agent.id} className="web-list__item">
+                <Link
+                  to="/agents/$id"
+                  params={{ id: agent.id }}
+                  className="web-table__primary"
+                >
+                  {agent.name}
+                </Link>
+                <span className="web-table__secondary">{agent.slug}</span>
+              </li>
+            ))}
+          </ul>
+          {items.length >= ADMINISTERED_LIST_LIMIT ? (
+            <p className="web-field__hint">
+              {t("agentAdmins.mine.truncated", {
+                count: ADMINISTERED_LIST_LIMIT,
+              })}
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }
