@@ -795,6 +795,9 @@ export const pushRequests = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     pushError: jsonb("push_error"),
     pushReceiptId: uuid("push_receipt_id").references(() => receipts.id),
+    repositoryBinding: text("repository_binding"),
+    pushAttempts: integer("push_attempts").notNull().default(0),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   },
   (table) => [
     check(
@@ -829,6 +832,9 @@ export const pushRequests = pgTable(
     index("push_requests_approved_idx")
       .on(table.createdAt)
       .where(sql`${table.state} = 'approved'`),
+    index("push_requests_pushing_lease_idx")
+      .on(table.leaseExpiresAt)
+      .where(sql`${table.state} = 'pushing'`),
   ],
 );
 

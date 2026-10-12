@@ -184,6 +184,11 @@ export type PushSourceResult =
   | { status: "none" }
   | { reason: string; status: "unavailable" };
 
+export type PushBundlesResult =
+  /** The bundle files, oldest first, each hashed to its manifest digest. */
+  | { files: string[]; status: "ready" }
+  | { reason: string; status: "unavailable" };
+
 export type CheckpointServiceDependencies = {
   /** Manifest codecs by engine name. */
   codecs: Readonly<Record<string, CheckpointCodec>>;
@@ -1452,6 +1457,69 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         revision: pointer.revision,
         gitCommit: verdict.manifest.workspace.gitCommit,
       };
+    },
+
+    /**
+     * Writes the bundle chain of a pinned revision into `directory`, for the
+     * platform's push of that revision's commit. The revision is judged again
+     * in full, as a restore of an earlier revision is, and must still carry
+     * `gitCommit`; each file is then hashed against its manifest digest as it
+     * is written. The caller owns `directory` and removes it.
+     */
+    async spoolPushBundles(input: {
+      directory: string;
+      gitCommit: string;
+      revision: number;
+      sessionId: string;
+    }): Promise<PushBundlesResult> {
+      const unavailable = (reason: string): PushBundlesResult => ({
+        status: "unavailable",
+        reason,
+      });
+      const [row] = await store.listCheckpoints(input.sessionId, {
+        belowRevision: input.revision + 1,
+        limit: 1,
+      });
+      if (row?.revision !== input.revision) {
+        return unavailable(`no checkpoint row for revision ${input.revision}`);
+      }
+      const judged = await judgeEarlier(row, input.sessionId);
+      if (judged.verdict !== "verified") return unavailable(judged.reason);
+      const { workspace } = judged.manifest;
+      if (workspace.gitCommit !== input.gitCommit) {
+        return unavailable(
+          `revision ${input.revision} carries ${workspace.gitCommit}, not ${input.gitCommit}`,
+        );
+      }
+      const files: string[] = [];
+      let left = maxBundleBytes;
+      for (const [index, link] of chainOf(workspace).entries()) {
+        const path = join(input.directory, `push-${index}.bundle`);
+        const file = await open(path, "wx", 0o600);
+        let body: Awaited<ReturnType<typeof digestObject>>;
+        try {
+          body = await digestObject(
+            objects,
+            link.key,
+            link.version,
+            left,
+            (chunk) => writeFully(file, chunk),
+          );
+        } finally {
+          await file.close();
+        }
+        if (body === undefined || body.status === "over") {
+          return unavailable(`workspace bundle ${link.key} could not be read`);
+        }
+        if (body.sha256 !== link.sha256) {
+          return unavailable(
+            `workspace bundle ${link.key} hashes to ${body.sha256}, not ${link.sha256}`,
+          );
+        }
+        left -= body.bytes;
+        files.push(path);
+      }
+      return { status: "ready", files };
     },
 
     /**

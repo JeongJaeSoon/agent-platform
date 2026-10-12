@@ -18,6 +18,7 @@ import {
   catalogRevision,
   createInterruptService,
   createPendingRequestService,
+  createPushExecutor,
   createPushRequestService,
   createSessionService,
   createUsageService,
@@ -54,6 +55,7 @@ import {
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
 import { forgesOf } from "./forge-github.ts";
+import { createGitPusher } from "./git-push.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -180,10 +182,23 @@ const pendingRequests = createPendingRequestService({
   authorization: allowAllPolicy,
   store: createPostgresPendingRequests(db),
 });
+// One adapter per repository, shared by clone (the gateway) and push, so
+// both draw on one token cache.
+const forges = forgesOf(catalog, { logger });
+const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
-  store: createPostgresPushRequests(db),
+  store: pushStore,
   source: checkpoints.pushSource,
+  catalog,
 });
+const pushExecutor = createPushExecutor({
+  store: pushStore,
+  catalog,
+  forges,
+  bundles: checkpoints.pushSource,
+  pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
+  logger,
+}).start();
 const interrupts = createInterruptService({
   authorization: allowAllPolicy,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -199,7 +214,7 @@ const workers = createWorkerGateway({
     ? {}
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
-  forges: forgesOf(catalog, { logger }),
+  forges,
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,
@@ -325,6 +340,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         ? [server]
         : [server, authorizerListener],
       [
+        { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },

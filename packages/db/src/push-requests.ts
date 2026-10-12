@@ -37,6 +37,8 @@ function publicPushRequest(row: Row): PushRequest {
     decision_reason: row.decisionReason,
     request_receipt_id: row.requestReceiptId,
     decision_receipt_id: row.decisionReceiptId,
+    finished_at: row.finishedAt?.toISOString() ?? null,
+    push_receipt_id: row.pushReceiptId,
   };
 }
 
@@ -215,6 +217,7 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             ownerId: input.ownerId,
             sessionId,
             repositoryId: input.repositoryId,
+            repositoryBinding: input.repositoryBinding,
             checkpointRevision: input.checkpointRevision,
             gitCommit: input.gitCommit,
             targetBranch,
@@ -385,14 +388,19 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
       });
     },
 
-    async claimNextApproved(): Promise<PushJob | null> {
+    async claimNextApproved(leaseMs): Promise<PushJob | null> {
       const [row] = await db
         .update(pushRequests)
-        .set({ state: "pushing", pushStartedAt: sql`now()` })
+        .set({
+          state: "pushing",
+          pushStartedAt: sql`now()`,
+          pushAttempts: sql`${pushRequests.pushAttempts} + 1`,
+          leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
+        })
         .where(
           eq(
             pushRequests.id,
-            sql`(SELECT ${pushRequests.id} FROM ${pushRequests} WHERE ${pushRequests.state} = 'approved' ORDER BY ${pushRequests.createdAt} LIMIT 1 FOR UPDATE SKIP LOCKED)`,
+            sql`(SELECT ${pushRequests.id} FROM ${pushRequests} WHERE ${pushRequests.state} = 'approved' OR (${pushRequests.state} = 'pushing' AND (${pushRequests.leaseExpiresAt} IS NULL OR ${pushRequests.leaseExpiresAt} < now())) ORDER BY ${pushRequests.createdAt} LIMIT 1 FOR UPDATE SKIP LOCKED)`,
           ),
         )
         .returning();
@@ -402,26 +410,31 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         ownerId: row.ownerId,
         sessionId: row.sessionId,
         repositoryId: row.repositoryId,
+        repositoryBinding: row.repositoryBinding,
         checkpointRevision: row.checkpointRevision,
         gitCommit: row.gitCommit,
         targetBranch: row.targetBranch,
+        attempt: row.pushAttempts,
       };
     },
 
-    finish(pushRequestId, outcome) {
+    finish(job, outcome) {
       return db.transaction(async (tx) => {
         const [row] = await tx
           .select()
           .from(pushRequests)
           .where(
             and(
-              eq(pushRequests.id, pushRequestId),
+              eq(pushRequests.id, job.id),
               eq(pushRequests.state, "pushing"),
+              eq(pushRequests.pushAttempts, job.attempt),
             ),
           )
           .limit(1)
           .for("update");
         if (!row) return false;
+        const pushed = outcome.state === "pushed";
+        const error = pushed ? null : PUSH_REFUSAL_ERRORS[outcome.refusal];
         const receiptId = randomUUID();
         await tx.insert(receipts).values({
           id: receiptId,
@@ -432,20 +445,27 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
             turn_id: null,
             request_id: row.id,
           },
-          status: outcome.state === "pushed" ? "succeeded" : "failed",
-          result: resultOf(row, {
-            decision: null,
-            verdict: outcome.state === "pushed" ? "allow" : "refuse",
-            refusal: null,
-          }),
-          error: outcome.state === "failed" ? outcome.error : null,
+          status: pushed ? "succeeded" : "failed",
+          result: {
+            ...resultOf(row, {
+              decision: null,
+              verdict: pushed ? "allow" : "refuse",
+              refusal: pushed ? null : outcome.refusal,
+            }),
+            remote_url: outcome.remoteUrl ?? null,
+            remote_ref: outcome.remoteRef ?? null,
+            previous_commit: pushed ? outcome.previousCommit : null,
+            approved_by: (row.decidedBy as ReceiptActor | null) ?? null,
+          } satisfies PushReceiptResult,
+          error,
         });
         await tx
           .update(pushRequests)
           .set({
             state: outcome.state,
             finishedAt: sql`now()`,
-            pushError: outcome.state === "failed" ? outcome.error : null,
+            leaseExpiresAt: null,
+            pushError: error,
             pushReceiptId: receiptId,
           })
           .where(eq(pushRequests.id, row.id));
