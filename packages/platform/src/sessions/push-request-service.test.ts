@@ -79,4 +79,54 @@ describe("push request decisions", () => {
     expect(bodyRead).toBe(false);
     expect(decided).toEqual([]);
   });
+
+  test("an uppercase session id reads the checkpoint and records receipts under the stored id", async () => {
+    const read: string[] = [];
+    const refusals: PushRefusalRecord[] = [];
+    const push = createPushRequestService({
+      store: {
+        findSession: async () => ({ repositoryId: "sample-app" }),
+        recordRefusal: async (input: PushRefusalRecord) => {
+          refusals.push(input);
+          return "receipt-1";
+        },
+      } as unknown as PushRequestStore,
+      source: {
+        readPushSource: async (sessionId) => {
+          read.push(sessionId);
+          return { status: "none" };
+        },
+      },
+    });
+    const actor = {
+      principal: {
+        kind: "api_key",
+        id: "key-1",
+        owner_id: "owner-a",
+        scopes: [],
+      } as unknown as Principal,
+      ownerId: "owner-a",
+      verified: true,
+    };
+    const session = "aaaaaaaa-1111-4111-8111-bbbbbbbbbbbb";
+    const pushId = "cccccccc-2222-4222-8222-dddddddddddd";
+    await push
+      .create(actor, session.toUpperCase(), { idempotencyKey: "k-1" })
+      .catch(() => {});
+    await push
+      .decide(actor, session.toUpperCase(), pushId.toUpperCase(), {
+        idempotencyKey: "k-2",
+        readBody: async () => ({
+          decision: "reject",
+          git_commit: "a".repeat(40),
+        }),
+      })
+      .catch(() => {});
+    expect(read).toEqual([session]);
+    expect(refusals.map((refusal) => refusal.sessionId)).toEqual([
+      session,
+      session,
+    ]);
+    expect(refusals[1]?.result.push_request_id).toBe(pushId);
+  });
 });

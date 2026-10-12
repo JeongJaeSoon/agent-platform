@@ -85,10 +85,11 @@ export function createPushRequestService(deps: {
   return {
     async create(
       actor: PushActor,
-      sessionId: string,
+      rawSessionId: string,
       input: { idempotencyKey: string },
     ): Promise<PushRequest> {
       requireVerified(actor);
+      const sessionId = rawSessionId.toLowerCase();
       const refuse = async (
         refusal: PushRefusal,
         fields: { repository_id?: string } = {},
@@ -165,14 +166,16 @@ export function createPushRequestService(deps: {
 
     async decide(
       actor: PushActor,
-      sessionId: string,
-      pushRequestId: string,
+      rawSessionId: string,
+      rawPushRequestId: string,
       input: {
         idempotencyKey: string;
         readBody: () => Promise<DecidePushRequestRequest>;
       },
     ): Promise<PushRequest> {
       requireVerified(actor);
+      const sessionId = rawSessionId.toLowerCase();
+      const pushRequestId = rawPushRequestId.toLowerCase();
       const receiptActor = receiptActorOf(actor.principal);
       const refusal: PushRefusal | null = !(
         actor.principal.scopes as readonly string[]
