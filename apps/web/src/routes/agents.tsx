@@ -11,6 +11,7 @@ import {
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
+import { AdministeredAgents } from "../components/agent-admins.tsx";
 import {
   AgentCardFields,
   type CardDraft,
@@ -61,7 +62,10 @@ export function AgentsScreen() {
         <StatusScreen kind="loading" />
       ) : agents.error ? (
         isApiError(agents.error, "FORBIDDEN") ? (
-          <StatusScreen kind="forbidden" detail={agents.error.message} />
+          <>
+            <StatusScreen kind="forbidden" detail={agents.error.message} />
+            <AdministeredAgents showEmpty />
+          </>
         ) : (
           <p className="web-form__error" role="alert">
             {t(errorKey((agents.error as ApiError).code))}
