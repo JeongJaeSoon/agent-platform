@@ -33,6 +33,11 @@ export const RECEIPT_OPERATION_VALUES = [
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
+  // A push request, a human's decision on one (or a refused attempt at
+  // either), and the platform's push of an approved one.
+  "request_push",
+  "decide_push",
+  "push",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

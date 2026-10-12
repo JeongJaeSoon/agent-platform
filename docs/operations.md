@@ -450,6 +450,18 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 5. 세션이 `needs_input`이나 `completed`에 닿으면 `docker compose logs egress-proxy | grep '"purpose":"repository"'`에서 `status: 200`을 확인한다. `STARTUP_FAILED`면 위의 401·redirect 항목을 본다.
 6. `scripts/local.sh down`(같은 환경 변수로)으로 내리고 `unset APP_GITHUB_PAT`.
 
+### 세션 결과의 push 승인 (94S-628)
+
+세션의 결과는 worker가 아니라 플랫폼(API)이 push하고, 사람이 승인한 뒤에만 한다. 이 절은 요청과 승인까지다. 승인된 요청을 실제로 push하는 일은 94S-629가 한다. 그 전까지 승인된 요청은 `approved`에 머문다. API 사용법은 [api-guide 10절](api-guide.md#10-세션-결과의-push-요청과-승인거부)에 있다.
+
+- **고정하는 것:** 요청(`POST /v1/sessions/{id}/push-requests`, `sessions:write`)은 그때 세션의 checkpoint pointer가 가리키는 revision과, 검증된 manifest가 적은 `git_commit`을 고정한다. 저장소는 세션의 `repository_id`, 브랜치는 `agent/<session-id>`다. 요청자는 이 중 아무것도 고를 수 없다. 브랜치 규칙은 DB CHECK(`push_requests_target_branch_check`)도 지킨다. manifest가 검증되지 않으면 더 오래된 checkpoint로 대신하지 않고 거절한다.
+- **결정하는 사람:** 결정(`POST .../push-requests/{push_request_id}/decision`)에는 `sessions:approve`가 필요하다. 이 scope는 API의 scope 표가 아니라 push 서비스가 검사한다. 그래야 거절도 receipt로 남는다. 결정할 수 있는 principal은 API key와 로그인한 사용자뿐이다. 다른 종류(chat installation, 나중에 생길 에이전트 전용 key)는 목록에 넣기 전까지 거절된다. API key는 사람과 묶여 있지 않으므로 `sessions:approve` key는 사람만 갖게 발급한다. 자동화(CI 등)에는 주지 않는다.
+- **에이전트가 스스로 승인하지 못하는 이유:** worker가 가진 자격(launch nonce, session token)은 `/internal/worker` route에서만 통하고 `/v1`에서는 401이다. `AUTH_MODE=none`은 누구든 `X-Owner-Id`로 owner를 자칭할 수 있으므로, 이 모드에서는 push 요청 route가 모두 403(`refusal: unverified_principal`)이고 아무것도 기록하지 않는다.
+- **승인하는 commit:** 결정 body의 `git_commit`이 고정된 commit과 같아야 승인된다. 요청 뒤에 세션이 다시 checkpoint를 남겼으면(pointer revision이 다르면) 승인을 거절하고 요청은 `requested`에 남는다. 그 요청은 거부하고 새로 요청한다. 거부에는 이 검사가 없다.
+- **상태:** `requested` → `approved` | `rejected`(사람), `approved` → `pushing` → `pushed` | `failed`(플랫폼, 94S-629). 세션마다 열린 요청(`requested`·`approved`·`pushing`)은 하나다.
+- **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
+- **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`decide_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
+
 ### 자율 모드: `bypassPermissions`·`auto` (94S-621)
 
 profile의 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`·`auto` 중 하나다. 뒤의 둘이 자율 모드로, 도구 호출을 사람의 승인 없이 실행한다.

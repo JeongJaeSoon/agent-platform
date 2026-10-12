@@ -7,6 +7,7 @@ import type {
   IdentityStore,
   InterruptService,
   PendingRequestService,
+  PushRequestService,
   SessionService,
 } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
@@ -18,6 +19,7 @@ import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { requiredScope } from "./scope-policy.ts";
@@ -65,6 +67,7 @@ function appWithKey(scopes: readonly SessionScope[], calls: string[]) {
       registerSessionRoutes(router, sessions);
       registerReceiptRoutes(router, sessions);
       registerPendingRoutes(router, recorder<PendingRequestService>(calls));
+      registerPushRequestRoutes(router, recorder<PushRequestService>(calls));
       registerInterruptRoutes(router, recorder<InterruptService>(calls));
       registerPauseRoutes(router, sessions);
       registerEventRoutes(router, sessions, {
@@ -78,7 +81,8 @@ function appWithKey(scopes: readonly SessionScope[], calls: string[]) {
 function concrete(path: string): string {
   return path
     .replace("{id}", path.startsWith("/v1/receipts") ? RECEIPT : SESSION)
-    .replace("{turn_id}", TURN);
+    .replace("{turn_id}", TURN)
+    .replace("{push_request_id}", SESSION);
 }
 
 // Every declared route is served.

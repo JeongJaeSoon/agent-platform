@@ -847,6 +847,7 @@ export function createPostgresSessionReader(
         id: row.id,
         operation: row.operation,
         target_ref: target,
+        actor: row.actor ?? undefined,
         status: row.status,
         result: row.result ?? null,
         error: row.error ?? null,

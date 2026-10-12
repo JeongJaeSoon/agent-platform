@@ -49,6 +49,11 @@ export interface CheckpointCollectionStore
     sessionId: string,
   ): Promise<CheckpointCollectionFences | null>;
   /**
+   * Revisions an open push request (`requested`, `approved`, `pushing`)
+   * pinned: the platform pushes from them after the session has moved on.
+   */
+  readPushPinnedRevisions(sessionId: string): Promise<number[]>;
+  /**
    * Records that every committed revision up to `throughRevision`, other
    * than `keep`, is no longer restorable, before its objects go: a backup
    * then skips those rows instead of refusing over their missing objects.

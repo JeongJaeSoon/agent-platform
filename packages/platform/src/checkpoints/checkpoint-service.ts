@@ -179,6 +179,11 @@ export type RestorePlanResult =
       status: "incompatible";
     };
 
+export type PushSourceResult =
+  | { gitCommit: string; revision: number; status: "ready" }
+  | { status: "none" }
+  | { reason: string; status: "unavailable" };
+
 export type CheckpointServiceDependencies = {
   /** Manifest codecs by engine name. */
   codecs: Readonly<Record<string, CheckpointCodec>>;
@@ -1424,6 +1429,29 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         default:
           return { outcome: result.outcome, revision: result.revision };
       }
+    },
+
+    /**
+     * The commit a push of the session's latest checkpoint would carry. Only
+     * the pointer's own checkpoint counts: a push never falls back to an
+     * older revision the way a restore may.
+     */
+    async readPushSource(sessionId: string): Promise<PushSourceResult> {
+      const pointer = await store.readPointer(sessionId);
+      if (pointer === null) return { status: "none" };
+      const verdict = await judgeManifest({
+        checkpoint: checkpointRefOf(pointer),
+        sessionId,
+        verified: await verifiedRefs(sessionId),
+      });
+      if (verdict.status !== "verified") {
+        return { status: "unavailable", reason: verdict.reason };
+      }
+      return {
+        status: "ready",
+        revision: pointer.revision,
+        gitCommit: verdict.manifest.workspace.gitCommit,
+      };
     },
 
     /**
