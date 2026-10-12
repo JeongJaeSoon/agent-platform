@@ -5,6 +5,7 @@ import {
 } from "@agent-platform/execution-local-docker";
 import type { LaunchIntent } from "@agent-platform/platform";
 import {
+  checkoutDirOf,
   cpuQuantity,
   ENV,
   isolationStampFor,
@@ -50,6 +51,7 @@ type PodShape = {
       }>;
       resources: unknown;
       securityContext: unknown;
+      volumeMounts: unknown[];
       args?: string[];
     }>;
     restartPolicy: string;
@@ -129,6 +131,17 @@ describe("worker Pod", () => {
     ]);
   });
 
+  test("mounts the claim at workspaceDir and has the worker check out below it", () => {
+    expect(container.volumeMounts).toContainEqual({
+      mountPath: "/workspace",
+      name: "workspace",
+    });
+    expect(container.env).toContainEqual({
+      name: "WORKER_WORKSPACE_DIR",
+      value: "/workspace/repo",
+    });
+  });
+
   test("reads the nonce from its Secret and never holds it", () => {
     expect(JSON.stringify(pod)).not.toContain(NONCE);
     expect(container.env[0]).toEqual({
@@ -155,7 +168,8 @@ describe("worker Pod", () => {
         tmpfsSizeBytes: 1,
         user: config.user,
         workerLimits: config.workerLimits,
-        workspaceDir: config.workspaceDir,
+        // The checkout below the mount (CHECKOUT_DIRECTORY).
+        workspaceDir: checkoutDirOf(config),
         workspaceGcMinAgeMs: 0,
         workspaceQuota: { mode: "off" },
       },
