@@ -17,7 +17,7 @@ Docker 단일 서버 알파(`local-docker` 실행 기반, compose)는 그대로 
 | migrate Job | install·upgrade마다 1 | `pre-install,pre-upgrade` hook |
 | checkpoint GC CronJob | 주 1회 | `checkpointGc.schedule` |
 | 카탈로그 ConfigMap | 1 | `catalog.profiles`·`catalog.repositories` |
-| NetworkPolicy | 4 | worker는 egress-proxy와 클러스터 DNS에만 나간다 |
+| NetworkPolicy | 4 | worker는 egress-proxy로만 나간다 |
 | Ingress, ExternalSecret | 선택 | `ingress.enabled`, `secrets.externalSecret.enabled` |
 
 chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값, worker Pod(scheduler가 세션마다 만든다). kind에서는 `deploy/kind/deps.yaml`의 PostgreSQL·LocalStack이 대신한다.
