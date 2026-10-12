@@ -83,9 +83,6 @@ imagePullSecrets:
     secretKeyRef:
       name: {{ .root.Values.secrets.name }}
       key: {{ .key }}
-      {{- if .optional }}
-      optional: true
-      {{- end }}
 {{- end -}}
 
 {{/* The checkpoint object store settings the api and the checkpoint GC share. */}}
@@ -100,8 +97,10 @@ imagePullSecrets:
 - name: AWS_ENDPOINT_URL
   value: {{ . | quote }}
 {{- end }}
-{{ include "ap.secretEnv" (dict "root" . "key" "AWS_ACCESS_KEY_ID" "optional" true) }}
-{{ include "ap.secretEnv" (dict "root" . "key" "AWS_SECRET_ACCESS_KEY" "optional" true) }}
+{{- /* Required: the object store client takes these keys and no other
+credential source, so an IRSA role alone does not start the api. */}}
+{{ include "ap.secretEnv" (dict "root" . "key" "AWS_ACCESS_KEY_ID") }}
+{{ include "ap.secretEnv" (dict "root" . "key" "AWS_SECRET_ACCESS_KEY") }}
 {{- end -}}
 
 {{- define "ap.extraEnv" -}}
