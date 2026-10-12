@@ -57,6 +57,10 @@ export const pushRequestSchema = z.object({
   decision_reason: z.string().nullable(),
   request_receipt_id: receiptIdSchema,
   decision_receipt_id: receiptIdSchema.nullable(),
+  // Set once the platform's push ended, pushed or failed; its receipt says
+  // where the commit went or why it did not.
+  finished_at: timestampSchema.nullable(),
+  push_receipt_id: receiptIdSchema.nullable(),
 });
 
 export const createPushRequestRequestSchema = z.object({}).strict();
@@ -88,6 +92,14 @@ export const PUSH_REFUSAL_VALUES = [
   "already_decided",
   "checkpoint_moved",
   "commit_mismatch",
+  // The platform's push of an approved request.
+  "catalog_changed",
+  "target_refused",
+  "default_branch",
+  "non_fast_forward",
+  "no_push_credential",
+  "lease_expired",
+  "push_failed",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 
@@ -104,6 +116,12 @@ export const pushReceiptResultSchema = z.object({
   checkpoint_revision: revisionSchema.nullable(),
   git_commit: gitCommitShaSchema.nullable(),
   target_branch: z.string().nullable(),
+  // A `push` receipt only: where the commit went, what the ref held before,
+  // and who approved it.
+  remote_url: z.string().nullable().optional(),
+  remote_ref: z.string().nullable().optional(),
+  previous_commit: gitCommitShaSchema.nullable().optional(),
+  approved_by: receiptActorSchema.nullable().optional(),
 });
 
 export type PushRequestState = (typeof PUSH_REQUEST_STATE_VALUES)[number];

@@ -12,6 +12,7 @@ import {
   type PushRequestStore,
   type PushWriteResult,
 } from "../ports/push-requests.ts";
+import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import {
   idempotencyConflict,
   payloadHash,
@@ -75,8 +76,10 @@ function settled(result: PushWriteResult): PushRequest {
 export function createPushRequestService(deps: {
   store: PushRequestStore;
   source: PushSource;
+  /** Pins the repository entry the push must still match (94S-629). */
+  catalog: SessionCatalog;
 }) {
-  const { store, source } = deps;
+  const { store, source, catalog } = deps;
 
   function requireVerified(actor: PushActor) {
     if (!actor.verified) refused("unverified_principal", null);
@@ -127,6 +130,10 @@ export function createPushRequestService(deps: {
       }
       if (session.repositoryId === null) return refuse("no_repository");
       const repository = { repository_id: session.repositoryId };
+      const entry = Object.hasOwn(catalog.repositories, session.repositoryId)
+        ? catalog.repositories[session.repositoryId]
+        : undefined;
+      if (entry === undefined) return refuse("no_repository", repository);
       const pinned = await source.readPushSource(sessionId);
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
@@ -140,6 +147,7 @@ export function createPushRequestService(deps: {
           idempotencyKey: input.idempotencyKey,
           payloadHash: payloadHash({}),
           repositoryId: session.repositoryId,
+          repositoryBinding: repositoryBinding(session.repositoryId, entry),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
         }),
@@ -228,10 +236,6 @@ export function createPushRequestService(deps: {
         }),
       );
     },
-
-    claimNextApproved: () => store.claimNextApproved(),
-    finish: (...args: Parameters<PushRequestStore["finish"]>) =>
-      store.finish(...args),
   };
 }
 

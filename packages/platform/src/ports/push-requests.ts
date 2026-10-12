@@ -51,6 +51,36 @@ export const PUSH_REFUSAL_ERRORS: Record<
     code: "CHECKPOINT_MOVED",
     message: "git_commit is not the commit this request pinned",
   },
+  catalog_changed: {
+    code: "CATALOG_MISMATCH",
+    message:
+      "The catalog entry for the repository changed after the request pinned it; request a push again",
+  },
+  target_refused: {
+    code: "FORBIDDEN",
+    message: "The platform pushes only to agent/<session-id>",
+  },
+  default_branch: {
+    code: "FORBIDDEN",
+    message: "The target is the repository's default branch",
+  },
+  non_fast_forward: {
+    code: "REVISION_CONFLICT",
+    message:
+      "The remote branch holds a commit the pinned commit does not build on; the platform never force-pushes",
+  },
+  no_push_credential: {
+    code: "FORBIDDEN",
+    message: "The repository has no credential the platform can push with",
+  },
+  lease_expired: {
+    code: "LEASE_EXPIRED",
+    message: "The push was taken up and dropped too many times",
+  },
+  push_failed: {
+    code: "BACKEND_UNAVAILABLE",
+    message: "The repository host did not take the push",
+  },
 };
 
 export type PushOperation = "request_push" | "decide_push";
@@ -71,6 +101,8 @@ export type CreatePushRequestInput = {
   idempotencyKey: string;
   payloadHash: string;
   repositoryId: string;
+  /** `repositoryBinding` of the catalog entry when the request was made. */
+  repositoryBinding: string;
   checkpointRevision: number;
   gitCommit: string;
 };
@@ -99,14 +131,30 @@ export type PushJob = {
   ownerId: string;
   sessionId: string;
   repositoryId: string;
+  /** Null on a request made before the binding was pinned. */
+  repositoryBinding: string | null;
   checkpointRevision: number;
   gitCommit: string;
   targetBranch: string;
+  /** 1 on the first claim; each claim of an expired lease adds one. */
+  attempt: number;
 };
 
 export type PushOutcome =
-  | { state: "pushed" }
-  | { state: "failed"; error: { code: ApiErrorCode; message: string } };
+  | {
+      state: "pushed";
+      remoteUrl: string;
+      remoteRef: string;
+      /** What the remote ref held before, or null when it was created. */
+      previousCommit: string | null;
+    }
+  | {
+      state: "failed";
+      refusal: PushRefusal;
+      /** Set once the remote is known, so the receipt can name it. */
+      remoteUrl?: string;
+      remoteRef?: string;
+    };
 
 export interface PushRequestStore {
   /** null when the session is not visible to the owner. */
@@ -146,9 +194,17 @@ export interface PushRequestStore {
   decide(input: DecidePushRequestInput): Promise<PushWriteResult>;
   /**
    * approved → pushing for the oldest approved request no one else holds,
-   * or null. The pusher (94S-629) owns the row from here.
+   * or a `pushing` one whose lease ran out (its pusher died), or null. The
+   * claimer owns the row for `leaseMs`.
    */
-  claimNextApproved(): Promise<PushJob | null>;
-  /** pushing → pushed | failed, with a `push` receipt. False if not pushing. */
-  finish(pushRequestId: string, outcome: PushOutcome): Promise<boolean>;
+  claimNextApproved(leaseMs: number): Promise<PushJob | null>;
+  /**
+   * pushing → pushed | failed, with a `push` receipt. False when the row is
+   * no longer this attempt's: not pushing, or claimed again after its lease
+   * ran out.
+   */
+  finish(
+    job: Pick<PushJob, "id" | "attempt">,
+    outcome: PushOutcome,
+  ): Promise<boolean>;
 }
