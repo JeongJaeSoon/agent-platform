@@ -21,7 +21,9 @@ export type KubernetesBackendConfig = {
   /**
    * The egress proxy's Service, by name: the worker reaches it as
    * `HTTP(S)_PROXY`, and the NetworkPolicy the chart installs is what makes
-   * it the only route off the Pod.
+   * it the only route off the Pod. The backend resolves the name to the
+   * Service's one ClusterIP and writes it into the Pod's hosts file, since
+   * the Pod has no DNS.
    */
   egressProxyUrl: string;
   egressCredentialPort: number;

@@ -78,17 +78,32 @@ export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
  *
  * 1: non-root, read-only rootfs, dropped caps, RuntimeDefault seccomp, no
  *    ServiceAccount token, per-session PVC, nonce through a Secret.
+ * 2: no cluster DNS; the proxy's name reaches the Pod through hostAliases.
  */
-export const ISOLATION_CONTRACT = 1;
+export const ISOLATION_CONTRACT = 2;
+
+/**
+ * The resolver a worker Pod is given: nothing listens there, so a lookup
+ * the hosts file cannot answer fails at once instead of timing out against
+ * a cluster DNS the NetworkPolicy blocks.
+ */
+export const WORKER_NAMESERVER = "127.0.0.1";
 
 /**
  * The contract version and a fingerprint of the settings that shape a
  * Pod's boundary. CPU and memory stay out on purpose, as in the Docker
  * backend: they belong to the launch and are checked by its launch spec.
+ * The proxy's address is in it because a Pod only knows the address it was
+ * created with: a proxy Service recreated under a new ClusterIP leaves
+ * every older Pod without a route, so they read as stale and are replaced.
  */
-export function isolationStampFor(config: KubernetesBackendConfig): string {
+export function isolationStampFor(
+  config: KubernetesBackendConfig,
+  proxyAddress: string,
+): string {
   const shape = JSON.stringify([
     config.egressProxyUrl,
+    proxyAddress,
     config.egressCredentialPort,
     config.homeDir,
     NO_PROXY_VALUE,
@@ -175,12 +190,16 @@ export function cpuQuantity(cpus: number): string {
  * `pidsLimit` has no Pod-level field — the bound is the node kubelet's
  * `podPidsLimit`, which the node pool has to set. It stays in the launch
  * spec, so a changed limit still marks a running Pod as another spec.
+ *
+ * `proxyAddress` is the proxy Service's ClusterIP: the Pod resolves the
+ * proxy's name from its hosts file and asks no DNS server anything.
  */
 export function podFor(
   config: KubernetesBackendConfig,
   intent: LaunchIntent,
   secretName: string,
   bootstrapFingerprint: string,
+  proxyAddress: string,
 ): Record<string, unknown> {
   const { cpus, memoryBytes, pidsLimit } = intent.resources;
   if (!Number.isSafeInteger(memoryBytes) || memoryBytes < 1) {
@@ -201,7 +220,7 @@ export function podFor(
     metadata: {
       annotations: {
         [ANNOTATIONS.bootstrapFingerprint]: bootstrapFingerprint,
-        [ANNOTATIONS.isolation]: isolationStampFor(config),
+        [ANNOTATIONS.isolation]: isolationStampFor(config, proxyAddress),
         ...(intent.launchSpec === null
           ? {}
           : { [ANNOTATIONS.launchSpec]: intent.launchSpec }),
@@ -243,9 +262,14 @@ export function podFor(
           ],
         },
       ],
+      // Name lookups are a way out too (a DNS tunnel through the cluster
+      // resolver), so the Pod gets no resolver at all.
+      dnsConfig: { nameservers: [WORKER_NAMESERVER] },
+      dnsPolicy: "None",
       // Service env vars would hand the worker every Service in the
       // namespace; it is told the two it needs.
       enableServiceLinks: false,
+      hostAliases: [{ hostnames: [proxyHostOf(config)], ip: proxyAddress }],
       ...(config.imagePullSecrets.length === 0
         ? {}
         : {
@@ -364,11 +388,17 @@ export function egressCredentialUrlOf(
   return url.toString().replace(/\/$/, "");
 }
 
+export function proxyHostOf(
+  config: Pick<KubernetesBackendConfig, "egressProxyUrl">,
+): string {
+  return new URL(config.egressProxyUrl).hostname;
+}
+
 /** Plus the proxy's own name: its credential routes are reached directly. */
 export function noProxyValueFor(
   config: Pick<KubernetesBackendConfig, "egressProxyUrl">,
 ): string {
-  return `${NO_PROXY_VALUE},${new URL(config.egressProxyUrl).hostname}`;
+  return `${NO_PROXY_VALUE},${proxyHostOf(config)}`;
 }
 
 type EnvVar =
