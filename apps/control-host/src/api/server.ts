@@ -66,6 +66,7 @@ import {
   DEFAULT_CONFIG_DIR,
   loadSessionCatalog,
   secretsManagerReader,
+  unattendedProfiles,
 } from "./catalog-config.ts";
 import {
   assertCheckpointBucketEncryption,
@@ -157,6 +158,12 @@ logger.info("Session catalog loaded", {
   profiles: Object.keys(catalog.profiles).length,
   repositories: Object.keys(catalog.repositories).length,
 });
+const unattended = unattendedProfiles(catalog);
+if (unattended.length > 0) {
+  logger.warn("Profiles run tools without asking for approval", {
+    profiles: unattended,
+  });
+}
 
 // Checked before the pool exists: a bucket that is missing is a startup
 // error, not a warning, unless the operator said there is none.

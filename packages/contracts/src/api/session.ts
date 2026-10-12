@@ -78,6 +78,15 @@ export const PERMISSION_MODE_VALUES = [
   "acceptEdits",
   "dontAsk",
   "plan",
+  "bypassPermissions",
+  "auto",
+] as const;
+// Modes in which no tool call waits for a person (`auto` lets a model
+// classifier decide instead). The API starts a catalog
+// naming one only when the installation opts in (docs/operations.md).
+export const UNATTENDED_PERMISSION_MODES = [
+  "bypassPermissions",
+  "auto",
 ] as const;
 
 export const sessionStatusSchema = z.enum(SESSION_STATUS_VALUES);
@@ -94,6 +103,16 @@ export const sessionRuntimeSchema = z.object({
   kind: runtimeKindSchema,
   version: z.string().min(1),
   profile_id: z.string().min(1),
+});
+// The worker protocol carries the model in runtime_config instead.
+export const sessionRuntimeViewSchema = sessionRuntimeSchema.extend({
+  model: z.string().min(1).meta({
+    description:
+      "The model the session runs: the one named at create, or the profile's default.",
+  }),
+  // Fixed with the session: changing it in the catalog makes the session
+  // CATALOG_MISMATCH rather than run under the new one.
+  permission_mode: permissionModeSchema,
 });
 export const executionObservationSchema = z.object({
   backend: executionBackendSchema,
@@ -198,7 +217,7 @@ export const sessionSummarySchema = z.object({
   // What the catalog says the session's profile runs, or null when it cannot
   // say: a legacy row with no profile key, or a key the catalog no longer
   // has (detail reports CATALOG_MISMATCH). Never an estimate.
-  runtime: sessionRuntimeSchema.nullable(),
+  runtime: sessionRuntimeViewSchema.nullable(),
   // Catalog key only. Sessions created before the catalog existed (M0
   // legacy rows) carry no key and surface null; the stored repo URL is
   // never exposed because it may embed credentials.
@@ -243,6 +262,10 @@ export const createSessionRequestSchema = z
     // to that agent, and an agent's key may create it. The run itself still
     // follows profile_id, which has to be the release's profile.
     agent_release_id: agentReleaseIdSchema.optional(),
+    model: z.string().min(1).optional().meta({
+      description:
+        "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs.",
+    }),
   })
   .strict();
 export const createSessionResponseSchema = z.object({
@@ -271,6 +294,7 @@ export type RuntimeKind = z.infer<typeof runtimeKindSchema>;
 export type ExecutionBackend = z.infer<typeof executionBackendSchema>;
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export type SessionRuntime = z.infer<typeof sessionRuntimeSchema>;
+export type SessionRuntimeView = z.infer<typeof sessionRuntimeViewSchema>;
 export type ExecutionObservation = z.infer<typeof executionObservationSchema>;
 export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;

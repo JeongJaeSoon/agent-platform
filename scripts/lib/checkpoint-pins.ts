@@ -29,9 +29,9 @@ import {
 } from "@agent-platform/contracts";
 import {
   allowedPair,
-  profileFingerprint,
   runtimeConfigOf,
   type SessionCatalog,
+  sessionProfile,
 } from "@agent-platform/platform";
 import type {
   CheckpointCodec,
@@ -183,17 +183,15 @@ export function sessionClaim(
       `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in the catalog`,
     );
   }
-  if (
-    session.profileFingerprint !== null &&
-    profileFingerprint(pair.profile) !== session.profileFingerprint
-  ) {
+  const profile = sessionProfile(pair.profile, session.profileFingerprint);
+  if (profile === null) {
     throw new Error(
       `profile ${session.profileId} has other settings in the catalog than the session was created with`,
     );
   }
   return {
     principal: { owner_scope: session.ownerId },
-    runtime_config: runtimeConfigOf(pair.profile, "verify-restore-stand-in"),
+    runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
   };
 }
 
@@ -223,10 +221,11 @@ export function earlierProfileClaims(
 ): [key: string, claim: ReturnType<typeof sessionClaim>][] {
   return earlier
     .flatMap(({ profileId, profileFingerprint: made }) => {
-      const profile = Object.hasOwn(catalog.profiles, profileId)
+      const listed = Object.hasOwn(catalog.profiles, profileId)
         ? catalog.profiles[profileId]
         : undefined;
-      if (!profile || profileFingerprint(profile) !== made) return [];
+      const profile = listed ? sessionProfile(listed, made) : null;
+      if (!profile) return [];
       return [
         [
           earlierProfileKey(session.id, profileId),

@@ -9,6 +9,7 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   profileFingerprint,
+  profileWithModel,
   type SessionCatalog,
   type SessionControl,
   type SessionDetailRecord,
@@ -44,7 +45,7 @@ const sonnet: SessionCatalog["profiles"][string] = {
 const haiku = { ...sonnet, model: "claude-haiku-5" };
 const catalog: SessionCatalog = {
   profiles: {
-    "coding-sonnet": sonnet,
+    "coding-sonnet": { ...sonnet, models: ["claude-opus-5"] },
     "coding-haiku": haiku,
     "coding-next-runtime": { ...sonnet, runtime_version: "0.4.0" },
     "coding-local": {
@@ -194,6 +195,28 @@ describe("POST /v1/sessions/{id}/profile", () => {
         fingerprint: profileFingerprint(haiku),
         unmetered: false,
       },
+    });
+  });
+
+  test("a session created on another of its profile's models changes too, onto the new profile's default model", async () => {
+    const onOpus = profileWithModel(
+      catalog.profiles["coding-sonnet"] as SessionCatalog["profiles"][string],
+      "claude-opus-5",
+    );
+    if (!onOpus) throw new Error("coding-sonnet offers claude-opus-5");
+    const { seen, atomic } = capturing(settled(crypto.randomUUID()));
+    const response = await change(
+      { expected_revision: 7, profile_id: "coding-haiku" },
+      atomic,
+      {},
+      path,
+      { ...record, profile_fingerprint: profileFingerprint(onOpus) },
+    );
+    expect(response.status).toBe(200);
+    expect(seen[0]?.profile).toEqual({
+      id: "coding-haiku",
+      fingerprint: profileFingerprint(haiku),
+      unmetered: false,
     });
   });
 

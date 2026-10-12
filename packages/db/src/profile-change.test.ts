@@ -74,7 +74,12 @@ const HAIKU = profile("claude-haiku-5", "https://haiku.invalid");
 const OPUS = profile("claude-opus-5", "https://opus.invalid");
 const LOCAL = profile("local-model", "http://10.0.0.5:4000", "none");
 const CATALOG: SessionCatalog = {
-  profiles: { sonnet: SONNET, haiku: HAIKU, opus: OPUS, local: LOCAL },
+  profiles: {
+    sonnet: { ...SONNET, models: ["claude-sonnet-5-long"] },
+    haiku: HAIKU,
+    opus: OPUS,
+    local: LOCAL,
+  },
   repositories: {
     app: { ...REPOSITORY, profiles: ["sonnet", "haiku", "opus", "local"] },
   },
@@ -124,10 +129,15 @@ const gateway = (): WorkerGateway =>
     },
   });
 
-async function createSession(profileId = "sonnet") {
+async function createSession(profileId = "sonnet", model?: string) {
   const created = await service().createSession(OWNER, {
     idempotencyKey: crypto.randomUUID(),
-    body: { profile_id: profileId, repository_id: "app", message: "first" },
+    body: {
+      profile_id: profileId,
+      repository_id: "app",
+      message: "first",
+      ...(model ? { model } : {}),
+    },
   });
   return created.session_id;
 }
@@ -357,6 +367,25 @@ describe("changing a session's profile", () => {
       purpose: "provider",
     });
     expect(grant.upstream.url).toBe("https://haiku.invalid");
+  });
+
+  test("a session created on another of its profile's models changes profile and restores under the model it ran", async () => {
+    const sessionId = await createSession("sonnet", "claude-sonnet-5-long");
+    const g = gateway();
+    const claimed = await claim(g, sessionId);
+    expect(claimed.runtime_config.model).toBe("claude-sonnet-5-long");
+    await commitCheckpoint(sessionId, claimed, 0);
+    await changeProfile(sessionId, "haiku", await revisionOf(sessionId));
+    await release(sessionId, claimed);
+
+    const next = await claim(g, sessionId);
+    expect(next.runtime_config.model).toBe("claude-haiku-5");
+    expect(
+      next.restore_runtime_configs?.map((config) => [
+        config.model,
+        config.provider.endpoint,
+      ]),
+    ).toEqual([["claude-sonnet-5-long", "https://sonnet.invalid"]]);
   });
 
   test("a checkpoint 0144 backfilled without a fingerprint takes the one the session ran before the change", async () => {

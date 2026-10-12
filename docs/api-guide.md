@@ -69,7 +69,7 @@ OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
 
 **목적.** 실행 profile과 repository를 명시해 세션과 첫 turn을 내구적으로 접수한다.
 
-**순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다.
+**순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다. 선택 필드 `model`로 profile이 허용한 모델(카탈로그의 `model`이나 `models`) 중 하나를 고를 수 있다. 생략하면 profile의 기본 `model`로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다. 세션의 profile을 바꾸면(`POST /v1/sessions/{id}/profile`) 그 뒤로는 새 profile의 기본 `model`로 돈다.
 
 ```bash
 CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide > api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \

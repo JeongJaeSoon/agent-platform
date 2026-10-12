@@ -7,12 +7,15 @@ import {
   environmentCredentials,
   isUnmetered,
   profileFingerprint,
+  profileModels,
+  profileWithModel,
   providerUpstreamOf,
   repositoryBinding,
   repositoryUpstreamOf,
   resolveSessionCatalog,
   runtimeProviderOf,
   sessionCatalogConfigSchema,
+  sessionProfile,
 } from "./catalog.ts";
 
 // What an operator writes: the credential is a reference, never a value.
@@ -541,5 +544,43 @@ describe("allowedPair", () => {
     // Prototype keys are not entries.
     expect(allowedPair(catalog, "p", "__proto__")).toBeNull();
     expect(allowedPair(catalog, "constructor", "app")).toBeNull();
+  });
+});
+
+describe("models a session may name", () => {
+  const offering = (models: unknown) =>
+    load(config({ ...configured, models })).profiles.p as CatalogProfile;
+  const bare = () => load(config()).profiles.p as CatalogProfile;
+
+  test("the list is optional, never empty, and the default always comes first", () => {
+    expect(() => offering([])).toThrow("models");
+    expect(() => offering([""])).toThrow("models");
+    expect(profileModels(bare())).toEqual(["claude-sonnet-5"]);
+    expect(
+      profileModels(offering(["claude-opus-5-5", "claude-sonnet-5"])),
+    ).toEqual(["claude-sonnet-5", "claude-opus-5-5"]);
+  });
+
+  test("the list is not part of what a session is pinned to", () => {
+    const listed = offering(["claude-opus-5-5"]);
+    expect(profileFingerprint(listed)).toBe(profileFingerprint(bare()));
+    expect(profileWithModel(listed)).toEqual(bare());
+  });
+
+  test("a session runs only a model the profile offers, under its own fingerprint", () => {
+    const listed = offering(["claude-opus-5-5"]);
+    const opus = profileWithModel(listed, "claude-opus-5-5");
+    expect(opus?.model).toBe("claude-opus-5-5");
+    expect(opus && "models" in opus).toBe(false);
+    expect(profileWithModel(listed, "claude-fable-5-1")).toBeNull();
+    expect(profileWithModel(bare(), "claude-opus-5-5")).toBeNull();
+    if (!opus) throw new Error("unreachable");
+    const pinned = profileFingerprint(opus);
+    expect(pinned).not.toBe(profileFingerprint(bare()));
+    expect(sessionProfile(listed, pinned)).toEqual(opus);
+    // Off the list, the session's model is no longer there to run.
+    expect(sessionProfile(bare(), pinned)).toBeNull();
+    // A row from before the pin runs the default.
+    expect(sessionProfile(listed, null)).toEqual(bare());
   });
 });

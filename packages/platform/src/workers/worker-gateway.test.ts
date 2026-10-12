@@ -410,6 +410,7 @@ describe("WorkerGateway", () => {
       leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
       leaseRemainingMs: 29_950,
       profileId: "claude-coding-v1",
+      profileFingerprint: null,
       unmetered: false,
       ownerScope: "owner-a",
       repository: {
@@ -558,6 +559,7 @@ describe("WorkerGateway", () => {
       egress.bindingsOf({
         id: "s-1",
         profileId: "claude-coding-v1",
+        profileFingerprint: null,
         repositoryId: "sample-app",
       }),
     ).toEqual({
@@ -1749,6 +1751,7 @@ describe("unmetered sessions", () => {
               leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
               leaseRemainingMs: 30_000,
               profileId: "local",
+              profileFingerprint: null,
               unmetered,
               ownerScope: "owner-a",
               repository: {
