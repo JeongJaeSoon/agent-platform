@@ -34,6 +34,11 @@ serviceAccounts:
 config:
   checkpoints:
     bucket: agent-platform-prod-checkpoints
+  egress:
+    # Workers' checkpoint uploads and restores go through the credential
+    # route to the bucket's virtual-hosted endpoint (path-style
+    # s3.<region>.amazonaws.com when the bucket name has a dot).
+    credentialAllowlist: "api.anthropic.com:443,agent-platform-prod-checkpoints.s3.ap-northeast-1.amazonaws.com:443"
 
 worker:
   storageClass: gp3
