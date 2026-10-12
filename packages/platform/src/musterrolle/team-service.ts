@@ -1,6 +1,7 @@
 import {
   type CreateTeamRequest,
   type DeleteTeamResponse,
+  type ListMyTeamsResponse,
   type ListTeamsResponse,
   TEAM_LIST_LIMIT,
   type TeamChangeResponse,
@@ -127,6 +128,30 @@ export function createTeamService(deps: {
       await manager(caller);
       const items = await store.list(caller.ownerId, TEAM_LIST_LIMIT);
       return { items: items.map(teamView) };
+    },
+
+    // Reading one's own membership asks no policy, as with administered agents.
+    async listMyTeams(caller: Caller): Promise<ListMyTeamsResponse> {
+      const userId = caller.actor?.userId;
+      const workspaceId = caller.actor?.workspaceId;
+      if (
+        caller.subject.principal?.kind !== "user" ||
+        !userId ||
+        !workspaceId
+      ) {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "Only a signed-in person belongs to a team",
+          undefined,
+          { reason_code: "role" },
+        );
+      }
+      const items = await store.listJoined(
+        workspaceId,
+        userId,
+        TEAM_LIST_LIMIT,
+      );
+      return { items: items.map(({ id, name }) => ({ id, name })) };
     },
 
     async getTeam(caller: Caller, teamId: string): Promise<TeamDetailView> {

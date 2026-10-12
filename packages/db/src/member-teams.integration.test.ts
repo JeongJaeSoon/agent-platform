@@ -286,6 +286,40 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     ]);
   });
 
+  test("a person's joined teams are the live teams they are in now", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const mine = await person(workspaceId, "member");
+    const other = await person(workspaceId, "member");
+    const kept = await newTeam(owner, "b-kept");
+    const left = await newTeam(owner, "c-left");
+    const deleted = await newTeam(owner, "a-deleted");
+    const theirs = await newTeam(owner, "d-theirs");
+    for (const team of [kept, left, deleted])
+      await member(owner, team.id, mine);
+    await member(owner, theirs.id, other);
+    await member(owner, left.id, mine, false);
+    await teams().delete({
+      actor: acting(owner),
+      receiptId: randomUUID(),
+      teamId: deleted.id,
+    });
+
+    const joined = (caller: Caller) =>
+      teams().listJoined(workspaceId, idOf(caller), 50);
+    expect(await joined(mine)).toEqual([{ id: kept.id, name: "b-kept" }]);
+    expect(await joined(other)).toEqual([{ id: theirs.id, name: "d-theirs" }]);
+    expect(await teams().listJoined(await workspace(), idOf(mine), 50)).toEqual(
+      [],
+    );
+
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, idOf(mine)));
+    expect(await joined(mine)).toEqual([]);
+  });
+
   test("adding a member queues behind a suspension of them instead of deadlocking it", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

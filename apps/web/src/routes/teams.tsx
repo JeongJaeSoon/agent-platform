@@ -21,6 +21,7 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { TextField } from "../components/field.tsx";
+import { MyTeams } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -125,6 +126,7 @@ export function TeamsScreen() {
           </ul>
         )}
       </section>
+      {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
     </div>
   );
 }

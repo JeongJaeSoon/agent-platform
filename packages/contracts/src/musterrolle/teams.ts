@@ -141,6 +141,18 @@ export const listAdministeredAgentsResponseSchema = z
   .object({ items: z.array(agentSchema).max(TEAM_LIST_LIMIT) })
   .strict();
 
+/**
+ * The teams the caller belongs to now. Names only: who else is in a team is
+ * for the people who manage teams (D23).
+ */
+export const listMyTeamsResponseSchema = z
+  .object({
+    items: z
+      .array(z.object({ id: teamIdSchema, name: teamNameSchema }).strict())
+      .max(TEAM_LIST_LIMIT),
+  })
+  .strict();
+
 export type TeamView = z.infer<typeof teamViewSchema>;
 export type TeamMemberView = z.infer<typeof teamMemberViewSchema>;
 export type TeamDetail = z.infer<typeof teamDetailSchema>;
@@ -159,3 +171,4 @@ export type AgentAdminChangeResponse = z.infer<
 export type ListAdministeredAgentsResponse = z.infer<
   typeof listAdministeredAgentsResponseSchema
 >;
+export type ListMyTeamsResponse = z.infer<typeof listMyTeamsResponseSchema>;

@@ -1188,6 +1188,31 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
+  // A null entry leaves the variable out of the container, so the API
+  // generates its own token; an empty string would stop it from starting.
+  test(
+    "the test-ops env file's BOOTSTRAP_TOKEN reaches the API alone, and stays unset without one",
+    () => {
+      const token = `bootstrap-${crypto.randomUUID()}`;
+      for (const [variables, expected] of [
+        [{}, null],
+        [{ BOOTSTRAP_TOKEN: token }, token],
+      ] as const) {
+        const { exitCode, stderr, model } = render(LOCALSTACK_LAYERS, {
+          ...TEST_OPS_REQUIRED,
+          ...variables,
+        });
+        expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+        for (const [name, service] of Object.entries(model?.services ?? {}))
+          expect({
+            name,
+            value: service.environment?.BOOTSTRAP_TOKEN ?? null,
+          }).toEqual({ name, value: name === "api" ? expected : null });
+      }
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
   // the files `scripts/local.sh up` and `tests/e2e/run.sh --real-model`
   // start with, each rendered with a key in the caller's environment.
   test.each([

@@ -7,7 +7,7 @@
 - `login-choice` `/login`에 비밀번호 폼과 "또는" 아래 "Google로 로그인". `GET /v1/auth/login-methods`가 `password`만 주면 Google 버튼은 없다.
 - `google-callback` Google이 `/auth/google/callback?code&state`로 돌려보내면 한 번만 교환하고 로그인 전 경로(없으면 `/`)로 간다. 401·403·409(`LOGIN_LINK_REQUIRED`)·취소는 각자의 문구.
 - `menu-by-role` member 메뉴: 홈·구성원·에이전트·연동 계정·API key. owner·admin은 팀과 워크스페이스 설정이 더 있다.
-- `teams` `/teams` 만들기(같은 이름 409 안내) → `/teams/{id}` 이름 바꾸기, 구성원 추가(수락 없음)·빼기, 삭제(확인 대화상자).
+- `teams` `/teams` 만들기(같은 이름 409 안내) → `/teams/{id}` 이름 바꾸기, 구성원 추가(수락 없음)·빼기, 삭제(확인 대화상자). member는 홈과 `/teams`(권한 없음 안내 아래)의 "내가 속한 팀"에서 자기 팀 이름만 본다(`GET /v1/my-teams`, 홈은 팀이 없으면 섹션이 없다).
 - `agent-admins` `/agents/{id}` 끝의 "에이전트 관리자": 사람·팀을 관리자로 추가하고 뺀다. 관리자가 아니면 이유만 보이고 관리자 목록을 묻지 않는다.
 - `linked-slack` `/settings/linked-accounts` "Slack 계정 연결" → Slack 동의 → `/settings/linked-accounts/slack` 콜백이 목록으로 돌아온다 → "연결 해제". 연결은 Slack 워크스페이스마다 하나라, 연결이 있어도 버튼은 남는다(다른 워크스페이스 연결).
 - `api-keys` `/settings/api-keys` 개인 key(지금 가진 scope 안에서), 서비스 key 영역의 "발급자가 떠나도 유효", "워크스페이스 서비스 key 발급"(api_key.manage 없으면 비활성+이유), "에이전트 전용 key 발급"(관리하는 에이전트, owner·admin은 전체에서 고름. `sessions:approve`는 빼고 보낸다). 발급한 값은 한 번만 보이고 "복사했으니 닫기"로 사라진다. 목록에서 폐기(확인).

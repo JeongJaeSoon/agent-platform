@@ -119,6 +119,10 @@ function recordingStore() {
     async get() {
       return { ...TEAM_ROW, members: [] };
     },
+    async listJoined(workspaceId, userId) {
+      calls.push(`joined:${workspaceId}:${userId}`);
+      return [TEAM_ROW];
+    },
   };
   return { store, calls };
 }
@@ -317,5 +321,25 @@ describe("agent.admin.manage by role (design 4.1)", () => {
     expect(
       await refusal(service.listAdministeredAgents(keyCaller())),
     ).toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("one's own teams", () => {
+  test("any signed-in person reads their own, names only, asking no policy", async () => {
+    const s = services();
+    expect(await s.teams.listMyTeams(caller("member"))).toEqual({
+      items: [{ id: TEAM_ROW.id, name: TEAM_ROW.name }],
+    });
+    expect(s.calls).toEqual([`joined:${WORKSPACE}:${USERS.member}`]);
+    expect(s.recorded).toEqual([]);
+  });
+
+  test("an API key belongs to no team", async () => {
+    const s = services();
+    expect(await refusal(s.teams.listMyTeams(keyCaller()))).toEqual({
+      code: "FORBIDDEN",
+      details: { reason_code: "role" },
+    });
+    expect(s.calls).toEqual([]);
   });
 });
