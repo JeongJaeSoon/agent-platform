@@ -1,3 +1,5 @@
+import { sessionsKo } from "./sessions.ts";
+
 /**
  * The message catalog's source of truth. Keys are `<screen>.<element>`;
  * shared words live under `common.*`, status screens under `status.<kind>.*`
@@ -15,6 +17,7 @@ export const ko = {
   "common.skipToContent": "본문으로 건너뛰기",
   "common.done": "완료",
   "common.pending": "예정",
+  ...sessionsKo,
   "common.cancel": "취소",
 
   "nav.label": "주요 메뉴",

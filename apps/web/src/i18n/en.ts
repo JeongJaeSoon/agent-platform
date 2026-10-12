@@ -1,4 +1,5 @@
 import type { MessageKey } from "./ko.ts";
+import { sessionsEn } from "./sessions.ts";
 
 export const en: Record<MessageKey, string> = {
   "common.appName": "Agent Platform",
@@ -10,6 +11,7 @@ export const en: Record<MessageKey, string> = {
   "common.skipToContent": "Skip to content",
   "common.done": "Done",
   "common.pending": "Upcoming",
+  ...sessionsEn,
 
   "login.title": "Log in",
   "login.email": "Email",
