@@ -34,11 +34,13 @@ import {
   createApiCheckpointService,
 } from "../../apps/control-host/src/api/checkpoints.ts";
 import {
+  alternateDigests,
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
   captureCheckpointObjects,
   describeMismatches,
+  earlierProfileKey,
   type ImageRuntime,
   parseImageRuntime,
   planRepin,
@@ -234,6 +236,24 @@ async function plans(
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
   );
+  // The profiles each session's restorable checkpoints were made under other
+  // than its own, newest first, as a claim offers them
+  // (worker-unit-of-work.ts withRestoreProfiles).
+  const { rows: earlier } = await pool.query<{
+    profile_fingerprint: string;
+    profile_id: string;
+    session_id: string;
+  }>(
+    `SELECT c.session_id, c.profile_id, c.profile_fingerprint
+     FROM checkpoints c JOIN sessions s ON s.id = c.session_id
+     WHERE c.revision <= s.checkpoint_revision
+       AND c.profile_id IS NOT NULL AND c.profile_fingerprint IS NOT NULL
+       AND (c.profile_id, c.profile_fingerprint)
+           IS DISTINCT FROM (s.profile_id, s.profile_fingerprint)
+     GROUP BY c.session_id, c.profile_id, c.profile_fingerprint
+     ORDER BY c.session_id, max(c.revision) DESC`,
+  );
+  const earlierKeys = new Map<string, string[]>();
   const claimErrors = new Map<string, string>();
   let imageRuntime: ImageRuntime | undefined;
   if (image !== undefined) {
@@ -259,6 +279,30 @@ async function plans(
         );
       } catch (error) {
         claimErrors.set(pointer.id, (error as Error).message);
+      }
+    }
+    for (const row of earlier) {
+      const pointer = pointers.find(({ id }) => id === row.session_id);
+      if (pointer === undefined) continue;
+      try {
+        const key = earlierProfileKey(row.session_id, row.profile_id);
+        claims[key] = sessionClaim(
+          {
+            branch: pointer.branch,
+            ownerId: pointer.owner_id,
+            profileFingerprint: row.profile_fingerprint,
+            profileId: row.profile_id,
+            repoUrl: pointer.repo_url,
+            repositoryId: pointer.repository_id,
+          },
+          catalog,
+        );
+        earlierKeys.set(row.session_id, [
+          ...(earlierKeys.get(row.session_id) ?? []),
+          key,
+        ]);
+      } catch {
+        // Gone from the catalog as it was: no worker is offered it either.
       }
     }
     imageRuntime = await readImageRuntime(image.name, claims);
@@ -300,8 +344,15 @@ async function plans(
       fail(`${tag}: ${(error as Error).message}`);
       continue;
     }
+    const alternates =
+      imageRuntime === undefined
+        ? []
+        : alternateDigests(imageRuntime, earlierKeys.get(pointer.id) ?? []);
     const result = await service.getRestorePlan({
       runtime,
+      ...(alternates.length === 0
+        ? {}
+        : { alternateProfileSha256s: alternates }),
       sessionId: pointer.id,
     });
     if (result.status === "incompatible") {

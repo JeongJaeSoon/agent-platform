@@ -194,6 +194,34 @@ export function sessionClaim(
   };
 }
 
+/**
+ * The image claim key for a profile a session ran before its profile was
+ * changed; the image hashes every key it is given the same way.
+ */
+export function earlierProfileKey(sessionId: string, profileId: string) {
+  return `${sessionId}#${profileId}`;
+}
+
+/**
+ * The digests the target image computes for a session's earlier profiles,
+ * the ones a worker of it would send as alternate_profile_sha256s. A
+ * profile it could not hash is left out, as the gateway leaves out one the
+ * catalog no longer holds.
+ */
+export function alternateDigests(
+  image: ImageRuntime,
+  keys: readonly string[],
+): string[] {
+  return keys.flatMap((key) => {
+    const profile = Object.hasOwn(image.profiles, key)
+      ? image.profiles[key]
+      : undefined;
+    return profile !== undefined && "profileSha256" in profile
+      ? [profile.profileSha256]
+      : [];
+  });
+}
+
 export function describeMismatches(
   mismatches: readonly CompatibilityMismatch[],
 ): string {

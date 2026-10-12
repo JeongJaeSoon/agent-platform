@@ -37,11 +37,13 @@ import {
   imageRuntimeOf,
 } from "../apps/worker/src/image-runtime.ts";
 import {
+  alternateDigests,
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
   captureCheckpointObjects,
   describeMismatches,
+  earlierProfileKey,
   parseImageRuntime,
   planRepin,
   planRuntime,
@@ -235,6 +237,7 @@ async function restorePlan(
   pointer: CheckpointPointer,
   seeded: Seeded,
   runtime = seeded.manifest.runtime,
+  alternateProfileSha256s?: readonly string[],
 ) {
   const service = createCheckpointService({
     codecs,
@@ -251,6 +254,9 @@ async function restorePlan(
   });
   return service.getRestorePlan({
     runtime,
+    ...(alternateProfileSha256s === undefined
+      ? {}
+      : { alternateProfileSha256s }),
     sessionId: seeded.row.sessionId,
   });
 }
@@ -773,6 +779,65 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(describeMismatches(result.mismatches)).toBe(
       `profileSha256 ${sealedDigest} → ${changedDigest}`,
     );
+  });
+
+  test("a session whose profile was changed is planned with the digest of the profile its checkpoint was made under", async () => {
+    const resolved = await catalog();
+    const earlierProfile = resolved.profiles[PROFILE_ID] as CatalogProfile;
+    const repository = resolved.repositories[REPOSITORY_ID];
+    if (repository === undefined) throw new Error("no sample repository");
+    const switchedProfile = { ...earlierProfile, model: "claude-haiku-4-5" };
+    const switchedCatalog = {
+      profiles: { ...resolved.profiles, "switch-haiku": switchedProfile },
+      repositories: {
+        ...resolved.repositories,
+        [REPOSITORY_ID]: {
+          ...repository,
+          profiles: [...repository.profiles, "switch-haiku"],
+        },
+      },
+    };
+    const earlierClaim = sessionClaim(await sessionOf({}), switchedCatalog);
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const seeded = await seed(
+      objects,
+      [],
+      undefined,
+      imageClaimFingerprint(earlierClaim).profileSha256,
+    );
+    const { sessionId } = seeded.row;
+    const pointer = pointerOf({
+      ...seeded.row,
+      manifestVersion: seeded.row.manifestVersion as string,
+    });
+    const key = earlierProfileKey(sessionId, PROFILE_ID);
+    const image = imageOf({
+      [sessionId]: sessionClaim(
+        await sessionOf({
+          profileId: "switch-haiku",
+          profileFingerprint: profileFingerprint(switchedProfile),
+        }),
+        switchedCatalog,
+      ),
+      [key]: earlierClaim,
+    });
+    const runtime = planRuntime(seeded.manifest.runtime, image, sessionId);
+
+    expect((await restorePlan(objects, pointer, seeded, runtime)).status).toBe(
+      "incompatible",
+    );
+    expect(
+      (
+        await restorePlan(
+          objects,
+          pointer,
+          seeded,
+          runtime,
+          alternateDigests(image, [key]),
+        )
+      ).status,
+    ).toBe("ready");
+    expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
   });
 
   test("an image of another CLI build makes the plan incompatible", async () => {
