@@ -1,6 +1,6 @@
-# 운영 참고 — 로컬 Docker 설치의 실행 기반
+# 운영 참고 — 실행 기반과 설정
 
-로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에 있다. 이 문서는 그 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 알파 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
+로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 알파 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 
@@ -29,7 +29,7 @@ compose의 `apps` profile에서는 `reconciler` 서비스가 이 pass를 기본�
 
 최근 성공·실패는 `docker compose -f infra/docker-compose.yml exec reconciler cat /tmp/reconciler-status.json`과 로그의 `Reconciler pass completed`/`Reconciler pass failed`로 본다. reconciler 서비스는 환경 파일을 읽지 않는다 — 환경 파일에 흔히 있는 `HEARTBEAT_TTL_SEC`를 받으면 기동을 거부하기 때문이다. 위 값은 `docker compose`를 실행하는 셸에서 준다. 단 compose는 `RECONCILER_STATUS_FILE`과 `RECONCILER_DRY_RUN`을 넘기지 않는다. 그래서 compose의 reconciler는 셸 값과 상관없이 기본 경로에 상태를 쓰고, 언제나 실제로 고친다. dry-run은 위 예시처럼 pass를 직접 한 번 돌려서 확인한다. reconciler 컨테이너에는 Docker socket이 없다. reconciler는 epoch fence와 `desired_state = terminated`만 DB에 적고, 컨테이너 제거와 부재 확인은 scheduler가 한다. 두 reconciler가 겹쳐 돌거나 pass 도중 재시작돼도 각 쓰기가 row lock 아래에서 다시 판정되므로 같은 lease·interrupt·orphan을 두 번 처리하지 않는다(`apps/control-host/src/reconciler/overlap.integration.test.ts`).
 
-scheduler pass도 one-shot이다(`main.ts scheduler --once`, package script `scheduler`). compose `scheduler` 서비스는 같은 감독 루프로 이 pass를 반복 실행한다(`main.ts scheduler`, healthcheck `main.ts scheduler --health`). 설정은 `SCHEDULER_INTERVAL_SEC`(5)·`SCHEDULER_PASS_TIMEOUT_SEC`(180, `EXECUTION_DOCKER_STOP_TIMEOUT_SEC` + `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`보다 커야 기동)·`SCHEDULER_MAX_CONSECUTIVE_FAILURES`(3)·`SCHEDULER_HEALTH_STALE_SEC`(200, interval + timeout보다 커야 기동)·`SCHEDULER_STATUS_FILE`(`/tmp/scheduler-status.json`, compose는 넘기지 않는다)이고 의미는 위 reconciler 표와 같다. 다른 pass가 lock을 쥐고 있어 건너뛴 pass는 exit 75로 끝나며 성공도 실패도 아니다. 건너뛰기만 이어지면 성공이 없으므로 stale 시간 뒤 unhealthy가 된다. 할 일은 다 했지만 이번 pass에서 도울 수 없는 세션을 남긴 pass — launch가 backoff 중이거나(`launch_backoff_count`), 방금 quarantine됐거나(`launch_quarantined_count`), 교체 한도를 다 쓴(`replacement_exhausted_count`) 세션 — 는 exit 76(degraded)으로 끝난다(94S-368). 그 상태는 DB에 있어 재시작으로 풀리지 않으므로 degraded는 연속 실패로 세지 않고 실패 streak를 끊는다. health는 최근 degraded pass를 healthy로 보되 reason에 `completed degraded`를 적고, status에는 `lastDegradedAt`으로 남는다(`lastSuccessAt`은 깨끗한 pass만). 같은 pass에 다른 실패가 하나라도 있으면 지금처럼 exit 1이다. 루프가 SIGTERM을 받으면 진행 중 pass는 다음 안전 지점(pass lock 상실 때 멈추는 자리와 같다)에서 멈춰 더 예약하지 않고, 30초 안에 끝나지 않으면 kill된다. pass가 기다리던 worker 정지는 kill돼도 daemon에서 계속된다(Engine 25부터 요청이 끊겨도 stop을 취소하지 않는다). compose `stop_grace_period`는 45s다. kill 의도(terminate, lease 만료, quarantine)를 수행할 때 pass는 worker가 turn을 drain하기를 기다리지 않는다(94S-385). stop을 요청하고 5초 안에 끝나지 않으면 그 컨테이너를 `kills_stopping_count`로 세고 넘어가며, 실패로 세지 않는다. daemon은 SIGTERM 뒤 `EXECUTION_DOCKER_STOP_TIMEOUT_SEC`가 지나면 SIGKILL하고, 다음 pass가 컨테이너가 사라진 것을 확인해 slot을 돌려준다. drain 기한을 넘긴 claimed worker의 교체와 launch intent 없는 orphan 컨테이너의 정지도 같다(orphan은 `orphan_stopping_count`로 세고 사라질 때까지 slot을 차지한다). unclaimed worker의 교체는 기다린다. turn이 없어 곧 끝나고, 교체를 시도할 때마다 교체 한도를 쓰기 때문이다. 그래도 unclaimed 컨테이너를 지우고 다시 만드는 경로에서는 pass가 정지 하나를 끝까지 기다릴 수 있다. 그래서 pass timeout이 stop timeout + request timeout보다 작으면 scheduler가 기동을 거부한다. 컨테이너 create·start 요청이 `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` 안에 답을 받지 못하면 컨테이너가 생겼는지 알 수 없으므로 launch 실패로 세지 않는다(94S-393). nonce를 폐기하지 않고 backoff도 걸지 않는다. 그 pass는 실패(exit 1)로 끝난다. 다음 pass가 inspect해서 컨테이너가 있으면 채택한다(생성만 됐으면 시작한다). 없으면 그제야 launch 실패로 센다. 이때 nonce를 폐기하고 backoff를 걸어, 끝내 생기지 않는 create가 slot을 계속 붙잡지 않고 실패 한도에서 quarantine된다. 폐기 뒤에 늦게 생긴 컨테이너는 실패한 시도로 보고 지운다. daemon이 거절로 답한 경우(4xx·5xx)는 지금처럼 launch 실패로 센다. scheduler를 멈춰도 worker는 끝나지 않는다. slot은 pass가 worker 부재를 확인한 뒤에만 반환된다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지하고, 컨테이너가 사라진 worker 네트워크를 지우거나 proxy가 떨어진 네트워크에 다시 붙임(94S-216) ③ `EXECUTION_SLOT_LIMIT` 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기. `NO_PROXY`에는 proxy 자신의 이름이 들어간다), proxy의 credential route를 가리키는 `WORKER_EGRESS_CREDENTIAL_URL`(94S-252, 아래 절), 그리고 object store의 이름 — `S3_BUCKET`·`AWS_REGION`과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 bucket과 region이 없으면 기동하지 않는다. object store 자격 증명과 endpoint는 받지 않는다(94S-251). 워커는 proxy의 object store route로만 object store에 닿으며, 경계는 그 route다(아래 94S-252 절). 워커 쪽 `scopedCheckpointObjectStore`(`packages/storage`)는 prefix 밖 key를 요청 전에 거절하는 빠른 실패일 뿐이다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지(`apps/worker/Dockerfile`)는 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
+scheduler pass도 one-shot이다(`main.ts scheduler --once`, package script `scheduler`). compose `scheduler` 서비스는 같은 감독 루프로 이 pass를 반복 실행한다(`main.ts scheduler`, healthcheck `main.ts scheduler --health`). 설정은 `SCHEDULER_INTERVAL_SEC`(5)·`SCHEDULER_PASS_TIMEOUT_SEC`(180, `EXECUTION_DOCKER_STOP_TIMEOUT_SEC` + `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`보다 커야 기동. kubernetes backend는 아래 절)·`SCHEDULER_MAX_CONSECUTIVE_FAILURES`(3)·`SCHEDULER_HEALTH_STALE_SEC`(200, interval + timeout보다 커야 기동)·`SCHEDULER_STATUS_FILE`(`/tmp/scheduler-status.json`, compose는 넘기지 않는다)이고 의미는 위 reconciler 표와 같다. 다른 pass가 lock을 쥐고 있어 건너뛴 pass는 exit 75로 끝나며 성공도 실패도 아니다. 건너뛰기만 이어지면 성공이 없으므로 stale 시간 뒤 unhealthy가 된다. 할 일은 다 했지만 이번 pass에서 도울 수 없는 세션을 남긴 pass — launch가 backoff 중이거나(`launch_backoff_count`), 방금 quarantine됐거나(`launch_quarantined_count`), 교체 한도를 다 쓴(`replacement_exhausted_count`) 세션 — 는 exit 76(degraded)으로 끝난다(94S-368). 그 상태는 DB에 있어 재시작으로 풀리지 않으므로 degraded는 연속 실패로 세지 않고 실패 streak를 끊는다. health는 최근 degraded pass를 healthy로 보되 reason에 `completed degraded`를 적고, status에는 `lastDegradedAt`으로 남는다(`lastSuccessAt`은 깨끗한 pass만). 같은 pass에 다른 실패가 하나라도 있으면 지금처럼 exit 1이다. 루프가 SIGTERM을 받으면 진행 중 pass는 다음 안전 지점(pass lock 상실 때 멈추는 자리와 같다)에서 멈춰 더 예약하지 않고, 30초 안에 끝나지 않으면 kill된다. pass가 기다리던 worker 정지는 kill돼도 daemon에서 계속된다(Engine 25부터 요청이 끊겨도 stop을 취소하지 않는다). compose `stop_grace_period`는 45s다. kill 의도(terminate, lease 만료, quarantine)를 수행할 때 pass는 worker가 turn을 drain하기를 기다리지 않는다(94S-385). stop을 요청하고 5초 안에 끝나지 않으면 그 컨테이너를 `kills_stopping_count`로 세고 넘어가며, 실패로 세지 않는다. daemon은 SIGTERM 뒤 `EXECUTION_DOCKER_STOP_TIMEOUT_SEC`가 지나면 SIGKILL하고, 다음 pass가 컨테이너가 사라진 것을 확인해 slot을 돌려준다. drain 기한을 넘긴 claimed worker의 교체와 launch intent 없는 orphan 컨테이너의 정지도 같다(orphan은 `orphan_stopping_count`로 세고 사라질 때까지 slot을 차지한다). unclaimed worker의 교체는 기다린다. turn이 없어 곧 끝나고, 교체를 시도할 때마다 교체 한도를 쓰기 때문이다. 그래도 unclaimed 컨테이너를 지우고 다시 만드는 경로에서는 pass가 정지 하나를 끝까지 기다릴 수 있다. 그래서 pass timeout이 stop timeout + request timeout보다 작으면 scheduler가 기동을 거부한다. 컨테이너 create·start 요청이 `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` 안에 답을 받지 못하면 컨테이너가 생겼는지 알 수 없으므로 launch 실패로 세지 않는다(94S-393). nonce를 폐기하지 않고 backoff도 걸지 않는다. 그 pass는 실패(exit 1)로 끝난다. 다음 pass가 inspect해서 컨테이너가 있으면 채택한다(생성만 됐으면 시작한다). 없으면 그제야 launch 실패로 센다. 이때 nonce를 폐기하고 backoff를 걸어, 끝내 생기지 않는 create가 slot을 계속 붙잡지 않고 실패 한도에서 quarantine된다. 폐기 뒤에 늦게 생긴 컨테이너는 실패한 시도로 보고 지운다. daemon이 거절로 답한 경우(4xx·5xx)는 지금처럼 launch 실패로 센다. scheduler를 멈춰도 worker는 끝나지 않는다. slot은 pass가 worker 부재를 확인한 뒤에만 반환된다. 한 pass는 ① 살아 있는 `executions` row를 Docker와 대조(컨테이너가 없으면 같은 intent로 재생성, exit했으면 `terminated` 기록 후 제거) ② launch intent 없는 관리 컨테이너를 로그 후 정지하고, 컨테이너가 사라진 worker 네트워크를 지우거나 proxy가 떨어진 네트워크에 다시 붙임(94S-216) ③ `EXECUTION_SLOT_LIMIT` 안에서 unassigned session마다 intent 커밋 → 컨테이너 생성 ④ 끝난 session의 workspace volume 회수 순서로 진행한다. worker 컨테이너는 Docker socket·host HOME을 받지 않고 env는 bootstrap claim에 필요한 `WORKER_EXECUTION_ID`·`WORKER_EXECUTION_GENERATION`·`WORKER_BOOTSTRAP_NONCE`·`WORKER_GATEWAY_URL`, tmpfs를 가리키는 `HOME`, egress proxy를 가리키는 `HTTP_PROXY`·`HTTPS_PROXY`·`NO_PROXY`(대소문자 두 표기. `NO_PROXY`에는 proxy 자신의 이름이 들어간다), proxy의 credential route를 가리키는 `WORKER_EGRESS_CREDENTIAL_URL`(94S-252, 아래 절), 그리고 object store의 이름 — `S3_BUCKET`·`AWS_REGION`과 세션 prefix `WORKER_OBJECT_PREFIX`(`sessions/<sessionId>/`) — 를 받는다. scheduler는 bucket과 region이 없으면 기동하지 않는다. object store 자격 증명과 endpoint는 받지 않는다(94S-251). 워커는 proxy의 object store route로만 object store에 닿으며, 경계는 그 route다(아래 94S-252 절). 워커 쪽 `scopedCheckpointObjectStore`(`packages/storage`)는 prefix 밖 key를 요청 전에 거절하는 빠른 실패일 뿐이다. 워커 안에서 `@agent-platform/storage`를 import하는 파일은 `apps/worker/src/object-store.ts` 하나뿐이며 `tests/architecture.test.ts`가 이를 강제한다. Docker daemon 응답이 create 요청 본문을 되돌려 주는 경우에 대비해 backend는 오류 메시지에서 nonce를 지운다. `/tmp`·HOME tmpfs는 worker uid/gid 소유로 마운트된다. `/workspace` named volume은 Docker가 이미지의 같은 경로에서 초기화하므로 worker 이미지가 `/workspace`를 worker uid 소유로 미리 만들어 두어야 한다(이미지 계약). worker 이미지(`apps/worker/Dockerfile`)는 `WORKER_IMAGE`로 받는다. pass 전체는 Postgres session advisory lock(`scheduler:pass`)으로 직렬화되어 겹친 실행은 로그만 남기고 건너뛴다. 같은 Docker daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. scheduler는 이 값이 없으면 기동하지 않는다(adapter만 테스트용 기본값 `local`을 가짐). 같은 값을 쓰는 두 설치가 daemon을 공유하면 서로의 컨테이너를 orphan으로 회수한다.
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
@@ -49,7 +49,7 @@ EXECUTION_WORKSPACE_QUOTA=off \
 
 worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워크** `ap-net-<installationId>-<executionId>-g<generation>` 하나에만 붙는다(94S-216). 이 네트워크는 bridge driver, `internal: true`, `EnableIPv6: false`, `com.docker.network.bridge.gateway_mode_ipv4=isolated`로 만들어진다. Docker가 이 네트워크에서 바깥으로 나가는 경로를 만들지 않고 host 쪽 bridge 주소(IPAM gateway)도 두지 않는다. 그래서 worker는 host·host에서 도는 프로세스·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스·다른 worker에 직접 닿지 못한다. 이 네트워크의 구성원은 worker 자신과 egress proxy 둘뿐이다. scheduler는 `agent-platform.egress-proxy=<installationId>` label이 붙은 **실행 중인 컨테이너 정확히 하나**를 그 설치의 proxy로 보고, 네트워크마다 `EXECUTION_EGRESS_PROXY_URL`의 host 이름을 alias로 붙여 connect한다. worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그 이름을 가리킨다. proxy 주소가 네트워크마다 다르므로 `EXECUTION_EGRESS_PROXY_URL`의 host는 이름이어야 하고, IP literal과 `localhost`는 거부한다. compose의 `egress-proxy` 서비스는 이 label을 달고 있다. `host.docker.internal:host-gateway` 매핑은 worker에서 제거했다 — gateway도 proxy를 거친다.
 
-차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway)다. compose 기본값은 `EGRESS_ALLOWLIST`가 비어 있고 `EGRESS_PRIVATE_ALLOWLIST`가 `api:3000,host.docker.internal:3000`이다. provider·저장소·object store는 두 목록 어디에도 두지 않는다(94S-383). forward proxy로 닿으면 각자의 credential route를 우회하기 때문이다. provider에는 worker가 가진 임의 key로 비용 계측 밖에서 닿고, Gitea의 public 저장소는 token 없이 읽히며, LocalStack은 서명을 검사하지 않으므로 다른 세션의 prefix까지 닿는다. 이들은 credential route만 닿는 목록 `EGRESS_CREDENTIAL_ALLOWLIST`(compose 기본값 `api.anthropic.com:443`)·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(compose 기본값 `gitea:3000,fake-messages:4010,localstack:4566`)에 둔다(94S-251·94S-252). credential 목록의 목적지가 forward 목록에도 있으면 proxy는 기동을 거부한다. 그래서 수정 전 예시 값을 복사해 둔 설치는 업그레이드 뒤 자기 환경 파일의 forward 목록에서 그 값들을 지워야 proxy가 뜬다. 비교는 적힌 `host:port` 그대로이므로, 같은 upstream을 다른 이름이나 IP로 적으면 잡지 못한다. `.env.example`도 같은 값이다(`tests/images.test.ts`가 둘을 묶는다). 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
+차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway)다. compose 기본값은 `EGRESS_ALLOWLIST`가 비어 있고 `EGRESS_PRIVATE_ALLOWLIST`가 `api:3000,host.docker.internal:3000`이다. provider·저장소·object store는 두 목록 어디에도 두지 않는다(94S-383). forward proxy로 닿으면 각자의 credential route를 우회하기 때문이다. provider에는 worker가 가진 임의 key로 비용 계측 밖에서 닿고, Gitea·GitHub의 public 저장소는 token 없이 읽히며, LocalStack은 서명을 검사하지 않으므로 다른 세션의 prefix까지 닿는다. 이들은 credential route만 닿는 목록 `EGRESS_CREDENTIAL_ALLOWLIST`(compose 기본값 `api.anthropic.com:443`, GitHub 저장소를 쓰면 `github.com:443`을 더한다)·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(compose 기본값 `gitea:3000,fake-messages:4010,localstack:4566`)에 둔다(94S-251·94S-252). credential 목록의 목적지가 forward 목록에도 있으면 proxy는 기동을 거부한다. 그래서 수정 전 예시 값을 복사해 둔 설치는 업그레이드 뒤 자기 환경 파일의 forward 목록에서 그 값들을 지워야 proxy가 뜬다. 비교는 적힌 `host:port` 그대로이므로, 같은 upstream을 다른 이름이나 IP로 적으면 잡지 못한다. `.env.example`도 같은 값이다(`tests/images.test.ts`가 둘을 묶는다). 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
 
 CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Established`를 쓴 뒤 클라이언트의 첫 바이트를 upstream에 흘리기 전에 TLS ClientHello로 읽어, DNS 이름 authority면 `server_name`이 그 authority와(대소문자만 무시하고) 같아야 하고, allowlist에 명시된 IP literal authority면 `server_name`이 없어야 한다. `encrypted_client_hello`(0xfe0d)는 GREASE 여부와 관계없이 거부한다 — proxy는 둘을 구별할 수 없고, 진짜 ECH는 검사 대상인 이름을 숨긴다. handshake가 아닌 첫 레코드, host_name이 둘인 hello, 최초 16KiB(record header 포함) 또는 15초(`handshakeTimeoutMs`) 안에 완성되지 않는 hello는 전부 연결을 끊는다. 거부는 200 뒤에 일어나므로 클라이언트에는 handshake 도중 연결 종료로 보인다.
 
@@ -169,7 +169,7 @@ worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로�
   * `/object-store/<bucket>/<key>` 아래의 S3 요청(아래 object store route)
 * **요청 하나의 처리:** proxy는 요청마다 API의 authorizer에 token을 묻는다. authorizer는 API의 별도 listener로, `EGRESS_AUTHORIZER_PORT`의 `POST /authorize`에서 `EGRESS_AUTHORIZER_TOKEN` bearer를 요구한다. 같은 listener의 `POST /usage`는 proxy가 Messages 호출의 usage를 보고하는 곳이다(94S-409, 아래 설치 상한 절). token이 지금 유효하면 authorizer는 upstream과 붙일 헤더를 돌려준다. 유효하다는 것은 lease가 DB 시계로 살아 있고 epoch가 맞으며 purpose가 일치한다는 뜻이다. proxy는 worker의 token을 떼고 카탈로그의 자격 증명을 붙여 upstream으로 보낸다.
 * **fail-closed:** 긍정 응답은 캐시하지 않는다. 그래서 authorizer가 죽어 있으면 503이고, attempt를 잃은 token은 다음 요청부터 401·409다.
-* **upstream 연결:** upstream은 forward proxy와 같은 allowlist·주소 규칙으로 판정한다. 연결은 판정한 주소에 하고, TLS 인증서는 카탈로그의 host 이름으로 요청을 보내기 전에 검증한다. redirect는 따라가지도 전달하지도 않는다(502). 오류 본문에 주입한 자격 증명이 되비쳐 있거나, 본문이 압축돼 있거나, 64 KiB를 넘으면 본문을 보류한다.
+* **upstream 연결:** upstream은 forward proxy와 같은 allowlist·주소 규칙으로 판정한다. 연결은 판정한 주소에 하고, TLS 인증서는 카탈로그의 host 이름으로 요청을 보내기 전에 검증한다. redirect는 따라가지도 전달하지도 않는다(502, GitHub의 경우는 아래 "GitHub 저장소" 절). 오류 본문에 주입한 자격 증명이 되비쳐 있거나, 본문이 압축돼 있거나, 64 KiB를 넘으면 본문을 보류한다.
 * **요청 본문 상한 (94S-388):** Bun은 handler가 읽지 않은 요청 본문도 소켓에서 곧바로 받아 메모리에 쌓는다. 그래서 proxy는 await 전에, 요청 head만 보고 받을지 정한다. provider·repository 본문은 요청당 32 MiB(Messages API 한도)이고, 넘게 선언하면 authorizer에 묻기 전에 413이다. chunked 본문은 32 MiB까지만 읽고 413이다. object store 본문은 길이를 선언해야 한다(chunked면 411). 받은 요청은 선언한 길이(chunked면 32 MiB)만큼 설치 전체 예산 512 MiB(`DEFAULT_MAX_BODY_BYTES_IN_FLIGHT`)에서 떼어 두고, 교환이 끝나면 돌려놓는다(upstream은 본문을 다 받기 전에 답할 수 있다). 받은 본문은 예약한 크기의 버퍼 하나에 모은다. 예산에 들어가지 않는 요청은 503 `too many request bytes in flight`다. authorizer도 요청 본문을 16 KiB까지만 읽고 413으로 끊는다.
 * **proxy 컨테이너 (94S-388):** compose `egress-proxy`는 worker처럼 `read_only`·`cap_drop: [ALL]`·`no-new-privileges`로 돌고 `/tmp`만 tmpfs다. `mem_limit`은 3072 MiB다. 요청 본문 예산 512 MiB, 응답 큐 64 MiB, forward proxy 큐 2048 MiB(연결 256 × 2 × 4 MiB), Bun 256 MiB를 더한 상한이다. 측정값이 아니다. 이 상한들을 바꾸면 한도도 같이 바꾼다. 죽으면 `restart: unless-stopped`로 같은 컨테이너가 다시 뜨고, worker 네트워크 연결은 그대로 남는다.
 * **object store route (94S-251):** 워커의 S3 SDK는 `object_store` token을 SigV4 access key id로(secret은 아무 값이나) 삼아 `<route>/object-store`에 path-style로 보낸다. proxy는 `Authorization`의 `Credential=`에서 token을 꺼내 요청의 method·target·헤더와 함께 authorizer에 묻는다. authorizer는 token과 generation fence를 확인하고 요청이 세션 prefix 안의 허용된 연산인지 판정한 뒤, API 자신의 키로 서명한 target과 헤더를 돌려준다. 허용하는 연산은 넷이다: prefix 안 object의 GetObject·HeadObject(버전 지정 포함), 새 key를 만드는 PutObject(`If-None-Match: *` 필수라서 덮어쓰기가 없다. checksum 헤더 허용), 세션 prefix의 ListObjectsV2. Delete, legal hold·retention·ACL, governance 우회, copy, multipart, version 목록, `aws-chunked` 본문, 인코딩된 `/`·dot segment는 전부 403 `AccessDenied`다. 모르는 token은 401 `InvalidAccessKeyId`다. proxy는 서명된 헤더와 target만 upstream에 보내고, PUT 본문은 서명된 길이만큼 흘려 보낸다(서명은 `UNSIGNED-PAYLOAD`, 요청당 512 MiB 상한). 비밀 키는 API를 떠나지 않는다. 다음 generation이 claim하면 이전 token의 새 요청은 곧바로 거부되고, 이미 열린 교환은 regrant 주기(30초) 안에 끊긴다. 그 사이에 끝나는 늦은 PUT도 create-only라서 이미 있는 object를 바꾸지 못하고, 커밋된 checkpoint가 가리키지 않는 object를 하나 더할 뿐이다. API는 checkpoint object store 설정(아래)으로 서명하며, `CHECKPOINT_OBJECT_STORE=disabled`면 이 route는 503이다.
@@ -376,11 +376,91 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
     - 쌍을 **빼는** 변경은 2부터 새 replica가 빠진 쌍의 세션을 즉시 실패시킨다.
   - **롤백:** 같은 순서를 거꾸로 밟는다. 옛 카탈로그 replica 하나를 올린 뒤 `activate <옛 revision> --expected <새 revision>`을 실행하고 나머지를 되돌린다. `--expected`가 지금 값과 다르면 아무것도 바꾸지 않고 `conflict`와 지금 값을 출력하며 1로 끝난다. 지금 값은 `bun run catalog-authority show`로 본다.
   - **판단 기록:** 권위 없는 replica가 빠진 쌍의 세션을 claim까지 거절하지는 않는다. 쌍을 모르는 replica는 원래 그 세션을 claim하지 않는다. 쌍을 아는 옛 replica는 옛 카탈로그를 믿으므로 롤아웃 동안 한 번 더 돌릴 수 있다. 쌍을 빼는 일이 보안 경계라면(그 저장소에서 더는 돌면 안 되는 경우) 옛 replica를 먼저 내린 뒤 뺀다.
-- 비공개 저장소는 `repositories.<id>.auth`에 로그인을 같은 방식의 참조로 적는다. `kind: basic`(`username` 필요) 또는 `kind: bearer`이고, `value_env`·`secret_id` 중 하나를 쓴다. worker는 이 값을 받지 않고 proxy의 저장소 route로 clone한다.
+- 비공개 저장소는 `repositories.<id>.auth`에 로그인을 같은 방식의 참조로 적는다. `kind: basic`(`username` 필요) 또는 `kind: bearer`이고, `value_env`·`secret_id` 중 하나를 쓴다. worker는 이 값을 받지 않고 proxy의 저장소 route로 clone한다. 저장소 host는 Gitea든 GitHub든 같은 방식이다. GitHub는 아래 절을 따른다.
 - 두 자격 증명 모두 8바이트보다 짧으면 API가 기동을 거부한다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다(94S-253). 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
+
+### GitHub 저장소 (94S-626, 94S-627)
+
+github.com과 GitHub Enterprise Server(GHES)의 저장소도 Gitea와 같은 저장소 route로 clone한다. 인증은 GitHub App이 기본이고 fine-grained PAT도 쓸 수 있다. 둘 다 worker에는 가지 않는다.
+
+#### GitHub App (기본)
+
+API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다.
+
+- **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 끈다(94S-625 전까지 쓰지 않는다). Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(94S-629·94S-630)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 둔다.
+- **설치:** App 페이지 → Install App → 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 설치 뒤 주소 `…/settings/installations/<숫자>`의 숫자가 **installation id**다.
+- **private key:** App 페이지 → Private keys → Generate a private key로 PEM 파일을 받는다. 키는 API만 읽는다. 둘 중 하나로 둔다.
+  - Secrets Manager: PEM 본문을 secret 값으로 넣고 카탈로그에 `secret_id`를 적는다(`aws secretsmanager create-secret --name <id> --secret-string file://<pem 파일>`).
+  - 환경 변수: PEM 파일을 `chmod 600`으로 두고 API를 띄우는 셸에서 `export GITHUB_APP_KEY="$(cat <pem 파일>)"`로 넘긴다. 한 줄로 넣어야 하는 곳에서는 줄바꿈을 `\n`으로 적어도 된다. compose의 `api`에는 overlay로 `environment: { GITHUB_APP_KEY: ${GITHUB_APP_KEY:?} }`를 더한다.
+  - 내려받은 PEM 파일은 위 둘 중 하나에 넣은 뒤 지운다. 키를 바꾸면 같은 참조 뒤의 값만 바꾸고 API를 재기동한다(binding·revision은 그대로다).
+- **카탈로그:**
+
+  ```yaml
+  repositories:
+    app:
+      url: https://github.com/<owner>/<repo>.git     # GHES: https://<ghes-host>/<owner>/<repo>.git
+      branch: main
+      profiles: [claude-coding-real]
+      auth:
+        kind: github_app
+        app_id: 123456
+        installation_id: 7890123
+        secret_id: agent-platform/github-app-key     # 또는 value_env: GITHUB_APP_KEY
+        api_base: https://api.github.com             # 생략하면 이 값. GHES: https://<ghes-host>/api/v3
+  ```
+
+  URL은 `/<owner>/<repo>` 모양이어야 한다(토큰을 그 저장소 이름으로 좁히기 때문이다). `api_base`는 https만 받는다. 사설 이름·주소의 host(로컬 fake)만 http를 허용한다. API는 기동할 때 키를 RSA private key로 읽어 보고, 읽히지 않으면 `repositories.<id>.auth.<참조>: … is not an RSA private key PEM`으로 기동을 거부한다(값은 출력하지 않는다). `app_id`·`installation_id`·`api_base`·참조 위치를 바꾸면 그 저장소의 binding이 바뀌어 이미 만든 세션은 `CATALOG_MISMATCH`가 된다.
+- **토큰:** 저장소 route가 요청마다 API에 물으면 API는 `POST {api_base}/app/installations/{installation_id}/access_tokens`에 `repositories: [<repo>]`, `permissions: { contents: read }`를 보내 그 저장소 하나·읽기 권한으로 좁힌 토큰을 받는다. 토큰은 저장소·권한별로 API 프로세스 메모리에 두고 `expires_at` 10분 전부터 새로 받는다. 같은 토큰을 동시에 묻는 요청은 발급 한 번을 같이 기다린다. 진행 중인 clone은 시작할 때의 토큰으로 끝까지 받는다. JWT는 `@octokit/auth-app`이 만든다(iat는 30초 앞당기고 수명은 10분).
+- **실패:** 발급이 실패하면(키·installation이 틀림, GitHub 장애, App 설치 해제) 저장소 route는 `503`으로 닫힌다. 남은 토큰이 아직 유효해도 갱신 시점이 지났으면 쓰지 않는다. clone은 시작 단계에서 실패해 세션 attention이 `STARTUP_FAILED`다. API 로그에는 `GitHub request failed`(`request: installation token request`, `status`, `error`)와 egress authorizer의 `Egress authorization refused`(`status: 503`, `code: BACKEND_UNAVAILABLE`)가 남는다. 토큰·JWT·키는 로그와 오류 메시지에 나오지 않는다. status가 401이면 App ID·키 짝, 404면 installation id와 그 설치에 저장소가 들어 있는지, 422면 저장소 이름을 확인한다.
+- **allowlist:** 토큰 발급은 API가 직접 한다(`api.github.com:443` 또는 GHES의 `<ghes-host>:443`로 API 컨테이너의 outbound가 열려 있어야 한다). clone은 아래 PAT와 같이 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 `github.com:443`(GHES는 `<ghes-host>:443`)을 더한다.
+
+#### fine-grained PAT
+
+- **PAT 발급:** GitHub Settings → Developer settings → Fine-grained personal access tokens. Resource owner는 저장소의 owner(조직이면 조직이 승인해야 할 수 있다), Repository access는 `Only select repositories`로 그 저장소만 고른다. Repository permissions는 **Contents: Read-only** 하나다(Metadata: Read-only는 자동으로 붙는다). 만료일을 두고, 만료 전에 같은 참조 뒤의 값만 바꾼 뒤 API를 재기동한다(fingerprint·revision은 그대로다). push·PR은 이 route로 하지 않으므로 쓰기 권한은 주지 않는다.
+- **카탈로그:** URL은 https clone URL 그대로 `.git`까지 적는다. GHES는 host만 다르다. 로그인 이름은 `x-access-token`이고 PAT를 비밀번호 자리에 둔다. 공개 저장소는 `auth` 없이 등록해도 clone된다.
+
+  ```yaml
+  repositories:
+    app:
+      url: https://github.com/<owner>/<repo>.git   # GHES: https://<ghes-host>/<owner>/<repo>.git
+      branch: main
+      profiles: [claude-coding-real]
+      auth:
+        kind: basic
+        username: x-access-token
+        value_env: APP_GITHUB_PAT                  # 또는 secret_id
+  ```
+
+  `value_env`는 API 프로세스의 환경 변수다. compose의 `api`는 정해진 변수만 넘기므로 overlay에 `environment: { APP_GITHUB_PAT: ${APP_GITHUB_PAT:?} }`를 더한다.
+- **allowlist:** `github.com:443`(GHES는 `<ghes-host>:443`)을 egress proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 더한다. compose 기본값은 `api.anthropic.com:443`이므로 `EGRESS_CREDENTIAL_ALLOWLIST=api.anthropic.com:443,github.com:443`처럼 기존 값을 함께 적는다. 사설 주소의 GHES는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다. forward 목록(`EGRESS_ALLOWLIST`)에는 넣지 않는다. 넣으면 proxy가 기동을 거부하고, 넣지 않았으므로 worker의 도구(Bash의 `git`·`curl`, npm의 git 의존성)는 GitHub에 직접 닿지 못한다. 2026-10-13 로컬 스택 실측에서 worker 안의 `git ls-remote https://github.com/octocat/Hello-World.git`은 `CONNECT tunnel failed, response 403`으로 끝났고, proxy에는 `Egress denied`(`destination is not allowlisted`)가 남았다.
+- **redirect:** route는 3xx를 따라가지도 전달하지도 않고 502 `upstream redirected`로 끝낸다. clone은 `git clone failed (exit 128): remote: upstream redirected`로 실패하고 세션 attention은 `STARTUP_FAILED`다. GitHub가 git 요청에 301을 주는 경우로 확인한 것은 `http://` URL(→ `https://`)이다. 이름을 바꾼 저장소(`vuejs/vue-next` → `vuejs/core`)와 `.git`을 뺀 URL은 2026-10-13 실측에서 redirect 없이 200이었다. proxy 로그에 `Credential route`가 `status: 301`로 남으면 카탈로그 URL을 응답이 가리키는 주소로 고친다.
+- **401:** 로그인 없이 읽을 수 없는 저장소(없는 저장소, `auth`를 빠뜨린 비공개 저장소)에 GitHub는 401을 준다. proxy 로그는 `Credential route`의 `status: 401`이고, clone은 `fatal: could not read Username for 'http://egress-proxy:3129': terminal prompts disabled`로 실패한다(attention `STARTUP_FAILED`, 2026-10-13 실측). 틀리거나 권한이 모자란 PAT의 응답은 아직 재지 않았다. 아래 절차에서 status를 확인한다.
+- **확인:** clone이 되면 proxy 로그에 세션 id와 함께 `"message":"Credential route"`, `"purpose":"repository"`, `"host":"github.com"`, `"status":200` 줄이 남는다(실측에서 clone 한 번에 세 줄). worker의 작업 트리에서 `git remote get-url origin`은 카탈로그 URL이고 로그인을 담지 않는다.
+- **LFS·submodule:** 저장소 route는 upload-pack만 다룬다. Git LFS 객체와 submodule은 받지 않는다.
+
+비공개 저장소와 PAT로 확인하는 절차다. `scripts/local.sh up --fake-model`로 띄운 스택에 카탈로그 overlay를 겹친다. PAT 값은 셸에서 `read -rs`로 받아 화면과 파일에 남기지 않는다.
+
+1. 위 형식으로 `repositories.yaml`과 `config/fake-model/profiles.yaml` 사본을 디렉터리 하나에 둔다. 저장소의 `profiles`는 `[claude-coding-local]`이다.
+2. overlay를 만든다. `api`에 `volumes: ["<그 디렉터리>:/app/config/fake-model:ro"]`과 `environment: { APP_GITHUB_PAT: ${APP_GITHUB_PAT:?} }`를 준다(`--fake-model` overlay가 `PLATFORM_CONFIG_DIR`를 `/app/config/fake-model`로 고정하므로 그 자리에 mount한다).
+3. `read -rs APP_GITHUB_PAT; export APP_GITHUB_PAT EGRESS_CREDENTIAL_ALLOWLIST=api.anthropic.com:443,github.com:443 COMPOSE_FILE="compose.yaml:<overlay>"` 뒤 `scripts/local.sh up --fake-model`.
+4. API 기동 로그 `Session catalog loaded`의 `repositories` 수를 보고, quickstart 2·3장처럼 `repository_id`를 그 저장소로 바꿔 세션을 만든다.
+5. 세션이 `needs_input`이나 `completed`에 닿으면 `docker compose logs egress-proxy | grep '"purpose":"repository"'`에서 `status: 200`을 확인한다. `STARTUP_FAILED`면 위의 401·redirect 항목을 본다.
+6. `scripts/local.sh down`(같은 환경 변수로)으로 내리고 `unset APP_GITHUB_PAT`.
+
+### 세션 결과의 push 승인 (94S-628)
+
+세션의 결과는 worker가 아니라 플랫폼(API)이 push하고, 사람이 승인한 뒤에만 한다. 이 절은 요청과 승인까지다. 승인된 요청을 실제로 push하는 일은 94S-629가 한다. 그 전까지 승인된 요청은 `approved`에 머문다. API 사용법은 [api-guide 10절](api-guide.md#10-세션-결과의-push-요청과-승인거부)에 있다.
+
+- **고정하는 것:** 요청(`POST /v1/sessions/{id}/push-requests`, `sessions:write`)은 그때 세션의 checkpoint pointer가 가리키는 revision과, 검증된 manifest가 적은 `git_commit`을 고정한다. 저장소는 세션의 `repository_id`, 브랜치는 `agent/<session-id>`다. 요청자는 이 중 아무것도 고를 수 없다. 브랜치 규칙은 DB CHECK(`push_requests_target_branch_check`)도 지킨다. manifest가 검증되지 않으면 더 오래된 checkpoint로 대신하지 않고 거절한다.
+- **결정하는 사람:** 결정(`POST .../push-requests/{push_request_id}/decision`)에는 `sessions:approve`가 필요하다. 이 scope는 API의 scope 표가 아니라 push 서비스가 검사한다. 그래야 거절도 receipt로 남는다. 결정할 수 있는 principal은 API key와 로그인한 사용자뿐이다. 다른 종류(chat installation, 나중에 생길 에이전트 전용 key)는 목록에 넣기 전까지 거절된다. API key는 사람과 묶여 있지 않으므로 `sessions:approve` key는 사람만 갖게 발급한다. 자동화(CI 등)에는 주지 않는다.
+- **에이전트가 스스로 승인하지 못하는 이유:** worker가 가진 자격(launch nonce, session token)은 `/internal/worker` route에서만 통하고 `/v1`에서는 401이다. `AUTH_MODE=none`은 누구든 `X-Owner-Id`로 owner를 자칭할 수 있으므로, 이 모드에서는 push 요청 route가 모두 403(`refusal: unverified_principal`)이고 아무것도 기록하지 않는다.
+- **승인하는 commit:** 결정 body의 `git_commit`이 고정된 commit과 같아야 승인된다. 요청 뒤에 세션이 다시 checkpoint를 남겼으면(pointer revision이 다르면) 승인을 거절하고 요청은 `requested`에 남는다. 그 요청은 거부하고 새로 요청한다. 거부에는 이 검사가 없다.
+- **상태:** `requested` → `approved` | `rejected`(사람), `approved` → `pushing` → `pushed` | `failed`(플랫폼, 94S-629). 세션마다 열린 요청(`requested`·`approved`·`pushing`)은 하나다.
+- **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
+- **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`decide_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
 
 ### 자율 모드: `bypassPermissions`·`auto` (94S-621)
 
@@ -408,7 +488,7 @@ MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 curl -H 'X-Owner-Id: local-owner' http://127.0.0.1:3000/v1
 ```
 
-API는 checkpoint object store 설정을 기동 시 요구한다 — `S3_BUCKET`·`AWS_REGION`·`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`(+ 선택 `AWS_ENDPOINT_URL`)가 없으면 기동하지 않는다. 이 키는 워커의 object store route 요청을 서명하는 데도 쓰인다(94S-251). object store 없이 띄우려면 `CHECKPOINT_OBJECT_STORE=disabled`를 명시한다: 모든 checkpoint가 거절되고 워커 checkpoint 프로토콜은 409 `CHECKPOINT_UNAVAILABLE`로 답하며 기동 로그에 경고가 남는다. 빠진 bucket이 checkpoint 없는 finalize 뒤에 숨지 않도록 침묵 기본값을 두지 않았다. compose `apps` profile은 localstack 값을 기본으로 넣는다.
+API는 checkpoint object store 설정을 기동 시 요구한다 — `S3_BUCKET`·`AWS_REGION`(+ 선택 `AWS_ENDPOINT_URL`)이 없으면 기동하지 않는다. `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`는 둘 다 주거나 둘 다 뺀다. 하나만 있으면 기동하지 않는다. 둘 다 빼면 AWS SDK 기본 credential chain이 서명한다. EKS에서는 api ServiceAccount의 IRSA role이 그 자리에 오고(94S-632), chart는 `secrets.objectStoreKeys: false`로 이 경로를 쓴다. chain이 아무 credential도 찾지 못하면 요청은 서명 없이 나가지 않고 실패한다. 이 credential은 워커의 object store route 요청을 서명하는 데도 쓰인다(94S-251). object store 없이 띄우려면 `CHECKPOINT_OBJECT_STORE=disabled`를 명시한다: 모든 checkpoint가 거절되고 워커 checkpoint 프로토콜은 409 `CHECKPOINT_UNAVAILABLE`로 답하며 기동 로그에 경고가 남는다. 빠진 bucket이 checkpoint 없는 finalize 뒤에 숨지 않도록 침묵 기본값을 두지 않았다. compose `apps` profile은 localstack 값을 기본으로 넣는다.
 
 checkpoint 객체는 기본적으로 **version으로 고정되고 legal hold로 잠긴다**(`CHECKPOINT_OBJECT_PROTECTION=locked`, 94S-229). manifest의 모든 ref와 finalize의 `manifest_version`은 워커의 `putImmutable`이 돌려준 S3 VersionId를 싣는다. finalize는 그 version을 읽어 검증한 뒤 manifest·transcript part·bundle·untracked 파일의 각 version에 legal hold를 걸고 나서야 pointer를 올린다. 다음 checkpoint는 직전 committed manifest와 `path`·`sha256`·실행 비트가 모두 같은 untracked 파일이면 그 manifest가 이미 검증하고 hold한 version ref를 그대로 싣고 PUT하지 않는다. finalize는 직전 pointer가 증명한 정확한 artifact tuple만 다른 publish 디렉터리에서 가져오는 것을 허용하며, restore plan과 GC도 새 manifest가 가리키는 그 version을 그대로 따라간다. pointer(`checkpoints.manifest_version`)와 restore plan도 같은 version을 들고 간다. 그래서 커밋 뒤 같은 key를 덮어쓰거나 지우거나 delete marker 뒤에 다시 올려도 복원 대상은 바뀌지 않고, hold가 걸린 version은 hold를 푸는 권한 없이는 지울 수 없다. hold 해제는 아래 checkpoint GC의 몫이다. hold를 걸 수 있는 권한은 풀 수도 있으므로 워커에게 주면 안 된다. 워커는 object store 자격 증명을 받지 않고, proxy의 object store route는 legal hold·retention 요청을 403으로 거절한다(94S-251, 위 94S-252 절). API는 기동 시 bucket의 versioning이 `Enabled`이고 Object Lock 설정이 있는지 확인하고, 아니면 기동하지 않는다. **versioning이 꺼진 bucket에서는 `CHECKPOINT_OBJECT_PROTECTION=unversioned`를 명시해야 한다. 이 저하된 모드는 key로만 읽고(manifest의 version은 무시하고 restore plan에서도 뺀다) hold를 걸지 않으므로, 커밋 뒤의 삭제·덮어쓰기를 막지 못하고 복원 때 digest 불일치로 발견할 뿐이다. 이 모드에서는 이전 untracked ref도 재사용하지 않고 다시 PUT한다.** 기동 로그에 경고가 남는다. `unversioned`에서 `locked`로 바꾸면, `unversioned`로 커밋된 checkpoint는 첫 restore 때 version 단위로 다시 해시하고 hold를 건 뒤에 내준다. pointer에 version이 없는 checkpoint는 `CHECKPOINT_UNAVAILABLE`이 된다. compose의 localstack init은 `claude-sessions`를 Object Lock으로 만들고, 예전 volume에 남은 bucket에는 versioning과 Object Lock 설정을 켠다(그 전에 올라간 객체는 version이 없어 locked API가 거부한다).
 
@@ -420,7 +500,7 @@ capture 성공 로그 `worker.checkpoint.published`는 `untracked`·`untracked_b
 
 **checkpoint GC**(94S-281)는 `bun run apps/control-host/src/api/checkpoint-gc.ts`로 도는 one-shot이다. reconciler처럼 한 pass만 돌고 끝나며, api 이미지와 API의 object store 환경 변수에 `DATABASE_URL`을 더해 실행한다. `CHECKPOINT_GC_DRY_RUN=true`를 주면 지울 개수만 세고 아무것도 지우지 않는다.
 
-GC를 주기적으로 도는 서비스는 없다. 운영자가 **주 1회**, 사용이 적은 시간에 돌린다. compose 설치에서는 떠 있는 api 컨테이너 안에서 실행한다. 이 컨테이너에는 필요한 환경 변수가 이미 들어 있다.
+compose 설치에는 GC를 주기적으로 도는 서비스가 없다. 운영자가 **주 1회**, 사용이 적은 시간에 돌린다. Kubernetes 설치에서는 chart의 CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`, `concurrencyPolicy: Forbid`)이 api ServiceAccount로 돌고, `checkpointGc.dryRun: true`면 개수만 센다. 바로 한 번 돌리려면 `kubectl -n agent-platform create job --from=cronjob/agent-platform-checkpoint-gc checkpoint-gc-manual`을 쓴다. compose 설치에서는 떠 있는 api 컨테이너 안에서 실행한다. 이 컨테이너에는 필요한 환경 변수가 이미 들어 있다.
 
 ```bash
 docker compose exec -T -e CHECKPOINT_GC_DRY_RUN=true api bun run apps/control-host/src/api/checkpoint-gc.ts   # 지울 개수만 본다
@@ -961,6 +1041,83 @@ API 컨테이너의 메모리는 checkpoint bundle 검증이 정한다. 검증�
 compose의 Postgres는 `POSTGRES_USER`(`postgres`)·`POSTGRES_PASSWORD`(`dev`)·`POSTGRES_DB`(`sessions`)로 만들고, 모든 서비스가 같은 값으로 DSN을 만든다. 로컬 Gitea 예시 저장소의 agent 사용자 비밀번호는 `GITEA_AGENT_PASSWORD`이고, 비워 두면 아무도 모르는 무작위 값이 된다.
 
 worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(10), `WORKER_IDLE_TIMEOUT_SEC`(1800), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `QUESTION_TIMEOUT_SEC`(1800), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).
+
+## Kubernetes 실행 backend (94S-523, 94S-524)
+
+`packages/adapters/execution/kubernetes`는 launch 하나에 worker Pod 하나를 만든다. Pod마다 그 Pod가 소유하는 nonce Secret이 하나 붙고, 세션의 workspace PVC가 마운트된다.
+
+scheduler는 `EXECUTION_BACKEND`로 backend를 고른다. 값은 `local_docker`(기본값, 비워 둬도 같다)와 `kubernetes` 둘이고, 그 밖의 값이면 그 값을 적은 오류로 기동을 거부한다. `kubernetes`이면 Docker 설정(`DOCKER_HOST`, `EXECUTION_DOCKER_*`, `EXECUTION_WORKSPACE_QUOTA`)을 읽지 않고 Docker socket도 쓰지 않는다. Docker 전용 preflight인 egress proxy 격리 확인과 workspace quota probe도 돌지 않는다. kubernetes에서 worker 격리는 chart의 NetworkPolicy가 맡고, workspace 상한은 PVC 크기다. 정지·요청 timeout은 고정값(120s + 30s)이어서 `SCHEDULER_PASS_TIMEOUT_SEC`는 150보다 커야 한다. `migrate-workspace`는 Docker volume을 옮기는 도구라서 `local_docker`에서만 돈다.
+
+readOnlyRootFilesystem인 Pod에서는 status file을 쓰기 가능한 경로에 둔다. 기본 경로 `/tmp/scheduler-status.json`·`/tmp/reconciler-status.json`은 `/tmp`에 emptyDir를 마운트하면 그대로 쓸 수 있다. 다른 경로라면 `SCHEDULER_STATUS_FILE`·`RECONCILER_STATUS_FILE`로 바꾼다. 루프는 status file과 같은 디렉터리에 임시 파일(`<status file>.<pid>.tmp`)을 쓴 뒤 rename한다. scheduler는 그 옆에 `.quota-verified` 기록도 둔다. 그래서 파일 하나가 아니라 디렉터리 전체가 쓰기 가능해야 한다.
+
+공유 env(`WORKER_IMAGE`, `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT`, `EXECUTION_INSTALLATION_ID`, `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `S3_BUCKET`, `AWS_REGION`)는 Docker backend와 같다. kubernetes 모드에서는 다음 두 값에 제약이 더 붙는다.
+
+- `WORKER_IMAGE`는 `repository@sha256:<digest>` 형식이어야 한다.
+- `EXECUTION_INSTALLATION_ID`는 32자 이하의 소문자 DNS label이어야 한다.
+
+kubernetes 모드에서만 읽는 설정은 다음과 같다.
+
+| 변수 | 뜻 |
+| --- | --- |
+| `EXECUTION_K8S_NAMESPACE` | worker Pod·Secret·PVC를 두는 namespace. 기본값은 scheduler 자신의 namespace다. 클러스터 밖에서 돌리면 반드시 줘야 한다. |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | worker Pod의 ServiceAccount. token은 늘 마운트하지 않는다. |
+| `EXECUTION_K8S_STORAGE_CLASS` | workspace PVC의 StorageClass. 비우면 클러스터 기본값을 쓴다. |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 선택. 쉼표로 구분한 Secret 이름. |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 선택. JSON object. |
+| `EXECUTION_K8S_WORKER_TOLERATIONS` | 선택. JSON array. |
+
+### chart가 넣는 값
+
+Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment.md](kubernetes-deployment.md))로 설치하면 위 env를 직접 적지 않는다. chart가 values에서 만든다.
+
+| env | values | 비고 |
+| --- | --- | --- |
+| `EXECUTION_BACKEND` | 없음 | 늘 `kubernetes` |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | 없음 | chart가 만든 `<fullname>-worker`. token은 마운트하지 않는다 |
+| `EXECUTION_K8S_NAMESPACE` | 없음 | 넣지 않는다. scheduler 자신의 namespace(release namespace)가 된다 |
+| `EXECUTION_K8S_STORAGE_CLASS` | `worker.storageClass` | 비면 넣지 않는다 |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | `images.pullSecrets` | 제어 영역 Pod에도 같은 Secret을 쓴다 |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR`, `EXECUTION_K8S_WORKER_TOLERATIONS` | `worker.nodeSelector`, `worker.tolerations` | JSON으로 바꿔 넣는다 |
+| `WORKER_IMAGE` | `images.registry`, `images.worker.*` | `<registry>/<repository>@<digest>`. digest가 없으면 render가 실패한다 |
+| `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT` | 없음 | api Service의 3000, egress-proxy Service의 3128, 3129 |
+| `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy의 label 값이기도 하다 |
+| `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | quota는 workspace PVC의 크기 |
+| `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
+| 설치 상한(`EXECUTION_SLOT_LIMIT` 등) | `config.limits` | api와 scheduler에 같은 값 |
+| `SCHEDULER_*` | `scheduler.intervalSec` 등 | `SCHEDULER_PASS_TIMEOUT_SEC`(`scheduler.passTimeoutSec`, 기본 180)는 150보다 커야 한다 |
+
+어느 Deployment에나 `extraEnv`로 env를 더할 수 있다. Secret에서 오는 값(`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, AWS key, 카탈로그 credential)은 [kubernetes-deployment.md § 준비](kubernetes-deployment.md#준비)의 표에 있다.
+
+### probe
+
+| 구성요소 | readiness | liveness | startup |
+| --- | --- | --- | --- |
+| api | `GET /readyz` | `GET /healthz` | `GET /healthz`(5초 × 24) |
+| scheduler | `bun run apps/control-host/src/main.ts scheduler --health` | 같음 | 같음. 실패 허용 횟수는 `(intervalSec + passTimeoutSec + 39) / 10` |
+| reconciler | `bun run apps/control-host/src/main.ts reconciler --health` | 같음 | scheduler와 같은 식 |
+| egress-proxy | `bun run /app/src/healthcheck.ts` | 같음 | 없음 |
+
+`/healthz`는 HTTP를 받는지만 보고 DB를 보지 않는다. 그래서 liveness에 쓰고, DB·schema·설정을 보는 `/readyz`는 readiness에만 쓴다. DB가 잠시 끊겨도 api Pod는 재시작되지 않고 트래픽에서만 빠진다. `/livez`는 없다. scheduler와 reconciler의 `--health`는 loop가 쓰는 status file을 읽고, 직전 pass가 실패했거나 기한을 넘겼거나, `SCHEDULER_HEALTH_STALE_SEC`·`RECONCILER_HEALTH_STALE_SEC` 안에 끝난 pass가 없으면 실패한다. startup probe는 첫 pass가 끝날 때까지 기다린다.
+
+### scheduler는 replica 1, `Recreate`
+
+scheduler pass는 PostgreSQL advisory lock(`pg_try_advisory_lock`) 하나로 직렬화된다. 두 번째 scheduler는 lock을 얻지 못해 pass를 건너뛰고, 성공한 pass가 없으니 `--health`가 stale이 되어 liveness가 그 Pod를 계속 재시작한다. 늘려도 처리량은 늘지 않는다. 그래서 chart는 `replicas: 1`을 고정하고(values에 키가 없다), rollout도 `RollingUpdate`가 아니라 `Recreate`로 옛 Pod를 먼저 내린다. 업그레이드 동안 잠깐 pass가 멈춘다. reconciler는 pass를 행 lock 아래에서 다시 판단하므로 leader election 없이 `reconciler.replicas`를 늘릴 수 있고, 기본은 1이다.
+
+### worker NetworkPolicy
+
+chart의 NetworkPolicy가 Docker backend의 execution별 internal 네트워크를 대신한다. worker Pod(`app.kubernetes.io/part-of=agent-platform`, `app.kubernetes.io/component=worker`, `agent-platform.installation=<installationId>`)는 아무 연결도 받지 않고, 바깥으로는 egress-proxy의 3128·3129로만 연결한다. DB, api, 다른 worker, node·cloud metadata 주소에 직접 닿지 않는다. api로 가는 gateway 요청도 proxy를 거친다. egress-proxy는 worker에게서만 연결을 받고, api의 authorizer(3100)는 egress-proxy에게서만 받는다. 클러스터 CNI가 NetworkPolicy를 강제하지 않으면 이 격리가 없다(kind의 kindnet은 강제한다. EKS는 VPC CNI의 network policy agent를 켠다).
+
+### API server 인증
+
+API server 인증은 `KUBECONFIG`가 있으면 그것을 쓰고, 없으면 Pod의 ServiceAccount를 쓴다. ServiceAccount 경로는 `KUBERNETES_SERVICE_HOST`·`KUBERNETES_SERVICE_PORT`와 token·CA 파일을 읽는다. scheduler의 Role 동사와 pidsLimit 처리는 패키지 README에 있다.
+
+kind에 대한 테스트는 opt-in이다. `K8S_BACKEND_TEST=1`과 `KUBECONFIG`를 주면 실행된다. `K8S_BACKEND_TEST_IMAGE`로 digest 형식의 이미지를 바꿀 수 있고, `K8S_BACKEND_TEST_KEEP=1`을 주면 테스트 namespace를 지우지 않고 남긴다.
+
+```sh
+K8S_BACKEND_TEST=1 KUBECONFIG=<kind kubeconfig> \
+  bun test packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts \
+  packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+```
 
 ## 이미지와 Compose `apps` profile
 

@@ -1,0 +1,15 @@
+# Laid over values.yaml for KIND_MODEL=real (smoke.sh): the chart's own
+# claude-coding-real profile against the sample repository of
+# deps-session.yaml, under infra/compose.real-model.yml's limits.
+config:
+  limits:
+    SESSION_COST_LIMIT_USD: 1
+    MAX_TURN_SECONDS: 600
+  egress:
+    credentialPrivateAllowlist: "gitea:3000,localstack:4566"
+worker:
+  workspace:
+    gcMinAgeSec: 0
+scheduler:
+  extraEnv:
+    EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "0"

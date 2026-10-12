@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import {
   allowedPair,
   type CatalogProfile,
@@ -216,6 +217,212 @@ describe("catalog config schema", () => {
         ).success,
       ).toBe(false);
     }
+  });
+
+  test("a GitHub repository, on github.com or GHES, takes a PAT as basic x-access-token", () => {
+    const pat = "github_pat_fixture_not_a_real_token";
+    for (const [url, ref] of [
+      ["https://github.com/acme/app.git", { value_env: "GITHUB_PAT" }],
+      [
+        "https://ghes.example.invalid/acme/app.git",
+        { secret_id: "agent-platform/ghes-pat" },
+      ],
+    ] as const) {
+      const catalog = load(
+        config(configured, {
+          app: {
+            ...repository,
+            url,
+            auth: { kind: "basic", username: "x-access-token", ...ref },
+          },
+        }),
+        (lookup) =>
+          "value_env" in lookup && lookup.value_env === "ANTHROPIC_KEY_MAIN"
+            ? "resolved-key"
+            : pat,
+      );
+      const app = catalog.repositories.app;
+      if (!app) throw new Error("no repository");
+      expect(repositoryUpstreamOf(app)).toEqual({
+        url,
+        headers: [
+          [
+            "authorization",
+            `Basic ${Buffer.from(`x-access-token:${pat}`).toString("base64")}`,
+          ],
+        ],
+      });
+    }
+  });
+
+  describe("a GitHub App repository", () => {
+    const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs1", format: "pem" })
+      .toString();
+    const appAuth = {
+      kind: "github_app",
+      app_id: 101,
+      installation_id: 202,
+      value_env: "GITHUB_APP_KEY",
+    };
+    const github = {
+      ...repository,
+      url: "https://github.com/acme/app.git",
+      auth: appAuth,
+    };
+    const keyed = (key: string) =>
+      environmentCredentials({ ...env, GITHUB_APP_KEY: key });
+
+    test("resolves the private key once and keeps it out of the binding and revision", () => {
+      const catalog = load(config(configured, { app: github }), keyed(pem));
+      const app = catalog.repositories.app;
+      if (!app) throw new Error("no repository");
+      expect(app.auth).toEqual({
+        kind: "github_app",
+        app_id: 101,
+        installation_id: 202,
+        api_base: "https://api.github.com",
+        value: pem.trim(),
+        ref: { value_env: "GITHUB_APP_KEY" },
+      });
+      const body = pem.split("\n")[1] ?? "";
+      expect(body.length).toBeGreaterThan(20);
+      expect(repositoryBinding("app", app)).not.toContain(body);
+      expect(catalogRevision(catalog)).not.toContain(body);
+      // A rotated key behind the same reference keeps the binding; another
+      // installation, App or API base does not.
+      const other = generateKeyPairSync("rsa", { modulusLength: 2048 })
+        .privateKey.export({ type: "pkcs1", format: "pem" })
+        .toString();
+      const rotated = load(config(configured, { app: github }), keyed(other))
+        .repositories.app;
+      if (!rotated) throw new Error("no repository");
+      expect(repositoryBinding("app", rotated)).toBe(
+        repositoryBinding("app", app),
+      );
+      for (const moved of [
+        { installation_id: 203 },
+        { app_id: 102 },
+        { api_base: "https://ghes.example.invalid/api/v3" },
+      ]) {
+        const changed = load(
+          config(configured, {
+            app: { ...github, auth: { ...appAuth, ...moved } },
+          }),
+          keyed(pem),
+        ).repositories.app;
+        if (!changed) throw new Error("no repository");
+        expect(repositoryBinding("app", changed)).not.toBe(
+          repositoryBinding("app", app),
+        );
+      }
+    });
+
+    test("takes a key with escaped newlines, a GHES API base, or a Secrets Manager reference", () => {
+      const escaped = pem.trim().replaceAll("\n", "\\n");
+      const ghes = load(
+        config(configured, {
+          app: {
+            ...github,
+            url: "https://ghes.example.invalid/acme/app.git",
+            auth: {
+              kind: "github_app",
+              app_id: 101,
+              installation_id: 202,
+              secret_id: "github-app-key",
+              api_base: "https://ghes.example.invalid/api/v3",
+            },
+          },
+        }),
+        (ref) =>
+          "secret_id" in ref ? escaped : environmentCredentials(env)(ref),
+      ).repositories.app?.auth;
+      expect(ghes).toMatchObject({
+        api_base: "https://ghes.example.invalid/api/v3",
+        value: pem.trim(),
+        ref: { secret_id: "github-app-key" },
+      });
+      // A private host (the local stack's fake GitHub) may be plain http.
+      expect(
+        load(
+          config(configured, {
+            app: {
+              ...github,
+              url: "http://fake-github:8080/acme/app.git",
+              auth: { ...appAuth, api_base: "http://fake-github:8080" },
+            },
+          }),
+          keyed(pem),
+        ).repositories.app?.auth,
+      ).toMatchObject({ api_base: "http://fake-github:8080" });
+    });
+
+    test("a key that cannot sign fails at load without echoing it", () => {
+      const ec = generateKeyPairSync("ec", { namedCurve: "P-256" })
+        .privateKey.export({ type: "pkcs8", format: "pem" })
+        .toString();
+      for (const bad of ["not-a-pem-at-all", ec]) {
+        let message = "";
+        try {
+          load(config(configured, { app: github }), keyed(bad));
+        } catch (error) {
+          message = (error as Error).message;
+        }
+        expect(message).toBe(
+          "repositories.app.auth.value_env: GITHUB_APP_KEY is not an RSA private key PEM",
+        );
+      }
+      expect(() =>
+        load(config(configured, { app: github }), keyed("")),
+      ).toThrow(
+        /^repositories\.app\.auth\.value_env: GITHUB_APP_KEY is not set$/,
+      );
+    });
+
+    test("the schema refuses what would issue a wrong or unscoped token", () => {
+      for (const app of [
+        { ...github, auth: { ...appAuth, app_id: "101" } },
+        { ...github, auth: { ...appAuth, installation_id: 0 } },
+        { ...github, auth: { ...appAuth, username: "x-access-token" } },
+        { ...github, auth: { ...appAuth, secret_id: "also" } },
+        { ...github, auth: { ...appAuth, value_env: undefined } },
+        {
+          ...github,
+          auth: { ...appAuth, api_base: "http://api.github.example.com" },
+        },
+        // A token is scoped to `<owner>/<name>`; a URL without one has none.
+        { ...github, url: "https://github.com/acme" },
+        { ...github, url: "https://github.com/acme/app/tree/main" },
+      ]) {
+        expect(
+          sessionCatalogConfigSchema.safeParse(config(configured, { app }))
+            .success,
+        ).toBe(false);
+      }
+    });
+
+    test("its route sends the credential the forge issued, never the key", () => {
+      const app = load(config(configured, { app: github }), keyed(pem))
+        .repositories.app;
+      if (!app) throw new Error("no repository");
+      expect(() => repositoryUpstreamOf(app)).toThrow(
+        /needs an issued credential/,
+      );
+      expect(
+        repositoryUpstreamOf(app, {
+          username: "x-access-token",
+          password: "installation-token-fixture",
+        }),
+      ).toEqual({
+        url: github.url,
+        headers: [
+          [
+            "authorization",
+            `Basic ${Buffer.from("x-access-token:installation-token-fixture").toString("base64")}`,
+          ],
+        ],
+      });
+    });
   });
 
   test("the repository's CLAUDE.md is let in only when the profile says so, and hooks never are", () => {

@@ -49,10 +49,9 @@ async function objectStore(): Promise<{ hosts: string[]; port: number }> {
 function clientFor(port: number) {
   const client = createStorageS3Client({
     s3: {
-      accessKeyId: "test",
+      credentials: { accessKeyId: "test", secretAccessKey: "test" },
       endpoint: `http://objects.test:${port}`,
       region: "ap-northeast-1",
-      secretAccessKey: "test",
     },
   });
   closers.push(() => client.destroy());

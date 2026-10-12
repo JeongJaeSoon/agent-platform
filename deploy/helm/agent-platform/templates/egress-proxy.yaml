@@ -1,0 +1,101 @@
+{{- $healthcheck := list "bun" "run" "/app/src/healthcheck.ts" -}}
+# Every worker's only route off its Pod: workers get it as HTTP(S)_PROXY, and
+# the allowlists below are the whole of what a worker can reach.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ap.proxyHost" . }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "egress-proxy") | nindent 4 }}
+spec:
+  replicas: {{ .Values.egressProxy.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "egress-proxy") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ap.fullname" . }}-workload
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: egress-proxy
+          image: {{ include "ap.image" (dict "root" . "name" "egressProxy") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - name: proxy
+              containerPort: 3128
+            - name: credential
+              containerPort: 3129
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "EGRESS_AUTHORIZER_TOKEN") | nindent 12 }}
+            - name: EGRESS_ALLOWLIST
+              value: {{ .Values.config.egress.allowlist | quote }}
+            - name: EGRESS_PRIVATE_ALLOWLIST
+              value: {{ .Values.config.egress.privateAllowlist | default (printf "%s:3000" (include "ap.apiHost" .)) | quote }}
+            - name: EGRESS_PROXY_PORT
+              value: "3128"
+            - name: EGRESS_CREDENTIAL_PORT
+              value: "3129"
+            - name: EGRESS_AUTHORIZER_URL
+              value: {{ printf "http://%s-authorizer:3100" (include "ap.apiHost" .) | quote }}
+            - name: EGRESS_CREDENTIAL_ALLOWLIST
+              value: {{ .Values.config.egress.credentialAllowlist | quote }}
+            - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST
+              value: {{ .Values.config.egress.credentialPrivateAllowlist | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- include "ap.extraEnv" .Values.egressProxy.extraEnv | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: {{ toJson $healthcheck }}
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: {{ toJson $healthcheck }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.egressProxy.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+      {{- with .Values.egressProxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.egressProxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.egressProxy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ap.proxyHost" . }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "egress-proxy") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 4 }}
+  ports:
+    - name: proxy
+      port: 3128
+      targetPort: proxy
+    - name: credential
+      port: 3129
+      targetPort: credential

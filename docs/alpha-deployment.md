@@ -4,7 +4,7 @@
 
 ## 배포 결정
 
-- 대상은 신뢰된 내부 사용자 3–5명, 단일 서버, `local-docker` 실행 기반이다. Kubernetes와 HA는 범위 밖이다.
+- 대상은 신뢰된 내부 사용자 3–5명, 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. 실행 기반은 Kubernetes(EKS)로 정해졌다([94S-313](https://linear.app/94soon/issue/94S-313)). Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서의 단일 서버 절차는 지금 도는 알파를 위해 그대로 둔다.
 - 이번 알파는 24시간 soak를 다시 돌리지 않고 진행한다. 실 AWS S3, HTTPS, 실제 provider 호출을 포함한 남은 증거는 [94S-303](https://linear.app/94soon/issue/94S-303) 서버 배포에서 수집한다.
 - provider key는 운영자 key 하나를 공유한다. 사용자별 API key의 owner가 세션 owner이며, 사용자마다 별도 owner와 API key를 발급한다. 외부 공개 전에는 BYOK 결정과 구현([94S-376](https://linear.app/94soon/issue/94S-376))이 필요하다.
 - 알파의 object store는 전용 AWS S3 bucket이다. 같은 호스트의 LocalStack은 재부팅 때 object를 잃으므로 실서버 알파의 지속성 근거로 쓰지 않는다.

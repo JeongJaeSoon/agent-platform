@@ -12,7 +12,9 @@ import { type LogLevel, logLevelFromEnv } from "@agent-platform/observability";
 import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_PENDING_TTL_MS,
+  installationLimitProblems,
 } from "@agent-platform/platform";
+import { googleLoginConfigFromEnv } from "./google-login.ts";
 
 /**
  * The API's own settings, apart from the installation limits it shares with
@@ -124,6 +126,31 @@ export function apiSettingsProblems(
     if (error instanceof ApiSettingsError) return [...error.problems];
     throw error;
   }
+}
+
+/**
+ * What /readyz requires beyond the database. AUTH_MODE unset still fails
+ * closed (every /v1 call is 401), which is a misconfiguration, not a serving
+ * instance. app.ts treats anything but "none" as api-key mode, so a typo
+ * would silently run authenticated; only the two spellings we document count.
+ */
+export const API_READINESS_REQUIRED_ENV = [
+  "DATABASE_URL",
+  { name: "AUTH_MODE", allowed: ["none", "api-key"] },
+] as const;
+
+/**
+ * The same parsers the process started with: an env that changed under a
+ * running instance shows up in /readyz rather than at the next restart.
+ */
+export function apiReadinessConfigProblems(
+  environment: Record<string, string | undefined>,
+): string[] {
+  return [
+    ...installationLimitProblems(environment),
+    ...apiSettingsProblems(environment),
+    ...googleLoginConfigFromEnv(environment).problems,
+  ];
 }
 
 // HEARTBEAT_TTL_SEC is read here and nowhere else. Every lease the

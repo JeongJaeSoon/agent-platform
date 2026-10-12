@@ -49,6 +49,11 @@ import {
 } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
 import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
+import {
+  type ForgeResolver,
+  type GitCredential,
+  repoRefOf,
+} from "../ports/forge.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ConfirmExecutionGoneResult,
@@ -403,6 +408,9 @@ export function createWorkerGateway(deps: {
   // Absent, the pending routes answer 404 and the worker denies what it
   // cannot put to anyone; heartbeat then never reports an answer waiting.
   pending?: WorkerPendingStore;
+  // The forge behind each catalog repository that has one. Absent, a
+  // repository whose credential a forge issues (`github_app`) is refused.
+  forges?: ForgeResolver;
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending } = deps;
@@ -569,6 +577,14 @@ export function createWorkerGateway(deps: {
       409,
       "CATALOG_MISMATCH",
       `The ${what} changed in the catalog since this attempt was claimed`,
+    );
+  }
+  function forgeUnavailable(): never {
+    throw new WorkerGatewayError(
+      503,
+      "BACKEND_UNAVAILABLE",
+      "The repository's forge credential could not be issued",
+      true,
     );
   }
 
@@ -926,7 +942,21 @@ export function createWorkerGateway(deps: {
       ) {
         moved("session's repository");
       }
-      return grant(repositoryUpstreamOf(pair.repository));
+      const forge = deps.forges?.(id) ?? null;
+      if (forge === null) {
+        if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
+        return grant(repositoryUpstreamOf(pair.repository));
+      }
+      const repo = repoRefOf(url);
+      if (repo === null) forgeUnavailable();
+      let issued: GitCredential;
+      try {
+        issued = await forge.gitCredential(repo, "read");
+      } catch {
+        // The adapter logs why; nothing of its error reaches the proxy.
+        forgeUnavailable();
+      }
+      return grant(repositoryUpstreamOf(pair.repository, issued));
     },
 
     // What one Messages call through the provider route used, as the proxy

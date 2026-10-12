@@ -70,7 +70,7 @@ export const RUNTIME_KIND_VALUES = [
 ] as const;
 export const EXECUTION_BACKEND_VALUES = [
   "local_docker",
-  "eks_job",
+  "kubernetes",
   "lambda_microvm",
 ] as const;
 export const PERMISSION_MODE_VALUES = [

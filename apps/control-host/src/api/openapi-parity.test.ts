@@ -12,6 +12,7 @@ import type {
   LinkedAccountService,
   MemberService,
   PendingRequestService,
+  PushRequestService,
   SessionService,
   SessionShareService,
   TeamService,
@@ -19,7 +20,7 @@ import type {
 } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
-import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
+import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -37,6 +38,7 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerProfileRoutes } from "./routes/profiles.ts";
+import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -80,6 +82,7 @@ function apiApp() {
       );
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
+      registerPushRequestRoutes(router, {} as PushRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
       registerMemberRoutes(router, {} as MemberService, {} as InviteService);
       registerAgentRoutes(router, {} as AgentService);
@@ -193,5 +196,11 @@ test("every OpenAPI x-scope matches the enforced scope map", () => {
         return scope ? [{ method: method.toUpperCase(), path, scope }] : [];
       }),
   );
-  expect(documented).toEqual([...API_ROUTE_SCOPES]);
+  expect(documented).toEqual(
+    DOCUMENTED_ROUTE_SCOPES.map(({ method, path, scope }) => ({
+      method,
+      path,
+      scope,
+    })),
+  );
 });

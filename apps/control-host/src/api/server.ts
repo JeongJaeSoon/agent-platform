@@ -13,6 +13,7 @@ import {
   createPostgresLinkedAccountStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresPushRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
@@ -40,20 +41,21 @@ import {
   createLinkedAccountService,
   createMemberService,
   createPendingRequestService,
+  createPushRequestService,
   createSessionService,
   createSessionShareService,
   createTeamService,
   createUsageService,
   createWorkerGateway,
   InstallationConfigError,
-  installationLimitProblems,
   installationLimitsFromEnv,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
+  apiReadinessConfigProblems,
   apiSettingsFromEnv,
-  apiSettingsProblems,
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
 import {
@@ -81,6 +83,7 @@ import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
+import { forgesOf } from "./forge-github.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
@@ -101,6 +104,7 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerProfileRoutes } from "./routes/profiles.ts";
+import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -288,6 +292,11 @@ const agentAdmins = createAgentAdminService({
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
+const pushRequests = createPushRequestService({
+  authorization,
+  store: createPostgresPushRequests(db),
+  source: checkpoints.pushSource,
+});
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -303,6 +312,7 @@ const workers = createWorkerGateway({
     ? {}
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
+  forges: forgesOf(catalog, { logger }),
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,
@@ -404,6 +414,7 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, catalog);
     registerPendingRoutes(router, pendingRequests);
+    registerPushRequestRoutes(router, pushRequests);
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
@@ -432,21 +443,8 @@ const app = createApiApp({
   readiness: shutdown.readiness(
     createReadinessProbe({
       db: probePool,
-      // AUTH_MODE unset still fails closed (every /v1 call is 401), which is
-      // a misconfiguration, not a serving instance.
-      // app.ts treats anything but "none" as api-key mode, so a typo would
-      // silently run authenticated; only the two spellings we document count.
-      requiredEnv: [
-        "DATABASE_URL",
-        { name: "AUTH_MODE", allowed: ["none", "api-key"] },
-      ],
-      // The same parser the process started with: an env that changed under
-      // a running instance shows up here rather than at the next restart.
-      configProblems: (environment) => [
-        ...installationLimitProblems(environment),
-        ...apiSettingsProblems(environment),
-        ...googleLoginConfigFromEnv(environment).problems,
-      ],
+      requiredEnv: API_READINESS_REQUIRED_ENV,
+      configProblems: apiReadinessConfigProblems,
     }),
   ),
 });

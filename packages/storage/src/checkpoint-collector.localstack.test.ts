@@ -119,6 +119,9 @@ function memoryStore(
         fencedAttemptIds: new Set(),
       };
     },
+    async readPushPinnedRevisions() {
+      return [];
+    },
     async markCollected() {
       return 0;
     },

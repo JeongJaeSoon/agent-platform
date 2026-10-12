@@ -1,0 +1,59 @@
+{{- if .Values.checkpointGc.enabled }}
+# One checkpoint garbage collection pass (apps/control-host/src/api/
+# checkpoint-gc.ts). Must not overlap a backup (docs/backup-restore.md).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "ap.fullname" . }}-checkpoint-gc
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "checkpoint-gc") | nindent 4 }}
+spec:
+  schedule: {{ .Values.checkpointGc.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "ap.labels" (dict "root" . "component" "checkpoint-gc") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          # The api's: releasing an object hold takes the control plane's
+          # object store credentials.
+          serviceAccountName: {{ include "ap.fullname" . }}-api
+          automountServiceAccountToken: false
+          securityContext:
+            {{- include "ap.podSecurityContext" . | nindent 12 }}
+          {{- include "ap.imagePullSecrets" . | nindent 10 }}
+          containers:
+            - name: checkpoint-gc
+              image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+              imagePullPolicy: {{ .Values.images.pullPolicy }}
+              args: ["bun", "run", "apps/control-host/src/api/checkpoint-gc.ts"]
+              env:
+                {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 16 }}
+                - name: CHECKPOINT_GC_DRY_RUN
+                  value: {{ .Values.checkpointGc.dryRun | quote }}
+                - name: LOG_LEVEL
+                  value: {{ .Values.config.logLevel | quote }}
+                {{- include "ap.checkpointEnv" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.checkpointGc.resources | nindent 16 }}
+              securityContext:
+                {{- include "ap.containerSecurityContext" . | nindent 16 }}
+              volumeMounts:
+                {{- include "ap.tmpMount" . | nindent 16 }}
+          volumes:
+            {{- include "ap.tmpVolume" . | nindent 12 }}
+          {{- with .Values.checkpointGc.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.checkpointGc.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

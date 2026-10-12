@@ -17,6 +17,12 @@ const claudeSdk = "@anthropic-ai/claude-agent-sdk";
 const runtimeCore = join("packages", "runtime-core");
 const claudeAdapter = join("packages", "adapters", "runtimes", "claude");
 const dockerBackend = join("packages", "adapters", "execution", "local-docker");
+const kubernetesBackend = join(
+  "packages",
+  "adapters",
+  "execution",
+  "kubernetes",
+);
 const platform = join("packages", "platform");
 const system = join("packages", "system");
 const routes = join("apps", "control-host", "src", "api", "routes");
@@ -303,6 +309,7 @@ describe("architecture", () => {
     expect(names).toContain(runtimeCore);
     expect(names).toContain(claudeAdapter);
     expect(names).toContain(dockerBackend);
+    expect(names).toContain(kubernetesBackend);
     expect(names).toContain(worker);
   });
 
@@ -518,17 +525,23 @@ describe("architecture", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("the Docker backend depends on platform and contracts only and never on db, pg or Docker SDKs", async () => {
-    const directory = join(root, dockerBackend);
-    const allowed = new Set([
-      "@agent-platform/contracts",
-      "@agent-platform/platform",
-    ]);
-    const declared = [...declaredDependencies(await manifest(directory))];
-    const imported = [...(await packageImports(directory))];
-    expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
-    expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
-  });
+  test.each([
+    ["Docker", dockerBackend],
+    ["Kubernetes", kubernetesBackend],
+  ])(
+    "the %s backend depends on platform and contracts only and never on db, pg or provider SDKs",
+    async (_name, backend) => {
+      const directory = join(root, backend);
+      const allowed = new Set([
+        "@agent-platform/contracts",
+        "@agent-platform/platform",
+      ]);
+      const declared = [...declaredDependencies(await manifest(directory))];
+      const imported = [...(await packageImports(directory))];
+      expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
+      expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
+    },
+  );
 
   test("worker containers never get the Docker socket or a host bind mount", async () => {
     // The Engine API body is the contract: a bind mount would be a `Binds`
@@ -559,19 +572,35 @@ describe("architecture", () => {
       expect(existsSync(join(root, "apps", gone))).toBe(false);
   });
 
-  test("only the control host's scheduler role reaches the Docker backend", async () => {
-    const host = join(root, "apps", "control-host");
-    const importing = (
-      await filesImporting(
-        await sourceFiles(join(host, "src")),
-        "@agent-platform/execution-local-docker",
-      )
-    ).map((file) => relative(join(host, "src"), file));
-    expect(importing.length).toBeGreaterThan(0);
-    expect(
-      importing.filter((file) => !file.startsWith(`scheduler${sep}`)),
-    ).toEqual([]);
+  test("worker Pods never get a hostPath, the host's network or its PID namespace", async () => {
+    const offenders: string[] = [];
+    for (const file of await sourceFiles(
+      join(root, kubernetesBackend, "src"),
+    )) {
+      const source = await readFile(file, "utf8");
+      if (/\b(hostPath|hostNetwork|hostPID|hostIPC)\b/.test(source)) {
+        offenders.push(relative(root, file));
+      }
+    }
+    expect(offenders).toEqual([]);
   });
+
+  test.each([
+    ["Docker", "@agent-platform/execution-local-docker"],
+    ["Kubernetes", "@agent-platform/execution-kubernetes"],
+  ])(
+    "only the control host's scheduler role reaches the %s backend",
+    async (_, backend) => {
+      const host = join(root, "apps", "control-host");
+      const importing = (
+        await filesImporting(await sourceFiles(join(host, "src")), backend)
+      ).map((file) => relative(join(host, "src"), file));
+      expect(importing.length).toBeGreaterThan(0);
+      expect(
+        importing.filter((file) => !file.startsWith(`scheduler${sep}`)),
+      ).toEqual([]);
+    },
+  );
 
   test("the worker keeps its process layout: entry, composition, host, transport, heartbeat", async () => {
     // The composition root is a named file rather than a habit: it is what

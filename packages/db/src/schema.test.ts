@@ -88,6 +88,7 @@ describe("database schema", () => {
       "pending_requests",
       "provider_usage",
       "pull_requests",
+      "push_requests",
       "queue_messages",
       "receipts",
       "session_share_targets",

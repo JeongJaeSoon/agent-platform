@@ -1,0 +1,22 @@
+{
+  "name": "@agent-platform/execution-kubernetes",
+  "description": "Kiel session runtime: Kubernetes execution backend for worker Pods",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts'",
+    "test:k8s": "K8S_BACKEND_TEST=1 bun test .integration.test.ts"
+  },
+  "dependencies": {
+    "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/platform": "workspace:*"
+  },
+  "devDependencies": {
+    "@agent-platform/execution-local-docker": "workspace:*"
+  }
+}

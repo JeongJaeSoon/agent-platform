@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createPrivateKey } from "node:crypto";
 import { isIP } from "node:net";
 import {
   canonicalJson,
@@ -8,6 +8,7 @@ import {
   type runtimeConfigSchema,
 } from "@agent-platform/contracts";
 import { z } from "zod";
+import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 
 // Operator-registered profiles and repositories. The operator
 // writes `config/profiles.yaml` and `config/repositories.yaml`; the API reads
@@ -191,11 +192,12 @@ export const catalogProfileConfigSchema = z
   );
 
 // How the egress proxy logs in to the repository host for this
-// repository's read-only route. `basic` carries a login (Gitea
-// takes a token as the password); `bearer` carries none. The value is
+// repository's read-only route. `basic` carries a login (Gitea and
+// GitHub take a token as the password; a GitHub PAT goes under the username
+// `x-access-token`); `bearer` carries none. The value is
 // never handed to a worker: what a worker holds is an attempt-scoped token
 // for the proxy's route. Give it a read-only, non-admin account.
-const catalogRepositoryAuthSchema = z
+const staticRepositoryAuthSchema = z
   .object({
     kind: z.enum(["basic", "bearer"]),
     // Joined as `username:value` for basic auth, so no colon of its own.
@@ -218,6 +220,39 @@ const catalogRepositoryAuthSchema = z
     path: ["username"],
   });
 
+// A GitHub App installation: the API signs a JWT with the App's private key
+// (the referenced value, a PEM) and trades it for an installation token
+// scoped to this one repository and the access a route needs.
+export const GITHUB_API_BASE = "https://api.github.com";
+const githubAppAuthSchema = z
+  .object({
+    kind: z.literal("github_app"),
+    app_id: z.number().int().positive(),
+    installation_id: z.number().int().positive(),
+    ...credentialRefFields,
+    // GHES: `https://<host>/api/v3`. The JWT and the token cross it, so
+    // plain http only to a host inside the operator's network.
+    api_base: webUrl
+      .refine(
+        (value) =>
+          !isWebUrl(value) ||
+          new URL(value).protocol === "https:" ||
+          isPrivateEndpointHost(new URL(value).hostname),
+        { message: "must be https unless the host is private" },
+      )
+      .default(GITHUB_API_BASE),
+  })
+  .strict()
+  .refine(
+    (auth) => (auth.value_env === undefined) !== (auth.secret_id === undefined),
+    { message: "name exactly one of value_env or secret_id" },
+  );
+
+const catalogRepositoryAuthSchema = z.discriminatedUnion("kind", [
+  staticRepositoryAuthSchema,
+  githubAppAuthSchema,
+]);
+
 // A repository lists the profiles allowed to run against it. The pair is
 // the unit of trust: a profile that lets the repository's
 // CLAUDE.md into the system prompt must not carry that trust to a
@@ -231,7 +266,16 @@ export const catalogRepositorySchema = z
     // Absent for a repository anyone may read.
     auth: catalogRepositoryAuthSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (repository) =>
+      repository.auth?.kind !== "github_app" ||
+      repoRefOf(repository.url) !== null,
+    {
+      message: "github_app needs a URL of the form <host>/<owner>/<name>",
+      path: ["url"],
+    },
+  );
 
 function nonEmpty<T extends z.ZodType>(record: T, what: string) {
   return record.refine(
@@ -271,7 +315,16 @@ export type CatalogProfileConfig = z.infer<typeof catalogProfileConfigSchema>;
 export type CatalogRepositoryConfig = z.infer<typeof catalogRepositorySchema>;
 export type RepositoryCredential =
   | { kind: "basic"; username: string; value: string; ref: CredentialRef }
-  | { kind: "bearer"; value: string; ref: CredentialRef };
+  | { kind: "bearer"; value: string; ref: CredentialRef }
+  | {
+      kind: "github_app";
+      app_id: number;
+      installation_id: number;
+      api_base: string;
+      /** The App's private key, PEM. */
+      value: string;
+      ref: CredentialRef;
+    };
 export type CatalogRepository = Omit<CatalogRepositoryConfig, "auth"> & {
   auth?: RepositoryCredential | undefined;
 };
@@ -372,23 +425,41 @@ export function providerUpstreamOf(profile: CatalogProfile): EgressUpstream {
   };
 }
 
-/** Where a repository route goes and how it authenticates there. */
+/**
+ * Where a repository route goes and how it authenticates there. A forge
+ * repository's credential is issued per request (`ForgeAdapter.gitCredential`)
+ * and passed in; the others are the catalog's own.
+ */
 export function repositoryUpstreamOf(
   repository: CatalogRepository,
+  issued?: GitCredential,
 ): EgressUpstream {
   const { auth, url } = repository;
+  if (issued !== undefined) {
+    return { url, headers: [["authorization", basicAuthorization(issued)]] };
+  }
   if (auth === undefined) return { url, headers: [] };
+  if (auth.kind === "github_app") {
+    throw new Error("a github_app repository needs an issued credential");
+  }
   return {
     url,
     headers: [
       [
         "authorization",
         auth.kind === "basic"
-          ? `Basic ${Buffer.from(`${auth.username}:${auth.value}`, "utf8").toString("base64")}`
+          ? basicAuthorization({
+              username: auth.username,
+              password: auth.value,
+            })
           : `Bearer ${auth.value}`,
       ],
     ],
   };
+}
+
+function basicAuthorization(login: { username: string; password: string }) {
+  return `Basic ${Buffer.from(`${login.username}:${login.password}`, "utf8").toString("base64")}`;
 }
 
 function withoutRepositorySecret(repository: CatalogRepository) {
@@ -630,7 +701,22 @@ export function resolveSessionCatalog(
       continue;
     }
     const ref = credentialRefOf(auth);
-    const value = resolved(`repositories.${id}.auth`, ref);
+    const path = `repositories.${id}.auth`;
+    if (auth.kind === "github_app") {
+      repositories[id] = {
+        ...rest,
+        auth: {
+          kind: "github_app",
+          app_id: auth.app_id,
+          installation_id: auth.installation_id,
+          api_base: auth.api_base,
+          value: privateKeyPem(path, ref, lookup(ref)),
+          ref,
+        },
+      };
+      continue;
+    }
+    const value = resolved(path, ref);
     repositories[id] = {
       ...rest,
       auth:
@@ -640,6 +726,28 @@ export function resolveSessionCatalog(
     };
   }
   return { profiles, repositories };
+}
+
+// A PEM spans lines, which an environment variable often carries as `\n`
+// escapes. Parsed here so a key that cannot sign fails startup, not the
+// first clone.
+function privateKeyPem(
+  path: string,
+  ref: CredentialRef,
+  raw: string | undefined,
+): string {
+  if (!raw) throw new CatalogCredentialError(path, ref);
+  const pem = raw.replace(/\\n/g, "\n").trim();
+  try {
+    if (createPrivateKey(pem).asymmetricKeyType !== "rsa") throw new Error();
+  } catch {
+    throw new CatalogCredentialError(
+      path,
+      ref,
+      "is not an RSA private key PEM",
+    );
+  }
+  return pem;
 }
 
 /** Environment-only lookup: a secret reference resolves to nothing here. */

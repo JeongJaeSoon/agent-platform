@@ -15,7 +15,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, workspace-quota, e2e, quickstart, spikes]
+        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, spikes]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -231,12 +231,14 @@ jobs:
             docker: false
             paths:
               - apps/worker/
+              - packages/adapters/execution/kubernetes/
               - packages/adapters/runtimes/
               - packages/observability/
               - packages/platform/
               - packages/runtime-core/
               - packages/system/
               - packages/testkit/src/fake-anthropic.
+              - packages/testkit/src/fake-github.
               - packages/testkit/src/scripted-messages.
               - packages/testkit/src/workspace.
               - tests/architecture.
@@ -255,6 +257,39 @@ jobs:
               - tests/third-party-notices.
               - tests/unit-part.
             skips:
+              # The Kubernetes backend's suites need a kind cluster
+              # (K8S_BACKEND_TEST=1 and a KUBECONFIG); the job that brings one
+              # is 94S-525. (unnamed) is their beforeAll/afterAll.
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "(unnamed)"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "terminating one generation leaves the next generation's Pod untouched"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "the nonce is in the Pod's own Secret only, never in the Pod"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "terminate and workspace removal leave no Pod, Secret or PVC of the session"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "(unnamed)"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "ensureExecution twice → one resource, adopted without a new nonce"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "inspect: found:false for nothing launched, running for a launch"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "listManaged returns what was launched and drops what was terminated"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "terminate: generation_mismatch, terminated, absent — only the matching generation"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "a resource removed out of band is re-created; terminate conditioned on the old providerRef leaves the replacement"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "a resource launched with another spec is refused with LaunchSpecMismatchError and left in place"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "workspace pair, when present: lists the session's workspace and removes it only once unused"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "assertReplaceable, when present: resolves for a launchable intent and launches nothing"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "reconcileNetworks, when present: clears what an out-of-band removal left, then has nothing to do"
               # The D2 gate needs the whole compose stack and the
               # images built from the checkout; scripts/d2-gate/run.sh runs it.
               # (unnamed) is its beforeAll/afterAll.
@@ -583,6 +618,107 @@ jobs:
             ${{ runner.temp }}/api-guide
           if-no-files-found: ignore
           retention-days: 14
+
+  # The Helm chart (deploy/helm/agent-platform) with the CI digests and with
+  # the AWS example: helm lint, the render check (hardening, probes,
+  # resources, digests, RBAC, NetworkPolicy, and the renders it must refuse)
+  # and kubeconform against the Kubernetes and CRD schemas. Both tools are
+  # release binaries checked against their published sha256.
+  helm-chart:
+    if: contains(fromJSON('["all","helm-chart"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      HELM_VERSION: v4.3.0
+      HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # The schemas, by commit: kubeconform's default and the CRD catalog
+      # (ExternalSecret) both follow a branch otherwise.
+      K8S_SCHEMAS: https://raw.githubusercontent.com/yannh/kubernetes-json-schema/817113f21a2643311cbc3e992bb44ffe1c416c54/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json
+      CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/63669a570e231d4f1f8396d229a1de512bcf0a34/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - name: helm and kubeconform
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm
+          curl -fsSLo kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
+          tar -xzf kubeconform.tgz -C bin kubeconform
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      - name: helm lint
+        run: |
+          helm lint --strict deploy/helm/agent-platform -f deploy/helm/ci-digests.yaml
+          helm lint --strict deploy/helm/agent-platform -f deploy/helm/ci-digests.yaml \
+            -f deploy/helm/agent-platform/values-aws.example.yaml
+      - name: Render check
+        run: bun deploy/helm/render-check.ts
+      - name: kubeconform
+        run: |
+          set -o pipefail
+          for values in deploy/helm/ci-digests.yaml deploy/helm/agent-platform/values-aws.example.yaml; do
+            echo "== $values"
+            helm template ap deploy/helm/agent-platform -f deploy/helm/ci-digests.yaml -f "$values" \
+              | kubeconform -strict -summary -kubernetes-version 1.33.0 \
+                  -schema-location "$K8S_SCHEMAS" -schema-location "$CRD_SCHEMAS"
+          done
+
+  # The chart on a kind cluster, as deploy/kind/smoke.sh runs it locally: the
+  # install answers /readyz and /docs, a fake-model session runs a turn in a
+  # worker Pod the scheduler launched, terminate reclaims the Pod and its
+  # PVC, a Pod with the worker labels reaches the egress proxy and nothing
+  # else (kindnet enforces NetworkPolicy), and the KubernetesBackend suites
+  # run against the cluster. Every image comes from the CI mirror: the node,
+  # the registry and the stand-ins by their digests, the app builds' base and
+  # frontend as build args.
+  k8s-smoke:
+    if: contains(fromJSON('["all","k8s-smoke"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HELM_VERSION: v4.3.0
+      HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+      KIND_VERSION: v0.33.0
+      KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+      KUBECTL_VERSION: v1.37.0
+      KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: kind, kubectl and helm
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo bin/kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  bin/kind" | sha256sum -c -
+          curl -fsSLo bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  bin/kubectl" | sha256sum -c -
+          chmod +x bin/kind bin/kubectl
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      - name: deploy/kind/smoke.sh
+        env:
+          CLUSTER_NAME: k8s-smoke
+          STATE_DIR: ${{ runner.temp }}/kind
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+          BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/agent-platform-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+          PROBE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          K8S_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+        # The stand-ins come from the same mirror as the bun base.
+        run: KIND_IMAGE_MIRROR="${BUN_IMAGE%/*}" deploy/kind/smoke.sh
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
 
   # Research harnesses, pinned to the SDK and LiteLLM versions under
   # investigation. Their failures have never been a product regression, so they
