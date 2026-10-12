@@ -15,17 +15,18 @@ images:
     digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 secrets:
+  # The api's role below signs the object store; no static AWS keys.
+  objectStoreKeys: false
   externalSecret:
     enabled: true
     secretStoreRef:
       kind: ClusterSecretStore
       name: aws-secrets-manager
-    # Holds every key values.yaml lists under `secrets`, AWS_ACCESS_KEY_ID
-    # and AWS_SECRET_ACCESS_KEY included: the api's object store reads no role.
+    # Holds every key values.yaml lists under `secrets` but the two AWS keys.
     remoteKey: agent-platform/prod/control-plane
 
-# Ready for when the api reads AWS's default credential chain; until then
-# the static keys above are what it uses.
+# IRSA: the api and the checkpoint GC reach the checkpoint bucket and Secrets
+# Manager as this role. The scheduler and the workers get no S3 rights.
 serviceAccounts:
   api:
     annotations:
