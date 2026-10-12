@@ -1,0 +1,166 @@
+{{- if .Values.scheduler.enabled }}
+{{- $health := list "bun" "run" "apps/control-host/src/main.ts" "scheduler" "--health" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ap.fullname" . }}-scheduler
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+spec:
+  # A second scheduler never gets the pass lock: its health goes stale and
+  # liveness restarts it in a loop. Recreate keeps a rollout from running two.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "scheduler") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ap.fullname" . }}-scheduler
+      # The kubernetes backend's in-cluster credentials (the Role below).
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ .Values.scheduler.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: scheduler
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "apps/control-host/src/main.ts", "scheduler"]
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+            - name: EXECUTION_BACKEND
+              value: kubernetes
+            - name: EXECUTION_K8S_WORKER_SERVICE_ACCOUNT
+              value: {{ include "ap.fullname" . }}-worker
+            {{- with .Values.worker.storageClass }}
+            - name: EXECUTION_K8S_STORAGE_CLASS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.images.pullSecrets }}
+            - name: EXECUTION_K8S_IMAGE_PULL_SECRETS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.worker.nodeSelector }}
+            - name: EXECUTION_K8S_WORKER_NODE_SELECTOR
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- with .Values.worker.tolerations }}
+            - name: EXECUTION_K8S_WORKER_TOLERATIONS
+              value: {{ toJson . | quote }}
+            {{- end }}
+            - name: WORKER_IMAGE
+              value: {{ include "ap.image" (dict "root" . "name" "worker") | quote }}
+            - name: WORKER_GATEWAY_URL
+              value: {{ printf "http://%s:3000" (include "ap.apiHost" .) | quote }}
+            - name: EXECUTION_EGRESS_PROXY_URL
+              value: {{ printf "http://%s:3128" (include "ap.proxyHost" .) | quote }}
+            - name: EXECUTION_EGRESS_CREDENTIAL_PORT
+              value: "3129"
+            - name: EXECUTION_INSTALLATION_ID
+              value: {{ include "ap.installationId" . | quote }}
+            - name: EXECUTION_WORKSPACE_QUOTA_MB
+              value: {{ .Values.worker.workspace.quotaMb | quote }}
+            - name: EXECUTION_WORKSPACE_GC_MIN_AGE_SEC
+              value: {{ .Values.worker.workspace.gcMinAgeSec | quote }}
+            - name: WORKER_CPUS
+              value: {{ .Values.worker.cpus | quote }}
+            - name: WORKER_MEMORY_MB
+              value: {{ .Values.worker.memoryMb | quote }}
+            {{- range $name, $value := .Values.config.limits }}
+            - name: {{ $name }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+            - name: AWS_REGION
+              value: {{ .Values.config.aws.region | quote }}
+            - name: S3_BUCKET
+              value: {{ .Values.config.checkpoints.bucket | quote }}
+            - name: SCHEDULER_INTERVAL_SEC
+              value: {{ .Values.scheduler.intervalSec | quote }}
+            - name: SCHEDULER_MAX_CONSECUTIVE_FAILURES
+              value: {{ .Values.scheduler.maxConsecutiveFailures | quote }}
+            - name: SCHEDULER_HEALTH_STALE_SEC
+              value: {{ .Values.scheduler.healthStaleSec | quote }}
+            - name: SCHEDULER_PASS_TIMEOUT_SEC
+              value: {{ .Values.scheduler.passTimeoutSec | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- include "ap.extraEnv" .Values.scheduler.extraEnv | nindent 12 }}
+          startupProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+      {{- with .Values.scheduler.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scheduler.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scheduler.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Exactly what the kubernetes execution backend uses on worker Pods, their
+# nonce Secrets and workspace PVCs, in this namespace only (94S-523).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ap.fullname" . }}-scheduler
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ap.fullname" . }}-scheduler
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ap.fullname" . }}-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ap.fullname" . }}-scheduler
+    namespace: {{ .Release.Namespace }}
+{{- end }}
