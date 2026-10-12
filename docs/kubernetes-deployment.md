@@ -81,7 +81,7 @@ release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은
 
 `values-aws.example.yaml`을 설치별 파일로 복사해 placeholder(account id, ARN, host, digest)를 채우고, `values.yaml` 위에 얹는다. 아래 render는 로컬에서 돌지만, 그 결과를 적용하는 일은 **AWS 전용**이다.
 
-**적용 전에 ALB를 사내망 전용으로 바꾼다.** 예제의 Ingress annotation `scheme`은 `internet-facing`이라서, 그대로 적용하면 API가 인터넷에 열린다. 알파는 사내망에서만 닿는 입구를 전제로 하므로 설치별 파일에서 이 값을 `internal`로 바꾸고, ALB가 사내망 subnet에 생겼는지 확인한다(**AWS 전용**).
+**ALB는 사내망 전용이다.** 알파는 사내망에서만 닿는 입구를 전제로 하므로, 예제의 Ingress annotation `scheme`은 이미 `internal`이다. 설치별 파일에서도 `internet-facing`으로 바꾸지 않는다. `render-check`가 예제 render에서 `internet-facing`을 거부한다. 적용 뒤에는 ALB가 사내망 subnet에 생겼는지 확인한다(**AWS 전용**).
 
 ```bash
 helm lint deploy/helm/agent-platform -f deploy/helm/agent-platform/values-aws.example.yaml   # kind 머신에서 확인
@@ -96,7 +96,7 @@ helm upgrade --install agent-platform deploy/helm/agent-platform \
 | `images.registry`, `images.*.digest` | ECR host와 그 이미지의 digest |
 | `secrets.objectStoreKeys: false`, `serviceAccounts.api.annotations` | 정적 AWS key 대신 IRSA. api와 checkpoint GC가 이 role로 S3·Secrets Manager에 서명한다. scheduler와 worker는 S3 권한이 없다 |
 | `secrets.externalSecret` | External Secrets Operator가 Secrets Manager의 `remoteKey`(JSON, 위 Secret 키 전부. IRSA면 AWS key 둘은 뺀다)로 Secret을 쓴다. 운영자 CRD가 필요하다 |
-| `ingress` | ALB Ingress. `scheme`은 `internal`로 바꾼다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 공개 경로(`/v1`·`/docs`·`/healthz`·`/readyz`)만 route하고 `/internal`과 authorizer(3100)는 열지 않는다 |
+| `ingress` | ALB Ingress. `scheme`은 `internal`이다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 공개 경로(`/v1`·`/docs`·`/healthz`·`/readyz`)만 route하고 `/internal`과 authorizer(3100)는 열지 않는다 |
 | `config.egress.credentialAllowlist` | provider host에 checkpoint bucket의 virtual-hosted endpoint를 더한다. worker의 checkpoint upload·restore가 credential route로 나간다 |
 | `worker.storageClass`, `worker.nodeSelector`, `worker.tolerations` | worker 전용 node group과 workspace PVC의 StorageClass(gp3) |
 | `networkPolicy.enabled` | VPC CNI의 network policy agent가 켜져 있어야 효력이 있다 |

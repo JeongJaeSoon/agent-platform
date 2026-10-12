@@ -3,7 +3,8 @@
 // probes on every long-running one, a token only where the scheduler needs
 // one, the scheduler Role exactly the kubernetes backend's verbs, worker
 // traffic held to the egress proxy (no DNS), and the Ingress routing only
-// the api's public paths. Run from the repository root:
+// the api's public paths on an ALB that is not internet-facing. Run from the
+// repository root:
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
 
 import { spawnSync } from "node:child_process";
@@ -320,6 +321,12 @@ function checkIngress(
   for (const ingress of ingresses) {
     const fail = (message: string) =>
       errors.push(`${label}: Ingress/${ingress.metadata.name}: ${message}`);
+    const scheme = (
+      ingress.metadata as { annotations?: Record<string, string> }
+    ).annotations?.["alb.ingress.kubernetes.io/scheme"];
+    if (scheme === "internet-facing") {
+      fail("the ALB scheme is internet-facing; the entrance is in-house only");
+    }
     if (ingress.spec.defaultBackend !== undefined) {
       fail("a default backend routes every path");
     }
@@ -402,6 +409,21 @@ errors.push(
     true,
   ),
 );
+const exposed = checkIngress(
+  "aws example, internet-facing",
+  render([
+    "-f",
+    ciDigests,
+    "-f",
+    awsExample,
+    "--set-string",
+    "ingress.annotations.alb\\.ingress\\.kubernetes\\.io/scheme=internet-facing",
+  ]),
+  true,
+);
+if (!exposed.some((error) => error.includes("internet-facing;"))) {
+  errors.push("an internet-facing ALB scheme was not refused");
+}
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
@@ -414,5 +436,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on; ${MUST_FAIL.length} bad inputs refused`,
+  `render-check: default and aws example renders pass, scheduler off and on; ${MUST_FAIL.length} bad inputs and an internet-facing ALB refused`,
 );
