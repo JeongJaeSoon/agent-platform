@@ -1,6 +1,6 @@
 # 운영 참고 — 실행 기반과 설정
 
-로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 알파 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
+로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 
@@ -509,7 +509,7 @@ docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts   
 
 cron에 걸려면 `0 4 * * 0 cd <checkout> && docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts`처럼 저장소 루트에서 부른다. 세션 하나라도 실패하면 exit 1이고, 로그에 `Checkpoint GC failed for a session`이 남는다. 백업과 겹치면 안 된다(아래). 백업은 api가 멈춰 있어야 시작하므로, api 컨테이너에서 도는 GC는 백업 중에 시작될 수 없다. 다만 GC가 도는 도중에 api를 멈추고 백업을 시작하면 겹칠 수 있다. 백업은 GC가 끝난 뒤에 받는다. test-ops 설치의 명령은 [test-ops.md](test-ops.md)의 점검표에 있다.
 
-**알파 한계: checkpoint 바이트는 저장량에 세지 않는다.** `STORAGE_LIMIT_BYTES`는 보관한 입력 메시지 바이트만 센다(아래 "설치 상한"). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 알파 동안 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
+**한계: checkpoint 바이트는 저장량에 세지 않는다.** `STORAGE_LIMIT_BYTES`는 보관한 입력 메시지 바이트만 센다(아래 "설치 상한"). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
 
 회수 범위는 세션마다 두 곳이다. `sessions/<id>/checkpoints/<rev>/<attempt>/` 아래의 version(manifest·bundle·untracked 파일), 그리고 `sessions/<id>/transcripts/generation-<n>/` 아래의 transcript part version이다(94S-326). 그 밖의 key는 건드리지 않는다. version 하나를 지우는 조건은 아래 두 가지가 모두 맞을 때다.
 
@@ -883,7 +883,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/audit-
 
 ### 세션 실행 권한 회수와 복구 (94S-321)
 
-API key 폐기(`keys revoke`)는 그 key로 오는 요청과 열려 있던 SSE만 끊고, 이미 돌고 있는 세션의 worker는 건드리지 않는다. 한 세션의 실행을 거두려면 grants CLI를 쓴다. Grant 관리 API나 UI는 알파에 없다. keys CLI와 같은 곳(API 이미지 안, 같은 DB)에서 실행하고, `--reason`은 필수다. 이유는 세션 이벤트(`execution_revoked`·`execution_restored`)에 운영자 행위로 남는다.
+API key 폐기(`keys revoke`)는 그 key로 오는 요청과 열려 있던 SSE만 끊고, 이미 돌고 있는 세션의 worker는 건드리지 않는다. 한 세션의 실행을 거두려면 grants CLI를 쓴다. Grant 관리 API나 UI는 없다. keys CLI와 같은 곳(API 이미지 안, 같은 DB)에서 실행하고, `--reason`은 필수다. 이유는 세션 이벤트(`execution_revoked`·`execution_restored`)에 운영자 행위로 남는다.
 
 ```bash
 # compose(apps profile): api 컨테이너 안에서 실행한다
@@ -1144,15 +1144,15 @@ system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에�
 - **영향 세션 찾기.** DB에는 manifest 내용이 없다. `sessions.checkpoint_revision`이 가리키는 `checkpoints` 행(`collected_at IS NULL`)의 `manifest_ref`·`manifest_version`으로 object store에서 manifest를 받아 `jq -e '.workspace.baseBundles | length > 0'`로 가른다. 복원이 `parent_revision`을 따라 물러날 수도 있으므로 부모 행도 같이 본다. worker 로그 `worker.checkpoint.published`의 `base_bundles`가 0보다 크면 incremental로 올린 것이다.
 - **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
 
-### 외부 공개 전 법률 검토 질문 (94S-375)
+### 제3자 고지 법률 검토 질문 (94S-375)
 
-배포 이미지의 제3자 고지(`THIRD_PARTY_NOTICES.md`와 이미지마다 `/app/DEBIAN_SOURCES.md`)는 업계 관행에 맞춘 초안이다. 최종 판단은 외부 공개 전에 사람이 한다. 판단할 질문은 아래와 같다. 괄호 안은 지금 고지가 택한 답이다.
+배포 이미지의 제3자 고지(`THIRD_PARTY_NOTICES.md`와 이미지마다 `/app/DEBIAN_SOURCES.md`)는 업계 관행에 맞춘 초안이다. 최종 판단은 사람이 한다. 판단할 질문은 아래와 같다. 괄호 안은 지금 고지가 택한 답이다.
 
 1. **Debian GPL·LGPL 패키지의 소스를 snapshot.debian.org를 가리키는 것으로 제공해도 되는가.** (지금: 이미지마다 source package와 정확한 버전, snapshot 주소를 적어 가리킨다. written offer는 없다. images.yml은 빌드할 때 snapshot이 그 소스를 모두 갖고 있는지 확인하고, 릴리스에서는 하나라도 없으면 실패한다. 그러나 그 뒤로도 계속 남아 있는지는 보장하지 못한다.)
    - GPL-2.0 §3은 상업적 배포에서 소스를 함께 주거나(a) 3년 이상 유효한 서면 제공 약속을 붙이라고 한다(b). 이미지를 받은 곳에서 소스도 받게 하는 것도 소스 배포로 친다(§3 마지막 단락). 제3자 서버는 명시돼 있지 않다. https://www.gnu.org/licenses/old-licenses/gpl-2.0.html#section3
    - GPL-3.0 §6(d)는 다른 서버를 허용하지만, 필요한 기간 동안 그 소스가 계속 있도록 배포자가 보장해야 한다. snapshot.debian.org는 우리가 보장할 수 있는 서버가 아니다. https://www.gnu.org/licenses/gpl-3.0.html#section6
    - FSF FAQ: https://www.gnu.org/licenses/gpl-faq.html#SourceAndBinaryOnDifferentSites , https://www.gnu.org/licenses/gpl-faq.html#AnonFTPAndSendSources
-   - 부족하다면 아래에서 고른다. 오케스트레이터 결정(2026-09-24)은 외부 공개 전까지 지금 방식을 유지하고, 법률 검토 결과에 따라 D나 B를 고르는 것이다. 개인 이메일은 쓰지 않는다.
+   - 부족하다면 아래에서 고른다. 법률 검토 전까지 지금 방식을 유지하고, 검토 결과에 따라 D나 B를 고른다. 개인 이메일은 쓰지 않는다.
      - A. written offer, 연락 경로는 이 저장소의 GitHub issue("소스 요청"). 비용은 없다. 저장소와 계정을 3년 동안 유지해야 한다.
      - B. written offer, 연락 경로는 역할 주소(oss@<회사 도메인>). 도메인과 메일함을 만들어 운영해야 한다.
      - C. written offer, 연락 경로는 법인 우편 주소. 법인이 있어야 한다.

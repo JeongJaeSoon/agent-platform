@@ -181,7 +181,7 @@ test "$RECONNECT_CODE" = 200
 
 **기대 응답.** 200 `text/event-stream`이며 각 frame은 `id`, `event`, `data`를 가진다. 재연결은 지정한 cursor 이후의 저장 이벤트를 재생하고 live stream으로 이어진다.
 
-**흔한 오류.** 410 `CURSOR_EXPIRED`면 보존 범위 밖 cursor이므로 세션/turn 현재 상태를 HTTP로 다시 읽고 새 stream을 시작한다. 429면 동시 stream 수를 줄인다. alpha는 이벤트를 trim하지 않아 410을 현재 만들지는 않지만 클라이언트는 처리해야 한다.
+**흔한 오류.** 410 `CURSOR_EXPIRED`면 보존 범위 밖 cursor이므로 세션/turn 현재 상태를 HTTP로 다시 읽고 새 stream을 시작한다. 429면 동시 stream 수를 줄인다. 지금 서버는 이벤트를 trim하지 않아 410을 만들지 않지만 클라이언트는 처리해야 한다.
 
 ## 6. interrupt, pause/resume, terminate와 receipt 확인
 
