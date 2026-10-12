@@ -23,8 +23,9 @@ spec:
             - {name: FAKE_MESSAGES_PORT, value: "4010"}
           ports:
             - containerPort: 4010
+          # /healthz is on the control port; 4010 answers it with a 404.
           readinessProbe:
-            httpGet: {path: /healthz, port: 4010}
+            httpGet: {path: /healthz, port: 4011}
             periodSeconds: 5
           volumeMounts:
             - name: source

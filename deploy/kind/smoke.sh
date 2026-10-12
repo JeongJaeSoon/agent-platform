@@ -48,7 +48,7 @@ export RELEASE="${RELEASE:-agent-platform}"
 export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
 PROBE_IMAGE="${PROBE_IMAGE:-busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662}"
-API_PORT="${SMOKE_API_PORT:-13001}"
+API_PORT="${SMOKE_API_PORT:-13080}"
 API="http://127.0.0.1:${API_PORT}"
 
 if [ "${1:-}" = down ]; then
