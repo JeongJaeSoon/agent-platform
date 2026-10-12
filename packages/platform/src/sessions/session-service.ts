@@ -679,9 +679,16 @@ export function createSessionService(deps: {
       const pair = record.repository_id
         ? allowedPair(catalog, wanted, record.repository_id)
         : null;
-      const current = record.profile_id
+      // The session row keeps no runtime of its own: only its profile, as the
+      // catalog still defines it, says which runtime took its checkpoints.
+      const found = record.profile_id
         ? own(catalog.profiles, record.profile_id)
         : undefined;
+      const current =
+        found !== undefined &&
+        profileFingerprint(found) === record.profile_fingerprint
+          ? found
+          : undefined;
       // The next attempt restores checkpoints the current runtime took, so
       // the runtime has to stay; the model, tools and provider may change.
       const refusal =
@@ -689,11 +696,12 @@ export function createSessionService(deps: {
         pair.repository.url !== record.repo_url ||
         pair.repository.branch !== record.branch
           ? `Profile ${wanted} is not in this host's catalog or not allowed with the session's repository`
-          : current !== undefined &&
-              (current.runtime_kind !== pair.profile.runtime_kind ||
-                current.runtime_version !== pair.profile.runtime_version)
-            ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
-            : null;
+          : current === undefined
+            ? `The session's profile ${record.profile_id} is no longer in this host's catalog as the session runs it, so the runtime its checkpoints were taken on cannot be checked`
+            : current.runtime_kind !== pair.profile.runtime_kind ||
+                current.runtime_version !== pair.profile.runtime_version
+              ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
+              : null;
       const result = await controls.changeProfileAtomic({
         principal: actor,
         sessionId,

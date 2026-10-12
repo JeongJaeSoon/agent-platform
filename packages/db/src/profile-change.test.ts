@@ -71,11 +71,12 @@ function profile(
 
 const SONNET = profile("claude-sonnet-5", "https://sonnet.invalid");
 const HAIKU = profile("claude-haiku-5", "https://haiku.invalid");
+const OPUS = profile("claude-opus-5", "https://opus.invalid");
 const LOCAL = profile("local-model", "http://10.0.0.5:4000", "none");
 const CATALOG: SessionCatalog = {
-  profiles: { sonnet: SONNET, haiku: HAIKU, local: LOCAL },
+  profiles: { sonnet: SONNET, haiku: HAIKU, opus: OPUS, local: LOCAL },
   repositories: {
-    app: { ...REPOSITORY, profiles: ["sonnet", "haiku", "local"] },
+    app: { ...REPOSITORY, profiles: ["sonnet", "haiku", "opus", "local"] },
   },
 };
 
@@ -171,6 +172,55 @@ async function claim(g: WorkerGateway, sessionId: string) {
       credential: { kind: "launch_nonce", nonce: registered.nonce },
     },
   );
+}
+
+async function commitCheckpoint(
+  sessionId: string,
+  claimed: BootstrapClaimResponse,
+  revision: number,
+) {
+  await db.transaction(async (tx) => {
+    const [session] = await tx
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const committed = await advanceCheckpointPointer(tx, {
+      fence: {
+        sessionId,
+        attemptId: claimed.attempt_id,
+        leaseEpoch: claimed.lease_epoch,
+        executionGeneration: claimed.execution_generation,
+        authRevision: claimed.auth_revision,
+      },
+      session,
+      checkpoint: {
+        revision,
+        manifest_ref: `sessions/${sessionId}/checkpoints/${revision}/m.json`,
+        manifest_sha256: "a".repeat(64),
+      },
+      turnRowId: null,
+      now: new Date(),
+      versionsHeld: false,
+    });
+    expect(committed.outcome).toBe("committed");
+  });
+}
+
+async function release(sessionId: string, claimed: BootstrapClaimResponse) {
+  await db
+    .update(attempts)
+    .set({ state: "exited" })
+    .where(eq(attempts.id, claimed.attempt_id));
+  const [released] = await db
+    .update(sessions)
+    .set({ podId: null, executionId: null })
+    .where(eq(sessions.id, sessionId))
+    .returning({ partition: sessions.partition });
+  if (!released) throw new Error("no session");
+  await db
+    .insert(unassignedSessions)
+    .values({ sessionId, partition: released.partition });
 }
 
 function scopeOf(claimed: BootstrapClaimResponse) {
@@ -283,32 +333,7 @@ describe("changing a session's profile", () => {
     await changeProfile(sessionId, "haiku", await revisionOf(sessionId));
 
     // The old attempt commits after the change, as its last turn would.
-    await db.transaction(async (tx) => {
-      const [session] = await tx
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, sessionId));
-      if (!session) throw new Error("no session");
-      const committed = await advanceCheckpointPointer(tx, {
-        fence: {
-          sessionId,
-          attemptId: claimed.attempt_id,
-          leaseEpoch: claimed.lease_epoch,
-          executionGeneration: claimed.execution_generation,
-          authRevision: claimed.auth_revision,
-        },
-        session,
-        checkpoint: {
-          revision: 0,
-          manifest_ref: `sessions/${sessionId}/checkpoints/0/m.json`,
-          manifest_sha256: "a".repeat(64),
-        },
-        turnRowId: null,
-        now: new Date(),
-        versionsHeld: false,
-      });
-      expect(committed.outcome).toBe("committed");
-    });
+    await commitCheckpoint(sessionId, claimed, 0);
     const [checkpoint] = await db
       .select()
       .from(checkpoints)
@@ -317,19 +342,7 @@ describe("changing a session's profile", () => {
     expect(checkpoint?.profileFingerprint).toBe(profileFingerprint(SONNET));
 
     // The old attempt is gone; the next claim binds the new profile.
-    await db
-      .update(attempts)
-      .set({ state: "exited" })
-      .where(eq(attempts.id, claimed.attempt_id));
-    const [released] = await db
-      .update(sessions)
-      .set({ podId: null, executionId: null })
-      .where(eq(sessions.id, sessionId))
-      .returning({ partition: sessions.partition });
-    if (!released) throw new Error("no session");
-    await db
-      .insert(unassignedSessions)
-      .values({ sessionId, partition: released.partition });
+    await release(sessionId, claimed);
     const next = await claim(g, sessionId);
     expect(next.runtime.profile_id).toBe("haiku");
     expect(next.runtime_config.model).toBe("claude-haiku-5");
@@ -344,6 +357,26 @@ describe("changing a session's profile", () => {
       purpose: "provider",
     });
     expect(grant.upstream.url).toBe("https://haiku.invalid");
+  });
+
+  test("offers every earlier profile the restorable checkpoints were made under, newest first", async () => {
+    const sessionId = await createSession();
+    const g = gateway();
+    const first = await claim(g, sessionId);
+    await commitCheckpoint(sessionId, first, 0);
+    await changeProfile(sessionId, "haiku", await revisionOf(sessionId));
+    await release(sessionId, first);
+    const second = await claim(g, sessionId);
+    await commitCheckpoint(sessionId, second, 1);
+    await changeProfile(sessionId, "opus", await revisionOf(sessionId));
+    await release(sessionId, second);
+
+    const third = await claim(g, sessionId);
+    expect(third.runtime_config.model).toBe("claude-opus-5");
+    expect(third.restore?.revision).toBe(1);
+    expect(
+      third.restore_runtime_configs?.map((config) => config.model),
+    ).toEqual(["claude-haiku-5", "claude-sonnet-5"]);
   });
 
   test("a claim whose checkpoint was made under the profile it runs is told nothing more", async () => {

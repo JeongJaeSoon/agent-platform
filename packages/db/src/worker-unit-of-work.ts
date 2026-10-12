@@ -58,6 +58,7 @@ import {
   and,
   asc,
   count,
+  desc,
   eq,
   gt,
   inArray,
@@ -862,8 +863,9 @@ async function bindingOf(
 }
 
 // The profiles the checkpoints a restore may land on were committed under:
-// the pointer's and any earlier one a fallback walks back to. A row from
-// before the column names none; it ran the session's own.
+// the pointer's and any earlier one a fallback walks back to, newest first,
+// so a cap on how many the claim carries drops the oldest. A row from before
+// the column names none; it ran the session's own.
 async function withRestoreProfiles(
   tx: Database,
   sessionId: string,
@@ -871,7 +873,7 @@ async function withRestoreProfiles(
 ): Promise<Pick<WorkerBinding, "restore" | "restoreProfiles">> {
   if (restore === null) return { restore, restoreProfiles: [] };
   const rows = await tx
-    .selectDistinct({
+    .select({
       profileId: checkpoints.profileId,
       profileFingerprint: checkpoints.profileFingerprint,
     })
@@ -883,7 +885,9 @@ async function withRestoreProfiles(
         isNotNull(checkpoints.profileId),
         isNotNull(checkpoints.profileFingerprint),
       ),
-    );
+    )
+    .groupBy(checkpoints.profileId, checkpoints.profileFingerprint)
+    .orderBy(desc(max(checkpoints.revision)));
   return {
     restore,
     restoreProfiles: rows.flatMap((row) =>

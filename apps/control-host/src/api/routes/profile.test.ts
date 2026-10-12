@@ -106,6 +106,7 @@ function change(
   changeProfileAtomic: SessionControl["changeProfileAtomic"] = notReached,
   headers: Record<string, string> = {},
   at = path,
+  session: SessionDetailRecord = record,
 ) {
   const service = createSessionService({
     limits: {
@@ -127,7 +128,7 @@ function change(
     reader: {
       listSessions: notReached,
       getSession: async (ownerId, id) =>
-        ownerId === "owner-a" && id === sessionId ? record : null,
+        ownerId === "owner-a" && id === sessionId ? session : null,
       listTurns: notReached,
       getTurn: notReached,
       getReceipt: notReached,
@@ -235,6 +236,35 @@ describe("POST /v1/sessions/{id}/profile", () => {
       }),
     );
     expect(replay.status).toBe(200);
+  });
+
+  test("refuses when the session's own profile is gone or redefined, since its runtime cannot be checked", async () => {
+    for (const fingerprint of [
+      profileFingerprint({ ...sonnet, runtime_version: "0.2.0" }),
+    ]) {
+      const { seen, atomic } = capturing({ outcome: "unsupported" });
+      const response = await change(
+        { expected_revision: 7, profile_id: "coding-next-runtime" },
+        atomic,
+        {},
+        path,
+        { ...record, profile_fingerprint: fingerprint },
+      );
+      expect([response.status, await errorCode(response)]).toEqual([
+        422,
+        "UNSUPPORTED_CAPABILITY",
+      ]);
+      expect(seen[0]?.profile).toBeNull();
+    }
+    const { seen, atomic } = capturing({ outcome: "unsupported" });
+    await change(
+      { expected_revision: 7, profile_id: "coding-haiku" },
+      atomic,
+      {},
+      path,
+      { ...record, profile_id: "removed-profile" },
+    );
+    expect(seen[0]?.profile).toBeNull();
   });
 
   test("says why the runtime refuses it", async () => {
