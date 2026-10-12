@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import type {
   ListPendingRequestsResponse,
+  ListProfilesResponse,
+  ProfileSummary,
   SessionDetail,
   SessionSummary,
   SessionUsageResponse,
@@ -144,8 +146,30 @@ const pending: ListPendingRequestsResponse = {
   ],
 };
 
+function profile(id: string, overrides: Partial<ProfileSummary> = {}) {
+  return {
+    id,
+    model: `model-${id}`,
+    tools: ["Read"],
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "1.0.0",
+    billing: "metered",
+    ...overrides,
+  } as ProfileSummary;
+}
+
+const profiles: ListProfilesResponse = {
+  items: [
+    profile("default"),
+    profile("fast"),
+    profile("other-runtime", { runtime_version: "2.0.0" }),
+    profile("free", { billing: "none" }),
+  ],
+};
+
 const detailRoutes = {
   "GET /v1/auth/me": () => json(200, me()),
+  "GET /v1/profiles": () => json(200, profiles),
   [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, detail),
   [`GET /v1/sessions/${SESSION_ID}/usage`]: () => json(200, usage),
   [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () => json(200, pending),
@@ -358,5 +382,88 @@ describe("session detail", () => {
       api.calls.filter((call) => call.path.startsWith("/v1/sessions")),
     ).toHaveLength(1);
     expect(FakeEventSource.opened).toHaveLength(0);
+  });
+});
+
+describe("session profile", () => {
+  test("offers only profiles with the same runtime and billing, and moves the session", async () => {
+    const user = await setupUser();
+    let revision = 3;
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, revision }),
+      [`POST /v1/sessions/${SESSION_ID}/profile`]: () => {
+        revision = 4;
+        return json(200, { receipt_id: "r1", receipt_status: "succeeded" });
+      },
+    });
+
+    const select = await screen.findByRole("combobox", {
+      name: "다음 turn부터 쓸 프로필",
+    });
+    expect(
+      Array.from(select.querySelectorAll("option")).map((o) => o.value),
+    ).toEqual(["fast"]);
+
+    const reads = () =>
+      api.calls.filter(
+        (call) =>
+          call.method === "GET" && call.path === `/v1/sessions/${SESSION_ID}`,
+      ).length;
+    const before = reads();
+    await user.click(screen.getByRole("button", { name: "프로필 바꾸기" }));
+    expect(
+      await screen.findByText("다음 turn부터 fast 프로필로 돕니다."),
+    ).toBeTruthy();
+    const [post] = api.calls.filter((call) => call.method === "POST");
+    expect(post?.body).toEqual({ expected_revision: 3, profile_id: "fast" });
+    expect(post?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
+  test("shows why the server refused", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
+        apiError(
+          422,
+          "UNSUPPORTED_CAPABILITY",
+          "profile fast is not allowed for repository demo",
+        ),
+    });
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 바꾸기" }),
+    );
+    expect(
+      await screen.findByText(
+        "이 프로필로 바꿀 수 없습니다. profile fast is not allowed for repository demo",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("a key without sessions:control cannot change it", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      "GET /v1/auth/me": () =>
+        json(200, me(["sessions:read", "sessions:write"], "member")),
+    });
+    const button = await screen.findByRole("button", {
+      name: "프로필 바꾸기",
+    });
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
+
+  test("says so when the current profile left the catalog", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      "GET /v1/profiles": () => json(200, { items: [profile("fast")] }),
+    });
+    expect(
+      await screen.findByText(
+        "지금 프로필이 카탈로그에 없어 다른 프로필로 바꿀 수 없습니다.",
+      ),
+    ).toBeTruthy();
   });
 });

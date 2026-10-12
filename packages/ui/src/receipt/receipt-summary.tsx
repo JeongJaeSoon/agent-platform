@@ -20,6 +20,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   terminate: "종료 요청",
   resume: "재개 요청",
   recovery_decision: "복구 결정",
+  change_profile: "프로필 변경",
   revoke_execution: "실행 권한 회수",
   issue_password_reset: "비밀번호 재설정 링크 발급",
   reset_password: "비밀번호 재설정",

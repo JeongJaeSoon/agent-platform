@@ -232,6 +232,22 @@ wait_for "/v1/receipts/$(echo "$terminate" | jq -r .receipt_id)" .status succeed
 
 **흔한 오류.** 409 `TURN_NOT_STARTED`면 interrupt 대상이 아직 queued다. 409 `REVISION_CONFLICT`면 세션을 다시 읽고 사용자의 의도가 여전히 유효한지 판단한 뒤 새 revision으로 재시도한다. 409 `RECOVERY_REQUIRED`면 다음 절의 결정을 먼저 한다.
 
+### 진행 중인 세션의 프로필 바꾸기
+
+OpenAPI: [`changeSessionProfile`](api/index.html)
+
+세션은 만들 때 고른 프로필로 돈다. 대화를 이어 가면서 모델·도구·provider를 바꾸려면 `POST /v1/sessions/{id}/profile`에 `expected_revision`과 새 `profile_id`를 보낸다. 권한은 pause·resume과 같다(`control` scope, 세션을 볼 수 있는 사람). 응답은 200과 이미 `succeeded`인 receipt이고, receipt `result`에 `previous_profile_id`와 `profile_id`가 남는다. 세션 `revision`은 1 오른다.
+
+```sh
+curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, profile_id:"claude-coding-haiku"}')"
+```
+
+이미 돌고 있는 turn은 시작한 프로필로 끝난다. 그 뒤 들어오는 입력은 새 프로필의 worker가 마지막 checkpoint에서 같은 engine 대화를 복원해 처리한다. 어느 turn이 어떤 프로필로 돌았는지는 turn 조회의 `attempts[].profile_id`로 본다. 같은 프로필로 바꾸면 아무것도 바뀌지 않고 receipt만 남는다.
+
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나, runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
+
 ## 7. outcome_unknown·RECOVERY_REQUIRED 복구 결정
 
 OpenAPI: [`decideSessionRecovery`](api/index.html), [`resumeSession`](api/index.html), [`getSessionTurn`](api/index.html)

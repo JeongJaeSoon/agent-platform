@@ -24,6 +24,7 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  changeSessionProfileRequestSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -154,6 +155,7 @@ const requestComponents = {
   PauseSessionRequest: pauseSessionRequestSchema,
   TerminateSessionRequest: terminateSessionRequestSchema,
   ResumeSessionRequest: resumeSessionRequestSchema,
+  ChangeSessionProfileRequest: changeSessionProfileRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
@@ -1115,6 +1117,7 @@ export const API_ROUTE_DECLARATIONS = [
             execution_generation: 1,
             started_at: "2026-10-11T08:00:05Z",
             ended_at: "2026-10-11T08:03:12Z",
+            profile_id: "claude-coding-real",
           },
         ],
       },
@@ -1345,6 +1348,47 @@ export const API_ROUTE_DECLARATIONS = [
       RECOVERY_REQUIRED: RESERVED_HERE,
       UNSUPPORTED_CAPABILITY:
         "The session runs on a legacy pod binding with no kill path.",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/profile",
+    operationId: "changeSessionProfile",
+    tag: "Session control",
+    summary: "Run the session's next turns on another profile",
+    description:
+      "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.",
+    scope: "control",
+    body: "ChangeSessionProfileRequest",
+    requestExample: { expected_revision: 8, profile_id: "claude-coding-fast" },
+    success: {
+      status: 200,
+      schema: "ReceiptAcceptedResponse",
+      description: "The session runs `profile_id` from its next turn on.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID, receipt_status: "succeeded" },
+    },
+    errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "SESSION_CLOSED",
+        "RECOVERY_REQUIRED",
+        "RELEASE_PROFILE_MISMATCH",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Also when the session's profile changed between the read and the change.",
+      SESSION_PAUSED: "The session is pausing.",
+      SESSION_STOPPED: "The session is stopping.",
+      RELEASE_PROFILE_MISMATCH:
+        "The session belongs to an agent release, which sets its profile.",
+      UNSUPPORTED_CAPABILITY:
+        "The profile is not in the catalog, not allowed with the session's repository, runs another runtime, or is billed differently.",
     },
   },
   {

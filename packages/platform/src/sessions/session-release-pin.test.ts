@@ -108,6 +108,7 @@ function setup(
       pauseAtomic: unreached,
       decideRecoveryAtomic: unreached,
       resumeAtomic: unreached,
+      changeProfileAtomic: unreached,
     },
     credentials: {
       contacts: async (workspaceId, agentId) =>

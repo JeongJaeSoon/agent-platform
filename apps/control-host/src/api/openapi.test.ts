@@ -285,6 +285,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/messages",
         "/v1/sessions/{id}/pause",
         "/v1/sessions/{id}/pending-requests",
+        "/v1/sessions/{id}/profile",
         "/v1/sessions/{id}/recovery-decisions",
         "/v1/sessions/{id}/resume",
         "/v1/sessions/{id}/share",

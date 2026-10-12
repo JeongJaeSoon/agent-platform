@@ -45,6 +45,18 @@ export const sessionsKo = {
   "session.attention": "확인 필요",
   "session.updated": "마지막 변경",
 
+  "session.profile": "프로필",
+  "session.profile.next": "다음 turn부터 쓸 프로필",
+  "session.profile.hint":
+    "진행 중인 turn은 지금 프로필로 끝나고, 다음 turn부터 새 프로필로 대화를 이어 갑니다.",
+  "session.profile.submit": "프로필 바꾸기",
+  "session.profile.changed": "다음 turn부터 {profile} 프로필로 돕니다.",
+  "session.profile.refused": "이 프로필로 바꿀 수 없습니다.",
+  "session.profile.none":
+    "같은 런타임과 과금 방식으로 바꿀 수 있는 다른 프로필이 없습니다.",
+  "session.profile.unknown":
+    "지금 프로필이 카탈로그에 없어 다른 프로필로 바꿀 수 없습니다.",
+
   "session.usage": "비용",
   "session.usage.amount": "누적 비용",
   "session.usage.unmetered": "과금 없음",
@@ -112,6 +124,18 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.pendingCount": "Pending requests",
   "session.attention": "Needs attention",
   "session.updated": "Last changed",
+
+  "session.profile": "Profile",
+  "session.profile.next": "Profile for the next turns",
+  "session.profile.hint":
+    "A turn already running finishes on the current profile; the conversation continues on the new one from the next turn.",
+  "session.profile.submit": "Change profile",
+  "session.profile.changed": "The next turns run on {profile}.",
+  "session.profile.refused": "The session cannot move to this profile.",
+  "session.profile.none":
+    "No other profile runs the same runtime and billing, so there is nothing to change to.",
+  "session.profile.unknown":
+    "The current profile is not in the catalog, so the session cannot change profiles.",
 
   "session.usage": "Cost",
   "session.usage.amount": "Spent so far",

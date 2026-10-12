@@ -32,6 +32,9 @@ const unusedControls: SessionControl = {
   resumeAtomic: async () => {
     throw new Error("not reached");
   },
+  changeProfileAtomic: async () => {
+    throw new Error("not reached");
+  },
 };
 
 const SESSION = "019a0000-0000-7000-8000-000000000001";

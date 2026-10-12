@@ -10,6 +10,7 @@ export {
   MAX_TRANSCRIPT_BYTES,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
+  runtimeFor,
   TRANSCRIPT_MIRROR_DIRECTORY,
   transcriptGenerationDirectory,
   transcriptGenerationOf,
