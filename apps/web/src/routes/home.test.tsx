@@ -120,11 +120,70 @@ describe("bootstrap checklist", () => {
       "GET /v1/members": forbidden,
       "GET /v1/invites": forbidden,
       "GET /v1/agents": forbidden,
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
     const read = await states();
     await waitFor(() =>
       expect(read()).toEqual(["done", "unknown", "unknown", "pending"]),
     );
     expect(screen.getAllByText("확인할 수 없음")).toHaveLength(2);
+  });
+});
+
+describe("내가 관리하는 에이전트", () => {
+  const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
+  const memberRoutes = {
+    "GET /v1/auth/me": () => json(200, memberMe()),
+    "GET /v1/members": forbidden,
+    "GET /v1/invites": forbidden,
+    "GET /v1/agents": forbidden,
+  };
+
+  test("관리자로 지정된 에이전트를 상세 링크로 보인다", async () => {
+    const agent = agentServer().detail().agent;
+    renderAt("/", {
+      ...memberRoutes,
+      "GET /v1/administered-agents": () => json(200, { items: [agent] }),
+    });
+    await screen.findByRole("heading", { name: "내가 관리하는 에이전트" });
+    expect(
+      screen.getByRole("link", { name: agent.name }).getAttribute("href"),
+    ).toBe(`/agents/${AGENT_ID}`);
+  });
+
+  test("관리하는 에이전트가 없으면 섹션을 보이지 않는다", async () => {
+    const { api } = renderAt("/", {
+      ...memberRoutes,
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+    });
+    await screen.findByRole("heading", { name: "Acme" });
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/administered-agents")).toBe(
+        true,
+      ),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "내가 관리하는 에이전트" }),
+    ).toBeNull();
+  });
+
+  test("모든 에이전트를 관리하는 소유자에게는 묻지도 보이지도 않는다", async () => {
+    const server = agentServer();
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": server.routes["GET /v1/agents"],
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual(["done", "pending", "pending", "pending"]),
+    );
+    expect(api.calls.some((c) => c.path === "/v1/administered-agents")).toBe(
+      false,
+    );
+    expect(
+      screen.queryByRole("heading", { name: "내가 관리하는 에이전트" }),
+    ).toBeNull();
   });
 });

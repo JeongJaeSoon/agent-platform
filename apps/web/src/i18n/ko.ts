@@ -305,6 +305,11 @@ export const ko = {
   "agentAdmins.addTeam": "팀 추가",
   "agentAdmins.added": "{name}을(를) 관리자로 추가했습니다.",
   "agentAdmins.removed": "{name}을(를) 관리자에서 뺐습니다.",
+  "agentAdmins.mine.title": "내가 관리하는 에이전트",
+  "agentAdmins.mine.intro":
+    "직접 또는 팀을 통해 관리자로 지정된 에이전트입니다. 열어서 카드와 관리자를 관리합니다.",
+  "agentAdmins.mine.empty": "아직 관리자로 지정된 에이전트가 없습니다.",
+  "agentAdmins.mine.truncated": "처음 {count}개만 보입니다.",
 
   "linked.title": "연동 계정",
   "linked.intro":
