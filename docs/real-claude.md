@@ -157,6 +157,42 @@ scripts/local.sh down
 
 스택과 모든 데이터(세션, checkpoint, API key, Gitea 저장소)를 지운다. key를 가진 API 컨테이너도 이때 사라진다. 마지막으로 Console에서 key를 비활성화한다.
 
+## 자율 모드 세션
+
+승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [operations.md](operations.md#자율-모드-bypasspermissionsauto-94s-621)에 있다. 저장소의 `config/`에는 그런 profile이 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다.
+
+```yaml
+  claude-coding-real-unattended:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    permission_mode: bypassPermissions   # 분류기가 판정하게 하려면 auto
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.com
+      auth:
+        kind: api_key
+        value_env: ANTHROPIC_API_KEY
+    project_settings:
+      claude_md: true
+```
+
+`config/repositories.yaml`의 `sample-app`도 `profiles: [claude-coding-real, claude-coding-real-unattended]`로 바꾼다. 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API가 뜨지 않는다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
+
+```sh
+body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-real-unattended", repository_id:"sample-app", message:$m}'; }
+created=$(post /v1/sessions "$(body 'hello.py에 "안녕하세요"를 출력하는 파이썬 스크립트를 만들고, python3 hello.py로 실행해 출력을 확인한 뒤 git add와 git commit까지 해 주세요. 끝나면 커밋 hash를 알려 주세요.')")
+SID=$(echo "$created" | jq -r .session_id)
+wait_for "/v1/sessions/$SID/turns/1" .status completed
+get "/v1/sessions/$SID" | jq -c '{status, runtime, pending_request_count}'
+get "/v1/sessions/$SID/usage" | jq -r .cost.amount_usd
+```
+
+`allow_until_done` 없이 `wait_for`만으로 turn이 끝난다. 세션 상세의 `runtime.permission_mode`가 `bypassPermissions`이고 `pending_request_count`가 0이다. 2026-10-13 실측에서는 `Write`(hello.py), `Bash`(`python3 hello.py`), `Bash`(`git add … && git commit …`)가 한 번도 멈추지 않고 실행돼 커밋이 만들어졌고, 비용은 약 0.06달러였다. 같은 문장을 `claude-coding-real`로 보내면 첫 `Write`에서 권한 요청이 오고 세션이 `needs_input`이 된다.
+
+`permission_mode: auto` profile도 같은 문장으로 승인 없이 끝났다. 다만 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다.
+
 ## 비용
 
 Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 2.5달러, 캐시 읽기 0.2달러) 추정치다. Claude Code 요청 하나는 system prompt와 도구 정의로 약 2만5천 토큰이다.
