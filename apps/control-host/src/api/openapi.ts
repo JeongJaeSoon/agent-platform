@@ -5,8 +5,10 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  createPushRequestRequestSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  decidePushRequestRequestSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getTurnResponseSchema,
@@ -14,6 +16,7 @@ import {
   installationLimitsResponseSchema,
   interruptSessionRequestSchema,
   listPendingRequestsResponseSchema,
+  listPushRequestsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
   listTurnsQuerySchema,
@@ -24,6 +27,8 @@ import {
   postSessionAnswerRequestSchema,
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
+  pushRequestParamsSchema,
+  pushRequestSchema,
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
@@ -72,6 +77,8 @@ const requestComponents = {
   TerminateSessionRequest: terminateSessionRequestSchema,
   ResumeSessionRequest: resumeSessionRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
+  CreatePushRequestRequest: createPushRequestRequestSchema,
+  DecidePushRequestRequest: decidePushRequestRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
 } satisfies Record<string, z.ZodType>;
@@ -91,6 +98,8 @@ const responseComponents = {
   TurnDetail: getTurnResponseSchema,
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
+  PushRequest: pushRequestSchema,
+  ListPushRequestsResponse: listPushRequestsResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
@@ -126,6 +135,11 @@ export const OPENAPI_TAGS = [
   {
     name: "Pending requests",
     description: "List and answer pending permission and question requests.",
+  },
+  {
+    name: "Push requests",
+    description:
+      "Ask for a session's result to be pushed to its `agent/<session-id>` branch, and approve or reject that push.",
   },
   {
     name: "Session control",
@@ -183,6 +197,9 @@ export type RouteDeclaration = {
   // Appended to ERROR_CODE_WHEN's sentence where a code is narrower here.
   errorNotes?: Partial<Record<ApiErrorCode, string>>;
   lastEventId?: boolean;
+  // The service checks `scope` itself, so it can record the refusal; the
+  // /v1 scope table leaves the route alone. The document still shows it.
+  scopeCheckedBy?: "service";
   // Most POSTs are commands and take Idempotency-Key; auth endpoints do not.
   idempotent?: false;
 };
@@ -256,6 +273,29 @@ const EXAMPLE_TURN_SUMMARY = {
   created_at: "2026-10-11T08:00:00Z",
   started_at: "2026-10-11T08:00:05Z",
   ended_at: "2026-10-11T08:03:12Z",
+};
+const EXAMPLE_PUSH_REQUEST_ID = "5b9e2c17-4f3a-4d6e-8a1b-7c0d9e2f3a41";
+const EXAMPLE_GIT_COMMIT = "4f2a9c1e7b3d5a8f0c6e2b9d1a4f7c3e5b8d0a2c";
+const EXAMPLE_ACTOR = {
+  principal: { kind: "user", id: EXAMPLE_USER_ID },
+  actor_user_id: EXAMPLE_USER_ID,
+  agent_id: null,
+};
+const EXAMPLE_PUSH_REQUEST = {
+  id: EXAMPLE_PUSH_REQUEST_ID,
+  session_id: EXAMPLE_SESSION_ID,
+  repository_id: "sample-app",
+  checkpoint_revision: 3,
+  git_commit: EXAMPLE_GIT_COMMIT,
+  target_branch: `agent/${EXAMPLE_SESSION_ID}`,
+  state: "requested",
+  requested_by: EXAMPLE_ACTOR,
+  requested_at: "2026-10-11T08:30:00Z",
+  decided_by: null,
+  decided_at: null,
+  decision_reason: null,
+  request_receipt_id: EXAMPLE_RECEIPT_ID,
+  decision_receipt_id: null,
 };
 const ACCEPTED_RECEIPT = {
   receipt_id: EXAMPLE_RECEIPT_ID,
@@ -819,6 +859,116 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/sessions/{id}/push-requests",
+    operationId: "createPushRequest",
+    tag: "Push requests",
+    summary: "Ask for the session's latest checkpoint to be pushed",
+    description:
+      "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the session's `repository_id`, and the target branch `agent/<session-id>`. None of these can be chosen: the body is `{}`. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`). Every attempt, refused ones included, leaves a `request_push` receipt; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.",
+    scope: "write",
+    body: "CreatePushRequestRequest",
+    requestExample: {},
+    success: {
+      status: 201,
+      schema: "PushRequest",
+      description: "The request, pinned and waiting for a decision.",
+      example: EXAMPLE_PUSH_REQUEST,
+    },
+    errors: [...CONFLICTS, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN"],
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "PUSH_SOURCE_MISSING",
+        "PUSH_REQUEST_OPEN",
+        "CHECKPOINT_UNAVAILABLE",
+        "CHECKPOINT_MOVED",
+      ],
+    },
+    errorNotes: {
+      FORBIDDEN:
+        "Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential.",
+      CHECKPOINT_UNAVAILABLE:
+        "Here: the latest checkpoint's manifest did not verify; a push never falls back to an older one.",
+      CHECKPOINT_MOVED:
+        "Here: the session checkpointed again while the request was being pinned; send it again.",
+    },
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/push-requests",
+    operationId: "listPushRequests",
+    tag: "Push requests",
+    summary: "List the session's push requests",
+    description:
+      "Every push request of the session, newest first, with its state and who requested and decided it.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListPushRequestsResponse",
+      description: "The session's push requests.",
+      example: { items: [EXAMPLE_PUSH_REQUEST] },
+    },
+    errors: [401, 404, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/push-requests/{push_request_id}",
+    operationId: "getPushRequest",
+    tag: "Push requests",
+    summary: "Read one push request",
+    description:
+      "One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who decided it.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "PushRequest",
+      description: "The push request as it stands now.",
+      example: EXAMPLE_PUSH_REQUEST,
+    },
+    errors: [401, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/push-requests/{push_request_id}/decision",
+    operationId: "decidePushRequest",
+    tag: "Push requests",
+    summary: "Approve or reject a push request",
+    description:
+      "Decides a `requested` push request once: `approve` lets the platform push the pinned commit to the request's branch, `reject` closes it. `git_commit` must be the commit the decider reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.\n\nOnly a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.",
+    scope: "approve",
+    scopeCheckedBy: "service",
+    body: "DecidePushRequestRequest",
+    requestExample: {
+      decision: "approve",
+      git_commit: EXAMPLE_GIT_COMMIT,
+    },
+    success: {
+      status: 200,
+      schema: "PushRequest",
+      description: "The decided request.",
+      example: {
+        ...EXAMPLE_PUSH_REQUEST,
+        state: "approved",
+        decided_by: EXAMPLE_ACTOR,
+        decided_at: "2026-10-11T08:35:00Z",
+        decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
+      },
+    },
+    errors: [...CONFLICTS, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN"],
+      409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_DECIDED", "CHECKPOINT_MOVED"],
+    },
+    errorNotes: {
+      FORBIDDEN:
+        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
+      CHECKPOINT_MOVED:
+        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
+    },
+  },
+  {
+    method: "post",
     path: "/v1/sessions/{id}/interrupt",
     operationId: "interruptSession",
     tag: "Session control",
@@ -1076,7 +1226,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -1118,10 +1268,11 @@ export type ApiOperationId =
  * reading a body or a resource. Routes without a scope are the
  * probes, the public auth routes and cookie-only logout.
  */
-export const API_ROUTE_SCOPES: ReadonlyArray<{
+export const DOCUMENTED_ROUTE_SCOPES: ReadonlyArray<{
   method: "GET" | "POST";
   path: string;
   scope: SessionScope;
+  checkedBy: "api" | "service";
 }> = API_ROUTE_DECLARATIONS.flatMap((declaration) => {
   const route: RouteDeclaration = declaration;
   const scope = scopeOf(route);
@@ -1131,10 +1282,15 @@ export const API_ROUTE_SCOPES: ReadonlyArray<{
           method: route.method === "get" ? "GET" : "POST",
           path: route.path,
           scope,
+          checkedBy: route.scopeCheckedBy ?? "api",
         },
       ]
     : [];
 });
+
+export const API_ROUTE_SCOPES = DOCUMENTED_ROUTE_SCOPES.filter(
+  (route) => route.checkedBy === "api",
+).map(({ method, path, scope }) => ({ method, path, scope }));
 
 type JsonSchema = Record<string, unknown>;
 
@@ -1254,6 +1410,7 @@ function queryParameters(schema: JsonSchema) {
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
+  if (path.includes("{push_request_id}")) return pushRequestParamsSchema;
   if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
   throw new Error(`No params schema registered for ${path}`);
 }

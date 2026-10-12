@@ -18,6 +18,15 @@ export const TEST_IMAGE =
   Bun.env.K8S_BACKEND_TEST_IMAGE ??
   "busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662";
 
+/** What `testResolver` answers for any name: a ClusterIP-shaped address. */
+export const TEST_PROXY_ADDRESS = "10.96.200.1";
+
+/**
+ * Stands in for the scheduler's resolver: the tests run outside the
+ * cluster, where the proxy's Service name resolves to nothing.
+ */
+export const testResolver = async (): Promise<string[]> => [TEST_PROXY_ADDRESS];
+
 export async function testClient(): Promise<KubernetesClient> {
   return new KubernetesClient(await kubernetesConnectionFromEnv(Bun.env), {
     timeoutMs: 30_000,

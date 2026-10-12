@@ -1,3 +1,4 @@
+import { OPEN_PUSH_REQUEST_STATES } from "@agent-platform/contracts";
 import type {
   CheckpointCollectionFences,
   CheckpointCollectionStore,
@@ -12,6 +13,7 @@ import {
   desc,
   eq,
   gt,
+  inArray,
   isNull,
   lt,
   lte,
@@ -20,7 +22,13 @@ import {
 import { ENDED_ATTEMPT_STATES } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { attempts, checkpoints, sessions, turns } from "./schema.ts";
+import {
+  attempts,
+  checkpoints,
+  pushRequests,
+  sessions,
+  turns,
+} from "./schema.ts";
 import {
   acquireFence,
   advanceCheckpointPointer,
@@ -96,6 +104,19 @@ export function createPostgresCheckpointStore(
         },
         { isolationLevel: "repeatable read", accessMode: "read only" },
       );
+    },
+
+    async readPushPinnedRevisions(sessionId: string): Promise<number[]> {
+      const rows = await db
+        .selectDistinct({ revision: pushRequests.checkpointRevision })
+        .from(pushRequests)
+        .where(
+          and(
+            eq(pushRequests.sessionId, sessionId),
+            inArray(pushRequests.state, [...OPEN_PUSH_REQUEST_STATES]),
+          ),
+        );
+      return rows.map((row) => row.revision);
     },
 
     async markCollected(

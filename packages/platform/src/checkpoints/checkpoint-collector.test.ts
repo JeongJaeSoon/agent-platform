@@ -80,6 +80,8 @@ function memorySession() {
   const collected = new Set<number>();
   const state = {
     fallback: null as { attemptId: string; revision: number } | null,
+    /** Revisions open push requests pinned. */
+    pinned: [] as number[],
     /** `sessions.execution_generation`. */
     generation: 1,
     /** Runs once, right after the next pointer or fence read. */
@@ -114,6 +116,9 @@ function memorySession() {
       };
       await afterRead();
       return found;
+    },
+    async readPushPinnedRevisions() {
+      return [...state.pinned];
     },
     async listCheckpoints(_session, { belowRevision, limit }) {
       return rows
@@ -381,6 +386,25 @@ describe("superseded revisions", () => {
 
     for (const entry of revision0.versions)
       expect(await present(entry)).toBe(true);
+  });
+
+  test("a revision an open push request pinned stays, even outside the window", async () => {
+    const part = await transcriptPart(0);
+    const revision0 = await commit(0, "attempt-a", [part]);
+    const revision1 = await commit(1, "attempt-a", [part]);
+    await commit(2, "attempt-a", [part]);
+    await commit(3, "attempt-a", [part]);
+    session.state.pinned = [0];
+
+    await collector({ maxRestoreFallbacks: 1 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    for (const entry of revision0.versions)
+      expect(await present(entry)).toBe(true);
+    for (const entry of revision1.versions)
+      expect(await present(entry)).toBe(false);
+    expect([...session.collected]).toEqual([1]);
   });
 
   test("so does the chain below that base, which the next commit built on it restores from", async () => {

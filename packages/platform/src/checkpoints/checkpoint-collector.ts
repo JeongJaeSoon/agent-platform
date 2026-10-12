@@ -58,9 +58,10 @@ export type SessionCollection =
  * A version goes only when both hold:
  *
  * - *No restore needs it.* It is not named by the pointer's checkpoint, the
- *   `maxRestoreFallbacks` revisions below it along the parent chain, or the
+ *   `maxRestoreFallbacks` revisions below it along the parent chain, the
  *   fallback base the session was last restored from and as many below that
- *   (the window of the commit built on it). Only the attempt that
+ *   (the window of the commit built on it), or a revision an open push
+ *   request pinned and as many below that. Only the attempt that
  *   holds the fence restores anything that matters, and the pointer does not
  *   move until that attempt commits, so its plan is always among these.
  * - *No finalize can commit it.* For a checkpoint directory: it is at or
@@ -103,6 +104,7 @@ export function createCheckpointCollector(
     sessionId: string,
     pointer: CheckpointPointer | null,
     fallbackRevision: number | null,
+    pinnedRevisions: readonly number[],
   ): Promise<CheckpointPointer[] | string> {
     const rows = new Map<number, CheckpointPointer>();
     const walk = async (start: CheckpointPointer) => {
@@ -130,6 +132,14 @@ export function createCheckpointCollector(
       }
       const brokenBase = await walk(base);
       if (brokenBase !== undefined) return brokenBase;
+    }
+    for (const revision of pinnedRevisions) {
+      const pinned = await row(sessionId, revision);
+      if (pinned === undefined) {
+        return `no checkpoint row for revision ${revision}, which a push request pinned`;
+      }
+      const brokenPin = await walk(pinned);
+      if (brokenPin !== undefined) return brokenPin;
     }
     return [...rows.values()];
   }
@@ -186,7 +196,15 @@ export function createCheckpointCollector(
       return { status: "skipped", reason: "session does not exist" };
     }
     const pointer = await store.readPointer(sessionId);
-    const rows = await restorable(sessionId, pointer, fences.fallbackRevision);
+    // Pins after the pointer: a request made after this read pins the
+    // pointer it sees, which is this one or newer and so kept anyway.
+    const pinned = await store.readPushPinnedRevisions(sessionId);
+    const rows = await restorable(
+      sessionId,
+      pointer,
+      fences.fallbackRevision,
+      pinned,
+    );
     if (typeof rows === "string") return { status: "skipped", reason: rows };
     const keep = keepSet();
     for (const checkpoint of rows) {

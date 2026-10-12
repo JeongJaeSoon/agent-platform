@@ -15,7 +15,10 @@
     "check": "bun run typecheck && bun run lint && bun run test",
     "keys": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/keys.ts",
     "grants": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/grants.ts",
-    "catalog-authority": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/catalog-authority.ts"
+    "catalog-authority": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/catalog-authority.ts",
+    "keys:k8s": "scripts/k8s-api.sh keys",
+    "grants:k8s": "scripts/k8s-api.sh grants",
+    "catalog-authority:k8s": "scripts/k8s-api.sh catalog-authority"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",

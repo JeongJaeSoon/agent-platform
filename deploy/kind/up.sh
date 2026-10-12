@@ -33,6 +33,8 @@ set -euo pipefail
 CLUSTER_NAME="${CLUSTER_NAME:-agent-platform-dev}"
 REGISTRY_NAME="${REGISTRY_NAME:-${CLUSTER_NAME}-registry}"
 REGISTRY_PORT="${REGISTRY_PORT:-5001}"
+# Local end of the api port-forward the check below reads through.
+FORWARD_PORT="${FORWARD_PORT:-13000}"
 NAMESPACE="${NAMESPACE:-agent-platform}"
 RELEASE="${RELEASE:-agent-platform}"
 KIND_MODEL="${KIND_MODEL:-none}"
@@ -198,16 +200,16 @@ for deploy in api egress-proxy reconciler scheduler; do
   kubectl -n "$NAMESPACE" rollout status "deploy/${fullname}-${deploy}" --timeout=600s
 done
 
-kubectl -n "$NAMESPACE" port-forward "svc/${fullname}-api" 13000:3000 >"$STATE_DIR/port-forward.log" 2>&1 &
+kubectl -n "$NAMESPACE" port-forward "svc/${fullname}-api" "${FORWARD_PORT}:3000" >"$STATE_DIR/port-forward.log" 2>&1 &
 forward=$!
 trap 'kill "$forward" 2>/dev/null || true' EXIT
 for _ in $(seq 1 30); do
-  curl -s -o /dev/null "http://127.0.0.1:13000/healthz" && break
+  curl -s -o /dev/null "http://127.0.0.1:${FORWARD_PORT}/healthz" && break
   sleep 1
 done
 status=0
 for path in /readyz /docs; do
-  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:13000${path}")"
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${FORWARD_PORT}${path}")"
   echo "GET ${path} -> ${code}"
   [ "$code" = 200 ] || status=1
 done

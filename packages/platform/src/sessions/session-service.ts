@@ -53,6 +53,7 @@ export class SessionServiceError extends Error {
     readonly code: ApiErrorCode,
     message: string,
     readonly retry?: { afterSeconds: number },
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
