@@ -82,6 +82,20 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
     expect((await kubectlArgs())[3]).toBe("deploy/agent-platform-blue-api");
   });
 
+  test("truncates the fullname to 50 characters like the chart", async () => {
+    // 45 + "-agent-platform" = 60, cut at 50 right after a "-".
+    run(["keys", "revoke", "x"], { RELEASE: "r".repeat(45) });
+    expect((await kubectlArgs())[3]).toBe(`deploy/${"r".repeat(45)}-agen-api`);
+
+    run(["keys", "revoke", "x"], { RELEASE: "r".repeat(36) });
+    expect((await kubectlArgs())[3]).toBe(
+      `deploy/${"r".repeat(36)}-agent-platfor-api`,
+    );
+
+    run(["keys", "revoke", "x"], { RELEASE: `${"r".repeat(49)}-x` });
+    expect((await kubectlArgs())[3]).toBe(`deploy/${"r".repeat(49)}-api`);
+  });
+
   test("refuses any other CLI without calling kubectl", async () => {
     for (const args of [[], ["checkpoint-gc"], ["../keys"]]) {
       const result = run(args);

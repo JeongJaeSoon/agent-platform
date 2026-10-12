@@ -25,6 +25,8 @@ esac
 # The chart's fullname rule (ap.fullname in _helpers.tpl).
 fullname="$RELEASE"
 case "$RELEASE" in *agent-platform*) ;; *) fullname="${RELEASE}-agent-platform" ;; esac
+fullname="${fullname:0:50}"
+fullname="${fullname%-}"
 
 exec kubectl -n "$NAMESPACE" exec "deploy/${fullname}-api" -c api -- \
   bun run "apps/control-host/src/api/${cli}.ts" "$@"
