@@ -213,13 +213,11 @@ describe("에이전트 상세", () => {
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
     const profile = await screen.findByLabelText("runtime profile");
-    await user.type(profile, "no-such-profile");
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "Unknown runtime profile no-such-profile",
+      "Unknown runtime profile claude-coding-fast",
     );
-    await user.clear(profile);
-    await user.type(profile, PROFILE);
+    await user.selectOptions(profile, PROFILE);
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     expect(
       await screen.findByText(
@@ -376,7 +374,10 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    await user.type(await screen.findByLabelText("runtime profile"), PROFILE);
+    await user.selectOptions(
+      await screen.findByLabelText("runtime profile"),
+      PROFILE,
+    );
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
       queryKey: queryKeys.agent(AGENT_ID),
@@ -391,9 +392,44 @@ describe("편집 중 다른 곳의 저장", () => {
       ).toBe("version 2"),
     );
     expect(
-      (within(release).getByLabelText("runtime profile") as HTMLInputElement)
+      (within(release).getByLabelText("runtime profile") as HTMLSelectElement)
         .value,
     ).toBe(PROFILE);
+  });
+
+  test("release 폼의 profile은 목록에서 모델 이름과 함께 고르고, 직전 release의 profile을 기본으로 둔다", async () => {
+    const server = agentServer();
+    await seedRelease(server);
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const select = (await screen.findByLabelText(
+      "runtime profile",
+    )) as HTMLSelectElement;
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      "claude-coding-fast · claude-haiku-5",
+      "claude-coding-local · claude-sonnet-5",
+    ]);
+    expect(select.value).toBe(PROFILE);
+  });
+
+  test("profile 목록을 못 읽으면 이유를 보이고 release를 만들지 못하게 한다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "profile 목록을 불러오지 못했습니다",
+    );
+    expect(screen.queryByLabelText("runtime profile")).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "release 만들기",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 
   test("저장 응답을 기다리는 동안 이어서 쓴 내용은 응답이 와도 남는다", async () => {

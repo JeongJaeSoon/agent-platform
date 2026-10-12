@@ -218,7 +218,12 @@ export const ko = {
     "release는 version을 runtime profile에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
   "agent.releases.version": "version",
   "agent.releases.profile": "runtime profile",
-  "agent.releases.profileHint": "플랫폼 설정(profiles.yaml)의 profile id",
+  "agent.releases.profileHint":
+    "플랫폼 설정(profiles.yaml)의 profile과 각 profile이 쓰는 모델",
+  "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profilesLoading": "profile 목록을 불러오는 중…",
+  "agent.releases.profilesFailed":
+    "profile 목록을 불러오지 못했습니다: {reason}",
   "agent.releases.create": "release 만들기",
   "agent.releases.creating": "만드는 중…",
   "agent.releases.empty": "아직 release가 없습니다.",
