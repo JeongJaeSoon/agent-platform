@@ -18,12 +18,13 @@ REGISTRY_NAME="${REGISTRY_NAME:-${CLUSTER_NAME}-registry}"
 REGISTRY_PORT="${REGISTRY_PORT:-5001}"
 NAMESPACE="${NAMESPACE:-agent-platform}"
 RELEASE="${RELEASE:-agent-platform}"
-STATE_DIR="${STATE_DIR:-${TMPDIR:-/tmp}/${CLUSTER_NAME}}"
+# Per user, not a shared /tmp path another user could create first.
+STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
 REGISTRY_IMAGE="registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
-mkdir -p "$STATE_DIR"
+mkdir -p -m 700 "$STATE_DIR"
 
 if [ "${1:-}" = down ]; then
   kind delete cluster --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
@@ -71,17 +72,18 @@ kubectl -n "$NAMESPACE" create configmap localstack-init \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n "$NAMESPACE" apply -f "$root/deploy/kind/deps.yaml"
 
-# The Secret the chart reads. The authorizer token is random per cluster and
-# never printed; the rest are the stand-ins' local defaults. The default
+# The Secret the chart reads. The authorizer token is random per cluster,
+# never printed and never on a command line; the rest are the stand-ins' local defaults. The default
 # catalog names ANTHROPIC_API_KEY, which only has to resolve here: no session
 # runs in this check.
 if ! kubectl -n "$NAMESPACE" get secret agent-platform >/dev/null 2>&1; then
   kubectl -n "$NAMESPACE" create secret generic agent-platform \
     --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
-    --from-literal=EGRESS_AUTHORIZER_TOKEN="$(openssl rand -hex 32)" \
+    --from-file=EGRESS_AUTHORIZER_TOKEN=/dev/stdin \
     --from-literal=AWS_ACCESS_KEY_ID=test \
     --from-literal=AWS_SECRET_ACCESS_KEY=test \
-    --from-literal=ANTHROPIC_API_KEY=kind-check-no-key >/dev/null
+    --from-literal=ANTHROPIC_API_KEY=kind-check-no-key \
+    < <(openssl rand -hex 32 | tr -d '\n') >/dev/null
 fi
 
 kubectl -n "$NAMESPACE" rollout status deploy/postgres --timeout=180s

@@ -44,12 +44,14 @@ spec:
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             {{- include "ap.extraEnv" .Values.reconciler.extraEnv | nindent 12 }}
+          # Healthy only once a pass has finished, which may take a whole
+          # pass timeout after the first interval; 30s on top for startup.
           startupProbe:
             exec:
               command: {{ toJson $health }}
-            periodSeconds: 5
+            periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 6
+            failureThreshold: {{ div (add .Values.reconciler.intervalSec .Values.reconciler.passTimeoutSec 39) 10 }}
           readinessProbe:
             exec:
               command: {{ toJson $health }}
