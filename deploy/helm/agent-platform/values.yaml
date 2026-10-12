@@ -149,10 +149,7 @@ api:
 # One replica, replaced with Recreate: a second scheduler never gets the
 # pass lock, so its health goes stale and liveness restarts it in a loop.
 scheduler:
-  # Off until the scheduler can select its kubernetes execution backend
-  # (94S-523, 94S-524); the image on main only has the Docker one, which has
-  # no socket here. 94S-524 turns this back on.
-  enabled: false
+  enabled: true
   terminationGracePeriodSeconds: 45
   resources:
     requests: {cpu: 100m, memory: 256Mi}

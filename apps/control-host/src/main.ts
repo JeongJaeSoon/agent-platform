@@ -8,7 +8,7 @@
 // running one pass per child (pass-loop/). `--once` is that one pass, and
 // `--health` judges the status file the loop writes. Each role module is
 // imported only when chosen: a process reads and validates only its own
-// role's settings, and only the scheduler ever loads the Docker backend.
+// role's settings, and only the scheduler ever loads an execution backend.
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PassLoopRoleName } from "./pass-loop/loop.ts";
@@ -99,8 +99,8 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     const { QUOTA_PREFLIGHT_MARKER_ENV } = await import(
       "./scheduler/quota-preflight.ts"
     );
-    const { docker } = schedulerConfigFromEnv(process.env);
-    assertPassOutlastsStop(config.passTimeoutMs, docker);
+    const { execution } = schedulerConfigFromEnv(process.env);
+    assertPassOutlastsStop(config.passTimeoutMs, execution);
     // The first pass of every loop probes the workspace quota afresh.
     const marker = `${config.statusFile}.quota-verified`;
     await rm(marker, { force: true });
