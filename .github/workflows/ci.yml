@@ -230,6 +230,7 @@ jobs:
             docker: false
             paths:
               - apps/worker/
+              - packages/adapters/execution/kubernetes/
               - packages/adapters/runtimes/
               - packages/observability/
               - packages/platform/
@@ -254,6 +255,39 @@ jobs:
               - tests/third-party-notices.
               - tests/unit-part.
             skips:
+              # The Kubernetes backend's suites need a kind cluster
+              # (K8S_BACKEND_TEST=1 and a KUBECONFIG); the job that brings one
+              # is 94S-525. (unnamed) is their beforeAll/afterAll.
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "(unnamed)"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "terminating one generation leaves the next generation's Pod untouched"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "the nonce is in the Pod's own Secret only, never in the Pod"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "terminate and workspace removal leave no Pod, Secret or PVC of the session"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "(unnamed)"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "ensureExecution twice → one resource, adopted without a new nonce"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "inspect: found:false for nothing launched, running for a launch"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "listManaged returns what was launched and drops what was terminated"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "terminate: generation_mismatch, terminated, absent — only the matching generation"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "a resource removed out of band is re-created; terminate conditioned on the old providerRef leaves the replacement"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "a resource launched with another spec is refused with LaunchSpecMismatchError and left in place"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "workspace pair, when present: lists the session's workspace and removes it only once unused"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "assertReplaceable, when present: resolves for a launchable intent and launches nothing"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "reconcileNetworks, when present: clears what an out-of-band removal left, then has nothing to do"
               # The D2 gate needs the whole compose stack and the
               # images built from the checkout; scripts/d2-gate/run.sh runs it.
               # (unnamed) is its beforeAll/afterAll.

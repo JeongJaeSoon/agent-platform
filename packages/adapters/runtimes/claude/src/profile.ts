@@ -96,7 +96,11 @@ export function validateRuntimeConfig(
   }
   if (config.permissionMode === undefined) return config;
   if (config.permissionMode === "default") return config;
-  if (["acceptEdits", "dontAsk", "plan"].includes(config.permissionMode)) {
+  if (
+    ["acceptEdits", "dontAsk", "plan", "bypassPermissions", "auto"].includes(
+      config.permissionMode,
+    )
+  ) {
     return config;
   }
   throw new Error("Unsupported permission mode");

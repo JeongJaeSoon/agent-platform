@@ -218,6 +218,42 @@ describe("catalog config schema", () => {
     }
   });
 
+  test("a GitHub repository, on github.com or GHES, takes a PAT as basic x-access-token", () => {
+    const pat = "github_pat_fixture_not_a_real_token";
+    for (const [url, ref] of [
+      ["https://github.com/acme/app.git", { value_env: "GITHUB_PAT" }],
+      [
+        "https://ghes.example.invalid/acme/app.git",
+        { secret_id: "agent-platform/ghes-pat" },
+      ],
+    ] as const) {
+      const catalog = load(
+        config(configured, {
+          app: {
+            ...repository,
+            url,
+            auth: { kind: "basic", username: "x-access-token", ...ref },
+          },
+        }),
+        (lookup) =>
+          "value_env" in lookup && lookup.value_env === "ANTHROPIC_KEY_MAIN"
+            ? "resolved-key"
+            : pat,
+      );
+      const app = catalog.repositories.app;
+      if (!app) throw new Error("no repository");
+      expect(repositoryUpstreamOf(app)).toEqual({
+        url,
+        headers: [
+          [
+            "authorization",
+            `Basic ${Buffer.from(`x-access-token:${pat}`).toString("base64")}`,
+          ],
+        ],
+      });
+    }
+  });
+
   test("the repository's CLAUDE.md is let in only when the profile says so, and hooks never are", () => {
     expect(
       load(config({ ...configured, project_settings: { claude_md: true } }))

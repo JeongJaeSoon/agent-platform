@@ -100,6 +100,9 @@ export function buildSdkOptions(
   processObserver?: RuntimeProcessObserver,
 ): Options {
   const permittedTools = new Set(config.tools);
+  const bypass = config.permissionMode === "bypassPermissions";
+  // Neither mode calls canUseTool for a call it lets through.
+  const unattended = bypass || config.permissionMode === "auto";
   const settle: HookCallback = async (input) => {
     if ("tool_use_id" in input) ledger.toolSettled(input.tool_use_id);
     return {};
@@ -152,15 +155,25 @@ export function buildSdkOptions(
           hooks: [
             async (input) => {
               if (!("tool_use_id" in input)) return {};
+              const deny = (reason: string) => ({
+                hookSpecificOutput: {
+                  hookEventName: "PreToolUse" as const,
+                  permissionDecision: "deny" as const,
+                  permissionDecisionReason: reason,
+                },
+              });
+              // The allowlist canUseTool enforces has to hold here too; a
+              // hook deny binds in every mode.
+              if (
+                unattended &&
+                "tool_name" in input &&
+                !permittedTools.has(input.tool_name)
+              ) {
+                return deny("Tool is outside the server allowlist");
+              }
               const admission = ledger.toolStarting(input.tool_use_id);
               if (admission.allowed) return {};
-              return {
-                hookSpecificOutput: {
-                  hookEventName: "PreToolUse",
-                  permissionDecision: "deny",
-                  permissionDecisionReason: admission.message,
-                },
-              };
+              return deny(admission.message);
             },
           ],
         },
@@ -184,6 +197,7 @@ export function buildSdkOptions(
     model: config.model,
     pathToClaudeCodeExecutable: resolvePinnedClaudeExecutable(),
     permissionMode: config.permissionMode ?? "default",
+    ...(bypass ? { allowDangerouslySkipPermissions: true } : {}),
     ...(config.plugins === undefined ? {} : { plugins: config.plugins }),
     pluginDelivery: "initialize",
     ...(config.mode === "resume" ? { resume: config.resume } : {}),

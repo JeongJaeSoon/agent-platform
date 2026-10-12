@@ -461,6 +461,7 @@ describe("a model named at create", () => {
       version: "0.3.270",
       profile_id: PROFILE_ID,
       model: "claude-opus-5-5",
+      permission_mode: "default",
     });
     const gateway = gatewayOf(OFFERS);
     const claimed = await claim(

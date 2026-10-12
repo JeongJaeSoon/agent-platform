@@ -49,7 +49,7 @@ EXECUTION_WORKSPACE_QUOTA=off \
 
 worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워크** `ap-net-<installationId>-<executionId>-g<generation>` 하나에만 붙는다(94S-216). 이 네트워크는 bridge driver, `internal: true`, `EnableIPv6: false`, `com.docker.network.bridge.gateway_mode_ipv4=isolated`로 만들어진다. Docker가 이 네트워크에서 바깥으로 나가는 경로를 만들지 않고 host 쪽 bridge 주소(IPAM gateway)도 두지 않는다. 그래서 worker는 host·host에서 도는 프로세스·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스·다른 worker에 직접 닿지 못한다. 이 네트워크의 구성원은 worker 자신과 egress proxy 둘뿐이다. scheduler는 `agent-platform.egress-proxy=<installationId>` label이 붙은 **실행 중인 컨테이너 정확히 하나**를 그 설치의 proxy로 보고, 네트워크마다 `EXECUTION_EGRESS_PROXY_URL`의 host 이름을 alias로 붙여 connect한다. worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그 이름을 가리킨다. proxy 주소가 네트워크마다 다르므로 `EXECUTION_EGRESS_PROXY_URL`의 host는 이름이어야 하고, IP literal과 `localhost`는 거부한다. compose의 `egress-proxy` 서비스는 이 label을 달고 있다. `host.docker.internal:host-gateway` 매핑은 worker에서 제거했다 — gateway도 proxy를 거친다.
 
-차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway)다. compose 기본값은 `EGRESS_ALLOWLIST`가 비어 있고 `EGRESS_PRIVATE_ALLOWLIST`가 `api:3000,host.docker.internal:3000`이다. provider·저장소·object store는 두 목록 어디에도 두지 않는다(94S-383). forward proxy로 닿으면 각자의 credential route를 우회하기 때문이다. provider에는 worker가 가진 임의 key로 비용 계측 밖에서 닿고, Gitea의 public 저장소는 token 없이 읽히며, LocalStack은 서명을 검사하지 않으므로 다른 세션의 prefix까지 닿는다. 이들은 credential route만 닿는 목록 `EGRESS_CREDENTIAL_ALLOWLIST`(compose 기본값 `api.anthropic.com:443`)·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(compose 기본값 `gitea:3000,fake-messages:4010,localstack:4566`)에 둔다(94S-251·94S-252). credential 목록의 목적지가 forward 목록에도 있으면 proxy는 기동을 거부한다. 그래서 수정 전 예시 값을 복사해 둔 설치는 업그레이드 뒤 자기 환경 파일의 forward 목록에서 그 값들을 지워야 proxy가 뜬다. 비교는 적힌 `host:port` 그대로이므로, 같은 upstream을 다른 이름이나 IP로 적으면 잡지 못한다. `.env.example`도 같은 값이다(`tests/images.test.ts`가 둘을 묶는다). 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
+차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway)다. compose 기본값은 `EGRESS_ALLOWLIST`가 비어 있고 `EGRESS_PRIVATE_ALLOWLIST`가 `api:3000,host.docker.internal:3000`이다. provider·저장소·object store는 두 목록 어디에도 두지 않는다(94S-383). forward proxy로 닿으면 각자의 credential route를 우회하기 때문이다. provider에는 worker가 가진 임의 key로 비용 계측 밖에서 닿고, Gitea·GitHub의 public 저장소는 token 없이 읽히며, LocalStack은 서명을 검사하지 않으므로 다른 세션의 prefix까지 닿는다. 이들은 credential route만 닿는 목록 `EGRESS_CREDENTIAL_ALLOWLIST`(compose 기본값 `api.anthropic.com:443`, GitHub 저장소를 쓰면 `github.com:443`을 더한다)·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(compose 기본값 `gitea:3000,fake-messages:4010,localstack:4566`)에 둔다(94S-251·94S-252). credential 목록의 목적지가 forward 목록에도 있으면 proxy는 기동을 거부한다. 그래서 수정 전 예시 값을 복사해 둔 설치는 업그레이드 뒤 자기 환경 파일의 forward 목록에서 그 값들을 지워야 proxy가 뜬다. 비교는 적힌 `host:port` 그대로이므로, 같은 upstream을 다른 이름이나 IP로 적으면 잡지 못한다. `.env.example`도 같은 값이다(`tests/images.test.ts`가 둘을 묶는다). 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
 
 CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Established`를 쓴 뒤 클라이언트의 첫 바이트를 upstream에 흘리기 전에 TLS ClientHello로 읽어, DNS 이름 authority면 `server_name`이 그 authority와(대소문자만 무시하고) 같아야 하고, allowlist에 명시된 IP literal authority면 `server_name`이 없어야 한다. `encrypted_client_hello`(0xfe0d)는 GREASE 여부와 관계없이 거부한다 — proxy는 둘을 구별할 수 없고, 진짜 ECH는 검사 대상인 이름을 숨긴다. handshake가 아닌 첫 레코드, host_name이 둘인 hello, 최초 16KiB(record header 포함) 또는 15초(`handshakeTimeoutMs`) 안에 완성되지 않는 hello는 전부 연결을 끊는다. 거부는 200 뒤에 일어나므로 클라이언트에는 handshake 도중 연결 종료로 보인다.
 
@@ -169,7 +169,7 @@ worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로�
   * `/object-store/<bucket>/<key>` 아래의 S3 요청(아래 object store route)
 * **요청 하나의 처리:** proxy는 요청마다 API의 authorizer에 token을 묻는다. authorizer는 API의 별도 listener로, `EGRESS_AUTHORIZER_PORT`의 `POST /authorize`에서 `EGRESS_AUTHORIZER_TOKEN` bearer를 요구한다. 같은 listener의 `POST /usage`는 proxy가 Messages 호출의 usage를 보고하는 곳이다(94S-409, 아래 설치 상한 절). token이 지금 유효하면 authorizer는 upstream과 붙일 헤더를 돌려준다. 유효하다는 것은 lease가 DB 시계로 살아 있고 epoch가 맞으며 purpose가 일치한다는 뜻이다. proxy는 worker의 token을 떼고 카탈로그의 자격 증명을 붙여 upstream으로 보낸다.
 * **fail-closed:** 긍정 응답은 캐시하지 않는다. 그래서 authorizer가 죽어 있으면 503이고, attempt를 잃은 token은 다음 요청부터 401·409다.
-* **upstream 연결:** upstream은 forward proxy와 같은 allowlist·주소 규칙으로 판정한다. 연결은 판정한 주소에 하고, TLS 인증서는 카탈로그의 host 이름으로 요청을 보내기 전에 검증한다. redirect는 따라가지도 전달하지도 않는다(502). 오류 본문에 주입한 자격 증명이 되비쳐 있거나, 본문이 압축돼 있거나, 64 KiB를 넘으면 본문을 보류한다.
+* **upstream 연결:** upstream은 forward proxy와 같은 allowlist·주소 규칙으로 판정한다. 연결은 판정한 주소에 하고, TLS 인증서는 카탈로그의 host 이름으로 요청을 보내기 전에 검증한다. redirect는 따라가지도 전달하지도 않는다(502, GitHub의 경우는 아래 "GitHub 저장소" 절). 오류 본문에 주입한 자격 증명이 되비쳐 있거나, 본문이 압축돼 있거나, 64 KiB를 넘으면 본문을 보류한다.
 * **요청 본문 상한 (94S-388):** Bun은 handler가 읽지 않은 요청 본문도 소켓에서 곧바로 받아 메모리에 쌓는다. 그래서 proxy는 await 전에, 요청 head만 보고 받을지 정한다. provider·repository 본문은 요청당 32 MiB(Messages API 한도)이고, 넘게 선언하면 authorizer에 묻기 전에 413이다. chunked 본문은 32 MiB까지만 읽고 413이다. object store 본문은 길이를 선언해야 한다(chunked면 411). 받은 요청은 선언한 길이(chunked면 32 MiB)만큼 설치 전체 예산 512 MiB(`DEFAULT_MAX_BODY_BYTES_IN_FLIGHT`)에서 떼어 두고, 교환이 끝나면 돌려놓는다(upstream은 본문을 다 받기 전에 답할 수 있다). 받은 본문은 예약한 크기의 버퍼 하나에 모은다. 예산에 들어가지 않는 요청은 503 `too many request bytes in flight`다. authorizer도 요청 본문을 16 KiB까지만 읽고 413으로 끊는다.
 * **proxy 컨테이너 (94S-388):** compose `egress-proxy`는 worker처럼 `read_only`·`cap_drop: [ALL]`·`no-new-privileges`로 돌고 `/tmp`만 tmpfs다. `mem_limit`은 3072 MiB다. 요청 본문 예산 512 MiB, 응답 큐 64 MiB, forward proxy 큐 2048 MiB(연결 256 × 2 × 4 MiB), Bun 256 MiB를 더한 상한이다. 측정값이 아니다. 이 상한들을 바꾸면 한도도 같이 바꾼다. 죽으면 `restart: unless-stopped`로 같은 컨테이너가 다시 뜨고, worker 네트워크 연결은 그대로 남는다.
 * **object store route (94S-251):** 워커의 S3 SDK는 `object_store` token을 SigV4 access key id로(secret은 아무 값이나) 삼아 `<route>/object-store`에 path-style로 보낸다. proxy는 `Authorization`의 `Credential=`에서 token을 꺼내 요청의 method·target·헤더와 함께 authorizer에 묻는다. authorizer는 token과 generation fence를 확인하고 요청이 세션 prefix 안의 허용된 연산인지 판정한 뒤, API 자신의 키로 서명한 target과 헤더를 돌려준다. 허용하는 연산은 넷이다: prefix 안 object의 GetObject·HeadObject(버전 지정 포함), 새 key를 만드는 PutObject(`If-None-Match: *` 필수라서 덮어쓰기가 없다. checksum 헤더 허용), 세션 prefix의 ListObjectsV2. Delete, legal hold·retention·ACL, governance 우회, copy, multipart, version 목록, `aws-chunked` 본문, 인코딩된 `/`·dot segment는 전부 403 `AccessDenied`다. 모르는 token은 401 `InvalidAccessKeyId`다. proxy는 서명된 헤더와 target만 upstream에 보내고, PUT 본문은 서명된 길이만큼 흘려 보낸다(서명은 `UNSIGNED-PAYLOAD`, 요청당 512 MiB 상한). 비밀 키는 API를 떠나지 않는다. 다음 generation이 claim하면 이전 token의 새 요청은 곧바로 거부되고, 이미 열린 교환은 regrant 주기(30초) 안에 끊긴다. 그 사이에 끝나는 늦은 PUT도 create-only라서 이미 있는 object를 바꾸지 못하고, 커밋된 checkpoint가 가리키지 않는 object를 하나 더할 뿐이다. API는 checkpoint object store 설정(아래)으로 서명하며, `CHECKPOINT_OBJECT_STORE=disabled`면 이 route는 503이다.
@@ -376,11 +376,59 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
     - 쌍을 **빼는** 변경은 2부터 새 replica가 빠진 쌍의 세션을 즉시 실패시킨다.
   - **롤백:** 같은 순서를 거꾸로 밟는다. 옛 카탈로그 replica 하나를 올린 뒤 `activate <옛 revision> --expected <새 revision>`을 실행하고 나머지를 되돌린다. `--expected`가 지금 값과 다르면 아무것도 바꾸지 않고 `conflict`와 지금 값을 출력하며 1로 끝난다. 지금 값은 `bun run catalog-authority show`로 본다.
   - **판단 기록:** 권위 없는 replica가 빠진 쌍의 세션을 claim까지 거절하지는 않는다. 쌍을 모르는 replica는 원래 그 세션을 claim하지 않는다. 쌍을 아는 옛 replica는 옛 카탈로그를 믿으므로 롤아웃 동안 한 번 더 돌릴 수 있다. 쌍을 빼는 일이 보안 경계라면(그 저장소에서 더는 돌면 안 되는 경우) 옛 replica를 먼저 내린 뒤 뺀다.
-- 비공개 저장소는 `repositories.<id>.auth`에 로그인을 같은 방식의 참조로 적는다. `kind: basic`(`username` 필요) 또는 `kind: bearer`이고, `value_env`·`secret_id` 중 하나를 쓴다. worker는 이 값을 받지 않고 proxy의 저장소 route로 clone한다.
+- 비공개 저장소는 `repositories.<id>.auth`에 로그인을 같은 방식의 참조로 적는다. `kind: basic`(`username` 필요) 또는 `kind: bearer`이고, `value_env`·`secret_id` 중 하나를 쓴다. worker는 이 값을 받지 않고 proxy의 저장소 route로 clone한다. 저장소 host는 Gitea든 GitHub든 같은 방식이다. GitHub는 아래 절을 따른다.
 - 두 자격 증명 모두 8바이트보다 짧으면 API가 기동을 거부한다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다(94S-253). 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
+
+### GitHub 저장소 (94S-626)
+
+github.com과 GitHub Enterprise Server(GHES)의 저장소도 Gitea와 같은 저장소 route로 clone한다. 코드 변경 없이 카탈로그와 allowlist만 바꾼다. 지금은 fine-grained PAT를 쓴다. GitHub App 설치 토큰은 94S-627에서 붙인다.
+
+- **PAT 발급:** GitHub Settings → Developer settings → Fine-grained personal access tokens. Resource owner는 저장소의 owner(조직이면 조직이 승인해야 할 수 있다), Repository access는 `Only select repositories`로 그 저장소만 고른다. Repository permissions는 **Contents: Read-only** 하나다(Metadata: Read-only는 자동으로 붙는다). 만료일을 두고, 만료 전에 같은 참조 뒤의 값만 바꾼 뒤 API를 재기동한다(fingerprint·revision은 그대로다). push·PR은 이 route로 하지 않으므로 쓰기 권한은 주지 않는다.
+- **카탈로그:** URL은 https clone URL 그대로 `.git`까지 적는다. GHES는 host만 다르다. 로그인 이름은 `x-access-token`이고 PAT를 비밀번호 자리에 둔다. 공개 저장소는 `auth` 없이 등록해도 clone된다.
+
+  ```yaml
+  repositories:
+    app:
+      url: https://github.com/<owner>/<repo>.git   # GHES: https://<ghes-host>/<owner>/<repo>.git
+      branch: main
+      profiles: [claude-coding-real]
+      auth:
+        kind: basic
+        username: x-access-token
+        value_env: APP_GITHUB_PAT                  # 또는 secret_id
+  ```
+
+  `value_env`는 API 프로세스의 환경 변수다. compose의 `api`는 정해진 변수만 넘기므로 overlay에 `environment: { APP_GITHUB_PAT: ${APP_GITHUB_PAT:?} }`를 더한다.
+- **allowlist:** `github.com:443`(GHES는 `<ghes-host>:443`)을 egress proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 더한다. compose 기본값은 `api.anthropic.com:443`이므로 `EGRESS_CREDENTIAL_ALLOWLIST=api.anthropic.com:443,github.com:443`처럼 기존 값을 함께 적는다. 사설 주소의 GHES는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다. forward 목록(`EGRESS_ALLOWLIST`)에는 넣지 않는다. 넣으면 proxy가 기동을 거부하고, 넣지 않았으므로 worker의 도구(Bash의 `git`·`curl`, npm의 git 의존성)는 GitHub에 직접 닿지 못한다. 2026-10-13 로컬 스택 실측에서 worker 안의 `git ls-remote https://github.com/octocat/Hello-World.git`은 `CONNECT tunnel failed, response 403`으로 끝났고, proxy에는 `Egress denied`(`destination is not allowlisted`)가 남았다.
+- **redirect:** route는 3xx를 따라가지도 전달하지도 않고 502 `upstream redirected`로 끝낸다. clone은 `git clone failed (exit 128): remote: upstream redirected`로 실패하고 세션 attention은 `STARTUP_FAILED`다. GitHub가 git 요청에 301을 주는 경우로 확인한 것은 `http://` URL(→ `https://`)이다. 이름을 바꾼 저장소(`vuejs/vue-next` → `vuejs/core`)와 `.git`을 뺀 URL은 2026-10-13 실측에서 redirect 없이 200이었다. proxy 로그에 `Credential route`가 `status: 301`로 남으면 카탈로그 URL을 응답이 가리키는 주소로 고친다.
+- **401:** 로그인 없이 읽을 수 없는 저장소(없는 저장소, `auth`를 빠뜨린 비공개 저장소)에 GitHub는 401을 준다. proxy 로그는 `Credential route`의 `status: 401`이고, clone은 `fatal: could not read Username for 'http://egress-proxy:3129': terminal prompts disabled`로 실패한다(attention `STARTUP_FAILED`, 2026-10-13 실측). 틀리거나 권한이 모자란 PAT의 응답은 아직 재지 않았다. 아래 절차에서 status를 확인한다.
+- **확인:** clone이 되면 proxy 로그에 세션 id와 함께 `"message":"Credential route"`, `"purpose":"repository"`, `"host":"github.com"`, `"status":200` 줄이 남는다(실측에서 clone 한 번에 세 줄). worker의 작업 트리에서 `git remote get-url origin`은 카탈로그 URL이고 로그인을 담지 않는다.
+- **LFS·submodule:** 저장소 route는 upload-pack만 다룬다. Git LFS 객체와 submodule은 받지 않는다.
+
+비공개 저장소와 PAT로 확인하는 절차다. `scripts/local.sh up --fake-model`로 띄운 스택에 카탈로그 overlay를 겹친다. PAT 값은 셸에서 `read -rs`로 받아 화면과 파일에 남기지 않는다.
+
+1. 위 형식으로 `repositories.yaml`과 `config/fake-model/profiles.yaml` 사본을 디렉터리 하나에 둔다. 저장소의 `profiles`는 `[claude-coding-local]`이다.
+2. overlay를 만든다. `api`에 `volumes: ["<그 디렉터리>:/app/config/fake-model:ro"]`과 `environment: { APP_GITHUB_PAT: ${APP_GITHUB_PAT:?} }`를 준다(`--fake-model` overlay가 `PLATFORM_CONFIG_DIR`를 `/app/config/fake-model`로 고정하므로 그 자리에 mount한다).
+3. `read -rs APP_GITHUB_PAT; export APP_GITHUB_PAT EGRESS_CREDENTIAL_ALLOWLIST=api.anthropic.com:443,github.com:443 COMPOSE_FILE="compose.yaml:<overlay>"` 뒤 `scripts/local.sh up --fake-model`.
+4. API 기동 로그 `Session catalog loaded`의 `repositories` 수를 보고, quickstart 2·3장처럼 `repository_id`를 그 저장소로 바꿔 세션을 만든다.
+5. 세션이 `needs_input`이나 `completed`에 닿으면 `docker compose logs egress-proxy | grep '"purpose":"repository"'`에서 `status: 200`을 확인한다. `STARTUP_FAILED`면 위의 401·redirect 항목을 본다.
+6. `scripts/local.sh down`(같은 환경 변수로)으로 내리고 `unset APP_GITHUB_PAT`.
+
+### 자율 모드: `bypassPermissions`·`auto` (94S-621)
+
+profile의 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`·`auto` 중 하나다. 뒤의 둘이 자율 모드로, 도구 호출을 사람의 승인 없이 실행한다.
+
+- `bypassPermissions`: 파일 쓰기·Bash·`git commit`을 포함해 모든 도구 호출을 그대로 실행한다. 권한 pending-request를 만들지 않는다.
+- `auto`: 엔진이 원래 물었을 도구 호출(예: Bash)마다 모델 분류기가 허용·거부를 정한다. 분류기 호출도 같은 provider route로 나가므로 세션 비용에 잡힌다(2026-10-13 실측: Bash 호출 하나에 분류기 요청 하나, 첫 요청 약 0.11달러, 이후 약 0.009달러). 분류기를 쓸 수 없으면 엔진은 그 호출을 거부한다(fail closed).
+
+- **지정하는 곳은 카탈로그뿐이다.** 세션 생성 요청은 profile id만 고르고 모드를 바꿀 수 없다. 모드는 fingerprint에 들어가므로, 같은 id의 모드를 바꾸면 그 id로 만든 세션은 새 모드로 돌지 않고 `CATALOG_MISMATCH`가 된다. 자율 모드는 새 profile id로 등록하고 `repositories.<id>.profiles`에 더한다. 저장소의 예시 카탈로그(`config/`, `config/fake-model/`)에는 자율 모드 profile이 없다.
+- **설치가 허용해야 뜬다.** 카탈로그에 이 모드의 profile이 있으면 API 환경 변수 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`가 없는 한 기동하지 않고, 오류 메시지에 profile id와 이 변수 이름을 적는다. 값은 정확히 `true`만 받는다. 허용된 채로 뜨면 기동 로그에 `Profiles run tools without asking for approval`(대상 profile id 목록) 경고가 남는다. 카탈로그는 설치 사이를 옮겨 다니므로, 이 설치의 격리를 보증하는 일은 카탈로그가 아니라 설치 설정이 맡는다. compose 설치(`infra/compose.local.yml`)는 셸이나 저장소 `.env`의 같은 이름 변수를 API에 넘기고, 없으면 `false`다.
+- **남는 경계.** 사람 승인이 빠지면 남는 것은 세션마다 하나인 worker 컨테이너(root 아님), egress proxy 허용 목록(Messages API·저장소 route·object store route만), profile `tools` 목록, 세션 비용 상한(`SESSION_COST_LIMIT_USD`, turn의 `maxBudgetUsd`)이다. `tools` 목록은 이 모드에서도 PreToolUse hook이 강제하고, 비용 상한과 checkpoint 중 도구 차단도 그대로다. 이 넷 중 하나라도 없는 설치(예: worker를 host 네트워크로 띄우는 경우)에서는 켜지 않는다. 저장소 자격 증명은 worker에 가지 않으므로(위 94S-252 절) 자율 세션도 push할 수 없고, 바뀐 내용은 checkpoint로만 나간다.
+- **감사.** 세션 목록·상세의 `runtime.permission_mode`가 그 세션이 도는 모드다. worker의 claim 로그에도 `permission_mode`가 남는다. 모드는 세션에 고정되므로 receipt에는 따로 싣지 않는다.
+- 실제 모델로 확인하는 방법은 [real-claude.md](real-claude.md#자율-모드-세션)에 있다.
 
 저장소의 `config/`는 로컬 예시다: `https://api.anthropic.com`을 endpoint로, API 프로세스의 `ANTHROPIC_API_KEY`를 `value_env`로, compose Gitea의 `sample-app`을 저장소로 쓴다. `config/fake-model/`은 외부 계정 없이 도는 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음, `infra/compose.fake-model.yml`을 얹을 때만 뜬다)에 심어 둔 placeholder 키를 `secret_id`로 쓴다. Gitea의 `agent/sample-app`은 compose `gitea-init`(`infra/gitea/init-sample-repo.sh`)이 `apps` profile 기동 때 만든다(public, 이미 있으면 건너뜀).
 
@@ -614,6 +662,34 @@ API 컨테이너의 메모리는 checkpoint bundle 검증이 정한다. 검증�
 compose의 Postgres는 `POSTGRES_USER`(`postgres`)·`POSTGRES_PASSWORD`(`dev`)·`POSTGRES_DB`(`sessions`)로 만들고, 모든 서비스가 같은 값으로 DSN을 만든다. 로컬 Gitea 예시 저장소의 agent 사용자 비밀번호는 `GITEA_AGENT_PASSWORD`이고, 비워 두면 아무도 모르는 무작위 값이 된다.
 
 worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(10), `WORKER_IDLE_TIMEOUT_SEC`(1800), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `QUESTION_TIMEOUT_SEC`(1800), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).
+
+## Kubernetes 실행 backend (94S-523)
+
+`packages/adapters/execution/kubernetes`는 launch 하나에 worker Pod 하나를 만든다. Pod마다 그 Pod가 소유하는 nonce Secret이 하나 붙고, 세션의 workspace PVC가 마운트된다. scheduler에 연결하는 일과 `EXECUTION_BACKEND` 선택은 94S-524가 맡는다. 공유 env(`WORKER_IMAGE`, `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT`, `EXECUTION_INSTALLATION_ID`, `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `S3_BUCKET`, `AWS_REGION`)는 Docker backend와 같다. kubernetes 모드에서는 다음 두 값에 제약이 더 붙는다.
+
+- `WORKER_IMAGE`는 `repository@sha256:<digest>` 형식이어야 한다.
+- `EXECUTION_INSTALLATION_ID`는 32자 이하의 소문자 DNS label이어야 한다.
+
+kubernetes 모드에서만 읽는 설정은 다음과 같다.
+
+| 변수 | 뜻 |
+| --- | --- |
+| `EXECUTION_K8S_NAMESPACE` | worker Pod·Secret·PVC를 두는 namespace. 기본값은 scheduler 자신의 namespace다. 클러스터 밖에서 돌리면 반드시 줘야 한다. |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | worker Pod의 ServiceAccount. token은 늘 마운트하지 않는다. |
+| `EXECUTION_K8S_STORAGE_CLASS` | workspace PVC의 StorageClass. 비우면 클러스터 기본값을 쓴다. |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 선택. 쉼표로 구분한 Secret 이름. |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 선택. JSON object. |
+| `EXECUTION_K8S_WORKER_TOLERATIONS` | 선택. JSON array. |
+
+API server 인증은 `KUBECONFIG`가 있으면 그것을 쓰고, 없으면 Pod의 ServiceAccount를 쓴다. ServiceAccount 경로는 `KUBERNETES_SERVICE_HOST`·`KUBERNETES_SERVICE_PORT`와 token·CA 파일을 읽는다. scheduler의 Role 동사와 pidsLimit 처리는 패키지 README에 있다.
+
+kind에 대한 테스트는 opt-in이다. `K8S_BACKEND_TEST=1`과 `KUBECONFIG`를 주면 실행된다. `K8S_BACKEND_TEST_IMAGE`로 digest 형식의 이미지를 바꿀 수 있고, `K8S_BACKEND_TEST_KEEP=1`을 주면 테스트 namespace를 지우지 않고 남긴다.
+
+```sh
+K8S_BACKEND_TEST=1 KUBECONFIG=<kind kubeconfig> \
+  bun test packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts \
+  packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+```
 
 ## 이미지와 Compose `apps` profile
 

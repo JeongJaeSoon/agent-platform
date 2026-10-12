@@ -794,13 +794,25 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The model the session runs: the one named at create, or the profile's default."
+                  },
+                  "permission_mode": {
+                    "type": "string",
+                    "enum": [
+                      "default",
+                      "acceptEdits",
+                      "dontAsk",
+                      "plan",
+                      "bypassPermissions",
+                      "auto"
+                    ]
                   }
                 },
                 "required": [
                   "kind",
                   "version",
                   "profile_id",
-                  "model"
+                  "model",
+                  "permission_mode"
                 ],
                 "additionalProperties": false
               },
@@ -937,13 +949,25 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The model the session runs: the one named at create, or the profile's default."
+                  },
+                  "permission_mode": {
+                    "type": "string",
+                    "enum": [
+                      "default",
+                      "acceptEdits",
+                      "dontAsk",
+                      "plan",
+                      "bypassPermissions",
+                      "auto"
+                    ]
                   }
                 },
                 "required": [
                   "kind",
                   "version",
                   "profile_id",
-                  "model"
+                  "model",
+                  "permission_mode"
                 ],
                 "additionalProperties": false
               },
@@ -5454,7 +5478,8 @@
                         "kind": "claude_agent_sdk",
                         "version": "0.2.1",
                         "profile_id": "claude-coding-real",
-                        "model": "claude-sonnet-5"
+                        "model": "claude-sonnet-5",
+                        "permission_mode": "default"
                       },
                       "repository_id": "sample-app",
                       "current_turn_id": "3",
@@ -5673,7 +5698,8 @@
                     "kind": "claude_agent_sdk",
                     "version": "0.2.1",
                     "profile_id": "claude-coding-real",
-                    "model": "claude-sonnet-5"
+                    "model": "claude-sonnet-5",
+                    "permission_mode": "default"
                   },
                   "repository_id": "sample-app",
                   "current_turn_id": "3",

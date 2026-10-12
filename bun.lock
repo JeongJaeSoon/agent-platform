@@ -55,6 +55,17 @@
         "@agent-platform/testkit": "workspace:*",
       },
     },
+    "packages/adapters/execution/kubernetes": {
+      "name": "@agent-platform/execution-kubernetes",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+      },
+      "devDependencies": {
+        "@agent-platform/execution-local-docker": "workspace:*",
+      },
+    },
     "packages/adapters/execution/local-docker": {
       "name": "@agent-platform/execution-local-docker",
       "version": "0.0.0",
@@ -200,6 +211,8 @@
     "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
 
     "@agent-platform/egress-proxy": ["@agent-platform/egress-proxy@workspace:apps/egress-proxy"],
+
+    "@agent-platform/execution-kubernetes": ["@agent-platform/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
 
     "@agent-platform/execution-local-docker": ["@agent-platform/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
 
