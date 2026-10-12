@@ -2862,6 +2862,30 @@
                 "type": "null"
               }
             ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "push_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2878,7 +2902,9 @@
           "decided_at",
           "decision_reason",
           "request_receipt_id",
-          "decision_receipt_id"
+          "decision_receipt_id",
+          "finished_at",
+          "push_receipt_id"
         ],
         "additionalProperties": false
       },
@@ -8348,7 +8374,9 @@
                   "decided_at": null,
                   "decision_reason": null,
                   "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                  "decision_receipt_id": null
+                  "decision_receipt_id": null,
+                  "finished_at": null,
+                  "push_receipt_id": null
                 },
                 "schema": {
                   "$ref": "#/components/schemas/PushRequest"
@@ -8713,7 +8741,9 @@
                       "decided_at": null,
                       "decision_reason": null,
                       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                      "decision_receipt_id": null
+                      "decision_receipt_id": null,
+                      "finished_at": null,
+                      "push_receipt_id": null
                     }
                   ]
                 },
@@ -8879,7 +8909,7 @@
           "Push requests"
         ],
         "summary": "Read one push request",
-        "description": "One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who decided it.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who decided it.\n\nThe API pushes an approved request within seconds: exactly the pinned commit, to `refs/heads/agent/<session-id>` on the repository the request pinned, never by force. It refuses, as `failed`, when the catalog entry for the repository changed after the request, the target is the repository's default branch, or the remote branch holds a commit the pinned one does not build on. `finished_at` and `push_receipt_id` are set once it ends; that `push` receipt (`GET /v1/receipts/{receipt_id}`) names the remote, the ref, the commit it replaced, the approver, and on failure the `refusal`.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -8946,7 +8976,9 @@
                   "decided_at": null,
                   "decision_reason": null,
                   "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                  "decision_receipt_id": null
+                  "decision_receipt_id": null,
+                  "finished_at": null,
+                  "push_receipt_id": null
                 },
                 "schema": {
                   "$ref": "#/components/schemas/PushRequest"
@@ -9221,7 +9253,9 @@
                   "decided_at": "2026-10-11T08:35:00Z",
                   "decision_reason": null,
                   "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                  "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678"
+                  "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
+                  "finished_at": null,
+                  "push_receipt_id": null
                 },
                 "schema": {
                   "$ref": "#/components/schemas/PushRequest"

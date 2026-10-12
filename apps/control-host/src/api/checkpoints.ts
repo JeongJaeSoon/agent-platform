@@ -6,6 +6,7 @@ import {
   type CheckpointVerifier,
   createCheckpointService,
   type ObjectProtection,
+  type PushBundleSource,
   type PushSource,
   rejectUnverifiedCheckpoints,
   serviceCheckpointVerifier,
@@ -237,7 +238,7 @@ function optional(value: string | undefined): string | undefined {
 export type ApiCheckpoints = {
   verifier: CheckpointVerifier;
   protocol: CheckpointProtocol | undefined;
-  pushSource: PushSource;
+  pushSource: PushSource & PushBundleSource;
 };
 
 /**
@@ -256,6 +257,10 @@ export function createApiCheckpoints(
       protocol: undefined,
       pushSource: {
         readPushSource: async () => ({
+          status: "unavailable",
+          reason: "the checkpoint object store is disabled",
+        }),
+        spoolPushBundles: async () => ({
           status: "unavailable",
           reason: "the checkpoint object store is disabled",
         }),
