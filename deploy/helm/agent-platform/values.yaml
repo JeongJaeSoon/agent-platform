@@ -244,13 +244,6 @@ ingress:
 
 networkPolicy:
   enabled: true
-  # Workers resolve the egress-proxy Service name, so they may query the
-  # cluster DNS. These select it.
-  dns:
-    namespaceSelector:
-      kubernetes.io/metadata.name: kube-system
-    podSelector:
-      k8s-app: kube-dns
   api:
     # Peers allowed to reach the public port 3000 besides the egress proxy
     # (NetworkPolicy `from` entries). Empty allows any source: the Ingress
