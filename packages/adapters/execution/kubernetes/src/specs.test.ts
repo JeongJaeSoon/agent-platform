@@ -120,6 +120,13 @@ describe("worker Pod", () => {
     expect(isolationStampFor(config, PROXY_ADDRESS)).toStartWith("2:");
   });
 
+  test("a Pod that checked out at the mount's root reads as another stamp", () => {
+    // This config's stamp before the checkout moved below the mount.
+    expect(isolationStampFor(config, PROXY_ADDRESS)).not.toBe(
+      "2:cd68dc934a0853d0",
+    );
+  });
+
   test("takes its limits from the intent, requests equal to limits", () => {
     const limits = { cpu: "1500m", memory: String(1024 * 1024 * 1024) };
     expect(container.resources).toEqual({ limits, requests: limits });
