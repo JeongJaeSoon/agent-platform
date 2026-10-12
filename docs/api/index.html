@@ -804,13 +804,25 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The model the session runs: the one named at create, or the profile's default."
+                  },
+                  "permission_mode": {
+                    "type": "string",
+                    "enum": [
+                      "default",
+                      "acceptEdits",
+                      "dontAsk",
+                      "plan",
+                      "bypassPermissions",
+                      "auto"
+                    ]
                   }
                 },
                 "required": [
                   "kind",
                   "version",
                   "profile_id",
-                  "model"
+                  "model",
+                  "permission_mode"
                 ],
                 "additionalProperties": false
               },
@@ -947,13 +959,25 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The model the session runs: the one named at create, or the profile's default."
+                  },
+                  "permission_mode": {
+                    "type": "string",
+                    "enum": [
+                      "default",
+                      "acceptEdits",
+                      "dontAsk",
+                      "plan",
+                      "bypassPermissions",
+                      "auto"
+                    ]
                   }
                 },
                 "required": [
                   "kind",
                   "version",
                   "profile_id",
-                  "model"
+                  "model",
+                  "permission_mode"
                 ],
                 "additionalProperties": false
               },

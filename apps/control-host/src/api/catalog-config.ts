@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { UNATTENDED_PERMISSION_MODES } from "@agent-platform/contracts";
 import {
   CatalogCredentialError,
   type CredentialRef,
@@ -27,6 +28,7 @@ export const DEFAULT_CONFIG_DIR = resolve(
 );
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
+export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 // One bounded read per secret at startup; the API does not start without
 // them, so a hung endpoint must fail the boot rather than hold it.
 const SECRET_READ_TIMEOUT_MS = 10_000;
@@ -123,6 +125,15 @@ export async function loadSessionCatalog(options: {
     );
   }
   const config = await readCatalogConfig(options.dir);
+  const unattended = unattendedProfiles(config);
+  if (
+    unattended.length > 0 &&
+    options.env[ALLOW_UNATTENDED_SETTING] !== "true"
+  ) {
+    throw new Error(
+      `Profile(s) ${unattended.join(", ")} run tools without asking (permission_mode: ${UNATTENDED_PERMISSION_MODES.join(" | ")}); set ${ALLOW_UNATTENDED_SETTING}=true on the API to allow it`,
+    );
+  }
   const secrets = new Map<string, string>();
   // An endpoint that is not up, like the local stack's secrets service
   // without --fake-model, fails on DNS or a refused connection; naming it says which.
@@ -147,4 +158,22 @@ export async function loadSessionCatalog(options: {
       ? options.env[ref.value_env]
       : secrets.get(ref.secret_id),
   );
+}
+
+/**
+ * Profiles whose tools run without asking. That leaves the container, the
+ * egress allowlist, the tool list and the cost limit as the only bounds, so
+ * the installation has to opt in: a catalog is copied between installations
+ * and cannot vouch for the one it lands in.
+ */
+export function unattendedProfiles(catalog: {
+  profiles: Record<string, { permission_mode: string }>;
+}): string[] {
+  return Object.entries(catalog.profiles)
+    .filter(([, profile]) =>
+      (UNATTENDED_PERMISSION_MODES as readonly string[]).includes(
+        profile.permission_mode,
+      ),
+    )
+    .map(([id]) => id);
 }

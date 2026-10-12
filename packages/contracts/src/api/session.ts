@@ -77,6 +77,15 @@ export const PERMISSION_MODE_VALUES = [
   "acceptEdits",
   "dontAsk",
   "plan",
+  "bypassPermissions",
+  "auto",
+] as const;
+// Modes in which no tool call waits for a person (`auto` lets a model
+// classifier decide instead). The API starts a catalog
+// naming one only when the installation opts in (docs/operations.md).
+export const UNATTENDED_PERMISSION_MODES = [
+  "bypassPermissions",
+  "auto",
 ] as const;
 
 export const sessionStatusSchema = z.enum(SESSION_STATUS_VALUES);
@@ -100,6 +109,9 @@ export const sessionRuntimeViewSchema = sessionRuntimeSchema.extend({
     description:
       "The model the session runs: the one named at create, or the profile's default.",
   }),
+  // Fixed with the session: changing it in the catalog makes the session
+  // CATALOG_MISMATCH rather than run under the new one.
+  permission_mode: permissionModeSchema,
 });
 export const executionObservationSchema = z.object({
   backend: executionBackendSchema,
