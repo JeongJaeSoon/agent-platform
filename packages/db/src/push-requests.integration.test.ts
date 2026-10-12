@@ -139,7 +139,6 @@ integration("postgres push requests", () => {
         target_branch: `agent/${sessionId}`,
       },
     });
-    // A replay answers the request that key made; a second request is refused.
     expect(written(await create(sessionId)).id).toBe(request.id);
     const second = await create(sessionId, "k-other");
     expect(second).toMatchObject({
@@ -156,6 +155,24 @@ integration("postgres push requests", () => {
     expect(await store.list(OWNER, sessionId)).toHaveLength(1);
     expect(await store.list("someone-else", sessionId)).toBeNull();
     expect(await store.get("someone-else", sessionId, request.id)).toBeNull();
+  });
+
+  test("concurrent creates on one session open one request", async () => {
+    const sessionId = await session();
+    const results = await Promise.all(
+      ["k-race-1", "k-race-2", "k-race-3"].map((key) => create(sessionId, key)),
+    );
+    expect(results.map((result) => result.outcome).sort()).toEqual([
+      "refused",
+      "refused",
+      "written",
+    ]);
+    for (const result of results) {
+      if (result.outcome === "refused") {
+        expect(result.refusal).toBe("request_open");
+      }
+    }
+    expect(await store.list(OWNER, sessionId)).toHaveLength(1);
   });
 
   test("create refuses a pointer that moved after the caller read it", async () => {
@@ -190,7 +207,6 @@ integration("postgres push requests", () => {
         checkpoint_revision: 2,
       },
     });
-    // Same key, same body: the same answer, not a second decision.
     expect(
       written(await decide(sessionId, request.id)).decision_receipt_id,
     ).toBe(approved.decision_receipt_id);
@@ -241,7 +257,6 @@ integration("postgres push requests", () => {
     expect((await store.get(OWNER, sessionId, request.id))?.state).toBe(
       "requested",
     );
-    // Rejecting needs no matching checkpoint, and frees the session.
     const rejected = written(
       await decide(sessionId, request.id, {
         decision: "reject",
@@ -298,7 +313,6 @@ integration("postgres push requests", () => {
       ).toBe(true);
       expect(await store.finish(job.id, { state: "pushed" })).toBe(false);
     }
-    // Earlier tests left an approved request too; the queue serves them all.
     expect(claimed).toContain(pushed);
     expect(claimed).toContain(failed);
     const [done] = await db

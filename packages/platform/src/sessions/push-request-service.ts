@@ -32,8 +32,6 @@ export interface PushSource {
   readPushSource(sessionId: string): Promise<PushSourceResult>;
 }
 
-// The principal kinds that may decide. An allowlist, so a kind added later
-// (a chat installation, an agent's own key) is refused until named here.
 const DECIDER_KINDS: ReadonlySet<Principal["kind"]> = new Set([
   "user",
   "api_key",
@@ -80,8 +78,6 @@ export function createPushRequestService(deps: {
 }) {
   const { store, source } = deps;
 
-  // An unverified caller could be anyone, so nothing it says is recorded
-  // under the owner it claims.
   function requireVerified(actor: PushActor) {
     if (!actor.verified) refused("unverified_principal", null);
   }
@@ -167,11 +163,6 @@ export function createPushRequestService(deps: {
       return request;
     },
 
-    /**
-     * The scope is checked here rather than by the API's scope table, so a
-     * refusal is a receipt like every other refused decision. Neither the
-     * body nor the request is read before it: `readBody` runs only after.
-     */
     async decide(
       actor: PushActor,
       sessionId: string,

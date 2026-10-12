@@ -45,7 +45,6 @@ interface ApiVariables {
   // The alpha partition key; every existing route authorizes on it alone.
   ownerId: string;
   principal: Principal;
-  // False only when AUTH_MODE=none took the caller's X-Owner-Id on its word.
   verified: boolean;
   // Present on the cookie path only.
   webSession?: ResolvedWebSession;

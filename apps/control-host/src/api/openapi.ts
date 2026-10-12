@@ -1288,7 +1288,6 @@ export const DOCUMENTED_ROUTE_SCOPES: ReadonlyArray<{
     : [];
 });
 
-/** What the /v1 scope check enforces: every documented scope it owns. */
 export const API_ROUTE_SCOPES = DOCUMENTED_ROUTE_SCOPES.filter(
   (route) => route.checkedBy === "api",
 ).map(({ method, path, scope }) => ({ method, path, scope }));

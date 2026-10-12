@@ -394,7 +394,6 @@ export interface AuthenticatorOptions {
 
 type Authenticated = {
   principal: Principal;
-  /** False when nothing checked the caller: AUTH_MODE=none's X-Owner-Id. */
   verified: boolean;
   /** Set on the cookie path; GET /v1/auth/me and logout read it. */
   webSession?: ResolvedWebSession;

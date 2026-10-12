@@ -139,8 +139,6 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           if (row)
             return { outcome: "replayed", request: publicPushRequest(row) };
         }
-        // Serializes creates per session, so the open-request check below
-        // and the partial unique index never race.
         const [session] = await tx
           .select({ checkpointRevision: sessions.checkpointRevision })
           .from(sessions)

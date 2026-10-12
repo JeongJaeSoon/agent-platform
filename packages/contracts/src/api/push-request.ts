@@ -59,7 +59,6 @@ export const pushRequestSchema = z.object({
   decision_receipt_id: receiptIdSchema.nullable(),
 });
 
-// Nothing to choose: the commit, repository and branch are the platform's.
 export const createPushRequestRequestSchema = z.object({}).strict();
 
 export const PUSH_DECISION_VALUES = ["approve", "reject"] as const;

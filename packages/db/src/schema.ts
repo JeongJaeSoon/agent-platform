@@ -778,7 +778,6 @@ export const pushRequests = pgTable(
     gitCommit: text("git_commit").notNull(),
     targetBranch: text("target_branch").notNull(),
     state: text().notNull().default("requested"),
-    /** `receiptActorSchema`, as on the request's receipt. */
     requestedBy: jsonb("requested_by").notNull(),
     requestReceiptId: uuid("request_receipt_id")
       .notNull()
@@ -810,12 +809,10 @@ export const pushRequests = pgTable(
       "push_requests_checkpoint_revision_check",
       sql`${table.checkpointRevision} >= 0`,
     ),
-    // The branch is the platform's, never the requester's.
     check(
       "push_requests_target_branch_check",
       sql`${table.targetBranch} = 'agent/' || ${table.sessionId}::text`,
     ),
-    // A decided request always says who decided and when.
     check(
       "push_requests_decision_check",
       sql`(${table.state} = 'requested') = (${table.decidedAt} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decidedBy} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decisionReceiptId} IS NULL)`,
