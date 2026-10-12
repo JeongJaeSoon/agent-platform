@@ -76,6 +76,31 @@ async function insertRefusal(
   return id;
 }
 
+function createScope(ownerId: string, sessionId: string, key: string) {
+  return {
+    principal: ownerId,
+    operation: "request_push",
+    resource: sessionId.toLowerCase(),
+    key,
+  };
+}
+
+async function replayCreate(
+  tx: Database,
+  scope: ReturnType<typeof createScope>,
+  payloadHash: string,
+): Promise<PushWriteResult | null> {
+  const existing = await findIdempotent(tx, scope);
+  if (!existing) return null;
+  if (existing.payloadHash !== payloadHash) return { outcome: "conflict" };
+  const [row] = await tx
+    .select()
+    .from(pushRequests)
+    .where(eq(pushRequests.requestReceiptId, existing.receiptId))
+    .limit(1);
+  return row ? { outcome: "replayed", request: publicPushRequest(row) } : null;
+}
+
 export function createPostgresPushRequests(db: Database): PushRequestStore {
   return {
     async findSession(ownerId, sessionId) {
@@ -96,14 +121,17 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
       return insertRefusal(db, input);
     },
 
+    replayCreate(input) {
+      return replayCreate(
+        db,
+        createScope(input.ownerId, input.sessionId, input.idempotencyKey),
+        input.payloadHash,
+      );
+    },
+
     create(input): Promise<PushWriteResult> {
       const sessionId = input.sessionId.toLowerCase();
-      const scope = {
-        principal: input.ownerId,
-        operation: "request_push",
-        resource: sessionId,
-        key: input.idempotencyKey,
-      };
+      const scope = createScope(input.ownerId, sessionId, input.idempotencyKey);
       const refuse = async (
         tx: Database,
         refusal: "not_found" | "request_open" | "checkpoint_moved",
@@ -126,19 +154,8 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
       });
       return db.transaction(async (tx) => {
         await lockIdempotencyScope(tx, scope);
-        const existing = await findIdempotent(tx, scope);
-        if (existing) {
-          if (existing.payloadHash !== input.payloadHash) {
-            return { outcome: "conflict" };
-          }
-          const [row] = await tx
-            .select()
-            .from(pushRequests)
-            .where(eq(pushRequests.requestReceiptId, existing.receiptId))
-            .limit(1);
-          if (row)
-            return { outcome: "replayed", request: publicPushRequest(row) };
-        }
+        const replay = await replayCreate(tx, scope, input.payloadHash);
+        if (replay) return replay;
         const [session] = await tx
           .select({ checkpointRevision: sessions.checkpointRevision })
           .from(sessions)
@@ -283,7 +300,13 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
           const [row] = await tx
             .select()
             .from(pushRequests)
-            .where(eq(pushRequests.decisionReceiptId, existing.receiptId))
+            .where(
+              and(
+                eq(pushRequests.decisionReceiptId, existing.receiptId),
+                eq(pushRequests.sessionId, sessionId),
+                eq(pushRequests.ownerId, input.ownerId),
+              ),
+            )
             .limit(1);
           if (row)
             return { outcome: "replayed", request: publicPushRequest(row) };

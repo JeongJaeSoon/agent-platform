@@ -86,6 +86,7 @@ describe("push request decisions", () => {
     const push = createPushRequestService({
       store: {
         findSession: async () => ({ repositoryId: "sample-app" }),
+        replayCreate: async () => null,
         recordRefusal: async (input: PushRefusalRecord) => {
           refusals.push(input);
           return "receipt-1";

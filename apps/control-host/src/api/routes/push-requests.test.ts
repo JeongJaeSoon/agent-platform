@@ -73,6 +73,7 @@ function app(
       seen.refusals.push(input);
       return RECEIPT;
     },
+    replayCreate: async () => null,
     create: async (input) => {
       seen.created.push(input);
       return { outcome: "written", request: PINNED };
@@ -268,6 +269,20 @@ describe("push request routes", () => {
       code: "NOT_FOUND",
     });
     expect(target.seen.refusals).toEqual([]);
+  });
+
+  test("POST replays a created request without re-reading the checkpoint", async () => {
+    const target = app({
+      store: {
+        replayCreate: async () => ({ outcome: "replayed", request: PINNED }),
+      },
+      source: { status: "unavailable", reason: "object store down" },
+    });
+    const response = await post(target, "", {});
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual(PINNED);
+    expect(target.seen.refusals).toEqual([]);
+    expect(target.seen.created).toEqual([]);
   });
 
   test("GET lists and reads the owner's requests", async () => {

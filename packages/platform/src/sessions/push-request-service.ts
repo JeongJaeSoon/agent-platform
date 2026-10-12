@@ -114,6 +114,13 @@ export function createPushRequestService(deps: {
             },
           }),
         );
+      const replay = await store.replayCreate({
+        ownerId: actor.ownerId,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash({}),
+      });
+      if (replay !== null) return settled(replay);
       const session = await store.findSession(actor.ownerId, sessionId);
       if (session === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");

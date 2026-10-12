@@ -269,6 +269,32 @@ integration("postgres push requests", () => {
     ).toBe(3);
   });
 
+  test("a replay answers only on the session it was made on", async () => {
+    const sessionId = await session();
+    const request = written(await create(sessionId, "k-replay"));
+    expect(
+      await store.replayCreate({
+        ownerId: OWNER,
+        sessionId,
+        idempotencyKey: "k-replay",
+        payloadHash: "h-create",
+      }),
+    ).toMatchObject({ outcome: "replayed", request: { id: request.id } });
+    expect(
+      await store.replayCreate({
+        ownerId: OWNER,
+        sessionId,
+        idempotencyKey: "k-unused",
+        payloadHash: "h-create",
+      }),
+    ).toBeNull();
+    written(await decide(sessionId, request.id, { idempotencyKey: "k-dr" }));
+    const elsewhere = await session();
+    expect(
+      await decide(elsewhere, request.id, { idempotencyKey: "k-dr" }),
+    ).toMatchObject({ outcome: "refused", refusal: "not_found" });
+  });
+
   test("decisions on an unknown request or another owner's session are refused", async () => {
     const sessionId = await session();
     expect(

@@ -117,6 +117,16 @@ export interface PushRequestStore {
   /** Writes the refusal receipt and returns its id. */
   recordRefusal(input: PushRefusalRecord): Promise<string>;
   /**
+   * The answer an earlier create with this Idempotency-Key gave, or null when
+   * the key is new. Lets a retry replay without re-reading the checkpoint.
+   */
+  replayCreate(input: {
+    ownerId: string;
+    sessionId: string;
+    idempotencyKey: string;
+    payloadHash: string;
+  }): Promise<PushWriteResult | null>;
+  /**
    * Pins the request in one transaction with its receipt. Refuses a session
    * that already has an open request or whose pointer moved off
    * `checkpointRevision` since the caller read it.
