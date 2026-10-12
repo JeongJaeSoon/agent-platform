@@ -267,6 +267,21 @@ describe("ensureExecution", () => {
       backend.ensureExecution({ ...intent, generation: 2 }),
     ).rejects.toBeInstanceOf(WorkspaceClaimError);
   });
+
+  test("a replacement whose workspace was recreated under the same name after the check is refused", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    await backend.assertReplaceable(intent);
+    api.replace(
+      NS,
+      "persistentvolumeclaims",
+      workspaceClaimNameFor(intent.sessionId, INSTALLATION),
+    );
+    await expect(
+      backend.ensureExecution({ ...intent, generation: 2 }),
+    ).rejects.toThrow("recreated since");
+  });
 });
 
 describe("terminate", () => {

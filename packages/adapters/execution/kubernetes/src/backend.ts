@@ -123,9 +123,11 @@ export class KubernetesBackend implements ExecutionBackend {
   readonly kind = "eks_job" as const;
   private readonly config: KubernetesBackendConfig;
   /**
-   * The workspace `assertReplaceable` found, per session; see the Docker
-   * backend's `replacementWorkspaces`. A replacement whose workspace went
-   * missing after the check fails rather than starting on an empty tree.
+   * The UID of the claim `assertReplaceable` found, per session; see the
+   * Docker backend's `replacementWorkspaces`. The claim's name is fixed per
+   * session, so only the UID tells the checked claim from an empty one made
+   * under that name since; either way the replacement fails rather than
+   * starting on an empty tree.
    */
   private readonly replacementWorkspaces = new Map<string, string>();
 
@@ -488,14 +490,22 @@ export class KubernetesBackend implements ExecutionBackend {
    */
   private async ensureWorkspace(sessionId: string): Promise<void> {
     const { config, client } = this;
-    if ((await this.existingWorkspace(sessionId)) !== null) {
+    const uid = await this.existingWorkspace(sessionId);
+    if (uid !== null) {
+      const checked = this.replacementWorkspaces.get(sessionId);
+      if (checked !== undefined && checked !== uid) {
+        throw new WorkspaceClaimError(
+          workspaceClaimNameFor(sessionId, config.installationId),
+          "is not the claim the replacement was checked against; it was recreated since, without the session's tree",
+        );
+      }
       this.replacementWorkspaces.delete(sessionId);
       return;
     }
     const promised = this.replacementWorkspaces.get(sessionId);
     if (promised !== undefined) {
       throw new WorkspaceClaimError(
-        promised,
+        workspaceClaimNameFor(sessionId, config.installationId),
         "is gone since the replacement was checked against it; a new one would start the session on an empty tree",
       );
     }
@@ -519,7 +529,7 @@ export class KubernetesBackend implements ExecutionBackend {
     }
   }
 
-  /** The session's claim name once it is known to be fit to mount; null when none. */
+  /** The session's claim UID once it is known to be fit to mount; null when none. */
   private async existingWorkspace(sessionId: string): Promise<string | null> {
     const name = workspaceClaimNameFor(sessionId, this.config.installationId);
     const claim = await this.client.get(
@@ -530,7 +540,7 @@ export class KubernetesBackend implements ExecutionBackend {
     if (claim === null) return null;
     const problem = workspaceClaimProblem(claim, sessionId, this.config);
     if (problem !== null) throw new WorkspaceClaimError(name, problem);
-    return name;
+    return uidOf(claim);
   }
 
   private async removeNonceSecrets(
