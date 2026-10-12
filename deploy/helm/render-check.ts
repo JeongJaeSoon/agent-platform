@@ -298,7 +298,12 @@ function checkObjectStoreKeys(
 
 // The api's public mounts (apps/control-host/src/api/app.ts). /internal is
 // the workers' gateway and must never be reachable from the load balancer.
-const PUBLIC_PATHS = ["/v1", "/docs"];
+const PUBLIC_PATHS = [
+  "Prefix /v1",
+  "Prefix /docs",
+  "Exact /healthz",
+  "Exact /readyz",
+];
 
 function checkIngress(
   label: string,
@@ -327,9 +332,10 @@ function checkIngress(
         }
       }
       const got = paths.map((p) => `${p.pathType} ${p.path}`);
-      const want = PUBLIC_PATHS.map((path) => `Prefix ${path}`);
-      if (JSON.stringify(got) !== JSON.stringify(want)) {
-        fail(`paths ${JSON.stringify(got)} are not ${JSON.stringify(want)}`);
+      if (JSON.stringify(got) !== JSON.stringify(PUBLIC_PATHS)) {
+        fail(
+          `paths ${JSON.stringify(got)} are not ${JSON.stringify(PUBLIC_PATHS)}`,
+        );
       }
     }
   }
