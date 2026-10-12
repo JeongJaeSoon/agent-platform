@@ -426,6 +426,7 @@ github.com과 GitHub Enterprise Server(GHES)의 저장소도 Gitea와 같은 저
 - **에이전트가 스스로 승인하지 못하는 이유:** worker가 가진 자격(launch nonce, session token)은 `/internal/worker` route에서만 통하고 `/v1`에서는 401이다. `AUTH_MODE=none`은 누구든 `X-Owner-Id`로 owner를 자칭할 수 있으므로, 이 모드에서는 push 요청 route가 모두 403(`refusal: unverified_principal`)이고 아무것도 기록하지 않는다.
 - **승인하는 commit:** 결정 body의 `git_commit`이 고정된 commit과 같아야 승인된다. 요청 뒤에 세션이 다시 checkpoint를 남겼으면(pointer revision이 다르면) 승인을 거절하고 요청은 `requested`에 남는다. 그 요청은 거부하고 새로 요청한다. 거부에는 이 검사가 없다.
 - **상태:** `requested` → `approved` | `rejected`(사람), `approved` → `pushing` → `pushed` | `failed`(플랫폼, 94S-629). 세션마다 열린 요청(`requested`·`approved`·`pushing`)은 하나다.
+- **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
 - **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`decide_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
 
 ### 자율 모드: `bypassPermissions`·`auto` (94S-621)
