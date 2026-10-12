@@ -55,6 +55,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
+  "routes/profiles.test.ts": ["GET /v1/profiles"],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
   "routes/members.test.ts": [
     "GET /v1/members",
