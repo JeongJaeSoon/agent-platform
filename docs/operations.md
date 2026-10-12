@@ -1,6 +1,6 @@
-# 운영 참고 — 로컬 Docker 설치의 실행 기반
+# 운영 참고 — 실행 기반과 설정
 
-로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에 있다. 이 문서는 그 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 알파 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
+로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 알파 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 
@@ -500,7 +500,7 @@ capture 성공 로그 `worker.checkpoint.published`는 `untracked`·`untracked_b
 
 **checkpoint GC**(94S-281)는 `bun run apps/control-host/src/api/checkpoint-gc.ts`로 도는 one-shot이다. reconciler처럼 한 pass만 돌고 끝나며, api 이미지와 API의 object store 환경 변수에 `DATABASE_URL`을 더해 실행한다. `CHECKPOINT_GC_DRY_RUN=true`를 주면 지울 개수만 세고 아무것도 지우지 않는다.
 
-GC를 주기적으로 도는 서비스는 없다. 운영자가 **주 1회**, 사용이 적은 시간에 돌린다. compose 설치에서는 떠 있는 api 컨테이너 안에서 실행한다. 이 컨테이너에는 필요한 환경 변수가 이미 들어 있다.
+compose 설치에는 GC를 주기적으로 도는 서비스가 없다. 운영자가 **주 1회**, 사용이 적은 시간에 돌린다. Kubernetes 설치에서는 chart의 CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`, `concurrencyPolicy: Forbid`)이 api ServiceAccount로 돌고, `checkpointGc.dryRun: true`면 개수만 센다. 바로 한 번 돌리려면 `kubectl -n agent-platform create job --from=cronjob/agent-platform-checkpoint-gc checkpoint-gc-manual`을 쓴다. compose 설치에서는 떠 있는 api 컨테이너 안에서 실행한다. 이 컨테이너에는 필요한 환경 변수가 이미 들어 있다.
 
 ```bash
 docker compose exec -T -e CHECKPOINT_GC_DRY_RUN=true api bun run apps/control-host/src/api/checkpoint-gc.ts   # 지울 개수만 본다
@@ -731,6 +731,49 @@ kubernetes 모드에서만 읽는 설정은 다음과 같다.
 | `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 선택. 쉼표로 구분한 Secret 이름. |
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 선택. JSON object. |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 선택. JSON array. |
+
+### chart가 넣는 값
+
+Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment.md](kubernetes-deployment.md))로 설치하면 위 env를 직접 적지 않는다. chart가 values에서 만든다.
+
+| env | values | 비고 |
+| --- | --- | --- |
+| `EXECUTION_BACKEND` | 없음 | 늘 `kubernetes` |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | 없음 | chart가 만든 `<fullname>-worker`. token은 마운트하지 않는다 |
+| `EXECUTION_K8S_NAMESPACE` | 없음 | 넣지 않는다. scheduler 자신의 namespace(release namespace)가 된다 |
+| `EXECUTION_K8S_STORAGE_CLASS` | `worker.storageClass` | 비면 넣지 않는다 |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | `images.pullSecrets` | 제어 영역 Pod에도 같은 Secret을 쓴다 |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR`, `EXECUTION_K8S_WORKER_TOLERATIONS` | `worker.nodeSelector`, `worker.tolerations` | JSON으로 바꿔 넣는다 |
+| `WORKER_IMAGE` | `images.registry`, `images.worker.*` | `<registry>/<repository>@<digest>`. digest가 없으면 render가 실패한다 |
+| `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT` | 없음 | api Service의 3000, egress-proxy Service의 3128, 3129 |
+| `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy의 label 값이기도 하다 |
+| `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | quota는 workspace PVC의 크기 |
+| `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
+| 설치 상한(`EXECUTION_SLOT_LIMIT` 등) | `config.limits` | api와 scheduler에 같은 값 |
+| `SCHEDULER_*` | `scheduler.intervalSec` 등 | `SCHEDULER_PASS_TIMEOUT_SEC`(`scheduler.passTimeoutSec`, 기본 180)는 150보다 커야 한다 |
+
+어느 Deployment에나 `extraEnv`로 env를 더할 수 있다. Secret에서 오는 값(`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, AWS key, 카탈로그 credential)은 [kubernetes-deployment.md § 준비](kubernetes-deployment.md#준비)의 표에 있다.
+
+### probe
+
+| 구성요소 | readiness | liveness | startup |
+| --- | --- | --- | --- |
+| api | `GET /readyz` | `GET /healthz` | `GET /healthz`(5초 × 24) |
+| scheduler | `bun run apps/control-host/src/main.ts scheduler --health` | 같음 | 같음. 실패 허용 횟수는 `(intervalSec + passTimeoutSec + 39) / 10` |
+| reconciler | `bun run apps/control-host/src/main.ts reconciler --health` | 같음 | scheduler와 같은 식 |
+| egress-proxy | `bun run /app/src/healthcheck.ts` | 같음 | 없음 |
+
+`/healthz`는 HTTP를 받는지만 보고 DB를 보지 않는다. 그래서 liveness에 쓰고, DB·schema·설정을 보는 `/readyz`는 readiness에만 쓴다. DB가 잠시 끊겨도 api Pod는 재시작되지 않고 트래픽에서만 빠진다. `/livez`는 없다. scheduler와 reconciler의 `--health`는 loop가 쓰는 status file을 읽고, 직전 pass가 실패했거나 기한을 넘겼거나, `SCHEDULER_HEALTH_STALE_SEC`·`RECONCILER_HEALTH_STALE_SEC` 안에 끝난 pass가 없으면 실패한다. startup probe는 첫 pass가 끝날 때까지 기다린다.
+
+### scheduler는 replica 1, `Recreate`
+
+scheduler pass는 PostgreSQL advisory lock(`pg_try_advisory_lock`) 하나로 직렬화된다. 두 번째 scheduler는 lock을 얻지 못해 pass를 건너뛰고, 성공한 pass가 없으니 `--health`가 stale이 되어 liveness가 그 Pod를 계속 재시작한다. 늘려도 처리량은 늘지 않는다. 그래서 chart는 `replicas: 1`을 고정하고(values에 키가 없다), rollout도 `RollingUpdate`가 아니라 `Recreate`로 옛 Pod를 먼저 내린다. 업그레이드 동안 잠깐 pass가 멈춘다. reconciler는 pass를 행 lock 아래에서 다시 판단하므로 leader election 없이 `reconciler.replicas`를 늘릴 수 있고, 기본은 1이다.
+
+### worker NetworkPolicy
+
+chart의 NetworkPolicy가 Docker backend의 execution별 internal 네트워크를 대신한다. worker Pod(`app.kubernetes.io/part-of=agent-platform`, `app.kubernetes.io/component=worker`, `agent-platform.installation=<installationId>`)는 아무 연결도 받지 않고, 바깥으로는 egress-proxy의 3128·3129로만 연결한다. DB, api, 다른 worker, node·cloud metadata 주소에 직접 닿지 않는다. api로 가는 gateway 요청도 proxy를 거친다. egress-proxy는 worker에게서만 연결을 받고, api의 authorizer(3100)는 egress-proxy에게서만 받는다. 클러스터 CNI가 NetworkPolicy를 강제하지 않으면 이 격리가 없다(kind의 kindnet은 강제한다. EKS는 VPC CNI의 network policy agent를 켠다).
+
+### API server 인증
 
 API server 인증은 `KUBECONFIG`가 있으면 그것을 쓰고, 없으면 Pod의 ServiceAccount를 쓴다. ServiceAccount 경로는 `KUBERNETES_SERVICE_HOST`·`KUBERNETES_SERVICE_PORT`와 token·CA 파일을 읽는다. scheduler의 Role 동사와 pidsLimit 처리는 패키지 README에 있다.
 
