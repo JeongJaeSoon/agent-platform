@@ -231,6 +231,10 @@ services:
       # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
+      # The first owner's bootstrap token (docs/operations.md). No value, not
+      # `:-`: unset, the API mints one and prints it to stderr; an empty value
+      # stops it from starting.
+      BOOTSTRAP_TOKEN:
       # Google sign-in (docs/operations.md "Google 로그인"); unset is off.
       GOOGLE_OIDC_CLIENT_ID: ${GOOGLE_OIDC_CLIENT_ID:-}
       GOOGLE_OIDC_CLIENT_SECRET: ${GOOGLE_OIDC_CLIENT_SECRET:-}
