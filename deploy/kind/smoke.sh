@@ -11,8 +11,8 @@
 #   4. egress       a Pod with the worker labels reaches the egress proxy
 #                   (3128, 3129) and nothing else: api 3000, authorizer 3100,
 #                   postgres, localstack, cloud metadata and DNS are blocked;
-#                   the same checks from an unlabelled Pod show the network
-#                   itself is up
+#                   an unlabelled Pod gets the opposite answers (the proxy
+#                   admits workers alone), so the network itself is up
 #   5. contract     the KubernetesBackend contract and integration suites
 #                   (K8S_BACKEND_TEST=1) against this cluster
 #
@@ -227,10 +227,15 @@ check() {
   printf '%-18s %-34s %-8s (want %-7s) %s\n' "$pod" "$what" "$got" "$want" "$verdict"
 }
 tcp() { echo nc -z -w 5 "$1" "$2"; }
+# The proxy admits workers alone; everything else is the other way round.
 for pod in k8s-smoke-worker k8s-smoke-control; do
-  if [ "$pod" = k8s-smoke-worker ]; then closed=blocked; else closed=open; fi
-  check "$pod" "egress-proxy ${proxy}:3128" open $(tcp "$proxy" 3128)
-  check "$pod" "egress-proxy ${proxy}:3129" open $(tcp "$proxy" 3129)
+  if [ "$pod" = k8s-smoke-worker ]; then
+    proxied=open closed=blocked
+  else
+    proxied=blocked closed=open
+  fi
+  check "$pod" "egress-proxy ${proxy}:3128" "$proxied" $(tcp "$proxy" 3128)
+  check "$pod" "egress-proxy ${proxy}:3129" "$proxied" $(tcp "$proxy" 3129)
   check "$pod" "api ${api}:3000" "$closed" $(tcp "$api" 3000)
   check "$pod" "postgres ${postgres}:5432" "$closed" $(tcp "$postgres" 5432)
   check "$pod" "localstack ${localstack}:4566" "$closed" $(tcp "$localstack" 4566)
