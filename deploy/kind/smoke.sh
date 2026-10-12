@@ -109,7 +109,7 @@ key="$(k exec "deploy/${fullname}-api" -- bun run apps/control-host/src/api/keys
 [ -n "$key" ] || fail "the key CLI printed no key"
 printf 'Authorization: Bearer %s\n' "$key" >"$auth"
 unset key
-k port-forward "svc/${fullname}-api" "${API_PORT}:3000" >"$STATE_DIR/smoke-port-forward.log" 2>&1 &
+k port-forward --address 127.0.0.1 "svc/${fullname}-api" "${API_PORT}:3000" >"$STATE_DIR/smoke-port-forward.log" 2>&1 &
 forward=$!
 # Only through our own forward: one that failed (the port taken) would hand
 # the key below to whatever listens there.
