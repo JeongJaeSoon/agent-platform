@@ -125,3 +125,48 @@ test("receive-pack takes only a contents: write token; refs, unrelated commits a
   ).toBe("agent/x");
   await github.setDefaultBranch("acme", "app", "main");
 });
+
+test("pull request calls need pull_requests (or issues, for comments) and are recorded", async () => {
+  const now = seconds();
+  const grant = async (permissions: Record<string, string>) => {
+    const response = await fetch(
+      `${github.origin}/app/installations/9/access_tokens`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${jwt(app.privateKey, { iss: 7, iat: now - 30, exp: now + 500 })}`,
+        },
+        body: JSON.stringify({ repositories: ["app"], permissions }),
+      },
+    );
+    return ((await response.json()) as { token: string }).token;
+  };
+  const open = (token: string) =>
+    fetch(`${github.origin}/repos/acme/app/pulls`, {
+      method: "POST",
+      headers: { authorization: `token ${token}` },
+      body: JSON.stringify({ head: "feature", base: "main", title: "t" }),
+    });
+  await github.writeUnrelatedCommit("acme", "app", "feature");
+  expect((await open(await grant({ contents: "write" }))).status).toBe(403);
+  const writer = await grant({ pull_requests: "write" });
+  expect((await open(writer)).status).toBe(201);
+  expect((await open(writer)).status).toBe(422);
+
+  const comment = (token: string) =>
+    fetch(`${github.origin}/repos/acme/app/issues/1/comments`, {
+      method: "POST",
+      headers: { authorization: `token ${token}` },
+      body: JSON.stringify({ body: "hi @someone" }),
+    });
+  expect((await comment(await grant({ pull_requests: "read" }))).status).toBe(
+    403,
+  );
+  expect((await comment(await grant({ issues: "write" }))).status).toBe(201);
+  expect(github.apiRequests.at(-1)).toMatchObject({
+    method: "POST",
+    path: "/repos/acme/app/issues/1/comments",
+    body: { body: "hi @someone" },
+    status: 201,
+  });
+});

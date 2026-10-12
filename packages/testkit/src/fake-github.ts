@@ -31,12 +31,37 @@ export type FakeGitHubGitRequest = {
   status: number;
 };
 
+/** One REST call other than a token issue, with the body a write sent. */
+export type FakeGitHubApiRequest = {
+  at: string;
+  method: string;
+  path: string;
+  /** 1-based index of the issued token it carried, or null. */
+  token: number | null;
+  /** The JSON body of a POST or PATCH, as received. */
+  body?: unknown;
+  status: number;
+};
+
+export type FakeGitHubPullRequest = {
+  number: number;
+  head: string;
+  base: string;
+  title: string;
+  body: string;
+  state: "open" | "closed";
+  html_url: string;
+};
+
+export type FakeGitHubComment = { id: number; body: string; html_url: string };
+
 export type FakeGitHub = {
   /** `http://<host>:<port>`: both the API base and the git origin. */
   readonly origin: string;
   readonly port: number;
   readonly tokenRequests: FakeGitHubTokenRequest[];
   readonly gitRequests: FakeGitHubGitRequest[];
+  readonly apiRequests: FakeGitHubApiRequest[];
   /** While on, the token endpoint answers 500. */
   failTokens(on: boolean): void;
   /** A bare repository served at `/<owner>/<name>.git` with one commit. */
@@ -57,6 +82,18 @@ export type FakeGitHub = {
     name: string,
     branch: string,
   ): Promise<string>;
+  /**
+   * The next `count` REST calls (not token issues) answer a rate limit:
+   * `secondary` is a 403 with `retry-after`, `primary` a 429 with
+   * `x-ratelimit-remaining: 0` and `x-ratelimit-reset`.
+   */
+  rateLimitNext(
+    count: number,
+    limit: "primary" | "secondary",
+    retryAfterSeconds?: number,
+  ): void;
+  pullRequests(owner: string, name: string): FakeGitHubPullRequest[];
+  comments(owner: string, name: string, number: number): FakeGitHubComment[];
   /** What `GET /repos` and the git `HEAD` both report as the default. */
   setDefaultBranch(owner: string, name: string, branch: string): Promise<void>;
   stop(): Promise<void>;
@@ -82,12 +119,20 @@ type Issued = {
   expiresAt: Date;
 };
 
-type Served = { id: number; defaultBranch: string; private: boolean };
+type Served = {
+  id: number;
+  defaultBranch: string;
+  private: boolean;
+  pulls: FakeGitHubPullRequest[];
+  comments: Map<number, FakeGitHubComment[]>;
+};
 
 /**
  * A GitHub App's side of GitHub for tests and the local stack: the
  * installation token endpoint (RS256 JWT checked against the App's public
- * key), `GET /repos/:owner/:name`, and git smart HTTP that takes only an
+ * key), `GET /repos/:owner/:name`, the pull request and issue comment
+ * calls a forge adapter makes (permission-checked as GitHub does), and git
+ * smart HTTP that takes only an
  * unexpired installation token scoped to the repository. API paths are
  * also served under `/api/v3`, as on GHES. A push (receive-pack) needs a
  * token whose permissions say `contents: write`; a read token gets a 403,
@@ -212,6 +257,193 @@ export async function startFakeGitHub(
     );
   }
 
+  const apiRequests: FakeGitHubApiRequest[] = [];
+  let limited: {
+    count: number;
+    limit: "primary" | "secondary";
+    retryAfter: number;
+  } = { count: 0, limit: "secondary", retryAfter: 1 };
+  let nextCommentId = 5000;
+  // Read at request time, once `server` below is listening.
+  const origin = () =>
+    `http://${options.hostname ?? "127.0.0.1"}:${server.port}`;
+
+  function rateLimited(): Response | undefined {
+    if (limited.count <= 0) return undefined;
+    limited.count -= 1;
+    if (limited.limit === "secondary") {
+      return Response.json(
+        {
+          message:
+            "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+        },
+        { status: 403, headers: { "retry-after": String(limited.retryAfter) } },
+      );
+    }
+    const reset = Math.ceil(now().getTime() / 1000) + limited.retryAfter;
+    return Response.json(
+      { message: "API rate limit exceeded" },
+      {
+        status: 429,
+        headers: {
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-reset": String(reset),
+        },
+      },
+    );
+  }
+
+  // The REST calls a forge adapter makes, with GitHub's permission rules:
+  // a pull request or its comments need `pull_requests` (write to change
+  // anything) or, for comments, `issues`.
+  async function rest(
+    method: string,
+    path: string,
+    url: URL,
+    carried: [string, Issued] | undefined,
+    body: unknown,
+  ): Promise<Response> {
+    const notFound = () =>
+      Response.json({ message: "Not Found" }, { status: 404 });
+    const forbidden = () =>
+      Response.json(
+        { message: "Resource not accessible by integration" },
+        { status: 403 },
+      );
+    const match = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(path);
+    const [owner, name, rest = ""] = [match?.[1], match?.[2], match?.[3]];
+    const found = owner && name ? served.get(`${owner}/${name}`) : undefined;
+    const grant = carried?.[1];
+    if (!owner || !name || !found || !grant || !reaches(grant, owner, name)) {
+      return notFound();
+    }
+    const limit = rateLimited();
+    if (limit) return limit;
+    const can = (permission: string, level: "read" | "write") =>
+      grant.permissions[permission] === "write" ||
+      (level === "read" && grant.permissions[permission] === "read");
+    const htmlBase = `${origin()}/${owner}/${name}`;
+    const input = (body ?? {}) as Record<string, unknown>;
+
+    if (rest === "" && method === "GET") {
+      return Response.json({
+        id: found.id,
+        name,
+        full_name: `${owner}/${name}`,
+        default_branch: found.defaultBranch,
+        private: found.private,
+      });
+    }
+    const pullJson = (pull: FakeGitHubPullRequest) => ({
+      number: pull.number,
+      html_url: pull.html_url,
+      state: pull.state,
+      title: pull.title,
+      body: pull.body,
+      head: { ref: pull.head, label: `${owner}:${pull.head}` },
+      base: { ref: pull.base },
+    });
+    if (rest === "/pulls" && method === "GET") {
+      if (!can("pull_requests", "read")) return forbidden();
+      const head = url.searchParams.get("head");
+      const state = url.searchParams.get("state") ?? "open";
+      const perPage = Number(url.searchParams.get("per_page") ?? "30");
+      const listed = found.pulls
+        .filter((pull) => head === null || `${owner}:${pull.head}` === head)
+        .filter((pull) => state === "all" || pull.state === state)
+        .sort((a, b) => b.number - a.number)
+        .slice(0, perPage);
+      return Response.json(listed.map(pullJson));
+    }
+    if (rest === "/pulls" && method === "POST") {
+      if (!can("pull_requests", "write")) return forbidden();
+      const head = String(input.head ?? "");
+      const base = String(input.base ?? "");
+      const refs = await runTestGit(
+        ["for-each-ref", "--format=%(refname)"],
+        join(root, owner, `${name}.git`),
+      );
+      const branches = refs.split("\n");
+      if (
+        !branches.includes(`refs/heads/${head}`) ||
+        !branches.includes(`refs/heads/${base}`)
+      ) {
+        return Response.json(
+          { message: "Validation Failed", errors: [{ field: "head" }] },
+          { status: 422 },
+        );
+      }
+      if (
+        found.pulls.some((pull) => pull.head === head && pull.state === "open")
+      ) {
+        return Response.json(
+          {
+            message: "Validation Failed",
+            errors: [
+              {
+                message: `A pull request already exists for ${owner}:${head}.`,
+              },
+            ],
+          },
+          { status: 422 },
+        );
+      }
+      const number = found.pulls.length + 1;
+      const pull: FakeGitHubPullRequest = {
+        number,
+        head,
+        base,
+        title: String(input.title ?? ""),
+        body: String(input.body ?? ""),
+        state: "open",
+        html_url: `${htmlBase}/pull/${number}`,
+      };
+      found.pulls.push(pull);
+      found.comments.set(number, []);
+      return Response.json(pullJson(pull), { status: 201 });
+    }
+    const comments = /^\/issues\/(\d+)\/comments$/.exec(rest);
+    const commenting = can("pull_requests", "write") || can("issues", "write");
+    if (comments?.[1]) {
+      const number = Number(comments[1]);
+      const thread = found.comments.get(number);
+      if (thread === undefined) return notFound();
+      if (method === "GET") {
+        if (!can("pull_requests", "read") && !can("issues", "read")) {
+          return forbidden();
+        }
+        const perPage = Number(url.searchParams.get("per_page") ?? "30");
+        const page = Number(url.searchParams.get("page") ?? "1");
+        return Response.json(
+          thread.slice((page - 1) * perPage, page * perPage),
+        );
+      }
+      if (method === "POST") {
+        if (!commenting) return forbidden();
+        nextCommentId += 1;
+        const comment = {
+          id: nextCommentId,
+          body: String(input.body ?? ""),
+          html_url: `${htmlBase}/pull/${number}#issuecomment-${nextCommentId}`,
+        };
+        thread.push(comment);
+        return Response.json(comment, { status: 201 });
+      }
+    }
+    const edit = /^\/issues\/comments\/(\d+)$/.exec(rest);
+    if (edit?.[1] && method === "PATCH") {
+      if (!commenting) return forbidden();
+      const comment = [...found.comments.values()]
+        .flat()
+        .find((entry) => entry.id === Number(edit[1]));
+      if (comment === undefined) return notFound();
+      comment.body = String(input.body ?? "");
+      return Response.json(comment);
+    }
+    return notFound();
+  }
+
   const server = Bun.serve({
     hostname: options.hostname ?? "127.0.0.1",
     port: options.port ?? 0,
@@ -223,23 +455,25 @@ export async function startFakeGitHub(
       if (tokens?.[1] && request.method === "POST") {
         return await accessTokens(request, Number(tokens[1]));
       }
-      const repo = /^\/repos\/([^/]+)\/([^/]+)$/.exec(path);
-      if (repo?.[1] && repo[2] && request.method === "GET") {
-        const grant = installationToken(
+      if (/^\/repos\//.test(path)) {
+        const carried = installationToken(
           request.headers.get("authorization"),
           "token",
-        )?.[1];
-        const found = served.get(`${repo[1]}/${repo[2]}`);
-        if (!found || !grant || !reaches(grant, repo[1], repo[2])) {
-          return Response.json({ message: "Not Found" }, { status: 404 });
-        }
-        return Response.json({
-          id: found.id,
-          name: repo[2],
-          full_name: `${repo[1]}/${repo[2]}`,
-          default_branch: found.defaultBranch,
-          private: found.private,
+        );
+        const body =
+          request.method === "POST" || request.method === "PATCH"
+            ? await request.json().catch(() => null)
+            : undefined;
+        const response = await rest(request.method, path, url, carried, body);
+        apiRequests.push({
+          at: now().toISOString(),
+          method: request.method,
+          path: `${path}${url.search}`,
+          token: carried?.[1].index ?? null,
+          ...(body === undefined ? {} : { body }),
+          status: response.status,
         });
+        return response;
       }
       const git = /^\/([^/]+)\/([^/]+?)\.git\//.exec(url.pathname);
       if (git?.[1] && git[2]) {
@@ -285,12 +519,22 @@ export async function startFakeGitHub(
   });
   let nextId = 1000;
   return {
-    origin: `http://${options.hostname ?? "127.0.0.1"}:${server.port}`,
+    origin: origin(),
     port: server.port ?? 0,
     tokenRequests,
     gitRequests,
+    apiRequests,
     failTokens(on) {
       failing = on;
+    },
+    rateLimitNext(count, limit, retryAfterSeconds = 1) {
+      limited = { count, limit, retryAfter: retryAfterSeconds };
+    },
+    pullRequests(owner, name) {
+      return served.get(`${owner}/${name}`)?.pulls ?? [];
+    },
+    comments(owner, name, number) {
+      return served.get(`${owner}/${name}`)?.comments.get(number) ?? [];
     },
     async createRepository(owner, name, files, repoOptions = {}) {
       const branch = repoOptions.branch ?? "main";
@@ -306,6 +550,8 @@ export async function startFakeGitHub(
         id: nextId,
         defaultBranch: branch,
         private: repoOptions.private ?? true,
+        pulls: [],
+        comments: new Map(),
       });
     },
     async refs(owner, name) {

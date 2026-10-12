@@ -39,6 +39,8 @@ function appForge(options: { now?: () => Date; apiBase?: string } = {}) {
     apiBase: options.apiBase ?? github.origin,
     credentials: { kind: "app", appId: 101, installationId: 202, privateKey },
     ...(options.now === undefined ? {} : { now: options.now }),
+    retryAfterBaseMs: 1,
+    paced: false,
     logger: {
       warn: (message, fields) => warnings.push({ message, ...fields }),
     },
@@ -153,6 +155,7 @@ describe("GitHub App forge", () => {
 
   test("a failing token endpoint fails the ask, naming only the status", async () => {
     const { forge, warnings } = appForge();
+    const before = github.tokenRequests.length;
     github.failTokens(true);
     try {
       const error = await forge.gitCredential(repo, "read").then(
@@ -171,6 +174,8 @@ describe("GitHub App forge", () => {
           error: "HttpError",
         },
       ]);
+      // A 5xx is retried twice, then given up.
+      expect(github.tokenRequests.length - before).toBe(3);
     } finally {
       github.failTokens(false);
     }
