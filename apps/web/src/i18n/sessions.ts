@@ -49,6 +49,8 @@ export const sessionsKo = {
   "session.usage.amount": "누적 비용",
   "session.usage.unmetered": "과금 없음",
   "session.usage.incomplete": "진행 중인 turn이 있어 아직 확정되지 않았습니다",
+  "session.usage.unreported":
+    "비용을 보고하지 않고 끝난 turn이 있어 실제보다 적을 수 있습니다",
   "session.usage.costLimit": "비용 한도",
   "session.usage.tokens": "토큰",
   "session.usage.tokenLimit": "토큰 한도",
@@ -115,6 +117,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.usage.amount": "Spent so far",
   "session.usage.unmetered": "Not billed",
   "session.usage.incomplete": "Not final while a turn is still running",
+  "session.usage.unreported":
+    "A turn ended without reporting its cost, so the real total may be higher",
   "session.usage.costLimit": "Cost limit",
   "session.usage.tokens": "Tokens",
   "session.usage.tokenLimit": "Token limit",

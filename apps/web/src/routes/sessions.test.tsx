@@ -218,6 +218,9 @@ describe("session detail", () => {
     expect(screen.getByText("$5")).toBeTruthy();
     expect(screen.getByText("1234")).toBeTruthy();
     expect(
+      screen.getByText(/진행 중인 turn이 있어 아직 확정되지 않았습니다/),
+    ).toBeTruthy();
+    expect(
       screen.getByText("한도에 도달해 새 turn을 시작하지 않습니다."),
     ).toBeTruthy();
     expect(await screen.findByText("권한 요청: Bash")).toBeTruthy();
@@ -290,6 +293,54 @@ describe("session detail", () => {
     await user.click(screen.getByRole("link", { name: "← 세션 목록" }));
     await screen.findByText("아직 세션이 없습니다.");
     expect(stream.readyState).toBe(FakeEventSource.CLOSED);
+  });
+
+  test("a share taken back while open drops the detail and the stream", async () => {
+    let visible = true;
+    const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        visible
+          ? json(200, detail)
+          : apiError(404, "NOT_FOUND", "Resource not found"),
+    });
+    const stream = await waitFor(() => {
+      const [only] = FakeEventSource.opened;
+      if (!only) throw new Error("no stream");
+      return only;
+    });
+    act(() => stream.open());
+    await screen.findByText("권한 요청: Bash");
+
+    visible = false;
+    await act(() =>
+      services.queryClient.refetchQueries({
+        queryKey: ["sessions", SESSION_ID],
+        exact: true,
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "이 세션을 찾을 수 없습니다. 지워졌거나 볼 권한이 없는 세션입니다.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("권한 요청: Bash")).toBeNull();
+    expect(stream.readyState).toBe(FakeEventSource.CLOSED);
+  });
+
+  test("a turn that ended without a cost report is not called running", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
+        json(200, {
+          ...usage,
+          cost: { ...usage.cost, open_turn_count: 0, unreported_turn_count: 1 },
+        }),
+    });
+    expect(
+      await screen.findByText(/비용을 보고하지 않고 끝난 turn이 있어/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/진행 중인 turn이 있어/)).toBeNull();
   });
 
   test("someone else's private session reads as not found and asks nothing more", async () => {

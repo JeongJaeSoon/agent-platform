@@ -195,7 +195,11 @@ export function SessionUsagePanel({
               {cost.complete ? null : (
                 <span className="web-table__secondary">
                   {" "}
-                  ({t("session.usage.incomplete")})
+                  (
+                  {cost.open_turn_count > 0
+                    ? t("session.usage.incomplete")
+                    : t("session.usage.unreported")}
+                  )
                 </span>
               )}
             </span>,
