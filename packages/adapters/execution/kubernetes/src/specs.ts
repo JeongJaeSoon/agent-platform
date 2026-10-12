@@ -125,6 +125,8 @@ export function isolationStampFor(
     config.tmpfsSizeBytes,
     config.user,
     config.workspaceDir,
+    // A Pod that checks out at the mount's root fails on a fresh volume.
+    checkoutDirOf(config),
     config.objectStore.bucket,
     config.objectStore.region,
     config.workspaceSizeBytes,

@@ -1,4 +1,4 @@
-import { mkdir, stat } from "node:fs/promises";
+import { lstat, mkdir } from "node:fs/promises";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
@@ -43,7 +43,9 @@ export async function verifyWorkspace(directory: string): Promise<void> {
   // directory another user owns. Only the leaf is made, so a missing mount
   // still fails here.
   await mkdir(directory).catch(() => undefined);
-  const found = await stat(directory).catch(() => null);
+  // lstat: a link the last engine left there would move the checkout off
+  // the volume.
+  const found = await lstat(directory).catch(() => null);
   if (found?.isDirectory() !== true) {
     throw new Error(
       `Workspace directory ${directory} does not exist; set WORKER_WORKSPACE_DIR to the path the execution backend mounts`,
