@@ -318,6 +318,9 @@ select:focus-visible,
   margin: 0;
   font-size: var(--ap-text-lg);
 }
+.web-home > .web-section {
+  margin-top: var(--ap-space-6);
+}
 .web-form--inline {
   max-width: none;
 }

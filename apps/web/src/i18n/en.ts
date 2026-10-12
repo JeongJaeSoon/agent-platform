@@ -125,6 +125,11 @@ export const en: Record<MessageKey, string> = {
   "agentAdmins.addTeam": "Name team",
   "agentAdmins.added": "Named {name} an admin.",
   "agentAdmins.removed": "{name} is no longer an admin.",
+  "agentAdmins.mine.title": "Agents you administer",
+  "agentAdmins.mine.intro":
+    "You were named their admin directly or through a team. Open one to manage its card and admins.",
+  "agentAdmins.mine.empty": "You are not named an admin of any agent yet.",
+  "agentAdmins.mine.truncated": "Showing the first {count}.",
 
   "linked.title": "Linked accounts",
   "linked.intro":
