@@ -1073,7 +1073,7 @@
                     "type": "string",
                     "enum": [
                       "local_docker",
-                      "eks_job",
+                      "kubernetes",
                       "lambda_microvm"
                     ]
                   },

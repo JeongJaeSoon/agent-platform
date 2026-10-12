@@ -26,6 +26,8 @@ import {
   type GitCommandRunner,
   type ObjectRouteSigner,
   type S3ClientLike,
+  type StorageS3Settings,
+  storageS3Credentials,
 } from "@agent-platform/storage";
 
 export type ApiCheckpointServiceDependencies = Pick<
@@ -110,7 +112,8 @@ export const API_CHECKPOINT_CODECS: CheckpointServiceDependencies["codecs"] = {
 };
 
 /**
- * Read: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+ * Read: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and
+ * `AWS_SECRET_ACCESS_KEY` (optional together; see `storageS3Credentials`),
  * `AWS_ENDPOINT_URL` (optional), `CHECKPOINT_OBJECT_STORE` and
  * `CHECKPOINT_OBJECT_PROTECTION`. `CHECKPOINT_OBJECT_STORE=disabled` runs the
  * API with no object store: every checkpoint is refused and the worker
@@ -130,15 +133,11 @@ export type CheckpointStorageEnvironment = Readonly<
   Record<string, string | undefined>
 >;
 
-export type CheckpointStorageConfig = {
-  accessKeyId: string;
+export type CheckpointStorageConfig = StorageS3Settings & {
   bucket: string;
-  endpoint?: string;
   /** Absent means `enforce`. */
   encryptionCheck?: "warn";
   protection: ObjectProtection;
-  region: string;
-  secretAccessKey: string;
 };
 
 export function checkpointStorageConfigFromEnv(
@@ -196,17 +195,29 @@ export function checkpointStorageConfigFromEnv(
       `CHECKPOINT_OBJECT_ENCRYPTION_CHECK must be "enforce" (default) or "warn", not ${encryptionCheck}`,
     );
   }
+  const region = required(environment.AWS_REGION, "AWS_REGION");
+  // Both keys or neither: without them the SDK's default chain (IRSA on
+  // EKS) signs. One alone is a half-written Secret, not a choice.
+  const accessKeyId = optional(environment.AWS_ACCESS_KEY_ID);
+  const secretAccessKey = optional(environment.AWS_SECRET_ACCESS_KEY);
+  if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
+    const [missing, set] =
+      accessKeyId === undefined
+        ? ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+        : ["AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID"];
+    throw new Error(
+      `${missing} is required with ${set}; set both, or neither to use the default AWS credential chain`,
+    );
+  }
   return {
-    accessKeyId: required(environment.AWS_ACCESS_KEY_ID, "AWS_ACCESS_KEY_ID"),
     bucket,
+    ...(accessKeyId !== undefined && secretAccessKey !== undefined
+      ? { credentials: { accessKeyId, secretAccessKey } }
+      : {}),
     ...(endpoint ? { endpoint } : {}),
     ...(encryptionCheck === "warn" ? { encryptionCheck } : {}),
     protection: protection === "unversioned" ? "unversioned" : "locked",
-    region: required(environment.AWS_REGION, "AWS_REGION"),
-    secretAccessKey: required(
-      environment.AWS_SECRET_ACCESS_KEY,
-      "AWS_SECRET_ACCESS_KEY",
-    ),
+    region,
   };
 }
 
@@ -217,6 +228,10 @@ function required(value: string | undefined, name: string): string {
     );
   }
   return value;
+}
+
+function optional(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === "" ? undefined : value;
 }
 
 export type ApiCheckpoints = {
@@ -265,29 +280,19 @@ export function createApiCheckpoints(
 }
 
 function checkpointS3Client(config: CheckpointStorageConfig) {
-  return createStorageS3Client({
-    s3: {
-      accessKeyId: config.accessKeyId,
-      ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
-      region: config.region,
-      secretAccessKey: config.secretAccessKey,
-    },
-  });
+  return createStorageS3Client({ s3: config });
 }
 
 /**
  * What signs the workers' object store requests: the same bucket
- * and key the API itself uses, which is why the key stays in this process.
+ * and credentials the API itself uses, which is why they stay in this process.
  */
 export function checkpointObjectRouteSigner(
   config: CheckpointStorageConfig,
 ): ObjectRouteSigner {
   return createObjectRouteSigner({
     bucket: config.bucket,
-    credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
-    },
+    credentials: storageS3Credentials(config),
     ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
     region: config.region,
   });

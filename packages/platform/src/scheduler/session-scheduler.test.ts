@@ -2378,7 +2378,7 @@ describe("runScheduler", () => {
 
   test("another backend's intent is never recreated on this provider", async () => {
     const { backend, run, store } = harness();
-    store.seedActive({ backend: "eks_job", observedState: "running" });
+    store.seedActive({ backend: "kubernetes", observedState: "running" });
     const summary = await run();
     expect(summary.activeBefore).toBe(0);
     expect(summary.reensured).toEqual([]);

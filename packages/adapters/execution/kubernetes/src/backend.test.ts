@@ -9,6 +9,7 @@ import {
 } from "@agent-platform/platform";
 import {
   ExecutionConflictError,
+  type HostResolver,
   ImageReferenceError,
   KubernetesBackend,
   WorkspaceClaimError,
@@ -16,7 +17,7 @@ import {
 import { KubernetesApiError } from "./client.ts";
 import { FakeKubernetes } from "./fake-client.ts";
 import { podNameFor, workspaceClaimNameFor } from "./specs.ts";
-import { testConfig } from "./testing.ts";
+import { TEST_PROXY_ADDRESS, testConfig, testResolver } from "./testing.ts";
 
 const NS = "agents";
 const INSTALLATION = "test";
@@ -28,6 +29,7 @@ function setup() {
   const backend = new KubernetesBackend(
     testConfig(NS, INSTALLATION),
     api.asClient(),
+    testResolver,
   );
   return { api, backend };
 }
@@ -247,6 +249,7 @@ describe("ensureExecution", () => {
     const other = new KubernetesBackend(
       { ...testConfig(NS, INSTALLATION), workspaceSizeBytes: 1 },
       api.asClient(),
+      testResolver,
     );
     await expect(
       other.ensureExecution({ ...intent, generation: 2 }),
@@ -281,6 +284,126 @@ describe("ensureExecution", () => {
     await expect(
       backend.ensureExecution({ ...intent, generation: 2 }),
     ).rejects.toThrow("recreated since");
+  });
+});
+
+describe("egress proxy hand-off", () => {
+  function withResolver(resolveHost: HostResolver) {
+    const api = new FakeKubernetes();
+    const backend = new KubernetesBackend(
+      testConfig(NS, INSTALLATION),
+      api.asClient(),
+      resolveHost,
+    );
+    return { api, backend };
+  }
+
+  async function hostAliasesOf(api: FakeKubernetes): Promise<unknown> {
+    const pod = await api.get(NS, "pods", podName);
+    return (pod?.spec as { hostAliases?: unknown } | undefined)?.hostAliases;
+  }
+
+  test("each launch resolves the proxy's name and hands the Pod its address, not a resolver", async () => {
+    const asked: string[] = [];
+    const { api, backend } = withResolver(async (host) => {
+      asked.push(host);
+      return [TEST_PROXY_ADDRESS];
+    });
+    await backend.ensureExecution(intentFor().intent);
+    expect(asked).toEqual(["egress-proxy"]);
+    expect(await hostAliasesOf(api)).toEqual([
+      { hostnames: ["egress-proxy"], ip: TEST_PROXY_ADDRESS },
+    ]);
+    const pod = (await api.get(NS, "pods", podName)) as unknown as {
+      spec: { dnsPolicy: string };
+    };
+    expect(pod.spec.dnsPolicy).toBe("None");
+  });
+
+  test("a proxy Service that moved leaves running Pods stale, and the next launch replaces them", async () => {
+    let address = "10.96.0.10";
+    const { api, backend } = withResolver(async () => [address]);
+    const { intent } = intentFor();
+    const first = await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Running");
+    expect((await backend.inspect(intent)).stale).toBeUndefined();
+
+    // The same scheduler sees the move on its next inspect, no launch needed.
+    address = "10.96.0.20";
+    expect((await backend.inspect(intent)).stale).toBe(true);
+
+    const again = await backend.ensureExecution(intent);
+    expect(again.created).toBe(true);
+    expect(again.providerRef).not.toBe(first.providerRef);
+    expect(await hostAliasesOf(api)).toEqual([
+      { hostnames: ["egress-proxy"], ip: "10.96.0.20" },
+    ]);
+  });
+
+  test("an inspect whose lookup fails judges by the last address instead of failing", async () => {
+    let fail = false;
+    const { api, backend } = withResolver(async () => {
+      if (fail) throw new Error("EAI_AGAIN");
+      return [TEST_PROXY_ADDRESS];
+    });
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Running");
+    fail = true;
+    const observed = await backend.inspect(intent);
+    expect(observed.state).toBe("running");
+    expect(observed.stale).toBeUndefined();
+  });
+
+  test("an inspect with no address resolved yet fails rather than guess", async () => {
+    const { api, backend } = withResolver(async () => [TEST_PROXY_ADDRESS]);
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    const fresh = new KubernetesBackend(
+      testConfig(NS, INSTALLATION),
+      api.asClient(),
+      async () => {
+        throw new Error("EAI_AGAIN");
+      },
+    );
+    await expect(fresh.inspect(intent)).rejects.toThrow("does not resolve");
+  });
+
+  test("a replacement is refused up front when the proxy does not resolve", async () => {
+    let addresses = [TEST_PROXY_ADDRESS];
+    const { backend } = withResolver(async () => addresses);
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    addresses = [];
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "it must name a Service with one ClusterIP",
+    );
+  });
+
+  test.each([
+    [[], "no address"],
+    [["10.244.0.7", "10.244.1.9"], "10.244.0.7, 10.244.1.9"],
+  ])(
+    "refuses a name that is not one ClusterIP (%p) before spending a nonce",
+    async (addresses, named) => {
+      const { backend } = withResolver(async () => addresses);
+      const { intent, issued } = intentFor();
+      await expect(backend.ensureExecution(intent)).rejects.toThrow(
+        `resolves to ${named}; it must name a Service with one ClusterIP`,
+      );
+      expect(issued).toEqual([]);
+    },
+  );
+
+  test("a name that does not resolve fails the launch before a nonce", async () => {
+    const { backend } = withResolver(async () => {
+      throw new Error("ENOTFOUND");
+    });
+    const { intent, issued } = intentFor();
+    await expect(backend.ensureExecution(intent)).rejects.toThrow(
+      "Egress proxy egress-proxy does not resolve",
+    );
+    expect(issued).toEqual([]);
   });
 });
 
@@ -375,6 +498,7 @@ describe("workspaces", () => {
     const backend = new KubernetesBackend(
       { ...testConfig(NS, INSTALLATION), workspaceGcMinAgeMs: 3_600_000 },
       api.asClient(),
+      testResolver,
     );
     await backend.ensureExecution(intentFor().intent);
     expect(await backend.listWorkspaces()).toEqual([]);

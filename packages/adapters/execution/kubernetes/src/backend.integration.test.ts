@@ -20,6 +20,7 @@ import {
   TEST_IMAGE,
   testClient,
   testConfig,
+  testResolver,
 } from "./testing.ts";
 
 const suite = TEST_ENABLED ? describe : describe.skip;
@@ -59,6 +60,7 @@ suite("KubernetesBackend on a real API server", () => {
     backend = new KubernetesBackend(
       testConfig(namespace, installationId),
       client,
+      testResolver,
     );
   }, TIMEOUT);
 

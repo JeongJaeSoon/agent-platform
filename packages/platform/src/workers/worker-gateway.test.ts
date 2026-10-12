@@ -4,6 +4,7 @@ import {
   runtimeConfigSchema,
 } from "@agent-platform/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
+import type { ForgeAdapter, ForgeResolver, RepoRef } from "../ports/forge.ts";
 import type {
   ClaimInput,
   EgressAuthorization,
@@ -377,7 +378,7 @@ describe("WorkerGateway", () => {
         generation: 1,
         // A caller outside TypeScript can still send this, and the value is
         // read back through the public session contract.
-        backend: "kubernetes" as never,
+        backend: "nomad" as never,
       }),
     ).rejects.toMatchObject({ status: 400, code: "BAD_REQUEST" });
     expect(persisted).toBe(0);
@@ -1657,6 +1658,158 @@ describe("authorizeEgress", () => {
         }).instance.authorizeEgress({ token: "wer_x", purpose: "repository" }),
       ).rejects.toMatchObject({ status: 409 });
     }
+  });
+});
+
+describe("authorizeEgress through a forge", () => {
+  const profile: CatalogProfile = {
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    model: "claude-sonnet-5",
+    tools: ["Read"],
+    permission_mode: "default",
+    provider: {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.invalid",
+      auth: {
+        kind: "api_key",
+        value: "anthropic-key",
+        ref: { value_env: "K" },
+      },
+    },
+  };
+  const app: CatalogRepository = {
+    url: "https://github.com/acme/app.git",
+    branch: "main",
+    profiles: ["p"],
+    auth: {
+      kind: "github_app",
+      app_id: 101,
+      installation_id: 202,
+      api_base: "https://api.github.com",
+      value: "-----BEGIN RSA PRIVATE KEY-----fixture",
+      ref: { value_env: "GITHUB_APP_KEY" },
+    },
+  };
+  const pat: CatalogRepository = {
+    ...app,
+    auth: {
+      kind: "basic",
+      username: "x-access-token",
+      value: "github_pat_fixture_value",
+      ref: { value_env: "GITHUB_PAT" },
+    },
+  };
+
+  function gateway(
+    repository: CatalogRepository,
+    forges?: ForgeResolver,
+  ): ReturnType<typeof createWorkerGateway> {
+    return createWorkerGateway({
+      work: work({
+        authorizeEgressAtomic: async () => ({
+          outcome: "ok",
+          sessionId: scope.session_id,
+          attemptId: "att_1",
+          binding: repositoryBinding("app", repository),
+          profileId: "p",
+          costUsd: 0,
+          providerTokens: 0,
+          repository: { id: "app", url: repository.url, branch: "main" },
+        }),
+      }),
+      catalog: { profiles: { p: profile }, repositories: { app: repository } },
+      checkpoints: acceptAllCheckpoints,
+      ...(forges === undefined ? {} : { forges }),
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+  }
+  function forge(
+    gitCredential: ForgeAdapter["gitCredential"],
+  ): ForgeAdapter & { asked: Array<[RepoRef, string]> } {
+    const asked: Array<[RepoRef, string]> = [];
+    return {
+      kind: "github",
+      asked,
+      async gitCredential(repo, access) {
+        asked.push([repo, access]);
+        return await gitCredential(repo, access);
+      },
+      getRepository: async () => {
+        throw new Error("not used");
+      },
+    };
+  }
+  const basic = (login: string) =>
+    `Basic ${Buffer.from(login).toString("base64")}`;
+
+  test("an App repository's route carries the installation token the forge issued for read", async () => {
+    const github = forge(async () => ({
+      username: "x-access-token",
+      password: "installation-token-1",
+      expiresAt: new Date("2030-01-01T00:00:00Z"),
+    }));
+    const grant = await gateway(app, (id) =>
+      id === "app" ? github : null,
+    ).authorizeEgress({ token: "tok", purpose: "repository" });
+    expect(github.asked).toEqual([[{ owner: "acme", name: "app" }, "read"]]);
+    expect(grant.upstream).toEqual({
+      url: app.url,
+      headers: [
+        ["authorization", basic("x-access-token:installation-token-1")],
+      ],
+    });
+  });
+
+  test("a PAT repository sends the same header with or without a forge in front", async () => {
+    const expected: Array<[string, string]> = [
+      ["authorization", basic("x-access-token:github_pat_fixture_value")],
+    ];
+    expect(
+      (
+        await gateway(pat).authorizeEgress({
+          token: "t",
+          purpose: "repository",
+        })
+      ).upstream.headers,
+    ).toEqual(expected);
+    const static_ = forge(async () => ({
+      username: "x-access-token",
+      password: "github_pat_fixture_value",
+    }));
+    expect(
+      (
+        await gateway(pat, () => static_).authorizeEgress({
+          token: "t",
+          purpose: "repository",
+        })
+      ).upstream.headers,
+    ).toEqual(expected);
+  });
+
+  test("an App repository with no forge, or a forge that fails, is refused with nothing of the failure", async () => {
+    const failing = forge(async () => {
+      throw new Error("token endpoint said ghs_leaky and eyJ.jwt");
+    });
+    for (const instance of [gateway(app), gateway(app, () => failing)]) {
+      const refusal = await instance
+        .authorizeEgress({ token: "t", purpose: "repository" })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(refusal).toBeInstanceOf(WorkerGatewayError);
+      expect(refusal).toMatchObject({
+        status: 503,
+        code: "BACKEND_UNAVAILABLE",
+        message: "The repository's forge credential could not be issued",
+      });
+    }
+    expect(failing.asked).toHaveLength(1);
   });
 });
 

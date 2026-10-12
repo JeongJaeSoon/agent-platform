@@ -41,6 +41,7 @@ import {
   PART_OF,
   podFor,
   podNameFor,
+  proxyHostOf,
   selectorFor,
   workspaceClaimFor,
   workspaceClaimNameFor,
@@ -119,8 +120,7 @@ export class WorkspaceClaimError extends Error {
  * with the Pod UID as `providerRef`; see README.md for the RBAC it needs.
  */
 export class KubernetesBackend implements ExecutionBackend {
-  // The contracts enum has no "kubernetes" yet; 94S-524 settles the name.
-  readonly kind = "eks_job" as const;
+  readonly kind = "kubernetes" as const;
   private readonly config: KubernetesBackendConfig;
   /**
    * The UID of the claim `assertReplaceable` found, per session; see the
@@ -130,10 +130,17 @@ export class KubernetesBackend implements ExecutionBackend {
    * starting on an empty tree.
    */
   private readonly replacementWorkspaces = new Map<string, string>();
+  /**
+   * The proxy Service's ClusterIP as last resolved. Every launch, replace
+   * check and inspect resolves it afresh; an inspect whose lookup fails
+   * judges by this one instead of failing the pass.
+   */
+  private proxyAddress: string | null = null;
 
   constructor(
     config: KubernetesBackendConfig,
     private readonly client: KubernetesClient,
+    private readonly resolveHost: HostResolver = lookupAddresses,
   ) {
     this.config = validateKubernetesConfig(config);
   }
@@ -157,8 +164,9 @@ export class KubernetesBackend implements ExecutionBackend {
     const { config, client } = this;
     const name = podNameFor(intent, config.installationId);
     await this.resolveImage(intent.image);
+    const proxyAddress = await this.refreshProxyAddress();
     // Refuses limits this host would refuse before a nonce is spent on them.
-    podFor(config, intent, "", "");
+    podFor(config, intent, "", "", proxyAddress);
     await this.ensureWorkspace(intent.sessionId);
     // Two passes at most, as in the Docker backend: the second follows a
     // lost create race and judges the winner by the same rules.
@@ -166,7 +174,7 @@ export class KubernetesBackend implements ExecutionBackend {
       const existing = await client.get(config.namespace, "pods", name);
       if (existing !== null) {
         if (existing.metadata.deletionTimestamp === undefined) {
-          const verdict = this.contractVerdictOf(existing);
+          const verdict = this.contractVerdictOf(existing, proxyAddress);
           if (verdict === "newer") {
             throw new IsolationContractError(
               intent,
@@ -217,7 +225,13 @@ export class KubernetesBackend implements ExecutionBackend {
           client.create(
             config.namespace,
             "pods",
-            podFor(config, intent, secretName, bootstrapFingerprintOf(nonce)),
+            podFor(
+              config,
+              intent,
+              secretName,
+              bootstrapFingerprintOf(nonce),
+              proxyAddress,
+            ),
           ),
         );
       } catch (error) {
@@ -270,7 +284,13 @@ export class KubernetesBackend implements ExecutionBackend {
     // Fail closed: a same-named Pod that is not ours is never this
     // execution's healthy resource.
     this.assertOwned(ref, pod);
-    const verdict = this.contractVerdictOf(pod);
+    const verdict = this.contractVerdictOf(
+      pod,
+      await this.refreshProxyAddress().catch((error: unknown) => {
+        if (this.proxyAddress === null) throw error;
+        return this.proxyAddress;
+      }),
+    );
     if (verdict === "newer") {
       throw new IsolationContractError(
         ref,
@@ -294,10 +314,13 @@ export class KubernetesBackend implements ExecutionBackend {
     };
   }
 
-  /** Nothing but the image and the workspace can refuse a create ahead of time. */
+  /**
+   * Nothing but the image, the proxy's address and the workspace can refuse
+   * a create ahead of time.
+   */
   async assertReplaceable(intent: LaunchIntent): Promise<void> {
     await this.resolveImage(intent.image);
-    podFor(this.config, intent, "", "");
+    podFor(this.config, intent, "", "", await this.refreshProxyAddress());
     const claim = await this.existingWorkspace(intent.sessionId);
     if (claim !== null) {
       this.replacementWorkspaces.set(intent.sessionId, claim);
@@ -693,14 +716,57 @@ export class KubernetesBackend implements ExecutionBackend {
     }
   }
 
-  private contractVerdictOf(pod: Pod): "current" | "newer" | "stale" {
+  /**
+   * One address or nothing: a headless Service would answer with proxy Pod
+   * addresses, which change under a running worker.
+   */
+  private async refreshProxyAddress(): Promise<string> {
+    const host = proxyHostOf(this.config);
+    let addresses: string[];
+    try {
+      addresses = await this.resolveHost(host);
+    } catch (error) {
+      throw new Error(`Egress proxy ${host} does not resolve`, {
+        cause: error,
+      });
+    }
+    const unique = [...new Set(addresses)];
+    const [address] = unique;
+    if (unique.length !== 1 || address === undefined) {
+      throw new Error(
+        `Egress proxy ${host} resolves to ${unique.length === 0 ? "no address" : unique.join(", ")}; it must name a Service with one ClusterIP`,
+      );
+    }
+    this.proxyAddress = address;
+    return address;
+  }
+
+  private contractVerdictOf(
+    pod: Pod,
+    proxyAddress: string,
+  ): "current" | "newer" | "stale" {
     const stamp = pod.metadata.annotations?.[ANNOTATIONS.isolation];
     if (stamp === undefined) return "stale";
     const version = Number(stamp.split(":")[0]);
     if (!Number.isInteger(version) || version < 1) return "stale";
     if (version > ISOLATION_CONTRACT) return "newer";
-    return stamp === isolationStampFor(this.config) ? "current" : "stale";
+    return stamp === isolationStampFor(this.config, proxyAddress)
+      ? "current"
+      : "stale";
   }
+}
+
+/** Every address a host name resolves to, as the scheduler's resolver answers. */
+export type HostResolver = (host: string) => Promise<string[]>;
+
+/**
+ * Through libc, which asks every time: Bun's default resolver keeps an
+ * answer for its TTL, which would hand a launch a proxy address the Service
+ * no longer has (see packages/system's resolveEveryTime).
+ */
+export async function lookupAddresses(host: string): Promise<string[]> {
+  const found = await Bun.dns.lookup(host, { backend: "libc" });
+  return found.map(({ address }) => address);
 }
 
 /** The backend as the scheduler builds it: settings and credentials from env. */

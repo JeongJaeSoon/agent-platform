@@ -152,8 +152,8 @@ export type ExecutionBackendCapabilities = {
 
 /**
  * A per-session workspace resource the backend created and is responsible
- * for reclaiming — a Docker volume, not a Kubernetes PVC whose lifetime the
- * cluster already owns.
+ * for reclaiming: a Docker volume, or a Kubernetes PVC. Nothing reclaims it
+ * when its session ends; workspace GC does, through `removeWorkspace`.
  */
 export type ManagedWorkspace = {
   /** What `removeWorkspace` takes; for Docker, the volume name. */

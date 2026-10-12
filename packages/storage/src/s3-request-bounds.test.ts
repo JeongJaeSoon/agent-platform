@@ -222,10 +222,9 @@ async function stallingXmlPeer(status: number): Promise<string> {
 function configFor(s3Endpoint: string): { s3: StorageS3Settings } {
   return {
     s3: {
-      accessKeyId: "test",
+      credentials: { accessKeyId: "test", secretAccessKey: "test" },
       endpoint: s3Endpoint,
       region: "ap-northeast-1",
-      secretAccessKey: "test",
     },
   };
 }

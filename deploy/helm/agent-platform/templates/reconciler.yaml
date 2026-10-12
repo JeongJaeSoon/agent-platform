@@ -1,0 +1,86 @@
+{{- $health := list "bun" "run" "apps/control-host/src/main.ts" "reconciler" "--health" -}}
+# Records intent in the database only; it touches no worker. No
+# HEARTBEAT_TTL_SEC: that is the api's, and the reconciler refuses to start
+# with it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ap.fullname" . }}-reconciler
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "reconciler") | nindent 4 }}
+spec:
+  replicas: {{ .Values.reconciler.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "reconciler") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "reconciler") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ap.fullname" . }}-workload
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.reconciler.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: reconciler
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "apps/control-host/src/main.ts", "reconciler"]
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+            - name: RECONCILER_INTERVAL_SEC
+              value: {{ .Values.reconciler.intervalSec | quote }}
+            - name: RECONCILER_PASS_TIMEOUT_SEC
+              value: {{ .Values.reconciler.passTimeoutSec | quote }}
+            - name: RECONCILER_MAX_CONSECUTIVE_FAILURES
+              value: {{ .Values.reconciler.maxConsecutiveFailures | quote }}
+            - name: RECONCILER_HEALTH_STALE_SEC
+              value: {{ .Values.reconciler.healthStaleSec | quote }}
+            - name: RECONCILER_BATCH_SIZE
+              value: {{ .Values.reconciler.batchSize | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- include "ap.extraEnv" .Values.reconciler.extraEnv | nindent 12 }}
+          # Healthy only once a pass has finished, which may take a whole
+          # pass timeout after the first interval; 30s on top for startup.
+          startupProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: {{ div (add .Values.reconciler.intervalSec .Values.reconciler.passTimeoutSec 39) 10 }}
+          readinessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.reconciler.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+      {{- with .Values.reconciler.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.reconciler.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.reconciler.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
