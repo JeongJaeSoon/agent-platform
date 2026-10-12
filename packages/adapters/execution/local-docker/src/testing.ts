@@ -91,6 +91,70 @@ export async function removeWorkerNetworks(
   }
 }
 
+/**
+ * The daemon a suite talks to: `DOCKER_HOST`, or the first default socket
+ * that exists.
+ */
+export async function testDockerHost(): Promise<string> {
+  if (process.env.DOCKER_HOST) return process.env.DOCKER_HOST;
+  const candidates = [
+    "/var/run/docker.sock",
+    `${process.env.HOME}/.docker/run/docker.sock`,
+  ];
+  for (const path of candidates) {
+    if (await Bun.file(path).exists()) return `unix://${path}`;
+  }
+  return "unix:///var/run/docker.sock";
+}
+
+/**
+ * Removes every container, volume and worker network labelled for
+ * `installationId`. Leftovers are a daemon hygiene problem, not a contract
+ * violation: they are reported under `suite` and the suite's verdict stands.
+ */
+export async function removeInstallation(
+  client: DockerClient,
+  installationId: string,
+  suite: string,
+): Promise<void> {
+  // Everything the backend makes carries the installation label, so one
+  // listing finds exactly what exists — no probing generations that were
+  // never created. Stops run in parallel: each one waits out the 1s stop
+  // timeout because busybox's `sleep` ignores SIGTERM, and in series that
+  // alone used to eat bun's 5s hook budget.
+  const owned = [`${LABELS.installation}=${installationId}`];
+  const t0 = performance.now();
+  // A failed listing is itself a cleanup failure, not an empty daemon:
+  // it goes into `failed` instead of quietly skipping everything it owned.
+  const [containers, volumes] = await Promise.allSettled([
+    client.listContainers(owned),
+    client.listVolumes(owned),
+  ]);
+  const stops = await Promise.allSettled(
+    (containers.status === "fulfilled" ? containers.value : []).map((c) =>
+      client.stopAndRemoveContainer(c.Id, 1),
+    ),
+  );
+  const removes = await Promise.allSettled(
+    (volumes.status === "fulfilled" ? volumes.value : []).map((v) =>
+      client.removeVolume(v.Name),
+    ),
+  );
+  // After the containers: a network with a member left cannot go.
+  const network = await Promise.allSettled([
+    removeWorkerNetworks(client, installationId),
+  ]);
+  const failed = [containers, volumes, ...stops, ...removes, ...network].filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  if (failed.length > 0) {
+    console.warn(
+      `[${suite}] ${failed.length} cleanup step(s) failed after ${Math.round(performance.now() - t0)}ms; leftovers carry ${owned[0]}`,
+      failed.map((r) => String(r.reason)),
+    );
+  }
+}
+
 async function rawRequest(
   dockerHost: string,
   method: string,
