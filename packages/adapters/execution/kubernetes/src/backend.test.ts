@@ -328,14 +328,9 @@ describe("egress proxy hand-off", () => {
     api.setPhase(NS, podName, "Running");
     expect((await backend.inspect(intent)).stale).toBeUndefined();
 
+    // The same scheduler sees the move on its next inspect, no launch needed.
     address = "10.96.0.20";
-    // A scheduler started after the move judges by the new address at once.
-    const restarted = new KubernetesBackend(
-      testConfig(NS, INSTALLATION),
-      api.asClient(),
-      async () => [address],
-    );
-    expect((await restarted.inspect(intent)).stale).toBe(true);
+    expect((await backend.inspect(intent)).stale).toBe(true);
 
     const again = await backend.ensureExecution(intent);
     expect(again.created).toBe(true);
@@ -343,6 +338,46 @@ describe("egress proxy hand-off", () => {
     expect(await hostAliasesOf(api)).toEqual([
       { hostnames: ["egress-proxy"], ip: "10.96.0.20" },
     ]);
+  });
+
+  test("an inspect whose lookup fails judges by the last address instead of failing", async () => {
+    let fail = false;
+    const { api, backend } = withResolver(async () => {
+      if (fail) throw new Error("EAI_AGAIN");
+      return [TEST_PROXY_ADDRESS];
+    });
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    api.setPhase(NS, podName, "Running");
+    fail = true;
+    const observed = await backend.inspect(intent);
+    expect(observed.state).toBe("running");
+    expect(observed.stale).toBeUndefined();
+  });
+
+  test("an inspect with no address resolved yet fails rather than guess", async () => {
+    const { api, backend } = withResolver(async () => [TEST_PROXY_ADDRESS]);
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    const fresh = new KubernetesBackend(
+      testConfig(NS, INSTALLATION),
+      api.asClient(),
+      async () => {
+        throw new Error("EAI_AGAIN");
+      },
+    );
+    await expect(fresh.inspect(intent)).rejects.toThrow("does not resolve");
+  });
+
+  test("a replacement is refused up front when the proxy does not resolve", async () => {
+    let addresses = [TEST_PROXY_ADDRESS];
+    const { backend } = withResolver(async () => addresses);
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    addresses = [];
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "it must name a Service with one ClusterIP",
+    );
   });
 
   test.each([

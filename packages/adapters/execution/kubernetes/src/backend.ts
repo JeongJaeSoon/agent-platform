@@ -131,8 +131,9 @@ export class KubernetesBackend implements ExecutionBackend {
    */
   private readonly replacementWorkspaces = new Map<string, string>();
   /**
-   * The proxy Service's ClusterIP as last resolved. Every launch resolves
-   * it afresh; `inspect` judges running Pods against the last answer.
+   * The proxy Service's ClusterIP as last resolved. Every launch, replace
+   * check and inspect resolves it afresh; an inspect whose lookup fails
+   * judges by this one instead of failing the pass.
    */
   private proxyAddress: string | null = null;
 
@@ -285,7 +286,10 @@ export class KubernetesBackend implements ExecutionBackend {
     this.assertOwned(ref, pod);
     const verdict = this.contractVerdictOf(
       pod,
-      this.proxyAddress ?? (await this.refreshProxyAddress()),
+      await this.refreshProxyAddress().catch((error: unknown) => {
+        if (this.proxyAddress === null) throw error;
+        return this.proxyAddress;
+      }),
     );
     if (verdict === "newer") {
       throw new IsolationContractError(
@@ -310,10 +314,13 @@ export class KubernetesBackend implements ExecutionBackend {
     };
   }
 
-  /** Nothing but the image and the workspace can refuse a create ahead of time. */
+  /**
+   * Nothing but the image, the proxy's address and the workspace can refuse
+   * a create ahead of time.
+   */
   async assertReplaceable(intent: LaunchIntent): Promise<void> {
     await this.resolveImage(intent.image);
-    podFor(this.config, intent, "", "", "");
+    podFor(this.config, intent, "", "", await this.refreshProxyAddress());
     const claim = await this.existingWorkspace(intent.sessionId);
     if (claim !== null) {
       this.replacementWorkspaces.set(intent.sessionId, claim);
