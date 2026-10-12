@@ -1634,16 +1634,17 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     const claim: BootstrapClaimResponse = {
       ...claimed,
       runtime_config: { ...claimed.runtime_config, model: "claude-haiku-5" },
-      restore_runtime_config: claimed.runtime_config,
+      restore_runtime_configs: [claimed.runtime_config],
     };
 
     const plan = await h.port.restorePlan(claim, neverStopped());
 
     expect(h.errors).toEqual([]);
     expect(plan.mode).toBe("resume");
-    expect(h.gateway.restorePlans[0]?.runtime.profile_sha256).toBe(
-      runtime.profileSha256,
-    );
+    expect(h.gateway.restorePlans[0]).toMatchObject({
+      runtime: { profile_sha256: switched.profileSha256 },
+      alternate_profile_sha256s: [runtime.profileSha256],
+    });
     const next = await h.port.capture(ready, {
       scope: scopeOf(claim),
       recheck: async () => ready,

@@ -334,8 +334,9 @@ describe("changing a session's profile", () => {
     expect(next.runtime.profile_id).toBe("haiku");
     expect(next.runtime_config.model).toBe("claude-haiku-5");
     expect(next.restore?.revision).toBe(0);
-    expect(next.restore_runtime_config?.model).toBe("claude-sonnet-5");
-    expect(next.restore_runtime_config?.provider.endpoint).toBe(
+    expect(next.restore_runtime_configs).toHaveLength(1);
+    expect(next.restore_runtime_configs?.[0]?.model).toBe("claude-sonnet-5");
+    expect(next.restore_runtime_configs?.[0]?.provider.endpoint).toBe(
       "https://sonnet.invalid",
     );
     const grant = await g.authorizeEgress({
@@ -350,7 +351,7 @@ describe("changing a session's profile", () => {
     const g = gateway();
     const claimed = await claim(g, sessionId);
     expect(claimed.restore).toBeNull();
-    expect(claimed.restore_runtime_config).toBeUndefined();
+    expect(claimed.restore_runtime_configs).toBeUndefined();
   });
 
   test("refuses another billing kind, a stale revision and a closed session", async () => {

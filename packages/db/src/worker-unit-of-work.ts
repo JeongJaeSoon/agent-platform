@@ -61,7 +61,9 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
+  lte,
   max,
   notInArray,
   type SQL,
@@ -849,7 +851,7 @@ async function bindingOf(
       url: session.repoUrl,
       branch: session.branch,
     },
-    ...(await withRestoreProfile(
+    ...(await withRestoreProfiles(
       tx,
       session.id,
       restore === undefined ? await restoreRef(tx, session) : restore,
@@ -859,16 +861,17 @@ async function bindingOf(
   };
 }
 
-// The profile the restore's checkpoint was committed under; null for a row
-// from before the column, which ran the session's own.
-async function withRestoreProfile(
+// The profiles the checkpoints a restore may land on were committed under:
+// the pointer's and any earlier one a fallback walks back to. A row from
+// before the column names none; it ran the session's own.
+async function withRestoreProfiles(
   tx: Database,
   sessionId: string,
   restore: CheckpointRef | null,
-): Promise<Pick<WorkerBinding, "restore" | "restoreProfile">> {
-  if (restore === null) return { restore, restoreProfile: null };
-  const [row] = await tx
-    .select({
+): Promise<Pick<WorkerBinding, "restore" | "restoreProfiles">> {
+  if (restore === null) return { restore, restoreProfiles: [] };
+  const rows = await tx
+    .selectDistinct({
       profileId: checkpoints.profileId,
       profileFingerprint: checkpoints.profileFingerprint,
     })
@@ -876,19 +879,23 @@ async function withRestoreProfile(
     .where(
       and(
         eq(checkpoints.sessionId, sessionId),
-        eq(checkpoints.revision, restore.revision),
+        lte(checkpoints.revision, restore.revision),
+        isNotNull(checkpoints.profileId),
+        isNotNull(checkpoints.profileFingerprint),
       ),
-    )
-    .limit(1);
+    );
   return {
     restore,
-    restoreProfile:
-      row?.profileId == null || row.profileFingerprint === null
-        ? null
-        : {
-            profileId: row.profileId,
-            profileFingerprint: row.profileFingerprint,
-          },
+    restoreProfiles: rows.flatMap((row) =>
+      row.profileId === null || row.profileFingerprint === null
+        ? []
+        : [
+            {
+              profileId: row.profileId,
+              profileFingerprint: row.profileFingerprint,
+            },
+          ],
+    ),
   };
 }
 

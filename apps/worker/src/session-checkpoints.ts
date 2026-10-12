@@ -33,6 +33,7 @@ import {
   type RejectedCheckpoint,
   type RuntimeFingerprint,
   restoreCwdRefusal,
+  runtimeFor,
   TRANSCRIPT_MIRROR_DIRECTORY,
   type TranscriptRevision,
   transcriptParts,
@@ -224,15 +225,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const runtime = this.#options.fingerprint(claim);
-    // What the checkpoint was made under, when the session's profile has
-    // changed since; the checkpoints this run takes carry `runtime`.
-    const madeUnder =
-      claim.restore_runtime_config === undefined
-        ? runtime
-        : this.#options.fingerprint({
-            ...claim,
-            runtime_config: claim.restore_runtime_config,
-          });
+    // Profiles the session ran before its profile was changed; the
+    // checkpoints this run takes carry `runtime`.
+    const alternates = (claim.restore_runtime_configs ?? []).map(
+      (config) =>
+        this.#options.fingerprint({ ...claim, runtime_config: config })
+          .profileSha256,
+    );
     const pointer = claim.restore;
     if (pointer !== null) {
       // The store not answering is no fault of the checkpoint: the restore
@@ -244,7 +243,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           return await this.#restore(
             claim,
             pointer,
-            { madeUnder, runtime },
+            { runtime, alternates },
             signal,
           );
         } catch (caught) {
@@ -358,20 +357,23 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     claim: BootstrapClaimResponse,
     pointer: CheckpointRef,
     {
-      madeUnder,
       runtime,
-    }: { madeUnder: RuntimeFingerprint; runtime: RuntimeFingerprint },
+      alternates,
+    }: { runtime: RuntimeFingerprint; alternates: readonly string[] },
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const { objects, workspaceRoot } = this.#options;
     const answer = await this.#options.gateway.restorePlan({
       ...claimScope(claim),
       runtime: {
-        cli_version: madeUnder.cliVersion,
-        engine: madeUnder.engine,
-        profile_sha256: madeUnder.profileSha256,
-        sdk_version: madeUnder.sdkVersion,
+        cli_version: runtime.cliVersion,
+        engine: runtime.engine,
+        profile_sha256: runtime.profileSha256,
+        sdk_version: runtime.sdkVersion,
       },
+      ...(alternates.length === 0
+        ? {}
+        : { alternate_profile_sha256s: [...alternates] }),
     });
     signal.throwIfAborted();
     const { plan, restoring } = planFor(answer, pointer);
@@ -394,7 +396,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
     }
     const manifest = this.#codec.decode(manifestBytes);
-    this.#checkManifest(claim, restoring, madeUnder, manifest);
+    this.#checkManifest(
+      claim,
+      restoring,
+      runtimeFor(manifest, runtime, alternates),
+      manifest,
+    );
     const pinned = <T extends ObjectRef>(ref: T): T => {
       const { version: _stale, ...rest } = ref;
       const version = versions.get(ref.key);

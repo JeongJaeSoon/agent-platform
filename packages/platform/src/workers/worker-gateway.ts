@@ -29,7 +29,10 @@ import type {
   WorkerReadyResponse,
   WorkerScope,
 } from "@agent-platform/contracts";
-import { executionBackendSchema } from "@agent-platform/contracts";
+import {
+  executionBackendSchema,
+  MAX_RESTORE_PROFILES,
+} from "@agent-platform/contracts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -116,6 +119,7 @@ export type CheckpointProtocol = {
       profileSha256: string;
       sdkVersion: string;
     };
+    alternateProfileSha256s?: readonly string[];
     sessionId: string;
     pointer: CheckpointPointer | null;
   }): Promise<RestorePlanResult>;
@@ -487,29 +491,31 @@ export function createWorkerGateway(deps: {
     };
   }
 
-  // The config the restore's checkpoint was made under, when the session's
-  // profile has changed since: the worker checks the checkpoint against it
-  // and runs the engine on runtime_config. Left out when it is the same, or
-  // when this catalog no longer holds that profile as it was; the restore
-  // is then checked against runtime_config and refused if it differs.
-  function restoreRuntimeOf(
-    binding: Pick<WorkerBinding, "profileId" | "restoreProfile">,
+  // The configs the session's checkpoints were made under other than the
+  // one it runs now: the worker accepts a restored checkpoint, the pointer's
+  // or a fallback's, made under any of them, and runs the engine on
+  // runtime_config. A profile this catalog no longer holds as it was is left
+  // out, so a checkpoint made under it is refused as incompatible.
+  function restoreRuntimesOf(
+    binding: Pick<WorkerBinding, "profileId" | "restoreProfiles">,
     profileFingerprintNow: string,
     providerToken: string,
-  ): { restore_runtime_config?: RuntimeConfig } {
-    const made = binding.restoreProfile;
-    if (
-      made === null ||
-      (made.profileId === binding.profileId &&
-        made.profileFingerprint === profileFingerprintNow)
-    ) {
-      return {};
-    }
-    const profile = own(catalog.profiles, made.profileId);
-    if (!profile || profileFingerprint(profile) !== made.profileFingerprint) {
-      return {};
-    }
-    return { restore_runtime_config: runtimeConfigOf(profile, providerToken) };
+  ): { restore_runtime_configs?: RuntimeConfig[] } {
+    const configs = binding.restoreProfiles.flatMap((made) => {
+      if (
+        made.profileId === binding.profileId &&
+        made.profileFingerprint === profileFingerprintNow
+      ) {
+        return [];
+      }
+      const profile = own(catalog.profiles, made.profileId);
+      return profile && profileFingerprint(profile) === made.profileFingerprint
+        ? [runtimeConfigOf(profile, providerToken)]
+        : [];
+    });
+    return configs.length === 0
+      ? {}
+      : { restore_runtime_configs: configs.slice(0, MAX_RESTORE_PROFILES) };
   }
 
   // What each egress token is held to, taken from the catalog at the moment
@@ -789,7 +795,7 @@ export function createWorkerGateway(deps: {
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
-            ...restoreRuntimeOf(
+            ...restoreRuntimesOf(
               binding,
               resolved.profile_fingerprint,
               providerToken,
@@ -1277,6 +1283,9 @@ export function createWorkerGateway(deps: {
             profileSha256: request.runtime.profile_sha256,
             sdkVersion: request.runtime.sdk_version,
           },
+          ...(request.alternate_profile_sha256s === undefined
+            ? {}
+            : { alternateProfileSha256s: request.alternate_profile_sha256s }),
           sessionId: fence.sessionId,
           // A pointer the claim did not hand out is not one to restore: a
           // retired one belongs to the engine session start_fresh gave up.

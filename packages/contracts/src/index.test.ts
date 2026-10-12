@@ -863,16 +863,18 @@ describe("worker protocol", () => {
         manifest_ref: "m",
         manifest_sha256: "a".repeat(64),
       },
-      restore_runtime_config: {
-        model: "claude-opus-5",
-        tools: ["Read"],
-        permission_mode: "default",
-        provider: {
-          kind: "anthropic",
-          endpoint: "https://api.anthropic.com",
-          auth: { kind: "egress_token", token: "restore-provider-token" },
+      restore_runtime_configs: [
+        {
+          model: "claude-opus-5",
+          tools: ["Read"],
+          permission_mode: "default",
+          provider: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.com",
+            auth: { kind: "egress_token", token: "restore-provider-token" },
+          },
         },
-      },
+      ],
       remaining_budget_usd: 12.5,
     });
     expect(loggableBootstrapClaim(claim)).toEqual({
@@ -893,7 +895,7 @@ describe("worker protocol", () => {
       branch: "main",
       owner_scope: "owner_1",
       restore_revision: 4,
-      restore_model: "claude-opus-5",
+      restore_models: ["claude-opus-5"],
       remaining_budget_usd: 12.5,
     });
     const line = JSON.stringify(loggableBootstrapClaim(claim));
