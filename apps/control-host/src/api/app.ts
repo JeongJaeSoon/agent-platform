@@ -4,6 +4,8 @@ import {
   apiErrorResponseSchema,
   apiRootResponseSchema,
   healthResponseSchema,
+  LINK_MESSAGES,
+  ownerScopeOf,
   PAYLOAD_TOO_LARGE_ISSUE,
   type Principal,
   REQUEST_BODY_MAX_BYTES,
@@ -17,15 +19,18 @@ import {
   createLogger,
   type StructuredLogger,
 } from "@agent-platform/observability";
-import type {
-  IdentityStore,
-  ResolvedWebSession,
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  callerFor,
+  type IdentityStore,
+  type ResolvedWebSession,
 } from "@agent-platform/platform";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
-import { createAuthenticator, csrfViolation, ownerIdOf } from "./auth.ts";
+import { createAuthenticator, csrfViolation } from "./auth.ts";
 import {
   BODY_DEADLINE_MS,
   CLOSING_IDLE_TIMEOUT_SECONDS,
@@ -39,12 +44,15 @@ import {
   buildOpenApiDocument,
 } from "./openapi.ts";
 import type { ReadinessProbe } from "./readiness.ts";
-import { missingScope } from "./scope-policy.ts";
+import { actionForScope, missingScope } from "./scope-policy.ts";
+import { createWebDistHandler } from "./web-dist.ts";
 
 interface ApiVariables {
   // The alpha partition key; every existing route authorizes on it alone.
   ownerId: string;
   principal: Principal;
+  // What every session service is called as.
+  caller: Caller;
   // Present on the cookie path only.
   webSession?: ResolvedWebSession;
   requestId: string;
@@ -182,6 +190,8 @@ export interface CreateApiAppOptions {
   readiness?: ReadinessProbe;
   // Overrides REQUEST_DEADLINE_MS, for tests.
   requestDeadlineMs?: number;
+  webDistDir?: string;
+  authorization?: AuthorizationPolicy;
 }
 
 export class ApiHttpError extends Error {
@@ -192,6 +202,7 @@ export class ApiHttpError extends Error {
     readonly retryable = false,
     // Sent as Retry-After: when a retry is worth making, not a promise.
     readonly retryAfterSeconds?: number,
+    readonly details: unknown = null,
   ) {
     super(message);
   }
@@ -525,7 +536,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         context,
         401,
         "UNAUTHORIZED",
-        "Authentication is required",
+        // A link opened from Slack lands here before any login; the person
+        // may have no account at all, and should learn who can invite them.
+        context.req.path.startsWith("/v1/linked-accounts")
+          ? LINK_MESSAGES.signInRequired
+          : "Authentication is required",
       );
     }
     const violation = csrfViolation(context, authenticated.principal);
@@ -542,12 +557,26 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       context.req.path,
       authenticated.principal,
     );
+    const caller = callerFor(
+      authenticated.principal,
+      { kind: authenticated.webSession ? "web" : "api" },
+      context.get("requestId"),
+      authenticated.storedKey,
+    );
     if (missing) {
       logger.warn("API request refused for a missing scope", {
         method: context.req.method,
         path: context.req.path,
         scope: missing,
       });
+      await options.authorization
+        ?.authorize({
+          subject: caller.subject,
+          action: actionForScope(missing),
+          resource: { kind: "session", id: null, owner_scope: caller.ownerId },
+          request_id: caller.requestId,
+        })
+        .catch(() => undefined);
       return errorResponse(
         context,
         403,
@@ -556,7 +585,8 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       );
     }
     context.set("principal", authenticated.principal);
-    context.set("ownerId", ownerIdOf(authenticated.principal));
+    context.set("ownerId", ownerScopeOf(authenticated.principal));
+    context.set("caller", caller);
     context.set("reauthenticate", authenticated.reauthenticate);
     if (authenticated.webSession) {
       context.set("webSession", authenticated.webSession);
@@ -601,6 +631,14 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     app.route("/internal", internal);
   }
 
+  if (options.webDistDir) {
+    const serveWeb = createWebDistHandler(options.webDistDir);
+    app.get(
+      "*",
+      async (context) => (await serveWeb(context)) ?? context.notFound(),
+    );
+  }
+
   app.notFound((context) =>
     errorResponse(context, 404, "NOT_FOUND", "Resource not found"),
   );
@@ -615,6 +653,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
         error.code,
         error.message,
         error.retryable,
+        error.details,
       );
     }
     // The key lookup in the auth middleware runs before any route, so a

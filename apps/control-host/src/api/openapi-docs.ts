@@ -41,13 +41,13 @@ Each operation names the one scope it requires, in its description and in its \`
 
 What a credential holds:
 
-- An API key holds exactly the scopes it was issued with (\`--scopes\`). A key issued before scopes existed holds none and must be reissued.
-- A cookie session holds the scopes of the user's workspace role: \`owner\` holds all five, \`member\` all but \`sessions:recover\`.
+- An API key holds exactly the scopes it was issued with (\`scopes\` in \`POST /v1/api-keys\`, or \`--scopes\` in the key CLI). A key issued before scopes existed holds none and must be reissued.
+- A cookie session holds the scopes of the user's workspace role: \`owner\` holds all five, \`admin\` and \`member\` all but \`sessions:recover\`.
 - A credential without the required scope answers \`403 FORBIDDEN\` before the body or the resource is read.
 
 ## Idempotency
 
-Every command (POST) except bootstrap, login and logout requires an \`Idempotency-Key\` header of 1–255 characters; a missing or invalid key answers \`400 BAD_REQUEST\`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers \`409 IDEMPOTENCY_CONFLICT\`. After a timeout or a lost response, retry with the same key rather than a new one. Bootstrap, login and logout ignore the header.
+Each command (any method but GET) says in its description whether \`Idempotency-Key\` is required or ignored. Where it is required, send 1–255 characters; a missing or invalid key answers \`400 BAD_REQUEST\`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers \`409 IDEMPOTENCY_CONFLICT\`. After a timeout or a lost response, retry with the same key rather than a new one. Where it is ignored, nothing is replayed: a retry runs the command again, so reread the resource before retrying.
 
 ## Errors
 
@@ -107,6 +107,12 @@ function forbidden(context: ErrorContext): string {
       `CSRF: a cookie-authenticated request lacks \`X-Requested-With: ${CSRF_HEADER_VALUE}\` or is cross-site (\`Sec-Fetch-Site\`, \`Origin\`); API-key requests never need the header`,
     );
   }
+  if (context.auth === "session") {
+    causes.push(
+      "Credential: an API key was sent; this operation takes a cookie session only",
+      "Permission: where the description names who may call it, the signed-in member is not one of them",
+    );
+  }
   if (context.scope) {
     causes.push(
       `Scope: the credential does not hold \`${context.scope}\`, checked before the body or the resource is read`,
@@ -160,6 +166,37 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The target turn is still queued; there is nothing to interrupt yet.",
   PAUSE_COMMITTING:
     "The pause has already committed its stop and can no longer be cancelled; wait for it, then resume.",
+  TAKEOVER_REQUIRED:
+    "The person who asked for the session was offboarded; it takes no input until an owner takes it over.",
+  ALREADY_EXISTS:
+    "A resource with the same identity already exists; the operation names which field must be unique.",
+  INVITE_USED: "The invite was already accepted and cannot be used again.",
+  INVITE_EXPIRED:
+    "The invite was revoked, replaced by a newer one, or has expired. Ask for a new invite.",
+  LAST_OWNER: "The change would leave the workspace with no live owner.",
+  OWNER_PROTECTED:
+    "Only an owner may grant the owner role or change an owner's membership.",
+  SCOPE_NOT_GRANTABLE:
+    "The key asks for a scope its issuer does not hold now, or an agent's key asks for `sessions:approve`.",
+  SLACK_NOT_INSTALLED:
+    "The workspace has no verified Slack install for this team.",
+  LINK_TEAM_MISMATCH:
+    "The Slack account belongs to another Slack team than the workspace's install.",
+  LINK_TAKEN: "The Slack account is already linked to another person.",
+  LINK_EXISTS:
+    "The caller already linked a different Slack account in this team; unlink it first.",
+  AGENT_IDENTITY_TAKEN:
+    "The Slack app and team are already pinned to another agent; revoke that identity first.",
+  CREDENTIAL_REF_IN_USE:
+    "The credential name is already held by an agent identity, or bound to an agent an identity would take it from.",
+  RELEASE_PROFILE_MISMATCH:
+    "The release was made for another runtime profile than the one named.",
+  CREDENTIAL_UNBOUND:
+    "The release names a credential its agent has no live binding for; an agent admin must bind it first.",
+  PROFILE_DIGEST_MISMATCH:
+    "The runtime profile's settings changed since the release was made; release the agent again.",
+  LOGIN_LINK_REQUIRED:
+    "The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there.",
 };
 
 function when(
@@ -191,13 +228,13 @@ export function errorResponseDescription(
 /** Who may call the operation and how it treats Idempotency-Key. */
 export function accessNote(
   context: ErrorContext,
-  method: "get" | "post",
+  method: "get" | "post" | "patch" | "delete",
 ): string {
   const who = context.scope
     ? `**Scope:** \`${context.scope}\` (API key or cookie session).`
     : context.auth === "session"
       ? "**Auth:** cookie session only; no scope."
       : "**Auth:** public; no credential.";
-  if (method !== "post") return who;
+  if (method === "get") return who;
   return `${who} **Idempotency-Key:** ${context.idempotencyKey ? "required" : "ignored"}.`;
 }

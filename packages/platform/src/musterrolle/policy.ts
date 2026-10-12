@@ -1,23 +1,584 @@
-export type Principal = { ownerId: string };
-export type SessionAction =
-  | "sessions:read"
-  | "sessions:write"
-  | "sessions:control"
-  | "sessions:approve"
-  // Operator recovery decisions. api.md § 최소 운영 복구: issued apart from
-  // ordinary keys.
-  | "sessions:recover";
+import {
+  type Principal as AuthenticatedPrincipal,
+  type AuthorizationAction,
+  type AuthorizationDecision,
+  type AuthorizationReason,
+  type AuthorizationRequest,
+  type AuthorizationResource,
+  type AuthorizationSubject,
+  type AuthorizationSurface,
+  actionAppliesTo,
+  authorizationRequestSchema,
+  ownerScopeOf,
+  type PrincipalRef,
+  type SessionScope,
+  SLACK_SURFACE_ACTION_VALUES,
+  scopesForRole,
+  type WorkspaceRole,
+} from "@agent-platform/contracts";
+import type { DecisionLog } from "../ports/decision-log.ts";
+import type {
+  SessionShareStore,
+  SessionViewer,
+} from "../ports/session-share-store.ts";
 
-// Whether the actor may take the action at all. Ownership is not asked here:
-// every store reads and writes under actor.ownerId in its own transaction, so
-// another owner's session is a 404 from there.
-export interface AuthorizationPolicy {
-  authorize(actor: Principal, action: SessionAction): boolean;
+export type RecordedActor = {
+  principal: PrincipalRef;
+  userId: string | null;
+  workspaceId: string | null;
+  apiKeyId: string | null;
+};
+
+/** The partition a store reads and writes under. */
+export type Principal = {
+  ownerId: string;
+  actor?: RecordedActor;
+  requestId?: string;
+};
+
+/**
+ * Who calls a service. `ownerId` is what the stores partition on; the policy
+ * checks it against the subject, so a caller assembled with another owner's
+ * partition is told the resource does not exist.
+ */
+export type Caller = Principal & {
+  subject: AuthorizationSubject;
+  requestId: string;
+};
+
+/**
+ * `storedKey` is set only when authentication found the key's row: the
+ * AUTH_MODE=none principal is an api_key named after its owner, with no row.
+ */
+export function callerFor(
+  principal: AuthenticatedPrincipal,
+  surface: AuthorizationSurface,
+  requestId: string,
+  storedKey?: { creatorId: string | null },
+): Caller {
+  const userId =
+    principal.kind === "user"
+      ? principal.id
+      : principal.kind === "api_key"
+        ? (storedKey?.creatorId ?? null)
+        : null;
+  return {
+    ownerId: ownerScopeOf(principal),
+    actor: {
+      principal: { kind: principal.kind, id: principal.id },
+      userId,
+      workspaceId: principal.workspace_id,
+      apiKeyId: principal.kind === "api_key" && storedKey ? principal.id : null,
+    },
+    subject: {
+      principal,
+      ...(userId === null ? {} : { actor_user_id: userId }),
+      surface,
+    },
+    requestId,
+  };
 }
 
-// Scopes are checked at the HTTP edge before a service is called
-// (apps/control-host/src/api/scope-policy.ts); this policy is where
-// they move once something other than the API calls these services.
-export const allowAllPolicy: AuthorizationPolicy = {
-  authorize: () => true,
+export type IdentityReading =
+  | {
+      status: "ok";
+      principal: AuthenticatedPrincipal;
+      keyCreator?: { userId: string; role: WorkspaceRole };
+      /** Set for a service key bound to one agent. */
+      keyAgentId?: string;
+    }
+  | {
+      status: Extract<
+        AuthorizationReason,
+        "unlinked" | "disabled" | "stale_link"
+      >;
+    };
+
+// Step 1 of the decision: the identity as it stands now, read for every
+// decision and never cached across requests.
+export interface IdentityReader {
+  reread(
+    subject: AuthorizationSubject & { principal: AuthenticatedPrincipal },
+  ): Promise<IdentityReading>;
+}
+
+// An installation names no person until linked accounts exist, so it is
+// unlinked.
+export const authenticatedIdentity: IdentityReader = {
+  async reread(subject) {
+    return subject.principal.kind === "installation"
+      ? { status: "unlinked" }
+      : { status: "ok", principal: subject.principal };
+  },
 };
+
+/**
+ * Which agent a resource belongs to and who administers it, read for every
+ * decision that needs it.
+ */
+export interface AgentAuthority {
+  /** The agent an identified resource belongs to; null for none. */
+  agentOf(
+    workspaceId: string,
+    resource: { kind: AuthorizationResource["kind"]; id: string },
+  ): Promise<string | null>;
+  /** An admin row of their own, or a live team they are a live member of. */
+  isAdmin(
+    workspaceId: string,
+    agentId: string,
+    userId: string,
+  ): Promise<boolean>;
+}
+
+// Without a store an agent is only ever named directly, and nobody
+// administers one.
+export const noAgentAuthority: AgentAuthority = {
+  async agentOf(_workspaceId, resource) {
+    return resource.kind === "agent" ? resource.id : null;
+  },
+  async isAdmin() {
+    return false;
+  },
+};
+
+/** The credential names a release needs that its agent has no binding for. */
+export interface CredentialCheck {
+  unboundRefs(workspaceId: string, releaseId: string): Promise<string[]>;
+}
+
+// Without a store nothing can show a release's credentials are bound, so a
+// session that names one is refused (fail-closed).
+export const noCredentialCheck: CredentialCheck = {
+  async unboundRefs() {
+    throw new Error("no credential binding store");
+  },
+};
+
+/** The workspace's Slack guest setting, read for every guest's decision. */
+export interface SlackGuestSetting {
+  enabled(workspaceId: string): Promise<boolean>;
+}
+
+// Without a settings store the setting is its default: off (D25).
+export const slackGuestsDisabled: SlackGuestSetting = {
+  async enabled() {
+    return false;
+  },
+};
+
+/** Who made a session and whom it is shared with, read for every decision. */
+export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf">;
+
+// Without a store no session was ever re-shared, so each reads workspace;
+// whose session it is cannot be read, so nobody may change that.
+export const workspaceWideSessions: SessionAccess = {
+  async visibleTo() {
+    return true;
+  },
+  async originOf() {
+    throw new Error("no session share store");
+  },
+};
+
+export const POLICY_VERSION = "m15";
+
+export interface AuthorizationPolicy {
+  authorize(request: AuthorizationRequest): Promise<AuthorizationDecision>;
+}
+
+// The scope each session action needs. Actions with no scope have no rule
+// yet and are refused.
+export const ACTION_SCOPES: Partial<Record<AuthorizationAction, SessionScope>> =
+  {
+    "session.read": "sessions:read",
+    "session.submit": "sessions:write",
+    "session.approve": "sessions:approve",
+    "session.control": "sessions:control",
+    "session.recover": "sessions:recover",
+  };
+
+// Design 4.1, the workspace and agent rows. An API key never holds one of
+// these, whatever its scopes.
+export const MANAGEMENT_ROLES: Partial<
+  Record<AuthorizationAction, readonly WorkspaceRole[]>
+> = {
+  "workspace.manage": ["owner", "admin"],
+  "audit_retention.manage": ["owner"],
+  "member.manage": ["owner", "admin"],
+  "team.manage": ["owner", "admin"],
+  "api_key.manage": ["owner", "admin"],
+  "api_key.manage_own": ["owner", "admin", "member"],
+  "account.link": ["owner", "admin", "member"],
+  "agent.create": ["owner", "admin", "member"],
+  "agent.manage": ["owner", "admin"],
+  "agent.restore": ["owner"],
+  "agent.admin.manage": ["owner", "admin"],
+  "credential.bind": ["owner", "admin"],
+  "binding.manage": ["owner", "admin"],
+  "session.audit_read": ["owner", "admin"],
+  "session.admin_list": ["owner", "admin"],
+};
+
+const WORKSPACE_MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+
+// What a manager may do on a session outside its share, given a reason
+// (A.3 step 2): read it under audit, take it over, end it, recover it.
+export const OUT_OF_SHARE_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "session.audit_read",
+  "member.manage",
+  "session.control",
+  "session.recover",
+]);
+
+// What an agent's admin may also do on that agent, whatever their role.
+export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "api_key.manage",
+  "agent.manage",
+  "agent.admin.manage",
+  "credential.bind",
+  "binding.manage",
+]);
+
+// D26 5: automation bound to an agent never stands in for a person's approval.
+export const AGENT_KEY_WITHHELD: ReadonlySet<SessionScope> = new Set([
+  "sessions:approve",
+]);
+
+function within(
+  scopes: readonly SessionScope[],
+  role: WorkspaceRole,
+): SessionScope[] {
+  const ceiling = new Set(scopesForRole(role));
+  return scopes.filter((scope) => ceiling.has(scope));
+}
+
+function authorityScopes(reading: {
+  principal: AuthenticatedPrincipal;
+  keyCreator?: { role: WorkspaceRole };
+  keyAgentId?: string;
+}): SessionScope[] {
+  const { principal, keyCreator, keyAgentId } = reading;
+  if (principal.kind === "user")
+    return within(principal.scopes, principal.role);
+  if (keyCreator) return within(principal.scopes, keyCreator.role);
+  if (keyAgentId !== undefined) {
+    return principal.scopes.filter((scope) => !AGENT_KEY_WITHHELD.has(scope));
+  }
+  return [...principal.scopes];
+}
+
+// A personal key looks as its creator; a service key is no member and looks
+// as itself (design 4.6).
+function viewerOf(reading: {
+  principal: AuthenticatedPrincipal;
+  keyCreator?: { userId: string };
+}): SessionViewer {
+  const { principal } = reading;
+  if (principal.kind === "user")
+    return { userId: principal.id, apiKeyId: null };
+  if (principal.kind === "api_key") {
+    return {
+      userId: reading.keyCreator?.userId ?? null,
+      apiKeyId: principal.id,
+    };
+  }
+  return { userId: null, apiKeyId: null };
+}
+
+function claimedActorMatches(
+  subject: AuthorizationSubject,
+  reading: Extract<IdentityReading, { status: "ok" }>,
+): boolean {
+  const expected =
+    reading.principal.kind === "user"
+      ? reading.principal.id
+      : reading.keyCreator?.userId;
+  return subject.actor_user_id === expected;
+}
+
+export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
+  [
+    ...(Object.keys(MANAGEMENT_ROLES) as AuthorizationAction[]),
+    "routine.manage",
+    "session.approve",
+    "session.share",
+  ],
+);
+
+// A reason is given to be kept: every decision that carries one is.
+export function mustRecord(
+  request: AuthorizationRequest,
+  decision: AuthorizationDecision,
+): boolean {
+  return (
+    decision.outcome !== "allow" ||
+    RECORDED_ALLOW_ACTIONS.has(request.action) ||
+    request.subject.justification !== undefined ||
+    (request.subject.surface.kind === "slack" &&
+      request.action === "session.submit")
+  );
+}
+
+const SLACK_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
+  SLACK_SURFACE_ACTION_VALUES,
+);
+
+type Judgement = [AuthorizationReason, SessionScope[], redact?: true];
+
+export function createAuthorizationPolicy(
+  deps: {
+    identity?: IdentityReader;
+    agents?: AgentAuthority;
+    credentials?: CredentialCheck;
+    slackGuests?: SlackGuestSetting;
+    sessions?: SessionAccess;
+    newDecisionId?: () => string;
+    decisions?: DecisionLog;
+  } = {},
+): AuthorizationPolicy {
+  const identity = deps.identity ?? authenticatedIdentity;
+  const agents = deps.agents ?? noAgentAuthority;
+  const credentials = deps.credentials ?? noCredentialCheck;
+  const slackGuests = deps.slackGuests ?? slackGuestsDisabled;
+  const sessions = deps.sessions ?? workspaceWideSessions;
+
+  async function agentOfResource(
+    resource: AuthorizationResource,
+  ): Promise<string | null> {
+    if (resource.id === null) return resource.agent_id?.toLowerCase() ?? null;
+    const agentId = await agents.agentOf(resource.owner_scope, {
+      kind: resource.kind,
+      id: resource.id,
+    });
+    return agentId?.toLowerCase() ?? null;
+  }
+  // D21: a person's session is theirs alone to share; a key's session is
+  // the workspace's managers' and its agent's admins'.
+  async function mayShare(
+    principal: AuthenticatedPrincipal,
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    if (principal.kind !== "user") return false;
+    const origin = await sessions.originOf(workspaceId, sessionId);
+    if (origin === null) return false;
+    if (origin.creatorUserId !== null) {
+      return origin.creatorUserId.toLowerCase() === principal.id.toLowerCase();
+    }
+    if (WORKSPACE_MANAGERS.includes(principal.role)) return true;
+    const agentId = await agents.agentOf(workspaceId, {
+      kind: "session",
+      id: sessionId,
+    });
+    return (
+      agentId !== null &&
+      (await agents.isAdmin(workspaceId, agentId.toLowerCase(), principal.id))
+    );
+  }
+  const decisions = deps.decisions;
+  const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
+
+  async function decide(request: AuthorizationRequest): Promise<Judgement> {
+    const parsed = authorizationRequestSchema.safeParse(request);
+    if (!parsed.success) return ["error", []];
+    const { subject, action, resource } = parsed.data;
+    const scope = ACTION_SCOPES[action];
+    const roles = MANAGEMENT_ROLES[action];
+    if (
+      (scope === undefined &&
+        roles === undefined &&
+        action !== "session.share") ||
+      !actionAppliesTo(action, resource.kind)
+    ) {
+      return ["error", []];
+    }
+    if (subject.principal === null) return ["no_requester", []];
+    const { surface } = subject;
+    if (surface.kind === "slack") {
+      // Only an installation speaks for Slack, and it always says who the
+      // person is to Slack. Strangers go first: they are no one to link,
+      // and the guest setting is not theirs to pass (design A.3 step 4).
+      if (
+        subject.principal.kind !== "installation" ||
+        surface.slack_user_kind === undefined ||
+        surface.agent_id === undefined
+      ) {
+        return ["error", []];
+      }
+      if (surface.slack_user_kind === "external") {
+        return ["external_user", []];
+      }
+      if (
+        surface.slack_user_kind === "guest" &&
+        !(await slackGuests.enabled(subject.principal.workspace_id))
+      ) {
+        return ["guest_disabled", []];
+      }
+    }
+
+    const reading = await identity.reread({
+      ...subject,
+      principal: subject.principal,
+    });
+    if (reading.status !== "ok") return [reading.status, []];
+    if (!claimedActorMatches(subject, reading)) return ["error", []];
+    if (resource.owner_scope !== ownerScopeOf(reading.principal)) {
+      return ["not_found", []];
+    }
+
+    const { principal } = reading;
+    const manager =
+      principal.kind === "user" && WORKSPACE_MANAGERS.includes(principal.role);
+    const justified = (subject.justification?.trim() ?? "") !== "";
+    // Step 2 goes on to the share: a session outside it does not exist for
+    // this subject, save for what a manager does with a reason.
+    if (resource.kind === "session" && resource.id !== null) {
+      const visible = await sessions.visibleTo(
+        resource.owner_scope,
+        resource.id,
+        viewerOf(reading),
+      );
+      if (action === "session.share") {
+        if (!(await mayShare(principal, resource.owner_scope, resource.id))) {
+          return [visible ? "role" : "not_found", []];
+        }
+      } else if (manager && OUT_OF_SHARE_ACTIONS.has(action)) {
+        // Audit reads and takeovers are management screens only, so asking
+        // for the reason there reveals nothing; a control without one is as
+        // blind as anyone's (owner and admin see not_found on the ordinary
+        // screens too).
+        if (!justified && (action === "session.audit_read" || !visible)) {
+          if (action === "session.audit_read" || action === "member.manage") {
+            return ["justification_required", []];
+          }
+          return ["not_found", []];
+        }
+      } else if (!visible) {
+        return ["not_found", []];
+      }
+    }
+
+    let scopes = authorityScopes(reading);
+    if (action === "session.share") {
+      // Judged above; a key never changes a share (design 4.1).
+    } else if (roles !== undefined) {
+      if (principal.kind !== "user") return ["role", scopes];
+      if (!roles.includes(principal.role)) {
+        const agentId = AGENT_ADMIN_ACTIONS.has(action)
+          ? await agentOfResource(resource)
+          : null;
+        if (
+          agentId === null ||
+          !(await agents.isAdmin(principal.workspace_id, agentId, principal.id))
+        ) {
+          return ["role", scopes];
+        }
+      }
+    } else if (scope === undefined || !scopes.includes(scope)) {
+      return ["role", scopes];
+    } else if (
+      reading.keyAgentId !== undefined &&
+      (await agentOfResource(resource)) !== reading.keyAgentId.toLowerCase()
+    ) {
+      // A key bound to an agent reaches that agent's sessions and nothing
+      // else, a list across agents included.
+      return ["agent_ceiling", scopes];
+    }
+    // Web and api add no ceiling of their own. On Slack the person acts
+    // through the installation and the channel: the smallest of the three.
+    let redact = false;
+    if (surface.kind === "slack") {
+      const installation = new Set<SessionScope>(
+        subject.principal.kind === "installation"
+          ? subject.principal.scopes
+          : [],
+      );
+      const channel = new Set(
+        (surface.ceiling?.actions ?? []).map(
+          (allowed) => ACTION_SCOPES[allowed],
+        ),
+      );
+      scopes = scopes.filter(
+        (held) => installation.has(held) && channel.has(held),
+      );
+      if (
+        !SLACK_ACTIONS.has(action) ||
+        scope === undefined ||
+        !scopes.includes(scope)
+      ) {
+        return ["surface_ceiling", scopes];
+      }
+      // One agent's app never reaches another agent's sessions, even in the
+      // same workspace.
+      if (
+        (await agentOfResource(resource)) !== surface.agent_id?.toLowerCase()
+      ) {
+        return ["agent_ceiling", scopes];
+      }
+      redact =
+        action === "session.read" && surface.ceiling?.disclosure === "summary";
+    }
+    // No agent identity has a ceiling to multiply by yet.
+    if (subject.agent !== undefined) return ["agent_ceiling", scopes];
+    // Re-read at every start: a binding revoked since activation stops the
+    // next session, never one already running (D11).
+    if (resource.release_id !== undefined) {
+      if (action !== "session.submit") return ["error", []];
+      const unbound = await credentials.unboundRefs(
+        resource.owner_scope,
+        resource.release_id,
+      );
+      if (unbound.length > 0) return ["credential_unbound", scopes];
+    }
+    // A summary is still a ceiling: the reason names it.
+    return redact ? ["surface_ceiling", scopes, true] : ["ok", scopes];
+  }
+
+  return {
+    async authorize(request) {
+      const decision_id = newDecisionId();
+      let reason: AuthorizationReason;
+      let effective_scopes: SessionScope[];
+      let redact: true | undefined;
+      try {
+        [reason, effective_scopes, redact] = await decide(request);
+      } catch {
+        [reason, effective_scopes, redact] = ["error", [], undefined];
+      }
+      const decision: AuthorizationDecision = redact
+        ? {
+            outcome: "redact",
+            reason_code: reason,
+            effective_scopes,
+            redact: { view: "summary" },
+            policy_version: POLICY_VERSION,
+            decision_id,
+          }
+        : {
+            outcome: reason === "ok" ? "allow" : "deny",
+            reason_code: reason,
+            effective_scopes,
+            policy_version: POLICY_VERSION,
+            decision_id,
+          };
+      const parsed = authorizationRequestSchema.safeParse(request);
+      if (!decisions || !parsed.success || !mustRecord(parsed.data, decision)) {
+        return decision;
+      }
+      try {
+        await decisions.record({ request: parsed.data, decision });
+        return decision;
+      } catch {
+        // A redact grants a summary, so an unrecorded one is refused too.
+        if (decision.outcome === "deny") return decision;
+        const { redact: _summary, ...unrecorded } = decision;
+        return {
+          ...unrecorded,
+          outcome: "deny",
+          reason_code: "error",
+          effective_scopes: [],
+        };
+      }
+    },
+  };
+}

@@ -1,0 +1,384 @@
+import { describe, expect, test } from "bun:test";
+import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
+import {
+  apiError,
+  fakeApi,
+  json,
+  me,
+  type Recorded,
+} from "./test-support/fake-api.ts";
+
+const { render, screen, waitFor } = await setupDom();
+// After the DOM exists: the router and Testing Library look for it on load.
+const { createMemoryHistory } = await import("@tanstack/react-router");
+const { App } = await import("./app.tsx");
+const { GuardedButton } = await import("./auth/guard.tsx");
+const { I18nProvider } = await import("./i18n/i18n.tsx");
+const { createServices, ServicesProvider } = await import("./services.tsx");
+
+type Routes = Parameters<typeof fakeApi>[0];
+
+function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
+  const api = fakeApi(routes);
+  const services = createServices({
+    baseUrl: "https://console.test",
+    fetch: api.fetch,
+  });
+  const history = createMemoryHistory({ initialEntries: [path] });
+  render(<App services={services} history={history} locale={locale} />);
+  return { api, history, services };
+}
+
+const meOk = { "GET /v1/auth/me": () => json(200, me()) };
+const callsTo = (calls: Recorded[], path: string) =>
+  calls.filter((call) => call.path === path);
+
+describe("상태 화면", () => {
+  test("확인 중에는 로딩 화면이다", async () => {
+    renderAt("/", { "GET /v1/auth/me": () => new Promise(() => {}) });
+    expect(
+      await screen.findByText("로그인 상태를 확인하는 중입니다"),
+    ).toBeDefined();
+  });
+
+  test("401이면 로그인 화면이 '다시 로그인' 문구로 열리고 돌아올 곳을 기억한다", async () => {
+    const { history } = renderAt("/", {
+      "GET /v1/auth/me": () =>
+        apiError(401, "UNAUTHORIZED", "Authentication is required"),
+    });
+    expect(await screen.findByText("다시 로그인하세요")).toBeDefined();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "로그인",
+    );
+    expect(history.location.pathname).toBe("/login");
+    expect(history.location.search).toContain("redirect=%2F");
+  });
+
+  test("403이면 권한 없음 화면에 서버 문구를 그대로 보인다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () =>
+        apiError(
+          403,
+          "FORBIDDEN",
+          "This credential does not hold sessions:read",
+        ),
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("이 화면을 볼 권한이 없습니다");
+    expect(alert.textContent).toContain(
+      "This credential does not hold sessions:read",
+    );
+    expect(screen.queryByText("다시 로그인하세요")).toBeNull();
+  });
+
+  test("bootstrap 화면은 소유자가 없다는 문구로 열린다", async () => {
+    renderAt("/bootstrap", {});
+    expect(await screen.findByText("아직 소유자가 없습니다")).toBeDefined();
+    expect(screen.queryByText("다시 로그인하세요")).toBeNull();
+    expect(screen.queryByText("이 화면을 볼 권한이 없습니다")).toBeNull();
+  });
+
+  test("네 상태의 제목이 서로 다르다", async () => {
+    const { ko } = await import("./i18n/ko.ts");
+    const titles = [
+      ko["status.loading.title"],
+      ko["status.loginRequired.title"],
+      ko["status.forbidden.title"],
+      ko["status.bootstrapRequired.title"],
+    ];
+    expect(new Set(titles).size).toBe(4);
+  });
+});
+
+describe("workspace shell", () => {
+  test("/auth/me의 사용자·워크스페이스와 bootstrap checklist를 보인다", async () => {
+    renderAt("/", meOk);
+    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(
+      screen.getByText("Owner(owner@example.com)으로 로그인했습니다"),
+    ).toBeDefined();
+    const steps = screen.getAllByRole("listitem");
+    expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([
+      "true",
+      "false",
+      "false",
+      "false",
+    ]);
+  });
+
+  test("로그아웃은 서버에 알리고 캐시를 비운 뒤 로그인으로 간다", async () => {
+    const { api, history, services } = renderAt("/", {
+      ...meOk,
+      "POST /v1/auth/logout": () => new Response(null, { status: 204 }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
+    expect(history.location.pathname).toBe("/login");
+    const [logout] = callsTo(api.calls, "/v1/auth/logout");
+    expect(logout?.headers.get("x-requested-with")).toBe("agent-platform-web");
+    expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
+  });
+  test("로그아웃이 실패하면 로그인된 채로 남고 그렇게 말한다", async () => {
+    const { history } = renderAt("/", {
+      ...meOk,
+      "POST /v1/auth/logout": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Storage is unavailable"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "로그아웃하지 못해 아직 로그인된 상태입니다.",
+    );
+    expect(history.location.pathname).toBe("/");
+    expect(screen.queryByText("로그아웃했습니다.")).toBeNull();
+  });
+
+  test("이미 끝난 세션의 로그아웃(401)은 로그아웃으로 친다", async () => {
+    const { history } = renderAt("/", {
+      ...meOk,
+      "POST /v1/auth/logout": () =>
+        apiError(401, "UNAUTHORIZED", "Authentication is required"),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
+    expect(history.location.pathname).toBe("/login");
+  });
+
+  test("캐시된 신원이 있어도 세션이 끝나면(401) 지우고 로그인으로 간다", async () => {
+    let expired = false;
+    const { history, services } = renderAt("/", {
+      "GET /v1/auth/me": () =>
+        expired
+          ? apiError(401, "UNAUTHORIZED", "Authentication is required")
+          : json(200, me()),
+    });
+    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expired = true;
+    await services.queryClient.refetchQueries({ queryKey: ["me"] });
+    expect(await screen.findByText("다시 로그인하세요")).toBeDefined();
+    expect(history.location.pathname).toBe("/login");
+    expect(screen.queryByText("Acme")).toBeNull();
+    expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
+  });
+});
+
+describe("로그인", () => {
+  test("성공하면 캐시를 비우고 원래 가려던 곳으로 간다", async () => {
+    const { api, history, services } = renderAt("/login?redirect=%2F", {
+      "POST /v1/auth/login": () =>
+        json(200, {
+          user_id: me().user?.id,
+          workspace_id: me().workspace?.id,
+          role: "owner",
+          scopes: me().scopes,
+          expires_at: "2026-10-12T00:00:00.000Z",
+        }),
+      ...meOk,
+    });
+    services.queryClient.setQueryData(["stale"], "from another account");
+    const user = await setupUser();
+    await user.type(
+      await screen.findByLabelText("이메일"),
+      "owner@example.com",
+    );
+    await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(history.location.pathname).toBe("/");
+    expect(services.queryClient.getQueryData(["stale"])).toBeUndefined();
+    expect(callsTo(api.calls, "/v1/auth/login")[0]?.body).toEqual({
+      email: "owner@example.com",
+      password: "correct horse battery",
+    });
+  });
+
+  test("틀린 비밀번호와 잠금은 각자의 문구다", async () => {
+    let attempt = 0;
+    renderAt("/login", {
+      "POST /v1/auth/login": () =>
+        ++attempt === 1
+          ? apiError(401, "UNAUTHORIZED", "Invalid email or password")
+          : apiError(429, "RATE_LIMITED", "Too many attempts, try again later"),
+    });
+    const user = await setupUser();
+    await user.type(
+      await screen.findByLabelText("이메일"),
+      "owner@example.com",
+    );
+    await user.type(screen.getByLabelText("비밀번호"), "wrong password!");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이메일 또는 비밀번호가 맞지 않습니다.",
+    );
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "시도가 너무 많습니다 — 잠시 뒤 다시 시도하세요.",
+      ),
+    );
+  });
+
+  test("다른 origin으로 가는 redirect는 버린다", async () => {
+    const { safeRedirect } = await import("./routes/login.tsx");
+    expect(safeRedirect("/sessions?x=1")).toBe("/sessions?x=1");
+    for (const bad of [
+      "//evil.example",
+      "https://evil.example",
+      "/\\evil",
+      "x",
+    ]) {
+      expect(safeRedirect(bad)).toBeUndefined();
+    }
+  });
+});
+
+describe("bootstrap", () => {
+  async function fill() {
+    const user = await setupUser();
+    await user.type(
+      await screen.findByLabelText("Bootstrap 토큰"),
+      "t".repeat(40),
+    );
+    await user.type(
+      screen.getByLabelText("소유자 이메일"),
+      "owner@example.com",
+    );
+    await user.type(screen.getByLabelText("이름"), "Owner");
+    await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
+    await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
+    await user.type(screen.getByLabelText("워크스페이스 주소 이름"), "acme");
+    await user.click(screen.getByRole("button", { name: "소유자 만들기" }));
+  }
+
+  test("입력 힌트는 이름이 아니라 설명으로 붙는다", async () => {
+    renderAt("/bootstrap", {});
+    const password = await screen.findByLabelText("비밀번호");
+    const hint = document.getElementById(
+      password.getAttribute("aria-describedby") ?? "",
+    );
+    expect(hint?.textContent).toBe("12자 이상");
+  });
+
+  test("만들고 나면 로그인으로 보낸다", async () => {
+    const { api, history } = renderAt("/bootstrap", {
+      "POST /v1/auth/bootstrap": () => json(201, {}),
+    });
+    await fill();
+    expect(
+      await screen.findByText(
+        "소유자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
+      ),
+    ).toBeDefined();
+    expect(history.location.pathname).toBe("/login");
+    expect(callsTo(api.calls, "/v1/auth/bootstrap")[0]?.body).toMatchObject({
+      email: "owner@example.com",
+      workspace_slug: "acme",
+    });
+  });
+
+  test("이미 끝났으면(409) 로그인으로 보낸다", async () => {
+    const { history } = renderAt("/bootstrap", {
+      "POST /v1/auth/bootstrap": () =>
+        apiError(409, "BOOTSTRAP_DONE", "Bootstrap already done"),
+    });
+    await fill();
+    expect(
+      await screen.findByText(
+        "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
+      ),
+    ).toBeDefined();
+    expect(history.location.pathname).toBe("/login");
+  });
+
+  test("토큰이 틀리면(401) 토큰 문구다", async () => {
+    renderAt("/bootstrap", {
+      "POST /v1/auth/bootstrap": () =>
+        apiError(401, "UNAUTHORIZED", "Bootstrap token is invalid"),
+    });
+    await fill();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Bootstrap 토큰이 맞지 않습니다",
+    );
+  });
+});
+
+describe("권한 없는 버튼", () => {
+  async function renderButton(scopes: Parameters<typeof me>[0]) {
+    const services = createServices({ baseUrl: "https://console.test" });
+    const { queryClient } = services;
+    queryClient.setQueryData(["me"], me(scopes));
+    const { QueryClientProvider } = await import("@tanstack/react-query");
+    render(
+      <I18nProvider locale="ko">
+        <QueryClientProvider client={queryClient}>
+          <ServicesProvider services={services}>
+            <GuardedButton scope="sessions:recover">복구</GuardedButton>
+          </ServicesProvider>
+        </QueryClientProvider>
+      </I18nProvider>,
+    );
+    return screen.getByRole("button", { name: "복구" });
+  }
+
+  test("scope가 없으면 비활성이고 이유를 말한다", async () => {
+    const button = await renderButton(["sessions:read"]);
+    expect(button.hasAttribute("disabled")).toBe(true);
+    const reason = document.getElementById(
+      button.getAttribute("aria-describedby") ?? "",
+    );
+    expect(reason?.textContent).toBe(
+      "sessions:recover 권한이 있어야 할 수 있습니다.",
+    );
+  });
+
+  test("scope가 있으면 누를 수 있다", async () => {
+    const button = await renderButton(["sessions:read", "sessions:recover"]);
+    expect(button.hasAttribute("disabled")).toBe(false);
+  });
+});
+
+describe("i18n·반응형·키보드", () => {
+  test("en이면 영어로 그린다", async () => {
+    renderAt("/login", {}, "en");
+    expect(
+      await screen.findByRole("heading", { name: "Log in" }),
+    ).toBeDefined();
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  test("언어를 바꾸면 바로 바뀐다", async () => {
+    renderAt("/login", {});
+    const user = await setupUser();
+    await user.selectOptions(await screen.findByLabelText("언어"), "en");
+    expect(
+      await screen.findByRole("heading", { name: "Log in" }),
+    ).toBeDefined();
+  });
+
+  test.each([360, 768, 1440])(
+    "%ipx에서 shell이 같은 내용으로 그려진다",
+    async (width) => {
+      const { setViewport } = await import(
+        "@agent-platform/ui/test-support/dom"
+      );
+      setViewport({ width, height: 800 });
+      renderAt("/", meOk);
+      expect(
+        await screen.findByRole("heading", { name: "Acme" }),
+      ).toBeDefined();
+      expect(screen.getByRole("button", { name: "로그아웃" })).toBeDefined();
+      expect(window.innerWidth).toBe(width);
+    },
+  );
+
+  test("본문 건너뛰기 링크가 처음 Tab에 잡힌다", async () => {
+    renderAt("/login", {});
+    await screen.findByRole("heading", { name: "로그인" });
+    const user = await setupUser();
+    await user.tab();
+    expect(document.activeElement?.textContent).toBe("본문으로 건너뛰기");
+    expect(document.getElementById("main")).not.toBeNull();
+  });
+});

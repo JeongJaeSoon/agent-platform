@@ -39,10 +39,10 @@ export function registerSessionRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, createSessionRequestSchema);
     const created = await mapped(() =>
-      service.createSession(
-        { ownerId: context.get("ownerId") },
-        { idempotencyKey: key, body },
-      ),
+      service.createSession(context.get("caller"), {
+        idempotencyKey: key,
+        body,
+      }),
     );
     return jsonWithSchema(context, createSessionResponseSchema, created, 201);
   });
@@ -50,7 +50,7 @@ export function registerSessionRoutes(
   apiRoute(router, "listSessions", async (context) => {
     const query = requireQuery(context, listSessionsQuerySchema);
     const page = await mapped(() =>
-      service.listSessions({ ownerId: context.get("ownerId") }, query),
+      service.listSessions(context.get("caller"), query),
     );
     return jsonWithSchema(context, listSessionsResponseSchema, page);
   });
@@ -58,7 +58,7 @@ export function registerSessionRoutes(
   apiRoute(router, "getSession", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const detail = await mapped(() =>
-      service.getSession({ ownerId: context.get("ownerId") }, params.id),
+      service.getSession(context.get("caller"), params.id),
     );
     return jsonWithSchema(context, getSessionResponseSchema, detail);
   });
@@ -68,7 +68,7 @@ export function registerSessionRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, postSessionMessageRequestSchema);
     const accepted = await mapped(() =>
-      service.appendMessage({ ownerId: context.get("ownerId") }, params.id, {
+      service.appendMessage(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),
@@ -86,7 +86,7 @@ export function registerSessionRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, terminateSessionRequestSchema);
     const accepted = await mapped(() =>
-      service.terminateSession({ ownerId: context.get("ownerId") }, params.id, {
+      service.terminateSession(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),
@@ -104,7 +104,7 @@ export function registerSessionRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, resumeSessionRequestSchema);
     const accepted = await mapped(() =>
-      service.resumeSession({ ownerId: context.get("ownerId") }, params.id, {
+      service.resumeSession(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),
@@ -122,7 +122,7 @@ export function registerSessionRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, recoveryDecisionRequestSchema);
     const accepted = await mapped(() =>
-      service.decideRecovery({ ownerId: context.get("ownerId") }, params.id, {
+      service.decideRecovery(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),
@@ -139,7 +139,7 @@ export function registerSessionRoutes(
     const params = requireParams(context, sessionIdParamsSchema);
     const query = requireQuery(context, listTurnsQuerySchema);
     const page = await mapped(() =>
-      service.listTurns({ ownerId: context.get("ownerId") }, params.id, query),
+      service.listTurns(context.get("caller"), params.id, query),
     );
     return jsonWithSchema(context, listTurnsResponseSchema, page);
   });
@@ -147,11 +147,7 @@ export function registerSessionRoutes(
   apiRoute(router, "getSessionTurn", async (context) => {
     const params = requireParams(context, turnIdParamsSchema);
     const turn = await mapped(() =>
-      service.getTurn(
-        { ownerId: context.get("ownerId") },
-        params.id,
-        params.turn_id,
-      ),
+      service.getTurn(context.get("caller"), params.id, params.turn_id),
     );
     return jsonWithSchema(context, getTurnResponseSchema, turn);
   });

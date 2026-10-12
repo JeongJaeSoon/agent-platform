@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   apiErrorResponseSchema,
@@ -269,6 +271,9 @@ describe("API authentication", () => {
               id: "key-a",
               ownerId: "owner-a",
               workspaceId: null,
+              kind: "service" as const,
+              createdByUserId: null,
+              creatorRole: null,
               scopes: ["sessions:read" as const],
             }
           : null;
@@ -573,5 +578,118 @@ describe("API validation and errors", () => {
     expect(
       apiErrorResponseSchema.safeParse(await response.json()).success,
     ).toBe(true);
+  });
+});
+
+describe("web console (WEB_DIST_DIR)", () => {
+  async function withDist(
+    run: (app: ReturnType<typeof createApiApp>) => Promise<void>,
+    authMode = "api-key",
+  ) {
+    const parent = await mkdtemp(join(tmpdir(), "web-dist-"));
+    const dist = join(parent, "dist");
+    try {
+      await mkdir(dist);
+      await mkdir(join(dist, "assets"));
+      await writeFile(
+        join(dist, "index.html"),
+        "<!doctype html><title>web</title>",
+      );
+      await writeFile(join(dist, "assets", "index-abc.js"), "console.log(1)");
+      await writeFile(join(dist, "favicon.svg"), "<svg/>");
+      await writeFile(join(parent, "outside-web-dist.txt"), "secret");
+      await run(createApiApp({ authMode, webDistDir: dist }));
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  }
+
+  test("serves built files, hashed assets as immutable", async () => {
+    await withDist(async (app) => {
+      const asset = await app.request("/assets/index-abc.js");
+      expect(asset.status).toBe(200);
+      expect(await asset.text()).toBe("console.log(1)");
+      expect(asset.headers.get("Content-Type")).toContain("javascript");
+      expect(asset.headers.get("Cache-Control")).toBe(
+        "public, max-age=31536000, immutable",
+      );
+      expect(asset.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      const icon = await app.request("/favicon.svg");
+      expect(icon.headers.get("Cache-Control")).toBe("no-cache");
+    });
+  });
+
+  test("answers any other page path with index.html under a strict CSP", async () => {
+    await withDist(async (app) => {
+      for (const path of ["/", "/login", "/bootstrap", "/sessions/abc"]) {
+        const page = await app.request(path);
+        expect(page.status).toBe(200);
+        expect(await page.text()).toContain("<title>web</title>");
+        expect(page.headers.get("Content-Type")).toBe(
+          "text/html; charset=utf-8",
+        );
+        expect(page.headers.get("Cache-Control")).toBe("no-cache");
+        const csp = page.headers.get("Content-Security-Policy") ?? "";
+        expect(csp).toContain("script-src 'self'");
+        expect(csp).toContain("frame-ancestors 'none'");
+        expect(csp).not.toContain("unsafe-inline");
+      }
+      const head = await app.request("/login", { method: "HEAD" });
+      expect(head.status).toBe(200);
+    });
+  });
+
+  test("keeps the API's JSON 404 under /v1 and /internal", async () => {
+    await withDist(async (app) => {
+      for (const path of ["/v1/nope", "/internal/nope"]) {
+        const response = await app.request(path, {
+          headers: { "X-Owner-Id": "local-owner" },
+        });
+        expect(response.status).toBe(404);
+        expect(response.headers.get("Content-Type")).toContain(
+          "application/json",
+        );
+        expect(
+          apiErrorResponseSchema.safeParse(await response.json()).success,
+        ).toBe(true);
+      }
+    }, "none");
+  });
+
+  test("leaves /v1 behind its authentication", async () => {
+    await withDist(async (app) => {
+      const response = await app.request("/v1/nope");
+      expect(response.status).toBe(401);
+      expect(response.headers.get("Content-Type")).toContain(
+        "application/json",
+      );
+    });
+  });
+
+  test("a missing hashed asset is a 404, not the page", async () => {
+    await withDist(async (app) => {
+      expect((await app.request("/assets/index-old.js")).status).toBe(404);
+    });
+  });
+
+  test("never reads outside the directory", async () => {
+    await withDist(async (app) => {
+      for (const path of [
+        "/../outside-web-dist.txt",
+        "/%2e%2e/outside-web-dist.txt",
+        "/assets/%2e%2e%2f%2e%2e%2foutside-web-dist.txt",
+      ]) {
+        const response = await app.request(path);
+        expect(await response.text()).not.toContain("secret");
+      }
+    });
+  });
+
+  test("without WEB_DIST_DIR a page path is the JSON 404 it always was", async () => {
+    const response = await createApiApp({ authMode: "api-key" }).request(
+      "/login",
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Content-Type")).toContain("application/json");
   });
 });

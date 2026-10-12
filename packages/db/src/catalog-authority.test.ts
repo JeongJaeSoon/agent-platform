@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  allowAllPolicy,
   type CatalogProfile,
   catalogRevision,
+  createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
   WorkerGatewayError,
 } from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -41,7 +42,7 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
  */
 
 const PROFILE_ID = "claude-coding-v1";
-const OWNER = { ownerId: "owner-a" };
+const OWNER = testCaller("owner-a");
 
 const PROFILE: CatalogProfile = {
   runtime_kind: "claude_agent_sdk",
@@ -119,7 +120,7 @@ function gatewayOf(catalog: SessionCatalog): WorkerGateway {
 
 async function createSession(): Promise<string> {
   const service = createSessionService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),

@@ -1,23 +1,50 @@
 import { expect, test } from "bun:test";
 import type {
+  AgentAdminService,
+  AgentIdentityService,
+  AgentService,
+  ApiKeyService,
+  CredentialBindingService,
   IdentityStore,
   InterruptService,
+  InviteService,
+  InviteStore,
+  LinkedAccountService,
+  MemberService,
   PendingRequestService,
   SessionService,
+  SessionShareService,
+  TeamService,
   UsageService,
 } from "@agent-platform/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { API_ROUTE_SCOPES, buildOpenApiDocument } from "./openapi.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
+import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
+import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import {
+  registerInviteRoutes,
+  registerPublicInviteRoutes,
+} from "./routes/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
+import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
+import {
+  registerWorkspaceRoutes,
+  type WorkspaceRouteDeps,
+} from "./routes/workspaces.ts";
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
@@ -34,15 +61,40 @@ function apiApp() {
   };
   return createApiApp({
     authMode: "none",
-    registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+    registerPublicRoutes: (router) => {
+      registerPublicAuthRoutes(router, auth);
+      registerPublicInviteRoutes(router, {
+        invites: {} as InviteStore,
+        identity: auth.identity,
+      });
+    },
     registerRoutes: (router) => {
       registerAuthRoutes(router, auth);
+      registerInviteRoutes(router, {} as InviteService);
       registerSessionRoutes(router, {} as SessionService);
+      registerSessionShareRoutes(
+        router,
+        {} as SessionShareService,
+        {} as SessionService,
+      );
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
+      registerMemberRoutes(router, {} as MemberService, {} as InviteService);
+      registerAgentRoutes(router, {} as AgentService);
+      registerAgentIdentityRoutes(router, {
+        service: {} as AgentIdentityService,
+      });
+      registerLinkedAccountRoutes(router, {
+        service: {} as LinkedAccountService,
+        slack: null,
+      });
+      registerApiKeyRoutes(router, {} as ApiKeyService);
+      registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
+      registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
+      registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerEventRoutes(router, {} as SessionService, {
         wakeup: { wait: async () => {} },
       });

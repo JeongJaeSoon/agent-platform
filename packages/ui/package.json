@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./tokens.css": "./src/tokens.css",
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./test-support/dom": "./src/test-support/dom.ts"
   },
   "scripts": {
     "demo": "bun src/__fixtures__/demo.html",

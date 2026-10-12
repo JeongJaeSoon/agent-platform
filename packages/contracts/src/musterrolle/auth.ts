@@ -1,7 +1,13 @@
 import { z } from "zod";
 
-import { timestampSchema, userIdSchema } from "../shared/index.ts";
 import {
+  receiptIdSchema,
+  timestampSchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "../shared/index.ts";
+import {
+  authorizationActionSchema,
   principalSchema,
   scopesExceeding,
   scopesForRole,
@@ -11,6 +17,7 @@ import {
 import {
   displayNameSchema,
   emailSchema,
+  inviteTokenSchema,
   workspaceSchema,
   workspaceSlugSchema,
 } from "./workspaces.ts";
@@ -97,6 +104,29 @@ export const loginResponseSchema = z
     }
   });
 
+/**
+ * Holds one Google sign-in flow's state, nonce and PKCE verifier. `__Host-`
+ * for the reason given at WEB_SESSION_COOKIE_NAME.
+ */
+export const GOOGLE_LOGIN_COOKIE_NAME = "__Host-ap_google_login";
+export const GOOGLE_LOGIN_FLOW_TTL_MINUTES = 10;
+export const startGoogleLoginResponseSchema = z
+  .object({ authorization_url: z.url() })
+  .strict();
+export const googleLoginCallbackRequestSchema = z
+  .object({
+    code: z.string().min(1).max(2048),
+    state: z.string().min(1).max(256),
+  })
+  .strict();
+
+/** How a person can sign in on this installation; the login page offers these. */
+export const LOGIN_METHOD_VALUES = ["password", "google"] as const;
+export const loginMethodSchema = z.enum(LOGIN_METHOD_VALUES);
+export const loginMethodsResponseSchema = z
+  .object({ methods: z.array(loginMethodSchema) })
+  .strict();
+
 /** What the web app boots from: who is authenticated and under which key. */
 export const authMeResponseSchema = z
   .object({
@@ -112,6 +142,12 @@ export const authMeResponseSchema = z
     workspace: workspaceSchema.nullable(),
     /** The effective ceiling; it can narrow the principal's, never widen it. */
     scopes: z.array(sessionScopeSchema),
+    /**
+     * The management actions the principal's role holds on its workspace
+     * now, so a screen can hide a menu it could never use. An agent's admin
+     * holds more on that agent than this says; an API key holds none.
+     */
+    permissions: z.array(authorizationActionSchema),
   })
   .strict()
   .superRefine((response, ctx) => {
@@ -157,6 +193,13 @@ export const authMeResponseSchema = z
         message: "an api key principal has no user",
       });
     }
+    if (response.permissions.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["permissions"],
+        message: "an api key principal holds no management action",
+      });
+    }
     const expected = principal.workspace_id;
     if (expected === null ? workspace !== null : workspace?.id !== expected) {
       ctx.addIssue({
@@ -169,11 +212,14 @@ export const authMeResponseSchema = z
 
 /**
  * Redeeming an invite. It never touches an existing account's password: a
- * known email joins the workspace, an unknown one gets an account (A02).
+ * known email proves it and joins the workspace, an unknown one gets an
+ * account with it (A02).
  */
 export const acceptInviteRequestSchema = z
   .object({
-    password: passwordSchema.optional(),
+    /** In the body, never the URL, for the same reason as a reset token. */
+    token: inviteTokenSchema,
+    password: passwordSchema,
     display_name: displayNameSchema.optional(),
   })
   .strict();
@@ -185,10 +231,59 @@ export const acceptInviteResponseSchema = z
   })
   .strict();
 
+/**
+ * Account recovery without email (94S-264): an owner issues a one-time link
+ * and hands it over; redeeming it sets the password and ends the user's
+ * sessions. The token travels in the body, never the URL, so no access log
+ * or proxy on the way records it.
+ */
+export const PASSWORD_RESET_TTL_MINUTES = 60;
+export const passwordResetTokenSchema = z.string().min(1).max(256);
+export const memberParamsSchema = z
+  .object({ id: workspaceIdSchema, userId: userIdSchema })
+  .strict();
+/**
+ * The issuer re-enters their own password: a stolen session cookie alone
+ * must not turn into a link that takes over another account.
+ */
+export const issuePasswordResetRequestSchema = z
+  .object({ current_password: passwordSchema })
+  .strict();
+export const issuePasswordResetResponseSchema = z
+  .object({
+    user_id: userIdSchema,
+    /** Shown once; only its sha256 is stored. */
+    token: passwordResetTokenSchema,
+    expires_at: timestampSchema,
+  })
+  .strict();
+export const passwordResetRequestSchema = z
+  .object({ token: passwordResetTokenSchema, password: passwordSchema })
+  .strict();
+export const passwordResetResponseSchema = z
+  .object({ user_id: userIdSchema, receipt_id: receiptIdSchema })
+  .strict();
+
 export type BootstrapRequest = z.infer<typeof bootstrapRequestSchema>;
 export type BootstrapResponse = z.infer<typeof bootstrapResponseSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
+export type LoginMethod = z.infer<typeof loginMethodSchema>;
+export type LoginMethodsResponse = z.infer<typeof loginMethodsResponseSchema>;
+export type StartGoogleLoginResponse = z.infer<
+  typeof startGoogleLoginResponseSchema
+>;
+export type GoogleLoginCallbackRequest = z.infer<
+  typeof googleLoginCallbackRequestSchema
+>;
 export type AcceptInviteRequest = z.infer<typeof acceptInviteRequestSchema>;
 export type AcceptInviteResponse = z.infer<typeof acceptInviteResponseSchema>;
+export type IssuePasswordResetRequest = z.infer<
+  typeof issuePasswordResetRequestSchema
+>;
+export type IssuePasswordResetResponse = z.infer<
+  typeof issuePasswordResetResponseSchema
+>;
+export type PasswordResetRequest = z.infer<typeof passwordResetRequestSchema>;
+export type PasswordResetResponse = z.infer<typeof passwordResetResponseSchema>;

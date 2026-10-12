@@ -27,6 +27,7 @@ import {
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
+  receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
@@ -131,7 +132,7 @@ function sessionIdFromTarget(target: unknown): string | undefined {
 
 type SessionRow = typeof sessions.$inferSelect;
 
-function rowsOf<T>(result: unknown): T[] {
+export function rowsOf<T>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[];
   if (
     result !== null &&
@@ -388,6 +389,8 @@ export function createPostgresSessionControl(
       const sessionId = input.sessionId.toLowerCase();
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: TERMINATE,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -577,6 +580,8 @@ export function createPostgresSessionControl(
           tx.insert(receipts).values({
             id: receiptId,
             ownerId: scope.principal,
+            actor: scope.actor,
+            requestId: scope.requestId,
             operation: TERMINATE,
             targetRef: {
               session_id: sessionId,

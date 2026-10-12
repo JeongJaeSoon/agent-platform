@@ -36,6 +36,43 @@ export const API_ERROR_CODE_VALUES = [
   // The catalog no longer allows the session's (profile, repository) pair,
   // so no worker may run it until an operator restores the pair.
   "CATALOG_MISMATCH",
+  // The person who asked for the session was offboarded; it takes no input
+  // until an owner takes it over.
+  "TAKEOVER_REQUIRED",
+  // Linking a Slack account (94S-577): the workspace has no verified Slack
+  // install, the account is from another Slack team, it is linked to someone
+  // else, or the caller already linked a different account in that team.
+  "SLACK_NOT_INSTALLED",
+  "LINK_TEAM_MISMATCH",
+  "LINK_TAKEN",
+  "LINK_EXISTS",
+  // The Slack app is already pinned to another agent (M8).
+  "AGENT_IDENTITY_TAKEN",
+  // An invite that was revoked, replaced by a newer one, or has expired.
+  "INVITE_EXPIRED",
+  "INVITE_USED",
+  // The change would leave the workspace with no live owner.
+  "LAST_OWNER",
+  // An admin granting the owner role or changing an owner's (design 4.1).
+  "OWNER_PROTECTED",
+  // A key asked for more than its issuer holds now, or an agent's key asked
+  // to approve (design 4.1, D26).
+  "SCOPE_NOT_GRANTABLE",
+  // A session named a release made for another runtime profile.
+  "RELEASE_PROFILE_MISMATCH",
+  // A release names a credential its agent has no live binding for: at
+  // activation, and again when a session starts (design 4.4, D11).
+  "CREDENTIAL_UNBOUND",
+  // An agent identity holds the credential name, or the name is bound to an
+  // agent an identity would take it from.
+  "CREDENTIAL_REF_IN_USE",
+  // An external login whose verified address already has an account: it is
+  // never joined by email, the owner links it after signing in (design 3.1).
+  "LOGIN_LINK_REQUIRED",
+  // A release was made against a runtime profile whose settings have changed
+  // since; it has to be released again before it can run.
+  "PROFILE_DIGEST_MISMATCH",
+  "ALREADY_EXISTS",
   "NOT_READY",
   "CURSOR_EXPIRED",
   "LEASE_EXPIRED",

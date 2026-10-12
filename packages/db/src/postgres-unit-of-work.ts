@@ -33,6 +33,7 @@ import type {
   SessionReader,
   SessionRecord,
   SessionUnitOfWork,
+  SessionViewer,
 } from "@agent-platform/platform";
 import {
   InvalidCursorError,
@@ -54,11 +55,14 @@ import {
 } from "drizzle-orm";
 import { contextGapAttention } from "./context-gap.ts";
 import {
+  actorStillMember,
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
   parseTurnSequence,
+  receiptActorOf,
 } from "./control-shared.ts";
+import { lockUnboundRefs } from "./credential-bindings.ts";
 import {
   decodeEventCursor,
   decodeSessionCursor,
@@ -90,6 +94,7 @@ import {
   turns,
 } from "./schema.ts";
 import { recordStatus } from "./session-events.ts";
+import { sessionVisibleTo } from "./session-shares.ts";
 
 const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -108,6 +113,8 @@ async function recordAcceptance(
   await tx.insert(receipts).values({
     id: receipt.id,
     ownerId: scope.principal,
+    actor: scope.actor,
+    requestId: scope.requestId,
     operation: scope.operation,
     targetRef: receipt.targetRef,
     result: receipt.result,
@@ -124,7 +131,12 @@ async function recordAcceptance(
 
 async function insertQueuedTurn(
   tx: Database,
-  input: { sessionId: string; sequence: number; message: string },
+  input: {
+    sessionId: string;
+    sequence: number;
+    message: string;
+    actorId: string | null;
+  },
 ) {
   // now() is the transaction start, which can precede a competing append
   // that won the session lock first; clock_timestamp() keeps created_at
@@ -137,6 +149,7 @@ async function insertQueuedTurn(
       message: input.message,
       status: "queued",
       createdAt: sql`clock_timestamp()`,
+      actorId: input.actorId,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -154,6 +167,8 @@ export function createPostgresSessionUnitOfWork(
     acceptInputAtomic(input: AcceptSessionInput): Promise<AcceptSessionResult> {
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: CREATE_SESSION,
         resource: SESSIONS_RESOURCE,
         key: input.idempotencyKey,
@@ -170,9 +185,24 @@ export function createPostgresSessionUnitOfWork(
             response: createSessionResponseSchema.parse(existing.result),
           };
         }
+        if (input.credentialsUnbound) return { outcome: "credential_unbound" };
 
         if (!input.repository) {
           return { outcome: "unsupported" };
+        }
+        if (!(await actorStillMember(tx, input.principal))) {
+          return { outcome: "actor_inactive" };
+        }
+        if (
+          input.agentReleaseId !== undefined &&
+          (
+            await lockUnboundRefs(tx, {
+              workspaceId: scope.principal,
+              releaseId: input.agentReleaseId,
+            })
+          ).length > 0
+        ) {
+          return { outcome: "credential_unbound" };
         }
         const refused = await admitInput(tx, {
           sessionId: null,
@@ -181,6 +211,7 @@ export function createPostgresSessionUnitOfWork(
         });
         if (refused) return refused;
         const sessionId = randomUUID();
+        const actor = input.principal.actor;
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
@@ -189,12 +220,17 @@ export function createPostgresSessionUnitOfWork(
           profileId: input.profileId,
           profileFingerprint: input.profileFingerprint ?? null,
           unmetered: input.unmetered ?? false,
+          agentReleaseId: input.agentReleaseId ?? null,
           repositoryId: input.repository.id,
+          workspaceId: actor?.workspaceId ?? null,
+          createdByUserId: actor?.userId ?? null,
+          createdByApiKeyId: actor?.apiKeyId ?? null,
         });
         await insertQueuedTurn(tx, {
           sessionId,
           sequence: 1,
           message: input.message,
+          actorId: actor?.userId ?? null,
         });
 
         const receiptId = randomUUID();
@@ -220,6 +256,8 @@ export function createPostgresSessionUnitOfWork(
       const sessionId = input.sessionId.toLowerCase();
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: APPEND_MESSAGE,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -237,6 +275,9 @@ export function createPostgresSessionUnitOfWork(
           };
         }
 
+        if (!(await actorStillMember(tx, input.principal))) {
+          return { outcome: "actor_inactive" };
+        }
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
         const [session] = await tx
@@ -244,6 +285,7 @@ export function createPostgresSessionUnitOfWork(
             admissionState: sessions.admissionState,
             checkpointPendingReason: sessions.checkpointPendingReason,
             status: sessions.status,
+            takeoverRequiredAt: sessions.takeoverRequiredAt,
           })
           .from(sessions)
           .where(
@@ -256,6 +298,9 @@ export function createPostgresSessionUnitOfWork(
           .for("update");
         if (!session) {
           return { outcome: "not_found" };
+        }
+        if (session.takeoverRequiredAt !== null) {
+          return { outcome: "awaiting_takeover" };
         }
         if (session.admissionState !== "active") {
           return {
@@ -288,6 +333,7 @@ export function createPostgresSessionUnitOfWork(
           sessionId: sessionId,
           sequence,
           message: input.message,
+          actorId: input.principal.actor?.userId ?? null,
         });
         await tx
           .update(sessions)
@@ -561,7 +607,11 @@ export function createPostgresSessionReader(
   }
 
   return {
-    async listSessions(ownerId: string, query: ListSessionsQuery) {
+    async listSessions(
+      ownerId: string,
+      query: ListSessionsQuery,
+      viewer: SessionViewer,
+    ) {
       const cursor = query.cursor ? decodeSessionCursor(query.cursor) : null;
       const rows = await db
         .select({
@@ -574,6 +624,7 @@ export function createPostgresSessionReader(
         .where(
           and(
             eq(sessions.ownerId, ownerId),
+            sessionVisibleTo(viewer),
             query.status ? publicStatusIs(query.status) : undefined,
             cursor
               ? sql`(${sessions.createdAt}, ${sessions.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
@@ -829,11 +880,12 @@ export function createPostgresSessionReader(
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
       if (!row) return null;
-      // A resource target (the interface-track routes) parses as stored,
-      // strict, rather than being forced into the session shape.
+      // A resource or user target (the interface-track routes, account
+      // recovery) parses as stored, strict, rather than being forced into
+      // the session shape.
       const stored = (row.targetRef ?? {}) as Partial<ReceiptSessionTarget>;
       const target =
-        "resource" in stored
+        "resource" in stored || "user_id" in stored
           ? stored
           : {
               session_id: stored.session_id,
@@ -846,6 +898,7 @@ export function createPostgresSessionReader(
         id: row.id,
         operation: row.operation,
         target_ref: target,
+        ...(row.actor === null ? {} : { actor: row.actor }),
         status: row.status,
         result: row.result ?? null,
         error: row.error ?? null,

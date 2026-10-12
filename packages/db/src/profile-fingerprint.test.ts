@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  allowAllPolicy,
   type CatalogProfile,
+  createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
   profileFingerprint,
@@ -9,6 +9,7 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
 } from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -41,7 +42,7 @@ const REPOSITORY = {
   url: "https://example.invalid/app.git",
   branch: "main",
 };
-const OWNER = { ownerId: "owner-a" };
+const OWNER = testCaller("owner-a");
 
 function profile(
   overrides: Partial<Omit<CatalogProfile, "provider">> & { key?: string } = {},
@@ -93,7 +94,7 @@ afterEach(async () => {
 
 function serviceOf(catalog: SessionCatalog) {
   return createSessionService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),

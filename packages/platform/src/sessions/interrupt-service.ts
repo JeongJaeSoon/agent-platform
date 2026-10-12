@@ -2,7 +2,7 @@ import type {
   ControlAcceptedResponse,
   InterruptSessionRequest,
 } from "@agent-platform/contracts";
-import type { AuthorizationPolicy, Principal } from "../musterrolle/policy.ts";
+import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { TurnInterrupts } from "../ports/turn-interrupts.ts";
 import { TERMINATE_DEADLINE_MS } from "../scheduler/session-scheduler.ts";
 import {
@@ -36,11 +36,14 @@ export function createInterruptService(deps: {
 
   return {
     async interrupt(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: InterruptSessionRequest },
     ): Promise<ControlAcceptedResponse> {
-      requirePermitted(authorization, actor, "sessions:control");
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await store.interruptAtomic({
         principal: actor,
         sessionId,

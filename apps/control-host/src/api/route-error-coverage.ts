@@ -18,8 +18,15 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "auth.test.ts": [
     "POST /v1/auth/bootstrap",
     "POST /v1/auth/login",
+    "POST /v1/auth/password-reset",
     "POST /v1/auth/logout",
+    "POST /v1/workspaces/{id}/members/{userId}/password-reset",
     "GET /v1/auth/me",
+  ],
+  "google-login.test.ts": [
+    "GET /v1/auth/login-methods",
+    "POST /v1/auth/google/start",
+    "POST /v1/auth/google/callback",
   ],
   "routes/sessions.test.ts": [
     "POST /v1/sessions",
@@ -32,6 +39,14 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/resume",
     "POST /v1/sessions/{id}/recovery-decisions",
   ],
+  "routes/session-shares.test.ts": [
+    "GET /v1/sessions/{id}/share",
+    "POST /v1/sessions/{id}/share",
+    "POST /v1/sessions/{id}/audit-read",
+    "GET /v1/admin/sessions",
+    "POST /v1/admin/sessions/{id}/terminate",
+    "POST /v1/admin/sessions/{id}/recovery-decisions",
+  ],
   "routes/receipts.test.ts": ["GET /v1/receipts/{id}"],
   "routes/pending.test.ts": [
     "GET /v1/sessions/{id}/pending-requests",
@@ -41,6 +56,68 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
+  "routes/members.test.ts": [
+    "GET /v1/members",
+    "PATCH /v1/members/{user_id}",
+    "POST /v1/members/{user_id}/disable",
+    "POST /v1/members/{user_id}/enable",
+    "POST /v1/users/{user_id}/disable",
+    "POST /v1/users/{user_id}/enable",
+    "GET /v1/takeovers",
+    "POST /v1/sessions/{id}/takeover",
+  ],
+  "routes/linked-accounts.test.ts": [
+    "POST /v1/linked-accounts/slack/start",
+    "POST /v1/linked-accounts/slack/callback",
+    "GET /v1/linked-accounts",
+    "DELETE /v1/linked-accounts/{id}",
+  ],
+  "routes/invites.test.ts": [
+    "POST /v1/invites",
+    "GET /v1/invites",
+    "DELETE /v1/invites/{id}",
+    "POST /v1/invites/accept",
+  ],
+  "routes/workspaces.test.ts": [
+    "POST /v1/workspaces/{id}/audit-retention",
+    "POST /v1/workspaces/{id}/slack-guest",
+  ],
+  "routes/api-keys.test.ts": [
+    "POST /v1/api-keys",
+    "GET /v1/api-keys",
+    "DELETE /v1/api-keys/{id}",
+  ],
+  "routes/teams.test.ts": [
+    "POST /v1/teams",
+    "GET /v1/teams",
+    "GET /v1/teams/{team_id}",
+    "PATCH /v1/teams/{team_id}",
+    "DELETE /v1/teams/{team_id}",
+    "POST /v1/teams/{team_id}/members",
+    "DELETE /v1/teams/{team_id}/members/{user_id}",
+    "GET /v1/agents/{id}/admins",
+    "POST /v1/agents/{id}/admins",
+    "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}",
+    "GET /v1/administered-agents",
+  ],
+  "routes/credential-bindings.test.ts": [
+    "GET /v1/agents/{id}/credential-bindings",
+    "POST /v1/agents/{id}/credential-bindings",
+    "DELETE /v1/agents/{id}/credential-bindings/{binding_id}",
+  ],
+  "routes/agents.test.ts": [
+    "GET /v1/agents",
+    "POST /v1/agents",
+    "GET /v1/agents/{id}",
+    "PATCH /v1/agents/{id}",
+    "POST /v1/agents/{id}/releases",
+    "POST /v1/agents/{id}/activate",
+  ],
+  "routes/agent-identities.test.ts": [
+    "POST /v1/agents/{id}/identities",
+    "GET /v1/agents/{id}/identities",
+    "DELETE /v1/agents/{id}/identities/{identity_id}",
+  ],
 };
 
 // Declared for clients but produced by nothing yet: alpha never trims
@@ -83,14 +160,15 @@ const OPERATIONS: Operation[] = Object.entries(
 
 // What the app answers around a handler: the error hook everywhere, the
 // auth middleware on authenticated routes, the body deadline and the cookie
-// CSRF refusal on POSTs, and the scope check.
+// CSRF refusal on every other method, and the scope check.
 function middlewareErrors(operation: Operation): number[] {
-  const post = operation.route.startsWith("POST /v1");
+  const mutation =
+    operation.route.includes(" /v1") && !operation.route.startsWith("GET ");
   return [
     ...globalRouteErrors,
     ...(operation.authenticated ? rootRouteErrors : []),
-    ...(post ? bodyRouteErrors : []),
-    ...(post && operation.authenticated ? mutationRouteErrors : []),
+    ...(mutation ? bodyRouteErrors : []),
+    ...(mutation && operation.authenticated ? mutationRouteErrors : []),
     ...(SCOPED.has(operation.route) ? scopedRouteErrors : []),
   ];
 }
