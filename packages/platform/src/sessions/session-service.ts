@@ -246,6 +246,7 @@ export function createSessionService(deps: {
       version: profile.runtime_version,
       profile_id: profileId,
       model: profile.model,
+      permission_mode: profile.permission_mode,
     };
   }
 

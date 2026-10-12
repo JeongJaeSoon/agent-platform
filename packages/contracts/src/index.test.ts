@@ -18,7 +18,6 @@ import {
   loggableBootstrapClaim,
   nextInputRequestSchema,
   opaqueCursorSchema,
-  PERMISSION_MODE_VALUES,
   pendingControlRequestSchema,
   pendingControlResponseSchema,
   pendingRequestSchema,
@@ -37,6 +36,7 @@ import {
   sessionSummarySchema,
   sseEventSchema,
   TURN_STATUS_VALUES,
+  UNATTENDED_PERMISSION_MODES,
   unassignedSessionSignalSchema,
   workerScopeSchema,
 } from "./index.ts";
@@ -68,7 +68,7 @@ describe("session contracts", () => {
     expect(TURN_STATUS_VALUES).toContain("outcome_unknown");
     expect(TURN_STATUS_VALUES).not.toContain("done");
     expect(sessionStatusSchema.safeParse("complete").success).toBe(false);
-    expect(PERMISSION_MODE_VALUES).not.toContain("bypassPermissions");
+    expect(UNATTENDED_PERMISSION_MODES).toEqual(["bypassPermissions", "auto"]);
   });
 
   test("accepts the api.md create example and rejects the legacy shape", () => {
@@ -139,6 +139,7 @@ describe("session contracts", () => {
       version: "0.3.270",
       profile_id: "claude-coding-v1",
       model: "claude-sonnet-5",
+      permission_mode: "bypassPermissions",
     } as const;
     expect(sessionSummarySchema.parse({ ...summary, runtime }).runtime).toEqual(
       runtime,
@@ -147,6 +148,7 @@ describe("session contracts", () => {
       { ...runtime, profile_id: null },
       { ...runtime, version: null },
       { ...runtime, model: null },
+      { ...runtime, permission_mode: "yolo" },
     ]) {
       expect(
         sessionSummarySchema.safeParse({ ...summary, runtime: partial })
@@ -168,6 +170,7 @@ describe("session contracts", () => {
         version: "0.3.270",
         profile_id: "claude-coding-v1",
         model: "claude-sonnet-5",
+        permission_mode: "default",
       },
       repository_id: "sample-app",
       current_turn_id: "1",
@@ -387,6 +390,7 @@ describe("answers, pending requests and control", () => {
         version: "0.3.270",
         profile_id: "claude-coding-v1",
         model: "claude-sonnet-5",
+        permission_mode: "default",
       },
       repository_id: "sample-app",
       current_turn_id: null,
@@ -682,6 +686,7 @@ describe("worker protocol", () => {
         kind: "claude_agent_sdk",
         version: "0.3.270",
         profile_id: "claude-coding-v1",
+        permission_mode: "default",
       },
       profile_fingerprint: `sha256:${"b".repeat(64)}`,
       runtime_config: {
@@ -836,6 +841,7 @@ describe("worker protocol", () => {
         kind: "claude_agent_sdk",
         version: "0.3.270",
         profile_id: "claude-coding-v1",
+        permission_mode: "default",
       },
       profile_fingerprint: `sha256:${"b".repeat(64)}`,
       runtime_config: {

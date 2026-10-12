@@ -560,6 +560,7 @@ integration("sessions API on PostgreSQL", () => {
         version: "0.3.270",
         profile_id: "claude-coding-v1",
         model: "claude-sonnet-5",
+        permission_mode: "default",
       },
       repository_id: "sample-app",
       current_turn_id: null,
