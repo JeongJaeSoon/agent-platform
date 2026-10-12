@@ -69,4 +69,10 @@ export interface TeamStore {
   ): Promise<TeamMembershipResult>;
   list(workspaceId: string, limit: number): Promise<Team[]>;
   get(workspaceId: string, teamId: string): Promise<TeamDetail | null>;
+  /** The live teams a live member of the workspace is in now. */
+  listJoined(
+    workspaceId: string,
+    userId: string,
+    limit: number,
+  ): Promise<Pick<Team, "id" | "name">[]>;
 }

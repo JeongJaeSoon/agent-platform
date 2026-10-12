@@ -90,6 +90,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/teams.test.ts": [
     "POST /v1/teams",
     "GET /v1/teams",
+    "GET /v1/my-teams",
     "GET /v1/teams/{team_id}",
     "PATCH /v1/teams/{team_id}",
     "DELETE /v1/teams/{team_id}",
