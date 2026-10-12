@@ -130,12 +130,29 @@ describe("ensureExecution", () => {
     const first = await backend.ensureExecution(intent);
     const [secret] = await api.list(NS, "secrets");
     api.removeRaw(NS, "secrets", secret?.metadata.name as string);
+    api.age(NS, "pods", podName, 120_000);
 
     const again = await backend.ensureExecution(intent);
     expect(again.created).toBe(true);
     expect(again.providerRef).not.toBe(first.providerRef);
     expect(issued).toHaveLength(2);
     expect(await api.list(NS, "secrets")).toHaveLength(1);
+  });
+
+  test("leaves a young Pending Pod without its Secret to the launch that may still be writing it", async () => {
+    const { api, backend } = setup();
+    const { intent, issued } = intentFor();
+    const first = await backend.ensureExecution(intent);
+    const [secret] = await api.list(NS, "secrets");
+    api.removeRaw(NS, "secrets", secret?.metadata.name as string);
+
+    await expect(backend.ensureExecution(intent)).rejects.toBeInstanceOf(
+      LaunchOutcomeUnknownError,
+    );
+    expect((await api.get(NS, "pods", podName))?.metadata.uid).toBe(
+      first.providerRef,
+    );
+    expect(issued).toHaveLength(1);
   });
 
   test("replaces a Pod holding a credential the registry no longer accepts", async () => {

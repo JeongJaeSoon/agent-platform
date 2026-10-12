@@ -51,6 +51,12 @@ const STOP_WAIT_MS = 5_000;
 /** Beyond the grace period, for the kubelet to report the Pod gone. */
 const DELETE_SLACK_MS = 60_000;
 const POLL_MS = 250;
+/**
+ * How many request deadlines a Pod may wait for its Secret before a
+ * missing one reads as a create that never happened: the Pod's create
+ * answer, then the Secret's create.
+ */
+const SECRET_LANDING_REQUESTS = 2;
 
 /**
  * `repository@sha256:<digest>`, nothing else: the chart pins every image by
@@ -171,7 +177,7 @@ export class KubernetesBackend implements ExecutionBackend {
           if (
             verdict === "current" &&
             (await this.holdsAcceptedCredential(intent, existing)) &&
-            (await this.canReadItsNonce(existing))
+            (await this.canReadItsNonce(intent, existing))
           ) {
             const spec =
               existing.metadata.annotations?.[ANNOTATIONS.launchSpec];
@@ -600,26 +606,44 @@ export class KubernetesBackend implements ExecutionBackend {
 
   /**
    * A Pod that has started read its env already; one still Pending needs
-   * its Secret to exist and be its own, or it can never start.
+   * its Secret to exist and be its own, or it can never start. A young one
+   * without it may be another call's launch between its two creates, so it
+   * is left for the next pass rather than replaced under that call.
    */
-  private async canReadItsNonce(pod: Pod): Promise<boolean> {
+  private async canReadItsNonce(
+    intent: LaunchIntent,
+    pod: Pod,
+  ): Promise<boolean> {
     if (pod.status?.phase !== undefined && pod.status.phase !== "Pending") {
       return true;
     }
     const name = nonceSecretNameOf(pod);
-    if (name === null) return false;
-    const secret = await this.client.get(
-      this.config.namespace,
-      "secrets",
-      name,
-    );
-    return (
+    const secret =
+      name === null
+        ? null
+        : await this.client.get(this.config.namespace, "secrets", name);
+    if (
       secret !== null &&
       secret.metadata.deletionTimestamp === undefined &&
       (secret.metadata.ownerReferences ?? []).some(
         (owner) => owner.uid === pod.metadata.uid,
       )
-    );
+    ) {
+      return true;
+    }
+    const createdAt = Date.parse(pod.metadata.creationTimestamp ?? "");
+    const young =
+      Number.isFinite(createdAt) &&
+      Date.now() - createdAt <=
+        SECRET_LANDING_REQUESTS * this.config.requestTimeoutMs;
+    if (name !== null && secret === null && young) {
+      throw new LaunchOutcomeUnknownError(intent, {
+        cause: new Error(
+          `Pod ${pod.metadata.name} has no nonce Secret yet; the launch that created it may still be writing it`,
+        ),
+      });
+    }
+    return false;
   }
 
   /** Same rule as the Docker backend: judged by label against the registry. */

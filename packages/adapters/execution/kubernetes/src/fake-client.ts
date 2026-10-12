@@ -124,6 +124,13 @@ export class FakeKubernetes {
     pod.status = { phase };
   }
 
+  /** Moves an object's creation back by `ms`. */
+  age(namespace: string, kind: Kind, name: string, ms: number): void {
+    const object = this.objects.get(this.key(namespace, kind, name));
+    if (object === undefined) throw new Error(`no ${kind} ${name}`);
+    object.metadata.creationTimestamp = new Date(Date.now() - ms).toISOString();
+  }
+
   /** Replaces whatever is under the name with a copy that has another UID. */
   replace(namespace: string, kind: Kind, name: string): string {
     const object = this.objects.get(this.key(namespace, kind, name));
