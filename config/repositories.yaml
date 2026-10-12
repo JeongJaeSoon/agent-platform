@@ -24,7 +24,22 @@
 #     username: agent
 #     value_env: SAMPLE_APP_GIT_PASSWORD
 #
-# The example is the compose Gitea; its gitea-init service creates the
+# A GitHub repository (github.com, or a GHES host in its place) takes a
+# fine-grained PAT with Contents read-only, as the password of the login
+# x-access-token. Write the https clone URL ending in .git, and put
+# github.com:443 on EGRESS_CREDENTIAL_ALLOWLIST, never on EGRESS_ALLOWLIST
+# (docs/operations.md, GitHub 저장소).
+#
+#   app:
+#     url: https://github.com/<owner>/<repo>.git
+#     branch: main
+#     profiles: [claude-coding-real]
+#     auth:
+#       kind: basic
+#       username: x-access-token
+#       value_env: APP_GITHUB_PAT   # or secret_id
+#
+# The entry below is the compose Gitea; its gitea-init service creates the
 # repository (infra/gitea/init-sample-repo.sh).
 repositories:
   sample-app:
