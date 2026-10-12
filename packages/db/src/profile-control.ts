@@ -8,7 +8,7 @@ import {
   type ChangeProfileResult,
   PROFILE_CHANGE_ADMISSION_STATES,
 } from "@agent-platform/platform";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   controlClock,
   findIdempotent,
@@ -109,18 +109,29 @@ export function changeProfileAtomic(
       session.profileId === profile.id &&
       session.profileFingerprint === profile.fingerprint;
     if (!unchanged) {
-      // Rows an older build wrote during a rollout name no profile; they ran
-      // the one being replaced, and say so before it stops being the
-      // session's.
+      // Rows an older build wrote during a rollout name no profile, and rows
+      // 0144 copied from a session older than its fingerprint name no
+      // fingerprint; they ran the profile being replaced, and say so before
+      // it stops being the session's.
       const was = {
         profileId: session.profileId,
         profileFingerprint: session.profileFingerprint,
       };
+      const ranProfile = (
+        column: typeof attempts.profileId | typeof checkpoints.profileId,
+      ) =>
+        session.profileId === null
+          ? isNull(column)
+          : or(isNull(column), eq(column, session.profileId));
       await tx
         .update(attempts)
         .set(was)
         .where(
-          and(eq(attempts.sessionId, sessionId), isNull(attempts.profileId)),
+          and(
+            eq(attempts.sessionId, sessionId),
+            isNull(attempts.profileFingerprint),
+            ranProfile(attempts.profileId),
+          ),
         );
       await tx
         .update(checkpoints)
@@ -128,7 +139,8 @@ export function changeProfileAtomic(
         .where(
           and(
             eq(checkpoints.sessionId, sessionId),
-            isNull(checkpoints.profileId),
+            isNull(checkpoints.profileFingerprint),
+            ranProfile(checkpoints.profileId),
           ),
         );
       await tx

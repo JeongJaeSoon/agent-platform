@@ -359,6 +359,31 @@ describe("changing a session's profile", () => {
     expect(grant.upstream.url).toBe("https://haiku.invalid");
   });
 
+  test("a checkpoint 0144 backfilled without a fingerprint takes the one the session ran before the change", async () => {
+    const sessionId = await createSession();
+    const g = gateway();
+    const claimed = await claim(g, sessionId);
+    await commitCheckpoint(sessionId, claimed, 0);
+    // A session from before 0119 had no fingerprint when 0144 copied it; the
+    // claim pinned one on the session only.
+    await db
+      .update(checkpoints)
+      .set({ profileFingerprint: null })
+      .where(eq(checkpoints.sessionId, sessionId));
+    await changeProfile(sessionId, "haiku", await revisionOf(sessionId));
+    await release(sessionId, claimed);
+
+    const [checkpoint] = await db
+      .select()
+      .from(checkpoints)
+      .where(eq(checkpoints.sessionId, sessionId));
+    expect(checkpoint?.profileFingerprint).toBe(profileFingerprint(SONNET));
+    const next = await claim(g, sessionId);
+    expect(next.restore_runtime_configs?.map((config) => config.model)).toEqual(
+      ["claude-sonnet-5"],
+    );
+  });
+
   test("offers every earlier profile the restorable checkpoints were made under, newest first", async () => {
     const sessionId = await createSession();
     const g = gateway();
