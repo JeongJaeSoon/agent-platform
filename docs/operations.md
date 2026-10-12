@@ -419,7 +419,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 
 #### fine-grained PAT
 
-- **PAT 발급:** GitHub Settings → Developer settings → Fine-grained personal access tokens. Resource owner는 저장소의 owner(조직이면 조직이 승인해야 할 수 있다), Repository access는 `Only select repositories`로 그 저장소만 고른다. Repository permissions는 **Contents: Read-only** 하나다(Metadata: Read-only는 자동으로 붙는다). 만료일을 두고, 만료 전에 같은 참조 뒤의 값만 바꾼 뒤 API를 재기동한다(fingerprint·revision은 그대로다). push·PR은 이 route로 하지 않으므로 쓰기 권한은 주지 않는다.
+- **PAT 발급:** GitHub Settings → Developer settings → Fine-grained personal access tokens. Resource owner는 저장소의 owner(조직이면 조직이 승인해야 할 수 있다), Repository access는 `Only select repositories`로 그 저장소만 고른다. Repository permissions는 **Contents: Read-only** 하나다(Metadata: Read-only는 자동으로 붙는다). 만료일을 두고, 만료 전에 같은 참조 뒤의 값만 바꾼 뒤 API를 재기동한다(fingerprint·revision은 그대로다). 승인된 세션 결과를 push하려면(아래 94S-629 절) **Contents: Read and write**로 준다. 그 PAT는 API만 쓰고 worker에는 가지 않는다. push를 쓰지 않으면 Read-only로 둔다.
 - **카탈로그:** URL은 https clone URL 그대로 `.git`까지 적는다. GHES는 host만 다르다. 로그인 이름은 `x-access-token`이고 PAT를 비밀번호 자리에 둔다. 공개 저장소는 `auth` 없이 등록해도 clone된다.
 
   ```yaml
@@ -452,7 +452,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 
 ### 세션 결과의 push 승인 (94S-628)
 
-세션의 결과는 worker가 아니라 플랫폼(API)이 push하고, 사람이 승인한 뒤에만 한다. 이 절은 요청과 승인까지다. 승인된 요청을 실제로 push하는 일은 94S-629가 한다. 그 전까지 승인된 요청은 `approved`에 머문다. API 사용법은 [api-guide 10절](api-guide.md#10-세션-결과의-push-요청과-승인거부)에 있다.
+세션의 결과는 worker가 아니라 플랫폼(API)이 push하고, 사람이 승인한 뒤에만 한다. 이 절은 요청과 승인이고, 승인된 요청의 push는 다음 절이다. API 사용법은 [api-guide 10절](api-guide.md#10-세션-결과의-push-요청과-승인거부)에 있다.
 
 - **고정하는 것:** 요청(`POST /v1/sessions/{id}/push-requests`, `sessions:write`)은 그때 세션의 checkpoint pointer가 가리키는 revision과, 검증된 manifest가 적은 `git_commit`을 고정한다. 저장소는 세션의 `repository_id`, 브랜치는 `agent/<session-id>`다. 요청자는 이 중 아무것도 고를 수 없다. 브랜치 규칙은 DB CHECK(`push_requests_target_branch_check`)도 지킨다. manifest가 검증되지 않으면 더 오래된 checkpoint로 대신하지 않고 거절한다.
 - **결정하는 사람:** 결정(`POST .../push-requests/{push_request_id}/decision`)에는 `sessions:approve`가 필요하다. 이 scope는 API의 scope 표가 아니라 push 서비스가 검사한다. 그래야 거절도 receipt로 남는다. 결정할 수 있는 principal은 API key와 로그인한 사용자뿐이다. 다른 종류(chat installation, 나중에 생길 에이전트 전용 key)는 목록에 넣기 전까지 거절된다. API key는 사람과 묶여 있지 않으므로 `sessions:approve` key는 사람만 갖게 발급한다. 자동화(CI 등)에는 주지 않는다.
@@ -461,6 +461,20 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 - **상태:** `requested` → `approved` | `rejected`(사람), `approved` → `pushing` → `pushed` | `failed`(플랫폼, 94S-629). 세션마다 열린 요청(`requested`·`approved`·`pushing`)은 하나다.
 - **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
 - **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`decide_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
+
+### 승인된 요청의 push (94S-629)
+
+API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다. replica가 여럿이면 같은 행을 둘이 잡지 않는다(`FOR UPDATE SKIP LOCKED`). 승인 뒤 보통 몇 초 안에 요청이 `pushing`을 거쳐 `pushed`나 `failed`가 된다. `requested`·`rejected`·이미 끝난 요청은 잡지 않으므로 push되지 않는다.
+
+- **무엇을 어디로:** 요청이 고정한 commit 하나를, 요청이 고정한 저장소의 `refs/heads/agent/<session-id>`에 push한다. 다른 ref나 tag는 보내지 않는다. force push는 없다. 원격 브랜치가 이미 있고 그 commit이 push할 commit의 조상이 아니면 `non_fast_forward`로 거절한다. 같은 commit이 이미 있으면 그대로 `pushed`다.
+- **거절하는 대상:** 브랜치가 `agent/<session-id>`가 아니면 `target_refused`, 카탈로그 `branch`이거나 원격의 기본 브랜치(GitHub API의 `default_branch`, 원격 `HEAD`가 가리키는 브랜치)면 `default_branch`다.
+- **고정한 저장소:** 요청은 카탈로그 항목의 binding(URL·branch·auth의 종류와 참조 위치의 해시, 비밀 값은 넣지 않음)을 함께 저장한다. push 때 다시 계산해 다르면(URL을 바꿈, auth를 바꿈, 항목을 지움) `catalog_changed`로 거절하고 원격에는 아무 요청도 보내지 않는다. 그 세션은 새로 요청해 다시 승인받는다. 같은 참조 뒤의 비밀 값만 바꾸는 키·PAT 교체는 binding을 바꾸지 않는다.
+- **자격 증명:** `github_app`은 `contents: write`, 그 저장소 하나로 좁힌 설치 토큰을 새로 받는다(clone용 읽기 토큰과 따로 캐시한다). github.com의 `basic`(PAT)과 forge가 없는 `basic`·`bearer`(Gitea, GHES PAT)는 카탈로그 값을 그대로 쓴다. `auth`가 없는 저장소는 `no_push_credential`로 거절한다. 값은 git 프로세스의 환경 변수(`GIT_CONFIG_COUNT`)로 `http.<저장소 URL>.extraHeader`에만 들어간다. 명령줄 인자, URL, 저장소 config, 디스크 어디에도 쓰지 않고, redirect는 따라가지 않는다.
+- **checkpoint에서 꺼내기:** 고정한 revision의 manifest와 bundle 체인을 restore처럼 처음부터 다시 검증하고(digest와 git 검증기), `baseBundles` 순서로 임시 bare 저장소에 fsck를 켜고 fetch한다. 이 저장소는 template가 없어 hook이 없고, checkout이 없어 filter·attribute·submodule이 돌지 않으며, 사용자·시스템 git config를 읽지 않는다. 끝나면 임시 디렉터리를 지운다.
+- **lease:** `pushing`은 15분 lease를 가진다. API가 push 도중 죽으면 lease가 끝난 뒤 다른 replica(또는 재기동한 API)가 같은 요청을 다시 잡는다. 같은 commit이 이미 원격에 있으면 `pushed`로 끝난다. 세 번 잡혀도 끝나지 않으면 `lease_expired`로 `failed`가 되고, 세션은 새 요청을 만들 수 있다. 늦게 깨어난 이전 시도는 결과를 덮어쓰지 못한다.
+- **결과:** `GET /v1/sessions/{id}/push-requests/{push_request_id}`의 `push_receipt_id`가 `push` receipt를 가리킨다. 그 `result`에는 위 필드에 더해 `remote_url`, `remote_ref`(`refs/heads/agent/<session-id>`), `previous_commit`(원격 ref가 전에 가리키던 commit, 새로 만들었으면 null), `approved_by`(결정한 actor)가 있다. 실패면 `refusal`과 `error.code`가 있다: `catalog_changed`(`CATALOG_MISMATCH`), `target_refused`·`default_branch`·`no_push_credential`(`FORBIDDEN`), `non_fast_forward`(`REVISION_CONFLICT`), `checkpoint_unavailable`(`CHECKPOINT_UNAVAILABLE`), `lease_expired`(`LEASE_EXPIRED`), `push_failed`(`BACKEND_UNAVAILABLE`, 토큰 발급 실패·원격 거절·네트워크). 원격이 보낸 메시지는 receipt에 넣지 않는다. API 로그의 `Push refused`·`Push failed`·`Push request finished` 줄에 `push_request_id`와 사유가 있다.
+- **필요한 권한:** GitHub App은 Repository permissions **Contents: Read and write**(위 App 절). fine-grained PAT는 **Contents: Read and write**. API 컨테이너에서 저장소 host로 나가는 outbound가 열려 있어야 한다(clone은 proxy를 거치지만 push는 API가 직접 한다).
+- **기본 브랜치 보호(권장):** 코드가 기본 브랜치를 거부하지만 GitHub에서도 한 번 더 막는다. 저장소 Settings → Rules → Rulesets → New branch ruleset에서 Target을 `Include default branch`로 두고 **Restrict updates**, **Restrict deletions**, **Block force pushes**를 켠다. Bypass list에는 App을 넣지 않는다. 사람의 리뷰를 거친 머지만 받으려면 **Require a pull request before merging**도 켠다. `agent/*` 브랜치에는 force push 금지(**Block force pushes**)만 거는 ruleset을 따로 두면 플랫폼이 아닌 누군가가 그 브랜치를 되돌리는 일도 막는다.
 
 ### 자율 모드: `bypassPermissions`·`auto` (94S-621)
 
