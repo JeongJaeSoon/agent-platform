@@ -237,6 +237,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     version: "0.2.1",
     profile_id: "claude-coding-real",
     model: "claude-sonnet-5",
+    permission_mode: "default",
   },
   repository_id: "sample-app",
   current_turn_id: "3",
