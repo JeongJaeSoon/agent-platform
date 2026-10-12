@@ -8,6 +8,7 @@ import {
   createTeamRequestSchema,
   deleteTeamResponseSchema,
   listAdministeredAgentsResponseSchema,
+  listMyTeamsResponseSchema,
   listTeamsResponseSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
@@ -40,6 +41,11 @@ export function registerTeamRoutes(
   apiRoute(router, "listTeams", async (context) => {
     const listed = await mapped(() => teams.listTeams(context.get("caller")));
     return jsonWithSchema(context, listTeamsResponseSchema, listed);
+  });
+
+  apiRoute(router, "listMyTeams", async (context) => {
+    const listed = await mapped(() => teams.listMyTeams(context.get("caller")));
+    return jsonWithSchema(context, listMyTeamsResponseSchema, listed);
   });
 
   apiRoute(router, "getTeam", async (context) => {

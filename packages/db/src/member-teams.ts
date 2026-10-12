@@ -5,11 +5,12 @@ import type {
   TeamMembershipResult,
   TeamStore,
 } from "@agent-platform/platform";
-import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, exists, isNull, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdminTeams,
+  memberships,
   memberTeamMembers,
   memberTeams,
   receipts,
@@ -287,6 +288,45 @@ export function createPostgresTeamStore(db: Database): TeamStore {
         revision: team.revision,
         memberCount,
       }));
+    },
+
+    async listJoined(workspaceId, userId, limit) {
+      if (!UUID.test(workspaceId) || !UUID.test(userId)) return [];
+      const user = userId.toLowerCase();
+      return db
+        .select({ id: memberTeams.id, name: memberTeams.name })
+        .from(memberTeams)
+        .innerJoin(
+          memberTeamMembers,
+          and(
+            eq(memberTeamMembers.teamId, memberTeams.id),
+            eq(memberTeamMembers.userId, user),
+            isNull(memberTeamMembers.removedAt),
+          ),
+        )
+        .where(
+          and(
+            eq(memberTeams.workspaceId, workspaceId),
+            isNull(memberTeams.archivedAt),
+            // A disabled member belongs to nothing.
+            exists(
+              db
+                .select({ one: sql`1` })
+                .from(memberships)
+                .innerJoin(users, eq(users.id, memberships.userId))
+                .where(
+                  and(
+                    eq(memberships.workspaceId, workspaceId),
+                    eq(memberships.userId, user),
+                    isNull(memberships.disabledAt),
+                    isNull(users.disabledAt),
+                  ),
+                ),
+            ),
+          ),
+        )
+        .orderBy(asc(memberTeams.name), asc(memberTeams.id))
+        .limit(limit);
     },
 
     async get(workspaceId, teamId) {

@@ -60,6 +60,7 @@ import {
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
+  listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
   listSessionsQuerySchema,
@@ -242,6 +243,7 @@ const responseComponents = {
   AgentAdmins: agentAdminsViewSchema,
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
+  ListMyTeamsResponse: listMyTeamsResponseSchema,
   CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
   CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
   ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
@@ -1910,6 +1912,30 @@ export const API_ROUTE_DECLARATIONS = [
     summary: "The workspace's teams, by name",
     auth: "session",
     success: { status: 200, schema: "ListTeamsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/my-teams",
+    operationId: "listMyTeams",
+    tag: "Teams",
+    summary: "The teams the caller belongs to",
+    description:
+      "Any signed-in person, as of this request: each team's id and name, never who else is in it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListMyTeamsResponse",
+      description: "The caller's live teams, by name.",
+      example: {
+        items: [
+          {
+            id: "019a0000-0000-7000-8000-00000000b0a1",
+            name: "research admins",
+          },
+        ],
+      },
+    },
     errors: [401, 403, 503],
   },
   {

@@ -29,7 +29,10 @@ function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
   return { api, history, services };
 }
 
-const meOk = { "GET /v1/auth/me": () => json(200, me()) };
+const meOk = {
+  "GET /v1/auth/me": () => json(200, me()),
+  "GET /v1/my-teams": () => json(200, { items: [] }),
+};
 const callsTo = (calls: Recorded[], path: string) =>
   calls.filter((call) => call.path === path);
 

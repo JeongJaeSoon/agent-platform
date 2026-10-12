@@ -267,6 +267,10 @@ export const ko = {
   "teams.listTitle": "팀 목록",
   "teams.empty": "아직 팀이 없습니다.",
   "teams.memberCount": "구성원 {count}명",
+  "teams.mine.title": "내가 속한 팀",
+  "teams.mine.intro":
+    "소유자나 관리자가 넣은 팀입니다. 팀이 에이전트 관리자로 지정되면 그 에이전트를 관리합니다.",
+  "teams.mine.empty": "아직 속한 팀이 없습니다.",
   "teams.back": "← 팀 목록",
   "teams.settings": "팀 설정",
   "teams.rename": "이름 바꾸기",
