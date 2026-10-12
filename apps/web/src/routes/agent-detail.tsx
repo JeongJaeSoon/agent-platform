@@ -5,13 +5,14 @@ import type {
   AgentRelease,
   AgentVersion,
   CreateAgentReleaseResponse,
+  ProfileSummary,
 } from "@agent-platform/contracts";
 import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
-import { agentQuery, queryKeys } from "../api/queries.ts";
+import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
 import {
@@ -525,6 +526,49 @@ function VersionSelect({
   );
 }
 
+function ProfileSelect({
+  label,
+  hint,
+  profiles,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly hint: string;
+  readonly profiles: readonly ProfileSummary[];
+  readonly value: string;
+  readonly onChange: (id: string) => void;
+}) {
+  const { t } = useI18n();
+  const hintId = useId();
+  return (
+    <div className="web-field">
+      <label className="web-field">
+        <span>{label}</span>
+        <select
+          className="ap-input"
+          required
+          value={value}
+          aria-describedby={hintId}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {t("agent.releases.profileOption", {
+                profile: profile.id,
+                model: profile.model,
+              })}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span id={hintId} className="web-field__hint">
+        {hint}
+      </span>
+    </div>
+  );
+}
+
 function Releases({
   detail,
   picked,
@@ -549,9 +593,15 @@ function Releases({
   const titleId = useId();
   const latest = latestVersion(detail);
   const versionId = picked ?? latest?.id ?? "";
-  const [profile, setProfile] = useState(
+  const profiles = useQuery(profilesQuery(client));
+  const [chosen, setProfile] = useState(
     detail.releases.at(-1)?.runtime_profile_id ?? "",
   );
+  // A profile the catalog no longer has cannot be released again.
+  const items = profiles.data?.items ?? [];
+  const profile = items.some((item) => item.id === chosen)
+    ? chosen
+    : (items[0]?.id ?? "");
   const ordered = [...detail.releases].sort((a, b) =>
     b.created_at.localeCompare(a.created_at),
   );
@@ -561,7 +611,7 @@ function Releases({
       unwrap(
         client.POST("/v1/agents/{id}/releases", {
           params: { path: { id: detail.agent.id } },
-          body: { version_id: versionId, runtime_profile_id: profile.trim() },
+          body: { version_id: versionId, runtime_profile_id: profile },
         }),
       ),
     onMutate: () => onOutcome(null),
@@ -600,18 +650,29 @@ function Releases({
           value={versionId}
           onChange={onPick}
         />
-        <TextField
-          label={t("agent.releases.profile")}
-          hint={t("agent.releases.profileHint")}
-          required
-          maxLength={128}
-          value={profile}
-          onChange={(event) => setProfile(event.target.value)}
-        />
+        {profiles.isPending ? (
+          <p className="web-page__empty">
+            {t("agent.releases.profilesLoading")}
+          </p>
+        ) : profiles.error ? (
+          <p className="web-form__error" role="alert">
+            {t("agent.releases.profilesFailed", {
+              reason: t(errorKey((profiles.error as ApiError).code)),
+            })}
+          </p>
+        ) : (
+          <ProfileSelect
+            label={t("agent.releases.profile")}
+            hint={t("agent.releases.profileHint")}
+            profiles={items}
+            value={profile}
+            onChange={setProfile}
+          />
+        )}
         <button
           type="submit"
           className="ap-button"
-          disabled={release.isPending || versionId === ""}
+          disabled={release.isPending || versionId === "" || profile === ""}
         >
           {release.isPending
             ? t("agent.releases.creating")

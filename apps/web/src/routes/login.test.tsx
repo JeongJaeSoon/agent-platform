@@ -105,7 +105,7 @@ describe("Google 콜백", () => {
     const cases: [Response, string][] = [
       [
         apiError(401, "UNAUTHORIZED", "Google sign-in was not accepted"),
-        "Google 로그인을 받아들이지 못했습니다 — 초대받은 주소의 계정인지 확인하고 처음부터 다시 시도하세요.",
+        "Google 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
       ],
       [
         apiError(
@@ -113,7 +113,7 @@ describe("Google 콜백", () => {
           "FORBIDDEN",
           "This Google account's domain is not allowed here",
         ),
-        "이 Google 계정으로는 들어올 수 없습니다 — 워크스페이스가 허용한 도메인의 계정으로 다시 시도하세요.",
+        "이 Google 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
       ],
       [
         apiError(
@@ -141,7 +141,7 @@ describe("Google 콜백", () => {
   test("code 없이 돌아오면(동의 취소) 보내지 않고 다시 하라고 한다", async () => {
     const { api } = renderAt("/auth/google/callback?error=access_denied", {});
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Google 로그인이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
+      "Google 로그인을 마치지 못했습니다 — 다시 시도하세요.",
     );
     expect(api.calls).toEqual([]);
   });

@@ -210,7 +210,7 @@ describe("API key", () => {
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
-      "에이전트 전용 key에 넣을 범위를 하나 이상 고르세요(sessions:approve는 빠집니다).",
+      "권한을 하나 이상 고르세요. 에이전트 전용 key에는 sessions:approve를 넣을 수 없습니다.",
     );
   });
 
@@ -228,7 +228,7 @@ describe("API key", () => {
       expect(
         document.getElementById(button.getAttribute("aria-describedby") ?? "")
           ?.textContent,
-      ).toBe("서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요."),
+      ).toBe("서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요."),
     );
     expect(screen.queryByText("관리하는 에이전트가 없습니다.")).toBeNull();
   });
@@ -312,7 +312,7 @@ describe("API key", () => {
       within(personal).getByRole("button", { name: "개인 key 발급" }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "지금 내가 가진 범위보다 넓은 key는 만들 수 없습니다. An agent key cannot carry sessions:approve",
+      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다. An agent key cannot carry sessions:approve",
     );
   });
 
