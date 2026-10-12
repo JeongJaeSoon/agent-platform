@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
@@ -38,6 +38,11 @@ export async function main(
  * is decided after the claim, from its workspace descriptor (`workspace.ts`).
  */
 export async function verifyWorkspace(directory: string): Promise<void> {
+  // The Kubernetes backend mounts the volume one level up: a fresh volume's
+  // own root belongs to root, and git refuses a repository whose top
+  // directory another user owns. Only the leaf is made, so a missing mount
+  // still fails here.
+  await mkdir(directory).catch(() => undefined);
   const found = await stat(directory).catch(() => null);
   if (found?.isDirectory() !== true) {
     throw new Error(
