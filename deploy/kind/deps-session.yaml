@@ -1,0 +1,74 @@
+# What a session needs beyond deps.yaml, for smoke.sh (KIND_MODEL fake or
+# real): the sample repository the catalog names, as compose's gitea and
+# gitea-init serve it. Workers reach it only through the egress proxy's
+# repository route.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  labels: {app: gitea}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: gitea}
+  template:
+    metadata:
+      labels: {app: gitea}
+    spec:
+      # init-sample-repo.sh calls http://gitea:3000; here that is this Pod.
+      hostAliases:
+        - ip: 127.0.0.1
+          hostnames: [gitea]
+      terminationGracePeriodSeconds: 2
+      containers:
+        - name: gitea
+          image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+          env:
+            - {name: GITEA__database__DB_TYPE, value: sqlite3}
+            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet: {path: /api/v1/version, port: 3000}
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+        # compose's gitea-init, kept running so the Pod is Ready only once
+        # the repository exists.
+        - name: init
+          image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          command:
+            - sh
+            - -c
+            - >-
+              until wget -q -O /dev/null http://127.0.0.1:3000/api/v1/version; do sleep 2; done;
+              sh /init/init-sample-repo.sh && exec sleep 2147483647
+          readinessProbe:
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/v1/repos/agent/sample-app"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: init
+              mountPath: /init
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: init
+          configMap:
+            name: gitea-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+spec:
+  selector: {app: gitea}
+  ports:
+    - port: 3000
