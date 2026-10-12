@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { posix } from "node:path";
 import {
   type ExecutionRef,
   hashWorkerToken,
@@ -73,6 +74,20 @@ const CONTAINER_NAME = "worker";
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
 
 /**
+ * The claim is mounted at `workspaceDir` and the checkout lives one level
+ * below, in a directory the worker makes. A fresh volume's root belongs to
+ * root (fsGroup changes only its group), and git refuses a repository whose
+ * top directory another user owns.
+ */
+export const CHECKOUT_DIRECTORY = "repo";
+
+export function checkoutDirOf(
+  config: Pick<KubernetesBackendConfig, "workspaceDir">,
+): string {
+  return posix.join(config.workspaceDir, CHECKOUT_DIRECTORY);
+}
+
+/**
  * Bumped whenever what a worker Pod is created with changes in a way a
  * running Pod does not pick up, so the scheduler replaces it.
  *
@@ -110,6 +125,8 @@ export function isolationStampFor(
     config.tmpfsSizeBytes,
     config.user,
     config.workspaceDir,
+    // A Pod that checks out at the mount's root fails on a fresh volume.
+    checkoutDirOf(config),
     config.objectStore.bucket,
     config.objectStore.region,
     config.workspaceSizeBytes,
@@ -420,7 +437,7 @@ export function workerEnvironmentFor(
     [ENV.gatewayUrl, config.gatewayUrl],
     [ENV.egressCredentialUrl, egressCredentialUrlOf(config)],
     [ENV.home, config.homeDir],
-    [ENV.workspaceDir, config.workspaceDir],
+    [ENV.workspaceDir, checkoutDirOf(config)],
     [ENV.httpProxy, config.egressProxyUrl],
     [ENV.httpProxyLower, config.egressProxyUrl],
     [ENV.httpsProxy, config.egressProxyUrl],

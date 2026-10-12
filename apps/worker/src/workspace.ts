@@ -317,7 +317,7 @@ export class GitWorkspace implements WorkspacePreparer {
   }
 
   private async clone(git: Git, remote: Remote, branch: string): Promise<void> {
-    // Run from the parent: the root may not exist yet, and git creates it.
+    // Not from the root: it may not exist yet, and git creates it.
     await check(
       git(
         [
@@ -329,7 +329,10 @@ export class GitWorkspace implements WorkspacePreparer {
           remote.route?.url ?? remote.url,
           this.root,
         ],
-        { network: true, cwd: join(this.root, "..") },
+        // `/`, read-only: the mount above the root is the engine's to write
+        // (the Kubernetes backend), so a git looking for a repository from
+        // there could find a config the last engine planted.
+        { network: true, cwd: "/" },
       ),
       "clone",
     );
@@ -363,9 +366,8 @@ export class GitWorkspace implements WorkspacePreparer {
     await check(
       git(["clone", "--quiet", "--bare", "--", url, mirror], {
         network: true,
-        // Outside the checkout: a git that looked for a repository from its
-        // cwd would find the config the last engine could write.
-        cwd: join(this.root, ".."),
+        // Outside the checkout and its mount, as for the clone.
+        cwd: "/",
       }),
       "fetch",
     );
