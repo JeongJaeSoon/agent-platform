@@ -62,7 +62,11 @@ const WORKER_LABELS = {
   "app.kubernetes.io/component": "worker",
 };
 
-function check(label: string, manifests: Manifest[]): string[] {
+function check(
+  label: string,
+  manifests: Manifest[],
+  scheduler: boolean,
+): string[] {
   const errors: string[] = [];
   const fail = (m: Manifest, message: string) =>
     errors.push(`${label}: ${m.kind}/${m.metadata.name}: ${message}`);
@@ -116,8 +120,10 @@ function check(label: string, manifests: Manifest[]): string[] {
   }
 
   const roles = manifests.filter((m) => m.kind === "Role");
-  if (roles.length !== 1) {
-    errors.push(`${label}: expected exactly one Role, got ${roles.length}`);
+  if (roles.length !== (scheduler ? 1 : 0)) {
+    errors.push(
+      `${label}: expected ${scheduler ? 1 : 0} Role, got ${roles.length}`,
+    );
   }
   for (const role of roles) {
     const got: Record<string, string[]> = {};
@@ -131,6 +137,22 @@ function check(label: string, manifests: Manifest[]): string[] {
     }
     if (JSON.stringify(got) !== JSON.stringify(SCHEDULER_RULES)) {
       fail(role, `rules ${JSON.stringify(got)} are not the contract's`);
+    }
+  }
+  const schedulers = manifests.filter(
+    (m) =>
+      m.kind === "Deployment" &&
+      m.metadata.labels?.["app.kubernetes.io/component"] === "scheduler",
+  );
+  if (schedulers.length !== (scheduler ? 1 : 0)) {
+    errors.push(`${label}: expected ${scheduler ? 1 : 0} scheduler Deployment`);
+  }
+  for (const m of schedulers) {
+    const variables: { name: string; value?: string }[] =
+      podSpecOf(m).containers[0].env ?? [];
+    const backend = variables.find((v) => v.name === "EXECUTION_BACKEND");
+    if (backend?.value !== "kubernetes") {
+      fail(m, "EXECUTION_BACKEND is not kubernetes");
     }
   }
   if (manifests.some((m) => m.kind.startsWith("Cluster"))) {
@@ -229,7 +251,12 @@ const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
   [
     "a tag-only image",
-    ["-f", ciDigests, "--set", "images.worker.repository=example/worker:1.0"],
+    [
+      "-f",
+      ciDigests,
+      "--set",
+      "images.controlHost.repository=example/control-host:1.0",
+    ],
     /must not carry a tag or digest/,
   ],
   [
@@ -245,8 +272,25 @@ const MUST_FAIL: [string, string[], RegExp][] = [
 ];
 
 const errors = [
-  ...check("default", render(["-f", ciDigests])),
-  ...check("aws example", render(["-f", ciDigests, "-f", awsExample])),
+  ...check("default", render(["-f", ciDigests]), false),
+  ...check(
+    "scheduler on",
+    render(["-f", ciDigests, "--set", "scheduler.enabled=true"]),
+    true,
+  ),
+  ...check("aws example", render(["-f", ciDigests, "-f", awsExample]), false),
+  ...check(
+    "aws example, scheduler on",
+    render([
+      "-f",
+      ciDigests,
+      "-f",
+      awsExample,
+      "--set",
+      "scheduler.enabled=true",
+    ]),
+    true,
+  ),
 ];
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
@@ -260,5 +304,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass; ${MUST_FAIL.length} bad inputs refused`,
+  `render-check: default and aws example renders pass, scheduler off and on; ${MUST_FAIL.length} bad inputs refused`,
 );

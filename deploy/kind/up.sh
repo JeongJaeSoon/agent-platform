@@ -89,8 +89,9 @@ fi
 kubectl -n "$NAMESPACE" rollout status deploy/postgres --timeout=180s
 kubectl -n "$NAMESPACE" rollout status deploy/localstack --timeout=300s
 
-# No --wait: the scheduler's kubernetes backend (94S-523/524) is checked on
-# its own (94S-525). Helm still waits for the migrate hook.
+# The chart's defaults leave the scheduler off until 94S-524; its kubernetes
+# backend is checked on its own (94S-525). Helm waits for the migrate hook,
+# and the rollouts below for the rest.
 helm upgrade --install "$RELEASE" "$root/deploy/helm/agent-platform" \
   --namespace "$NAMESPACE" \
   -f "$root/deploy/kind/values.yaml" \

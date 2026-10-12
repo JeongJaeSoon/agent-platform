@@ -625,12 +625,15 @@ jobs:
       - name: kubeconform
         run: |
           set -o pipefail
+          # The scheduler is off by default until 94S-524; validate it too.
           for values in deploy/helm/ci-digests.yaml deploy/helm/agent-platform/values-aws.example.yaml; do
             echo "== $values"
             helm template ap deploy/helm/agent-platform -f deploy/helm/ci-digests.yaml -f "$values" \
+                --set scheduler.enabled=true \
               | kubeconform -strict -summary -kubernetes-version 1.33.0 \
                   -schema-location "$K8S_SCHEMAS" -schema-location "$CRD_SCHEMAS"
           done
+
   # Research harnesses, pinned to the SDK and LiteLLM versions under
   # investigation. Their failures have never been a product regression, so they
   # report without blocking the run; see docs/ci.md.
