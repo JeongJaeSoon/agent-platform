@@ -21,14 +21,14 @@ import {
   createUsageService,
   createWorkerGateway,
   InstallationConfigError,
-  installationLimitProblems,
   installationLimitsFromEnv,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
+  apiReadinessConfigProblems,
   apiSettingsFromEnv,
-  apiSettingsProblems,
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
 import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
@@ -271,20 +271,8 @@ const app = createApiApp({
   readiness: shutdown.readiness(
     createReadinessProbe({
       db: probePool,
-      // AUTH_MODE unset still fails closed (every /v1 call is 401), which is
-      // a misconfiguration, not a serving instance.
-      // app.ts treats anything but "none" as api-key mode, so a typo would
-      // silently run authenticated; only the two spellings we document count.
-      requiredEnv: [
-        "DATABASE_URL",
-        { name: "AUTH_MODE", allowed: ["none", "api-key"] },
-      ],
-      // The same parser the process started with: an env that changed under
-      // a running instance shows up here rather than at the next restart.
-      configProblems: (environment) => [
-        ...installationLimitProblems(environment),
-        ...apiSettingsProblems(environment),
-      ],
+      requiredEnv: API_READINESS_REQUIRED_ENV,
+      configProblems: apiReadinessConfigProblems,
     }),
   ),
 });

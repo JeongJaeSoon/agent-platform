@@ -306,12 +306,11 @@ describe("API checkpoint composition", () => {
       S3_BUCKET: "claude-sessions",
     };
     expect(checkpointStorageConfigFromEnv(full)).toEqual({
-      accessKeyId: "id",
       bucket: "claude-sessions",
+      credentials: { accessKeyId: "id", secretAccessKey: "s" },
       endpoint: "http://127.0.0.1:4566",
       protection: "locked",
       region: "ap-northeast-1",
-      secretAccessKey: "s",
     });
     const { AWS_ENDPOINT_URL: _endpoint, ...aws } = full;
     expect(
@@ -354,6 +353,40 @@ describe("API checkpoint composition", () => {
     ).toThrow(/CHECKPOINT_OBJECT_STORE/);
   });
 
+  test("without static keys leaves the credentials to the default chain, and refuses one key alone", () => {
+    const keyless = {
+      AWS_REGION: "ap-northeast-1",
+      S3_BUCKET: "claude-sessions",
+    };
+    expect(checkpointStorageConfigFromEnv(keyless)).toEqual({
+      bucket: "claude-sessions",
+      protection: "locked",
+      region: "ap-northeast-1",
+    });
+    expect(
+      checkpointStorageConfigFromEnv({
+        ...keyless,
+        AWS_ACCESS_KEY_ID: " ",
+        AWS_SECRET_ACCESS_KEY: "",
+      }),
+    ).not.toHaveProperty("credentials");
+    // Neither refusal repeats the key that was set.
+    expect(() =>
+      checkpointStorageConfigFromEnv({ ...keyless, AWS_ACCESS_KEY_ID: "id" }),
+    ).toThrow(
+      /^AWS_SECRET_ACCESS_KEY is required with AWS_ACCESS_KEY_ID; set both, or neither to use the default AWS credential chain$/,
+    );
+    expect(() =>
+      checkpointStorageConfigFromEnv({
+        ...keyless,
+        AWS_SECRET_ACCESS_KEY: "s",
+      }),
+    ).toThrow(/^AWS_ACCESS_KEY_ID is required with AWS_SECRET_ACCESS_KEY;/);
+    expect(() =>
+      checkpointStorageConfigFromEnv({ S3_BUCKET: "claude-sessions" }),
+    ).toThrow(/^AWS_REGION is required/);
+  });
+
   test("without an object store the gateway gets the fail-closed verifier and no protocol", async () => {
     const wired = createApiCheckpoints({} as never, "disabled");
     expect(wired.protocol).toBeUndefined();
@@ -380,11 +413,9 @@ describe("API checkpoint composition", () => {
 
 describe("checkpoint bucket encryption at startup", () => {
   const config: CheckpointStorageConfig = {
-    accessKeyId: "id",
     bucket: "claude-sessions",
     protection: "locked",
     region: "ap-northeast-1",
-    secretAccessKey: "s",
   };
   const bucketEncryptedWith = (algorithm: "none" | "aws:kms" | "AES256") => ({
     async send() {
@@ -446,11 +477,9 @@ describe("checkpoint bucket encryption at startup", () => {
 
 describe("checkpoint objects present at startup", () => {
   const config: CheckpointStorageConfig = {
-    accessKeyId: "id",
     bucket: "claude-sessions",
     protection: "locked",
     region: "ap-northeast-1",
-    secretAccessKey: "s",
   };
   const client = new PGlite();
   const db = drizzle(client, { schema });

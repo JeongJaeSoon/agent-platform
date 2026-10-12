@@ -246,6 +246,51 @@ function check(
   return errors;
 }
 
+const OBJECT_STORE_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+const IRSA_ROLE = "eks.amazonaws.com/role-arn";
+
+/**
+ * Static S3 keys reach the api and the checkpoint GC exactly when `keys`, and
+ * no other workload ever. Without them the api's ServiceAccount must carry
+ * an IRSA role, or nothing could sign the object store.
+ */
+function checkObjectStoreKeys(
+  label: string,
+  manifests: Manifest[],
+  keys: boolean,
+): string[] {
+  const errors: string[] = [];
+  const holders = ["api", "checkpoint-gc"];
+  for (const m of manifests) {
+    const pod = podSpecOf(m);
+    if (pod === undefined) continue;
+    const component = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
+    for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
+      const names = new Set((c.env ?? []).map((v: { name: string }) => v.name));
+      const got = OBJECT_STORE_KEYS.filter((name) => names.has(name));
+      const want = keys && holders.includes(component) ? OBJECT_STORE_KEYS : [];
+      if (JSON.stringify(got) !== JSON.stringify(want)) {
+        errors.push(
+          `${label}: ${m.kind}/${m.metadata.name}: container ${c.name} has AWS keys ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`,
+        );
+      }
+    }
+  }
+  const apiAccount = manifests.find(
+    (m) =>
+      m.kind === "ServiceAccount" &&
+      m.metadata.labels?.["app.kubernetes.io/component"] === "api",
+  ) as
+    | (Manifest & { metadata: { annotations?: Record<string, string> } })
+    | undefined;
+  if (!keys && !apiAccount?.metadata.annotations?.[IRSA_ROLE]) {
+    errors.push(
+      `${label}: no static keys and no IRSA role on the api ServiceAccount`,
+    );
+  }
+  return errors;
+}
+
 // Renders that must fail, each with the message that says why.
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
@@ -292,6 +337,14 @@ const errors = [
     false,
   ),
 ];
+errors.push(
+  ...checkObjectStoreKeys("default", render(["-f", ciDigests]), true),
+  ...checkObjectStoreKeys(
+    "aws example",
+    render(["-f", ciDigests, "-f", awsExample]),
+    false,
+  ),
+);
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {

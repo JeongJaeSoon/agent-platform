@@ -97,10 +97,12 @@ imagePullSecrets:
 - name: AWS_ENDPOINT_URL
   value: {{ . | quote }}
 {{- end }}
-{{- /* Required: the object store client takes these keys and no other
-credential source, so an IRSA role alone does not start the api. */}}
+{{- /* Without them the object store uses the AWS default credential chain
+(IRSA). Set in the environment, the keys would also win over the role. */}}
+{{- if .Values.secrets.objectStoreKeys }}
 {{ include "ap.secretEnv" (dict "root" . "key" "AWS_ACCESS_KEY_ID") }}
 {{ include "ap.secretEnv" (dict "root" . "key" "AWS_SECRET_ACCESS_KEY") }}
+{{- end }}
 {{- end -}}
 
 {{- define "ap.extraEnv" -}}

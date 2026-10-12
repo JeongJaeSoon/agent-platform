@@ -38,10 +38,14 @@ images:
 #   DATABASE_URL            api, scheduler, reconciler, migrate, checkpoint GC
 #   EGRESS_AUTHORIZER_TOKEN api, egress-proxy (the same value on both sides)
 #   AWS_ACCESS_KEY_ID,
-#   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store;
-#                           required, it reads no other credential source)
+#   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store),
+#                           only while objectStoreKeys is true
 secrets:
   name: agent-platform
+  # Hand the two AWS keys above to the api and the checkpoint GC. false
+  # leaves them out, and the object store signs with the AWS default
+  # credential chain instead: IRSA through serviceAccounts.api on EKS.
+  objectStoreKeys: true
   # Further keys handed to the api alone, as environment variables of the
   # same name: the credentials the catalog names by value_env.
   catalogEnv: [ANTHROPIC_API_KEY]
@@ -58,10 +62,10 @@ secrets:
 
 serviceAccounts:
   # The only ServiceAccount meant to carry cloud credentials (IRSA on EKS).
-  # Today the api's object store takes the static keys above only, and they
-  # also win over the role in the Secrets Manager client's credential chain.
-  # The checkpoint GC runs as this one too: it releases object holds with
-  # the api's object store settings.
+  # With secrets.objectStoreKeys false the role signs the api's object store
+  # and Secrets Manager requests; with it true the static keys win over the
+  # role in both. The checkpoint GC runs as this one too: it releases object
+  # holds with the api's object store settings.
   api:
     annotations: {}
   scheduler:

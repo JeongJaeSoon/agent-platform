@@ -1,4 +1,9 @@
 import { S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
+import { defaultProvider } from "@aws-sdk/credential-provider-node";
+import type {
+  AwsCredentialIdentity,
+  AwsCredentialIdentityProvider,
+} from "@smithy/types";
 import {
   FreshAddressHttpHandler,
   S3_MAX_ATTEMPTS,
@@ -29,10 +34,28 @@ export {
 export * from "./scoped-objects.ts";
 
 export interface StorageS3Settings {
-  readonly accessKeyId: string;
+  readonly credentials?: StorageS3StaticKeys;
   readonly endpoint?: string;
   readonly region: string;
+}
+
+export interface StorageS3StaticKeys {
+  readonly accessKeyId: string;
   readonly secretAccessKey: string;
+}
+
+/**
+ * The static keys when given, else the SDK's default credential chain:
+ * environment, shared config, web identity (IRSA on EKS), container and
+ * instance metadata. Never anonymous: a chain that finds nothing fails the
+ * request instead of sending it unsigned. The chain caches what it resolved
+ * and fetches again near expiry, so one provider can sign for the life of
+ * the process.
+ */
+export function storageS3Credentials(
+  settings: StorageS3Settings,
+): AwsCredentialIdentity | AwsCredentialIdentityProvider {
+  return settings.credentials ?? defaultProvider();
 }
 
 /**
@@ -45,10 +68,7 @@ export function createStorageS3Client(
   bounds: S3RequestBounds = S3_REQUEST_BOUNDS,
 ): S3Client {
   const s3Config: S3ClientConfig = {
-    credentials: {
-      accessKeyId: config.s3.accessKeyId,
-      secretAccessKey: config.s3.secretAccessKey,
-    },
+    credentials: storageS3Credentials(config.s3),
     maxAttempts: S3_MAX_ATTEMPTS,
     region: config.s3.region,
     requestHandler: new FreshAddressHttpHandler(bounds),
