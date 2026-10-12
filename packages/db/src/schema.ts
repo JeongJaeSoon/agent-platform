@@ -1106,6 +1106,11 @@ export const checkpoints = pgTable(
     // revision's objects: no restore reaches this revision any more, and a
     // backup leaves it out rather than fail on what is gone.
     collectedAt: timestamp("collected_at", { withTimezone: true }),
+    // The profile of the attempt that committed it: its runtime fingerprint
+    // was computed from that profile, so a restore after a profile change
+    // is checked against it. Null on rows from before the column.
+    profileId: text("profile_id"),
+    profileFingerprint: text("profile_fingerprint"),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
 );
@@ -1163,6 +1168,11 @@ export const attempts = pgTable(
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     endReason: text("end_reason"),
+    // The session's profile when this attempt claimed it. The attempt runs
+    // it to the end, so a profile change on the session takes effect at the
+    // next claim; null on rows from before the column.
+    profileId: text("profile_id"),
+    profileFingerprint: text("profile_fingerprint"),
   },
   (table) => [
     index("attempts_session_started_idx").on(table.sessionId, table.startedAt),

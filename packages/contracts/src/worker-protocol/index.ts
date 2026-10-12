@@ -209,6 +209,10 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   object_store: z.object({ access: egressTokenAuthSchema }).strict(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
+  // Present when `restore` was committed under another profile than the one
+  // the session runs now (its profile was changed): the checkpoint is checked
+  // against this config, and the engine then runs on runtime_config.
+  restore_runtime_config: runtimeConfigSchema.optional(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
   // most this attempt's engine may spend before it ends the turn in flight
   // . A second line only; the gate stays the stored sum against the
@@ -240,6 +244,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     branch: response.workspace.repository.branch,
     owner_scope: response.principal.owner_scope,
     restore_revision: response.restore?.revision ?? null,
+    restore_model: response.restore_runtime_config?.model ?? null,
     remaining_budget_usd: response.remaining_budget_usd,
   };
 }

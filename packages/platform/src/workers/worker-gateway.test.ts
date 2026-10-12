@@ -418,6 +418,7 @@ describe("WorkerGateway", () => {
         branch: "release",
       },
       restore: null,
+      restoreProfile: null,
       costUsd: 250.5,
       providerTokens: 0,
     };
@@ -1756,6 +1757,7 @@ describe("unmetered sessions", () => {
                 branch: "main",
               },
               restore: null,
+              restoreProfile: null,
               costUsd: 0.25,
               providerTokens: 0,
             },

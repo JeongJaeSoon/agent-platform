@@ -54,6 +54,7 @@ import type {
   FinalizeResult,
   ResolvedCredential,
   RunnablePair,
+  WorkerBinding,
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
@@ -486,6 +487,31 @@ export function createWorkerGateway(deps: {
     };
   }
 
+  // The config the restore's checkpoint was made under, when the session's
+  // profile has changed since: the worker checks the checkpoint against it
+  // and runs the engine on runtime_config. Left out when it is the same, or
+  // when this catalog no longer holds that profile as it was; the restore
+  // is then checked against runtime_config and refused if it differs.
+  function restoreRuntimeOf(
+    binding: Pick<WorkerBinding, "profileId" | "restoreProfile">,
+    profileFingerprintNow: string,
+    providerToken: string,
+  ): { restore_runtime_config?: RuntimeConfig } {
+    const made = binding.restoreProfile;
+    if (
+      made === null ||
+      (made.profileId === binding.profileId &&
+        made.profileFingerprint === profileFingerprintNow)
+    ) {
+      return {};
+    }
+    const profile = own(catalog.profiles, made.profileId);
+    if (!profile || profileFingerprint(profile) !== made.profileFingerprint) {
+      return {};
+    }
+    return { restore_runtime_config: runtimeConfigOf(profile, providerToken) };
+  }
+
   // What each egress token is held to, taken from the catalog at the moment
   // the claim binds the session. Only a runnable pair is ever claimed, so
   // both entries exist here.
@@ -751,6 +777,7 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
+          const resolved = resolveProfile(binding.profileId, providerToken);
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -761,7 +788,12 @@ export function createWorkerGateway(deps: {
             session_credential: sessionToken,
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
-            ...resolveProfile(binding.profileId, providerToken),
+            ...resolved,
+            ...restoreRuntimeOf(
+              binding,
+              resolved.profile_fingerprint,
+              providerToken,
+            ),
             workspace: {
               repository: {
                 ...binding.repository,
@@ -940,9 +972,11 @@ export function createWorkerGateway(deps: {
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),
-            ...(result.blocked === undefined
-              ? {}
-              : { draining: true, reason: result.blocked }),
+            ...(result.blocked !== undefined
+              ? { draining: true, reason: result.blocked }
+              : result.draining === true
+                ? { draining: true }
+                : {}),
           };
         }
         // Never sleep past the deadline the caller asked for: a one

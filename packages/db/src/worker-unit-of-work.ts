@@ -500,6 +500,10 @@ export async function advanceCheckpointPointer(
     parentRevision: parentRevisionOf(input.session, input.fence.attemptId),
     turnId: input.turnRowId,
     committedAt: input.now,
+    // The runtime fingerprint in the manifest was computed from the profile
+    // this attempt claimed, which the session may have changed since.
+    profileId: sql`(SELECT ${attempts.profileId} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
+    profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
   });
   const pending = storedPendingReason(input.session.checkpointPendingReason);
   const resolvesPending =
@@ -845,9 +849,46 @@ async function bindingOf(
       url: session.repoUrl,
       branch: session.branch,
     },
-    restore: restore === undefined ? await restoreRef(tx, session) : restore,
+    ...(await withRestoreProfile(
+      tx,
+      session.id,
+      restore === undefined ? await restoreRef(tx, session) : restore,
+    )),
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
+  };
+}
+
+// The profile the restore's checkpoint was committed under; null for a row
+// from before the column, which ran the session's own.
+async function withRestoreProfile(
+  tx: Database,
+  sessionId: string,
+  restore: CheckpointRef | null,
+): Promise<Pick<WorkerBinding, "restore" | "restoreProfile">> {
+  if (restore === null) return { restore, restoreProfile: null };
+  const [row] = await tx
+    .select({
+      profileId: checkpoints.profileId,
+      profileFingerprint: checkpoints.profileFingerprint,
+    })
+    .from(checkpoints)
+    .where(
+      and(
+        eq(checkpoints.sessionId, sessionId),
+        eq(checkpoints.revision, restore.revision),
+      ),
+    )
+    .limit(1);
+  return {
+    restore,
+    restoreProfile:
+      row?.profileId == null || row.profileFingerprint === null
+        ? null
+        : {
+            profileId: row.profileId,
+            profileFingerprint: row.profileFingerprint,
+          },
   };
 }
 
@@ -1050,7 +1091,14 @@ export function createPostgresWorkerUnitOfWork(
             // The attempt has not started, so the replay gets a whole lease:
             // handing back the expired one would answer "claimed" and then
             // refuse every call the worker makes with it.
-            .set({ authRevision: session.authRevision, leaseExpiresAt })
+            // It has run nothing yet either, so it takes the profile the
+            // session names now, as the tokens just issued do.
+            .set({
+              authRevision: session.authRevision,
+              leaseExpiresAt,
+              profileId: session.profileId,
+              profileFingerprint: session.profileFingerprint,
+            })
             .where(eq(attempts.id, bound.attempt.id))
             .returning();
           if (!attempt) return { outcome: "invalid_credential" };
@@ -1188,6 +1236,8 @@ export function createPostgresWorkerUnitOfWork(
             state: "allocated",
             leaseExpiresAt,
             startedAt: input.now,
+            profileId: session.profileId,
+            profileFingerprint: session.profileFingerprint,
           })
           .returning();
         if (!attempt) throw new Error("Failed to insert attempt");
@@ -1299,7 +1349,9 @@ export function createPostgresWorkerUnitOfWork(
           sessionId: fence.sessionId,
           attemptId: fence.attemptId,
           binding,
-          profileId: fenced.session.profileId,
+          // The profile the attempt claimed: a change on the session since
+          // reaches the next attempt, not the turn this one is running.
+          profileId: fenced.attempt.profileId ?? fenced.session.profileId,
           repository: {
             id: fenced.session.repositoryId,
             url: fenced.session.repoUrl,
@@ -1421,6 +1473,14 @@ export function createPostgresWorkerUnitOfWork(
         // unfinished once the execution goes, which costs the session a
         // recovery decision it never needed.
         const draining = fenced.attempt.state === "draining";
+        // The session's profile was changed after this attempt claimed it:
+        // it finishes what it holds on its own profile and goes, and the
+        // next claim runs the new one.
+        const profileMoved =
+          fenced.attempt.profileFingerprint !== null &&
+          (fenced.attempt.profileId !== fenced.session.profileId ||
+            fenced.attempt.profileFingerprint !==
+              fenced.session.profileFingerprint);
 
         const [head] = await tx
           .select({ message: queueMessages, turn: turns })
@@ -1457,7 +1517,7 @@ export function createPostgresWorkerUnitOfWork(
           outcome: "ok" as const,
           input: null,
           leaseExpiresAt,
-          ...(draining ? { draining: true as const } : {}),
+          ...(draining || profileMoved ? { draining: true as const } : {}),
           ...(overBudget ? { blocked: "BUDGET_EXCEEDED" as const } : {}),
         };
         if (!head) return none;
@@ -1470,7 +1530,7 @@ export function createPostgresWorkerUnitOfWork(
           turn.attemptId === fence.attemptId &&
           OPEN_TURN_STATUSES.includes(turn.status);
         if (turn.status !== "queued" && !redelivery) return none;
-        if (draining && !redelivery) return none;
+        if ((draining || profileMoved) && !redelivery) return none;
         // Pausing (or any state but active) admits nothing new; the turn
         // this attempt already holds is still its to finish.
         if (fenced.session.admissionState !== "active" && !redelivery) {

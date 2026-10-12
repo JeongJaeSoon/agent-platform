@@ -59,6 +59,10 @@ export type WorkerBinding = {
   // As fixed when the session was accepted; the catalog is not consulted.
   repository: WorkspaceRepository;
   restore: CheckpointRef | null;
+  // The profile `restore` was committed under, when the row records one. It
+  // differs from profileId once the session's profile was changed: the
+  // checkpoint is verified against the profile that made it.
+  restoreProfile: { profileId: string; profileFingerprint: string } | null;
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
   providerTokens: number;
@@ -217,7 +221,10 @@ export type NextInputResult =
       outcome: "ok";
       input: DeliveredInput | null;
       leaseExpiresAt: Date;
-      /** Set when the attempt is draining: nothing new is coming, so stop polling. */
+      /**
+       * Nothing new is coming, so stop polling: the attempt is draining, or
+       * the session's profile changed after it claimed.
+       */
       draining?: true;
       /**
        * Nothing new will come for a reason outside the attempt: the session

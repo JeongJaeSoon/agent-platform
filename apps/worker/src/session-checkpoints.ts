@@ -224,6 +224,15 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const runtime = this.#options.fingerprint(claim);
+    // What the checkpoint was made under, when the session's profile has
+    // changed since; the checkpoints this run takes carry `runtime`.
+    const madeUnder =
+      claim.restore_runtime_config === undefined
+        ? runtime
+        : this.#options.fingerprint({
+            ...claim,
+            runtime_config: claim.restore_runtime_config,
+          });
     const pointer = claim.restore;
     if (pointer !== null) {
       // The store not answering is no fault of the checkpoint: the restore
@@ -232,7 +241,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       // answer is held to the manifest as ever.
       for (let retries = 0; ; retries += 1) {
         try {
-          return await this.#restore(claim, pointer, runtime, signal);
+          return await this.#restore(
+            claim,
+            pointer,
+            { madeUnder, runtime },
+            signal,
+          );
         } catch (caught) {
           if (!signal.aborted && isRestoreOutage(caught)) {
             const retryInMs = Math.min(
@@ -343,17 +357,20 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   async #restore(
     claim: BootstrapClaimResponse,
     pointer: CheckpointRef,
-    runtime: RuntimeFingerprint,
+    {
+      madeUnder,
+      runtime,
+    }: { madeUnder: RuntimeFingerprint; runtime: RuntimeFingerprint },
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const { objects, workspaceRoot } = this.#options;
     const answer = await this.#options.gateway.restorePlan({
       ...claimScope(claim),
       runtime: {
-        cli_version: runtime.cliVersion,
-        engine: runtime.engine,
-        profile_sha256: runtime.profileSha256,
-        sdk_version: runtime.sdkVersion,
+        cli_version: madeUnder.cliVersion,
+        engine: madeUnder.engine,
+        profile_sha256: madeUnder.profileSha256,
+        sdk_version: madeUnder.sdkVersion,
       },
     });
     signal.throwIfAborted();
@@ -377,7 +394,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
     }
     const manifest = this.#codec.decode(manifestBytes);
-    this.#checkManifest(claim, restoring, runtime, manifest);
+    this.#checkManifest(claim, restoring, madeUnder, manifest);
     const pinned = <T extends ObjectRef>(ref: T): T => {
       const { version: _stale, ...rest } = ref;
       const version = versions.get(ref.key);
