@@ -1,6 +1,11 @@
 {{- if .Values.ingress.enabled }}
 {{- if not .Values.ingress.hosts }}{{ fail "ingress.hosts needs at least one host" }}{{ end }}
-# The public listener only; the authorizer Service is never routed.
+# The public listener only; the authorizer Service is never routed. Only the
+# api's public paths (apps/control-host/src/api/app.ts): /internal is the
+# workers' gateway, which they reach through the egress proxy, and the
+# probes are for the kubelet and the load balancer's health check, both of
+# which reach the pod directly.
+{{- $paths := list "/v1" "/docs" }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -24,12 +29,14 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
-          - path: /
+          {{- range $paths }}
+          - path: {{ . }}
             pathType: Prefix
             backend:
               service:
                 name: {{ include "ap.apiHost" $ }}
                 port:
                   name: http
+          {{- end }}
     {{- end }}
 {{- end }}
