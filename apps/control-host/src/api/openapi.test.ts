@@ -274,6 +274,7 @@ describe("OpenAPI document", () => {
         "/v1/linked-accounts/slack/callback",
         "/v1/linked-accounts/slack/start",
         "/v1/linked-accounts/{id}",
+        "/v1/profiles",
         "/v1/receipts/{id}",
         "/v1/sessions",
         "/v1/sessions/{id}",

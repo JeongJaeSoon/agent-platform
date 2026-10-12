@@ -10,7 +10,7 @@ owner·admin은 웹 콘솔 `/members`에서 초대 링크를 만들어 건네고
 - `invite-used` / `invite-expired` 이미 쓴 링크는 409 "이미 수락한 초대입니다", 회수했거나 없는 링크는 410 "만료됐거나 회수된 초대입니다". 폼 대신 안내만 남는다.
 - `member-forbidden` member로 `/members`를 열면 서버 403 문구와 함께 권한 없음 화면, 초대 버튼은 꺼진 채 이유가 붙는다.
 - `role-change` 역할 select를 바꾸면 바로 PATCH, 마지막 owner를 내리면 409 LAST_OWNER 문구.
-- `disable` "비활성"은 확인 대화상자를 거친다. 비활성된 사람은 다음 `me` 조회에서 로그인 화면으로 간다. "재활성"은 바로 된다.
+- `disable` "비활성화"는 확인 대화상자를 거친다. 비활성화된 사람은 다음 `me` 조회에서 로그인 화면으로 간다. "다시 활성화"는 바로 된다.
 - `agent-create` `/agents/new`는 빈 카드 폼. 만들면 상세로 가서 "에이전트를 만들었습니다(version 1). 아직 활성화되지 않았습니다".
 - `agent-save` 카드를 고쳐 저장하면 "저장했습니다 — version N. 아직 활성화되지 않았습니다"와 두 version의 차이. 바뀐 것 없으면 새 version이 없다고 말한다. release 폼은 방금 저장한 version을 고른다.
 - `release-activate` release를 만들고 "<version · profile> 활성화"를 누르면 "활성화됐습니다 — 이제 새 세션은 …(으)로 시작합니다". 저장·release·활성화 문구는 서로 다르다.

@@ -61,6 +61,7 @@ import {
   listLinkedAccountsResponseSchema,
   listMembersResponseSchema,
   listPendingRequestsResponseSchema,
+  listProfilesResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
   listTakeoversResponseSchema,
@@ -225,6 +226,7 @@ const responseComponents = {
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
+  ListProfilesResponse: listProfilesResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
@@ -2025,6 +2027,34 @@ export const API_ROUTE_DECLARATIONS = [
     auth: "session",
     success: { status: 200, schema: "ListAdministeredAgentsResponse" },
     errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/profiles",
+    operationId: "listProfiles",
+    tag: "Limits & receipts",
+    summary: "The runtime profiles this installation can run",
+    description:
+      "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs. The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListProfilesResponse",
+      description: "Every profile in the catalog, ordered by `id`.",
+      example: {
+        items: [
+          {
+            id: "claude-coding-real",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            billing: "metered",
+          },
+        ],
+      },
+    },
+    errors: [401, 503],
   },
   {
     method: "get",

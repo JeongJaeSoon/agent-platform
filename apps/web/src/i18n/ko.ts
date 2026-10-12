@@ -49,11 +49,11 @@ export const ko = {
   "login.google.starting": "Google로 이동하는 중…",
   "login.google.title": "Google 로그인",
   "login.google.rejected":
-    "Google 로그인을 받아들이지 못했습니다 — 초대받은 주소의 계정인지 확인하고 처음부터 다시 시도하세요.",
+    "Google 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
   "login.google.forbidden":
-    "이 Google 계정으로는 들어올 수 없습니다 — 워크스페이스가 허용한 도메인의 계정으로 다시 시도하세요.",
+    "이 Google 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
   "login.google.cancelled":
-    "Google 로그인이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
+    "Google 로그인을 마치지 못했습니다 — 다시 시도하세요.",
   "login.google.backToLogin": "로그인 화면으로",
 
   "bootstrap.title": "첫 소유자 만들기",
@@ -82,25 +82,25 @@ export const ko = {
   "members.column.actions": "관리",
   "members.state.active": "활성",
   "members.state.disabled": "비활성",
-  "members.enableHint": "다시 들이려면 초대하지 말고 재활성하세요.",
+  "members.enableHint": "다시 들어오게 하려면 초대하지 말고 다시 활성화하세요.",
   "members.roleFor": "{name}의 역할",
   "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
-  "members.disable": "비활성",
-  "members.disableFor": "{name} 비활성",
-  "members.disableTitle": "{name}을(를) 비활성할까요?",
+  "members.disable": "비활성화",
+  "members.disableFor": "{name} 비활성화",
+  "members.disableTitle": "{name}을(를) 비활성화할까요?",
   "members.disableConsequence":
-    "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 요청한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 재활성해도 끊긴 로그인과 key는 돌아오지 않습니다.",
-  "members.disabled": "{name}을(를) 비활성했습니다.",
-  "members.enable": "재활성",
+    "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 key는 돌아오지 않습니다.",
+  "members.disabled": "{name}을(를) 비활성화했습니다.",
+  "members.enable": "다시 활성화",
   "members.enabled":
-    "{name}을(를) 재활성했습니다. 다시 로그인하면 들어올 수 있습니다.",
+    "{name}을(를) 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다.",
   "members.invite.title": "초대",
   "members.invite.email": "이메일",
   "members.invite.role": "역할",
   "members.invite.submit": "초대 링크 만들기",
   "members.invite.submitting": "만드는 중…",
   "members.invite.disabledHint":
-    "{name}은(는) 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 재활성하세요. Google로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
+    "{name}은(는) 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 다시 활성화하세요. Google로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
   "members.invite.link": "초대 링크",
   "members.invite.linkOnce":
     "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다. 초대할 사람에게 직접 전하세요.",
@@ -124,13 +124,13 @@ export const ko = {
   "invite.submit": "초대 수락",
   "invite.submitting": "수락하는 중…",
   "invite.wrongPassword":
-    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. Google로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 재활성을 요청하세요.",
+    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. Google로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 다시 활성화해 달라고 요청하세요.",
   "invite.expired.title": "쓸 수 없는 초대입니다",
   "invite.expired.body":
     "만료됐거나 회수된 초대입니다. 초대한 사람에게 새 링크를 요청하세요.",
   "invite.used.title": "이미 수락한 초대입니다",
   "invite.used.body":
-    "이 초대는 한 번 쓰였습니다. 수락한 계정으로 로그인하세요.",
+    "이 초대는 이미 쓰였습니다. 수락한 계정으로 로그인하세요.",
   "invite.used.login": "로그인 화면으로",
   "invite.member.title": "이미 이 워크스페이스의 구성원입니다",
   "invite.member.body":
@@ -139,7 +139,7 @@ export const ko = {
   "invite.member.switch": "로그아웃하고 다른 계정으로 수락",
 
   "home.title": "워크스페이스",
-  "home.signedInAs": "{name}({email})으로 로그인했습니다",
+  "home.signedInAs": "{name}({email}) 계정으로 로그인했습니다",
   "home.checklist.title": "시작하기",
   "home.checklist.admin": "소유자 계정 만들기",
   "home.checklist.invite": "구성원 초대하기",
@@ -149,7 +149,7 @@ export const ko = {
 
   "agents.title": "에이전트",
   "agents.new": "새 에이전트",
-  "agents.empty": "아직 에이전트가 없습니다. 새 에이전트로 카드를 만드세요.",
+  "agents.empty": "아직 에이전트가 없습니다. 새 에이전트를 눌러 만드세요.",
   "agents.updated": "{at} 수정",
   "agents.state.notReleased": "활성 release 없음",
   "agents.status.active": "활성",
@@ -165,7 +165,7 @@ export const ko = {
   "agents.creating": "만드는 중…",
   "agentCard.role": "역할",
   "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
-  "agentCard.instructions": "지시",
+  "agentCard.instructions": "지시 사항",
   "agentCard.tone": "말투",
   "agentCard.optional": "선택",
   "agentCard.language": "언어",
@@ -178,7 +178,8 @@ export const ko = {
   "agentCard.toolNames": "도구 이름",
   "agentCard.listHint": "한 줄에 하나",
   "agentCard.forbidden": "금지 도구",
-  "agentCard.forbiddenHint": "한 줄에 하나. 서버가 막습니다",
+  "agentCard.forbiddenHint":
+    "한 줄에 하나. 에이전트는 이 도구를 쓸 수 없습니다",
   "agent.created":
     "에이전트를 만들었습니다(version 1). release를 만들고 활성화해야 세션에서 쓸 수 있습니다.",
   "agent.noActive": "없음",
@@ -194,9 +195,9 @@ export const ko = {
   "agent.activated":
     "활성화됐습니다 — 이제 새 세션은 {release}(으)로 시작합니다.",
   "agent.alreadyActive": "이미 활성 release입니다. 바뀐 것은 없습니다.",
-  "agent.conflict.title": "다른 곳에서 먼저 활성화를 바꿨습니다",
+  "agent.conflict.title": "다른 곳에서 활성 release를 먼저 바꿨습니다",
   "agent.conflict.body":
-    "이 화면을 연 뒤 다른 사람이나 다른 탭이 활성 release를 바꿔, 덮어쓰지 않고 멈췄습니다. 최신 상태를 불러와 무엇이 바뀌었는지 확인한 뒤 다시 결정하세요.",
+    "이 화면을 연 뒤 다른 사람이나 다른 탭에서 활성 release를 바꿨기 때문에 덮어쓰지 않고 멈췄습니다. 최신 상태를 불러와 무엇이 바뀌었는지 확인한 뒤 다시 정하세요.",
   "agent.conflict.reload": "최신 상태 불러오기",
   "agent.conflict.reloaded":
     "보던 화면의 활성 release: {seen}. 지금 활성 release: {now}. 아래 차이를 확인하고 필요하면 다시 활성화하세요.",
@@ -214,14 +215,19 @@ export const ko = {
   "agent.versions.after": "비교 대상",
   "agent.releases.title": "release",
   "agent.releases.intro":
-    "release는 version을 runtime profile에 고정한 것입니다. 만든다고 바로 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
+    "release는 version을 runtime profile에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
   "agent.releases.version": "version",
   "agent.releases.profile": "runtime profile",
-  "agent.releases.profileHint": "플랫폼 설정(profiles.yaml)의 profile id",
+  "agent.releases.profileHint":
+    "플랫폼 설정(profiles.yaml)의 profile과 각 profile이 쓰는 모델",
+  "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profilesLoading": "profile 목록을 불러오는 중…",
+  "agent.releases.profilesFailed":
+    "profile 목록을 불러오지 못했습니다: {reason}",
   "agent.releases.create": "release 만들기",
   "agent.releases.creating": "만드는 중…",
   "agent.releases.empty": "아직 release가 없습니다.",
-  "agent.releases.approved": "{at} 승인",
+  "agent.releases.approved": "{at} 처음 활성화",
   "agent.releases.notApproved": "아직 활성화된 적 없음",
   "agent.releases.active": "활성",
   "agent.releases.activate": "활성화",
@@ -239,14 +245,14 @@ export const ko = {
   "status.loading.title": "로그인 상태를 확인하는 중입니다",
   "status.loginRequired.title": "다시 로그인하세요",
   "status.loginRequired.body":
-    "로그인이 끝났거나 이 계정으로는 더 이상 들어올 수 없습니다.",
+    "로그아웃됐거나 이 계정으로는 더 이상 로그인할 수 없습니다.",
   "status.loginRequired.action": "로그인 화면으로",
   "status.forbidden.title": "이 화면을 볼 권한이 없습니다",
   "status.forbidden.body":
     "필요하면 워크스페이스 소유자나 관리자에게 권한을 요청하세요.",
   "status.bootstrapRequired.title": "아직 소유자가 없습니다",
   "status.bootstrapRequired.body":
-    "설치 때 받은 bootstrap 토큰으로 첫 소유자를 만들어야 쓸 수 있습니다.",
+    "설치 때 출력된 bootstrap 토큰으로 첫 소유자를 만드세요.",
   "status.bootstrapRequired.action": "첫 소유자 만들기",
   "status.error.title": "문제가 생겼습니다",
 
@@ -267,7 +273,7 @@ export const ko = {
   "teams.renamed": "팀 이름을 {name}(으)로 바꿨습니다.",
   "teams.delete": "팀 삭제",
   "teams.deleteHint":
-    "팀을 지우면 이 팀을 에이전트 관리자로 둔 지정도 함께 사라집니다.",
+    "팀을 삭제하면 이 팀이 관리자로 있던 에이전트에서도 빠집니다.",
   "teams.deleteTitle": "{name} 팀을 삭제할까요?",
   "teams.deleteConsequence":
     "구성원은 워크스페이스에 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다.",
@@ -277,7 +283,7 @@ export const ko = {
   "teams.pickPlaceholder": "사람을 고르세요",
   "teams.addMember": "구성원 추가",
   "teams.noCandidates": "추가할 수 있는 활성 구성원이 없습니다.",
-  "teams.memberAdded": "{name}님을 팀에 넣었습니다.",
+  "teams.memberAdded": "{name}님을 팀에 추가했습니다.",
   "teams.memberRemoved": "{name}님을 팀에서 뺐습니다.",
   "teams.noMembers": "아직 구성원이 없습니다.",
   "teams.addedAt": "{at} 추가",
@@ -285,24 +291,29 @@ export const ko = {
   "teams.removeMemberFor": "{name}님을 팀에서 빼기",
   "agentAdmins.title": "에이전트 관리자",
   "agentAdmins.intro":
-    "관리자는 이 에이전트의 카드·release·자격 연결과 이 에이전트 전용 key를 관리합니다. 사람이나 팀을 지정합니다.",
+    "에이전트 관리자는 이 에이전트의 카드·release·자격 증명 연결과 에이전트 전용 key를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
   "agentAdmins.empty":
-    "아직 지정된 관리자가 없습니다. 소유자와 관리자 역할은 지정 없이도 관리합니다.",
+    "아직 에이전트 관리자가 없습니다. 워크스페이스 소유자와 관리자는 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
   "agentAdmins.person": "사람",
   "agentAdmins.team": "팀",
-  "agentAdmins.remove": "해제",
-  "agentAdmins.removeFor": "{name} 관리자 지정 해제",
-  "agentAdmins.pickPerson": "관리자로 지정할 사람",
-  "agentAdmins.pickTeam": "관리자로 지정할 팀",
+  "agentAdmins.remove": "빼기",
+  "agentAdmins.removeFor": "{name}을(를) 관리자에서 빼기",
+  "agentAdmins.pickPerson": "관리자로 추가할 사람",
+  "agentAdmins.pickTeam": "관리자로 추가할 팀",
   "agentAdmins.pickPlaceholder": "고르세요",
-  "agentAdmins.addPerson": "사람 지정",
-  "agentAdmins.addTeam": "팀 지정",
-  "agentAdmins.added": "{name}을(를) 관리자로 지정했습니다.",
-  "agentAdmins.removed": "{name}의 관리자 지정을 해제했습니다.",
+  "agentAdmins.addPerson": "사람 추가",
+  "agentAdmins.addTeam": "팀 추가",
+  "agentAdmins.added": "{name}을(를) 관리자로 추가했습니다.",
+  "agentAdmins.removed": "{name}을(를) 관리자에서 뺐습니다.",
+  "agentAdmins.mine.title": "내가 관리하는 에이전트",
+  "agentAdmins.mine.intro":
+    "직접 또는 팀을 통해 관리자로 지정된 에이전트입니다. 열어서 카드와 관리자를 관리합니다.",
+  "agentAdmins.mine.empty": "아직 관리자로 지정된 에이전트가 없습니다.",
+  "agentAdmins.mine.truncated": "처음 {count}개만 보입니다.",
 
   "linked.title": "연동 계정",
   "linked.intro":
-    "Slack 계정을 연결하면 Slack에서 에이전트를 부를 때 이 계정의 권한으로 판정합니다. 토큰은 보관하지 않습니다.",
+    "Slack 계정을 연결하면 Slack에서 에이전트에게 요청할 때 내 권한이 적용됩니다. Slack 토큰은 저장하지 않습니다.",
   "linked.slack": "Slack",
   "linked.none": "연결된 Slack 계정이 없습니다.",
   "linked.connect": "Slack 계정 연결",
@@ -310,13 +321,12 @@ export const ko = {
   "linked.slackAccount": "Slack 사용자 {user} (워크스페이스 {team})",
   "linked.verified": "{at} 확인",
   "linked.stale":
-    "Slack에서 비활성으로 알려 와 지금은 아무도 가리키지 않습니다 — 해제한 뒤 다시 연결하세요.",
+    "Slack에서 이 계정이 비활성화됐다고 알려 와, 이 계정의 요청을 나와 연결하지 않습니다 — 연결을 해제한 뒤 다시 연결하세요.",
   "linked.unlink": "연결 해제",
   "linked.unlinked": "Slack 계정 연결을 해제했습니다.",
   "linked.unavailable":
     "이 설치에서는 Slack 계정 연결을 쓸 수 없습니다 — 운영자에게 문의하세요.",
-  "linked.cancelled":
-    "Slack 연결이 끝나지 않았습니다 — 처음부터 다시 시도하세요.",
+  "linked.cancelled": "Slack 계정 연결을 마치지 못했습니다 — 다시 시도하세요.",
   "linked.back": "연동 계정으로",
 
   "apiKeys.title": "API key",
@@ -332,14 +342,14 @@ export const ko = {
   "apiKeys.agent": "에이전트",
   "apiKeys.pickAgent": "에이전트를 고르세요",
   "apiKeys.agentHint":
-    "에이전트 전용 key는 그 에이전트의 세션에만 쓸 수 있습니다.",
+    "에이전트 전용 key는 그 에이전트의 세션에서만 쓸 수 있습니다.",
   "apiKeys.issueAgent": "에이전트 전용 key 발급",
   "apiKeys.noAgents": "관리하는 에이전트가 없습니다.",
   "apiKeys.agentNeedsScope":
-    "에이전트 전용 key에 넣을 범위를 하나 이상 고르세요(sessions:approve는 빠집니다).",
+    "권한을 하나 이상 고르세요. 에이전트 전용 key에는 sessions:approve를 넣을 수 없습니다.",
   "apiKeys.agentNoApprove":
-    "에이전트 전용 key에는 빠집니다(사람의 승인을 대신하지 않음).",
-  "apiKeys.scopes": "권한 범위",
+    "에이전트 전용 key에는 넣을 수 없습니다. 에이전트가 사람 대신 승인할 수는 없습니다.",
+  "apiKeys.scopes": "권한",
   "apiKeys.expires": "만료일(선택)",
   "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
   "apiKeys.secretTitle": "새 key",
@@ -362,26 +372,26 @@ export const ko = {
   "apiKeys.revokeTitle": "ID {id} key를 폐기할까요?",
   "apiKeys.keyId": "ID {id}",
   "apiKeys.revokeConsequence":
-    "이 key를 쓰는 연동은 바로 멈춥니다. 되돌릴 수 없습니다.",
+    "이 key를 쓰는 곳은 바로 동작을 멈춥니다. 되돌릴 수 없습니다.",
   "apiKeys.revoked": "key를 폐기했습니다.",
 
   "workspace.title": "워크스페이스 설정",
-  "workspace.retention": "감사 기록 보존",
+  "workspace.retention": "감사 기록 보존 기간",
   "workspace.retentionDays": "보존 기간(일)",
   "workspace.retentionHint":
-    "허용·거절 판정 기록을 이 기간만큼 보관합니다. 30일보다 짧게 할 수 없습니다. 소유자만 바꿀 수 있습니다.",
+    "허용·거절한 요청 기록을 이 기간 동안 보관합니다. 30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.",
   "workspace.retentionFloor":
     "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
   "workspace.retentionSaved": "감사 기록을 {days}일 보존합니다.",
   "workspace.save": "저장",
   "workspace.guest": "Slack 게스트",
-  "workspace.guestLabel": "Slack 게스트가 에이전트를 부를 수 있게 합니다",
+  "workspace.guestLabel": "Slack 게스트도 에이전트를 쓸 수 있게 하기",
   "workspace.guestOn": "켜짐",
   "workspace.guestOff": "꺼짐",
   "workspace.guestHint":
-    "켜도 게스트는 웹에서 자기 Slack 계정을 연결해야 쓸 수 있습니다. 다른 조직에서 Slack Connect로 들어온 사람은 켜져 있어도 부를 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다.",
-  "workspace.guestSavedOn": "Slack 게스트가 에이전트를 부를 수 있습니다.",
-  "workspace.guestSavedOff": "Slack 게스트는 에이전트를 부를 수 없습니다.",
+    "켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다.",
+  "workspace.guestSavedOn": "이제 Slack 게스트도 에이전트를 쓸 수 있습니다.",
+  "workspace.guestSavedOff": "이제 Slack 게스트는 에이전트를 쓸 수 없습니다.",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",
@@ -392,30 +402,31 @@ export const ko = {
   "error.BAD_REQUEST": "입력을 확인하고 다시 보내세요.",
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
   "error.SCOPE_NOT_GRANTABLE":
-    "지금 내가 가진 범위보다 넓은 key는 만들 수 없습니다.",
+    "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다.",
   "error.FORBIDDEN": "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
-  "error.BOOTSTRAP_DONE":
-    "이미 소유자가 만들어져 있습니다 — 로그인 화면으로 가세요.",
+  "error.BOOTSTRAP_DONE": "이미 소유자가 있습니다 — 로그인하세요.",
   "error.RATE_LIMITED": "시도가 너무 많습니다 — 잠시 뒤 다시 시도하세요.",
   "error.BACKEND_UNAVAILABLE":
-    "서버에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
-  "error.NETWORK_ERROR": "서버에 닿지 못했습니다 — 연결을 확인하세요.",
+    "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
+  "error.NETWORK_ERROR":
+    "서버에 연결하지 못했습니다 — 네트워크 연결을 확인하세요.",
   "error.LOGIN_LINK_REQUIRED":
     "이미 이 이메일로 만든 계정이 있습니다 — 비밀번호로 로그인하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
-  "error.NOT_FOUND": "찾을 수 없습니다 — 목록을 다시 불러오세요.",
+  "error.NOT_FOUND": "더 이상 없는 항목입니다 — 목록을 다시 불러오세요.",
   "error.PAYLOAD_TOO_LARGE": "입력이 너무 깁니다 — 줄여서 다시 보내세요.",
   "error.INVITE_EXPIRED": "만료됐거나 회수된 초대입니다.",
   "error.INVITE_USED": "이미 쓰인 초대입니다.",
   "error.LAST_OWNER":
-    "마지막 소유자는 역할을 바꾸거나 비활성할 수 없습니다 — 다른 소유자를 먼저 두세요. 자기 자신도 비활성할 수 없습니다.",
+    "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요. 자기 자신도 비활성화할 수 없습니다.",
   "error.OWNER_PROTECTED":
     "소유자 역할은 소유자만 주거나 바꿀 수 있습니다 — 소유자에게 요청하세요.",
   "error.UNSUPPORTED_CAPABILITY":
-    "이 runtime profile에서 쓸 수 없는 모델·도구가 카드에 있거나 모르는 profile입니다.",
-  "error.REVISION_CONFLICT": "다른 곳에서 먼저 바꿨습니다 — 다시 불러오세요.",
+    "카드에 이 runtime profile이 허용하지 않는 모델이나 도구가 있거나, 없는 profile입니다.",
+  "error.REVISION_CONFLICT":
+    "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
   "error.PROFILE_DIGEST_MISMATCH":
-    "runtime profile 설정이 release 뒤에 바뀌었습니다 — 새 release를 만드세요.",
+    "release를 만든 뒤 runtime profile 설정이 바뀌었습니다 — 새 release를 만드세요.",
   "error.ALREADY_EXISTS": "같은 주소 이름이 이미 있습니다.",
 } as const;
 
