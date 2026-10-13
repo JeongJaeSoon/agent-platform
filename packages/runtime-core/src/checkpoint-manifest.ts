@@ -50,6 +50,21 @@ export type RuntimeFingerprint = {
 };
 
 /**
+ * The fingerprint a manifest is held to: `runtime`, or `runtime` with the
+ * manifest's own profile digest when that is one the session ran before its
+ * profile was changed. Engine, CLI and SDK versions must still match.
+ */
+export function runtimeFor(
+  manifest: { readonly runtime: RuntimeFingerprint },
+  runtime: RuntimeFingerprint,
+  alternates: readonly string[],
+): RuntimeFingerprint {
+  return alternates.includes(manifest.runtime.profileSha256)
+    ? { ...runtime, profileSha256: manifest.runtime.profileSha256 }
+    : runtime;
+}
+
+/**
  * An object plus where it goes back. A digest alone cannot restore a
  * workspace: two untracked files are indistinguishable without the path they
  * were captured from, so the path travels in the manifest rather than being

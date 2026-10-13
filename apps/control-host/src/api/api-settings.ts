@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import {
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
@@ -12,6 +14,7 @@ import {
   DEFAULT_PENDING_TTL_MS,
   installationLimitProblems,
 } from "@agent-platform/platform";
+import { googleLoginConfigFromEnv } from "./google-login.ts";
 
 /**
  * The API's own settings, apart from the installation limits it shares with
@@ -28,6 +31,7 @@ export type ApiSettings = {
     maxStreams?: number;
     maxStreamsPerOwner?: number;
   };
+  webDistDir?: string;
 };
 
 export class ApiSettingsError extends Error {
@@ -81,6 +85,15 @@ export function apiSettingsFromEnv(
       "AUTH_MODE=none cannot run with the egress authorizer on (EGRESS_AUTHORIZER_PORT): workers reach this API and would act as any owner",
     );
   }
+  const webDistDir = environment.WEB_DIST_DIR;
+  if (
+    webDistDir !== undefined &&
+    !(isAbsolute(webDistDir) && existsSync(join(webDistDir, "index.html")))
+  ) {
+    problems.push(
+      "WEB_DIST_DIR must be an absolute path to a directory holding index.html (apps/web's build output)",
+    );
+  }
   if (problems.length > 0) throw new ApiSettingsError(problems);
   return {
     leaseTtlMs: leaseTtlMs as number,
@@ -98,6 +111,7 @@ export function apiSettingsFromEnv(
         ? {}
         : { maxStreamsPerOwner: sse.maxStreamsPerOwner }),
     },
+    ...(webDistDir === undefined ? {} : { webDistDir }),
   };
 }
 
@@ -135,6 +149,7 @@ export function apiReadinessConfigProblems(
   return [
     ...installationLimitProblems(environment),
     ...apiSettingsProblems(environment),
+    ...googleLoginConfigFromEnv(environment).problems,
   ];
 }
 

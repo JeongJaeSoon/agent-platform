@@ -8,6 +8,7 @@ import {
 } from "@agent-platform/contracts";
 import {
   type CreatePushRequestInput,
+  createAuthorizationPolicy,
   createPushRequestService,
   type DecidePushRequestInput,
   type PushRefusalRecord,
@@ -108,6 +109,7 @@ function app(
     ...options.store,
   };
   const service = createPushRequestService({
+    authorization: createAuthorizationPolicy(),
     store,
     catalog: CATALOG,
     source: {
@@ -127,6 +129,9 @@ function app(
               id: `key-${token}`,
               ownerId: "owner-a",
               workspaceId: null,
+              kind: "service" as const,
+              createdByUserId: null,
+              creatorRole: null,
               scopes: [...(KEYS[token] ?? [])],
             }
           : null;

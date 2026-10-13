@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal } from "@agent-platform/contracts";
+import { testCaller } from "@agent-platform/testkit";
+import {
+  type AuthorizationPolicy,
+  createAuthorizationPolicy,
+} from "../musterrolle/policy.ts";
 import type {
   PushRefusalRecord,
   PushRequestStore,
@@ -38,6 +43,7 @@ function service() {
     refusals,
     decided,
     push: createPushRequestService({
+      authorization: createAuthorizationPolicy(),
       store,
       catalog: CATALOG,
       source: {
@@ -60,7 +66,12 @@ describe("push request decisions", () => {
     let bodyRead = false;
     const error = await push
       .decide(
-        { principal: installation, ownerId: "owner-a", verified: true },
+        {
+          caller: testCaller("owner-a"),
+          principal: installation,
+          ownerId: "owner-a",
+          verified: true,
+        },
         SESSION,
         PUSH,
         {
@@ -96,6 +107,7 @@ describe("push request decisions", () => {
     const read: string[] = [];
     const refusals: PushRefusalRecord[] = [];
     const push = createPushRequestService({
+      authorization: createAuthorizationPolicy(),
       store: {
         findSession: async () => ({ repositoryId: "sample-app" }),
         replayCreate: async () => null,
@@ -113,6 +125,7 @@ describe("push request decisions", () => {
       },
     });
     const actor = {
+      caller: testCaller("owner-a"),
       principal: {
         kind: "api_key",
         id: "key-1",
@@ -142,5 +155,65 @@ describe("push request decisions", () => {
       session,
     ]);
     expect(refusals[1]?.result.push_request_id).toBe(pushId);
+  });
+
+  test("a session the caller cannot see is NOT_FOUND, and nothing reads or writes the store", async () => {
+    const touched: string[] = [];
+    const hidden: AuthorizationPolicy = {
+      authorize: async () => ({
+        outcome: "deny",
+        reason_code: "not_found",
+        effective_scopes: [],
+        policy_version: "test",
+        decision_id: crypto.randomUUID(),
+      }),
+    };
+    const store = new Proxy({} as PushRequestStore, {
+      get: (_target, name) => async () => {
+        touched.push(String(name));
+        return null;
+      },
+    });
+    const push = createPushRequestService({
+      authorization: hidden,
+      store,
+      source: {
+        readPushSource: async () => {
+          touched.push("readPushSource");
+          return { status: "none" };
+        },
+      },
+      catalog: CATALOG,
+    });
+    const actor = {
+      caller: testCaller("owner-a"),
+      principal: {
+        kind: "api_key",
+        id: "key-1",
+        owner_id: "owner-a",
+        workspace_id: null,
+        scopes: ["sessions:read", "sessions:write", "sessions:approve"],
+      } as Principal,
+      ownerId: "owner-a",
+      verified: true,
+    };
+    const attempts = [
+      push.create(actor, SESSION, { idempotencyKey: "k-1" }),
+      push.list(actor, SESSION),
+      push.get(actor, SESSION, PUSH),
+      push.decide(actor, SESSION, PUSH, {
+        idempotencyKey: "k-2",
+        readBody: async () => ({
+          decision: "approve",
+          git_commit: "a".repeat(40),
+        }),
+      }),
+    ];
+    for (const attempt of attempts) {
+      const error = await attempt.catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(SessionServiceError);
+      expect((error as SessionServiceError).code).toBe("NOT_FOUND");
+    }
+    expect(touched).toEqual([]);
   });
 });

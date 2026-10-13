@@ -7,6 +7,7 @@ import {
   type SessionScope,
 } from "@agent-platform/contracts";
 import {
+  createAuthorizationPolicy,
   createPullRequestService,
   type ForgeAdapter,
   ForgeCredentialError,
@@ -95,6 +96,7 @@ function app(
     },
   };
   const service = createPullRequestService({
+    authorization: createAuthorizationPolicy(),
     catalog: CATALOG,
     forges: () => forge,
     redact: (line) => line,
@@ -141,6 +143,9 @@ function app(
               id: `key-${token}`,
               ownerId: "owner-a",
               workspaceId: null,
+              kind: "service" as const,
+              createdByUserId: null,
+              creatorRole: null,
               scopes: [...(KEYS[token] ?? [])],
             }
           : null;

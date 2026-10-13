@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal, PullRequest } from "@agent-platform/contracts";
+import { testCaller } from "@agent-platform/testkit";
+import {
+  type AuthorizationPolicy,
+  createAuthorizationPolicy,
+} from "../musterrolle/policy.ts";
 import {
   type ForgeAdapter,
   ForgeCredentialError,
@@ -38,14 +43,24 @@ const human: Principal = {
   workspace_id: null,
   scopes: ["sessions:approve"],
 };
-const actor = { principal: human, ownerId: "owner-a", verified: true };
+const actor = {
+  caller: testCaller("owner-a"),
+  principal: human,
+  ownerId: "owner-a",
+  verified: true,
+};
 
 function harness(
-  options: { state?: PullRequestSource["state"]; binding?: string } = {},
+  options: {
+    state?: PullRequestSource["state"];
+    binding?: string;
+    authorization?: AuthorizationPolicy;
+  } = {},
 ) {
   const receipts: PullRequestReceipt[] = [];
   const saved: PullRequest[] = [];
   const calls: string[] = [];
+  const sourceReads: string[] = [];
   const source: PullRequestSource = {
     id: PUSH,
     sessionId: SESSION,
@@ -57,8 +72,10 @@ function harness(
     gitCommit: "a".repeat(40),
   };
   const store: PullRequestStore = {
-    findSource: async (_owner, session, push) =>
-      session === SESSION && push === PUSH ? source : null,
+    findSource: async (_owner, session, push) => {
+      sourceReads.push(session);
+      return session === SESSION && push === PUSH ? source : null;
+    },
     findPullRequest: async (_owner, push) =>
       saved.find((entry) => entry.push_request_id === push) ?? null,
     findBranchPullRequest: async (_owner, session, head) =>
@@ -142,6 +159,7 @@ function harness(
     },
   };
   const service = createPullRequestService({
+    authorization: options.authorization ?? createAuthorizationPolicy(),
     store,
     catalog: CATALOG,
     forges: (id) => (id === "app" ? forge : null),
@@ -150,6 +168,7 @@ function harness(
   return {
     service,
     receipts,
+    sourceReads,
     saved,
     calls,
     created,
@@ -171,6 +190,32 @@ async function refusal(promise: Promise<unknown>) {
 }
 
 describe("opening a pull request", () => {
+  test("a session the caller cannot see is NOT_FOUND, and neither the store nor the forge is touched", async () => {
+    const hidden: AuthorizationPolicy = {
+      authorize: async () => ({
+        outcome: "deny",
+        reason_code: "not_found",
+        effective_scopes: [],
+        policy_version: "test",
+        decision_id: crypto.randomUUID(),
+      }),
+    };
+    const { service, receipts, calls, sourceReads } = harness({
+      authorization: hidden,
+    });
+    for (const attempt of [
+      service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      service.comment(actor, SESSION, PUSH, {
+        readBody: async () => ({ body: "hi" }),
+      }),
+    ]) {
+      expect((await refusal(attempt)).code).toBe("NOT_FOUND");
+    }
+    expect(sourceReads).toEqual([]);
+    expect(receipts).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
   test("opens one from agent/<session-id> into the catalog branch with cleaned text, then answers it again", async () => {
     const { service, created, calls, receipts } = harness();
     const first = await service.open(actor, SESSION.toUpperCase(), PUSH, {

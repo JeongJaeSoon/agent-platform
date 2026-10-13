@@ -1,22 +1,39 @@
 import { randomUUID } from "node:crypto";
 import {
+  type AuthorizationAction,
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  GOOGLE_LOGIN_COOKIE_NAME,
+  GOOGLE_LOGIN_FLOW_TTL_MINUTES,
+  googleLoginCallbackRequestSchema,
+  issuePasswordResetRequestSchema,
+  issuePasswordResetResponseSchema,
+  type LoginMethod,
+  loginMethodsResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
+  memberParamsSchema,
   normalizeEmail,
+  PASSWORD_RESET_TTL_MINUTES,
+  passwordResetRequestSchema,
+  passwordResetResponseSchema,
   scopesForRole,
+  startGoogleLoginResponseSchema,
   type Workspace,
+  type WorkspaceRole,
   workspaceSettingsSchema,
 } from "@agent-platform/contracts";
 import type { StructuredLogger } from "@agent-platform/observability";
 import {
   BootstrapDoneError,
+  BootstrapTokenSpentError,
   type IdentityStore,
   type IdentityWorkspace,
+  MANAGEMENT_ROLES,
 } from "@agent-platform/platform";
 import type { Context } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import {
   ApiHttpError,
@@ -32,6 +49,7 @@ import {
   type BootstrapGate,
   browserRequestViolation,
   clearWebSessionCookie,
+  generatePasswordResetToken,
   generateWebSessionToken,
   hashPassword,
   hashWebSessionToken,
@@ -43,16 +61,31 @@ import {
   WorkGate,
   webSessionCookie,
 } from "../auth.ts";
+import {
+  domainAdmission,
+  type GoogleLogin,
+  GoogleLoginInvalidError,
+  GoogleUnavailableError,
+} from "../google-login.ts";
+import { requireParams } from "./errors.ts";
 
 export interface AuthRouteDeps {
   identity: IdentityStore;
   bootstrap: BootstrapGate;
+  /** Shared with reset issuance, which re-checks the issuer's password. */
   lockout?: LoginLockout;
   passwordWork?: WorkGate;
   logger?: StructuredLogger;
+  /** Absent: Google sign-in is not configured and its routes answer 404. */
+  google?: GoogleLogin;
 }
 
 const INVALID_CREDENTIALS = "Invalid email or password";
+const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
+// The recovery routes keep no failure window. Their tokens are 256 bits
+// (BOOTSTRAP_TOKEN at least 32 characters), so a window adds nothing against
+// guessing, and with no address to key it on it would be one window for
+// every caller: anyone could keep recovery answering 429.
 
 // The token is read on its own and checked before the rest of the body is
 // validated, so a caller without it learns nothing about the schema and gets
@@ -61,6 +94,10 @@ const INVALID_CREDENTIALS = "Invalid email or password";
 const bootstrapTokenOnlySchema = z.looseObject({
   bootstrap_token: z.unknown().optional(),
 });
+
+function invalidBootstrapToken(): ApiHttpError {
+  return new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
+}
 
 function rateLimited(
   context: Context,
@@ -87,7 +124,19 @@ async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-function workspaceView(row: IdentityWorkspace): Workspace {
+/** The workspace management actions a role holds, from the policy's own table. */
+export function permissionsOf(role: WorkspaceRole): AuthorizationAction[] {
+  return (
+    Object.entries(MANAGEMENT_ROLES) as [
+      AuthorizationAction,
+      readonly WorkspaceRole[],
+    ][]
+  )
+    .filter(([, roles]) => roles.includes(role))
+    .map(([action]) => action);
+}
+
+export function workspaceView(row: IdentityWorkspace): Workspace {
   return {
     id: row.id,
     slug: row.slug,
@@ -95,6 +144,69 @@ function workspaceView(row: IdentityWorkspace): Workspace {
     settings: workspaceSettingsSchema.parse(row.settings),
     created_at: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * The signed-in user's current password, checked like a login: the same
+ * per-email failure window and the same hashing gate. Returns the hash it
+ * matched, for the store to confirm it has not changed since.
+ */
+async function reauthenticate(
+  context: Context,
+  deps: {
+    lockout: LoginLockout;
+    passwordWork: WorkGate;
+    identity: IdentityStore;
+    logger: StructuredLogger | undefined;
+  },
+  who: { userId: string; email: string },
+  password: string,
+): Promise<string> {
+  const lockedFor = deps.lockout.retryAfterMs(who.email);
+  if (lockedFor > 0) {
+    throw rateLimited(context, lockedFor, "Too many failed password checks");
+  }
+  const slot = deps.passwordWork.tryAcquire();
+  if (!slot) {
+    throw rateLimited(context, 1000, "Too many password checks in progress");
+  }
+  const releaseSlot = await slot;
+  let hash: string;
+  try {
+    const reservation = deps.lockout.reserve(who.email);
+    if (reservation.retryAfterMs > 0) {
+      throw rateLimited(
+        context,
+        reservation.retryAfterMs,
+        "Too many failed password checks",
+      );
+    }
+    let found: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
+    let verified: boolean;
+    try {
+      found = await storageMapped(() =>
+        deps.identity.findUserForLogin(who.email),
+      );
+      verified = await verifyPassword(password, found?.passwordHash ?? null);
+    } catch (error) {
+      reservation.release();
+      throw error;
+    }
+    if (
+      !found ||
+      found.id !== who.userId ||
+      found.passwordHash === null ||
+      !verified
+    ) {
+      deps.logger?.warn("Password check failed", { user_id: who.userId });
+      throw new ApiHttpError(403, "FORBIDDEN", "Current password is incorrect");
+    }
+    hash = found.passwordHash;
+  } finally {
+    releaseSlot();
+  }
+  deps.lockout.clear(who.email);
+  return hash;
 }
 
 /** Mounted outside the auth middleware (03 §3.2 public allowlist). */
@@ -105,18 +217,30 @@ export function registerPublicAuthRoutes(
   const lockout = deps.lockout ?? new LoginLockout();
   const passwordWork = deps.passwordWork ?? new WorkGate();
 
+  apiRoute(router, "listLoginMethods", ingestThenStopClock, (context) => {
+    const methods: LoginMethod[] = deps.google
+      ? ["password", "google"]
+      : ["password"];
+    return jsonWithSchema(context, loginMethodsResponseSchema, { methods });
+  });
+
   apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
-    // Done is answered before the token is looked at: once the first owner
-    // exists the token has nothing left to protect, and 409 is not a hint.
-    if ((await storageMapped(() => deps.identity.countUsers())) > 0) {
-      throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
-    }
     const raw = await parseJsonBody(context, bootstrapTokenOnlySchema);
     const token =
       typeof raw.bootstrap_token === "string" ? raw.bootstrap_token : null;
     if (token === null || !deps.bootstrap.matches(token)) {
       deps.logger?.warn("Bootstrap refused: token mismatch");
-      throw new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
+      throw invalidBootstrapToken();
+    }
+    // Looked at only once the token matched, so a caller without it cannot
+    // tell an install with a live owner from one without.
+    if ((await storageMapped(() => deps.identity.countLiveOwners())) > 0) {
+      // Startup spends a token configured while an owner is live, but only
+      // when it reaches the database; this covers a start that did not.
+      await storageMapped(() =>
+        deps.identity.retireBootstrapToken(hashWebSessionToken(token)),
+      );
+      throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
     }
     const parsed = bootstrapRequestSchema.safeParse(raw);
     if (!parsed.success) {
@@ -130,7 +254,7 @@ export function registerPublicAuthRoutes(
     }
     try {
       const passwordHash = await hashPassword(body.password);
-      const { user, workspace } = await storageMapped(() =>
+      const { user, workspace, recovered } = await storageMapped(() =>
         deps.identity.bootstrap({
           userId: randomUUID(),
           email: normalizeEmail(body.email),
@@ -139,12 +263,15 @@ export function registerPublicAuthRoutes(
           workspaceId: randomUUID(),
           workspaceSlug: body.workspace_slug,
           workspaceName: body.workspace_name,
+          bootstrapTokenHash: hashWebSessionToken(token),
+          receiptId: randomUUID(),
+          loginMethodId: randomUUID(),
         }),
       );
-      deps.logger?.info("Bootstrap completed", {
-        user_id: user.id,
-        workspace_id: workspace.id,
-      });
+      deps.logger?.info(
+        recovered ? "Bootstrap recovered an owner" : "Bootstrap completed",
+        { user_id: user.id, workspace_id: workspace.id },
+      );
       return jsonWithSchema(
         context,
         bootstrapResponseSchema,
@@ -159,11 +286,58 @@ export function registerPublicAuthRoutes(
       if (error instanceof BootstrapDoneError) {
         throw new ApiHttpError(409, "BOOTSTRAP_DONE", "Bootstrap already done");
       }
+      if (error instanceof BootstrapTokenSpentError) {
+        // Recorded in the database, so a restart does not revive it. Only
+        // the operator, reading the log, needs to know why.
+        deps.logger?.warn(
+          "Bootstrap refused: token already used; set a new BOOTSTRAP_TOKEN",
+        );
+        throw invalidBootstrapToken();
+      }
       // The insert failed (storage down, slug race); the token is still the
       // operator's to spend.
       deps.bootstrap.release();
       throw error;
     }
+  });
+
+  apiRoute(router, "resetPassword", ingestThenStopClock, async (context) => {
+    const body = await parseJsonBody(context, passwordResetRequestSchema);
+    const slot = passwordWork.tryAcquire();
+    if (!slot) {
+      throw rateLimited(context, 1000, "Too many password changes in progress");
+    }
+    const releaseSlot = await slot;
+    let reset: Awaited<ReturnType<IdentityStore["consumePasswordReset"]>>;
+    const receiptId = randomUUID();
+    try {
+      const passwordHash = await hashPassword(body.password);
+      reset = await storageMapped(() =>
+        deps.identity.consumePasswordReset({
+          tokenHash: hashWebSessionToken(body.token),
+          passwordHash,
+          receiptId,
+        }),
+      );
+    } finally {
+      releaseSlot();
+    }
+    if (!reset) {
+      deps.logger?.warn("Password reset refused: link invalid or expired");
+      throw new ApiHttpError(
+        401,
+        "UNAUTHORIZED",
+        "Password reset link is invalid or has expired",
+      );
+    }
+    deps.logger?.info("Password reset completed", {
+      user_id: reset.userId,
+      workspace_id: reset.workspaceId,
+    });
+    return jsonWithSchema(context, passwordResetResponseSchema, {
+      user_id: reset.userId,
+      receipt_id: receiptId,
+    });
   });
 
   apiRoute(router, "login", ingestThenStopClock, async (context) => {
@@ -190,6 +364,7 @@ export function registerPublicAuthRoutes(
     let membership: NonNullable<
       Awaited<ReturnType<IdentityStore["findLiveMembership"]>>
     >;
+    let verifiedPasswordHash: string;
     try {
       // Counted as a failure before the password is checked, in the same
       // synchronous step as the lockout check: a burst of concurrent
@@ -227,7 +402,7 @@ export function registerPublicAuthRoutes(
         reservation.release();
         throw error;
       }
-      if (!found || !verified || !live) {
+      if (!found || !verified || !live || found.passwordHash === null) {
         // A user with no live workspace fails like a wrong password; the
         // reservation above already counted it, so probing is bounded.
         deps.logger?.warn("Login failed", { has_user: found !== null });
@@ -235,21 +410,28 @@ export function registerPublicAuthRoutes(
       }
       user = found;
       membership = live;
+      verifiedPasswordHash = found.passwordHash;
     } finally {
       releaseSlot();
     }
     lockout.clear(email);
     const token = generateWebSessionToken();
-    const { expiresAt } = await storageMapped(() =>
+    const created = await storageMapped(() =>
       deps.identity.createWebSession({
         id: randomUUID(),
         userId: user.id,
+        verifiedPasswordHash,
         tokenHash: hashWebSessionToken(token),
         ttlMs: WEB_SESSION_TTL_MS,
         userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
         maxLive: WEB_SESSIONS_PER_USER,
       }),
     );
+    if (!created) {
+      // A reset or a disable landed after the password was checked.
+      throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
+    }
+    const { expiresAt } = created;
     setWebSessionCookie(context, token, expiresAt);
     return jsonWithSchema(context, loginResponseSchema, {
       user_id: user.id,
@@ -259,10 +441,165 @@ export function registerPublicAuthRoutes(
       expires_at: expiresAt.toISOString(),
     });
   });
+
+  const requireGoogle = (): GoogleLogin => {
+    if (!deps.google) {
+      throw new ApiHttpError(
+        404,
+        "NOT_FOUND",
+        "Google sign-in is not configured",
+      );
+    }
+    return deps.google;
+  };
+  const providerMapped = async <T>(work: () => Promise<T>): Promise<T> => {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof GoogleUnavailableError) {
+        deps.logger?.warn("Google sign-in provider unavailable", {
+          reason: error.message,
+        });
+        throw new ApiHttpError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Google sign-in is unavailable, try again later",
+          true,
+        );
+      }
+      throw error;
+    }
+  };
+
+  apiRoute(router, "startGoogleLogin", ingestThenStopClock, async (context) => {
+    const violation = browserRequestViolation(context);
+    if (violation) {
+      throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
+    }
+    const google = requireGoogle();
+    const flow = await providerMapped(() => google.start());
+    setCookie(context, GOOGLE_LOGIN_COOKIE_NAME, flow.cookieValue, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: GOOGLE_LOGIN_FLOW_TTL_MINUTES * 60,
+    });
+    context.header("Cache-Control", "no-store");
+    return jsonWithSchema(context, startGoogleLoginResponseSchema, {
+      authorization_url: flow.authorizationUrl,
+    });
+  });
+
+  apiRoute(
+    router,
+    "googleLoginCallback",
+    ingestThenStopClock,
+    async (context) => {
+      const violation = browserRequestViolation(context);
+      if (violation) {
+        throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
+      }
+      const google = requireGoogle();
+      const body = await parseJsonBody(
+        context,
+        googleLoginCallbackRequestSchema,
+      );
+      const cookieValue = getCookie(context, GOOGLE_LOGIN_COOKIE_NAME);
+      deleteCookie(context, GOOGLE_LOGIN_COOKIE_NAME, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax",
+        path: "/",
+      });
+      let identity: Awaited<ReturnType<GoogleLogin["finish"]>>;
+      try {
+        identity = await providerMapped(() =>
+          google.finish({ cookieValue, code: body.code, state: body.state }),
+        );
+      } catch (error) {
+        if (error instanceof GoogleLoginInvalidError) {
+          deps.logger?.warn("Google sign-in refused", {
+            reason: error.message,
+          });
+          throw new ApiHttpError(401, "UNAUTHORIZED", GOOGLE_REJECTED);
+        }
+        throw error;
+      }
+      const admission = domainAdmission(google.config, identity);
+      if (!admission) {
+        deps.logger?.warn("Google sign-in refused: domain not allowed", {
+          hosted_domain: identity.hostedDomain,
+        });
+        throw new ApiHttpError(
+          403,
+          "FORBIDDEN",
+          "This Google account's domain is not allowed here",
+        );
+      }
+      const token = generateWebSessionToken();
+      const result = await storageMapped(() =>
+        deps.identity.signInWithExternalIdentity({
+          kind: "google",
+          issuer: identity.issuer,
+          subject: identity.subject,
+          email: identity.email,
+          displayName: displayNameFor(identity),
+          jitRole: admission.jitRole,
+          ownsEmail: admission.ownsEmail,
+          newUserId: randomUUID(),
+          newLoginMethodId: randomUUID(),
+          receiptId: randomUUID(),
+          session: {
+            id: randomUUID(),
+            tokenHash: hashWebSessionToken(token),
+            ttlMs: WEB_SESSION_TTL_MS,
+            userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
+            maxLive: WEB_SESSIONS_PER_USER,
+          },
+        }),
+      );
+      if (result.outcome === "link_required") {
+        deps.logger?.info("Google sign-in needs linking to an account");
+        throw new ApiHttpError(
+          409,
+          "LOGIN_LINK_REQUIRED",
+          "Sign in with your existing account, then connect Google in settings",
+        );
+      }
+      if (result.outcome === "rejected") {
+        deps.logger?.warn("Google sign-in refused: no rule admits it");
+        throw new ApiHttpError(401, "UNAUTHORIZED", GOOGLE_REJECTED);
+      }
+      deps.logger?.info("Google sign-in", {
+        user_id: result.userId,
+        workspace_id: result.workspaceId,
+        via: result.via,
+      });
+      setWebSessionCookie(context, token, result.expiresAt);
+      return jsonWithSchema(context, loginResponseSchema, {
+        user_id: result.userId,
+        workspace_id: result.workspaceId,
+        role: result.role,
+        scopes: [...scopesForRole(result.role)],
+        expires_at: result.expiresAt.toISOString(),
+      });
+    },
+  );
+}
+
+const GOOGLE_REJECTED = "Google sign-in was not accepted";
+
+function displayNameFor(identity: { name: string | null; email: string }) {
+  const name = identity.name?.trim().slice(0, 64);
+  if (name) return name;
+  return identity.email.slice(0, identity.email.indexOf("@")).slice(0, 64);
 }
 
 /** Mounted inside the auth middleware. */
 export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
+  const lockout = deps.lockout ?? new LoginLockout();
+  const passwordWork = deps.passwordWork ?? new WorkGate();
   apiRoute(router, "logout", async (context) => {
     const principal = context.get("principal");
     const cookie = webSessionCookie(context);
@@ -278,6 +615,95 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     );
     clearWebSessionCookie(context);
     return context.body(null, 204);
+  });
+
+  apiRoute(router, "issuePasswordReset", async (context) => {
+    const principal = context.get("principal");
+    const session = context.get("webSession");
+    const params = requireParams(context, memberParamsSchema);
+    if (principal.kind !== "user" || !session) {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "Password reset links are issued from an owner's session",
+      );
+    }
+    if (principal.workspace_id !== params.id) {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    if (principal.role !== "owner") {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "Only an owner can issue a password reset link",
+      );
+    }
+    // A link for oneself would let a stolen session set the password and
+    // end the victim's other sessions; an owner who knows their password
+    // has no use for one.
+    if (params.userId === principal.id) {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "An owner cannot issue a password reset link for themselves",
+      );
+    }
+    const body = await parseJsonBody(context, issuePasswordResetRequestSchema);
+    const issuerPasswordHash = await reauthenticate(
+      context,
+      { lockout, passwordWork, identity: deps.identity, logger: deps.logger },
+      { userId: principal.id, email: session.email },
+      body.current_password,
+    );
+    const token = generatePasswordResetToken();
+    const issued = await storageMapped(() =>
+      deps.identity.issuePasswordReset({
+        id: randomUUID(),
+        workspaceId: params.id,
+        userId: params.userId,
+        issuedBy: principal.id,
+        issuerPasswordHash,
+        tokenHash: hashWebSessionToken(token),
+        ttlMs: PASSWORD_RESET_TTL_MS,
+        receiptId: randomUUID(),
+      }),
+    );
+    switch (issued.outcome) {
+      case "issued":
+        break;
+      case "not_found":
+        throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+      case "issuer_changed":
+        // A reset or a disable landed on the issuer after the check; either
+        // one also ends this session.
+        throw new ApiHttpError(
+          401,
+          "UNAUTHORIZED",
+          "Session is no longer valid",
+        );
+      case "owner_elsewhere":
+        throw new ApiHttpError(
+          403,
+          "FORBIDDEN",
+          "The member owns another workspace; only that workspace can reset them",
+        );
+    }
+    deps.logger?.info("Password reset link issued", {
+      user_id: params.userId,
+      workspace_id: params.id,
+      issued_by: principal.id,
+    });
+    context.header("Cache-Control", "no-store");
+    return jsonWithSchema(
+      context,
+      issuePasswordResetResponseSchema,
+      {
+        user_id: params.userId,
+        token,
+        expires_at: issued.expiresAt.toISOString(),
+      },
+      201,
+    );
   });
 
   apiRoute(router, "getAuthMe", async (context) => {
@@ -305,15 +731,24 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         },
         workspace: workspaceView(workspace),
         scopes: principal.scopes,
+        permissions: permissionsOf(principal.role),
       });
+    }
+    const workspaceId =
+      principal.kind === "user" ? null : principal.workspace_id;
+    const workspace =
+      workspaceId === null
+        ? null
+        : await storageMapped(() => deps.identity.findWorkspace(workspaceId));
+    if (workspaceId !== null && !workspace) {
+      throw new ApiHttpError(401, "UNAUTHORIZED", "Key is no longer valid");
     }
     return jsonWithSchema(context, authMeResponseSchema, {
       principal,
       user: null,
-      // A legacy key stays unmapped until an owner_workspace_map row exists.
-      // TODO(94S-152): Read that mapping for the authenticated owner.
-      workspace: null,
+      workspace: workspace ? workspaceView(workspace) : null,
       scopes: principal.scopes,
+      permissions: [],
     });
   });
 }

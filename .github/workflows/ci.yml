@@ -170,6 +170,7 @@ jobs:
               - apps/control-host/src/reconciler/
               - packages/contracts/
               - packages/ui/
+              - apps/web/
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
               - tests/interrupt-flow.

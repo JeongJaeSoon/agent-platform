@@ -1,5 +1,8 @@
 import {
   ADMISSION_STATE_VALUES,
+  AGENT_IDENTITY_PROVIDER_VALUES,
+  AGENT_IDENTITY_STATUS_VALUES,
+  AGENT_STATUS_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
@@ -7,11 +10,13 @@ import {
 } from "@agent-platform/contracts";
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
   check,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -148,8 +153,8 @@ export const users = pgTable(
   {
     id: uuid().primaryKey(),
     email: text().notNull().unique(),
-    /** argon2id. */
-    passwordHash: text("password_hash").notNull(),
+    /** argon2id; null for an account that only signs in externally. */
+    passwordHash: text("password_hash"),
     displayName: text("display_name").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -187,7 +192,10 @@ export const memberships = pgTable(
     primaryKey({ columns: [table.workspaceId, table.userId] }),
     // Login resolves a user's workspaces; the PK leads with workspace_id.
     index("memberships_user_idx").on(table.userId),
-    check("memberships_role_check", sql`${table.role} IN ('owner', 'member')`),
+    check(
+      "memberships_role_check",
+      sql`${table.role} IN ('owner', 'admin', 'member')`,
+    ),
   ],
 );
 
@@ -219,7 +227,10 @@ export const invites = pgTable(
     uniqueIndex("invites_live_email_uniq")
       .on(table.workspaceId, table.email)
       .where(sql`${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL`),
-    check("invites_role_check", sql`${table.role} IN ('owner', 'member')`),
+    check(
+      "invites_role_check",
+      sql`${table.role} IN ('owner', 'admin', 'member')`,
+    ),
     // Same rule as users.email, or the live-invite unique above would let
     // two spellings of one address stay redeemable at once.
     check(
@@ -230,6 +241,43 @@ export const invites = pgTable(
     check(
       "invites_single_outcome_check",
       sql`${table.acceptedAt} IS NULL OR ${table.revokedAt} IS NULL`,
+    ),
+  ],
+);
+
+export const loginMethods = pgTable(
+  "login_methods",
+  {
+    id: uuid().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    kind: text().$type<"password" | "google">().notNull(),
+    issuer: text(),
+    subject: text(),
+    /** The address the provider vouched for when the account was linked. */
+    emailAtLink: text("email_at_link"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("login_methods_external_uniq").on(
+      table.kind,
+      table.issuer,
+      table.subject,
+    ),
+    uniqueIndex("login_methods_password_user_uniq")
+      .on(table.userId)
+      .where(sql`${table.kind} = 'password'`),
+    check(
+      "login_methods_kind_check",
+      sql`${table.kind} IN ('password', 'google')`,
+    ),
+    check(
+      "login_methods_external_check",
+      sql`CASE WHEN ${table.kind} = 'password' THEN ${table.issuer} IS NULL AND ${table.subject} IS NULL ELSE ${table.issuer} IS NOT NULL AND ${table.subject} IS NOT NULL END`,
     ),
   ],
 );
@@ -256,6 +304,164 @@ export const webSessions = pgTable(
     index("web_sessions_user_live_idx")
       .on(table.userId)
       .where(sql`${table.revokedAt} IS NULL`),
+  ],
+);
+
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    /** sha256 of the one-time token; the token itself is never stored. */
+    tokenHash: bytea("token_hash").notNull().unique(),
+    issuedBy: uuid("issued_by")
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Issuing a new link revokes the user's open one, so at most one link
+    // per user can set a password.
+    uniqueIndex("password_resets_live_user_uniq")
+      .on(table.userId)
+      .where(sql`${table.usedAt} IS NULL AND ${table.revokedAt} IS NULL`),
+    check(
+      "password_resets_single_outcome_check",
+      sql`${table.usedAt} IS NULL OR ${table.revokedAt} IS NULL`,
+    ),
+  ],
+);
+
+// A BOOTSTRAP_TOKEN works once per installation, not once per process: a
+// value left in the environment after an install must not reopen recovery
+// the next time no live owner remains.
+export const bootstrapTokenUses = pgTable("bootstrap_token_uses", {
+  tokenHash: bytea("token_hash").primaryKey(),
+  usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// The shared Slack app installed in one Slack team, owned by one workspace.
+// A row is registered `pending` from config, turns `verified` once
+// `auth.test` confirms the app, team and bot user, and is `revoked` rather
+// than deleted so that rows pointing at it keep their target. No secret is
+// stored here; credentials stay in the config's references.
+export const slackInstallations = pgTable(
+  "slack_installations",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    appId: text("app_id").notNull(),
+    teamId: text("team_id").notNull(),
+    /** Known only once `auth.test` has answered. */
+    botUserId: text("bot_user_id"),
+    status: text()
+      .$type<"pending" | "verified" | "revoked">()
+      .notNull()
+      .default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    unique("slack_installations_app_team_uniq").on(table.appId, table.teamId),
+    // What agent_identities references, so an identity cannot pin another
+    // workspace's install.
+    unique("slack_installations_workspace_id_key").on(
+      table.workspaceId,
+      table.id,
+    ),
+    check(
+      "slack_installations_status_check",
+      sql`${table.status} IN ('pending', 'verified', 'revoked')`,
+    ),
+    check(
+      "slack_installations_verified_check",
+      sql`${table.status} <> 'verified' OR (${table.botUserId} IS NOT NULL AND ${table.verifiedAt} IS NOT NULL)`,
+    ),
+    check(
+      "slack_installations_revoked_check",
+      sql`(${table.status} = 'revoked') = (${table.revokedAt} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// A person's account on another service (design A.2): today a Slack user,
+// linked through Sign in with Slack. Rows are revoked, never deleted, so the
+// receipts that name one keep their target; every status change bumps
+// `revision`, which a decision made on an older reading compares against.
+export const linkedAccounts = pgTable(
+  "linked_accounts",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    provider: text().$type<"slack">().notNull(),
+    /** The Slack team id. */
+    externalTenant: text("external_tenant").notNull(),
+    externalUserId: text("external_user_id").notNull(),
+    status: text()
+      .$type<"active" | "stale" | "revoked">()
+      .notNull()
+      .default("active"),
+    revokedReason: text("revoked_reason").$type<"unlinked" | "offboarded">(),
+    verifiedVia: text("verified_via").$type<"slack_oidc">().notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+    revision: integer().notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    // One person per external account, and one account per person in each
+    // Slack team, among the rows that still resolve.
+    uniqueIndex("linked_accounts_external_live_uniq")
+      .on(table.provider, table.externalTenant, table.externalUserId)
+      .where(sql`${table.status} <> 'revoked'`),
+    uniqueIndex("linked_accounts_user_live_uniq")
+      .on(table.userId, table.provider, table.externalTenant)
+      .where(sql`${table.status} <> 'revoked'`),
+    index("linked_accounts_workspace_user_idx").on(
+      table.workspaceId,
+      table.userId,
+    ),
+    check(
+      "linked_accounts_provider_check",
+      sql`${table.provider} IN ('slack')`,
+    ),
+    check(
+      "linked_accounts_status_check",
+      sql`${table.status} IN ('active', 'stale', 'revoked')`,
+    ),
+    check(
+      "linked_accounts_revoked_check",
+      sql`(${table.status} = 'revoked') = (${table.revokedAt} IS NOT NULL) AND (${table.status} = 'revoked') = (${table.revokedReason} IS NOT NULL)`,
+    ),
+    check(
+      "linked_accounts_revoked_reason_check",
+      sql`${table.revokedReason} IS NULL OR ${table.revokedReason} IN ('unlinked', 'offboarded')`,
+    ),
   ],
 );
 
@@ -449,9 +655,15 @@ export const sessions = pgTable(
     // sessions are not backfilled, see owner_workspace_map.
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
-    // TODO(94S-154): Add the FK when agent_releases is introduced. This is
-    // not a uuid: release ids are derived hashes.
-    agentReleaseId: text("agent_release_id"),
+    createdByApiKeyId: uuid("created_by_api_key_id").references(
+      () => apiKeys.id,
+    ),
+    takeoverRequiredAt: timestamp("takeover_required_at", {
+      withTimezone: true,
+    }),
+    agentReleaseId: text("agent_release_id").references(
+      (): AnyPgColumn => agentReleases.id,
+    ),
     // What this session's Messages calls cost, as the egress proxy metered
     // them: each is priced and added once (provider_usage), the
     // engine's calls and a tool's alike. An estimate. Sessions from before
@@ -513,6 +725,12 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    index("sessions_created_by_user_idx")
+      .on(table.createdByUserId)
+      .where(sql`${table.createdByUserId} IS NOT NULL`),
+    index("sessions_takeover_idx")
+      .on(table.workspaceId, table.takeoverRequiredAt)
+      .where(sql`${table.takeoverRequiredAt} IS NOT NULL`),
     // The reconciler's sweep for waits that ended with no write.
     index("sessions_input_announced_idx")
       .on(table.id)
@@ -685,9 +903,11 @@ export const receipts = pgTable(
       .defaultNow(),
     /** `receiptActorSchema`: principal plus the human behind it. */
     actor: jsonb(),
+    requestId: text("request_id"),
   },
   (table) => [
     index("receipts_owner_created_at_idx").on(table.ownerId, table.createdAt),
+    index("receipts_request_idx").on(table.requestId),
     // The terminate deadline sweep runs every scheduler and reconciler pass
     // and must not read the whole receipt history to find the few open ones.
     // An execution revocation is swept the same way.
@@ -696,6 +916,46 @@ export const receipts = pgTable(
       .where(
         sql`${table.operation} IN ('terminate', 'revoke_execution') AND ${table.status} = 'accepted'`,
       ),
+  ],
+);
+
+// No foreign keys, so a row outlives the session, key or user it names for
+// as long as the workspace keeps audit rows.
+export const authzDecisions = pgTable(
+  "authz_decisions",
+  {
+    id: uuid().primaryKey(),
+    at: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    ownerId: text("owner_id").notNull(),
+    workspaceId: uuid("workspace_id"),
+    principalKind: text("principal_kind"),
+    principalId: text("principal_id"),
+    actorUserId: uuid("actor_user_id"),
+    agentId: uuid("agent_id"),
+    agentReleaseId: text("agent_release_id"),
+    linkedAccountId: text("linked_account_id"),
+    linkedAccountRevision: integer("linked_account_revision"),
+    surface: jsonb().notNull(),
+    action: text().notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceId: text("resource_id"),
+    outcome: text().notNull(),
+    reasonCode: text("reason_code").notNull(),
+    justification: text(),
+    policyVersion: text("policy_version").notNull(),
+    requestId: text("request_id").notNull(),
+  },
+  (table) => [
+    index("authz_decisions_request_idx").on(table.requestId),
+    index("authz_decisions_at_idx").on(table.at),
+    check(
+      "authz_decisions_outcome_check",
+      sql`${table.outcome} IN ('allow', 'deny', 'redact', 'require_approval')`,
+    ),
+    check(
+      "authz_decisions_principal_check",
+      sql`(${table.principalKind} IS NULL) = (${table.principalId} IS NULL)`,
+    ),
   ],
 );
 
@@ -748,6 +1008,13 @@ export const pendingRequests = pgTable(
     // sequence order and the worker's answers_after cursor never skips one.
     answerSequence: integer("answer_sequence"),
     answerReceiptId: uuid("answer_receipt_id").references(() => receipts.id),
+    // Who answered, where, and the session.approve decision that let them:
+    // the answer receipt's actor shape, so a key with no person is still
+    // named. No FK on the decision: audit retention prunes authz_decisions
+    // and the approval row outlives it. Null on rows answered before 0137.
+    answeredBy: jsonb("answered_by"),
+    answerSurface: text("answer_surface"),
+    answerDecisionId: uuid("answer_decision_id"),
     settledAt: timestamp("settled_at", { withTimezone: true }),
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.
@@ -772,6 +1039,14 @@ export const pendingRequests = pgTable(
       .where(
         sql`${table.answeredAt} IS NOT NULL AND ${table.settledAt} IS NULL`,
       ),
+    check(
+      "pending_requests_answer_surface_check",
+      sql`${table.answerSurface} IN ('web', 'slack', 'api')`,
+    ),
+    check(
+      "pending_requests_approval_check",
+      sql`(${table.answerSurface} IS NULL) = (${table.answerDecisionId} IS NULL) AND (${table.answerSurface} IS NULL OR ${table.answeredAt} IS NOT NULL) AND (${table.answeredBy} IS NULL OR ${table.answerSurface} IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -922,6 +1197,11 @@ export const checkpoints = pgTable(
     // revision's objects: no restore reaches this revision any more, and a
     // backup leaves it out rather than fail on what is gone.
     collectedAt: timestamp("collected_at", { withTimezone: true }),
+    // The profile of the attempt that committed it: its runtime fingerprint
+    // was computed from that profile, so a restore after a profile change
+    // is checked against it. Null on rows from before the column.
+    profileId: text("profile_id"),
+    profileFingerprint: text("profile_fingerprint"),
   },
   (table) => [primaryKey({ columns: [table.sessionId, table.revision] })],
 );
@@ -979,6 +1259,11 @@ export const attempts = pgTable(
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     endReason: text("end_reason"),
+    // The session's profile when this attempt claimed it. The attempt runs
+    // it to the end, so a profile change on the session takes effect at the
+    // next claim; null on rows from before the column.
+    profileId: text("profile_id"),
+    profileFingerprint: text("profile_fingerprint"),
   },
   (table) => [
     index("attempts_session_started_idx").on(table.sessionId, table.startedAt),
@@ -1232,11 +1517,37 @@ export const apiKeys = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id),
     /** Null means the legacy "everything" key. */
     scopes: text().array(),
+    kind: text().notNull().default("service"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** A service key that reaches this agent's sessions and nothing else. */
+    agentId: uuid("agent_id"),
   },
   (table) => [
+    foreignKey({
+      name: "api_keys_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    index("api_keys_agent_idx")
+      .on(table.agentId)
+      .where(sql`${table.agentId} IS NOT NULL`),
+    // A person's key carries their authority, never an agent's.
+    check(
+      "api_keys_agent_check",
+      sql`${table.agentId} IS NULL OR (${table.kind} = 'service' AND ${table.workspaceId} IS NOT NULL)`,
+    ),
     index("api_keys_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    index("api_keys_personal_creator_idx")
+      .on(table.createdByUserId)
+      .where(sql`${table.kind} = 'personal'`),
+    check("api_keys_kind_check", sql`${table.kind} IN ('personal', 'service')`),
+    check(
+      "api_keys_personal_check",
+      sql`${table.kind} <> 'personal' OR (${table.createdByUserId} IS NOT NULL AND ${table.workspaceId} IS NOT NULL)`,
+    ),
     // Same vocabulary as grants.scopes, which may only narrow a key's.
     check(
       "api_keys_scopes_check",
@@ -1260,4 +1571,473 @@ export const catalogAuthority = pgTable(
       .defaultNow(),
   },
   (table) => [check("catalog_authority_singleton_check", sql`${table.id} = 1`)],
+);
+
+export const AGENT_ACTIVATION_EVENT_KINDS = [
+  "release_created",
+  "activated",
+] as const;
+
+// Mirror contracts' CREDENTIAL_BINDING_TARGET_VALUES and CREDENTIAL_REF
+// pattern; schema.test.ts asserts they agree.
+export const CREDENTIAL_BINDING_TARGETS = ["agent", "agent_identity"] as const;
+export const CREDENTIAL_REF_PATTERN = "^[a-z0-9][a-z0-9._:/-]{0,127}$";
+
+// Versions, releases and activation events are insert-only (migration 0134
+// triggers); a release's approval is set once, by its first activation.
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    slug: text().notNull(),
+    name: text().notNull(),
+    status: text().notNull().default("active"),
+    activeReleaseId: text("active_release_id"),
+    activationRevision: integer("activation_revision").notNull().default(-1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    // What agent_admins and api_keys reference, so neither can name another
+    // workspace's agent.
+    unique("agents_workspace_id_key").on(table.workspaceId, table.id),
+    foreignKey({
+      name: "agents_active_release_fk",
+      columns: [table.id, table.activeReleaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    check(
+      "agents_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(AGENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "agents_slug_check",
+      sql`length(${table.slug}) BETWEEN 1 AND 64 AND ${table.slug} ~ '^[a-z0-9][a-z0-9-]*$'`,
+    ),
+    check(
+      "agents_activation_check",
+      sql`${table.activationRevision} >= -1 AND (${table.activeReleaseId} IS NULL) = (${table.activationRevision} = -1)`,
+    ),
+  ],
+);
+
+// An agent's admins (design 4.1): a member gains that agent's management
+// actions. Whoever creates an agent is its first (D3). A team as admin is M13.
+export const agentAdmins = pgTable(
+  "agent_admins",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentId, table.userId] }),
+    foreignKey({
+      name: "agent_admins_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // An admin is a member of the agent's workspace, never someone else's.
+    foreignKey({
+      name: "agent_admins_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    index("agent_admins_user_idx").on(table.workspaceId, table.userId),
+  ],
+);
+
+// A group of people in a workspace (design 4.7). Named apart from the
+// session teams Lotse will add.
+export const memberTeams = pgTable(
+  "member_teams",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    revision: integer().notNull().default(1),
+  },
+  (table) => [
+    unique("member_teams_workspace_id_key").on(table.workspaceId, table.id),
+    uniqueIndex("member_teams_live_name_uniq")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.archivedAt} IS NULL`),
+    check(
+      "member_teams_name_check",
+      sql`length(${table.name}) BETWEEN 1 AND 100`,
+    ),
+  ],
+);
+
+// Read at every decision: a removed row stops granting from the next request.
+export const memberTeamMembers = pgTable(
+  "member_team_members",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    addedBy: uuid("added_by").references(() => users.id),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "member_team_members_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    // Only a member of the team's own workspace can join it.
+    foreignKey({
+      name: "member_team_members_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    uniqueIndex("member_team_members_live_uniq")
+      .on(table.teamId, table.userId)
+      .where(sql`${table.removedAt} IS NULL`),
+    index("member_team_members_user_idx")
+      .on(table.workspaceId, table.userId)
+      .where(sql`${table.removedAt} IS NULL`),
+  ],
+);
+
+// A team as an agent's admin: every live member of it administers the agent.
+export const agentAdminTeams = pgTable(
+  "agent_admin_teams",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentId, table.teamId] }),
+    foreignKey({
+      name: "agent_admin_teams_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "agent_admin_teams_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    index("agent_admin_teams_team_idx").on(table.teamId),
+  ],
+);
+
+// Who sees a session (design 4.6). No row reads as `workspace`, which is
+// what every session made before this table, and every web, API and channel
+// session since, starts as.
+export const sessionShares = pgTable(
+  "session_shares",
+  {
+    sessionId: uuid("session_id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    scope: text().notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revision: integer().notNull().default(1),
+  },
+  (table) => [
+    // NOT NULL workspace_id makes this pin the row to its session's
+    // workspace; a legacy session has none and cannot be shared.
+    foreignKey({
+      name: "session_shares_session_fk",
+      columns: [table.sessionId, table.ownerId, table.workspaceId],
+      foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
+    }),
+    unique("session_shares_workspace_session_key").on(
+      table.workspaceId,
+      table.sessionId,
+    ),
+    check(
+      "session_shares_scope_check",
+      sql`${table.scope} IN ('private', 'people', 'team', 'workspace')`,
+    ),
+  ],
+);
+
+// The people or teams a `people` or `team` share names; a team is read for
+// its live members at every decision.
+export const sessionShareTargets = pgTable(
+  "session_share_targets",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    userId: uuid("user_id"),
+    teamId: uuid("team_id"),
+    addedBy: uuid("added_by").references(() => users.id),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "session_share_targets_share_fk",
+      columns: [table.workspaceId, table.sessionId],
+      foreignColumns: [sessionShares.workspaceId, sessionShares.sessionId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "session_share_targets_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    foreignKey({
+      name: "session_share_targets_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    check(
+      "session_share_targets_one_check",
+      sql`(${table.userId} IS NULL) <> (${table.teamId} IS NULL)`,
+    ),
+    uniqueIndex("session_share_targets_user_uniq")
+      .on(table.sessionId, table.userId)
+      .where(sql`${table.userId} IS NOT NULL`),
+    uniqueIndex("session_share_targets_team_uniq")
+      .on(table.sessionId, table.teamId)
+      .where(sql`${table.teamId} IS NOT NULL`),
+  ],
+);
+
+// "This Slack app and bot is this agent" (design A.2, M8). App and team are
+// the install's; the bot user is pinned here, so a reinstall that answers as
+// another bot resolves to no one until linked again.
+export const agentIdentities = pgTable(
+  "agent_identities",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    provider: text().$type<"slack_bot">().notNull(),
+    installationId: uuid("installation_id").notNull(),
+    /** The bot user id `auth.test` reported when the identity was linked. */
+    externalPrincipalId: text("external_principal_id").notNull(),
+    /** The bot token's name in the secret store; the value is never here. */
+    credentialRef: text("credential_ref").notNull(),
+    status: text().$type<"active" | "revoked">().notNull().default("active"),
+    revision: integer().notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedBy: uuid("revoked_by").references(() => users.id),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_identities_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "agent_identities_installation_fk",
+      columns: [table.workspaceId, table.installationId],
+      foreignColumns: [slackInstallations.workspaceId, slackInstallations.id],
+    }),
+    // An event's app and team name one agent at most.
+    uniqueIndex("agent_identities_installation_live_uniq")
+      .on(table.installationId)
+      .where(sql`${table.status} = 'active'`),
+    index("agent_identities_agent_idx").on(table.agentId),
+    check(
+      "agent_identities_provider_check",
+      sql`${table.provider} IN (${sql.raw(sqlList(AGENT_IDENTITY_PROVIDER_VALUES))})`,
+    ),
+    check(
+      "agent_identities_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(AGENT_IDENTITY_STATUS_VALUES))})`,
+    ),
+    check(
+      "agent_identities_revoked_check",
+      sql`(${table.status} = 'revoked') = (${table.revokedAt} IS NOT NULL)`,
+    ),
+    check(
+      "agent_identities_credential_ref_check",
+      sql`${table.credentialRef} ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'`,
+    ),
+  ],
+);
+
+export const agentVersions = pgTable(
+  "agent_versions",
+  {
+    id: uuid().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references((): AnyPgColumn => agents.id),
+    versionNo: integer("version_no").notNull(),
+    card: jsonb().notNull(),
+    contentSha256: text("content_sha256").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("agent_versions_number_idx").on(table.agentId, table.versionNo),
+    uniqueIndex("agent_versions_content_idx").on(
+      table.agentId,
+      table.contentSha256,
+    ),
+    unique("agent_versions_agent_id_key").on(table.agentId, table.id),
+    check("agent_versions_number_check", sql`${table.versionNo} > 0`),
+    check(
+      "agent_versions_content_check",
+      sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
+
+export const agentReleases = pgTable(
+  "agent_releases",
+  {
+    // deriveReleaseId: a hash of every column below up to policy_pins.
+    id: text().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references((): AnyPgColumn => agents.id),
+    versionId: uuid("version_id").notNull(),
+    cardSha256: text("card_sha256").notNull(),
+    runtimeProfileId: text("runtime_profile_id").notNull(),
+    profileDigest: text("profile_digest").notNull(),
+    runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
+    effectiveTools: jsonb("effective_tools").notNull(),
+    policyPins: jsonb("policy_pins").notNull().default({}),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_releases_version_fk",
+      columns: [table.agentId, table.versionId],
+      foreignColumns: [agentVersions.agentId, agentVersions.id],
+    }),
+    unique("agent_releases_agent_id_key").on(table.agentId, table.id),
+    check(
+      "agent_releases_approval_check",
+      sql`(${table.approvedBy} IS NULL) = (${table.approvedAt} IS NULL)`,
+    ),
+  ],
+);
+
+// The name of a credential an agent may use, never its value (design 4.4,
+// D11). A row is revoked, not deleted, so a later session start sees the
+// binding is gone while the receipt keeps who bound it.
+export const credentialBindings = pgTable(
+  "credential_bindings",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    credentialRef: text("credential_ref").notNull(),
+    target: text().notNull(),
+    // An agent or an agent identity; the identity table comes later (M8),
+    // so the target has no foreign key and the store checks it exists.
+    targetId: uuid("target_id").notNull(),
+    boundBy: uuid("bound_by")
+      .notNull()
+      .references(() => users.id),
+    boundAt: timestamp("bound_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("credential_bindings_live_idx")
+      .on(table.target, table.targetId, table.credentialRef)
+      .where(sql`${table.revokedAt} IS NULL`),
+    index("credential_bindings_ref_idx")
+      .on(table.workspaceId, table.credentialRef)
+      .where(sql`${table.revokedAt} IS NULL`),
+    check(
+      "credential_bindings_target_check",
+      sql`${table.target} IN (${sql.raw(sqlList(CREDENTIAL_BINDING_TARGETS))})`,
+    ),
+    check(
+      "credential_bindings_ref_check",
+      sql`${table.credentialRef} ~ ${sql.raw(`'${CREDENTIAL_REF_PATTERN}'`)}`,
+    ),
+  ],
+);
+
+export const agentActivationEvents = pgTable(
+  "agent_activation_events",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references((): AnyPgColumn => agents.id),
+    kind: text().notNull(),
+    releaseId: text("release_id")
+      .notNull()
+      .references(() => agentReleases.id),
+    previousReleaseId: text("previous_release_id").references(
+      () => agentReleases.id,
+    ),
+    activationRevision: integer("activation_revision"),
+    actorUserId: uuid("actor_user_id")
+      .notNull()
+      .references(() => users.id),
+    actor: jsonb(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references(() => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("agent_activation_events_agent_idx").on(
+      table.agentId,
+      table.createdAt,
+    ),
+    check(
+      "agent_activation_events_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(AGENT_ACTIVATION_EVENT_KINDS))})`,
+    ),
+    check(
+      "agent_activation_events_revision_check",
+      sql`(${table.kind} = 'activated') = (${table.activationRevision} IS NOT NULL)`,
+    ),
+  ],
 );

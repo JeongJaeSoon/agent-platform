@@ -26,6 +26,14 @@ export const terminateSessionRequestSchema = pauseSessionRequestSchema;
 export const resumeSessionRequestSchema = z
   .object({ expected_revision: revisionSchema })
   .strict();
+// The session runs `profile_id` from its next turn on; the turn running now,
+// if any, finishes on the profile it started with.
+export const changeSessionProfileRequestSchema = z
+  .object({
+    expected_revision: revisionSchema,
+    profile_id: z.string().min(1),
+  })
+  .strict();
 const recoveryDecisionBase = {
   expected_revision: revisionSchema,
   reason: z.string().min(1),
@@ -102,6 +110,13 @@ export const resumeReceiptResultSchema = z.object({
   queued_turn_count: z.number().int().nonnegative(),
 });
 
+// What a profile change settled with. Equal ids: the session already ran
+// that profile and nothing changed.
+export const changeProfileReceiptResultSchema = z.object({
+  previous_profile_id: z.string().min(1).nullable(),
+  profile_id: z.string().min(1),
+});
+
 export type RecoveryDecision = z.infer<typeof recoveryDecisionSchema>;
 export type InterruptSessionRequest = z.infer<
   typeof interruptSessionRequestSchema
@@ -111,6 +126,12 @@ export type TerminateSessionRequest = z.infer<
   typeof terminateSessionRequestSchema
 >;
 export type ResumeSessionRequest = z.infer<typeof resumeSessionRequestSchema>;
+export type ChangeSessionProfileRequest = z.infer<
+  typeof changeSessionProfileRequestSchema
+>;
+export type ChangeProfileReceiptResult = z.infer<
+  typeof changeProfileReceiptResultSchema
+>;
 export type RecoveryDecisionRequest = z.infer<
   typeof recoveryDecisionRequestSchema
 >;

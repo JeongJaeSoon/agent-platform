@@ -23,7 +23,10 @@ import {
   unassignedSessions,
 } from "@agent-platform/db";
 import { createLogger, MemoryLogSink } from "@agent-platform/observability";
-import { allowAllPolicy, createSessionService } from "@agent-platform/platform";
+import {
+  createAuthorizationPolicy,
+  createSessionService,
+} from "@agent-platform/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -119,7 +122,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db, {

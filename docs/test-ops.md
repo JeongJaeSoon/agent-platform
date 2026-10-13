@@ -146,6 +146,8 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 | `S3_BUCKET` | 위 bucket 이름 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | 위 IAM 사용자의 key. API에만 간다 |
 
+`BOOTSTRAP_TOKEN`은 요구하지 않지만 넣는 것을 권한다. 웹 콘솔의 첫 owner를 만드는 토큰(32~256자 무작위 값)이고 API에만 간다. 넣지 않으면 API가 기동할 때 하나를 만들어 api 컨테이너 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력하고, 첫 owner가 생길 때까지 `docker logs`를 읽을 수 있는 누구나 그 값으로 bootstrap할 수 있다. 예시 파일처럼 줄을 주석으로 두면 이 자동 생성 경로를 쓴다. 주석을 풀고 값을 비우면 API가 기동하지 않는다. 첫 owner가 생긴 뒤에는 이 값이 다시 통과하지 않으므로 env 파일에 남겨 둬도 된다([운영 참고](operations.md)의 웹 콘솔·계정 복구 문단).
+
 `compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`, `SESSION_COST_LIMIT_USD` 등)은 넣지 않으면 core 기본값을 쓴다.
 
 스크립트 자체의 설정은 셸 변수 넷이다. 기본값을 쓰면 아무것도 설정하지 않아도 된다.
@@ -267,6 +269,12 @@ curl -fsS --user "agent:$GITEA_AGENT_PW" -H 'Content-Type: application/json' \
   http://127.0.0.1:3001/api/v1/user/repos
 unset GITEA_AGENT_PW
 ```
+
+### 첫 owner
+
+웹 콘솔은 API와 같은 주소(3000)에서 열린다. 아래 "접근"의 터널을 연 뒤 `http://localhost:3000/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`, owner의 email·이름·비밀번호, workspace 이름·slug를 넣으면 첫 owner와 workspace가 생기고, 그 계정으로 `/login`에 로그인한다. 토큰은 env 파일을 연 편집기에서 복사해 붙이고 터미널에 출력하지 않는다. env 파일에 넣지 않았다면 `docker logs agent-platform-test-ops-api-1 2>&1 | grep '^BOOTSTRAP_TOKEN='`의 값을 쓴다(그 경우 로그 열람 권한을 운영자로 제한한다).
+
+bootstrap은 live owner가 없을 때 한 번만 통과한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`이다. 나머지 사용자는 owner가 웹 콘솔에서 초대한다.
 
 ## 접근
 

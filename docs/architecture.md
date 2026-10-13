@@ -4,7 +4,7 @@
 
 ## 한눈에
 
-이 저장소에서 동작하는 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)이다. 모듈 구성과 개발 순서, 지금 무엇이 구현됐는지는 [README](../README.md)의 이름 범위 문단이 정본이고, 여기서는 코드가 어디 있는지를 적는다. 아래 control host·worker·egress proxy가 Kiel의 구성요소이고, 공개 `/v1` API도 Kiel이 서빙한다. Musterrolle 코드는 `packages/contracts`·`packages/platform`의 `musterrolle` 디렉터리에 일부 모였고, 나머지는 control host(인증 route `/v1/auth/*`, API 키), `packages/db`(사용자·워크스페이스·인증·권한 테이블과 그 쿼리), `packages/platform/src/ports/identity-store.ts`에 있다. Kiel의 계약과 port도 이 계약과 policy 타입을 import한다. `packages/platform/src/musterrolle`의 policy는 지금 모두 허용하는 기본값이고, 요청마다의 scope 검사(역할에서 나온 scope 포함)는 control host에 있다. 흩어진 코드는 Musterrolle 모듈로 옮겨 갈 대상이다. Kollegium의 선행 계약은 `packages/contracts/src/kollegium`(에이전트 정의·채널 연결·chat envelope)에 있고, 쓰는 앱이 없다. 소속 모듈을 정하지 않은 코드는 웹 콘솔 화면 부품 `packages/ui`(쓰는 앱 없음)와 `packages/contracts/src/domain`(기억·digest. digest의 비용 형식은 `/v1` 사용량 응답이 쓴다)이다.
+이 저장소에서 동작하는 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)이다. 모듈 구성과 개발 순서, 지금 무엇이 구현됐는지는 [README](../README.md)의 이름 범위 문단이 정본이고, 여기서는 코드가 어디 있는지를 적는다. 아래 control host·worker·egress proxy가 Kiel의 구성요소이고, 공개 `/v1` API도 Kiel이 서빙한다. Musterrolle 코드는 `packages/contracts`·`packages/platform`의 `musterrolle` 디렉터리에 일부 모였고, 나머지는 control host(인증 route `/v1/auth/*`, API 키), `packages/db`(사용자·워크스페이스·인증·권한 테이블과 그 쿼리), `packages/platform/src/ports/identity-store.ts`에 있다. Kiel의 계약과 port도 이 계약과 policy 타입을 import한다. `packages/platform/src/musterrolle`의 policy는 지금 모두 허용하는 기본값이고, 요청마다의 scope 검사(역할에서 나온 scope 포함)는 control host에 있다. 흩어진 코드는 Musterrolle 모듈로 옮겨 갈 대상이다. Kollegium의 선행 계약은 `packages/contracts/src/kollegium`(에이전트 정의·채널 연결·chat envelope)에 있고, 쓰는 앱이 없다. 에이전트 release의 `policy_pins.tools`는 도구별 권한 정책(`allow`·`ask`·`deny`, 기본값은 내장 도구 allow·MCP 도구 ask)을 release를 만들 때 고정한 값이다. 호출마다 평가하는 쪽은 지금도 worker의 `canUseTool` → `pending_requests` 경로이고, 이 값을 아직 읽지 않는다(세션 시작 때 release로 실행하는 일은 94S-157). 소속 모듈을 정하지 않은 코드는 웹 콘솔 화면 부품 `packages/ui`(쓰는 앱 없음)와 `packages/contracts/src/domain`(기억·digest. digest의 비용 형식은 `/v1` 사용량 응답이 쓴다)이다.
 
 - **control host**(`apps/control-host`)가 Kiel의 제어 영역이고, 먼저 들어온 Musterrolle 인증 코드도 여기서 돈다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API(Musterrolle의 `/v1/auth/*` 포함)와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너(Docker)나 Pod(Kubernetes)를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너(Kubernetes에서는 Pod) 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
@@ -65,6 +65,12 @@
 - Claude adapter의 진입점은 export할 심볼을 이름으로 적는다(`export *` 없음). `scripts/lib`는 codec을 `runtime-claude-codec`에서 가져온다.
 - `/v1` route는 DB-backed 오류와 row를 platform port(`InvalidCursorError`, `IdentityStore`)로만 알고, db 구현을 직접 import하지 않는다.
 - `packages/testkit`은 devDependency로만 쓰고 runtime 코드가 import하지 않는다. 패키지 밖으로 나가는 상대 경로 import는 없다.
+
+## 권한과 비활성
+
+관리 action(`member.manage` 등)은 `packages/platform/src/musterrolle/policy.ts`가 역할로 판정하고, API key는 scope와 관계없이 거절한다. 판정을 통과한 쓰기는 저장소 transaction 안에서 actor가 아직 live owner인지 다시 확인한다. 이때 actor의 `users` 행을 membership보다 먼저 share 잠금한다. 잠금 순서는 login-email advisory → invite → user → membership → web session이다.
+
+계정 정지(`users.disabled_at`)와 membership 비활성(`memberships.disabled_at`)은 다른 것이다. 앞의 것은 모든 workspace에서, 뒤의 것은 그 workspace에서만 사람을 막는다. API key는 두 종류다. service key(`api_keys.kind = 'service'`)는 사람과 무관하고 비활성의 영향을 받지 않는다. 개인 key(`kind = 'personal'`)는 `created_by_user_id`를 갖고, 만든 사람이 비활성이면 요청마다 거절되며, 비활성화하는 transaction이 함께 폐기한다. 그래서 재활성해도 되살아나지 않는다. 사용자가 key를 발급하는 경로를 새로 만들면 그 key에도 `created_by_user_id`를 두고 같은 폐기 대상에 넣는다.
 
 ## checkpoint 경로
 

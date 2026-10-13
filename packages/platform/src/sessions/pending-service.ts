@@ -3,11 +3,12 @@ import type {
   PostSessionAnswerRequest,
   PostSessionAnswerResponse,
 } from "@agent-platform/contracts";
-import type { AuthorizationPolicy, Principal } from "../musterrolle/policy.ts";
+import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { PendingRequestStore } from "../ports/pending-requests.ts";
 import {
   idempotencyConflict,
   payloadHash,
+  requireAllowed,
   requirePermitted,
   SessionServiceError,
 } from "./session-service.ts";
@@ -23,10 +24,13 @@ export function createPendingRequestService(deps: {
 
   return {
     async listPendingRequests(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
     ): Promise<ListPendingRequestsResponse> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const items = await store.listOpen(actor.ownerId, sessionId);
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -35,17 +39,26 @@ export function createPendingRequestService(deps: {
     },
 
     async answer(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: PostSessionAnswerRequest },
     ): Promise<PostSessionAnswerResponse> {
-      requirePermitted(authorization, actor, "sessions:approve");
+      const decision = await requireAllowed(
+        authorization,
+        actor,
+        "session.approve",
+        { kind: "session", id: sessionId },
+      );
       const result = await store.answerAtomic({
         principal: actor,
         sessionId,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         answer: input.body,
+        approval: {
+          surface: actor.subject.surface.kind,
+          decisionId: decision.decision_id,
+        },
       });
       switch (result.outcome) {
         case "conflict":

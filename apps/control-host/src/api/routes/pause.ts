@@ -21,7 +21,7 @@ export function registerPauseRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, pauseSessionRequestSchema);
     const accepted = await mapped(() =>
-      service.pauseSession({ ownerId: context.get("ownerId") }, params.id, {
+      service.pauseSession(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),
