@@ -391,7 +391,10 @@ function failure(
  */
 export function forgesOf(
   catalog: SessionCatalog,
-  options: { logger?: Logger; now?: () => Date } = {},
+  options: Pick<
+    Parameters<typeof createGitHubForge>[0],
+    "logger" | "now" | "retryAfterBaseMs" | "paced"
+  > = {},
 ): ForgeResolver {
   const forges = new Map<string, ForgeAdapter>();
   for (const [id, repository] of Object.entries(catalog.repositories)) {
