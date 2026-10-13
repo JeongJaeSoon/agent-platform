@@ -24,12 +24,11 @@ import { throttling } from "@octokit/plugin-throttling";
 export const REFRESH_BEFORE_EXPIRY_MS = 10 * 60_000;
 /** GitHub's limit on a pull request or comment body, in characters. */
 export const GITHUB_MAX_BODY_LENGTH = 65_536;
-/** Rate-limited retries of one call; past them, or a longer wait, it fails. */
 export const RATE_LIMIT_RETRIES = 2;
 export const RATE_LIMIT_MAX_WAIT_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 15_000;
-// Pages of 100 read when looking for a marked comment.
-const COMMENT_PAGES = 10;
+const MAX_COMMENT_PAGES = 10;
+const COMMENTS_PER_PAGE = 100;
 
 type GitHubCredentials =
   | {
@@ -40,7 +39,6 @@ type GitHubCredentials =
     }
   | { kind: "token"; username: string; password: string };
 
-/** An installation token's permissions; one set per cached token. */
 type Permissions = Readonly<Record<string, "read" | "write">>;
 
 type Logger = Pick<StructuredLogger, "warn">;
@@ -266,13 +264,13 @@ export function createGitHubForge(options: {
         repo,
         pullRequests,
         async (headers) => {
-          for (let page = 1; page <= COMMENT_PAGES; page += 1) {
+          for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
             const { data } = await client.request(
               "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
               {
                 ...target(repo),
                 issue_number: number,
-                per_page: 100,
+                per_page: COMMENTS_PER_PAGE,
                 page,
                 headers,
               },
@@ -296,7 +294,7 @@ export function createGitHubForge(options: {
                 created: false,
               };
             }
-            if (data.length < 100) break;
+            if (data.length < COMMENTS_PER_PAGE) break;
           }
           const { data: posted } = await client.request(
             "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",

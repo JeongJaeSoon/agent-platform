@@ -103,8 +103,6 @@ export function createPullRequestService(deps: {
     return { sessionId, pushRequestId, receipt, refuse };
   }
 
-  // The catalog entry must still be the one the push request pinned, as for
-  // the push itself; a forge comes only from that entry.
   async function forgeFor(
     source: PullRequestSource,
     refuse: (

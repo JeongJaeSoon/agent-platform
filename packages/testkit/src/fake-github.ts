@@ -264,7 +264,6 @@ export async function startFakeGitHub(
     retryAfter: number;
   } = { count: 0, limit: "secondary", retryAfter: 1 };
   let nextCommentId = 5000;
-  // Read at request time, once `server` below is listening.
   const origin = () =>
     `http://${options.hostname ?? "127.0.0.1"}:${server.port}`;
 

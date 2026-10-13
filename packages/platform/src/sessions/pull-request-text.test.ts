@@ -14,7 +14,6 @@ describe("pull request text", () => {
     expect(neutralizeReferences("@octocat cc @acme/reviewers, thanks")).toBe(
       `@${ZWSP}octocat cc @${ZWSP}acme/reviewers, thanks`,
     );
-    // An address and code are not mentions.
     expect(neutralizeReferences("mail dev@example.com or `@decorator`")).toBe(
       "mail dev@example.com or `@decorator`",
     );
@@ -33,7 +32,6 @@ describe("pull request text", () => {
     ] as const) {
       expect(neutralizeReferences(given)).toBe(expected);
     }
-    // A keyword with no reference after it is plain prose.
     expect(neutralizeReferences("this fixes the build")).toBe(
       "this fixes the build",
     );
@@ -53,7 +51,6 @@ describe("pull request text", () => {
     const long = cleanBody("x".repeat(500), 100, keep);
     expect(long).toHaveLength(100);
     expect(long.endsWith("…(truncated)")).toBe(true);
-    // A cut never splits a surrogate pair.
     const emoji = cleanBody(`${"a".repeat(84)}${"😀".repeat(20)}`, 100, keep);
     expect(emoji.length).toBeLessThanOrEqual(100);
     expect(emoji).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);

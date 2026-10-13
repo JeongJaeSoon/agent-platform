@@ -192,7 +192,6 @@ describe("opening a pull request", () => {
       created: false,
       pull_request: { number: 7 },
     });
-    // The second answer came from the record: the forge saw one lookup.
     expect(calls).toEqual([`find ${HEAD}`, `create acme/app ${HEAD}`]);
     expect(receipts.at(-1)?.result).toMatchObject({
       verdict: "allow",
@@ -279,7 +278,6 @@ describe("opening a pull request", () => {
       expect(read).toBe(false);
       expect(receipts).toHaveLength(1);
     }
-    // Nothing checked who an unverified caller is, so nothing is recorded.
     const { service, receipts } = harness();
     expect(
       (

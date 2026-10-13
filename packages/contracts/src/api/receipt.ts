@@ -38,7 +38,6 @@ export const RECEIPT_OPERATION_VALUES = [
   "request_push",
   "decide_push",
   "push",
-  // Opening a pull request from a pushed request, and a comment on it.
   "open_pull_request",
   "comment_pull_request",
 ] as const;

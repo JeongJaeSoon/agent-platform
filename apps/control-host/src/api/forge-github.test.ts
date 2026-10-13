@@ -174,7 +174,6 @@ describe("GitHub App forge", () => {
           error: "HttpError",
         },
       ]);
-      // A 5xx is retried twice, then given up.
       expect(github.tokenRequests.length - before).toBe(3);
     } finally {
       github.failTokens(false);

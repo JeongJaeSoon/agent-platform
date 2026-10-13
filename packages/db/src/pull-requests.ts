@@ -64,6 +64,29 @@ async function insertReceipt(
   return id;
 }
 
+async function lockPushRequest(tx: Database, id: string): Promise<void> {
+  await tx
+    .select({ id: pushRequests.id })
+    .from(pushRequests)
+    .where(eq(pushRequests.id, id))
+    .for("update");
+}
+
+async function findSessionPullRequestByUrl(
+  tx: Database,
+  sessionId: string,
+  url: string,
+): Promise<PullRequest | null> {
+  const [row] = await tx
+    .select()
+    .from(pullRequests)
+    .where(
+      and(eq(pullRequests.sessionId, sessionId), eq(pullRequests.url, url)),
+    )
+    .limit(1);
+  return row ? publicPullRequest(row) : null;
+}
+
 export function createPostgresPullRequests(db: Database): PullRequestStore {
   async function findPullRequest(
     tx: Database,
@@ -118,29 +141,10 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
 
     savePullRequest(input) {
       return db.transaction(async (tx) => {
-        // Serializes racing calls on the push request, so the second one
-        // sees the first one's row.
-        await tx
-          .select({ id: pushRequests.id })
-          .from(pushRequests)
-          .where(eq(pushRequests.id, input.pushRequestId))
-          .for("update");
-        // A later push request of the session updates the same branch, so
-        // the forge answers the pull request an earlier one opened: that row
-        // stands for both.
-        const [same] = await tx
-          .select()
-          .from(pullRequests)
-          .where(
-            and(
-              eq(pullRequests.sessionId, input.sessionId),
-              eq(pullRequests.url, input.url),
-            ),
-          )
-          .limit(1);
+        await lockPushRequest(tx, input.pushRequestId);
         const recorded =
           (await findPullRequest(tx, input.ownerId, input.pushRequestId)) ??
-          (same ? publicPullRequest(same) : null);
+          (await findSessionPullRequestByUrl(tx, input.sessionId, input.url));
         const shown = recorded ?? {
           repository_id: input.repositoryId,
           number: input.number,

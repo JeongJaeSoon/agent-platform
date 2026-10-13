@@ -75,7 +75,6 @@ describe("GitHub forge pull requests", () => {
 
     expect(await forge.findPullRequestForBranch(repo, head)).toEqual(opened);
     expect(await forge.findPullRequestForBranch(repo, "agent/none")).toBeNull();
-    // Opening again answers the open one instead of failing on GitHub's 422.
     expect(
       await forge.createPullRequest(repo, {
         head,
@@ -85,7 +84,6 @@ describe("GitHub forge pull requests", () => {
       }),
     ).toEqual(opened);
     expect(github.pullRequests("acme", "app")).toHaveLength(1);
-    // One pull_requests token served every call.
     expect(github.tokenRequests.length - tokensBefore).toBe(1);
   });
 
@@ -169,7 +167,6 @@ describe("GitHub forge pull requests", () => {
       retrying: false,
     });
     github.rateLimitNext(0, "secondary");
-    // Nothing a warning or an error carries is a token.
     expect(JSON.stringify(warnings)).not.toMatch(/ghs_|token [a-z0-9]/i);
   });
 });

@@ -598,7 +598,6 @@ export const pullRequests = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.sessionId, table.url] }),
-    // One pull request per push request, however many calls race to open it.
     uniqueIndex("pull_requests_push_request_idx").on(table.pushRequestId),
   ],
 );

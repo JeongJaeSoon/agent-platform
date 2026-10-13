@@ -21,14 +21,18 @@ export const pullRequestSchema = z.object({
   receipt_id: receiptIdSchema,
 });
 
-// Text a caller sends is cleaned before the forge sees it (mentions,
-// cross-references and closing keywords broken, secret-shaped lines
-// redacted) and cut to the forge's limit, so the caps here only bound the
-// request.
+export const PULL_REQUEST_TITLE_REQUEST_MAX = 1000;
+export const PULL_REQUEST_TEXT_REQUEST_MAX = 60_000;
+
 export const openPullRequestRequestSchema = z
   .object({
-    title: z.string().trim().min(1).max(1000).optional(),
-    body: z.string().max(60_000).optional(),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(PULL_REQUEST_TITLE_REQUEST_MAX)
+      .optional(),
+    body: z.string().max(PULL_REQUEST_TEXT_REQUEST_MAX).optional(),
   })
   .strict();
 
@@ -37,7 +41,7 @@ export const DEFAULT_PULL_REQUEST_COMMENT_MARKER = "status";
 
 export const commentPullRequestRequestSchema = z
   .object({
-    body: z.string().trim().min(1).max(60_000),
+    body: z.string().trim().min(1).max(PULL_REQUEST_TEXT_REQUEST_MAX),
     // One comment per marker: posting the same marker again edits it.
     marker: z.string().regex(PULL_REQUEST_COMMENT_MARKER_PATTERN).optional(),
   })

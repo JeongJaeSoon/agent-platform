@@ -179,7 +179,6 @@ integration("postgres pull requests", () => {
   test("a later push request answered with the same pull request shares its row", async () => {
     const first = await pushed();
     const opened = await save(first, 11);
-    // Another request id of the same session, answered with the same URL.
     const again = await store.savePullRequest({
       ownerId: OWNER,
       sessionId: first.sessionId,
