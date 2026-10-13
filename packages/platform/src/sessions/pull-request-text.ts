@@ -16,7 +16,7 @@ const credentialLine = /github_pat_\w|\bxox[a-z]-\w/;
 const closingKeyword =
   /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s*:?\s+)(?=#\d|[A-Za-z0-9-]+\/[A-Za-z0-9._-]+#\d|https?:\/\/)/gi;
 const crossReference = /\b([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#(\d)/g;
-const mention = /(^|[^\w`])@([A-Za-z0-9])/g;
+const mention = /(^|[^\w])@([A-Za-z0-9])/g;
 
 /** Breaks mentions, cross-repository references, closing keywords and HTML comments. */
 export function neutralizeReferences(text: string): string {

@@ -357,7 +357,15 @@ export function createGitHubForge(options: {
             }
             const { data: posted } = await client.request(
               "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
-              { ...target(repo), issue_number: number, body: text, headers },
+              {
+                ...target(repo),
+                issue_number: number,
+                body: text,
+                headers,
+                // GitHub may have stored a comment that answered 5xx; a
+                // blind retry would post it twice.
+                request: { retries: 0 },
+              },
             );
             return {
               id: Number(posted.id),

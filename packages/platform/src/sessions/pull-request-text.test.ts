@@ -14,9 +14,11 @@ describe("pull request text", () => {
     expect(neutralizeReferences("@octocat cc @acme/reviewers, thanks")).toBe(
       `@${ZWSP}octocat cc @${ZWSP}acme/reviewers, thanks`,
     );
-    expect(neutralizeReferences("mail dev@example.com or `@decorator`")).toBe(
-      "mail dev@example.com or `@decorator`",
+    expect(neutralizeReferences("mail dev@example.com")).toBe(
+      "mail dev@example.com",
     );
+    // An unclosed backtick is plain text on GitHub, so the mention is live.
+    expect(neutralizeReferences("see `@octocat")).toBe(`see \`@${ZWSP}octocat`);
   });
 
   test("breaks closing keywords before any reference, and cross-repository references", () => {
