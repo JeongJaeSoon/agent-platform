@@ -18,4 +18,4 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 
 `docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
 
-라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다.
+라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다. 소스는 읽고 검토할 수 있게 공개돼 있지만, 사용·실행·복제·수정·재배포에는 저작권자의 사전 서면 허가가 필요하다.
