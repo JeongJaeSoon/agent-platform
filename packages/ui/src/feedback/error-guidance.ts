@@ -87,6 +87,9 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PUSH_REQUEST_DECIDED: "이미 결정된 push 요청입니다 — 목록을 새로 고치세요.",
   CHECKPOINT_MOVED:
     "요청 뒤에 세션이 다시 저장됐습니다 — 요청을 거부하고 새로 요청하세요.",
+  PUSH_NOT_PUSHED:
+    "아직 push되지 않은 요청입니다 — push가 끝난 뒤 PR을 여세요.",
+  PULL_REQUEST_MISSING: "이 요청으로 연 PR이 없습니다 — PR을 먼저 여세요.",
 };
 
 /** Unknown codes fall back to a neutral instruction rather than raw English. */

@@ -25,10 +25,51 @@ export type ForgeRepository = {
   private: boolean;
 };
 
+/** A pull request as the forge reports it; `head` and `base` are branch names. */
+export type ForgePullRequest = {
+  number: number;
+  url: string;
+  state: "open" | "closed";
+  head: string;
+  base: string;
+};
+
+export type ForgeComment = {
+  id: number;
+  url: string;
+  /** False when a comment carrying the marker was edited instead. */
+  created: boolean;
+};
+
 export interface ForgeAdapter {
   readonly kind: ForgeKind;
+  /** Longest pull request or comment body the forge takes. */
+  readonly maxBodyLength: number;
   gitCredential(repo: RepoRef, access: ForgeAccess): Promise<GitCredential>;
   getRepository(repo: RepoRef): Promise<ForgeRepository>;
+  /** The open pull request whose head is `branch` of `repo` itself, or null. */
+  findPullRequestForBranch(
+    repo: RepoRef,
+    branch: string,
+  ): Promise<ForgePullRequest | null>;
+  /**
+   * Opens a pull request, or answers the open one the forge already has for
+   * `head` (two callers racing get the same one).
+   */
+  createPullRequest(
+    repo: RepoRef,
+    input: { head: string; base: string; title: string; body: string },
+  ): Promise<ForgePullRequest>;
+  /**
+   * Edits the comment on pull request `number` whose body contains `marker`,
+   * or posts one. The marker is appended to `body`.
+   */
+  upsertComment(
+    repo: RepoRef,
+    number: number,
+    marker: string,
+    body: string,
+  ): Promise<ForgeComment>;
 }
 
 /** The adapter a catalog repository id resolves to, or null when it has none. */

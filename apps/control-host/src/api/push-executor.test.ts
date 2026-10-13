@@ -385,7 +385,7 @@ describe("the platform's push", () => {
 
   test("a token the forge would not issue fails the push and says nothing of why in the outcome", async () => {
     const catalog = catalogOf({ app: appRepository() });
-    const uncachedForges = forgesOf(catalog);
+    const uncachedForges = forgesOf(catalog, { retryAfterBaseMs: 1 });
     github.failTokens(true);
     try {
       const result = await run(catalog, jobFor(catalog, "app"), {
