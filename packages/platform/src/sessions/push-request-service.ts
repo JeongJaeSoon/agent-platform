@@ -38,12 +38,30 @@ const DECIDER_KINDS: ReadonlySet<Principal["kind"]> = new Set([
   "api_key",
 ]);
 
-function receiptActorOf(principal: Principal): ReceiptActor {
+export function receiptActorOf(principal: Principal): ReceiptActor {
   return {
     principal: { kind: principal.kind, id: principal.id },
     actor_user_id: principal.kind === "user" ? principal.id : null,
     agent_id: null,
   };
+}
+
+/** Refuses a caller nothing authenticated; no receipt, as nothing is known of it. */
+export function requireVerified(actor: PushActor) {
+  if (!actor.verified) refused("unverified_principal", null);
+}
+
+/**
+ * Who may decide a push, and so open a pull request from it: a credential
+ * holding sessions:approve that is an API key or a signed-in user.
+ */
+export function mayDecidePush(
+  principal: Principal,
+): "missing_scope" | "unverified_principal" | null {
+  if (!(principal.scopes as readonly string[]).includes("sessions:approve")) {
+    return "missing_scope";
+  }
+  return DECIDER_KINDS.has(principal.kind) ? null : "unverified_principal";
 }
 
 function refused(refusal: PushRefusal, receiptId: string | null): never {
@@ -80,10 +98,6 @@ export function createPushRequestService(deps: {
   catalog: SessionCatalog;
 }) {
   const { store, source, catalog } = deps;
-
-  function requireVerified(actor: PushActor) {
-    if (!actor.verified) refused("unverified_principal", null);
-  }
 
   return {
     async create(
@@ -192,13 +206,7 @@ export function createPushRequestService(deps: {
       const sessionId = rawSessionId.toLowerCase();
       const pushRequestId = rawPushRequestId.toLowerCase();
       const receiptActor = receiptActorOf(actor.principal);
-      const refusal: PushRefusal | null = !(
-        actor.principal.scopes as readonly string[]
-      ).includes("sessions:approve")
-        ? "missing_scope"
-        : DECIDER_KINDS.has(actor.principal.kind)
-          ? null
-          : "unverified_principal";
+      const refusal = mayDecidePush(actor.principal);
       if (refusal !== null) {
         refused(
           refusal,

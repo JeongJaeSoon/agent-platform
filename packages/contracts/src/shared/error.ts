@@ -47,6 +47,10 @@ export const API_ERROR_CODE_VALUES = [
   "PUSH_REQUEST_OPEN",
   "PUSH_REQUEST_DECIDED",
   "CHECKPOINT_MOVED",
+  // Pull requests: the push request has not reached `pushed`, or no pull
+  // request was opened from it yet.
+  "PUSH_NOT_PUSHED",
+  "PULL_REQUEST_MISSING",
 ] as const;
 
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODE_VALUES);

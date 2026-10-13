@@ -1,0 +1,362 @@
+import { describe, expect, test } from "bun:test";
+import type { Principal, PullRequest } from "@agent-platform/contracts";
+import {
+  type ForgeAdapter,
+  ForgeCredentialError,
+  type ForgePullRequest,
+} from "../ports/forge.ts";
+import type {
+  PullRequestReceipt,
+  PullRequestSource,
+  PullRequestStore,
+} from "../ports/pull-requests.ts";
+import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
+import {
+  commentMarker,
+  createPullRequestService,
+} from "./pull-request-service.ts";
+import { SessionServiceError } from "./session-service.ts";
+
+const SESSION = "11111111-1111-4111-8111-111111111111";
+const PUSH = "22222222-2222-4222-8222-222222222222";
+const HEAD = `agent/${SESSION}`;
+const ZWSP = "​";
+const CATALOG = {
+  profiles: {},
+  repositories: {
+    app: {
+      url: "https://github.com/acme/app.git",
+      branch: "develop",
+      profiles: ["default"],
+    },
+  },
+} satisfies SessionCatalog;
+const human: Principal = {
+  kind: "api_key",
+  id: "key-1",
+  owner_id: "owner-a",
+  workspace_id: null,
+  scopes: ["sessions:approve"],
+};
+const actor = { principal: human, ownerId: "owner-a", verified: true };
+
+function harness(
+  options: { state?: PullRequestSource["state"]; binding?: string } = {},
+) {
+  const receipts: PullRequestReceipt[] = [];
+  const saved: PullRequest[] = [];
+  const calls: string[] = [];
+  const source: PullRequestSource = {
+    id: PUSH,
+    sessionId: SESSION,
+    repositoryId: "app",
+    repositoryBinding:
+      options.binding ?? repositoryBinding("app", CATALOG.repositories.app),
+    state: options.state ?? "pushed",
+    targetBranch: HEAD,
+    gitCommit: "a".repeat(40),
+  };
+  const store: PullRequestStore = {
+    findSource: async (_owner, session, push) =>
+      session === SESSION && push === PUSH ? source : null,
+    findPullRequest: async () => saved[0] ?? null,
+    recordReceipt: async (input) => {
+      receipts.push(input);
+      return `receipt-${receipts.length}`;
+    },
+    savePullRequest: async (input) => {
+      receipts.push({ ...input, operation: "open_pull_request" } as never);
+      const pullRequest: PullRequest = {
+        push_request_id: input.pushRequestId,
+        session_id: input.sessionId,
+        repository_id: input.repositoryId,
+        number: input.number,
+        url: input.url,
+        head: input.head,
+        base: input.base,
+        created_at: "2026-10-13T00:00:00.000Z",
+        receipt_id: `receipt-${receipts.length}`,
+      };
+      saved.push(pullRequest);
+      return {
+        pullRequest,
+        created: input.created,
+        receiptId: pullRequest.receipt_id,
+      };
+    },
+  };
+  let open: ForgePullRequest | null = null;
+  const created: Array<{
+    head: string;
+    base: string;
+    title: string;
+    body: string;
+  }> = [];
+  const comments: Array<{ marker: string; body: string }> = [];
+  let failing = false;
+  const fail = () => {
+    if (failing) throw new ForgeCredentialError("GitHub call failed (502)");
+  };
+  const forge: ForgeAdapter = {
+    kind: "github",
+    maxBodyLength: 65_536,
+    gitCredential: async () => {
+      throw new Error("not used");
+    },
+    getRepository: async () => {
+      throw new Error("not used");
+    },
+    findPullRequestForBranch: async (_repo, branch) => {
+      calls.push(`find ${branch}`);
+      fail();
+      return open;
+    },
+    createPullRequest: async (repo, input) => {
+      calls.push(`create ${repo.owner}/${repo.name} ${input.head}`);
+      fail();
+      created.push(input);
+      open = {
+        number: 7,
+        url: "https://github.com/acme/app/pull/7",
+        state: "open",
+        head: input.head,
+        base: input.base,
+      };
+      return open;
+    },
+    upsertComment: async (_repo, number, marker, body) => {
+      calls.push(`comment ${number}`);
+      fail();
+      comments.push({ marker, body });
+      return {
+        id: 99,
+        url: "https://github.com/acme/app/pull/7#issuecomment-99",
+        created: comments.length === 1,
+      };
+    },
+  };
+  const service = createPullRequestService({
+    store,
+    catalog: CATALOG,
+    forges: (id) => (id === "app" ? forge : null),
+    redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
+  });
+  return {
+    service,
+    receipts,
+    calls,
+    created,
+    comments,
+    setOpen: (pull: ForgePullRequest) => {
+      open = pull;
+    },
+    failForge: () => {
+      failing = true;
+    },
+  };
+}
+
+async function refusal(promise: Promise<unknown>) {
+  const error = await promise.catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(SessionServiceError);
+  const { code, details } = error as SessionServiceError;
+  return { code, details };
+}
+
+describe("opening a pull request", () => {
+  test("opens one from agent/<session-id> into the catalog branch with cleaned text, then answers it again", async () => {
+    const { service, created, calls, receipts } = harness();
+    const first = await service.open(actor, SESSION.toUpperCase(), PUSH, {
+      readBody: async () => ({
+        title: "Fix for @octocat",
+        body: "Closes #3\ntoken ghp_abc\nsee acme/other#4",
+      }),
+    });
+    expect(first).toMatchObject({
+      created: true,
+      pull_request: { number: 7, head: HEAD, base: "develop" },
+    });
+    expect(created).toEqual([
+      {
+        head: HEAD,
+        base: "develop",
+        title: `Fix for @${ZWSP}octocat`,
+        body: `C${ZWSP}loses #3\n[REDACTED]\nsee acme/other#${ZWSP}4\n\n---\nOpened by agent-platform from session \`${SESSION}\`, commit \`${"a".repeat(40)}\`.`,
+      },
+    ]);
+
+    const again = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(again).toMatchObject({
+      created: false,
+      pull_request: { number: 7 },
+    });
+    // The second answer came from the record: the forge saw one lookup.
+    expect(calls).toEqual([`find ${HEAD}`, `create acme/app ${HEAD}`]);
+    expect(receipts.at(-1)?.result).toMatchObject({
+      verdict: "allow",
+      created: false,
+      number: 7,
+    });
+  });
+
+  test("an open pull request the forge already has for the branch is recorded, not opened again", async () => {
+    const { service, setOpen, calls } = harness();
+    setOpen({
+      number: 3,
+      url: "https://github.com/acme/app/pull/3",
+      state: "open",
+      head: HEAD,
+      base: "develop",
+    });
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(opened).toMatchObject({
+      created: false,
+      pull_request: { number: 3 },
+    });
+    expect(calls).toEqual([`find ${HEAD}`]);
+  });
+
+  test("only a pushed request opens one", async () => {
+    for (const state of [
+      "requested",
+      "approved",
+      "pushing",
+      "failed",
+    ] as const) {
+      const { service, calls, receipts } = harness({ state });
+      expect(
+        await refusal(
+          service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+        ),
+      ).toEqual({
+        code: "PUSH_NOT_PUSHED",
+        details: { refusal: "not_pushed", receipt_id: "receipt-1" },
+      });
+      expect(calls).toEqual([]);
+      expect(receipts[0]).toMatchObject({
+        operation: "open_pull_request",
+        result: {
+          verdict: "refuse",
+          refusal: "not_pushed",
+          repository_id: "app",
+        },
+      });
+    }
+  });
+
+  test("a catalog entry changed since the push request pinned it is refused", async () => {
+    const { service, calls } = harness({ binding: "stale" });
+    expect(
+      (
+        await refusal(
+          service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+        )
+      ).code,
+    ).toBe("CATALOG_MISMATCH");
+    expect(calls).toEqual([]);
+  });
+
+  test("a credential without sessions:approve, or not a human's, is refused with a receipt before the body is read", async () => {
+    for (const principal of [
+      { ...human, scopes: ["sessions:write"] },
+      { ...human, kind: "installation" },
+    ] as Principal[]) {
+      const { service, receipts } = harness();
+      let read = false;
+      const { code } = await refusal(
+        service.open({ ...actor, principal }, SESSION, PUSH, {
+          readBody: async () => {
+            read = true;
+            return {};
+          },
+        }),
+      );
+      expect(code).toBe("FORBIDDEN");
+      expect(read).toBe(false);
+      expect(receipts).toHaveLength(1);
+    }
+    // Nothing checked who an unverified caller is, so nothing is recorded.
+    const { service, receipts } = harness();
+    expect(
+      (
+        await refusal(
+          service.open({ ...actor, verified: false }, SESSION, PUSH, {
+            readBody: async () => ({}),
+          }),
+        )
+      ).code,
+    ).toBe("FORBIDDEN");
+    expect(receipts).toEqual([]);
+  });
+
+  test("a forge failure is a 503 with a receipt", async () => {
+    const { service, failForge, receipts } = harness();
+    failForge();
+    expect(
+      await refusal(
+        service.open(actor, SESSION, PUSH, { readBody: async () => ({}) }),
+      ),
+    ).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      details: { refusal: "forge_failed", receipt_id: "receipt-1" },
+    });
+    expect(receipts[0]?.result).toMatchObject({
+      head: HEAD,
+      base: "develop",
+    });
+  });
+});
+
+describe("commenting on the pull request", () => {
+  test("needs the pull request first", async () => {
+    const { service, calls } = harness();
+    expect(
+      (
+        await refusal(
+          service.comment(actor, SESSION, PUSH, {
+            readBody: async () => ({ body: "hi" }),
+          }),
+        )
+      ).code,
+    ).toBe("PULL_REQUEST_MISSING");
+    expect(calls).toEqual([]);
+  });
+
+  test("upserts by marker with cleaned text and records each comment", async () => {
+    const { service, comments, receipts } = harness();
+    await service.open(actor, SESSION, PUSH, { readBody: async () => ({}) });
+    const first = await service.comment(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "Done, @team please look" }),
+    });
+    const second = await service.comment(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "Updated", marker: "status" }),
+    });
+    expect(first.comment).toMatchObject({
+      id: 99,
+      created: true,
+      marker: "status",
+    });
+    expect(second.comment.created).toBe(false);
+    expect(comments).toEqual([
+      {
+        marker: commentMarker(SESSION, "status"),
+        body: `Done, @${ZWSP}team please look`,
+      },
+      { marker: commentMarker(SESSION, "status"), body: "Updated" },
+    ]);
+    expect(receipts.at(-1)).toMatchObject({
+      operation: "comment_pull_request",
+      result: {
+        verdict: "allow",
+        number: 7,
+        comment_id: 99,
+        marker: "status",
+        created: false,
+      },
+    });
+  });
+});

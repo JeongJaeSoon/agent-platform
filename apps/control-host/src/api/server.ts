@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
 import * as schema from "@agent-platform/db";
 import {
   createPostgresPendingRequests,
+  createPostgresPullRequests,
   createPostgresPushRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -12,12 +13,13 @@ import {
   createPostgresWorkerUnitOfWork,
   hasUncollectedCheckpoint,
 } from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
+import { createLogger, sanitizeText } from "@agent-platform/observability";
 import {
   allowAllPolicy,
   catalogRevision,
   createInterruptService,
   createPendingRequestService,
+  createPullRequestService,
   createPushExecutor,
   createPushRequestService,
   createSessionService,
@@ -64,6 +66,7 @@ import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -182,14 +185,20 @@ const pendingRequests = createPendingRequestService({
   authorization: allowAllPolicy,
   store: createPostgresPendingRequests(db),
 });
-// One adapter per repository, shared by clone (the gateway) and push, so
-// both draw on one token cache.
+// One adapter per repository, shared by clone (the gateway), push and pull
+// requests, so all draw on one token cache.
 const forges = forgesOf(catalog, { logger });
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
   store: pushStore,
   source: checkpoints.pushSource,
   catalog,
+});
+const pullRequests = createPullRequestService({
+  store: createPostgresPullRequests(db),
+  catalog,
+  forges,
+  redact: sanitizeText,
 });
 const pushExecutor = createPushExecutor({
   store: pushStore,
@@ -285,6 +294,7 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
+    registerPullRequestRoutes(router, pullRequests);
     registerInterruptRoutes(router, interrupts);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,

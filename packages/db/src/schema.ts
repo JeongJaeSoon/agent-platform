@@ -580,13 +580,27 @@ export const turns = pgTable(
   ],
 );
 
+// Rows from 94S-630 on carry the push request they were opened from; the
+// alpha columns stay as they were.
 export const pullRequests = pgTable(
   "pull_requests",
   {
     sessionId: uuid("session_id").references(() => sessions.id),
     url: text().notNull(),
+    pushRequestId: uuid("push_request_id").references(() => pushRequests.id),
+    ownerId: text("owner_id"),
+    repositoryId: text("repository_id"),
+    number: integer(),
+    head: text(),
+    base: text(),
+    receiptId: uuid("receipt_id").references(() => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.sessionId, table.url] })],
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.url] }),
+    // One pull request per push request, however many calls race to open it.
+    uniqueIndex("pull_requests_push_request_idx").on(table.pushRequestId),
+  ],
 );
 
 export const events = pgTable(

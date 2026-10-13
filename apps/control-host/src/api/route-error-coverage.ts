@@ -43,6 +43,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/sessions/{id}/push-requests/{push_request_id}",
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/decision",
   ],
+  "routes/pull-requests.test.ts": [
+    "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request",
+    "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request/comments",
+  ],
   "routes/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/usage.test.ts": ["GET /v1/limits", "GET /v1/sessions/{id}/usage"],

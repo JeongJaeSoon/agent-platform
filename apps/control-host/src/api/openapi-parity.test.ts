@@ -3,6 +3,7 @@ import type {
   IdentityStore,
   InterruptService,
   PendingRequestService,
+  PullRequestService,
   PushRequestService,
   SessionService,
   UsageService,
@@ -16,6 +17,7 @@ import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -43,6 +45,7 @@ function apiApp() {
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
       registerPushRequestRoutes(router, {} as PushRequestService);
+      registerPullRequestRoutes(router, {} as PullRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
       registerPauseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
