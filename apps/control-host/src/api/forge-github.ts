@@ -305,6 +305,7 @@ export function createGitHubForge(options: {
         `${repo.owner}/${repo.name}#${number}|${marker}`,
         () =>
           call("pull request comment", repo, pullRequests, async (headers) => {
+            let searched = false;
             for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
               const { data } = await client.request(
                 "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
@@ -342,7 +343,17 @@ export function createGitHubForge(options: {
                   created: false,
                 };
               }
-              if (data.length < COMMENTS_PER_PAGE) break;
+              if (data.length < COMMENTS_PER_PAGE) {
+                searched = true;
+                break;
+              }
+            }
+            // Past the pages read the marked comment may still exist; a new
+            // one would duplicate it.
+            if (!searched) {
+              throw new ForgeCredentialError(
+                `GitHub pull request comment failed (more than ${MAX_COMMENT_PAGES * COMMENTS_PER_PAGE} comments)`,
+              );
             }
             const { data: posted } = await client.request(
               "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",

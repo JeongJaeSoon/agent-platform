@@ -178,6 +178,37 @@ describe("GitHub forge pull requests", () => {
     );
   });
 
+  test("past the comments it can read, it fails rather than post a second marked one", async () => {
+    const seen: string[] = [];
+    const page = Array.from({ length: 100 }, (_, index) => ({
+      id: index,
+      body: "noise",
+      html_url: `h/${index}`,
+      user: { id: 7 },
+    }));
+    const stub = Bun.serve({
+      port: 0,
+      fetch(request) {
+        seen.push(request.method);
+        return Response.json(page);
+      },
+    });
+    try {
+      const forge = createGitHubForge({
+        apiBase: `http://127.0.0.1:${stub.port}`,
+        credentials: { kind: "token", username: "x", password: "pat-test" },
+        retryAfterBaseMs: 1,
+        paced: false,
+      });
+      await expect(
+        forge.upsertComment(repo, 1, "<!-- agent-platform:s:x -->", "Hi"),
+      ).rejects.toBeInstanceOf(ForgeCredentialError);
+      expect(seen).toEqual(Array(10).fill("GET"));
+    } finally {
+      await stub.stop(true);
+    }
+  });
+
   test("with a PAT, the platform's comment is the token owner's", async () => {
     const marker = "<!-- agent-platform:s:status -->";
     const thread = [
