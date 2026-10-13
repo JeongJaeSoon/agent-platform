@@ -47,7 +47,7 @@ export interface ForgeAdapter {
   readonly maxBodyLength: number;
   gitCredential(repo: RepoRef, access: ForgeAccess): Promise<GitCredential>;
   getRepository(repo: RepoRef): Promise<ForgeRepository>;
-  /** The newest pull request, open or closed, whose head is `branch` of `repo` itself. */
+  /** The open pull request whose head is `branch` of `repo` itself, or null. */
   findPullRequestForBranch(
     repo: RepoRef,
     branch: string,

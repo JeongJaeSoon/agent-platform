@@ -238,7 +238,7 @@ export function createGitHubForge(options: {
         client.request("GET /repos/{owner}/{repo}/pulls", {
           ...target(repo),
           head: `${repo.owner}:${branch}`,
-          state: "all",
+          state: "open",
           sort: "created",
           direction: "desc",
           per_page: 1,

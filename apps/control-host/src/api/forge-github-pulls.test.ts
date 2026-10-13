@@ -87,6 +87,28 @@ describe("GitHub forge pull requests", () => {
     expect(github.tokenRequests.length - tokensBefore).toBe(1);
   });
 
+  test("an open pull request is found even when a newer one for the branch is closed", async () => {
+    const { forge } = appForge();
+    const pulls = github.pullRequests("acme", "app");
+    pulls.push({
+      number: 99,
+      head,
+      base: "release",
+      title: "closed later",
+      body: "",
+      state: "closed",
+      html_url: `${github.origin}/acme/app/pull/99`,
+    });
+    try {
+      expect(await forge.findPullRequestForBranch(repo, head)).toMatchObject({
+        number: 1,
+        state: "open",
+      });
+    } finally {
+      pulls.pop();
+    }
+  });
+
   test("a pull request token is not the contents token, and neither is reused for the other", async () => {
     const { forge } = appForge();
     const before = github.tokenRequests.length;
