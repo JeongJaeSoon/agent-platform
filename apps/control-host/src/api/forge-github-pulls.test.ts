@@ -120,6 +120,23 @@ describe("GitHub forge pull requests", () => {
     ]);
   });
 
+  test("two first comments for one marker at once leave one comment", async () => {
+    const { forge } = appForge();
+    const marker = "<!-- agent-platform:s:racing -->";
+    const [a, b] = await Promise.all([
+      forge.upsertComment(repo, 1, marker, "One."),
+      forge.upsertComment(repo, 1, marker, "Two."),
+    ]);
+    expect([a.created, b.created]).toEqual([true, false]);
+    expect(
+      github
+        .comments("acme", "app", 1)
+        .filter((comment) => comment.body.includes(marker)),
+    ).toEqual([
+      expect.objectContaining({ id: a.id, body: `Two.\n\n${marker}` }),
+    ]);
+  });
+
   test("a marker someone else pasted is left alone", async () => {
     const { forge } = appForge();
     const marker = "<!-- agent-platform:s:pasted -->";

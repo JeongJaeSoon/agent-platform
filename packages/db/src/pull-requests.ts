@@ -11,7 +11,7 @@ import {
 } from "@agent-platform/platform";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { Database } from "./queries.ts";
-import { pullRequests, pushRequests, receipts } from "./schema.ts";
+import { pullRequests, pushRequests, receipts, sessions } from "./schema.ts";
 
 type Row = typeof pullRequests.$inferSelect;
 
@@ -64,19 +64,20 @@ async function insertReceipt(
   return id;
 }
 
-async function lockPushRequest(tx: Database, id: string): Promise<void> {
+// Every push request of a session shares its branch, and so its pull request.
+async function lockSession(tx: Database, id: string): Promise<void> {
   await tx
-    .select({ id: pushRequests.id })
-    .from(pushRequests)
-    .where(eq(pushRequests.id, id))
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.id, id))
     .for("update");
 }
 
-async function findSessionPullRequestByUrl(
+async function findSessionRowByUrl(
   tx: Database,
   sessionId: string,
   url: string,
-): Promise<PullRequest | null> {
+): Promise<Row | undefined> {
   const [row] = await tx
     .select()
     .from(pullRequests)
@@ -84,7 +85,7 @@ async function findSessionPullRequestByUrl(
       and(eq(pullRequests.sessionId, sessionId), eq(pullRequests.url, url)),
     )
     .limit(1);
-  return row ? publicPullRequest(row) : null;
+  return row;
 }
 
 export function createPostgresPullRequests(db: Database): PullRequestStore {
@@ -158,10 +159,11 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
 
     savePullRequest(input) {
       return db.transaction(async (tx) => {
-        await lockPushRequest(tx, input.pushRequestId);
+        await lockSession(tx, input.sessionId);
+        const same = await findSessionRowByUrl(tx, input.sessionId, input.url);
         const recorded =
           (await findPullRequest(tx, input.ownerId, input.pushRequestId)) ??
-          (await findSessionPullRequestByUrl(tx, input.sessionId, input.url));
+          (same?.pushRequestId != null ? publicPullRequest(same) : null);
         const shown = recorded ?? {
           repository_id: input.repositoryId,
           number: input.number,
@@ -169,7 +171,8 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
           head: input.head,
           base: input.base,
         };
-        const created = recorded === null && input.created;
+        const created =
+          recorded === null && same === undefined && input.created;
         const receiptId = await insertReceipt(tx, {
           ...input,
           operation: "open_pull_request",
@@ -188,20 +191,31 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
         if (recorded !== null) {
           return { pullRequest: recorded, created: false, receiptId };
         }
-        const [row] = await tx
-          .insert(pullRequests)
-          .values({
-            sessionId: input.sessionId,
-            url: input.url,
-            pushRequestId: input.pushRequestId,
-            ownerId: input.ownerId,
-            repositoryId: input.repositoryId,
-            number: input.number,
-            head: input.head,
-            base: input.base,
-            receiptId,
-          })
-          .returning();
+        const values = {
+          sessionId: input.sessionId,
+          url: input.url,
+          pushRequestId: input.pushRequestId,
+          ownerId: input.ownerId,
+          repositoryId: input.repositoryId,
+          number: input.number,
+          head: input.head,
+          base: input.base,
+          receiptId,
+        };
+        // A row from before push requests is filled in, not duplicated.
+        const [row] =
+          same === undefined
+            ? await tx.insert(pullRequests).values(values).returning()
+            : await tx
+                .update(pullRequests)
+                .set({ ...values, createdAt: new Date() })
+                .where(
+                  and(
+                    eq(pullRequests.sessionId, input.sessionId),
+                    eq(pullRequests.url, input.url),
+                  ),
+                )
+                .returning();
         if (!row) throw new Error("pull request insert returned no row");
         return { pullRequest: publicPullRequest(row), created, receiptId };
       });

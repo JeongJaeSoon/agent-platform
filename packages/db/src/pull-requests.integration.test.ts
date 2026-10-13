@@ -16,7 +16,7 @@ import { Pool } from "pg";
 import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
-import { receipts, sessions } from "./schema.ts";
+import { pullRequests, receipts, sessions } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -55,22 +55,24 @@ integration("postgres pull requests", () => {
     await database?.drop();
   });
 
-  async function pushed() {
-    const sessionId = crypto.randomUUID();
-    await db.insert(sessions).values({
-      id: sessionId,
-      ownerId: OWNER,
-      repoUrl: "https://github.com/acme/app.git",
-      branch: "main",
-      repositoryId: "app",
-      checkpointRevision: 1,
-    });
+  async function pushed(existing?: string) {
+    const sessionId = existing ?? crypto.randomUUID();
+    if (existing === undefined) {
+      await db.insert(sessions).values({
+        id: sessionId,
+        ownerId: OWNER,
+        repoUrl: "https://github.com/acme/app.git",
+        branch: "main",
+        repositoryId: "app",
+        checkpointRevision: 1,
+      });
+    }
     const request = written(
       await pushes.create({
         ownerId: OWNER,
         sessionId,
         actor: HUMAN,
-        idempotencyKey: `k-${sessionId}`,
+        idempotencyKey: `k-${crypto.randomUUID()}`,
         payloadHash: "h",
         repositoryId: "app",
         repositoryBinding: "sha256:binding",
@@ -87,7 +89,7 @@ integration("postgres pull requests", () => {
         decision: "approve",
         gitCommit: COMMIT,
         reason: null,
-        idempotencyKey: `d-${sessionId}`,
+        idempotencyKey: `d-${request.id}`,
         payloadHash: "h",
       }),
     );
@@ -212,6 +214,32 @@ integration("postgres pull requests", () => {
     expect(
       await store.findBranchPullRequest(OWNER, first.sessionId, "agent/other"),
     ).toBeNull();
+  });
+
+  test("two push requests of one session saving the same pull request at once both answer it", async () => {
+    const first = await pushed();
+    const second = await pushed(first.sessionId);
+    const [a, b] = await Promise.all([save(first, 21), save(second, 21)]);
+    expect([a.created, b.created].sort()).toEqual([false, true]);
+    expect(a.pullRequest.url).toBe(b.pullRequest.url);
+  });
+
+  test("a row from before push requests is filled in", async () => {
+    const source = await pushed();
+    await db.insert(pullRequests).values({
+      sessionId: source.sessionId,
+      url: "https://github.com/acme/app/pull/31",
+    });
+    const saved = await save(source, 31);
+    expect(saved.created).toBe(false);
+    expect(saved.pullRequest).toMatchObject({
+      push_request_id: source.pushRequestId,
+      number: 31,
+      head: `agent/${source.sessionId}`,
+    });
+    expect(await store.findPullRequest(OWNER, source.pushRequestId)).toEqual(
+      saved.pullRequest,
+    );
   });
 
   test("a refusal receipt is failed with the refusal's error", async () => {

@@ -183,6 +183,20 @@ export function createGitHubForge(options: {
     }
   }
 
+  const queues = new Map<string, Promise<unknown>>();
+  function oneAtATime<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const turn = (queues.get(key) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(run);
+    queues.set(key, turn);
+    void turn
+      .finally(() => {
+        if (queues.get(key) === turn) queues.delete(key);
+      })
+      .catch(() => undefined);
+    return turn;
+  }
+
   const pullRequests: Permissions = { pull_requests: "write" };
   const target = (repo: RepoRef) => ({ owner: repo.owner, repo: repo.name });
 
@@ -285,56 +299,61 @@ export function createGitHubForge(options: {
     },
     async upsertComment(repo, number, marker, body): Promise<ForgeComment> {
       const text = `${body}\n\n${marker}`;
-      return await call(
-        "pull request comment",
-        repo,
-        pullRequests,
-        async (headers) => {
-          for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
-            const { data } = await client.request(
-              "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-              {
-                ...target(repo),
-                issue_number: number,
-                per_page: COMMENTS_PER_PAGE,
-                page,
-                headers,
-              },
-            );
-            let marked: (typeof data)[number] | undefined;
-            for (const comment of data) {
-              if (
-                comment.body?.includes(marker) &&
-                (await writtenByUs(comment, headers))
-              ) {
-                marked = comment;
-                break;
-              }
-            }
-            if (marked !== undefined) {
-              const { data: edited } = await client.request(
-                "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      // Two first comments for one marker would both find none and both
+      // post; one at a time per marker in this process.
+      return await oneAtATime(
+        `${repo.owner}/${repo.name}#${number}|${marker}`,
+        () =>
+          call("pull request comment", repo, pullRequests, async (headers) => {
+            for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
+              const { data } = await client.request(
+                "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
                 {
                   ...target(repo),
-                  comment_id: Number(marked.id),
-                  body: text,
+                  issue_number: number,
+                  per_page: COMMENTS_PER_PAGE,
+                  page,
                   headers,
                 },
               );
-              return {
-                id: Number(edited.id),
-                url: edited.html_url,
-                created: false,
-              };
+              let marked: (typeof data)[number] | undefined;
+              for (const comment of data) {
+                if (
+                  comment.body?.includes(marker) &&
+                  (await writtenByUs(comment, headers))
+                ) {
+                  marked = comment;
+                  break;
+                }
+              }
+              if (marked !== undefined) {
+                const { data: edited } = await client.request(
+                  "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+                  {
+                    ...target(repo),
+                    comment_id: Number(marked.id),
+                    body: text,
+                    headers,
+                  },
+                );
+                return {
+                  id: Number(edited.id),
+                  url: edited.html_url,
+                  created: false,
+                };
+              }
+              if (data.length < COMMENTS_PER_PAGE) break;
             }
-            if (data.length < COMMENTS_PER_PAGE) break;
-          }
-          const { data: posted } = await client.request(
-            "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
-            { ...target(repo), issue_number: number, body: text, headers },
-          );
-          return { id: Number(posted.id), url: posted.html_url, created: true };
-        },
+            const { data: posted } = await client.request(
+              "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+              { ...target(repo), issue_number: number, body: text, headers },
+            );
+            return {
+              id: Number(posted.id),
+              url: posted.html_url,
+              created: true,
+            };
+          }),
       );
     },
   };
