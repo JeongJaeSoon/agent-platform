@@ -25,6 +25,8 @@ import {
   bootstrapRequestSchema,
   bootstrapResponseSchema,
   changeSessionProfileRequestSchema,
+  commentPullRequestRequestSchema,
+  commentPullRequestResponseSchema,
   createAgentReleaseRequestSchema,
   createAgentReleaseResponseSchema,
   createAgentRequestSchema,
@@ -79,6 +81,8 @@ import {
   memberParamsSchema,
   memberUserParamsSchema,
   memberViewSchema,
+  openPullRequestRequestSchema,
+  openPullRequestResponseSchema,
   passwordResetRequestSchema,
   passwordResetResponseSchema,
   pauseSessionRequestSchema,
@@ -164,6 +168,8 @@ const requestComponents = {
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   CreatePushRequestRequest: createPushRequestRequestSchema,
   DecidePushRequestRequest: decidePushRequestRequestSchema,
+  OpenPullRequestRequest: openPullRequestRequestSchema,
+  CommentPullRequestRequest: commentPullRequestRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
   PasswordResetRequest: passwordResetRequestSchema,
@@ -222,6 +228,8 @@ const responseComponents = {
   SetAccessResponse: setAccessResponseSchema,
   PushRequest: pushRequestSchema,
   ListPushRequestsResponse: listPushRequestsResponseSchema,
+  OpenPullRequestResponse: openPullRequestResponseSchema,
+  CommentPullRequestResponse: commentPullRequestResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
   Receipt: getReceiptResponseSchema,
@@ -483,6 +491,17 @@ const EXAMPLE_PUSH_REQUEST = {
   decision_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
+};
+const EXAMPLE_PULL_REQUEST = {
+  push_request_id: EXAMPLE_PUSH_REQUEST_ID,
+  session_id: EXAMPLE_SESSION_ID,
+  repository_id: "sample-app",
+  number: 42,
+  url: "https://github.com/acme/sample-app/pull/42",
+  head: `agent/${EXAMPLE_SESSION_ID}`,
+  base: "main",
+  created_at: "2026-10-11T08:40:00Z",
+  receipt_id: "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d",
 };
 const ACCEPTED_RECEIPT = {
   receipt_id: EXAMPLE_RECEIPT_ID,
@@ -1391,6 +1410,90 @@ export const API_ROUTE_DECLARATIONS = [
         "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
       CHECKPOINT_MOVED:
         "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/push-requests/{push_request_id}/pull-request",
+    operationId: "openPullRequest",
+    tag: "Push requests",
+    summary: "Open a pull request from a pushed request",
+    description:
+      "Opens a pull request on the repository's forge (GitHub or GHES) from the request's branch `agent/<session-id>` into the catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository and `pull_requests: write`, or the entry's PAT.\n\n`title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nOnly a verified credential that holds `sessions:approve` opens one: an API key or a signed-in user, as for a push decision. Worker credentials are not accepted on `/v1` (401).",
+    scope: "approve",
+    scopeCheckedBy: "service",
+    idempotent: false,
+    body: "OpenPullRequestRequest",
+    requestExample: { title: "Add retry to the sync job" },
+    success: {
+      status: 201,
+      schema: "OpenPullRequestResponse",
+      description:
+        "The pull request: 201 when this call opened it, 200 with `created: false` when it was already open.",
+      example: {
+        pull_request: EXAMPLE_PULL_REQUEST,
+        created: true,
+        receipt_id: EXAMPLE_PULL_REQUEST.receipt_id,
+      },
+    },
+    errors: [...CONFLICTS, 403, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN"],
+      409: ["PUSH_NOT_PUSHED", "CATALOG_MISMATCH"],
+    },
+    errorNotes: {
+      FORBIDDEN:
+        "Also when the principal may not decide pushes, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (an App or a github.com PAT).",
+      CATALOG_MISMATCH:
+        "Here: the catalog entry for the repository changed after the push request pinned it.",
+      BACKEND_UNAVAILABLE:
+        "Here: GitHub refused or failed the call, after waiting out any rate limit it named (at most two retries).",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/push-requests/{push_request_id}/pull-request/comments",
+    operationId: "commentPullRequest",
+    tag: "Push requests",
+    summary: "Post or update a comment on the pull request",
+    description:
+      "Posts a comment on the pull request opened from this push request, or edits the one posted before with the same `marker` (default `status`), so a progress note is updated in place instead of piling up. The comment carries a hidden line `<!-- agent-platform:<session-id>:<marker> -->` that finds it again. `body` is cleaned the same way as a pull request body.\n\nEvery attempt, refused ones included, leaves a `comment_pull_request` receipt with the actor, the pull request, the comment id and `created`. The same credentials as opening the pull request are needed.",
+    scope: "approve",
+    scopeCheckedBy: "service",
+    idempotent: false,
+    body: "CommentPullRequestRequest",
+    requestExample: {
+      body: "Tests pass on the pushed commit.",
+      marker: "status",
+    },
+    success: {
+      status: 201,
+      schema: "CommentPullRequestResponse",
+      description:
+        "The comment: 201 when this call posted it, 200 with `created: false` when it edited the marked one.",
+      example: {
+        pull_request: EXAMPLE_PULL_REQUEST,
+        comment: {
+          id: 2401,
+          url: "https://github.com/acme/sample-app/pull/42#issuecomment-2401",
+          marker: "status",
+          created: true,
+        },
+        receipt_id: "b8c9d0e1-f2a3-4b4c-9d5e-6f7a8b9c0d1e",
+      },
+    },
+    errors: [...CONFLICTS, 403, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN"],
+      409: ["PULL_REQUEST_MISSING", "CATALOG_MISMATCH"],
+    },
+    errorNotes: {
+      FORBIDDEN:
+        "Also when the principal may not decide pushes, the deployment does not authenticate callers, or the repository has no GitHub credential.",
+      CATALOG_MISMATCH:
+        "Here: the catalog entry for the repository changed after the push request pinned it.",
+      BACKEND_UNAVAILABLE:
+        "Here: GitHub refused or failed the call, after waiting out any rate limit it named (at most two retries).",
     },
   },
   {
@@ -2325,7 +2428,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

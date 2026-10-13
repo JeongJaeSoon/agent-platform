@@ -1743,6 +1743,16 @@ describe("authorizeEgress through a forge", () => {
       getRepository: async () => {
         throw new Error("not used");
       },
+      maxBodyLength: 0,
+      findPullRequestForBranch: async () => {
+        throw new Error("not used");
+      },
+      createPullRequest: async () => {
+        throw new Error("not used");
+      },
+      upsertComment: async () => {
+        throw new Error("not used");
+      },
     };
   }
   const basic = (login: string) =>

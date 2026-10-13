@@ -12,6 +12,7 @@ import type {
   LinkedAccountService,
   MemberService,
   PendingRequestService,
+  PullRequestService,
   PushRequestService,
   SessionService,
   SessionShareService,
@@ -38,6 +39,7 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerProfileRoutes } from "./routes/profiles.ts";
+import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
@@ -83,6 +85,7 @@ function apiApp() {
       registerReceiptRoutes(router, {} as SessionService);
       registerPendingRoutes(router, {} as PendingRequestService);
       registerPushRequestRoutes(router, {} as PushRequestService);
+      registerPullRequestRoutes(router, {} as PullRequestService);
       registerInterruptRoutes(router, {} as InterruptService);
       registerMemberRoutes(router, {} as MemberService, {} as InviteService);
       registerAgentRoutes(router, {} as AgentService);

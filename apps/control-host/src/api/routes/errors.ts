@@ -53,6 +53,9 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   PUSH_REQUEST_OPEN: 409,
   PUSH_REQUEST_DECIDED: 409,
   CHECKPOINT_MOVED: 409,
+  PUSH_NOT_PUSHED: 409,
+  CATALOG_MISMATCH: 409,
+  PULL_REQUEST_MISSING: 409,
 };
 
 // Storage outages need nothing here: the app's error hook answers them.

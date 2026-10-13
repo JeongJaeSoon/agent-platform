@@ -6,8 +6,10 @@ import { startFakeGitHub } from "./fake-github.ts";
 // request body and JWT claims but never a token. A second port, on no
 // worker's allowlist, switches the token endpoint to failing, lists the
 // repository's refs (GET /refs), moves a branch off its history
-// (POST /unrelated?branch=<name>) and changes the default branch
-// (POST /default-branch?branch=<name>).
+// (POST /unrelated?branch=<name>), changes the default branch
+// (POST /default-branch?branch=<name>), lists the pull requests and their
+// comments as received (GET /pulls) and rate-limits the next REST calls
+// (POST /rate-limit?count=<n>&limit=primary|secondary).
 const env = process.env;
 const appId = Number(env.FAKE_GITHUB_APP_ID ?? "1");
 const publicKey = (env.FAKE_GITHUB_PUBLIC_KEY ?? "").replace(/\\n/g, "\n");
@@ -28,6 +30,7 @@ await github.createRepository(owner, name, {
 
 let tokensLogged = 0;
 let gitLogged = 0;
+let apiLogged = 0;
 setInterval(() => {
   for (const entry of github.tokenRequests.slice(tokensLogged)) {
     console.log(JSON.stringify({ msg: "token request", ...entry }));
@@ -37,6 +40,10 @@ setInterval(() => {
     console.log(JSON.stringify({ msg: "git request", ...entry }));
   }
   gitLogged = github.gitRequests.length;
+  for (const entry of github.apiRequests.slice(apiLogged)) {
+    console.log(JSON.stringify({ msg: "api request", ...entry }));
+  }
+  apiLogged = github.apiRequests.length;
 }, 200);
 
 Bun.serve({
@@ -53,6 +60,22 @@ Bun.serve({
     }
     if (url.pathname === "/refs" && request.method === "GET") {
       return Response.json(await github.refs(owner, name));
+    }
+    if (url.pathname === "/pulls" && request.method === "GET") {
+      return Response.json(
+        github.pullRequests(owner, name).map((pull) => ({
+          ...pull,
+          comments: github.comments(owner, name, pull.number),
+        })),
+      );
+    }
+    if (url.pathname === "/rate-limit" && request.method === "POST") {
+      const count = Number(url.searchParams.get("count") ?? "1");
+      const limit =
+        url.searchParams.get("limit") === "primary" ? "primary" : "secondary";
+      github.rateLimitNext(count, limit);
+      console.log(JSON.stringify({ msg: "rate limit", count, limit }));
+      return Response.json({ count, limit });
     }
     const branch = url.searchParams.get("branch");
     if (url.pathname === "/unrelated" && request.method === "POST" && branch) {

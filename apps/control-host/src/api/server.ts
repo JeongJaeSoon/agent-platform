@@ -13,6 +13,7 @@ import {
   createPostgresLinkedAccountStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresPullRequests,
   createPostgresPushRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -27,7 +28,7 @@ import {
   createPostgresWorkspaceKeyStore,
   hasUncollectedCheckpoint,
 } from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
+import { createLogger, sanitizeText } from "@agent-platform/observability";
 import {
   catalogRevision,
   createAgentAdminService,
@@ -41,6 +42,7 @@ import {
   createLinkedAccountService,
   createMemberService,
   createPendingRequestService,
+  createPullRequestService,
   createPushExecutor,
   createPushRequestService,
   createSessionService,
@@ -106,6 +108,7 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerProfileRoutes } from "./routes/profiles.ts";
+import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
@@ -294,8 +297,8 @@ const agentAdmins = createAgentAdminService({
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
-// One adapter per repository, shared by clone (the gateway) and push, so
-// both draw on one token cache.
+// One adapter per repository, shared by clone (the gateway), push and pull
+// requests, so all draw on one token cache.
 const forges = forgesOf(catalog, { logger });
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
@@ -303,6 +306,13 @@ const pushRequests = createPushRequestService({
   store: pushStore,
   source: checkpoints.pushSource,
   catalog,
+});
+const pullRequests = createPullRequestService({
+  authorization,
+  store: createPostgresPullRequests(db),
+  catalog,
+  forges,
+  redact: sanitizeText,
 });
 const pushExecutor = createPushExecutor({
   store: pushStore,
@@ -430,6 +440,7 @@ const app = createApiApp({
     registerProfileRoutes(router, catalog);
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
+    registerPullRequestRoutes(router, pullRequests);
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,

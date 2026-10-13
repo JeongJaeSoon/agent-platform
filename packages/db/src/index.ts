@@ -24,6 +24,7 @@ export * from "./pause-control.ts";
 export * from "./pending-control.ts";
 export * from "./pending-requests.ts";
 export * from "./postgres-unit-of-work.ts";
+export * from "./pull-requests.ts";
 export * from "./push-requests.ts";
 export * from "./queries.ts";
 export * from "./scheduler-store.ts";
