@@ -2,7 +2,7 @@
 
 main을 Kubernetes에 올리는 절차다. chart는 `deploy/helm/agent-platform`에 있고, 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [operations.md § Kubernetes 실행 backend](operations.md#kubernetes-실행-backend-94s-523-94s-524), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
 
-Docker 단일 서버 알파(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [alpha-deployment.md](alpha-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
+Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [server-deployment.md](server-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
 
 명령마다 어디서 확인했는지 적었다. **kind**는 `deploy/kind/up.sh`로 띄운 클러스터에서 그대로 돌려 본 명령이고, **AWS 전용**은 AWS 리소스가 있어야 해서 로컬에서는 돌릴 수 없는 명령이다.
 
@@ -81,7 +81,7 @@ release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은
 
 `values-aws.example.yaml`을 설치별 파일로 복사해 placeholder(account id, ARN, host, digest)를 채우고, `values.yaml` 위에 얹는다. 아래 render는 로컬에서 돌지만, 그 결과를 적용하는 일은 **AWS 전용**이다.
 
-**ALB는 사내망 전용이다.** 알파는 사내망에서만 닿는 입구를 전제로 하므로, 예제의 Ingress annotation `scheme`은 이미 `internal`이다. 설치별 파일에서도 `internet-facing`으로 바꾸지 않는다. `render-check`가 예제 render에서 `internet-facing`을 거부한다. 적용 뒤에는 ALB가 사내망 subnet에 생겼는지 확인한다(**AWS 전용**).
+**ALB는 사내망 전용이다.** 이 설치는 사내망에서만 닿는 입구를 전제로 하므로, 예제의 Ingress annotation `scheme`은 이미 `internal`이다. 설치별 파일에서도 `internet-facing`으로 바꾸지 않는다. `render-check`가 예제 render에서 `internet-facing`을 거부한다. 적용 뒤에는 ALB가 사내망 subnet에 생겼는지 확인한다(**AWS 전용**).
 
 ```bash
 helm lint deploy/helm/agent-platform -f deploy/helm/agent-platform/values-aws.example.yaml   # kind 머신에서 확인
@@ -165,11 +165,11 @@ helm -n agent-platform rollback agent-platform <revision> --wait --timeout 10m
 
 롤백은 migrate hook을 돌리지 않는다(`pre-rollback`이 아니다). DB는 새 schema에 남고, 옛 빌드는 자기보다 앞선 schema에서도 ready가 된다(`/readyz`의 schema 검사는 자기 migration 목록이 적용된 목록의 앞부분과 같은지만 본다). 그래서 롤백할 수 없는 migration은 배포하지 않는다. worker 이미지를 되돌릴 때 checkpoint 호환은 [operations.md § worker·control-host 롤백과 incremental checkpoint](operations.md#workercontrol-host-롤백과-incremental-checkpoint-94s-227)를 먼저 본다.
 
-## 단일 서버 알파 10단계와의 대응
+## 단일 서버 배포 10단계와의 대응
 
-[alpha-deployment.md](alpha-deployment.md)의 단계가 Kubernetes에서 어디로 가는지다.
+[server-deployment.md](server-deployment.md)의 단계가 Kubernetes에서 어디로 가는지다.
 
-| 알파 단계 | Kubernetes 설치 |
+| 단일 서버 단계 | Kubernetes 설치 |
 |---|---|
 | 1. 호스트 준비 | 클러스터와 NetworkPolicy를 강제하는 CNI, worker node group. XFS quota 대신 workspace PVC 크기(위 "준비") |
 | 2. 네트워크 경로 | SSH tunnel 대신 사내망 ALB Ingress(**AWS 전용**). authorizer 3100과 DB는 클러스터 밖에 열지 않는다 |

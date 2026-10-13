@@ -21,7 +21,7 @@
 | `packages` | 앱이 조립하는 workspace 라이브러리. 아래 표에 패키지마다 한 줄씩 있다 |
 | `spikes` | workspace 밖의 독립 설치 단위. [`spikes/94s-91`](../spikes/94s-91/README.md)은 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. 실제 LiteLLM proxy를 거친 SDK 왕복은 여기서만 확인한다. `spikes/94s-92`는 저장 backend 선택(94S-92)의 harness다. CI `spikes` job은 main push와 수동 실행에서만 돌고 run을 막지 않는다([ci.md](ci.md)) |
 | `tests` | 패키지 하나로 닫히지 않는 테스트: 여러 앱·패키지를 엮는 흐름, 저장소·CI·`scripts`를 검사하는 테스트, 스택 전체 harness(`tests/e2e`, `tests/d2-gate`), `scripts/soak` 판정 함수의 단위 테스트(`tests/soak`) |
-| `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), Kubernetes 설치의 운영자 CLI(`k8s-api.sh`), gate와 과거 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 개발용 fixture(`scripts/dev`), `THIRD_PARTY_NOTICES.md` 생성기(`third-party-notices.ts`), 수동 재현기(`scripts/bun-http-stall`) |
+| `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), Kubernetes 설치의 운영자 CLI(`k8s-api.sh`), gate와 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 개발용 fixture(`scripts/dev`), `THIRD_PARTY_NOTICES.md` 생성기(`third-party-notices.ts`), 수동 재현기(`scripts/bun-http-stall`) |
 | `.github` | CI 전용. workflow(`workflows`), composite action(`actions/bun-setup`), workflow만 부르는 helper(`.github/scripts`). 운영자가 부르는 도구는 여기가 아니라 `scripts`에 둔다 |
 | `infra` | compose layer(`compose.core.yml`·`compose.local.yml`·`compose.test-ops*.yml`·`compose.real-model.yml`·`compose.fake-model.yml`·`compose.datadog.yml`)와 진입 파일 `docker-compose.yml`, 복원용 layer `docker-compose.restore.yml`, 컨테이너 초기화 스크립트(`infra/gitea`·`infra/localstack`), Datadog 설정(`infra/datadog`) |
 | `deploy` | Kubernetes 배포: Helm chart(`deploy/helm/agent-platform`)와 그 렌더 검사(`deploy/helm/render-check.ts`), 로컬 kind 확인(`deploy/kind/up.sh`). chart의 NetworkPolicy가 worker Pod의 바깥 연결을 egress proxy 하나로 묶는다. worker Pod는 DNS도 쓰지 않고 proxy 주소를 hosts 파일로 받는다(94S-526·94S-631). 설치 절차는 [kubernetes-deployment.md](kubernetes-deployment.md) |
@@ -88,7 +88,7 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@agent-platform/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 저장소 밖의 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
 
-- 통합 설계 정본: Obsidian `Private/Project/agent-platform`의 `final-design.md`·`module-design.md`·`api.md`·`deployment.md`·`delivery-plan.md`(비공개). rename 이전 설계서(`DESIGN.md`)는 지금의 계약·티켓 번호와 맞지 않아 저장소에서 지웠다(94S-433).
+- 통합 설계 정본: Obsidian `Private/Project/agent-platform`의 `final-design.md`·`module-design.md`·`api.md`·`deployment.md`·`delivery-plan.md`(비공개).
 - 작업 순서·상태·인수 조건: [Linear P-94S-5](https://linear.app/94soon/project/agent-platform-9c503b0fad62)의 D0~D4 티켓(94S-108~147)과 native blocked-by 관계. [옛 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)(94S-7~94)는 rename 이전 이력이다.
 - 완료된 SDK gate: [94S-91](https://linear.app/94soon/issue/94S-91), 저장 backend 선택: [94S-92](https://linear.app/94soon/issue/94S-92). process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](../spikes/94s-91/README.md), [`spikes/94s-92`](../spikes/94s-92/README.md)에 둔다.
-- 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓은 [Linear P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)(94S-148~195)다. 작성 시점 코드에 묶인 조사 초안과 리뷰 원문은 저장소에서 제거했다. alpha D0~D4의 Kiel 실행 경로는 바꾸지 않고 그 위에 올린다.
+- 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): 설계 정본은 Obsidian `Private/Project/agent-platform/interface/00~06`, 티켓은 [Linear P-94S-6](https://linear.app/94soon/project/agent-platform-interface-and-collaboration-933c7892a8a4)(94S-148~195)다. Kiel 실행 경로는 바꾸지 않고 그 위에 올린다.

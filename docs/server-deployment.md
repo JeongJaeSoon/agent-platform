@@ -1,13 +1,12 @@
-# 내부 알파 실서버 배포
+# 단일 서버 배포
 
-이 문서는 빈 Linux 서버 한 대를 내부 알파에 올리고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), [운영 참고](operations.md), [quickstart](quickstart.md), [실제 Claude로 확인하기](real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
+이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), [운영 참고](operations.md), [quickstart](quickstart.md), [실제 Claude로 확인하기](real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
 
 ## 배포 결정
 
-- 대상은 신뢰된 내부 사용자 3–5명, 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. 실행 기반은 Kubernetes(EKS)로 정해졌다([94S-313](https://linear.app/94soon/issue/94S-313)). Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서의 단일 서버 절차는 지금 도는 알파를 위해 그대로 둔다.
-- 이번 알파는 24시간 soak를 다시 돌리지 않고 진행한다. 실 AWS S3, HTTPS, 실제 provider 호출을 포함한 남은 증거는 [94S-303](https://linear.app/94soon/issue/94S-303) 서버 배포에서 수집한다.
-- provider key는 운영자 key 하나를 공유한다. 사용자별 API key의 owner가 세션 owner이며, 사용자마다 별도 owner와 API key를 발급한다. 외부 공개 전에는 BYOK 결정과 구현([94S-376](https://linear.app/94soon/issue/94S-376))이 필요하다.
-- 알파의 object store는 전용 AWS S3 bucket이다. 같은 호스트의 LocalStack은 재부팅 때 object를 잃으므로 실서버 알파의 지속성 근거로 쓰지 않는다.
+- 대상은 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
+- provider key는 운영자 key 하나를 공유한다. 사용자별 API key의 owner가 세션 owner이며, 사용자마다 별도 owner와 API key를 발급한다.
+- object store는 전용 AWS S3 bucket이다. 같은 호스트의 LocalStack은 재부팅 때 object를 잃으므로 실서버의 지속성 근거로 쓰지 않는다.
 - 기본 접근은 loopback bind와 SSH tunnel이다. reverse proxy는 TLS와 VPN 또는 IP allowlist가 모두 준비된 때만 선택한다.
 
 ## 1. 호스트를 준비한다
@@ -38,10 +37,10 @@ API만 내부 DNS 이름으로 내보내고 upstream은 계속 loopback을 사�
 ```nginx
 server {
     listen 443 ssl;
-    server_name alpha.internal.example;
+    server_name agent-platform.internal.example;
 
-    ssl_certificate /etc/ssl/alpha/fullchain.pem;
-    ssl_certificate_key /etc/ssl/alpha/privkey.pem;
+    ssl_certificate /etc/ssl/agent-platform/fullchain.pem;
+    ssl_certificate_key /etc/ssl/agent-platform/privkey.pem;
 
     allow 10.8.0.0/24;
     deny all;
@@ -66,11 +65,11 @@ SSE는 연결을 오래 유지하므로 buffering을 끄고 read timeout을 짧�
 
 [test-ops의 AWS 준비](test-ops.md#aws-준비s3에서만)를 그대로 따른다. 이 작업은 실제 AWS 권한과 비용이 생기므로 배포 담당자가 서버 배포 창에서 수행한다.
 
-- [ ] 알파 전용 bucket 하나이며 region은 `ap-northeast-1`이다.
+- [ ] 이 설치 전용 bucket 하나이며 region은 `ap-northeast-1`이다.
 - [ ] versioning과 Object Lock이 켜져 있고 기본 retention은 없다.
 - [ ] 기본 암호화는 SSE-S3 `AES256`이고 public access는 차단됐다.
 - [ ] API와 복원 훈련에 필요한 최소 IAM만 부여됐다. bucket 생성 권한은 runtime 자격 증명에 없다.
-- [ ] 알파 동안 object version을 만료시키는 lifecycle rule을 두지 않는다. 기존 조직 정책이 있다면 이 bucket 또는 checkpoint prefix가 제외됐다는 증거를 남긴다.
+- [ ] object version을 만료시키는 lifecycle rule을 두지 않는다. 기존 조직 정책이 있다면 이 bucket 또는 checkpoint prefix가 제외됐다는 증거를 남긴다.
 - [ ] `TEST_OPS_OBJECT_STORE=s3` preflight가 create-only upload, legal hold, version read, hold 해제와 scratch version 삭제 왕복을 통과했다.
 
 legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않는다. checkpoint 정리는 제품의 checkpoint GC가 version id와 hold 상태를 확인하며 수행한다.
@@ -108,7 +107,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 9. 그 세션을 pause하고 checkpoint revision이 생긴 뒤 resume하여 admission state가 `active`가 되는 데까지만 확인한다. 첫 사용 smoke에서는 추가 메시지를 보내지 않아 실제 provider turn을 하나로 제한한다. 성공 판정은 응답 문장이 아니라 API·turn·admission 상태, 8단계의 `git commit` `tool_result`, checkpoint revision으로 한다. pause가 끝난 뒤 `checkpoint_revision`이 `null`이 아니면 그 commit을 담은 작업 트리가 checkpoint에 저장된 것이다.
 10. 세션 usage와 Anthropic Console의 실제 비용을 함께 기록한다. key 취급과 비용 판정 기준은 [실제 Claude 확인 문서](real-claude.md#key-입력과-폐기)와 [비용 절](real-claude.md#비용)을 따른다. 이 서버에서는 그 문서의 로컬 `local.sh` 명령을 실행하지 않는다.
 
-알파 owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용자마다 다른 owner/API key를 발급하며, 한 사용자의 key를 다른 사용자에게 공유하지 않는다.
+owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용자마다 다른 owner/API key를 발급하며, 한 사용자의 key를 다른 사용자에게 공유하지 않는다.
 
 ## 6. 백업과 복원 기준을 운영한다
 
@@ -120,7 +119,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 - 알림: 명령의 non-zero exit, 서비스를 다시 열지 못한 경우, 26시간 동안 새 성공본이 없는 경우를 실패로 경보한다.
 - 복원 훈련: 한 달에 한 번, 그리고 업그레이드 뒤 첫 백업마다 [restore drill](test-ops.md#복원-훈련)을 `--keep`으로 실행한다. 출력된 drill project, 검증 로그와 loopback 포트를 기록하고 검사한 뒤, 출력된 명령으로 그 project만 지운다. S3 drill bucket은 같은 정본 절의 마지막 문단대로 legal hold, object version과 delete marker를 정리한 뒤 삭제한다.
 
-`restore-drill`은 postgres·object store·Gitea까지만 복원하고 API endpoint를 띄우지 않으므로, 이 결과를 세션 연속성 증거로 쓰지 않는다. [실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인-94s-324)은 synthetic project와 fake provider를 쓰는 제품 검증이며, 실운영 backup·provider transcript·paused 세션의 복구 증거가 아니다. 현재 도구만으로 그 실운영 연속성을 안전하게 검사할 수 없으므로 [94S-303](https://linear.app/94soon/issue/94S-303)에는 `UNVERIFIED`와 도구 공백을 기록하고, 별도 절차가 마련되기 전까지 복원 훈련을 `partial`로 판정한다.
+`restore-drill`은 postgres·object store·Gitea까지만 복원하고 API endpoint를 띄우지 않으므로, 이 결과를 세션 연속성 증거로 쓰지 않는다. [실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인-94s-324)은 synthetic project와 fake provider를 쓰는 제품 검증이며, 실운영 backup·provider transcript·paused 세션의 복구 증거가 아니다. 현재 도구만으로 그 실운영 연속성을 안전하게 검사할 수 없으므로 배포 증거에는 `UNVERIFIED`와 도구 공백을 기록하고, 별도 절차가 마련되기 전까지 복원 훈련을 `partial`로 판정한다.
 
 ## 7. 업그레이드와 롤백을 연습한다
 
@@ -136,7 +135,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 
 ## 8. 물리 재부팅을 확인한다
 
-알파 사용자에게 점검 시간을 알리고 진행한다.
+사용자에게 점검 시간을 알리고 진행한다.
 
 ### 재부팅 전
 
@@ -164,10 +163,10 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 
 ## 10. 증거를 남긴다
 
-[94S-303](https://linear.app/94soon/issue/94S-303)의 서버 배포 증거는 저장소나 PR이 아니라 서버의 다음 디렉터리에 둔다.
+서버 배포 증거는 저장소나 PR이 아니라 서버의 다음 디렉터리에 둔다.
 
 ```text
-/var/lib/agent-platform/test-ops/evidence/94S-303/<UTC timestamp>/
+/var/lib/agent-platform/test-ops/evidence/<UTC timestamp>/
 ```
 
 운영자만 읽을 수 있게 하고 off-host 보관소에 암호화해 복제한다. 최소한 다음을 남긴다.
