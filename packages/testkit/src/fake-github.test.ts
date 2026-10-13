@@ -72,3 +72,56 @@ test("git takes an issued token until it expires", async () => {
   expect((await infoRefs(token)).status).toBe(401);
   expect(github.gitRequests.map((r) => r.status)).toEqual([200, 401, 401]);
 });
+
+test("receive-pack takes only a contents: write token; refs, unrelated commits and the default branch are inspectable", async () => {
+  const now = seconds();
+  const tokenFor = async (contents: "read" | "write") => {
+    const response = await fetch(
+      `${github.origin}/app/installations/9/access_tokens`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${jwt(app.privateKey, { iss: 7, iat: now - 30, exp: now + 500 })}`,
+        },
+        body: JSON.stringify({
+          repositories: ["app"],
+          permissions: { contents },
+        }),
+      },
+    );
+    return ((await response.json()) as { token: string }).token;
+  };
+  const receivePack = async (token: string) =>
+    (
+      await fetch(
+        `${github.origin}/acme/app.git/info/refs?service=git-receive-pack`,
+        {
+          headers: {
+            authorization: `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+          },
+        },
+      )
+    ).status;
+  expect(await receivePack(await tokenFor("read"))).toBe(403);
+  expect(await receivePack(await tokenFor("write"))).toBe(200);
+  expect(github.gitRequests.slice(-2)).toMatchObject([
+    { push: true, status: 403 },
+    { push: true, status: 200 },
+  ]);
+
+  const before = await github.refs("acme", "app");
+  expect(Object.keys(before)).toEqual(["refs/heads/main"]);
+  const commit = await github.writeUnrelatedCommit("acme", "app", "agent/x");
+  expect(await github.refs("acme", "app")).toEqual({
+    ...before,
+    "refs/heads/agent/x": commit,
+  });
+  await github.setDefaultBranch("acme", "app", "agent/x");
+  const repo = await fetch(`${github.origin}/repos/acme/app`, {
+    headers: { authorization: `token ${await tokenFor("read")}` },
+  });
+  expect(
+    ((await repo.json()) as { default_branch: string }).default_branch,
+  ).toBe("agent/x");
+  await github.setDefaultBranch("acme", "app", "main");
+});

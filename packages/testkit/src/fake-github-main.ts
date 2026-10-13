@@ -4,7 +4,10 @@ import { startFakeGitHub } from "./fake-github.ts";
 // `auth.kind: github_app` and `api_base` pointing here clones without a real
 // App. Each token and git request is logged as one JSON line, with the
 // request body and JWT claims but never a token. A second port, on no
-// worker's allowlist, switches the token endpoint to failing.
+// worker's allowlist, switches the token endpoint to failing, lists the
+// repository's refs (GET /refs), moves a branch off its history
+// (POST /unrelated?branch=<name>) and changes the default branch
+// (POST /default-branch?branch=<name>).
 const env = process.env;
 const appId = Number(env.FAKE_GITHUB_APP_ID ?? "1");
 const publicKey = (env.FAKE_GITHUB_PUBLIC_KEY ?? "").replace(/\\n/g, "\n");
@@ -39,7 +42,7 @@ setInterval(() => {
 Bun.serve({
   hostname: "0.0.0.0",
   port: Number(env.FAKE_GITHUB_CONTROL_PORT ?? "8081"),
-  fetch(request) {
+  async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/healthz") return new Response("ok");
     if (url.pathname === "/fail-tokens" && request.method === "POST") {
@@ -47,6 +50,24 @@ Bun.serve({
       github.failTokens(on);
       console.log(JSON.stringify({ msg: "token endpoint failing", on }));
       return new Response(on ? "failing\n" : "issuing\n");
+    }
+    if (url.pathname === "/refs" && request.method === "GET") {
+      return Response.json(await github.refs(owner, name));
+    }
+    const branch = url.searchParams.get("branch");
+    if (url.pathname === "/unrelated" && request.method === "POST" && branch) {
+      const commit = await github.writeUnrelatedCommit(owner, name, branch);
+      console.log(JSON.stringify({ msg: "unrelated commit", branch, commit }));
+      return Response.json({ branch, commit });
+    }
+    if (
+      url.pathname === "/default-branch" &&
+      request.method === "POST" &&
+      branch
+    ) {
+      await github.setDefaultBranch(owner, name, branch);
+      console.log(JSON.stringify({ msg: "default branch", branch }));
+      return Response.json({ default_branch: branch });
     }
     return new Response("not found", { status: 404 });
   },

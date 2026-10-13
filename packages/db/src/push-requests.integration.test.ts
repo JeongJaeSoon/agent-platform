@@ -10,7 +10,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@agent-platform/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPushRequests } from "./push-requests.ts";
@@ -21,6 +21,13 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const OWNER = "owner-push";
 const COMMIT = "b".repeat(40);
+const LEASE_MS = 60_000;
+const PUSHED = {
+  state: "pushed",
+  remoteUrl: "https://example.invalid/app.git",
+  remoteRef: "refs/heads/agent/x",
+  previousCommit: null,
+} as const;
 const REQUESTER: ReceiptActor = {
   principal: { kind: "api_key", id: "key-writer" },
   actor_user_id: null,
@@ -78,6 +85,7 @@ integration("postgres push requests", () => {
       idempotencyKey: key,
       payloadHash: "h-create",
       repositoryId: "sample-app",
+      repositoryBinding: "sha256:binding",
       checkpointRevision: revision,
       gitCommit: COMMIT,
     });
@@ -319,26 +327,30 @@ integration("postgres push requests", () => {
     }
     const claimed = new Set<string>();
     for (;;) {
-      const job = await store.claimNextApproved();
+      const job = await store.claimNextApproved(LEASE_MS);
       if (job === null) break;
       claimed.add(job.sessionId);
       expect(job).toMatchObject({
         gitCommit: COMMIT,
         targetBranch: `agent/${job.sessionId}`,
         checkpointRevision: 2,
+        repositoryBinding: "sha256:binding",
+        attempt: 1,
       });
       expect(
         await store.finish(
-          job.id,
+          job,
           job.sessionId === pushed
-            ? { state: "pushed" }
-            : {
-                state: "failed",
-                error: { code: "INTERNAL_ERROR", message: "remote refused" },
-              },
+            ? {
+                state: "pushed",
+                remoteUrl: "https://example.invalid/app.git",
+                remoteRef: `refs/heads/agent/${job.sessionId}`,
+                previousCommit: null,
+              }
+            : { state: "failed", refusal: "non_fast_forward" },
         ),
       ).toBe(true);
-      expect(await store.finish(job.id, { state: "pushed" })).toBe(false);
+      expect(await store.finish(job, PUSHED)).toBe(false);
     }
     expect(claimed).toContain(pushed);
     expect(claimed).toContain(failed);
@@ -348,11 +360,30 @@ integration("postgres push requests", () => {
       .where(eq(pushRequests.sessionId, failed));
     expect(done).toMatchObject({
       state: "failed",
-      pushError: { code: "INTERNAL_ERROR", message: "remote refused" },
+      leaseExpiresAt: null,
+      pushError: { code: "REVISION_CONFLICT" },
     });
     expect(await receipt(done?.pushReceiptId ?? "")).toMatchObject({
       operation: "push",
       status: "failed",
+      result: { verdict: "refuse", refusal: "non_fast_forward" },
+      error: { code: "REVISION_CONFLICT" },
+    });
+    const [ok] = await db
+      .select()
+      .from(pushRequests)
+      .where(eq(pushRequests.sessionId, pushed));
+    expect(await receipt(ok?.pushReceiptId ?? "")).toMatchObject({
+      operation: "push",
+      status: "succeeded",
+      result: {
+        verdict: "allow",
+        git_commit: COMMIT,
+        remote_url: "https://example.invalid/app.git",
+        remote_ref: `refs/heads/agent/${pushed}`,
+        previous_commit: null,
+        approved_by: APPROVER,
+      },
     });
     // A decision's replay shows the request as it is now, still naming
     // that decision.
@@ -363,8 +394,58 @@ integration("postgres push requests", () => {
         state: "pushed",
         decided_by: APPROVER,
         decision_receipt_id: approval?.decision_receipt_id,
+        push_receipt_id: ok?.pushReceiptId,
       },
     });
+  });
+
+  test("only approved requests are claimed: requested, rejected and finished ones never are", async () => {
+    const waiting = await session();
+    written(await create(waiting));
+    const rejected = await session();
+    const toReject = written(await create(rejected));
+    written(
+      await decide(rejected, toReject.id, {
+        decision: "reject",
+        idempotencyKey: "k-reject",
+      }),
+    );
+    const finished = await session();
+    const done = written(await create(finished));
+    written(await decide(finished, done.id));
+    const drain = async () => {
+      const seen: string[] = [];
+      for (;;) {
+        const next = await store.claimNextApproved(LEASE_MS);
+        if (next === null) return seen;
+        seen.push(next.sessionId);
+        expect(await store.finish(next, PUSHED)).toBe(true);
+      }
+    };
+    const first = await drain();
+    expect(first).toContain(finished);
+    expect(first).not.toContain(waiting);
+    expect(first).not.toContain(rejected);
+    expect(await drain()).toEqual([]);
+  });
+
+  test("a pusher that died loses its row once the lease runs out, and cannot finish it after", async () => {
+    const sessionId = await session();
+    const request = written(await create(sessionId));
+    written(await decide(sessionId, request.id));
+    const first = await store.claimNextApproved(LEASE_MS);
+    expect(first).toMatchObject({ id: request.id, attempt: 1 });
+    expect(await store.claimNextApproved(LEASE_MS)).toBeNull();
+    await db
+      .update(pushRequests)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pushRequests.id, request.id));
+    const second = await store.claimNextApproved(LEASE_MS);
+    expect(second).toMatchObject({ id: request.id, attempt: 2 });
+    if (!first || !second) throw new Error("not claimed");
+    expect(await store.finish(first, PUSHED)).toBe(false);
+    expect(await store.finish(second, PUSHED)).toBe(true);
+    written(await create(sessionId, "k-again"));
   });
 
   test("the table refuses a branch other than agent/<session-id> and an undecided approval", async () => {

@@ -41,6 +41,7 @@ import {
   createLinkedAccountService,
   createMemberService,
   createPendingRequestService,
+  createPushExecutor,
   createPushRequestService,
   createSessionService,
   createSessionShareService,
@@ -84,6 +85,7 @@ import {
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
 import { forgesOf } from "./forge-github.ts";
+import { createGitPusher } from "./git-push.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
@@ -292,11 +294,24 @@ const agentAdmins = createAgentAdminService({
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
+// One adapter per repository, shared by clone (the gateway) and push, so
+// both draw on one token cache.
+const forges = forgesOf(catalog, { logger });
+const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
   authorization,
-  store: createPostgresPushRequests(db),
+  store: pushStore,
   source: checkpoints.pushSource,
+  catalog,
 });
+const pushExecutor = createPushExecutor({
+  store: pushStore,
+  catalog,
+  forges,
+  bundles: checkpoints.pushSource,
+  pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
+  logger,
+}).start();
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -312,7 +327,7 @@ const workers = createWorkerGateway({
     ? {}
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
-  forges: forgesOf(catalog, { logger }),
+  forges,
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,
@@ -487,6 +502,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         ? [server]
         : [server, authorizerListener],
       [
+        { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },

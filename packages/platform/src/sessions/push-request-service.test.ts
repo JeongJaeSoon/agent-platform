@@ -9,11 +9,22 @@ import type {
   PushRefusalRecord,
   PushRequestStore,
 } from "../ports/push-requests.ts";
+import type { SessionCatalog } from "./catalog.ts";
 import { createPushRequestService } from "./push-request-service.ts";
 import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
+const CATALOG = {
+  profiles: {},
+  repositories: {
+    "sample-app": {
+      url: "https://git.example/acme/sample-app.git",
+      branch: "main",
+      profiles: ["default"],
+    },
+  },
+} satisfies SessionCatalog;
 
 function service() {
   const refusals: PushRefusalRecord[] = [];
@@ -34,6 +45,7 @@ function service() {
     push: createPushRequestService({
       authorization: createAuthorizationPolicy(),
       store,
+      catalog: CATALOG,
       source: {
         readPushSource: async () => ({ status: "none" }),
       },
@@ -104,6 +116,7 @@ describe("push request decisions", () => {
           return "receipt-1";
         },
       } as unknown as PushRequestStore,
+      catalog: CATALOG,
       source: {
         readPushSource: async (sessionId) => {
           read.push(sessionId);
@@ -170,6 +183,7 @@ describe("push request decisions", () => {
           return { status: "none" };
         },
       },
+      catalog: CATALOG,
     });
     const actor = {
       caller: testCaller("owner-a"),
