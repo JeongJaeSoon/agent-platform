@@ -91,12 +91,19 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @octokit/auth-oauth-app | 9.0.5 | MIT | control-host, worker |
 | @octokit/auth-oauth-device | 8.0.5 | MIT | control-host, worker |
 | @octokit/auth-oauth-user | 6.0.4 | MIT | control-host, worker |
+| @octokit/auth-token | 6.0.0 | MIT | control-host, worker |
+| @octokit/core | 7.0.8 | MIT | control-host, worker |
 | @octokit/endpoint | 11.0.5 | MIT | control-host, worker |
+| @octokit/graphql | 9.0.5 | MIT | control-host, worker |
 | @octokit/oauth-authorization-url | 8.0.0 | MIT | control-host, worker |
 | @octokit/oauth-methods | 6.0.5 | MIT | control-host, worker |
+| @octokit/openapi-types | 28.0.0 | MIT | control-host, worker |
 | @octokit/openapi-types | 29.0.1 | MIT | control-host, worker |
+| @octokit/plugin-retry | 8.1.1 | MIT | control-host, worker |
+| @octokit/plugin-throttling | 11.0.5 | MIT | control-host, worker |
 | @octokit/request | 10.0.16 | MIT | control-host, worker |
 | @octokit/request-error | 7.1.2 | MIT | control-host, worker |
+| @octokit/types | 17.0.0 | MIT | control-host, worker |
 | @octokit/types | 18.0.0 | MIT | control-host, worker |
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
@@ -132,7 +139,9 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | ajv | 8.20.0 | MIT | worker |
 | ajv-formats | 3.0.1 | MIT | worker |
 | aria-hidden | 1.2.6 | MIT | worker |
+| before-after-hook | 4.0.0 | Apache-2.0 | control-host, worker |
 | body-parser | 2.3.0 | MIT | worker |
+| bottleneck | 2.19.5 | MIT | control-host, worker |
 | bowser | 2.14.1 | MIT | control-host, worker |
 | bun-types | 1.3.14 | MIT | control-host, worker |
 | bytes | 3.1.2 | MIT | worker |
