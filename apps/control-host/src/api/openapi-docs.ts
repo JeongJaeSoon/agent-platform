@@ -167,6 +167,12 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   PUSH_REQUEST_DECIDED: "The push request was already approved or rejected.",
   CHECKPOINT_MOVED:
     "The commit or checkpoint named no longer matches what the push request pinned.",
+  CATALOG_MISMATCH:
+    "The catalog no longer allows what the request depends on: the session's (profile, repository) pair, or the repository entry a push request pinned.",
+  PUSH_NOT_PUSHED:
+    "The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.",
+  PULL_REQUEST_MISSING:
+    "No pull request was opened from this push request yet; open it first.",
 };
 
 function when(
