@@ -6,6 +6,12 @@
 const ZWSP = "​";
 export const PULL_REQUEST_TITLE_MAX = 256;
 const TRUNCATED = "\n\n…(truncated)";
+const REDACTED_LINE = "[REDACTED]";
+const keyBegin = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+const keyEnd = /-----END [A-Z ]*PRIVATE KEY-----/;
+// Credential shapes a forge or chat hands out that the shared redactor does
+// not know, checked before it.
+const credentialLine = /github_pat_\w|\bxox[a-z]-\w/;
 
 const closingKeyword =
   /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s*:?\s+)(?=#\d|[A-Za-z0-9-]+\/[A-Za-z0-9._-]+#\d|https?:\/\/)/gi;
@@ -43,7 +49,16 @@ export function cleanBody(
   max: number,
   redact: (line: string) => string,
 ): string {
-  const redacted = text.split("\n").map(redact).join("\n");
+  let inKey = false;
+  const redacted = text
+    .split("\n")
+    .map((line) => {
+      if (keyBegin.test(line)) inKey = true;
+      const hidden = inKey || credentialLine.test(line);
+      if (keyEnd.test(line)) inKey = false;
+      return hidden ? REDACTED_LINE : redact(line);
+    })
+    .join("\n");
   return cut(neutralizeReferences(redacted), max, TRUNCATED);
 }
 
@@ -52,6 +67,10 @@ export function cleanTitle(
   text: string,
   redact: (line: string) => string,
 ): string {
-  const line = redact(text.replace(/\s+/g, " ").trim());
+  const flat = text.replace(/\s+/g, " ").trim();
+  const line =
+    keyBegin.test(flat) || credentialLine.test(flat)
+      ? REDACTED_LINE
+      : redact(flat);
   return cut(neutralizeReferences(line), PULL_REQUEST_TITLE_MAX, "…");
 }

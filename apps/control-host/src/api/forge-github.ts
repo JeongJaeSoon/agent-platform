@@ -186,6 +186,32 @@ export function createGitHubForge(options: {
   const pullRequests: Permissions = { pull_requests: "write" };
   const target = (repo: RepoRef) => ({ owner: repo.owner, repo: repo.name });
 
+  // Anyone can paste a marker into a comment, so only one this credential
+  // wrote is the platform's: the App's own, or the PAT owner's.
+  const { credentials } = options;
+  let tokenUser: Promise<number> | undefined;
+  async function writtenByUs(
+    comment: {
+      user?: { id: number | bigint } | null | undefined;
+      performed_via_github_app?: { id: number | bigint } | null | undefined;
+    },
+    headers: { authorization: string },
+  ): Promise<boolean> {
+    if (credentials.kind === "app") {
+      const app = comment.performed_via_github_app;
+      return app != null && Number(app.id) === credentials.appId;
+    }
+    tokenUser ??= client
+      .request("GET /user", { headers })
+      .then(({ data }) => Number(data.id))
+      .catch((error: unknown) => {
+        tokenUser = undefined;
+        throw error;
+      });
+    const user = comment.user;
+    return user != null && Number(user.id) === (await tokenUser);
+  }
+
   async function findPullRequestForBranch(
     repo: RepoRef,
     branch: string,
@@ -275,9 +301,16 @@ export function createGitHubForge(options: {
                 headers,
               },
             );
-            const marked = data.find((comment) =>
-              comment.body?.includes(marker),
-            );
+            let marked: (typeof data)[number] | undefined;
+            for (const comment of data) {
+              if (
+                comment.body?.includes(marker) &&
+                (await writtenByUs(comment, headers))
+              ) {
+                marked = comment;
+                break;
+              }
+            }
             if (marked !== undefined) {
               const { data: edited } = await client.request(
                 "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",

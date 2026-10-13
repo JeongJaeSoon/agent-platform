@@ -81,6 +81,15 @@ export interface PullRequestStore {
     pushRequestId: string,
   ): Promise<PullRequest | null>;
   /**
+   * The latest pull request recorded for the session's branch, whichever of
+   * its push requests opened it.
+   */
+  findBranchPullRequest(
+    ownerId: string,
+    sessionId: string,
+    head: string,
+  ): Promise<PullRequest | null>;
+  /**
    * Writes the receipt and returns its id: `failed` with the refusal's
    * error when `result.refusal` is set, `succeeded` otherwise.
    */

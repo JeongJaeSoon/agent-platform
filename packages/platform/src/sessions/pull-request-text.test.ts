@@ -56,6 +56,33 @@ describe("pull request text", () => {
     expect(emoji).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
   });
 
+  test("hides fine-grained PATs, Slack tokens and whole private key blocks the shared redactor misses", () => {
+    const pat = `github${"_pat_"}${"A1".repeat(20)}`;
+    const slack = `xox${"b-"}${"1".repeat(12)}-abc`;
+    const pem = (edge: string) => `-----${edge} RSA PRIVATE KEY-----`;
+    const body = [
+      "before",
+      `token ${pat}`,
+      `slack ${slack}`,
+      pem("BEGIN"),
+      "MIIEowIBAAKCAQEA",
+      pem("END"),
+      "after",
+    ].join("\n");
+    expect(cleanBody(body, 1000, keep)).toBe(
+      [
+        "before",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "after",
+      ].join("\n"),
+    );
+    expect(cleanTitle(`Fix ${pat}`, keep)).toBe("[REDACTED]");
+  });
+
   test("a title is one line, cleaned, at most 256 characters", () => {
     expect(cleanTitle("Fix\n  for @someone\tCloses #1", keep)).toBe(
       `Fix for @${ZWSP}someone C${ZWSP}loses #1`,

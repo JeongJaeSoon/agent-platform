@@ -238,7 +238,17 @@ export function createPullRequestService(deps: {
         pushRequestId,
       );
       if (source === null) return await refuse("not_found", { marker });
-      const pullRequest = await store.findPullRequest(actor.ownerId, source.id);
+      // A later push request of the session updates the same branch, so it
+      // comments on the pull request an earlier one opened.
+      const pullRequest =
+        (await store.findPullRequest(actor.ownerId, source.id)) ??
+        (source.state === "pushed"
+          ? await store.findBranchPullRequest(
+              actor.ownerId,
+              source.sessionId,
+              source.targetBranch,
+            )
+          : null);
       const fields = {
         repository_id: source.repositoryId,
         marker,

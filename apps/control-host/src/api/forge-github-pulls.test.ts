@@ -120,6 +120,65 @@ describe("GitHub forge pull requests", () => {
     ]);
   });
 
+  test("a marker someone else pasted is left alone", async () => {
+    const { forge } = appForge();
+    const marker = "<!-- agent-platform:s:pasted -->";
+    const pasted = github.addComment("acme", "app", 1, `Copied ${marker}`);
+    const ours = await forge.upsertComment(repo, 1, marker, "Running.");
+    expect(ours.created).toBe(true);
+    expect(await forge.upsertComment(repo, 1, marker, "Done.")).toEqual({
+      ...ours,
+      created: false,
+    });
+    const thread = github.comments("acme", "app", 1);
+    expect(thread.find((comment) => comment.id === pasted.id)?.body).toBe(
+      `Copied ${marker}`,
+    );
+    expect(thread.find((comment) => comment.id === ours.id)?.body).toBe(
+      `Done.\n\n${marker}`,
+    );
+  });
+
+  test("with a PAT, the platform's comment is the token owner's", async () => {
+    const marker = "<!-- agent-platform:s:status -->";
+    const thread = [
+      { id: 1, body: `Mine? ${marker}`, html_url: "h/1", user: { id: 7 } },
+      { id: 2, body: `Ours ${marker}`, html_url: "h/2", user: { id: 42 } },
+    ];
+    const seen: string[] = [];
+    const stub = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const { pathname } = new URL(request.url);
+        seen.push(`${request.method} ${pathname}`);
+        if (pathname === "/user") return Response.json({ id: 42 });
+        if (request.method === "GET") return Response.json(thread);
+        const { body } = (await request.json()) as { body: string };
+        return Response.json({ id: 2, body, html_url: "h/2" });
+      },
+    });
+    try {
+      const forge = createGitHubForge({
+        apiBase: `http://127.0.0.1:${stub.port}`,
+        credentials: { kind: "token", username: "x", password: "pat-test" },
+        retryAfterBaseMs: 1,
+        paced: false,
+      });
+      expect(await forge.upsertComment(repo, 1, marker, "Done.")).toEqual({
+        id: 2,
+        url: "h/2",
+        created: false,
+      });
+      expect(seen).toEqual([
+        "GET /repos/acme/app/issues/1/comments",
+        "GET /user",
+        "PATCH /repos/acme/app/issues/comments/2",
+      ]);
+    } finally {
+      await stub.stop(true);
+    }
+  });
+
   test("waits out a secondary rate limit by retry-after and a primary one by x-ratelimit-reset", async () => {
     const { forge, warnings } = appForge();
     await forge.findPullRequestForBranch(repo, head);

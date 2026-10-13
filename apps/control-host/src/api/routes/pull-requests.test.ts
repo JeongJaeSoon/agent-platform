@@ -104,6 +104,7 @@ function app(
           ? source
           : null,
       findPullRequest: async () => recorded,
+      findBranchPullRequest: async () => null,
       recordReceipt: async (input) => {
         receipts.push(input);
         return "44444444-4444-4444-8444-444444444444";

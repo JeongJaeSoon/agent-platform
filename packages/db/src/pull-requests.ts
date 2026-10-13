@@ -9,7 +9,7 @@ import {
   type PullRequestReceipt,
   type PullRequestStore,
 } from "@agent-platform/platform";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { pullRequests, pushRequests, receipts } from "./schema.ts";
 
@@ -133,6 +133,23 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
 
     findPullRequest(ownerId, pushRequestId) {
       return findPullRequest(db, ownerId, pushRequestId);
+    },
+
+    async findBranchPullRequest(ownerId, sessionId, head) {
+      const [row] = await db
+        .select()
+        .from(pullRequests)
+        .where(
+          and(
+            eq(pullRequests.ownerId, ownerId),
+            eq(pullRequests.sessionId, sessionId.toLowerCase()),
+            eq(pullRequests.head, head),
+            isNotNull(pullRequests.pushRequestId),
+          ),
+        )
+        .orderBy(desc(pullRequests.createdAt))
+        .limit(1);
+      return row ? publicPullRequest(row) : null;
     },
 
     recordReceipt(input) {

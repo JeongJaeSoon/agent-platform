@@ -59,7 +59,13 @@ function harness(
   const store: PullRequestStore = {
     findSource: async (_owner, session, push) =>
       session === SESSION && push === PUSH ? source : null,
-    findPullRequest: async () => saved[0] ?? null,
+    findPullRequest: async (_owner, push) =>
+      saved.find((entry) => entry.push_request_id === push) ?? null,
+    findBranchPullRequest: async (_owner, session, head) =>
+      [...saved]
+        .reverse()
+        .find((entry) => entry.session_id === session && entry.head === head) ??
+      null,
     recordReceipt: async (input) => {
       receipts.push(input);
       return `receipt-${receipts.length}`;
@@ -144,6 +150,7 @@ function harness(
   return {
     service,
     receipts,
+    saved,
     calls,
     created,
     comments,
@@ -356,5 +363,38 @@ describe("commenting on the pull request", () => {
         created: false,
       },
     });
+  });
+
+  test("a later pushed request of the session comments on the pull request an earlier one opened", async () => {
+    const earlier: PullRequest = {
+      push_request_id: "33333333-3333-4333-8333-333333333333",
+      session_id: SESSION,
+      repository_id: "app",
+      number: 7,
+      url: "https://github.com/acme/app/pull/7",
+      head: HEAD,
+      base: "develop",
+      created_at: "2026-10-13T00:00:00.000Z",
+      receipt_id: "receipt-0",
+    };
+    const pushed = harness();
+    pushed.saved.push(earlier);
+    const answered = await pushed.service.comment(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "Pushed again" }),
+    });
+    expect(answered.pull_request).toEqual(earlier);
+    expect(pushed.calls).toEqual(["comment 7"]);
+
+    const requested = harness({ state: "requested" });
+    requested.saved.push(earlier);
+    expect(
+      (
+        await refusal(
+          requested.service.comment(actor, SESSION, PUSH, {
+            readBody: async () => ({ body: "Not pushed" }),
+          }),
+        )
+      ).code,
+    ).toBe("PULL_REQUEST_MISSING");
   });
 });

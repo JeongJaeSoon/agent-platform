@@ -195,6 +195,23 @@ integration("postgres pull requests", () => {
       pullRequest: opened.pullRequest,
       created: false,
     });
+    expect(
+      await store.findBranchPullRequest(
+        OWNER,
+        first.sessionId.toUpperCase(),
+        `agent/${first.sessionId}`,
+      ),
+    ).toEqual(opened.pullRequest);
+    expect(
+      await store.findBranchPullRequest(
+        "someone-else",
+        first.sessionId,
+        `agent/${first.sessionId}`,
+      ),
+    ).toBeNull();
+    expect(
+      await store.findBranchPullRequest(OWNER, first.sessionId, "agent/other"),
+    ).toBeNull();
   });
 
   test("a refusal receipt is failed with the refusal's error", async () => {

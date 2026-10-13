@@ -53,7 +53,14 @@ export type FakeGitHubPullRequest = {
   html_url: string;
 };
 
-export type FakeGitHubComment = { id: number; body: string; html_url: string };
+export type FakeGitHubComment = {
+  id: number;
+  body: string;
+  html_url: string;
+  user: { id: number; login: string };
+  /** Set on a comment written with the App's installation token. */
+  performed_via_github_app: { id: number } | null;
+};
 
 export type FakeGitHub = {
   /** `http://<host>:<port>`: both the API base and the git origin. */
@@ -94,6 +101,13 @@ export type FakeGitHub = {
   ): void;
   pullRequests(owner: string, name: string): FakeGitHubPullRequest[];
   comments(owner: string, name: string, number: number): FakeGitHubComment[];
+  /** A comment by a person, not the App, on a pull request. */
+  addComment(
+    owner: string,
+    name: string,
+    number: number,
+    body: string,
+  ): FakeGitHubComment;
   /** What `GET /repos` and the git `HEAD` both report as the default. */
   setDefaultBranch(owner: string, name: string, branch: string): Promise<void>;
   stop(): Promise<void>;
@@ -138,6 +152,8 @@ type Served = {
  * token whose permissions say `contents: write`; a read token gets a 403,
  * as on GitHub.
  */
+const APP_BOT_USER_ID = 9000;
+
 export async function startFakeGitHub(
   options: FakeGitHubOptions,
 ): Promise<FakeGitHub> {
@@ -264,6 +280,23 @@ export async function startFakeGitHub(
     retryAfter: number;
   } = { count: 0, limit: "secondary", retryAfter: 1 };
   let nextCommentId = 5000;
+  function commentOn(
+    thread: FakeGitHubComment[],
+    htmlBase: string,
+    number: number,
+    body: string,
+    by: Pick<FakeGitHubComment, "user" | "performed_via_github_app">,
+  ): FakeGitHubComment {
+    nextCommentId += 1;
+    const comment = {
+      id: nextCommentId,
+      body,
+      html_url: `${htmlBase}/pull/${number}#issuecomment-${nextCommentId}`,
+      ...by,
+    };
+    thread.push(comment);
+    return comment;
+  }
   const origin = () =>
     `http://${options.hostname ?? "127.0.0.1"}:${server.port}`;
 
@@ -420,13 +453,16 @@ export async function startFakeGitHub(
       }
       if (method === "POST") {
         if (!commenting) return forbidden();
-        nextCommentId += 1;
-        const comment = {
-          id: nextCommentId,
-          body: String(input.body ?? ""),
-          html_url: `${htmlBase}/pull/${number}#issuecomment-${nextCommentId}`,
-        };
-        thread.push(comment);
+        const comment = commentOn(
+          thread,
+          htmlBase,
+          number,
+          String(input.body ?? ""),
+          {
+            user: { id: APP_BOT_USER_ID, login: "agent-platform[bot]" },
+            performed_via_github_app: { id: options.appId },
+          },
+        );
         return Response.json(comment, { status: 201 });
       }
     }
@@ -534,6 +570,14 @@ export async function startFakeGitHub(
     },
     comments(owner, name, number) {
       return served.get(`${owner}/${name}`)?.comments.get(number) ?? [];
+    },
+    addComment(owner, name, number, body) {
+      const thread = served.get(`${owner}/${name}`)?.comments.get(number);
+      if (thread === undefined) throw new Error(`no pull request ${number}`);
+      return commentOn(thread, `${origin()}/${owner}/${name}`, number, body, {
+        user: { id: 7, login: "octocat" },
+        performed_via_github_app: null,
+      });
     },
     async createRepository(owner, name, files, repoOptions = {}) {
       const branch = repoOptions.branch ?? "main";
