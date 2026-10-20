@@ -169,6 +169,7 @@ jobs:
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
               - packages/contracts/
+              - packages/client/
               - packages/ui/
               - apps/web/
               - tests/catalog-mismatch.

@@ -18,6 +18,7 @@ function frame(
     id: `ev_${next}`,
     occurredAt: AT,
     turnId,
+    attemptId: null,
     payload: { event, data } as SessionEventPayload,
   };
 }

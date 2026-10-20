@@ -8,7 +8,7 @@
       "!!dist",
       "!!.claude",
       "!docs/openapi.json",
-      "!apps/web/src/api/schema.gen.ts",
+      "!packages/client/src/schema.gen.ts",
       "!docs/api/index.html",
       "!docs/api/scalar.js"
     ]
@@ -22,5 +22,57 @@
     "rules": {
       "recommended": true
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/client/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "window": "@agent-platform/client runs in browsers and Node alike.",
+                  "document": "@agent-platform/client runs in browsers and Node alike.",
+                  "location": "@agent-platform/client runs in browsers and Node alike.",
+                  "navigator": "@agent-platform/client runs in browsers and Node alike.",
+                  "localStorage": "@agent-platform/client runs in browsers and Node alike.",
+                  "sessionStorage": "@agent-platform/client runs in browsers and Node alike.",
+                  "EventSource": "Session events go over fetch: subscribeSessionEvents.",
+                  "Bun": "@agent-platform/client runs in browsers and Node alike.",
+                  "process": "@agent-platform/client runs in browsers and Node alike.",
+                  "Buffer": "@agent-platform/client runs in browsers and Node alike."
+                }
+              }
+            },
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "The client knows no UI framework.",
+                  "react-dom": "The client knows no UI framework.",
+                  "zod": "Validators are injected; the client carries no schema library.",
+                  "@tanstack/react-router": "The client knows no router.",
+                  "@tanstack/react-query": "Query wiring belongs to the core package.",
+                  "@tanstack/query-core": "Query wiring belongs to the core package."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/client/src/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": "off",
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -15,6 +15,7 @@ import {
   json,
   me,
   memberMe,
+  RECEIPT_ID,
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
@@ -59,7 +60,7 @@ function teamServer() {
     const { members: _members, ...rest } = team;
     return { ...rest, member_count: team.members.length };
   };
-  const change = () => json(200, { team: view(), receipt_id: "r-1" });
+  const change = () => json(200, { team: view(), receipt_id: RECEIPT_ID });
   const path = `/v1/teams/${TEAM_ID}`;
   return {
     get team() {
@@ -73,7 +74,7 @@ function teamServer() {
         const { name } = (await request.json()) as { name: string };
         if (name === team?.name)
           return apiError(409, "ALREADY_EXISTS", "A team by that name exists");
-        return json(201, { team: { ...view(), name }, receipt_id: "r-0" });
+        return json(201, { team: { ...view(), name }, receipt_id: RECEIPT_ID });
       },
       [`GET ${path}`]: () =>
         team
@@ -86,7 +87,7 @@ function teamServer() {
       },
       [`DELETE ${path}`]: () => {
         team = null;
-        return json(200, { receipt_id: "r-9" });
+        return json(200, { receipt_id: RECEIPT_ID });
       },
       [`POST ${path}/members`]: async (request: Request) => {
         const { user_id } = (await request.json()) as { user_id: string };
@@ -318,11 +319,11 @@ describe("에이전트 관리자", () => {
             },
           ],
         });
-        return json(200, { admins: current, receipt_id: "r-1" });
+        return json(200, { admins: current, receipt_id: RECEIPT_ID });
       },
       [`DELETE /v1/agents/${AGENT_ID}/admins/users/${MATE_ID}`]: () => {
         current = { ...current, users: [] };
-        return json(200, { admins: current, receipt_id: "r-2" });
+        return json(200, { admins: current, receipt_id: RECEIPT_ID });
       },
     });
     const user = await setupUser();

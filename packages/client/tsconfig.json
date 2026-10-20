@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // No DOM lib: the package runs in browsers and Node alike. Bun's types
+    // still declare a few browser globals; biome.json's override for this
+    // package rejects those.
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"]
+}
