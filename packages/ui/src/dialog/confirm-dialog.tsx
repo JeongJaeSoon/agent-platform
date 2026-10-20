@@ -1,8 +1,15 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import type { JSX, ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { cn } from "../lib/cn.ts";
+import { Button } from "../primitives/button.tsx";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../primitives/dialog.tsx";
 
 export interface ConfirmDialogProps {
   readonly open: boolean;
@@ -88,53 +95,55 @@ export function ConfirmDialog({
   }, [instanceId]);
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="ap-dialog__overlay" />
-        {/* Radix wires aria-labelledby/aria-describedby to the Title and
-            Description below, and owns Escape and the focus trap. */}
-        <Dialog.Content
-          data-ap-dialog={instanceId}
-          className={cn("ap-dialog", className)}
-          data-tone={tone}
-          data-busy={busy || undefined}
-          onCloseAutoFocus={(event) => {
-            const opener = openerRef.current ?? openerAtMount;
-            // Gone from the page — the screen that owned it was torn down with
-            // the dialog. Nothing to return to, so leave Radix's fallback.
-            if (!opener?.isConnected) return;
-            event.preventDefault();
-            opener.focus();
-          }}
-        >
-          <Dialog.Title className="ap-dialog__title">{title}</Dialog.Title>
-          <Dialog.Description className="ap-dialog__consequence">
-            {consequence}
-          </Dialog.Description>
-          {children}
-          <div className="ap-dialog__actions">
-            <Dialog.Close asChild>
-              <button type="button" className="ap-button ap-button--quiet">
-                {cancelLabel}
-              </button>
-            </Dialog.Close>
-            <button
-              type="button"
-              className={cn(
-                "ap-button",
-                tone === "danger" ? "ap-button--danger" : "ap-button--primary",
-              )}
-              onClick={onConfirm}
-              disabled={busy || confirmDisabled}
-            >
-              {busy ? (
-                <span className="ap-button__spinner" aria-hidden="true" />
-              ) : null}
-              {confirmLabel}
-            </button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* Radix wires aria-labelledby/aria-describedby to the Title and
+          Description below, and owns Escape and the focus trap. The `ap-*`
+          classes are unlayered, so they win over the primitive's utilities
+          and the dialog keeps its look and its reduced-motion rule. The
+          utilities reset below are the ones `ap-*` does not set: Tailwind's
+          `translate` would stack on `.ap-dialog`'s `transform`, and the
+          title and description would shrink to shadcn's type scale. */}
+      <DialogContent
+        overlayClassName="ap-dialog__overlay"
+        data-ap-dialog={instanceId}
+        className={cn("ap-dialog translate-x-0 translate-y-0", className)}
+        data-tone={tone}
+        data-busy={busy || undefined}
+        onCloseAutoFocus={(event) => {
+          const opener = openerRef.current ?? openerAtMount;
+          // Gone from the page — the screen that owned it was torn down with
+          // the dialog. Nothing to return to, so leave Radix's fallback.
+          if (!opener?.isConnected) return;
+          event.preventDefault();
+          opener.focus();
+        }}
+      >
+        <DialogTitle className="ap-dialog__title leading-[inherit]">
+          {title}
+        </DialogTitle>
+        <DialogDescription className="ap-dialog__consequence text-[length:inherit]">
+          {consequence}
+        </DialogDescription>
+        {children}
+        <div className="ap-dialog__actions">
+          <DialogClose asChild>
+            <Button type="button" variant="ghost">
+              {cancelLabel}
+            </Button>
+          </DialogClose>
+          <Button
+            type="button"
+            variant={tone === "danger" ? "destructive" : "default"}
+            onClick={onConfirm}
+            disabled={busy || confirmDisabled}
+          >
+            {busy ? (
+              <span className="ap-button__spinner" aria-hidden="true" />
+            ) : null}
+            {confirmLabel}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

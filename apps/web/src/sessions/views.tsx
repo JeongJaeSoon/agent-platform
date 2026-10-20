@@ -2,44 +2,32 @@ import type {
   AdmissionState,
   PendingRequest,
   SessionDetail,
-  SessionEventPayload,
   SessionStatus,
   SessionSummary,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
-import { formatTimestamp, StatusLabel } from "@agent-platform/ui";
+import { formatTimestamp } from "@agent-platform/ui";
 import { Link } from "@tanstack/react-router";
-import { useId } from "react";
-import { type Translate, useI18n } from "../i18n/i18n.tsx";
+import { useId, useState } from "react";
+import { TableScroll } from "../components/table-scroll.tsx";
+import { type Locale, type Translate, useI18n } from "../i18n/i18n.tsx";
 import type { EventStreamState, SessionEventFrame } from "./hooks.ts";
+import { phaseText, type TimelineItem, timelineItems } from "./timeline.ts";
 
 /*
  * What the session screens draw, from props alone: no fetching and no
  * services, so these move with hooks.ts and nothing else.
  */
 
-const SESSION_STATUS_VALUES = new Set<string>([
-  "queued",
-  "running",
-  "needs_input",
-  "idle",
-  "failed",
-  "stopped",
-] satisfies SessionStatus[]);
-
 function statusText(t: Translate, status: SessionStatus) {
   return t(`sessions.status.${status}`);
 }
 
+// Not StatusLabel: its admission icon, a rounded square, read as a
+// missing-glyph box next to the word.
 function Admission({ state }: { readonly state: AdmissionState }) {
   const { t } = useI18n();
-  return (
-    <StatusLabel
-      axis="admission"
-      state={state}
-      label={t(`sessions.admission.${state}`)}
-    />
-  );
+  return <span className="web-badge">{t(`sessions.admission.${state}`)}</span>;
 }
 
 function runtimeText(t: Translate, session: SessionSummary) {
@@ -49,8 +37,8 @@ function runtimeText(t: Translate, session: SessionSummary) {
     : t("sessions.none");
 }
 
-function when(t: Translate, at: string | null) {
-  return at ? formatTimestamp(at) : t("sessions.none");
+function when(t: Translate, locale: Locale, at: string | null) {
+  return at ? formatTimestamp(at, locale) : t("sessions.none");
 }
 
 export function SessionTable({
@@ -58,10 +46,10 @@ export function SessionTable({
 }: {
   readonly sessions: readonly SessionSummary[];
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
-    <div className="web-table-wrap">
-      <table className="web-table">
+    <TableScroll label={t("sessions.tableLabel")}>
+      <table className="web-table web-table--nowrap">
         <thead>
           <tr>
             <th scope="col">{t("sessions.column.id")}</th>
@@ -80,8 +68,9 @@ export function SessionTable({
                   to="/sessions/$id"
                   params={{ id: session.id }}
                   className="web-table__primary"
+                  aria-label={session.id}
                 >
-                  <code>{session.id}</code>
+                  <code title={session.id}>{shortId(session.id)}</code>
                 </Link>
               </td>
               <td>{statusText(t, session.status)}</td>
@@ -89,14 +78,19 @@ export function SessionTable({
                 <Admission state={session.admission_state} />
               </td>
               <td>{runtimeText(t, session)}</td>
-              <td>{when(t, session.last_event_at)}</td>
-              <td>{formatTimestamp(session.created_at)}</td>
+              <td>{when(t, locale, session.last_event_at)}</td>
+              <td>{formatTimestamp(session.created_at, locale)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
+}
+
+/** Enough of a UUID to tell sessions apart in a narrow list. */
+function shortId(id: string): string {
+  return id.slice(0, 8);
 }
 
 function Section({
@@ -117,9 +111,15 @@ function Section({
 
 type Fact = readonly [label: string, value: React.ReactNode];
 
-function Facts({ rows }: { readonly rows: readonly (Fact | null)[] }) {
+function Facts({
+  label,
+  rows,
+}: {
+  readonly label: string;
+  readonly rows: readonly (Fact | null)[];
+}) {
   return (
-    <div className="web-table-wrap">
+    <TableScroll label={label}>
       <table className="web-table">
         <tbody>
           {rows.map((row) =>
@@ -132,7 +132,7 @@ function Facts({ rows }: { readonly rows: readonly (Fact | null)[] }) {
           )}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 
@@ -141,11 +141,12 @@ export function SessionOverview({
 }: {
   readonly session: SessionDetail;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { attention } = session;
   return (
     <Section title={t("session.overview")}>
       <Facts
+        label={t("session.factsTable", { title: t("session.overview") })}
         rows={[
           [t("sessions.column.status"), statusText(t, session.status)],
           [
@@ -158,8 +159,7 @@ export function SessionOverview({
             session.current_turn_id ?? t("sessions.none"),
           ],
           [t("session.queuedTurns"), session.queued_turn_count],
-          [t("session.pendingCount"), session.pending_request_count],
-          [t("session.updated"), formatTimestamp(session.updated_at)],
+          [t("session.updated"), formatTimestamp(session.updated_at, locale)],
           attention
             ? [
                 t("session.attention"),
@@ -185,6 +185,7 @@ export function SessionUsagePanel({
   return (
     <Section title={t("session.usage")}>
       <Facts
+        label={t("session.factsTable", { title: t("session.usage") })}
         rows={[
           [
             t("session.usage.amount"),
@@ -231,7 +232,7 @@ export function PendingRequestList({
 }: {
   readonly items: readonly PendingRequest[];
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <Section title={t("session.pending")}>
       {items.length === 0 ? (
@@ -249,7 +250,7 @@ export function PendingRequestList({
               </span>
               <span className="web-table__secondary">
                 {t("session.pending.expires", {
-                  at: formatTimestamp(request.expires_at),
+                  at: formatTimestamp(request.expires_at, locale),
                 })}
               </span>
             </li>
@@ -260,61 +261,30 @@ export function PendingRequestList({
   );
 }
 
-const SUMMARY_MAX = 200;
-
-function clip(text: string) {
-  return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX)}…` : text;
-}
-
-// The SDK message's content blocks: text for assistant, tool_use for tools.
-function contentBlocks(message: unknown): Record<string, unknown>[] {
-  const content = (message as { content?: unknown } | null)?.content;
-  return Array.isArray(content)
-    ? content.filter(
-        (block): block is Record<string, unknown> =>
-          typeof block === "object" && block !== null,
-      )
-    : [];
-}
-
-/** One line saying what an event was, or null when the kind says enough. */
-export function eventSummary(
-  t: Translate,
-  payload: SessionEventPayload,
-): string | null {
-  switch (payload.event) {
-    case "status": {
-      const phase = payload.data.phase;
-      return SESSION_STATUS_VALUES.has(phase)
-        ? statusText(t, phase as SessionStatus)
-        : phase;
-    }
-    case "error":
-      return payload.data.message;
-    case "question":
-      return payload.data.tool
-        ? `${payload.data.kind}: ${payload.data.tool}`
-        : payload.data.kind;
-    case "result":
-      return payload.data.subtype;
-    case "assistant": {
-      const text = contentBlocks(payload.data.message)
-        .filter((block) => block.type === "text")
-        .map((block) => String(block.text ?? ""))
-        .join(" ")
-        .trim();
-      return text ? clip(text) : null;
-    }
-    case "tool_use": {
-      const names = contentBlocks(payload.data.message)
-        .filter((block) => block.type === "tool_use")
-        .map((block) => String(block.name ?? ""))
-        .filter(Boolean);
-      return names.length > 0 ? names.join(", ") : null;
-    }
-    default:
-      return null;
-  }
+function TimelineRow({ item }: { readonly item: TimelineItem }) {
+  const { t, locale } = useI18n();
+  const summaryClass = item.error ? "web-form__error" : "web-table__primary";
+  return (
+    <li className="web-list__item">
+      <span className="web-badge" data-tone={item.error ? undefined : "muted"}>
+        {item.label}
+      </span>
+      {item.detail ? (
+        <details>
+          <summary className={summaryClass}>{item.summary}</summary>
+          <p className="web-table__secondary">{item.detail}</p>
+        </details>
+      ) : (
+        <span className={summaryClass}>{item.summary}</span>
+      )}
+      <span className="web-table__secondary">
+        {formatTimestamp(item.occurredAt, locale)}
+        {item.turnId
+          ? ` · ${t("session.events.turn", { turn: item.turnId })}`
+          : ""}
+      </span>
+    </li>
+  );
 }
 
 export function SessionEventList({
@@ -325,6 +295,11 @@ export function SessionEventList({
   readonly state: EventStreamState;
 }) {
   const { t } = useI18n();
+  const [debug, setDebug] = useState(false);
+  const items = timelineItems(t, events, { debug });
+  const latestStatus = events
+    .filter((frame) => frame.payload.event === "status")
+    .at(-1);
   return (
     <Section title={t("session.events")}>
       {state === "closed" ? (
@@ -332,27 +307,30 @@ export function SessionEventList({
       ) : state === "connecting" ? (
         <output className="web-notice">{t("session.events.connecting")}</output>
       ) : null}
-      {events.length === 0 ? (
+      {/* Only status changes are announced; each event read aloud as it
+          arrives would drown them. */}
+      <output className="web-sr-only">
+        {latestStatus?.payload.event === "status"
+          ? phaseText(t, latestStatus.payload.data.phase)
+          : null}
+      </output>
+      <label className="web-check">
+        <input
+          type="checkbox"
+          checked={debug}
+          onChange={(event) => setDebug(event.target.checked)}
+        />
+        <span>{t("session.events.debug")}</span>
+      </label>
+      {items.length === 0 ? (
         state === "open" ? (
           <p className="web-page__empty">{t("session.events.empty")}</p>
         ) : null
       ) : (
-        <ol className="web-list" aria-live="polite">
-          {events.map((frame) => {
-            const summary = eventSummary(t, frame.payload);
-            return (
-              <li key={frame.id} className="web-list__item">
-                <code>{frame.payload.event}</code>
-                {summary ? (
-                  <span className="web-table__primary">{summary}</span>
-                ) : null}
-                <span className="web-table__secondary">
-                  {formatTimestamp(frame.occurredAt)}
-                  {frame.turnId ? ` · turn ${frame.turnId}` : ""}
-                </span>
-              </li>
-            );
-          })}
+        <ol className="web-list">
+          {items.map((item) => (
+            <TimelineRow key={item.key} item={item} />
+          ))}
         </ol>
       )}
     </Section>

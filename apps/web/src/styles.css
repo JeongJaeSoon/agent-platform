@@ -5,7 +5,20 @@
  */
 @import "tailwindcss";
 @import "@agent-platform/ui/styles.css";
+@import "@agent-platform/ui/theme.css";
 
+/*
+ * Tailwind's automatic detection stays inside this app and skips
+ * node_modules, where the packages/ui symlink lives, so it is named here.
+ */
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/ui/src";
+
+/*
+ * Tokens with no shadcn name. Colours shadcn names (`border`, `foreground`,
+ * `accent`…) come from theme.css, where `accent` is a quiet hover surface and
+ * the brand colour is `primary`.
+ */
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @theme inline {
   --color-canvas: var(--ap-color-canvas);
@@ -13,13 +26,7 @@
   --color-surface-sunken: var(--ap-color-surface-sunken);
   --color-rail: var(--ap-color-rail);
   --color-rail-foreground: var(--ap-color-rail-foreground);
-  --color-border: var(--ap-color-border);
   --color-border-strong: var(--ap-color-border-strong);
-  --color-foreground: var(--ap-color-foreground);
-  --color-muted-foreground: var(--ap-color-muted-foreground);
-  --color-accent: var(--ap-color-accent);
-  --color-accent-hover: var(--ap-color-accent-hover);
-  --color-accent-foreground: var(--ap-color-accent-foreground);
   --color-focus-ring: var(--ap-color-focus-ring);
   --font-sans: var(--ap-font-sans);
   --font-mono: var(--ap-font-mono);
@@ -37,6 +44,9 @@ body {
   color: var(--ap-color-foreground);
   font-family: var(--ap-font-sans);
   line-height: var(--ap-leading-normal);
+  /* Korean breaks between words, not syllables; a word too long still wraps. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 *,
@@ -79,6 +89,10 @@ select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--ap-color-focus-ring);
   outline-offset: 2px;
+}
+/* The light ring is too dark to see against the dark rail (WCAG 1.4.11). */
+.web-shell__bar :focus-visible {
+  outline-color: var(--ap-color-rail-foreground);
 }
 
 .web-auth {
@@ -282,12 +296,14 @@ select:focus-visible,
 
 .web-shell__nav {
   display: flex;
-  gap: var(--ap-space-3);
+  flex-wrap: wrap;
+  gap: var(--ap-space-2) var(--ap-space-3);
   font-size: var(--ap-text-sm);
 }
 .web-shell__nav a {
   color: var(--ap-color-rail-muted-foreground);
   text-decoration: none;
+  white-space: nowrap;
 }
 .web-shell__nav a[data-status="active"] {
   color: var(--ap-color-rail-foreground);
@@ -351,6 +367,11 @@ select:focus-visible,
   border-bottom: 1px solid var(--ap-color-border);
   text-align: left;
   vertical-align: top;
+}
+/* Cells keep one line; the wrap scrolls sideways instead of growing tall. */
+.web-table--nowrap th,
+.web-table--nowrap td {
+  white-space: nowrap;
 }
 .web-table__primary {
   display: block;

@@ -202,6 +202,30 @@ describe("sessions list", () => {
     ).toHaveLength(2);
   });
 
+  test("in en the table speaks English and scrolls by keyboard", async () => {
+    renderAt(
+      "/sessions",
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/sessions": () =>
+          json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      },
+      "en",
+    );
+    const link = await screen.findByRole("link", { name: SESSION_ID });
+    expect(link.textContent).toBe(SESSION_ID.slice(0, 8));
+    const region = screen.getByRole("region", { name: "Sessions table" });
+    expect(region.getAttribute("tabindex")).toBe("0");
+    expect(region.querySelector("table")?.className).toContain(
+      "web-table--nowrap",
+    );
+    expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.queryByText(/세션/)).toBeNull();
+    expect(screen.getAllByText("Oct 11, 2026, 17:14").length).toBeGreaterThan(
+      0,
+    );
+  });
+
   test("says so when there are none", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -277,8 +301,28 @@ describe("session detail", () => {
     });
     expect(await screen.findByText("Listing files")).toBeTruthy();
     expect(screen.getAllByText("Listing files")).toHaveLength(1);
-    expect(screen.getByText("작업 중")).toBeTruthy();
-    expect(screen.getByText("tool_use")).toBeTruthy();
+    expect(screen.getByText("도구 호출")).toBeTruthy();
+    expect(screen.queryByText("tool_use")).toBeNull();
+    // Only the latest status is announced; the list itself is not live.
+    const list = screen.getByText("Listing files").closest("ol");
+    expect(list?.getAttribute("aria-live")).toBeNull();
+    expect(document.querySelector("output.web-sr-only")?.textContent).toBe(
+      "작업 중",
+    );
+    // The pending section says how many are waiting; the overview does not.
+    expect(screen.getAllByText("대기 중인 요청")).toHaveLength(1);
+
+    act(() =>
+      stream.emit("ev_5", "system", {
+        type: "system",
+        subtype: "sdk_event",
+        native_type: "command_lifecycle",
+      }),
+    );
+    expect(screen.queryByText("command_lifecycle")).toBeNull();
+    const user = await setupUser();
+    await user.click(screen.getByLabelText("내부 이벤트도 보기"));
+    expect(await screen.findByText("command_lifecycle")).toBeTruthy();
 
     // The session reporting an error is an event, not a lost connection.
     act(() =>
@@ -300,6 +344,41 @@ describe("session detail", () => {
         "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
       ),
     ).toBeTruthy();
+  });
+
+  test("a tool result keeps its tool's name after the call leaves the window", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const stream = await waitFor(() => {
+      const [only] = FakeEventSource.opened;
+      if (!only) throw new Error("no stream");
+      return only;
+    });
+    act(() => {
+      stream.open();
+      stream.emit("ev_call", "tool_use", {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_1",
+              name: "Bash",
+              input: { command: "make" },
+            },
+          ],
+        },
+      });
+      stream.emit("ev_result", "tool_result", {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "built",
+      });
+      for (let i = 0; i < 199; i += 1) {
+        stream.emit(`ev_s${i}`, "status", { phase: "running" });
+      }
+    });
+    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
+    expect(screen.queryByText("Bash: make")).toBeNull();
   });
 
   test("leaving the screen closes the stream", async () => {
