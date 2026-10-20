@@ -97,6 +97,8 @@ export async function subscribeSessionEvents(
 
   /** One connection; resolves to the wait before the next, or null to end. */
   const connect = async (): Promise<number | null> => {
+    // onState("connecting") may have aborted; the listener below would never fire.
+    if (signal.aborted) return null;
     const attempt = new AbortController();
     const stop = () => attempt.abort();
     signal.addEventListener("abort", stop, { once: true });
@@ -179,6 +181,7 @@ export async function subscribeSessionEvents(
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
     const done = () => {
       clearTimeout(timer);
       signal.removeEventListener("abort", done);

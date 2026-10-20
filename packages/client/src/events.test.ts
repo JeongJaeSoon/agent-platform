@@ -323,6 +323,27 @@ describe("subscribeSessionEvents", () => {
     await run.done;
   });
 
+  test("an abort while connecting opens nothing", async () => {
+    const server = eventServer([]);
+    const stop = new AbortController();
+    const client = createApiClient({
+      baseUrl: "https://api.test",
+      fetch: server.fetch,
+    });
+    const states: StreamState[] = [];
+    await subscribeSessionEvents(client, SESSION, {
+      signal: stop.signal,
+      onEvent: () => {},
+      onState: (state) => {
+        states.push(state);
+        if (state === "connecting") stop.abort();
+      },
+      retry: { idleMs: 60_000 },
+    });
+    expect(server.requests).toHaveLength(0);
+    expect(states).toEqual(["connecting", "closed"]);
+  });
+
   test("a refusal ends the stream with the server's error", async () => {
     const server = eventServer([
       {

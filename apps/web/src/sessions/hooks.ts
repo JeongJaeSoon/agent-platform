@@ -135,7 +135,10 @@ export function useSessionEvents(id: string, enabled: boolean) {
       signal: stop.signal,
       onEvent: (event) =>
         setEvents((current) => [...current, event].slice(-EVENT_WINDOW)),
-      onState: setState,
+      // The old subscription closes after the next one started.
+      onState: (next) => {
+        if (!stop.signal.aborted) setState(next);
+      },
       onError: (error) => {
         if (isApiError(error, "UNAUTHORIZED")) services.onUnauthorized();
       },

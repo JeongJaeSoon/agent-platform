@@ -83,6 +83,28 @@ describe("requests", () => {
     expect(request?.headers.get("x-requested-with")).toBeNull();
   });
 
+  test("a call's own credentials decide the CSRF header, both ways", async () => {
+    const api = recording(() => json(200, ME));
+    const sent = () =>
+      api.requests.splice(0).map((r) => r.headers.get("x-requested-with"));
+    const keyClient = createApiClient({
+      baseUrl: BASE,
+      fetch: api.fetch,
+      credentials: "omit",
+    });
+    await unwrap(keyClient.GET("/v1/auth/me", { credentials: "include" }));
+    await unwrap(keyClient.request("get", "/v1/auth/me", {}));
+    expect(sent()).toEqual(["agent-platform-web", null]);
+    const cookieClient = createApiClient({
+      baseUrl: BASE,
+      fetch: api.fetch,
+      headers: { "x-requested-with": "agent-platform-web" },
+    });
+    await unwrap(cookieClient.GET("/v1/auth/me", { credentials: "omit" }));
+    await unwrap(cookieClient.POST("/v1/auth/logout"));
+    expect(sent()).toEqual([null, "agent-platform-web"]);
+  });
+
   test("a failure becomes an ApiError with the server's code and words", async () => {
     const api = recording(() =>
       json(403, {

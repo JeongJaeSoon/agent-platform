@@ -25,6 +25,8 @@ export interface ApiClientOptions extends ContractOptions {
 export const CSRF_HEADER_NAME = "x-requested-with";
 export const CSRF_HEADER_VALUE = "agent-platform-web";
 
+type Credentials = NonNullable<ApiClientOptions["credentials"]>;
+
 // The server asks for it on cookie requests only and ignores it elsewhere, so
 // any request that may carry a cookie sends it.
 const csrfHeader: Middleware = {
@@ -33,6 +35,52 @@ const csrfHeader: Middleware = {
     return request;
   },
 };
+const noCsrfHeader: Middleware = {
+  onRequest({ request }) {
+    request.headers.delete(CSRF_HEADER_NAME);
+    return request;
+  },
+};
+
+const METHODS = [
+  "GET",
+  "PUT",
+  "POST",
+  "DELETE",
+  "OPTIONS",
+  "HEAD",
+  "PATCH",
+  "TRACE",
+] as const;
+type Init = { credentials?: Credentials; middleware?: Middleware[] };
+
+/**
+ * A call may override the client's credentials, and middleware never sees
+ * the call's options (Request.credentials is not reliable either: Bun reports
+ * "include" for all), so the header is decided per call here.
+ */
+function csrfPerCall(client: ApiClient, fallback: Credentials): ApiClient {
+  const withCsrf = (init: Init | undefined): Init => ({
+    ...init,
+    middleware: [
+      ...(init?.middleware ?? []),
+      (init?.credentials ?? fallback) === "omit" ? noCsrfHeader : csrfHeader,
+    ],
+  });
+  const wrapped: Record<string, unknown> = { ...client };
+  for (const method of METHODS) {
+    const call = client[method] as (url: unknown, init?: Init) => unknown;
+    wrapped[method] = (url: unknown, init?: Init) => call(url, withCsrf(init));
+  }
+  const request = client.request as (
+    method: unknown,
+    url: unknown,
+    init?: Init,
+  ) => unknown;
+  wrapped.request = (method: unknown, url: unknown, init?: Init) =>
+    request(method, url, withCsrf(init));
+  return wrapped as unknown as ApiClient;
+}
 
 const policies = new WeakMap<ApiClient, ContractPolicy>();
 
@@ -47,13 +95,13 @@ export function policyOf(client: ApiClient): ContractPolicy {
 
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const credentials = options.credentials ?? "same-origin";
-  const client = createClient<paths>({
+  const base = createClient<paths>({
     baseUrl: options.baseUrl ?? "",
     credentials,
     ...(options.headers ? { headers: { ...options.headers } } : {}),
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
-  if (credentials !== "omit") client.use(csrfHeader);
+  const client = csrfPerCall(base, credentials);
   const policy = contractPolicy(options);
   policies.set(client, policy);
   if (policy.mode !== "off") client.use(contractCheck(policy));

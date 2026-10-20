@@ -364,6 +364,43 @@ describe("session detail", () => {
     expect(stream.closed).toBe(true);
   });
 
+  test("moving to another session shows its stream connecting, not the old one closed", async () => {
+    const next = new FakeEventStream();
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${OTHER_ID}`]: () =>
+        json(200, { ...detail, id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+        json(200, { ...usage, session_id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: (request: Request) =>
+        next.route(request),
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    await waitFor(() =>
+      expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull(),
+    );
+
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await waitFor(() => expect(next.requests).toHaveLength(1));
+    await act(async () => next.open());
+    // Back to a session whose detail is cached: the new stream starts in the
+    // same render that stops the old one, and the old one's close lands
+    // while the new one is still connecting.
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await waitFor(() => expect(stream.requests).toHaveLength(2));
+    expect(next.closed).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.getByText("이벤트에 연결하는 중…")).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
+      ),
+    ).toBeNull();
+  });
+
   test("a share taken back while open drops the detail and the stream", async () => {
     let visible = true;
     const { services } = renderAt(`/sessions/${SESSION_ID}`, {
