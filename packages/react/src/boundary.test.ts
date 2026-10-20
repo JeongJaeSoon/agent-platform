@@ -44,7 +44,7 @@ test("query keys come from the core's factories, never written here", async () =
     // Any spelling of the option, quoted or computed, and any hook called
     // with an inline options object instead of a core factory's result.
     if (/queryKey/.test(source)) found.push(`${name}: queryKey`);
-    if (/\buse\w*Query\s*\(\s*\{/.test(source))
+    if (/\buse\w*Query\s*(?:<[^(]*>)?\s*\(\s*\{/.test(source))
       found.push(`${name}: inline query options`);
   }
   expect(found).toEqual([]);
