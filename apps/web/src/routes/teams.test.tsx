@@ -123,20 +123,21 @@ describe("팀 화면", () => {
     expect(teamDetailSchema.safeParse(teamServer().team).success).toBe(true);
   });
 
-  test("팀 메뉴는 team.manage가 있는 역할에만 보인다", async () => {
+  test("팀 메뉴는 모두에게, 구성원 메뉴는 member.manage가 있는 역할에만 보인다", async () => {
     const shown = renderAt("/", { "GET /v1/auth/me": () => json(200, me()) });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     expect(within(nav).getByRole("link", { name: "팀" })).toBeDefined();
+    expect(within(nav).getByRole("link", { name: "구성원" })).toBeDefined();
     shown.container.remove();
 
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
     const memberNav = await screen.findByRole("navigation", {
       name: "주요 메뉴",
     });
-    expect(within(memberNav).queryByRole("link", { name: "팀" })).toBeNull();
+    expect(within(memberNav).getByRole("link", { name: "팀" })).toBeDefined();
     expect(
-      within(memberNav).getByRole("link", { name: "구성원" }),
-    ).toBeDefined();
+      within(memberNav).queryByRole("link", { name: "구성원" }),
+    ).toBeNull();
   });
 
   test("목록을 보이고 만든다. 같은 이름은 그렇게 말한다", async () => {
@@ -160,26 +161,22 @@ describe("팀 화면", () => {
     );
   });
 
-  test("구성원이 주소로 열면 만들기는 비활성이고 서버 403과 같은 이유다", async () => {
-    renderAt("/teams", {
+  test("구성원에게는 만들기 폼·전체 목록·권한 없음 화면이 없고 서버에 묻지 않는다", async () => {
+    const { api } = renderAt("/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/teams": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
+      "GET /v1/my-teams": () => json(200, { items: [] }),
     });
-    const button = await screen.findByRole("button", { name: "팀 만들기" });
-    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
-    const reason = document.getElementById(
-      button.getAttribute("aria-describedby") ?? "",
-    );
-    expect(reason?.textContent).toBe(
-      "team.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
-    );
-    expect(
-      screen.getByText("This principal does not hold team.manage"),
-    ).toBeDefined();
+    expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
+    expect(screen.queryByLabelText("팀 이름")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain("team.manage");
+    expect(api.calls.some((c) => c.path === "/v1/teams")).toBe(false);
   });
 
-  test("구성원이 주소로 열면 권한 안내 아래에 자기가 속한 팀을 본다", async () => {
+  test("구성원은 자기가 속한 팀을 본다", async () => {
     const refused = () =>
       apiError(403, "FORBIDDEN", "This principal does not hold team.manage");
     const joined = renderAt("/teams", {
@@ -373,7 +370,7 @@ describe("에이전트 관리자", () => {
     );
     expect(
       screen.queryByText(
-        "agent.admin.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+        "에이전트 관리자 지정 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
       ),
     ).toBeNull();
   });
@@ -398,7 +395,7 @@ describe("에이전트 관리자", () => {
     });
     expect(
       await screen.findByText(
-        "agent.admin.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+        "에이전트 관리자 지정 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
       ),
     ).toBeDefined();
     expect(api.calls.some((c) => c.path.endsWith("/admins"))).toBe(false);
@@ -425,7 +422,7 @@ describe("에이전트 관리자", () => {
     expect(
       document.getElementById(person.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    ).toBe("구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
     // Neither list is asked for, so no refused decision is left behind.
     expect(
       api.calls.some((c) => c.path === "/v1/members" || c.path === "/v1/teams"),

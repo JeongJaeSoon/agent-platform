@@ -177,15 +177,8 @@ select:focus-visible,
   align-items: center;
   gap: var(--ap-space-2);
 }
-.web-status__body,
-.web-status__detail {
+.web-status__body {
   margin: 0;
-}
-.web-status__detail {
-  color: var(--ap-color-muted-foreground);
-  font-family: var(--ap-font-mono);
-  font-size: var(--ap-text-sm);
-  overflow-wrap: anywhere;
 }
 
 .web-spinner {

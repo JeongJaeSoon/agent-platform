@@ -8,7 +8,7 @@ import { agentsQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
-  usePermissionReason,
+  useHasPermission,
   useRole,
 } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
@@ -33,7 +33,7 @@ export function agentRefusal(
   role: string | undefined,
 ): string {
   if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, "agent.manage", role)} ${error.message}`;
+    return permissionReason(t, "agent.manage", role);
   if (error.code === "UNSUPPORTED_CAPABILITY" || error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
   return t(errorKey(error.code));
@@ -43,8 +43,13 @@ export function AgentsScreen() {
   const { t } = useI18n();
   const { client } = useServices();
   const navigate = useNavigate();
+  const role = useRole();
   const agents = useQuery(agentsQuery(client));
-  const reason = usePermissionReason("agent.manage", agents);
+  // Making an agent needs less than listing them all: a member makes one and
+  // becomes its admin.
+  const reason = useHasPermission("agent.create")
+    ? undefined
+    : permissionReason(t, "agent.create", role);
 
   return (
     <div className="web-page">
@@ -63,7 +68,7 @@ export function AgentsScreen() {
       ) : agents.error ? (
         isApiError(agents.error, "FORBIDDEN") ? (
           <>
-            <StatusScreen kind="forbidden" detail={agents.error.message} />
+            <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
         ) : (

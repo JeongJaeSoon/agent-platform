@@ -9,8 +9,6 @@ export type StatusKind =
 
 export interface StatusScreenProps {
   readonly kind: StatusKind;
-  /** The server's own words, shown under ours (a 403 names the scope). */
-  readonly detail?: string | undefined;
   /** Where login-required sends the reader back to after logging in. */
   readonly redirect?: string | undefined;
   /** Off where the screen already is the way forward (the login form). */
@@ -19,7 +17,6 @@ export interface StatusScreenProps {
 
 export function StatusScreen({
   kind,
-  detail,
   redirect,
   action = true,
 }: StatusScreenProps) {
@@ -56,7 +53,6 @@ export function StatusScreen({
     >
       <h2 className="web-status__title">{copy.title}</h2>
       <p className="web-status__body">{copy.body}</p>
-      {detail ? <p className="web-status__detail">{detail}</p> : null}
       {kind === "login-required" && action ? (
         <Link
           className="ap-button ap-button--primary"

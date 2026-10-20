@@ -35,22 +35,59 @@ describe("에이전트 목록", () => {
     expect(screen.getByText("활성 release 없음")).toBeDefined();
   });
 
-  test("agent.manage가 없으면 새 에이전트 버튼을 끈 채 이유를 적는다", async () => {
+  test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {
     renderAt("/agents", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/agents": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "does not hold agent.manage",
-    );
+    expect(
+      await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+    ).toBeDefined();
     const button = screen.getByRole("button", { name: "새 에이전트" });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain("agent.manage");
+    expect(document.body.textContent).not.toContain("does not hold");
+  });
+
+  test("agent.create가 없으면 새 에이전트 버튼을 끈 채 말로 된 이유를 적는다", async () => {
+    const none = { ...memberMe(), permissions: [] };
+    renderAt("/agents", {
+      "GET /v1/auth/me": () => json(200, none),
+      "GET /v1/agents": () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+    });
+    const button = await screen.findByRole("button", { name: "새 에이전트" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("agent.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    ).toBe("에이전트 만들기 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+  });
+
+  test("영어 화면도 권한 식별자와 서버 문구 없이 안내한다", async () => {
+    renderAt(
+      "/agents",
+      {
+        "GET /v1/auth/me": () => json(200, memberMe()),
+        "GET /v1/agents": () =>
+          apiError(
+            403,
+            "FORBIDDEN",
+            "This principal does not hold agent.manage",
+          ),
+        "GET /v1/administered-agents": () => json(200, { items: [] }),
+      },
+      "en",
+    );
+    expect(
+      await screen.findByText(/Only owners and admins see every agent/),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("agent.manage");
+    expect(document.body.textContent).not.toContain("does not hold");
   });
 });
 
@@ -61,7 +98,7 @@ describe("목록을 볼 수 없는 구성원", () => {
       apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
   };
 
-  test("관리자로 지정된 에이전트는 권한 안내 아래에서 상세로 잇는다", async () => {
+  test("관리자로 지정된 에이전트는 목록 안내 아래에서 상세로 잇는다", async () => {
     const agent = agentServer().detail().agent;
     renderAt("/agents", {
       ...member,
@@ -75,9 +112,9 @@ describe("목록을 볼 수 없는 구성원", () => {
         .getByRole("link", { name: "결제 담당" })
         .getAttribute("href"),
     ).toBe(DETAIL);
-    expect(screen.getByRole("alert").textContent).toContain(
-      "does not hold agent.manage",
-    );
+    expect(
+      screen.getByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+    ).toBeDefined();
   });
 
   test("관리하는 에이전트가 없으면 없다고 적는다", async () => {
@@ -89,6 +126,39 @@ describe("목록을 볼 수 없는 구성원", () => {
       await screen.findByText("아직 관리자로 지정된 에이전트가 없습니다."),
     ).toBeDefined();
   });
+});
+
+describe("찾을 수 없는 에이전트", () => {
+  test.each([
+    ["없는 id(404)", me(), 404, "NOT_FOUND", "Agent not found"],
+    [
+      "볼 수 없는 구성원(403)",
+      memberMe(),
+      403,
+      "FORBIDDEN",
+      "This principal does not hold agent.manage",
+    ],
+  ] as const)(
+    "%s는 제목과 목록 링크가 있는 찾을 수 없음 화면이다",
+    async (_label, who, status, code, message) => {
+      renderAt("/agents/missing", {
+        "GET /v1/auth/me": () => json(200, who),
+        "GET /v1/agents/missing": () => apiError(status, code, message),
+      });
+      expect(
+        await screen.findByRole("heading", {
+          name: "에이전트를 찾을 수 없습니다",
+        }),
+      ).toBeDefined();
+      expect(
+        screen
+          .getByRole("link", { name: "에이전트 목록으로" })
+          .getAttribute("href"),
+      ).toBe("/agents");
+      expect(document.body.textContent).not.toContain(message);
+      expect(screen.queryByText("이 화면을 볼 권한이 없습니다")).toBeNull();
+    },
+  );
 });
 
 describe("새 에이전트", () => {

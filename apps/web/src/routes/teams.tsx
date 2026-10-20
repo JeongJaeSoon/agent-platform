@@ -17,6 +17,7 @@ import {
 import {
   ReasonButton,
   refusalText,
+  useHasPermission,
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
@@ -30,7 +31,7 @@ import { useServices } from "../services.tsx";
 function ListError({ error }: { readonly error: unknown }) {
   const { t } = useI18n();
   return isApiError(error, "FORBIDDEN") ? (
-    <StatusScreen kind="forbidden" detail={error.message} />
+    <StatusScreen kind="forbidden" />
   ) : (
     <p className="web-form__error" role="alert">
       {t(errorKey((error as ApiError).code))}
@@ -43,7 +44,8 @@ export function TeamsScreen() {
   const { t } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
-  const teams = useQuery(teamsQuery(client));
+  const manages = useHasPermission("team.manage");
+  const teams = useQuery({ ...teamsQuery(client), enabled: manages });
   const reason = usePermissionReason("team.manage", teams);
   const [name, setName] = useState("");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -75,6 +77,16 @@ export function TeamsScreen() {
     event.preventDefault();
     create.mutate();
   };
+
+  if (!manages) {
+    return (
+      <div className="web-page">
+        <h1 className="web-page__title">{t("teams.title")}</h1>
+        <p className="web-page__intro">{t("teams.intro")}</p>
+        <MyTeams showEmpty />
+      </div>
+    );
+  }
 
   return (
     <div className="web-page">

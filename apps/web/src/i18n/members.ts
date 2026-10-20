@@ -38,6 +38,8 @@ export const membersKo = {
   "members.invites.revoke": "회수",
   "members.invites.revokeFor": "{email} 초대 회수",
   "members.invites.revoked": "{email} 초대를 회수했습니다.",
+  "members.withheld":
+    "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
 };
 
 export const membersEn: Record<keyof typeof membersKo, string> = {
@@ -80,4 +82,5 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invites.revoke": "Revoke",
   "members.invites.revokeFor": "Revoke the invite for {email}",
   "members.invites.revoked": "The invite for {email} is revoked.",
+  "members.withheld": "Workspace owners and admins invite and manage members.",
 };

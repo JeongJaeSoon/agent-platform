@@ -34,7 +34,7 @@ import {
 function LoadError({ error }: { readonly error: unknown }) {
   const { t } = useI18n();
   if (isApiError(error, "FORBIDDEN")) {
-    return <StatusScreen kind="forbidden" detail={error.message} />;
+    return <StatusScreen kind="forbidden" />;
   }
   return (
     <p className="web-form__error" role="alert">

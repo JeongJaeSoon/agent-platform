@@ -1,6 +1,12 @@
 export const agentsKo = {
   "agents.title": "에이전트",
   "agents.new": "새 에이전트",
+  "agents.listWithheld":
+    "전체 에이전트 목록은 소유자와 관리자만 봅니다. 새 에이전트를 만들면 아래 '내가 관리하는 에이전트'에 나옵니다.",
+  "agent.notFound.title": "에이전트를 찾을 수 없습니다",
+  "agent.notFound.body":
+    "지워졌거나, 주소가 틀렸거나, 볼 수 없는 에이전트입니다.",
+  "agent.notFound.back": "에이전트 목록으로",
   "agents.empty": "아직 에이전트가 없습니다. 새 에이전트를 눌러 만드세요.",
   "agents.updated": "{at} 수정",
   "agents.state.notReleased": "활성 release 없음",
@@ -120,6 +126,12 @@ export const agentsKo = {
 export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.title": "Agents",
   "agents.new": "New agent",
+  "agents.listWithheld":
+    "Only owners and admins see every agent. An agent you create appears under 'Agents you administer' below.",
+  "agent.notFound.title": "Agent not found",
+  "agent.notFound.body":
+    "It was deleted, the address is wrong, or you cannot see it.",
+  "agent.notFound.back": "Back to agents",
   "agents.empty": "No agents yet. Select New agent to create one.",
   "agents.updated": "updated {at}",
   "agents.state.notReleased": "No active release",

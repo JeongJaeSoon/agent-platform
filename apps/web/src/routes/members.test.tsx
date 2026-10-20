@@ -278,22 +278,22 @@ describe("권한", () => {
   const forbidden = () =>
     apiError(403, "FORBIDDEN", "This principal does not hold member.manage");
 
-  test("관리 권한이 없으면 초대 버튼을 숨기지 않고 끈 채 이유를 적는다", async () => {
+  test("관리 권한이 없으면 초대 폼 대신 안내 한 줄만 보이고 서버에 묻지 않는다", async () => {
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/members": forbidden,
     });
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("이 화면을 볼 권한이 없습니다");
-    expect(alert.textContent).toContain("does not hold member.manage");
-    const button = screen.getByRole("button", { name: "초대 링크 만들기" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    const reason = document.getElementById(
-      button.getAttribute("aria-describedby") ?? "",
-    );
-    expect(reason?.textContent).toBe(
-      "member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
-    );
+    expect(
+      await screen.findByText(
+        "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: "초대 링크 만들기" }),
+    ).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain("member.manage");
+    expect(api.calls.some((c) => c.path.startsWith("/v1/members"))).toBe(false);
     expect(api.calls.some((c) => c.path === "/v1/invites")).toBe(false);
   });
 
@@ -311,7 +311,7 @@ describe("권한", () => {
     );
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe(
-      "member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. This principal does not hold member.manage",
+      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });
 
