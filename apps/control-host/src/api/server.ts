@@ -212,6 +212,7 @@ const interrupts = createInterruptService({
   authorization: allowAllPolicy,
   store: createPostgresTurnInterrupts(db, { logger }),
 });
+const shutdown = createShutdown({ logger });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
@@ -231,6 +232,7 @@ const workers = createWorkerGateway({
     // How long a permission or question takes answers. The worker waits
     // exactly this long once the request is registered.
     pendingTtlMs: settings.pendingTtlMs,
+    stopWaiting: shutdown.stopWaiting,
   },
 });
 // The egress proxy's authorizer, on a port of its own that no
@@ -279,7 +281,6 @@ const auth = {
   logger,
 };
 const probePool = createProbePool(databaseUrl, logger);
-const shutdown = createShutdown({ logger });
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
