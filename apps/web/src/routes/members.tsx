@@ -13,6 +13,7 @@ import {
   ReasonButton,
   roleLabel,
   useHasPermission,
+  useMe,
   usePermissionReason,
   useRole,
   WORKSPACE_ROLE_VALUES,
@@ -224,13 +225,20 @@ function InviteForm({
             type="button"
             className="ap-button"
             onClick={() => {
-              void navigator.clipboard?.writeText(link.url).then(
+              const copyFailed = () =>
+                onOutcome({
+                  kind: "error",
+                  text: t("members.invite.copyFailed"),
+                });
+              // Absent outside a secure context (plain http).
+              if (!navigator.clipboard) return copyFailed();
+              void navigator.clipboard.writeText(link.url).then(
                 () =>
                   onOutcome({
                     kind: "notice",
                     text: t("members.invite.copied"),
                   }),
-                () => {},
+                copyFailed,
               );
             }}
           >
@@ -253,6 +261,23 @@ function MemberTable({
   const { client, queryClient } = useServices();
   const role = useRole();
   const [confirming, setConfirming] = useState<MemberView | null>(null);
+  // A picked role waits here for the confirmation; arrowing through the
+  // select must not send a role on every step.
+  const [roleChange, setRoleChange] = useState<{
+    member: MemberView;
+    role: WorkspaceRole;
+  } | null>(null);
+  const self = useMe()?.user?.id;
+  const activeOwners = items.filter(
+    (member) => member.role === "owner" && member.disabled_at === null,
+  ).length;
+  // The server refuses both; the button says so before anyone asks.
+  const keepReason = (member: MemberView) =>
+    member.user_id === self
+      ? t("members.disableSelf")
+      : member.role === "owner" && activeOwners === 1
+        ? t("members.disableLastOwner")
+        : undefined;
 
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
@@ -274,6 +299,7 @@ function MemberTable({
         }),
       ),
     onMutate: () => onOutcome(null),
+    onSettled: () => setRoleChange(null),
     onSuccess: (updated) =>
       settle(
         t("members.roleChanged", {
@@ -357,7 +383,7 @@ function MemberTable({
                       value={member.role}
                       disabled={busy || disabled}
                       onChange={(event) =>
-                        changeRole.mutate({
+                        setRoleChange({
                           member,
                           role: event.target.value as WorkspaceRole,
                         })
@@ -395,9 +421,8 @@ function MemberTable({
                         {t("members.enable")}
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        className="ap-button"
+                      <ReasonButton
+                        reason={keepReason(member)}
                         disabled={busy}
                         aria-label={t("members.disableFor", {
                           name: member.display_name,
@@ -405,7 +430,7 @@ function MemberTable({
                         onClick={() => setConfirming(member)}
                       >
                         {t("members.disable")}
-                      </button>
+                      </ReasonButton>
                     )}
                   </td>
                 </tr>
@@ -432,6 +457,27 @@ function MemberTable({
             setAccess.mutate({ member: confirming, enable: false });
         }}
       />
+      <ConfirmDialog
+        open={roleChange !== null}
+        onOpenChange={(open) => {
+          if (!open) setRoleChange(null);
+        }}
+        title={t("members.roleChangeTitle", {
+          name: roleChange?.member.display_name ?? "",
+          role: roleChange ? roleLabel(t, roleChange.role) : "",
+        })}
+        consequence={
+          roleChange?.role === "owner"
+            ? t("members.roleChangeOwnerConsequence")
+            : t("members.roleChangeConsequence")
+        }
+        confirmLabel={t("members.roleChangeConfirm")}
+        cancelLabel={t("common.cancel")}
+        busy={changeRole.isPending}
+        onConfirm={() => {
+          if (roleChange) changeRole.mutate(roleChange);
+        }}
+      />
     </>
   );
 }
@@ -445,6 +491,7 @@ function InviteList({
   const { client, queryClient } = useServices();
   const role = useRole();
   const invites = useQuery(invitesQuery(client));
+  const [revoking, setRevoking] = useState<Invite | null>(null);
   const titleId = useId();
 
   const revoke = useMutation<unknown, ApiError, Invite>({
@@ -455,6 +502,7 @@ function InviteList({
         }),
       ),
     onMutate: () => onOutcome(null),
+    onSettled: () => setRevoking(null),
     onSuccess: async (_result, invite) => {
       onOutcome({
         kind: "notice",
@@ -498,7 +546,7 @@ function InviteList({
                 aria-label={t("members.invites.revokeFor", {
                   email: invite.email,
                 })}
-                onClick={() => revoke.mutate(invite)}
+                onClick={() => setRevoking(invite)}
               >
                 {t("members.invites.revoke")}
               </button>
@@ -506,6 +554,23 @@ function InviteList({
           ))}
         </ul>
       )}
+      <ConfirmDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevoking(null);
+        }}
+        title={t("members.invites.revokeTitle", {
+          email: revoking?.email ?? "",
+        })}
+        consequence={t("members.invites.revokeConsequence")}
+        confirmLabel={t("members.invites.revoke")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (revoking) revoke.mutate(revoking);
+        }}
+      />
     </section>
   );
 }

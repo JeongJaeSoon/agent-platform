@@ -233,8 +233,26 @@ describe("팀 화면", () => {
       ).toEqual(["", USER_ID]),
     );
 
+    const removeMate = await screen.findByRole("button", {
+      name: "Mate님을 팀에서 빼기",
+    });
+    // Cancelling sends nothing; Mate stays.
+    await user.click(removeMate);
     await user.click(
-      await screen.findByRole("button", { name: "Mate님을 팀에서 빼기" }),
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "취소",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
+
+    await user.click(removeMate);
+    const removeDialog = await screen.findByRole("dialog");
+    expect(removeDialog.textContent).toContain(
+      "Mate님을 결제팀 팀에서 뺄까요?",
+    );
+    await user.click(
+      within(removeDialog).getByRole("button", { name: "빼기" }),
     );
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe(
@@ -325,6 +343,10 @@ describe("에이전트 관리자", () => {
     await user.click(
       screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("다시 관리자로 추가하면 돌아옵니다");
+    expect(dialog.textContent).not.toContain("나 자신을 빼면");
+    await user.click(within(dialog).getByRole("button", { name: "빼기" }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toBe(
         "Mate을(를) 관리자에서 뺐습니다.",
@@ -333,6 +355,64 @@ describe("에이전트 관리자", () => {
     expect(
       screen.queryByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeNull();
+  });
+
+  test("에이전트 관리자인 구성원이 자기 자신을 빼면 관리 권한을 잃는다고 경고하고, 취소하면 보내지 않는다", async () => {
+    const agentsApi = agentServer();
+    const agent = agentsApi.detail().agent;
+    const self = {
+      user_id: USER_ID,
+      email: "owner@example.com",
+      display_name: "Owner",
+      created_by: USER_ID,
+      created_at: AT,
+    };
+    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+      ...agentsApi.routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () => json(200, { items: [agent] }),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(200, admins({ users: [self] })),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Owner을(를) 관리자에서 빼기",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("나 자신을 빼면 관리 권한을 잃습니다");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  test("모든 에이전트를 관리하는 소유자가 자기 자신을 빼도 권한을 잃는다고 하지 않는다", async () => {
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(200, {
+          users: [
+            {
+              user_id: USER_ID,
+              email: "owner@example.com",
+              display_name: "Owner",
+              created_by: USER_ID,
+              created_at: AT,
+            },
+          ],
+          teams: [],
+        }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Owner을(를) 관리자에서 빼기",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).not.toContain("나 자신을 빼면");
   });
 
   test("관리 목록이 상한까지 차 있으면 이 에이전트의 관리자 목록에 직접 묻는다", async () => {

@@ -109,6 +109,11 @@ export const agentsKo = {
   "agentAdmins.team": "팀",
   "agentAdmins.remove": "빼기",
   "agentAdmins.removeFor": "{name}을(를) 관리자에서 빼기",
+  "agentAdmins.removeTitle": "{name}을(를) 관리자에서 뺄까요?",
+  "agentAdmins.removeConsequence":
+    "관리자로 받은 이 에이전트의 관리 권한이 없어집니다. 다시 관리자로 추가하면 돌아옵니다.",
+  "agentAdmins.removeSelfConsequence":
+    "나 자신을 빼면 관리 권한을 잃습니다. 내가 속한 팀이 관리자가 아니면 이 에이전트를 더 바꿀 수 없고, 나를 다시 추가할 수도 없습니다.",
   "agentAdmins.pickPerson": "관리자로 추가할 사람",
   "agentAdmins.pickTeam": "관리자로 추가할 팀",
   "agentAdmins.pickPlaceholder": "고르세요",
@@ -232,6 +237,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.team": "Team",
   "agentAdmins.remove": "Remove",
   "agentAdmins.removeFor": "Remove {name} as an admin",
+  "agentAdmins.removeTitle": "Remove {name} as an admin?",
+  "agentAdmins.removeConsequence":
+    "The rights to manage this agent that came with being its admin go away. Adding them again restores them.",
+  "agentAdmins.removeSelfConsequence":
+    "Removing yourself takes away your admin rights. Unless a team you are in is an admin, you can no longer change this agent or add yourself back.",
   "agentAdmins.pickPerson": "Person to add as admin",
   "agentAdmins.pickTeam": "Team to add as admin",
   "agentAdmins.pickPlaceholder": "Choose one",

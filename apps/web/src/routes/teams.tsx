@@ -295,6 +295,9 @@ function TeamMembers({
   const role = useRole();
   const members = useQuery(membersQuery(client));
   const [picked, setPicked] = useState("");
+  const [removing, setRemoving] = useState<
+    TeamDetail["members"][number] | null
+  >(null);
   const titleId = useId();
   const pickId = useId();
 
@@ -339,6 +342,7 @@ function TeamMembers({
         }),
       ),
     onMutate: () => onOutcome(null),
+    onSettled: () => setRemoving(null),
     onSuccess: (_result, member) =>
       settle(
         t("teams.memberRemoved", {
@@ -417,7 +421,7 @@ function TeamMembers({
                   className="ap-button"
                   disabled={remove.isPending}
                   aria-label={t("teams.removeMemberFor", { name })}
-                  onClick={() => remove.mutate(member)}
+                  onClick={() => setRemoving(member)}
                 >
                   {t("teams.removeMember")}
                 </button>
@@ -426,6 +430,24 @@ function TeamMembers({
           })}
         </ul>
       )}
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null);
+        }}
+        title={t("teams.removeMemberTitle", {
+          name: removing?.display_name ?? removing?.email ?? "",
+          team: team.name,
+        })}
+        consequence={t("teams.removeMemberConsequence")}
+        confirmLabel={t("teams.removeMember")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (removing) remove.mutate(removing);
+        }}
+      />
     </section>
   );
 }
