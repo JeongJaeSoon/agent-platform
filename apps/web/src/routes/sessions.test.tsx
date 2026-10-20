@@ -208,6 +208,30 @@ describe("sessions list", () => {
     ).toHaveLength(2);
   });
 
+  test("in en the table speaks English and scrolls by keyboard", async () => {
+    renderAt(
+      "/sessions",
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/sessions": () =>
+          json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      },
+      "en",
+    );
+    const link = await screen.findByRole("link", { name: SESSION_ID });
+    expect(link.textContent).toBe(SESSION_ID.slice(0, 8));
+    const region = screen.getByRole("region", { name: "Sessions table" });
+    expect(region.getAttribute("tabindex")).toBe("0");
+    expect(region.querySelector("table")?.className).toContain(
+      "web-table--nowrap",
+    );
+    expect(screen.getByText("Open")).toBeTruthy();
+    expect(screen.queryByText(/세션/)).toBeNull();
+    expect(screen.getAllByText("Oct 11, 2026, 17:14").length).toBeGreaterThan(
+      0,
+    );
+  });
+
   test("says so when there are none", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),

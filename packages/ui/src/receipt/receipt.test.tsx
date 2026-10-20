@@ -189,6 +189,15 @@ describe("formatTimestamp", () => {
     );
   });
 
+  test("en은 영어 월 이름으로, 같은 서울 시각을 쓴다", () => {
+    expect(formatTimestamp("2026-09-21T02:15:00.000Z", "en")).toBe(
+      "Sep 21, 2026, 11:15",
+    );
+    expect(formatTimestamp("2026-09-21T15:00:00.000Z", "en")).toBe(
+      "Sep 22, 2026, 00:00",
+    );
+  });
+
   test("날짜가 아니면 받은 문자열을 그대로 둔다", () => {
     expect(formatTimestamp("나중에")).toBe("나중에");
   });

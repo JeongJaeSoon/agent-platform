@@ -17,7 +17,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
 const OTHER_AGENT_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
@@ -290,6 +290,72 @@ describe("API key", () => {
         new Date("2026-12-31T00:00:00").getTime(),
     ).toBe(true);
     expect((await screen.findAllByText("개인 key")).length).toBe(2);
+  });
+
+  test("만료일은 오늘부터 고를 수 있다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
+    const personal = await screen.findByRole("region", { name: "개인 key" });
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    expect(
+      within(personal)
+        .getByLabelText(/^만료일/)
+        .getAttribute("min"),
+    ).toBe(
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    );
+  });
+
+  test("서비스 key도 지난 날짜를 만료일로 보내지 않는다", async () => {
+    const { api } = renderAt("/settings/api-keys", {
+      ...ownerOk,
+      ...keysServer(),
+    });
+    const user = await setupUser();
+    const service = await screen.findByRole("region", { name: "서비스 key" });
+    await user.type(within(service).getByLabelText(/^만료일/), "2020-01-01");
+    await user.click(
+      within(service).getByRole("button", {
+        name: "워크스페이스 서비스 key 발급",
+      }),
+    );
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    expect(screen.queryByRole("region", { name: "새 key" })).toBeNull();
+  });
+
+  test("새 key 값으로 포커스가 가고, 복사에 실패하면 그렇다고 알린다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
+    const user = await setupUser();
+    const personal = await screen.findByRole("region", { name: "개인 key" });
+    await user.click(
+      within(personal).getByRole("button", { name: "개인 key 발급" }),
+    );
+    const secret = await screen.findByRole("region", { name: "새 key" });
+    const field = within(secret).getByLabelText("key 값");
+    await waitFor(() => expect(document.activeElement).toBe(field));
+
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    });
+    try {
+      const copyButton = within(secret).getByRole("button", { name: "복사" });
+      // The refusal settles after user-event's click returns; act flushes it.
+      await act(async () => copyButton.click());
+      expect((await within(secret).findByRole("alert")).textContent).toBe(
+        "복사하지 못했습니다. 위 칸의 값을 직접 선택해 복사하세요.",
+      );
+      expect(document.activeElement).toBe(field);
+      expect(within(secret).queryByText("복사했습니다")).toBeNull();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   test("폐기는 확인 뒤에 하고 행이 폐기됨으로 바뀐다", async () => {

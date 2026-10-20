@@ -17,6 +17,8 @@ export const sessionsKo = {
   "sessions.column.runtime": "런타임",
   "sessions.column.lastEvent": "최근 이벤트",
   "sessions.column.created": "만든 시각",
+  "sessions.tableLabel": "세션 표",
+  "session.factsTable": "{title} 표",
   "sessions.none": "—",
 
   "sessions.status.queued": "대기 중",
@@ -127,6 +129,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.column.runtime": "Runtime",
   "sessions.column.lastEvent": "Last event",
   "sessions.column.created": "Created",
+  "sessions.tableLabel": "Sessions table",
+  "session.factsTable": "{title} table",
   "sessions.none": "—",
 
   "sessions.status.queued": "Queued",
