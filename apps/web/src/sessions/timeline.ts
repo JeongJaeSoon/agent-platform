@@ -123,23 +123,25 @@ function questionLine(
   t: Translate,
   data: Extract<SessionEventPayload, { event: "question" }>["data"],
 ): Line {
-  if (data.kind === "permission") {
-    return {
-      label: t("session.event.kind.permission"),
-      summary: data.tool
+  const questions = asRecord(data.input)?.questions;
+  const prompts = Array.isArray(questions)
+    ? questions
+        .flatMap((question) => {
+          const text = asRecord(question)?.question;
+          return typeof text === "string" ? [text] : [];
+        })
+        .join(" / ")
+    : "";
+  return {
+    label:
+      data.kind === "permission"
+        ? t("session.event.kind.permission")
+        : t("session.event.kind.question"),
+    summary: prompts
+      ? clip(prompts)
+      : data.tool
         ? toolCall(data.tool, data.input)
         : (inputSummary(data.input) ?? ""),
-    };
-  }
-  const prompts = (asRecord(data.input)?.questions as unknown[] | undefined)
-    ?.flatMap((question) => {
-      const text = asRecord(question)?.question;
-      return typeof text === "string" ? [text] : [];
-    })
-    .join(" / ");
-  return {
-    label: t("session.event.kind.question"),
-    summary: clip(prompts || data.tool || ""),
   };
 }
 
@@ -280,9 +282,15 @@ function isThinkingTick(payload: SessionEventPayload) {
   );
 }
 
-// tool_use_id → tool name, so a result can say which call it answers.
-function toolNamesById(events: readonly SessionEventFrame[]) {
-  const names = new Map<string, string>();
+/**
+ * Adds each call's tool_use_id → tool name to `names`, so a result can say
+ * which call it answers. A caller that keeps `names` across renders still
+ * names a result whose call has slid out of the event window.
+ */
+export function collectToolNames(
+  events: readonly SessionEventFrame[],
+  names: Map<string, string> = new Map(),
+) {
   for (const { payload } of events) {
     if (payload.event !== "tool_use" && payload.event !== "assistant") continue;
     for (const block of contentBlocks(payload.data.message)) {
@@ -297,9 +305,14 @@ function toolNamesById(events: readonly SessionEventFrame[]) {
 export function timelineItems(
   t: Translate,
   events: readonly SessionEventFrame[],
-  { debug }: { readonly debug: boolean },
+  {
+    debug,
+    toolNames = collectToolNames(events),
+  }: {
+    readonly debug: boolean;
+    readonly toolNames?: ReadonlyMap<string, string>;
+  },
 ): TimelineItem[] {
-  const toolNames = toolNamesById(events);
   const items: TimelineItem[] = [];
   let ticks = 0;
   for (const frame of events) {

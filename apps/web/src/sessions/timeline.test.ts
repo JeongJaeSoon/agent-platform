@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { SessionEventPayload } from "@agent-platform/contracts";
 import { type Translate, translate } from "../i18n/i18n.tsx";
 import type { SessionEventFrame } from "./hooks.ts";
-import { type TimelineItem, timelineItems } from "./timeline.ts";
+import {
+  collectToolNames,
+  type TimelineItem,
+  timelineItems,
+} from "./timeline.ts";
 
 const t: Translate = (key, vars) => translate("ko", key, vars);
 const AT = "2026-10-21T02:54:00.000Z";
@@ -267,5 +271,31 @@ describe("session timeline", () => {
       { label: "권한 요청", summary: "Edit: /repo/a.ts" },
       { label: "질문", summary: "Which branch? / Why?" },
     ]);
+    expect(
+      lines([
+        question({ kind: "question", tool: "Bash", input: { command: "ls" } }),
+        question({ kind: "question", input: { path: "/repo" } }),
+        question({ kind: "question", tool: "Ask", input: { questions: {} } }),
+      ]),
+    ).toEqual([
+      { label: "질문", summary: "Bash: ls" },
+      { label: "질문", summary: "/repo" },
+      { label: "질문", summary: "Ask" },
+    ]);
+  });
+
+  test("a result keeps its tool name after the call slides out of the window", () => {
+    const call = toolUse("tu_w", "Bash", { command: "make" });
+    const result = frame("tool_result", {
+      type: "tool_result",
+      tool_use_id: "tu_w",
+      content: "ok",
+    });
+    const names = collectToolNames([call, result]);
+    expect(
+      timelineItems(t, [result], { debug: false, toolNames: names }).map(
+        (item) => item.summary,
+      ),
+    ).toEqual(["Bash 결과 · 성공 · ok"]);
   });
 });

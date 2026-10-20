@@ -8,10 +8,15 @@ import type {
 } from "@agent-platform/contracts";
 import { formatTimestamp } from "@agent-platform/ui";
 import { Link } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import type { EventStreamState, SessionEventFrame } from "./hooks.ts";
-import { phaseText, type TimelineItem, timelineItems } from "./timeline.ts";
+import {
+  collectToolNames,
+  phaseText,
+  type TimelineItem,
+  timelineItems,
+} from "./timeline.ts";
 
 /*
  * What the session screens draw, from props alone: no fetching and no
@@ -281,7 +286,11 @@ export function SessionEventList({
 }) {
   const { t } = useI18n();
   const [debug, setDebug] = useState(false);
-  const items = timelineItems(t, events, { debug });
+  // Only grows, and an id names one call, so filling it while rendering is
+  // safe to repeat.
+  const toolNames = useRef(new Map<string, string>()).current;
+  collectToolNames(events, toolNames);
+  const items = timelineItems(t, events, { debug, toolNames });
   const latestStatus = events
     .filter((frame) => frame.payload.event === "status")
     .at(-1);
