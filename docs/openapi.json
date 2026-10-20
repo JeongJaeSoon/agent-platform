@@ -8643,7 +8643,7 @@
           "content": {
             "application/json": {
               "example": {
-                "bootstrap_token": "bt_4f9c2a7e1d8b6c3a5e0f9d2b7c4a1e8f6d3b0c9a",
+                "bootstrap_token": "<the BOOTSTRAP_TOKEN printed at install>",
                 "email": "owner@example.com",
                 "password": "correct horse battery staple",
                 "display_name": "Ada Owner",
