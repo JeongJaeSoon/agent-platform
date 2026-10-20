@@ -20,9 +20,12 @@ const FORBIDDEN_IMPORTS = [
 const ALLOWED_RUNTIME_DEPENDENCIES = [
   "@agent-platform/contracts",
   "@radix-ui/react-dialog",
+  "@radix-ui/react-slot",
+  "class-variance-authority",
   "clsx",
   "react",
   "react-dom",
+  "tailwind-merge",
 ];
 
 async function sourceFiles(): Promise<string[]> {
@@ -71,6 +74,18 @@ describe("패키지 경계", () => {
     expect(Object.keys(manifest.dependencies).sort()).toEqual(
       ALLOWED_RUNTIME_DEPENDENCIES,
     );
+  });
+
+  test("Radix primitive는 primitives/ 안에서만 import한다", async () => {
+    // A second import site is a second Dialog: its own overlay, focus return
+    // and z-index, drifting apart from the first.
+    const offenders: string[] = [];
+    for (const file of await sourceFiles()) {
+      if (file.startsWith("src/primitives/")) continue;
+      const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
+      if (/\bfrom\s+["']@radix-ui\//.test(source)) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
   });
 
   test("contracts는 타입으로만 쓴다", async () => {

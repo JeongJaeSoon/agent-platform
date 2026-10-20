@@ -119,6 +119,37 @@
   --ap-layout-reading-width: 48rem;
 }
 
+/*
+ * shadcn/ui's semantic names, pointing at the tokens above. They hold no
+ * colour of their own, so the dark blocks below need no copy: each var()
+ * resolves against whichever theme is active. shadcn's `accent` is a quiet
+ * hover surface, not our brand colour; the brand colour is `primary`.
+ */
+:root {
+  --background: var(--ap-color-canvas);
+  --foreground: var(--ap-color-foreground);
+  --card: var(--ap-color-surface);
+  --card-foreground: var(--ap-color-foreground);
+  --popover: var(--ap-color-surface);
+  --popover-foreground: var(--ap-color-foreground);
+  --primary: var(--ap-color-accent);
+  --primary-hover: var(--ap-color-accent-hover);
+  --primary-foreground: var(--ap-color-accent-foreground);
+  /* The neutral tone, not surface-sunken: in dark, sunken is darker than the
+     canvas and a secondary button or a hover would vanish into it. */
+  --secondary: var(--ap-tone-neutral-bg);
+  --secondary-foreground: var(--ap-tone-neutral-fg);
+  --muted: var(--ap-color-surface-sunken);
+  --muted-foreground: var(--ap-color-muted-foreground);
+  --accent: var(--ap-tone-neutral-bg);
+  --accent-foreground: var(--ap-color-foreground);
+  --destructive: var(--ap-tone-danger-fg);
+  --destructive-foreground: var(--ap-color-surface);
+  --border: var(--ap-color-border);
+  --input: var(--ap-color-border-strong);
+  --ring: var(--ap-color-focus-ring);
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --ap-color-canvas: #141311;

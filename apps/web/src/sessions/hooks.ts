@@ -130,6 +130,26 @@ export interface SessionEventFrame {
   readonly occurredAt: string;
   readonly turnId: string | null;
   readonly payload: SessionEventPayload;
+  /** A tool result's call, named when the result arrived. */
+  readonly toolName?: string;
+}
+
+// Tool results wait for their call's name; calls whose result never comes
+// are dropped oldest first past this many.
+const PENDING_CALLS_MAX = EVENT_WINDOW;
+
+function toolCalls(payload: SessionEventPayload) {
+  if (payload.event !== "tool_use" && payload.event !== "assistant") return [];
+  const content = (payload.data.message as { content?: unknown } | null)
+    ?.content;
+  return Array.isArray(content)
+    ? content.flatMap(
+        (block: { type?: unknown; id?: unknown; name?: unknown }) =>
+          block?.type === "tool_use" && typeof block.id === "string"
+            ? [[block.id, String(block.name ?? "")] as const]
+            : [],
+      )
+    : [];
 }
 
 interface Envelope {
@@ -155,6 +175,7 @@ export function useSessionEvents(id: string, enabled: boolean) {
     const source = new EventSource(
       `/v1/sessions/${encodeURIComponent(id)}/events`,
     );
+    const callNames = new Map<string, string>();
     const receive = (message: MessageEvent<string>) => {
       let envelope: Envelope;
       try {
@@ -162,14 +183,29 @@ export function useSessionEvents(id: string, enabled: boolean) {
       } catch {
         return;
       }
+      const payload = {
+        event: message.type,
+        data: envelope.data,
+      } as SessionEventPayload;
+      for (const [callId, name] of toolCalls(payload)) {
+        callNames.set(callId, name);
+        if (callNames.size > PENDING_CALLS_MAX) {
+          callNames.delete(callNames.keys().next().value as string);
+        }
+      }
+      const callId =
+        payload.event === "tool_result"
+          ? (payload.data as { tool_use_id?: unknown } | null)?.tool_use_id
+          : undefined;
+      const toolName =
+        typeof callId === "string" ? callNames.get(callId) : undefined;
+      if (typeof callId === "string") callNames.delete(callId);
       const event: SessionEventFrame = {
         id: message.lastEventId,
         occurredAt: envelope.occurred_at,
         turnId: envelope.turn_id,
-        payload: {
-          event: message.type,
-          data: envelope.data,
-        } as SessionEventPayload,
+        payload,
+        ...(toolName === undefined ? {} : { toolName }),
       };
       // A resumed stream starts after Last-Event-ID, so a repeat can only be
       // one still on screen.

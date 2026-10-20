@@ -5,7 +5,20 @@
  */
 @import "tailwindcss";
 @import "@agent-platform/ui/styles.css";
+@import "@agent-platform/ui/theme.css";
 
+/*
+ * Tailwind's automatic detection stays inside this app and skips
+ * node_modules, where the packages/ui symlink lives, so it is named here.
+ */
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/ui/src";
+
+/*
+ * Tokens with no shadcn name. Colours shadcn names (`border`, `foreground`,
+ * `accent`…) come from theme.css, where `accent` is a quiet hover surface and
+ * the brand colour is `primary`.
+ */
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @theme inline {
   --color-canvas: var(--ap-color-canvas);
@@ -13,13 +26,7 @@
   --color-surface-sunken: var(--ap-color-surface-sunken);
   --color-rail: var(--ap-color-rail);
   --color-rail-foreground: var(--ap-color-rail-foreground);
-  --color-border: var(--ap-color-border);
   --color-border-strong: var(--ap-color-border-strong);
-  --color-foreground: var(--ap-color-foreground);
-  --color-muted-foreground: var(--ap-color-muted-foreground);
-  --color-accent: var(--ap-color-accent);
-  --color-accent-hover: var(--ap-color-accent-hover);
-  --color-accent-foreground: var(--ap-color-accent-foreground);
   --color-focus-ring: var(--ap-color-focus-ring);
   --font-sans: var(--ap-font-sans);
   --font-mono: var(--ap-font-mono);
