@@ -54,7 +54,7 @@ export function agentRefusal(
 }
 
 export function AgentsScreen() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client } = useServices();
   const navigate = useNavigate();
   const agents = useQuery(agentsQuery(client));
@@ -102,7 +102,7 @@ export function AgentsScreen() {
                 <span className="web-table__secondary">
                   {agent.slug} ·{" "}
                   {t("agents.updated", {
-                    at: formatTimestamp(agent.updated_at),
+                    at: formatTimestamp(agent.updated_at, locale),
                   })}
                 </span>
               </span>

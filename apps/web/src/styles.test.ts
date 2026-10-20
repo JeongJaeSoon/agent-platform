@@ -36,6 +36,27 @@ describe("styles.css", () => {
     }
   });
 
+  test("breaks Korean between words and keeps nav labels whole", () => {
+    const body = css.match(/\nbody \{([^}]*)\}/)?.[1] ?? "";
+    expect(body).toContain("word-break: keep-all");
+    const nav = css.match(/\.web-shell__nav \{([^}]*)\}/)?.[1] ?? "";
+    expect(nav).toContain("flex-wrap: wrap");
+    const link = css.match(/\.web-shell__nav a \{([^}]*)\}/)?.[1] ?? "";
+    expect(link).toContain("white-space: nowrap");
+  });
+
+  test("keeps nowrap table cells on one line", () => {
+    const rule = css.match(
+      /\.web-table--nowrap th,\s*\.web-table--nowrap td \{([^}]*)\}/,
+    )?.[1];
+    expect(rule).toContain("white-space: nowrap");
+  });
+
+  test("draws focus on the dark rail in the rail's light foreground", () => {
+    const rule = css.match(/\.web-shell__bar :focus-visible \{([^}]*)\}/)?.[1];
+    expect(rule).toContain("var(--ap-color-rail-foreground)");
+  });
+
   test("stops animation under prefers-reduced-motion", () => {
     const block = css.split("@media (prefers-reduced-motion: reduce)")[1] ?? "";
     expect(block).toContain("animation: none");
