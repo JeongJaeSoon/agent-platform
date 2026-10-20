@@ -303,22 +303,30 @@ describe("구성원 화면", () => {
     expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 
-  test("초대 링크를 복사하지 못하면 직접 복사하라고 알린다", async () => {
-    renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
-      ...noInvites,
-      "POST /v1/invites": () =>
-        json(201, {
-          invite_id: pendingInvite.id,
-          invite_token: "k".repeat(43),
-          expires_at: "2026-10-18T00:00:00.000Z",
-        }),
-    });
-    const user = await setupUser();
-    const writeText = navigator.clipboard.writeText;
-    navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
-    try {
+  for (const [why, clipboard] of [
+    [
+      "클립보드가 거부하면",
+      {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    ],
+    ["클립보드가 없으면(비보안 컨텍스트)", undefined],
+  ] as const) {
+    test(`${why} 직접 복사하라고 알리고 링크 칸을 선택해 둔다`, async () => {
+      renderAt("/members", {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/members": () => json(200, { items: [owner] }),
+        ...noInvites,
+        "POST /v1/invites": () =>
+          json(201, {
+            invite_id: pendingInvite.id,
+            invite_token: "k".repeat(43),
+            expires_at: "2026-10-18T00:00:00.000Z",
+          }),
+      });
+      const user = await setupUser();
       await user.type(await screen.findByLabelText("이메일"), "n@example.com");
       await user.click(
         screen.getByRole("button", { name: "초대 링크 만들기" }),
@@ -326,15 +334,28 @@ describe("구성원 화면", () => {
       const copyButton = await screen.findByRole("button", {
         name: "링크 복사",
       });
-      // The refusal settles after user-event's click returns; act flushes it.
-      await act(async () => copyButton.click());
-      expect((await screen.findByRole("alert")).textContent).toBe(
-        "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
-      );
-    } finally {
-      navigator.clipboard.writeText = writeText;
-    }
-  });
+      const field = screen.getByLabelText<HTMLInputElement>("초대 링크");
+      const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: clipboard,
+      });
+      try {
+        // The refusal settles after the click returns; act flushes it.
+        await act(async () => copyButton.click());
+        expect((await screen.findByRole("alert")).textContent).toBe(
+          "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
+        );
+        expect(document.activeElement).toBe(field);
+        expect(
+          field.value.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0),
+        ).toBe(field.value);
+      } finally {
+        if (original) Object.defineProperty(navigator, "clipboard", original);
+        else Reflect.deleteProperty(navigator, "clipboard");
+      }
+    });
+  }
 });
 
 describe("되돌리기 어려운 동작의 확인", () => {
