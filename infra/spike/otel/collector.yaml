@@ -18,6 +18,8 @@ exporters:
     endpoint: ${env:LGTM_OTLP_ENDPOINT}
   file/spans:
     path: /dump/spans.jsonl
+  file/logs:
+    path: /dump/logs.jsonl
   debug:
     verbosity: basic
 
@@ -30,7 +32,7 @@ service:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlphttp/lgtm, debug]
+      exporters: [otlphttp/lgtm, file/logs, debug]
     metrics:
       receivers: [otlp]
       processors: [batch]
