@@ -2,44 +2,31 @@ import type {
   AdmissionState,
   PendingRequest,
   SessionDetail,
-  SessionEventPayload,
   SessionStatus,
   SessionSummary,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
-import { formatTimestamp, StatusLabel } from "@agent-platform/ui";
+import { formatTimestamp } from "@agent-platform/ui";
 import { Link } from "@tanstack/react-router";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import type { EventStreamState, SessionEventFrame } from "./hooks.ts";
+import { phaseText, type TimelineItem, timelineItems } from "./timeline.ts";
 
 /*
  * What the session screens draw, from props alone: no fetching and no
  * services, so these move with hooks.ts and nothing else.
  */
 
-const SESSION_STATUS_VALUES = new Set<string>([
-  "queued",
-  "running",
-  "needs_input",
-  "idle",
-  "failed",
-  "stopped",
-] satisfies SessionStatus[]);
-
 function statusText(t: Translate, status: SessionStatus) {
   return t(`sessions.status.${status}`);
 }
 
+// Plain text, not StatusLabel: its admission icon, a rounded square, read as
+// a missing-glyph box next to the word.
 function Admission({ state }: { readonly state: AdmissionState }) {
   const { t } = useI18n();
-  return (
-    <StatusLabel
-      axis="admission"
-      state={state}
-      label={t(`sessions.admission.${state}`)}
-    />
-  );
+  return <>{t(`sessions.admission.${state}`)}</>;
 }
 
 function runtimeText(t: Translate, session: SessionSummary) {
@@ -158,7 +145,6 @@ export function SessionOverview({
             session.current_turn_id ?? t("sessions.none"),
           ],
           [t("session.queuedTurns"), session.queued_turn_count],
-          [t("session.pendingCount"), session.pending_request_count],
           [t("session.updated"), formatTimestamp(session.updated_at)],
           attention
             ? [
@@ -260,61 +246,30 @@ export function PendingRequestList({
   );
 }
 
-const SUMMARY_MAX = 200;
-
-function clip(text: string) {
-  return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX)}…` : text;
-}
-
-// The SDK message's content blocks: text for assistant, tool_use for tools.
-function contentBlocks(message: unknown): Record<string, unknown>[] {
-  const content = (message as { content?: unknown } | null)?.content;
-  return Array.isArray(content)
-    ? content.filter(
-        (block): block is Record<string, unknown> =>
-          typeof block === "object" && block !== null,
-      )
-    : [];
-}
-
-/** One line saying what an event was, or null when the kind says enough. */
-export function eventSummary(
-  t: Translate,
-  payload: SessionEventPayload,
-): string | null {
-  switch (payload.event) {
-    case "status": {
-      const phase = payload.data.phase;
-      return SESSION_STATUS_VALUES.has(phase)
-        ? statusText(t, phase as SessionStatus)
-        : phase;
-    }
-    case "error":
-      return payload.data.message;
-    case "question":
-      return payload.data.tool
-        ? `${payload.data.kind}: ${payload.data.tool}`
-        : payload.data.kind;
-    case "result":
-      return payload.data.subtype;
-    case "assistant": {
-      const text = contentBlocks(payload.data.message)
-        .filter((block) => block.type === "text")
-        .map((block) => String(block.text ?? ""))
-        .join(" ")
-        .trim();
-      return text ? clip(text) : null;
-    }
-    case "tool_use": {
-      const names = contentBlocks(payload.data.message)
-        .filter((block) => block.type === "tool_use")
-        .map((block) => String(block.name ?? ""))
-        .filter(Boolean);
-      return names.length > 0 ? names.join(", ") : null;
-    }
-    default:
-      return null;
-  }
+function TimelineRow({ item }: { readonly item: TimelineItem }) {
+  const { t } = useI18n();
+  const summaryClass = item.error ? "web-form__error" : "web-table__primary";
+  return (
+    <li className="web-list__item">
+      <span className="web-badge" data-tone={item.error ? undefined : "muted"}>
+        {item.label}
+      </span>
+      {item.detail ? (
+        <details>
+          <summary className={summaryClass}>{item.summary}</summary>
+          <p className="web-table__secondary">{item.detail}</p>
+        </details>
+      ) : (
+        <span className={summaryClass}>{item.summary}</span>
+      )}
+      <span className="web-table__secondary">
+        {formatTimestamp(item.occurredAt)}
+        {item.turnId
+          ? ` · ${t("session.events.turn", { turn: item.turnId })}`
+          : ""}
+      </span>
+    </li>
+  );
 }
 
 export function SessionEventList({
@@ -325,6 +280,11 @@ export function SessionEventList({
   readonly state: EventStreamState;
 }) {
   const { t } = useI18n();
+  const [debug, setDebug] = useState(false);
+  const items = timelineItems(t, events, { debug });
+  const latestStatus = events
+    .filter((frame) => frame.payload.event === "status")
+    .at(-1);
   return (
     <Section title={t("session.events")}>
       {state === "closed" ? (
@@ -332,27 +292,30 @@ export function SessionEventList({
       ) : state === "connecting" ? (
         <output className="web-notice">{t("session.events.connecting")}</output>
       ) : null}
-      {events.length === 0 ? (
+      {/* Only status changes are announced; each event read aloud as it
+          arrives would drown them. */}
+      <output className="web-sr-only">
+        {latestStatus?.payload.event === "status"
+          ? phaseText(t, latestStatus.payload.data.phase)
+          : null}
+      </output>
+      <label className="web-check">
+        <input
+          type="checkbox"
+          checked={debug}
+          onChange={(event) => setDebug(event.target.checked)}
+        />
+        <span>{t("session.events.debug")}</span>
+      </label>
+      {items.length === 0 ? (
         state === "open" ? (
           <p className="web-page__empty">{t("session.events.empty")}</p>
         ) : null
       ) : (
-        <ol className="web-list" aria-live="polite">
-          {events.map((frame) => {
-            const summary = eventSummary(t, frame.payload);
-            return (
-              <li key={frame.id} className="web-list__item">
-                <code>{frame.payload.event}</code>
-                {summary ? (
-                  <span className="web-table__primary">{summary}</span>
-                ) : null}
-                <span className="web-table__secondary">
-                  {formatTimestamp(frame.occurredAt)}
-                  {frame.turnId ? ` · turn ${frame.turnId}` : ""}
-                </span>
-              </li>
-            );
-          })}
+        <ol className="web-list">
+          {items.map((item) => (
+            <TimelineRow key={item.key} item={item} />
+          ))}
         </ol>
       )}
     </Section>

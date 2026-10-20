@@ -277,8 +277,28 @@ describe("session detail", () => {
     });
     expect(await screen.findByText("Listing files")).toBeTruthy();
     expect(screen.getAllByText("Listing files")).toHaveLength(1);
-    expect(screen.getByText("작업 중")).toBeTruthy();
-    expect(screen.getByText("tool_use")).toBeTruthy();
+    expect(screen.getByText("도구 호출")).toBeTruthy();
+    expect(screen.queryByText("tool_use")).toBeNull();
+    // Only the latest status is announced; the list itself is not live.
+    const list = screen.getByText("Listing files").closest("ol");
+    expect(list?.getAttribute("aria-live")).toBeNull();
+    expect(document.querySelector("output.web-sr-only")?.textContent).toBe(
+      "작업 중",
+    );
+    // The pending section says how many are waiting; the overview does not.
+    expect(screen.getAllByText("대기 중인 요청")).toHaveLength(1);
+
+    act(() =>
+      stream.emit("ev_5", "system", {
+        type: "system",
+        subtype: "sdk_event",
+        native_type: "command_lifecycle",
+      }),
+    );
+    expect(screen.queryByText("command_lifecycle")).toBeNull();
+    const user = await setupUser();
+    await user.click(screen.getByLabelText("내부 이벤트도 보기"));
+    expect(await screen.findByText("command_lifecycle")).toBeTruthy();
 
     // The session reporting an error is an event, not a lost connection.
     act(() =>
