@@ -208,7 +208,6 @@
     },
   },
   "overrides": {
-    "@modelcontextprotocol/sdk": "1.32.1",
     "undici": "7.29.1",
   },
   "packages": {
