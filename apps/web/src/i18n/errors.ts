@@ -22,12 +22,12 @@ export const errorsKo = {
   "error.OWNER_PROTECTED":
     "소유자 역할은 소유자만 주거나 바꿀 수 있습니다 — 소유자에게 요청하세요.",
   "error.UNSUPPORTED_CAPABILITY":
-    "카드에 이 runtime profile이 허용하지 않는 모델이나 도구가 있거나, 없는 profile입니다.",
+    "카드에 이 프로필이 허용하지 않는 모델이나 도구가 있거나, 없는 프로필입니다.",
   "error.REVISION_CONFLICT":
     "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
   "error.PROFILE_DIGEST_MISMATCH":
-    "release를 만든 뒤 runtime profile 설정이 바뀌었습니다 — 새 release를 만드세요.",
-  "error.ALREADY_EXISTS": "같은 주소 이름이 이미 있습니다.",
+    "release를 만든 뒤 프로필 설정이 바뀌었습니다 — 새 release를 만드세요.",
+  "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
 };
 
 export const errorsEn: Record<keyof typeof errorsKo, string> = {
@@ -52,10 +52,10 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.OWNER_PROTECTED":
     "Only an owner can grant or change the owner role — ask an owner.",
   "error.UNSUPPORTED_CAPABILITY":
-    "The card uses a model or tool this runtime profile does not allow, or the profile does not exist.",
+    "The card uses a model or tool this profile does not allow, or the profile does not exist.",
   "error.REVISION_CONFLICT":
     "Someone changed this first — reload and try again.",
   "error.PROFILE_DIGEST_MISMATCH":
-    "The runtime profile changed after this release was created — create a new release.",
-  "error.ALREADY_EXISTS": "That URL name is already taken.",
+    "The profile changed after this release was created — create a new release.",
+  "error.ALREADY_EXISTS": "That identifier (slug) is already taken.",
 };

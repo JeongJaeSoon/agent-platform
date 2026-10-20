@@ -86,7 +86,7 @@ export function AgentsScreen() {
                   {agent.name}
                 </Link>
                 <span className="web-table__secondary">
-                  {agent.slug} ·{" "}
+                  {t("agents.slugLine", { slug: agent.slug })} ·{" "}
                   {t("agents.updated", {
                     at: formatTimestamp(agent.updated_at),
                   })}
@@ -113,6 +113,21 @@ function agentTone(agent: {
   return agent.status === "active" ? "ok" : "muted";
 }
 
+const SLUG_MAX = 64;
+
+/**
+ * The slug a name suggests; a name without Latin letters or digits suggests
+ * nothing and leaves the field to the person.
+ */
+export function slugFromName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, SLUG_MAX)
+    .replace(/-+$/, "");
+}
+
 /**
  * A blank card. One-line hiring (a model drafting the card) is 94S-156's
  * and adds its button here when it lands.
@@ -122,8 +137,10 @@ export function NewAgentScreen() {
   const { client, queryClient } = useServices();
   const navigate = useNavigate();
   const role = useRole();
-  const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
+  // Null until the person edits the slug; till then it follows the name.
+  const [typedSlug, setTypedSlug] = useState<string | null>(null);
+  const slug = typedSlug ?? slugFromName(name);
   const [draft, setDraft] = useState<CardDraft>(EMPTY_DRAFT);
   const catalog = useQuery(profilesQuery(client));
   const titleId = useId();
@@ -180,10 +197,10 @@ export function NewAgentScreen() {
           label={t("agents.slug")}
           hint={t("agents.slugHint")}
           required
-          maxLength={64}
+          maxLength={SLUG_MAX}
           pattern="[a-z0-9][a-z0-9\-]*"
           value={slug}
-          onChange={(event) => setSlug(event.target.value)}
+          onChange={(event) => setTypedSlug(event.target.value)}
         />
         <AgentCardFields draft={draft} catalog={catalog} onChange={setDraft} />
         {create.error ? (

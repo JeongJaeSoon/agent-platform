@@ -14,7 +14,7 @@ export const modelsKo = {
     "모델 목록을 불러오지 못해 저장할 수 없습니다: {reason}",
 
   "agent.releases.modelMismatch":
-    "카드 모델(이 version): {card} · 고른 profile의 모델: {profile}. 둘이 달라 이대로 만들면 거부됩니다.",
+    "카드 모델(이 version): {card} · 고른 프로필의 모델: {profile}. 둘이 달라 이대로 만들면 거부됩니다.",
 };
 
 export const modelsEn: Record<keyof typeof modelsKo, string> = {

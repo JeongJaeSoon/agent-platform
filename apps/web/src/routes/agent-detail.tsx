@@ -182,10 +182,13 @@ function AgentView({
         </span>
       </div>
       <p className="web-table__secondary">
-        {agent.slug} ·{" "}
-        {t("agent.activeRelease", {
-          release: releaseLabel(agent.active_release_id),
-        })}
+        {t("agents.slugLine", { slug: agent.slug })}
+        {/* Without one, the badge already says so. */}
+        {agent.active_release_id
+          ? ` · ${t("agent.activeRelease", {
+              release: releaseLabel(agent.active_release_id),
+            })}`
+          : null}
       </p>
       {outcome ? (
         outcome.kind === "error" ? (
@@ -464,8 +467,7 @@ function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
           <li key={version.id} className="web-list__item">
             <span className="web-table__primary">{label(version)}</span>
             <span className="web-table__secondary">
-              {formatTimestamp(version.created_at)} ·{" "}
-              {version.content_sha256.slice(0, 12)}
+              {formatTimestamp(version.created_at)}
               {version.id === activeVersionId
                 ? ` · ${t("agent.versions.active")}`
                 : ""}
