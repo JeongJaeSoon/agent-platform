@@ -6,9 +6,14 @@ import {
   CSRF_HEADER_VALUE as CONTRACT_HEADER_VALUE,
   PASSWORD_MIN_LENGTH as CONTRACT_PASSWORD_MIN_LENGTH,
   WORKSPACE_ROLE_VALUES as CONTRACT_ROLE_VALUES,
+  inviteTokenSchema,
 } from "@agent-platform/contracts";
 import { WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
-import { DISPLAY_NAME_MAX, PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
+import {
+  DISPLAY_NAME_MAX,
+  INVITE_TOKEN_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../auth/limits.ts";
 import { apiError, fakeApi, json, me } from "../test-support/fake-api.ts";
 import {
   ApiError,
@@ -25,6 +30,14 @@ describe("API client", () => {
     expect(PASSWORD_MIN_LENGTH).toBe(CONTRACT_PASSWORD_MIN_LENGTH);
     expect(DISPLAY_NAME_MAX).toBe(CONTRACT_DISPLAY_NAME_MAX);
     expect(WORKSPACE_ROLE_VALUES).toEqual(CONTRACT_ROLE_VALUES);
+    const { min, max } = INVITE_TOKEN_LENGTH;
+    for (const [length, ok] of [
+      [min - 1, false],
+      [min, true],
+      [max, true],
+      [max + 1, false],
+    ] as const)
+      expect(inviteTokenSchema.safeParse("a".repeat(length)).success).toBe(ok);
   });
 
   test("the test principal is one the server could send", () => {

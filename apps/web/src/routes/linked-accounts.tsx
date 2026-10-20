@@ -7,9 +7,10 @@ import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
-import { type ApiError, unwrap } from "../api/client.ts";
+import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -29,12 +30,11 @@ function linkRefusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
-  starting = false,
 ): string {
   if (LINK_COPY_CODES.has(error.code)) return error.message;
-  // Starting never reaches Slack, so its 503 means linking is not set up
-  // here; anywhere else it may be Slack briefly out of reach.
-  if (starting && error.code === "BACKEND_UNAVAILABLE")
+  // Slack briefly out of reach is worth another try; linking not set up on
+  // this installation never is.
+  if (error.code === "BACKEND_UNAVAILABLE" && !error.retryable)
     return t("linked.unavailable");
   if (error.code === "FORBIDDEN")
     return refusalText(t, error, "account.link", role);
@@ -55,7 +55,7 @@ export function LinkedAccountsScreen() {
     onMutate: () => setOutcome(null),
     onSuccess: ({ authorize_url }) => leave(authorize_url),
     onError: (error) =>
-      setOutcome({ kind: "error", text: linkRefusal(t, error, role, true) }),
+      setOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
   });
 
   const unlink = useMutation<unknown, ApiError, LinkedAccount>({
@@ -90,9 +90,16 @@ export function LinkedAccountsScreen() {
         {accounts.isPending ? (
           <StatusScreen kind="loading" />
         ) : accounts.error ? (
-          <p className="web-form__error" role="alert">
-            {linkRefusal(t, accounts.error as ApiError, role)}
-          </p>
+          isApiError(accounts.error, "FORBIDDEN") ? (
+            <p className="web-form__error" role="alert">
+              {linkRefusal(t, accounts.error, role)}
+            </p>
+          ) : (
+            <LoadFailure
+              error={accounts.error}
+              onRetry={() => void accounts.refetch()}
+            />
+          )
         ) : (
           <SlackAccounts
             accounts={live}

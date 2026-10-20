@@ -25,6 +25,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -106,9 +107,7 @@ export function ApiKeysScreen() {
         isApiError(keys.error, "FORBIDDEN") ? (
           <StatusScreen kind="forbidden" detail={keys.error.message} />
         ) : (
-          <p className="web-form__error" role="alert">
-            {t(errorKey((keys.error as ApiError).code))}
-          </p>
+          <LoadFailure error={keys.error} onRetry={() => void keys.refetch()} />
         )
       ) : (
         <KeyList items={keys.data.items} onOutcome={setOutcome} />
