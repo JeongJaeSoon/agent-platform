@@ -244,8 +244,9 @@ const isTestFile = (file: string) =>
  * The web app's view of the workspace: every `@agent-platform/*` package it
  * imports, and each runtime file whose contracts import carries values. The
  * bundle ships to browsers, so it takes contracts as types (no zod), calls the
- * API through packages/client, keys its cache through packages/core and draws
- * through packages/ui; nothing behind the API is reachable from it.
+ * API through packages/client, keys its cache through packages/core, takes
+ * the client from packages/react's provider and draws through packages/ui;
+ * nothing behind the API is reachable from it.
  */
 export async function webBoundaryViolations(
   directory: string,
@@ -254,6 +255,7 @@ export async function webBoundaryViolations(
     "@agent-platform/client",
     "@agent-platform/contracts",
     "@agent-platform/core",
+    "@agent-platform/react",
     "@agent-platform/ui",
   ]);
   const offenders: string[] = [];
@@ -762,7 +764,7 @@ describe("architecture", () => {
     }
   });
 
-  test("the web app imports contracts as types, packages/client, packages/core and packages/ui, nothing else of the workspace", async () => {
+  test("the web app imports contracts as types, packages/client, packages/core, packages/react and packages/ui, nothing else of the workspace", async () => {
     expect(await webBoundaryViolations(join(root, web, "src"))).toEqual([]);
     const declared = [
       ...declaredDependencies(await manifest(join(root, web))),
@@ -772,6 +774,7 @@ describe("architecture", () => {
       "@agent-platform/client",
       "@agent-platform/contracts",
       "@agent-platform/core",
+      "@agent-platform/react",
       "@agent-platform/ui",
     ]);
   });

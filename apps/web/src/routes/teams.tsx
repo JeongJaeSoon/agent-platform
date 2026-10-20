@@ -3,8 +3,9 @@ import type {
   TeamChangeResponse,
   TeamDetail,
 } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
@@ -27,7 +28,6 @@ import { MyTeams } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 function ListError({
   error,
@@ -46,7 +46,8 @@ function ListError({
 /** Teams: groups of people an owner or admin manages (design 4.7). */
 export function TeamsScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const manages = useHasPermission("team.manage");
   const teams = useQuery({ ...teamsQuery(client), enabled: manages });
@@ -158,7 +159,7 @@ export function TeamDetailScreen() {
 
 function TeamPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const team = useQuery(teamQuery(client, id));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
@@ -191,7 +192,8 @@ function TeamSettings({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const role = useRole();
   const [name, setName] = useState(team.name);
@@ -299,7 +301,8 @@ function TeamMembers({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const members = useQuery(membersQuery(client));
   const [picked, setPicked] = useState("");

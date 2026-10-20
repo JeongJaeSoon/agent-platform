@@ -1,0 +1,22 @@
+{
+  "name": "@agent-platform/react",
+  "description": "React adapter over @agent-platform/core: the provider that injects client, locale, messages and links, and hooks that wrap the core's query options",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@agent-platform/client": "workspace:*",
+    "@agent-platform/core": "workspace:*",
+    "@tanstack/react-query": "5.103.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

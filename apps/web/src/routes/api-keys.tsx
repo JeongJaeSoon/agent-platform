@@ -6,8 +6,9 @@ import type {
   RevokeApiKeyResponse,
   SessionScope,
 } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import {
@@ -30,7 +31,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 type IssueRequest = Pick<CreateApiKeyRequest, "kind" | "scopes"> & {
   agent_id?: string;
@@ -72,7 +72,7 @@ function expiryOf(day: string): string | undefined {
  */
 export function ApiKeysScreen() {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const keys = useQuery(apiKeysQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [issued, setIssued] = useState<CreateApiKeyResponse | null>(null);
@@ -237,7 +237,8 @@ function useIssue(
   onOutcome: (outcome: Outcome | null) => void,
 ) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   return useMutation<
     CreateApiKeyResponse,
@@ -339,7 +340,7 @@ function useBindableAgents(): {
   readonly pending: boolean;
   readonly error: ApiError | null;
 } {
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const everywhere = useHasPermission("api_key.manage");
   const all = useQuery({ ...agentsQuery(client), enabled: everywhere });
   const mine = useQuery({
@@ -469,7 +470,8 @@ function KeyList({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const { agents } = useBindableAgents();
   const [confirming, setConfirming] = useState<ApiKeyView | null>(null);

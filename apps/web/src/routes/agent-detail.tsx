@@ -7,8 +7,9 @@ import type {
   CreateAgentReleaseResponse,
   ProfileSummary,
 } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
 import {
   type FormEvent,
@@ -34,7 +35,6 @@ import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 import { agentRefusal } from "./agents.tsx";
 
 export interface AgentSearch {
@@ -76,7 +76,7 @@ export function AgentDetailScreen() {
 function AgentDetailPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const search = useSearch({ from: "/authed/agents/$id" });
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const detail = useQuery(agentQuery(client, id));
   const [placed, setPlaced] = useState<Placed | null>(() =>
     search.notice === "created"
@@ -134,7 +134,8 @@ function AgentView({
   const onOutcome = outcomeAt("releases");
   // Until a version is picked or saved the release form offers the latest.
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const { agent } = detail;
@@ -350,7 +351,8 @@ function CardEditor({
   readonly onSaved: (versionId: string) => void;
 }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const latest = latestVersion(detail);
   // The edit is tied to the version it started from, not to whatever a
@@ -681,7 +683,8 @@ function Releases({
   readonly onActivate: (release: AgentRelease) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const titleId = useId();
   const latest = latestVersion(detail);
