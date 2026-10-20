@@ -17,6 +17,18 @@ async function accept(password = "correct horse battery", name = "") {
 }
 
 describe("초대 수락", () => {
+  test("이름 칸이 비밀번호 칸보다 먼저 나온다(Tab 순서도 같다)", async () => {
+    renderAt(`/invite/${"t".repeat(43)}`, { "GET /v1/auth/me": signedOut });
+    const name = await screen.findByLabelText("이름");
+    const secret = screen.getByLabelText("비밀번호");
+    expect(
+      name.compareDocumentPosition(secret) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(document.querySelector("[tabindex]:not([tabindex='-1'])")).toBe(
+      null,
+    );
+  });
+
   test("로그인 전에는 비밀번호로 수락하고, 수락하면 워크스페이스로 들어간다", async () => {
     let accepted = false;
     const { api, history } = renderAt(`/invite/${TOKEN}`, {

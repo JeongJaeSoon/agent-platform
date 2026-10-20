@@ -4,7 +4,6 @@ import { type FormEvent, useId, useState } from "react";
 import { type ApiError, unwrap } from "../api/client.ts";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { Main } from "../components/main.tsx";
-import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
@@ -76,7 +75,13 @@ export function BootstrapScreen() {
   const create = useMutation<unknown, ApiError>({
     meta: { public: true },
     mutationFn: () => unwrap(client.POST("/v1/auth/bootstrap", { body: form })),
-    onSuccess: () => navigate({ to: "/login", search: { notice: "created" } }),
+    onSuccess: () =>
+      navigate({
+        to: "/login",
+        search: { notice: "created" },
+        // History state, not the URL: the address stays free of the email.
+        state: (prev) => ({ ...prev, loginEmail: form.email }),
+      }),
     onError: async (error) => {
       if (error.code === "BOOTSTRAP_DONE") {
         await navigate({ to: "/login", search: { notice: "bootstrap_done" } });
@@ -98,7 +103,6 @@ export function BootstrapScreen() {
   return (
     <Main className="web-auth">
       <h1 className="web-auth__title">{t("bootstrap.title")}</h1>
-      <StatusScreen kind="bootstrap-required" action={false} />
       <p className="web-auth__intro">{t("bootstrap.intro")}</p>
       <form className="web-form" onSubmit={submit}>
         {FIELDS.map((field) => {

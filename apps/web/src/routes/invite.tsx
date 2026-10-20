@@ -142,6 +142,16 @@ function AcceptForm({ token }: { readonly token: string }) {
     <form className="web-form" onSubmit={submit}>
       <p className="web-auth__intro">{t("invite.intro")}</p>
       <TextField
+        label={t("invite.displayName")}
+        hint={t("invite.displayNameHint")}
+        type="text"
+        name="name"
+        autoComplete="name"
+        maxLength={DISPLAY_NAME_MAX}
+        value={displayName}
+        onChange={(event) => setDisplayName(event.target.value)}
+      />
+      <TextField
         label={t("invite.password")}
         hint={t("invite.passwordHint", { min: PASSWORD_MIN_LENGTH })}
         type="password"
@@ -151,16 +161,6 @@ function AcceptForm({ token }: { readonly token: string }) {
         minLength={PASSWORD_MIN_LENGTH}
         value={password}
         onChange={(event) => setPassword(event.target.value)}
-      />
-      <TextField
-        label={t("invite.displayName")}
-        hint={t("invite.displayNameHint")}
-        type="text"
-        name="name"
-        autoComplete="name"
-        maxLength={DISPLAY_NAME_MAX}
-        value={displayName}
-        onChange={(event) => setDisplayName(event.target.value)}
       />
       {accept.error ? (
         <p className="web-form__error" role="alert">
