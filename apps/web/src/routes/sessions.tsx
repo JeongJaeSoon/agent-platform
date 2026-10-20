@@ -2,7 +2,7 @@ import type { SessionDetail } from "@agent-platform/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
-import { type ApiError, isApiError } from "../api/client.ts";
+import { isApiError } from "../api/client.ts";
 import { profilesQuery } from "../api/queries.ts";
 import {
   permissionReason,
@@ -11,9 +11,10 @@ import {
   useCan,
   useRole,
 } from "../auth/guard.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 import {
   useChangeSessionProfile,
@@ -31,16 +32,17 @@ import {
   SessionUsagePanel,
 } from "../sessions/views.tsx";
 
-function LoadError({ error }: { readonly error: unknown }) {
-  const { t } = useI18n();
+function LoadError({
+  error,
+  onRetry,
+}: {
+  readonly error: unknown;
+  readonly onRetry: () => void;
+}) {
   if (isApiError(error, "FORBIDDEN")) {
-    return <StatusScreen kind="forbidden" detail={error.message} />;
+    return <StatusScreen kind="forbidden" />;
   }
-  return (
-    <p className="web-form__error" role="alert">
-      {t(errorKey((error as ApiError).code))}
-    </p>
-  );
+  return <LoadFailure error={error} onRetry={onRetry} />;
 }
 
 /** The caller's own sessions; the API lists nobody else's. */
@@ -55,14 +57,26 @@ export function SessionsScreen() {
       {sessions.isPending ? (
         <StatusScreen kind="loading" />
       ) : sessions.error && items.length === 0 ? (
-        <LoadError error={sessions.error} />
+        <LoadError
+          error={sessions.error}
+          onRetry={() => void sessions.refetch()}
+        />
       ) : items.length === 0 ? (
         <p className="web-page__empty">{t("sessions.empty")}</p>
       ) : (
         <>
           <SessionTable sessions={items} />
-          {sessions.error ? <LoadError error={sessions.error} /> : null}
-          {sessions.hasNextPage ? (
+          {sessions.error ? (
+            <LoadError
+              error={sessions.error}
+              onRetry={() =>
+                void (sessions.isFetchNextPageError
+                  ? sessions.fetchNextPage()
+                  : sessions.refetch())
+              }
+            />
+          ) : null}
+          {sessions.hasNextPage && !sessions.isFetchNextPageError ? (
             <button
               type="button"
               className="ap-button"
@@ -113,7 +127,10 @@ export function SessionDetailScreen() {
             {t("session.notFound")}
           </p>
         ) : (
-          <LoadError error={session.error} />
+          <LoadError
+            error={session.error}
+            onRetry={() => void session.refetch()}
+          />
         )
       ) : (
         <>
@@ -122,12 +139,18 @@ export function SessionDetailScreen() {
           {usage.data ? (
             <SessionUsagePanel usage={usage.data} />
           ) : usage.error ? (
-            <LoadError error={usage.error} />
+            <LoadError
+              error={usage.error}
+              onRetry={() => void usage.refetch()}
+            />
           ) : null}
           {pending.data ? (
             <PendingRequestList items={pending.data.items} />
           ) : pending.error ? (
-            <LoadError error={pending.error} />
+            <LoadError
+              error={pending.error}
+              onRetry={() => void pending.refetch()}
+            />
           ) : null}
           <SessionEventList events={events.events} state={events.state} />
         </>
@@ -204,7 +227,10 @@ function SessionProfile({ session }: { readonly session: SessionDetail }) {
       {profiles.isPending ? (
         <StatusScreen kind="loading" />
       ) : profiles.error ? (
-        <LoadError error={profiles.error} />
+        <LoadError
+          error={profiles.error}
+          onRetry={() => void profiles.refetch()}
+        />
       ) : choices.length === 0 ? (
         <p className="web-page__empty">
           {current ? t("session.profile.none") : t("session.profile.unknown")}

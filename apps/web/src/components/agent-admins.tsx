@@ -23,8 +23,9 @@ import {
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
-import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
+import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { StatusScreen } from "./status-screen.tsx";
 
@@ -71,9 +72,10 @@ export function AgentAdmins({
       ) : administered.isPending && !everywhere ? (
         <StatusScreen kind="loading" />
       ) : administered.error ? (
-        <p className="web-form__error" role="alert">
-          {t(errorKey((administered.error as ApiError).code))}
-        </p>
+        <LoadFailure
+          error={administered.error}
+          onRetry={() => void administered.refetch()}
+        />
       ) : (
         <p className="web-guarded__reason">
           {permissionReason(t, "agent.admin.manage", role)}
@@ -160,9 +162,7 @@ function AdminList({
     return isApiError(admins.error, "FORBIDDEN") ? (
       <p className="web-guarded__reason">{reason}</p>
     ) : (
-      <p className="web-form__error" role="alert">
-        {t(errorKey((admins.error as ApiError).code))}
-      </p>
+      <LoadFailure error={admins.error} onRetry={() => void admins.refetch()} />
     );
   }
 
@@ -366,9 +366,10 @@ export function AdministeredAgents({
     <section className="web-section" aria-labelledby={titleId}>
       <h2 id={titleId}>{t("agentAdmins.mine.title")}</h2>
       {administered.error ? (
-        <p className="web-form__error" role="alert">
-          {t(errorKey((administered.error as ApiError).code))}
-        </p>
+        <LoadFailure
+          error={administered.error}
+          onRetry={() => void administered.refetch()}
+        />
       ) : items.length === 0 ? (
         <p className="web-page__empty">{t("agentAdmins.mine.empty")}</p>
       ) : (

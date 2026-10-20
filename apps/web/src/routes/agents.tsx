@@ -8,7 +8,7 @@ import { agentsQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
-  usePermissionReason,
+  useHasPermission,
   useRole,
 } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
@@ -18,7 +18,8 @@ import {
   cardFromDraft,
   EMPTY_DRAFT,
 } from "../components/agent-card-form.tsx";
-import { TextField } from "../components/field.tsx";
+import { slugInput, TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
@@ -38,7 +39,7 @@ export function agentRefusal(
   role: string | undefined,
 ): string {
   if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, "agent.manage", role)} ${error.message}`;
+    return permissionReason(t, "agent.manage", role);
   const model =
     error.code === "UNSUPPORTED_CAPABILITY"
       ? MODEL_REFUSAL.exec(error.message)
@@ -57,33 +58,42 @@ export function AgentsScreen() {
   const { t, locale } = useI18n();
   const { client } = useServices();
   const navigate = useNavigate();
+  const role = useRole();
   const agents = useQuery(agentsQuery(client));
-  const reason = usePermissionReason("agent.manage", agents);
+  // Making an agent needs less than listing them all: a member makes one and
+  // becomes its admin.
+  const reason = useHasPermission("agent.create")
+    ? undefined
+    : permissionReason(t, "agent.create", role);
+  const failed = agents.isError && !isApiError(agents.error, "FORBIDDEN");
 
   return (
     <div className="web-page">
       <div className="web-page__head">
         <h1 className="web-page__title">{t("agents.title")}</h1>
-        <ReasonButton
-          className="ap-button ap-button--primary"
-          reason={reason}
-          onClick={() => void navigate({ to: "/agents/new" })}
-        >
-          {t("agents.new")}
-        </ReasonButton>
+        {failed ? null : (
+          <ReasonButton
+            className="ap-button ap-button--primary"
+            reason={reason}
+            onClick={() => void navigate({ to: "/agents/new" })}
+          >
+            {t("agents.new")}
+          </ReasonButton>
+        )}
       </div>
       {agents.isPending ? (
         <StatusScreen kind="loading" />
       ) : agents.error ? (
         isApiError(agents.error, "FORBIDDEN") ? (
           <>
-            <StatusScreen kind="forbidden" detail={agents.error.message} />
+            <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
         ) : (
-          <p className="web-form__error" role="alert">
-            {t(errorKey((agents.error as ApiError).code))}
-          </p>
+          <LoadFailure
+            error={agents.error}
+            onRetry={() => void agents.refetch()}
+          />
         )
       ) : agents.data.items.length === 0 ? (
         <p className="web-page__empty">{t("agents.empty")}</p>
@@ -194,8 +204,7 @@ export function NewAgentScreen() {
           label={t("agents.slug")}
           hint={t("agents.slugHint")}
           required
-          maxLength={64}
-          pattern="[a-z0-9][a-z0-9\-]*"
+          {...slugInput(t("field.slugFormat"))}
           value={slug}
           onChange={(event) => setSlug(event.target.value)}
         />

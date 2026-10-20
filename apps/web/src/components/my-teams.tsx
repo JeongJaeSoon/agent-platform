@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
-import { type ApiError, isApiError } from "../api/client.ts";
+import { isApiError } from "../api/client.ts";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
-import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
+import { LoadFailure } from "./load-failure.tsx";
 
 /**
  * The teams the viewer is in. A team links to its page only for those who
@@ -32,9 +33,7 @@ export function MyTeams({
     <section className="web-section" aria-labelledby={titleId}>
       <h2 id={titleId}>{t("teams.mine.title")}</h2>
       {teams.error ? (
-        <p className="web-form__error" role="alert">
-          {t(errorKey((teams.error as ApiError).code))}
-        </p>
+        <LoadFailure error={teams.error} onRetry={() => void teams.refetch()} />
       ) : items.length === 0 ? (
         <p className="web-page__empty">{t("teams.mine.empty")}</p>
       ) : (

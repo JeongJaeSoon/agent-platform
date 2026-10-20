@@ -6,9 +6,8 @@ import type {
 } from "@agent-platform/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { type ButtonHTMLAttributes, useId } from "react";
-import { ApiError, isApiError } from "../api/client.ts";
+import { type ApiError, isApiError } from "../api/client.ts";
 import { meQuery } from "../api/queries.ts";
-import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
   isMessageKey,
@@ -110,13 +109,24 @@ export function ReasonButton({
   );
 }
 
-export function ForbiddenNotice({ error }: { readonly error: unknown }) {
-  const detail = error instanceof ApiError ? error.message : undefined;
-  return <StatusScreen kind="forbidden" detail={detail} />;
-}
-
-/** Management powers the server checks by role, not by session scope. */
-export type ManagedPermission = AuthorizationAction;
+/**
+ * Management powers the server checks by role, not by session scope: the
+ * ones a screen withholds, each with words in the catalog (`permission.*`).
+ */
+export type ManagedPermission = Extract<
+  AuthorizationAction,
+  | "member.manage"
+  | "team.manage"
+  | "agent.create"
+  | "agent.manage"
+  | "agent.admin.manage"
+  | "api_key.manage"
+  | "api_key.manage_own"
+  | "audit_retention.manage"
+  | "workspace.manage"
+  | "session.control"
+  | "account.link"
+>;
 
 /**
  * Why a management action is withheld, or undefined when it is not.
@@ -144,9 +154,13 @@ export function permissionReason(
   permission: ManagedPermission,
   role: string | undefined,
 ): string {
+  const named = t(`permission.${permission}`);
   return role === undefined
-    ? t("guard.missingPermission", { permission })
-    : t("guard.missingPermissionAs", { permission, role: roleLabel(t, role) });
+    ? t("guard.missingPermission", { permission: named })
+    : t("guard.missingPermissionAs", {
+        permission: named,
+        role: roleLabel(t, role),
+      });
 }
 
 /** A role's name; one this build has no words for is shown as the server sent it. */
@@ -157,7 +171,8 @@ export function roleLabel(t: Translate, role: string): string {
 
 /**
  * What a refused management call says: a 403 reads like the reason on the
- * disabled button, followed by the server's own sentence.
+ * disabled button. The server's sentence is English and names the action's
+ * identifier, so it stays off the page.
  */
 export function refusalText(
   t: Translate,
@@ -165,7 +180,6 @@ export function refusalText(
   permission: ManagedPermission,
   role: string | undefined,
 ): string {
-  if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, permission, role)} ${error.message}`;
+  if (error.code === "FORBIDDEN") return permissionReason(t, permission, role);
   return t(errorKey(error.code));
 }

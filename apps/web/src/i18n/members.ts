@@ -53,6 +53,8 @@ export const membersKo = {
   "members.invites.revokeConsequence":
     "보낸 링크로는 더 가입할 수 없습니다. 다시 초대하려면 새 링크를 만들어 보내야 합니다.",
   "members.invites.revoked": "{email} 초대를 회수했습니다.",
+  "members.withheld":
+    "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
 };
 
 export const membersEn: Record<keyof typeof membersKo, string> = {
@@ -110,4 +112,5 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invites.revokeConsequence":
     "The link you sent stops working. To invite them again, create and send a new link.",
   "members.invites.revoked": "The invite for {email} is revoked.",
+  "members.withheld": "Workspace owners and admins invite and manage members.",
 };

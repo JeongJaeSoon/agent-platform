@@ -25,6 +25,8 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { copyText } from "../components/copy.ts";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -44,7 +46,8 @@ function keyRefusal(
   permission: ManagedPermission,
   role: string | undefined,
 ): string {
-  if (error.code === "SCOPE_NOT_GRANTABLE" || error.code === "BAD_REQUEST")
+  // A 403 (SCOPE_NOT_GRANTABLE) falls through: its sentence names scopes.
+  if (error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
   return refusalText(t, error, permission, role);
 }
@@ -104,11 +107,9 @@ export function ApiKeysScreen() {
         <StatusScreen kind="loading" />
       ) : keys.error ? (
         isApiError(keys.error, "FORBIDDEN") ? (
-          <StatusScreen kind="forbidden" detail={keys.error.message} />
+          <StatusScreen kind="forbidden" />
         ) : (
-          <p className="web-form__error" role="alert">
-            {t(errorKey((keys.error as ApiError).code))}
-          </p>
+          <LoadFailure error={keys.error} onRetry={() => void keys.refetch()} />
         )
       ) : (
         <KeyList items={keys.data.items} onOutcome={setOutcome} />
@@ -131,10 +132,6 @@ function IssuedSecret({
   useEffect(() => {
     secretRef.current?.focus();
   }, []);
-  const copyFailed = () => {
-    setCopy("failed");
-    secretRef.current?.focus();
-  };
   return (
     <section
       className="web-status"
@@ -162,11 +159,9 @@ function IssuedSecret({
           type="button"
           className="ap-button"
           onClick={() => {
-            const clipboard = globalThis.navigator?.clipboard;
-            if (!clipboard) return copyFailed();
-            clipboard
-              .writeText(issued.secret)
-              .then(() => setCopy("copied"), copyFailed);
+            void copyText(issued.secret, secretRef).then((copied) =>
+              setCopy(copied ? "copied" : "failed"),
+            );
           }}
         >
           {copy === "copied" ? t("apiKeys.copied") : t("apiKeys.copy")}
@@ -361,7 +356,6 @@ function useBindableAgents(): {
 
 function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
   const { t } = useI18n();
-  const role = useRole();
   const held = useMe()?.scopes ?? [];
   const workspaceWide = useHasPermission("api_key.manage");
   const { agents, pending, error: agentsError } = useBindableAgents();
@@ -409,6 +403,9 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
         ? t("apiKeys.agentNeedsScope")
         : undefined;
 
+  // Someone who administers no agent has no service key to issue (design 4.1).
+  if (!workspaceWide && agents.length === 0 && !agentsError) return null;
+
   return (
     <section className="web-section" aria-labelledby={titleId}>
       <h2 id={titleId}>{t("apiKeys.service")}</h2>
@@ -423,18 +420,16 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
           withheld={AGENT_KEY_WITHHELD}
         />
         <ExpiryField value={expires} onChange={setExpires} />
-        <ReasonButton
-          className="ap-button"
-          reason={
-            workspaceWide
-              ? undefined
-              : permissionReason(t, "api_key.manage", role)
-          }
-          disabled={issue.blocked || grantable(false).length === 0}
-          onClick={(event) => send(undefined, event.currentTarget.form)}
-        >
-          {t("apiKeys.issueWorkspace")}
-        </ReasonButton>
+        {workspaceWide ? (
+          <button
+            type="button"
+            className="ap-button"
+            disabled={issue.blocked || grantable(false).length === 0}
+            onClick={(event) => send(undefined, event.currentTarget.form)}
+          >
+            {t("apiKeys.issueWorkspace")}
+          </button>
+        ) : null}
         <label className="web-field" htmlFor={agentFieldId}>
           <span>{t("apiKeys.agent")}</span>
           <select

@@ -5,19 +5,22 @@ import type {
 } from "@agent-platform/contracts";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
   roleLabel,
+  useHasPermission,
   useMe,
   usePermissionReason,
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
+import { copyText } from "../components/copy.ts";
 import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { TableScroll } from "../components/table-scroll.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -37,17 +40,29 @@ type Outcome =
  */
 function refusal(t: Translate, error: ApiError, role: string | undefined) {
   if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, "member.manage", role)} ${error.message}`;
+    return permissionReason(t, "member.manage", role);
   return t(errorKey(error.code));
 }
 
 export function MembersScreen() {
   const { t } = useI18n();
   const { client } = useServices();
-  const members = useQuery(membersQuery(client));
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
+  // The list is also the permission probe: when it failed, nobody knows.
+  const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
+
+  if (!manages) {
+    return (
+      <div className="web-page">
+        <h1 className="web-page__title">{t("members.title")}</h1>
+        <p className="web-page__intro">{t("members.withheld")}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="web-page">
@@ -61,22 +76,25 @@ export function MembersScreen() {
           <output className="web-notice">{outcome.text}</output>
         )
       ) : null}
-      <InviteForm
-        reason={reason}
-        members={members.data?.items ?? []}
-        onOutcome={setOutcome}
-      />
+      {failed ? null : (
+        <InviteForm
+          reason={reason}
+          members={members.data?.items ?? []}
+          onOutcome={setOutcome}
+        />
+      )}
       <section className="web-section" aria-labelledby={titleId}>
         <h2 id={titleId}>{t("members.listTitle")}</h2>
         {members.isPending ? (
           <StatusScreen kind="loading" />
         ) : members.error ? (
           isApiError(members.error, "FORBIDDEN") ? (
-            <StatusScreen kind="forbidden" detail={members.error.message} />
+            <StatusScreen kind="forbidden" />
           ) : (
-            <p className="web-form__error" role="alert">
-              {t(errorKey((members.error as ApiError).code))}
-            </p>
+            <LoadFailure
+              error={members.error}
+              onRetry={() => void members.refetch()}
+            />
           )
         ) : (
           <MemberTable items={members.data.items} onOutcome={setOutcome} />
@@ -105,6 +123,7 @@ function InviteForm({
   const [link, setLink] = useState<{ url: string; expires: string } | null>(
     null,
   );
+  const linkRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
 
   const invite = useMutation<
@@ -198,6 +217,7 @@ function InviteForm({
           <label className="web-field">
             <span>{t("members.invite.link")}</span>
             <input
+              ref={linkRef}
               className="ap-input"
               type="text"
               readOnly
@@ -214,20 +234,12 @@ function InviteForm({
             type="button"
             className="ap-button"
             onClick={() => {
-              const copyFailed = () =>
-                onOutcome({
-                  kind: "error",
-                  text: t("members.invite.copyFailed"),
-                });
-              // Absent outside a secure context (plain http).
-              if (!navigator.clipboard) return copyFailed();
-              void navigator.clipboard.writeText(link.url).then(
-                () =>
-                  onOutcome({
-                    kind: "notice",
-                    text: t("members.invite.copied"),
-                  }),
-                copyFailed,
+              void copyText(link.url, linkRef).then((copied) =>
+                onOutcome(
+                  copied
+                    ? { kind: "notice", text: t("members.invite.copied") }
+                    : { kind: "error", text: t("members.invite.copyFailed") },
+                ),
               );
             }}
           >
@@ -512,9 +524,16 @@ function InviteList({
       {invites.isPending ? (
         <StatusScreen kind="loading" />
       ) : invites.error ? (
-        <p className="web-form__error" role="alert">
-          {refusal(t, invites.error as ApiError, role)}
-        </p>
+        isApiError(invites.error, "FORBIDDEN") ? (
+          <p className="web-form__error" role="alert">
+            {refusal(t, invites.error, role)}
+          </p>
+        ) : (
+          <LoadFailure
+            error={invites.error}
+            onRetry={() => void invites.refetch()}
+          />
+        )
       ) : pending.length === 0 ? (
         <p className="web-page__empty">{t("members.invites.empty")}</p>
       ) : (

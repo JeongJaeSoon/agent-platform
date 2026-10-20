@@ -92,6 +92,18 @@ const trackedTimers = {
   queueMicrotask: runtime.queueMicrotask,
 };
 
+/*
+ * React's scheduler posts its work loop as an immediate and counts the loop as
+ * running until it fires. Cancelling it left that mark set, and the next file
+ * never rendered an update made outside act() again; firing it after
+ * unregister reaches for a window that is gone. So it runs out here, while the
+ * window lives, and only a loop that will not settle is cancelled.
+ */
+async function drainImmediates() {
+  for (let round = 0; round < 50 && pendingImmediates.size > 0; round++)
+    await new Promise((resolve) => runtime.setImmediate(resolve));
+}
+
 function cancelPendingTimers() {
   for (const id of pendingTimeouts) runtime.clearTimeout(id as never);
   for (const id of pendingImmediates) runtime.clearImmediate(id as never);
@@ -127,6 +139,7 @@ export async function setupDom({
   afterAll(async () => {
     if (!registered) return;
     registered = false;
+    await drainImmediates();
     cancelPendingTimers();
     await GlobalRegistrator.unregister();
   });

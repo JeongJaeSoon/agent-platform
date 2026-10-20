@@ -10,12 +10,13 @@ import {
   json,
   me,
   memberMe,
+  RECEIPT_ID,
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const OTHER_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
 const GONE_ID = "3d8f2e5b-6c7a-4b9f-8e1d-2f3a4b5c6d7e";
@@ -207,7 +208,7 @@ describe("구성원 화면", () => {
       ...noInvites,
       [`POST /v1/members/${GONE_ID}/enable`]: () => {
         current = { ...gone, disabled_at: null };
-        return json(200, { member: current, receipt_id: "r-1" });
+        return json(200, { member: current, receipt_id: RECEIPT_ID });
       },
     });
     const user = await setupUser();
@@ -303,36 +304,59 @@ describe("구성원 화면", () => {
     expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 
-  test("초대 링크를 복사하지 못하면 직접 복사하라고 알린다", async () => {
-    renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/members": () => json(200, { items: [owner] }),
-      ...noInvites,
-      "POST /v1/invites": () =>
-        json(201, {
-          invite_id: pendingInvite.id,
-          invite_token: "k".repeat(43),
-          expires_at: "2026-10-18T00:00:00.000Z",
-        }),
-    });
-    const user = await setupUser();
-    const writeText = navigator.clipboard.writeText;
-    navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
-    try {
+  for (const [why, clipboard] of [
+    [
+      "클립보드가 거부하면",
+      {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    ],
+    ["클립보드가 없으면(비보안 컨텍스트)", undefined],
+  ] as const) {
+    test(`${why} 직접 복사하라고 알리고 링크 칸을 선택해 둔다`, async () => {
+      renderAt("/members", {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/members": () => json(200, { items: [owner] }),
+        ...noInvites,
+        "POST /v1/invites": () =>
+          json(201, {
+            invite_id: pendingInvite.id,
+            invite_token: "k".repeat(43),
+            expires_at: "2026-10-18T00:00:00.000Z",
+          }),
+      });
+      const user = await setupUser();
       await user.type(await screen.findByLabelText("이메일"), "n@example.com");
       await user.click(
         screen.getByRole("button", { name: "초대 링크 만들기" }),
       );
-      await user.click(
-        await screen.findByRole("button", { name: "링크 복사" }),
-      );
-      expect((await screen.findByRole("alert")).textContent).toBe(
-        "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
-      );
-    } finally {
-      navigator.clipboard.writeText = writeText;
-    }
-  });
+      const copyButton = await screen.findByRole("button", {
+        name: "링크 복사",
+      });
+      const field = screen.getByLabelText<HTMLInputElement>("초대 링크");
+      const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: clipboard,
+      });
+      try {
+        // The refusal settles after the click returns; act flushes it.
+        await act(async () => copyButton.click());
+        expect((await screen.findByRole("alert")).textContent).toBe(
+          "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
+        );
+        expect(document.activeElement).toBe(field);
+        expect(
+          field.value.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0),
+        ).toBe(field.value);
+      } finally {
+        if (original) Object.defineProperty(navigator, "clipboard", original);
+        else Reflect.deleteProperty(navigator, "clipboard");
+      }
+    });
+  }
 });
 
 describe("되돌리기 어려운 동작의 확인", () => {
@@ -421,22 +445,22 @@ describe("권한", () => {
   const forbidden = () =>
     apiError(403, "FORBIDDEN", "This principal does not hold member.manage");
 
-  test("관리 권한이 없으면 초대 버튼을 숨기지 않고 끈 채 이유를 적는다", async () => {
+  test("관리 권한이 없으면 초대 폼 대신 안내 한 줄만 보이고 서버에 묻지 않는다", async () => {
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/members": forbidden,
     });
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("이 화면을 볼 권한이 없습니다");
-    expect(alert.textContent).toContain("does not hold member.manage");
-    const button = screen.getByRole("button", { name: "초대 링크 만들기" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    const reason = document.getElementById(
-      button.getAttribute("aria-describedby") ?? "",
-    );
-    expect(reason?.textContent).toBe(
-      "member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
-    );
+    expect(
+      await screen.findByText(
+        "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: "초대 링크 만들기" }),
+    ).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain("member.manage");
+    expect(api.calls.some((c) => c.path.startsWith("/v1/members"))).toBe(false);
     expect(api.calls.some((c) => c.path === "/v1/invites")).toBe(false);
   });
 
@@ -451,7 +475,7 @@ describe("권한", () => {
     await changeRole(user, "Mate의 역할", "owner");
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe(
-      "member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. This principal does not hold member.manage",
+      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });
 

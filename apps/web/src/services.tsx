@@ -1,3 +1,4 @@
+import type { RetryTiming } from "@agent-platform/client";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext } from "react";
 import {
@@ -10,6 +11,8 @@ import {
 export interface Services {
   readonly client: ApiClient;
   readonly queryClient: QueryClient;
+  /** Reconnect timing of session event streams; tests shorten it. */
+  readonly eventRetry?: RetryTiming;
   /** Set by the app once its router exists; a 401 anywhere calls it. */
   onUnauthorized: () => void;
   /** Leaves the app for another site (an identity provider's consent page). */
@@ -22,10 +25,19 @@ export interface Services {
  * is gone: cached data would keep showing the old identity otherwise.
  */
 export function createServices(
-  options: ApiClientOptions & { readonly leave?: (url: string) => void } = {},
+  options: ApiClientOptions & {
+    readonly leave?: (url: string) => void;
+    readonly eventRetry?: RetryTiming;
+  } = {},
 ): Services {
   const services: Services = {
-    client: createApiClient(options),
+    // Production REST validators arrive with the shared schemas package;
+    // until then "warn" checks the event stream's envelopes.
+    client: createApiClient({
+      validate: import.meta.env.DEV ? "strict" : "warn",
+      ...options,
+    }),
+    ...(options.eventRetry ? { eventRetry: options.eventRetry } : {}),
     queryClient: new QueryClient({
       queryCache: new QueryCache({
         onError: (error) => {

@@ -23,7 +23,12 @@ export const commonKo = {
   "role.admin": "관리자",
   "role.member": "구성원",
 
-  "status.loading.title": "로그인 상태를 확인하는 중입니다",
+  "status.loading.title": "불러오는 중입니다",
+  "status.checkingLogin.title": "로그인 상태를 확인하는 중입니다",
+  "status.notFound.title": "찾을 수 없는 화면입니다",
+  "status.notFound.body": "주소가 바뀌었거나 없는 화면입니다.",
+  "status.notFound.action": "홈으로",
+  "status.loadFailed": "불러오지 못했습니다",
   "status.loginRequired.title": "다시 로그인하세요",
   "status.loginRequired.body":
     "로그아웃됐거나 이 계정으로는 더 이상 로그인할 수 없습니다.",
@@ -37,11 +42,26 @@ export const commonKo = {
   "status.bootstrapRequired.action": "첫 소유자 만들기",
   "status.error.title": "문제가 생겼습니다",
 
+  "field.slugFormat":
+    "영어 소문자·숫자·하이픈(-)만 쓰고, 소문자나 숫자로 시작하세요. 예: my-team",
+
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",
   "guard.missingPermission": "{permission} 권한이 있어야 할 수 있습니다.",
   "guard.missingPermissionAs":
     "{permission} 권한이 있어야 할 수 있습니다. 지금 역할: {role}.",
+
+  "permission.member.manage": "구성원 관리",
+  "permission.team.manage": "팀 관리",
+  "permission.agent.create": "에이전트 만들기",
+  "permission.agent.manage": "에이전트 관리",
+  "permission.agent.admin.manage": "에이전트 관리자 지정",
+  "permission.api_key.manage": "서비스 key 발급",
+  "permission.api_key.manage_own": "개인 key 발급",
+  "permission.audit_retention.manage": "감사 기록 보존 기간 변경",
+  "permission.workspace.manage": "워크스페이스 설정 변경",
+  "permission.session.control": "세션 제어",
+  "permission.account.link": "계정 연동",
 };
 
 export const commonEn: Record<keyof typeof commonKo, string> = {
@@ -69,7 +89,12 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "role.admin": "Admin",
   "role.member": "Member",
 
-  "status.loading.title": "Checking your login",
+  "status.loading.title": "Loading",
+  "status.checkingLogin.title": "Checking your login",
+  "status.notFound.title": "Page not found",
+  "status.notFound.body": "The address changed, or there is no such page.",
+  "status.notFound.action": "Go home",
+  "status.loadFailed": "Could not load this",
   "status.loginRequired.title": "Log in again",
   "status.loginRequired.body":
     "You were logged out, or this account can no longer log in.",
@@ -83,9 +108,24 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "status.bootstrapRequired.action": "Create the first owner",
   "status.error.title": "Something went wrong",
 
+  "field.slugFormat":
+    "Use lowercase letters, digits and hyphens (-), starting with a letter or digit. Example: my-team",
+
   "guard.missingScope": "You need the {scope} permission for this.",
   "guard.checking": "Checking permissions.",
   "guard.missingPermission": "You need the {permission} permission for this.",
   "guard.missingPermissionAs":
     "You need the {permission} permission for this. Your role: {role}.",
+
+  "permission.member.manage": "member management",
+  "permission.team.manage": "team management",
+  "permission.agent.create": "agent creation",
+  "permission.agent.manage": "agent management",
+  "permission.agent.admin.manage": "agent admin assignment",
+  "permission.api_key.manage": "service key",
+  "permission.api_key.manage_own": "personal key",
+  "permission.audit_retention.manage": "audit retention",
+  "permission.workspace.manage": "workspace settings",
+  "permission.session.control": "session control",
+  "permission.account.link": "account linking",
 };

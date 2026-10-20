@@ -75,7 +75,7 @@ body {
 }
 
 /* Tailwind's preflight strips link styling; a link must still look like one. */
-.web-auth a,
+.web-auth a:not(.ap-button),
 .web-shell__main a:not(.ap-button) {
   color: var(--ap-color-accent);
   text-decoration: underline;
@@ -184,15 +184,8 @@ select:focus-visible,
   align-items: center;
   gap: var(--ap-space-2);
 }
-.web-status__body,
-.web-status__detail {
+.web-status__body {
   margin: 0;
-}
-.web-status__detail {
-  color: var(--ap-color-muted-foreground);
-  font-family: var(--ap-font-mono);
-  font-size: var(--ap-text-sm);
-  overflow-wrap: anywhere;
 }
 
 .web-spinner {
