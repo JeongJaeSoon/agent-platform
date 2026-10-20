@@ -226,7 +226,9 @@ worker:
   nodeSelector: {}
   tolerations: []
   cpus: 1
-  memoryMb: 2048
+  # Requests equal limits on worker pods; sized so a resumed engine holding
+  # a transcript at the 800 MiB checkpoint limit stays under half of it.
+  memoryMb: 6144
   workspace:
     quotaMb: 4096
     gcMinAgeSec: 3600

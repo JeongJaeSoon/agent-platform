@@ -90,9 +90,12 @@ export function schedulerConfigFromEnv(
     resources: {
       cpus: cpuShare(environment),
       memoryBytes:
+        // A resumed engine holds about twice a transcript with no
+        // compaction in it; this keeps one at MAX_TRANSCRIPT_BYTES under
+        // half the limit (spikes/94s-667).
         integerSetting(environment, "WORKER_MEMORY_MB", {
           min: 1,
-          default: 2048,
+          default: 6144,
         }) *
         1024 *
         1024,
