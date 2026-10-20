@@ -119,7 +119,7 @@ describe("API client", () => {
         "API contract mismatch",
         {
           operation: "GET /v1/auth/me",
-          issues: [{ path: "added_later", message: "unrecognized_keys" }],
+          issues: [{ path: "*", message: "unrecognized_keys" }],
         },
       ],
     ]);

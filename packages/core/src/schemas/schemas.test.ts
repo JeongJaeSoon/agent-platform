@@ -153,7 +153,7 @@ test("a contract-shaped answer passes strict without a warning", async () => {
   expect(warnings).toEqual([]);
 });
 
-test("warn hands back an answer with an unknown key as it came and names only the key", async () => {
+test("warn hands back an answer with an unknown key as it came and never names the key", async () => {
   const body = createdKey({ rotated_secret: SECRET });
   const { createKey, warnings } = clientAnswering(body, "warn");
   const { data } = await createKey();
@@ -163,7 +163,7 @@ test("warn hands back an answer with an unknown key as it came and names only th
       "API contract mismatch",
       {
         operation: "POST /v1/api-keys",
-        issues: [{ path: "rotated_secret", message: "unrecognized_keys" }],
+        issues: [{ path: "*", message: "unrecognized_keys" }],
       },
     ],
   ]);
@@ -199,16 +199,21 @@ test("a warning carries no value from the answer, secrets and invite tokens incl
       secret: `${SECRET}${"x".repeat(256)}`,
       leaked: SECRET,
     });
-    const keyIssues =
-      contractValidators.responses?.["POST /v1/api-keys"]?.(key);
+    // A value can also arrive as a key name.
+    const keyIssues = contractValidators.responses?.["POST /v1/api-keys"]?.({
+      ...key,
+      [SECRET]: true,
+    });
     const invite = {
       invite_id: INVITE_ID,
       invite_token: TOKEN,
       expires_at: 7,
       echoed: TOKEN,
     };
-    const inviteIssues =
-      contractValidators.responses?.["POST /v1/invites"]?.(invite);
+    const inviteIssues = contractValidators.responses?.["POST /v1/invites"]?.({
+      ...invite,
+      [TOKEN]: true,
+    });
     const report = warnOncePerIssue();
     report({ operation: "POST /v1/api-keys", issues: keyIssues ?? [] });
     report({ operation: "POST /v1/invites", issues: inviteIssues ?? [] });
@@ -217,10 +222,22 @@ test("a warning carries no value from the answer, secrets and invite tokens incl
   }
   expect(lines).toHaveLength(2);
   const logged = lines.join("\n");
-  expect(logged).toContain("too_big");
-  expect(logged).toContain("invalid_type");
+  // Declared field names stay so a warning still says where.
+  expect(logged).toContain('"path":"secret","message":"too_big"');
+  expect(logged).toContain('"path":"expires_at","message":"invalid_type"');
+  expect(logged).toContain('"path":"*","message":"unrecognized_keys"');
   expect(logged).not.toContain("fixture-secret-value");
   expect(logged).not.toContain("fixture-invite-token");
+});
+
+test("a record key outside the contract is masked too", () => {
+  const issues = contractValidators.responses?.["GET /readyz"]?.({
+    status: "ready",
+    checks: { database: "ok", [SECRET]: "ok" },
+  });
+  expect(issues?.length).toBeGreaterThan(0);
+  expect(JSON.stringify(issues)).not.toContain("fixture-secret-value");
+  expect(issues?.map((issue) => issue.path)).toContain("checks.*");
 });
 
 test("issues in many rows of a list collapse to one path", () => {
@@ -236,7 +253,7 @@ test("issues in many rows of a list collapse to one path", () => {
   expect(logged).toEqual([
     {
       operation: "GET /v1/api-keys",
-      issues: [{ path: "items.[].x", message: "unrecognized_keys" }],
+      issues: [{ path: "items.[].*", message: "unrecognized_keys" }],
     },
   ]);
 });
