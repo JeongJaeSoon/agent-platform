@@ -2,13 +2,24 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentCard,
   AGENT_CARD_LANGUAGE_VALUES as CONTRACT_LANGUAGES,
+  type ProfileSummary,
 } from "@agent-platform/contracts";
 import {
   AGENT_CARD_LANGUAGE_VALUES,
   cardFromDraft,
   draftFromCard,
   EMPTY_DRAFT,
+  modelOptions,
 } from "./agent-card-form.tsx";
+
+const profile = (id: string, model: string): ProfileSummary => ({
+  id,
+  model,
+  tools: [],
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "1",
+  billing: "none",
+});
 
 const CARD: AgentCard = {
   role: "결제 문의 담당",
@@ -61,6 +72,34 @@ describe("카드 폼 변환", () => {
       },
     };
     expect<unknown>(cardFromDraft(draftFromCard(card), card)).toEqual(card);
+  });
+
+  test("모델 선택지는 카탈로그의 모델을 한 번씩, 그 모델을 쓰는 profile과 함께 둔다", () => {
+    const profiles = [
+      profile("coding-fast", "claude-haiku-5"),
+      profile("coding-local", "claude-sonnet-5"),
+      profile("coding-review", "claude-sonnet-5"),
+    ];
+    expect(modelOptions(profiles, "")).toEqual([
+      { model: "claude-haiku-5", profileIds: ["coding-fast"] },
+      {
+        model: "claude-sonnet-5",
+        profileIds: ["coding-local", "coding-review"],
+      },
+    ]);
+    expect(modelOptions(profiles, "claude-sonnet-5")).toHaveLength(2);
+  });
+
+  test("카탈로그에 없는 지금 모델은 profile 없는 선택지로 남는다", () => {
+    expect(
+      modelOptions([profile("coding-local", "claude-sonnet-5")], "gpt-x"),
+    ).toEqual([
+      { model: "claude-sonnet-5", profileIds: ["coding-local"] },
+      { model: "gpt-x", profileIds: [] },
+    ]);
+    expect(modelOptions([], "gpt-x")).toEqual([
+      { model: "gpt-x", profileIds: [] },
+    ]);
   });
 
   test("편집기가 없는 rules는 원래 카드의 것을 그대로 싣는다", () => {

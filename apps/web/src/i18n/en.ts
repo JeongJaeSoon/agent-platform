@@ -1,4 +1,5 @@
 import type { MessageKey } from "./ko.ts";
+import { modelsEn } from "./models.ts";
 import { sessionsEn } from "./sessions.ts";
 
 export const en: Record<MessageKey, string> = {
@@ -12,6 +13,7 @@ export const en: Record<MessageKey, string> = {
   "common.done": "Done",
   "common.pending": "To do",
   ...sessionsEn,
+  ...modelsEn,
 
   "login.title": "Log in",
   "login.email": "Email",
@@ -346,7 +348,7 @@ export const en: Record<MessageKey, string> = {
   "agentCard.language": "Language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
-    "Must be a model allowed by the runtime profile you release to",
+    "A model from the catalog (profiles.yaml), next to the profiles that run it. It must match the profile you release to",
   "agentCard.tools": "Tools it may use",
   "agentCard.toolsAll": "Every tool the runtime profile allows",
   "agentCard.toolsList": "Only the tools I choose",

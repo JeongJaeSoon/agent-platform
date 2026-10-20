@@ -1,3 +1,4 @@
+import { modelsKo } from "./models.ts";
 import { sessionsKo } from "./sessions.ts";
 
 /**
@@ -18,6 +19,7 @@ export const ko = {
   "common.done": "완료",
   "common.pending": "예정",
   ...sessionsKo,
+  ...modelsKo,
   "common.cancel": "취소",
 
   "nav.label": "주요 메뉴",
@@ -174,7 +176,7 @@ export const ko = {
   "agentCard.language": "언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "release할 runtime profile이 허용하는 모델이어야 합니다",
+    "카탈로그(profiles.yaml)의 모델. 옆에 적힌 것은 그 모델을 쓰는 profile이고, release할 profile과 같은 모델이어야 합니다",
   "agentCard.tools": "쓸 수 있는 도구",
   "agentCard.toolsAll": "runtime profile이 허용하는 도구 전부",
   "agentCard.toolsList": "고른 도구만",

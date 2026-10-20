@@ -1,7 +1,13 @@
-import type { AgentCard } from "@agent-platform/contracts";
+import type {
+  AgentCard,
+  ListProfilesResponse,
+  ProfileSummary,
+} from "@agent-platform/contracts";
+import type { UseQueryResult } from "@tanstack/react-query";
 import { useId } from "react";
+import type { ApiError } from "../api/client.ts";
 import type { components } from "../api/schema.gen.ts";
-import { useI18n } from "../i18n/i18n.tsx";
+import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { TextAreaField, TextField } from "./field.tsx";
 
 /** The card languages; agent-card-form.test.ts pins it to the contract. */
@@ -90,11 +96,42 @@ export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
   return card as unknown as ApiCard;
 }
 
+export interface ModelOption {
+  readonly model: string;
+  /** The profiles that run it; empty for a model the catalog does not have. */
+  readonly profileIds: readonly string[];
+}
+
+/**
+ * One option per catalog model. A current model the catalog lacks stays as
+ * the last option, so a card saved without touching the field keeps it.
+ */
+export function modelOptions(
+  profiles: readonly ProfileSummary[],
+  current: string,
+): ModelOption[] {
+  const byModel = new Map<string, string[]>();
+  for (const profile of profiles)
+    byModel.set(profile.model, [
+      ...(byModel.get(profile.model) ?? []),
+      profile.id,
+    ]);
+  const options = [...byModel].map(([model, profileIds]) => ({
+    model,
+    profileIds,
+  }));
+  return current === "" || byModel.has(current)
+    ? options
+    : [...options, { model: current, profileIds: [] }];
+}
+
 export function AgentCardFields({
   draft,
+  catalog,
   onChange,
 }: {
   readonly draft: CardDraft;
+  readonly catalog: UseQueryResult<ListProfilesResponse>;
   readonly onChange: (draft: CardDraft) => void;
 }) {
   const { t } = useI18n();
@@ -142,14 +179,21 @@ export function AgentCardFields({
           ))}
         </select>
       </label>
-      <TextField
-        label={t("agentCard.model")}
-        hint={t("agentCard.modelHint")}
-        required
-        maxLength={128}
-        value={draft.model}
-        onChange={(event) => set("model", event.target.value)}
-      />
+      {catalog.isPending ? (
+        <p className="web-page__empty">{t("agentCard.modelsLoading")}</p>
+      ) : catalog.error ? (
+        <p className="web-form__error" role="alert">
+          {t("agentCard.modelsFailed", {
+            reason: t(errorKey((catalog.error as ApiError).code)),
+          })}
+        </p>
+      ) : (
+        <ModelSelect
+          options={modelOptions(catalog.data.items, draft.model)}
+          value={draft.model}
+          onChange={(model) => set("model", model)}
+        />
+      )}
       <fieldset className="web-fieldset" aria-labelledby={toolsLegend}>
         <legend id={toolsLegend}>{t("agentCard.tools")}</legend>
         <label className="web-choice">
@@ -188,5 +232,60 @@ export function AgentCardFields({
         onChange={(event) => set("forbidden", event.target.value)}
       />
     </>
+  );
+}
+
+function ModelSelect({
+  options,
+  value,
+  onChange,
+}: {
+  readonly options: readonly ModelOption[];
+  readonly value: string;
+  readonly onChange: (model: string) => void;
+}) {
+  const { t } = useI18n();
+  const hintId = useId();
+  const warningId = useId();
+  const uncataloged = options.some(
+    (option) => option.model === value && option.profileIds.length === 0,
+  );
+  return (
+    <div className="web-field">
+      <label className="web-field">
+        <span>{t("agentCard.model")}</span>
+        <select
+          className="ap-input"
+          required
+          value={value}
+          aria-describedby={uncataloged ? `${hintId} ${warningId}` : hintId}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {value === "" ? (
+            <option value="" disabled>
+              {t("agentCard.modelPick")}
+            </option>
+          ) : null}
+          {options.map((option) => (
+            <option key={option.model} value={option.model}>
+              {option.profileIds.length === 0
+                ? t("agentCard.modelUncataloged", { model: option.model })
+                : t("agentCard.modelOption", {
+                    model: option.model,
+                    profiles: option.profileIds.join(", "),
+                  })}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span id={hintId} className="web-field__hint">
+        {t("agentCard.modelHint")}
+      </span>
+      {uncataloged ? (
+        <p id={warningId} className="web-notice">
+          {t("agentCard.modelUncatalogedWarning")}
+        </p>
+      ) : null}
+    </div>
   );
 }

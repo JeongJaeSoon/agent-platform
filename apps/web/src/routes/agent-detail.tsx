@@ -289,6 +289,7 @@ function CardEditor({
   const setName = (name: string) => setEdit((e) => ({ ...e, name }));
   const setDraft = (draft: CardDraft) => setEdit((e) => ({ ...e, draft }));
   const { name, draft } = edit;
+  const catalog = useQuery(profilesQuery(client));
   const titleId = useId();
 
   const save = useMutation<AgentDetail, ApiError, Edit>({
@@ -375,11 +376,17 @@ function CardEditor({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
-        {draft ? <AgentCardFields draft={draft} onChange={setDraft} /> : null}
+        {draft ? (
+          <AgentCardFields
+            draft={draft}
+            catalog={catalog}
+            onChange={setDraft}
+          />
+        ) : null}
         <button
           type="submit"
           className="ap-button ap-button--primary"
-          disabled={save.isPending}
+          disabled={save.isPending || (draft !== null && !catalog.isSuccess)}
         >
           {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
         </button>
@@ -597,14 +604,23 @@ function Releases({
   const [chosen, setProfile] = useState(
     detail.releases.at(-1)?.runtime_profile_id ?? "",
   );
-  // A profile the catalog no longer has cannot be released again.
+  const cardModel = detail.versions.find((v) => v.id === versionId)?.card.model;
+  // A profile the catalog no longer has cannot be released again; without
+  // a usable choice, offer one that runs the card's model.
   const items = profiles.data?.items ?? [];
   const profile = items.some((item) => item.id === chosen)
     ? chosen
-    : (items[0]?.id ?? "");
+    : ((items.find((item) => item.model === cardModel) ?? items[0])?.id ?? "");
   const ordered = [...detail.releases].sort((a, b) =>
     b.created_at.localeCompare(a.created_at),
   );
+  // The server refuses a release whose profile runs another model than the
+  // card names; say so before the request.
+  const profileModel = items.find((item) => item.id === profile)?.model;
+  const mismatch =
+    cardModel !== undefined &&
+    profileModel !== undefined &&
+    cardModel !== profileModel;
 
   const release = useMutation<CreateAgentReleaseResponse, ApiError>({
     mutationFn: () =>
@@ -669,6 +685,14 @@ function Releases({
             onChange={setProfile}
           />
         )}
+        {mismatch ? (
+          <output className="web-notice">
+            {t("agent.releases.modelMismatch", {
+              card: cardModel,
+              profile: profileModel,
+            })}
+          </output>
+        ) : null}
         <button
           type="submit"
           className="ap-button"

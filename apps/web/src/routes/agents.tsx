@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
-import { agentsQuery, queryKeys } from "../api/queries.ts";
+import { agentsQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
@@ -125,6 +125,7 @@ export function NewAgentScreen() {
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
   const [draft, setDraft] = useState<CardDraft>(EMPTY_DRAFT);
+  const catalog = useQuery(profilesQuery(client));
   const titleId = useId();
 
   const create = useMutation<AgentDetail, ApiError>({
@@ -184,7 +185,7 @@ export function NewAgentScreen() {
           value={slug}
           onChange={(event) => setSlug(event.target.value)}
         />
-        <AgentCardFields draft={draft} onChange={setDraft} />
+        <AgentCardFields draft={draft} catalog={catalog} onChange={setDraft} />
         {create.error ? (
           <p className="web-form__error" role="alert">
             {agentRefusal(t, create.error, role)}
@@ -193,7 +194,7 @@ export function NewAgentScreen() {
         <button
           type="submit"
           className="ap-button ap-button--primary"
-          disabled={create.isPending}
+          disabled={create.isPending || !catalog.isSuccess}
         >
           {create.isPending ? t("agents.creating") : t("agents.create")}
         </button>
