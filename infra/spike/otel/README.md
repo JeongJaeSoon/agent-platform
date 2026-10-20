@@ -11,7 +11,7 @@ worker 컨테이너
                                                             └─> otel-collector (앱 스택 compose project)
                                                                   ├─> Langfuse  /api/public/otel  (수집기 project)
                                                                   ├─> grafana/otel-lgtm :4318      (수집기 project)
-                                                                  └─> file 덤프 spans.jsonl
+                                                                  └─> file 덤프 spans.jsonl, logs.jsonl
 ```
 
 - 앱 스택 overlay: `compose.app-otel.yml`(collector, egress 허용 목록 한 항목, scheduler의 텔레메트리 env)
@@ -47,6 +47,7 @@ worker 컨테이너
 4. 앱 스택: `OBS_SPIKE_DUMP_DIR=<덤프 디렉터리> .claude/skills/verify-agent-platform/scripts/up.sh infra/spike/otel/compose.app-otel.yml`
 5. collector에 Langfuse key를 넘긴다(파일에 쓰지 않는다): `LANGFUSE_BASIC_AUTH=$(printf '%s:%s' "$pk" "$sk" | base64)`를 붙여 `ap_compose up -d otel-collector`
 6. 세션: `.claude/skills/verify-agent-platform/features/sessions.md`의 권한 요청 대본(Bash 도구 1회 + 권한 요청 1회)
+   - 프롬프트·응답·도구 입력과 출력까지 보려면 `OBS_SPIKE_CONTENT=1`을 붙여 `ap_compose up -d --no-deps scheduler`로 scheduler를 다시 만든다. 그 뒤 새로 뜨는 worker부터 `OTEL_LOG_USER_PROMPTS`·`OTEL_LOG_ASSISTANT_RESPONSES`·`OTEL_LOG_TOOL_DETAILS`·`OTEL_LOG_TOOL_CONTENT`가 켜진다. 기본은 `0`(끔)이다. log는 LGTM과 `logs.jsonl`로만 가고 Langfuse로는 가지 않는다
 7. 확인: Tempo `GET /api/search?q={ resource.agent_platform.session_id = "<세션 id>" }`, Langfuse `GET /api/public/v2/observations?traceId=<trace id>`(v4는 `/api/public/traces`·`/sessions`가 404)
 8. 정리: `down.sh <run id>`, `docker compose -p obs-spike-collectors … down -v --remove-orphans`
 
