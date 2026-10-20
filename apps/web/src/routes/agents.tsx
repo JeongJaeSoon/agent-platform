@@ -18,7 +18,8 @@ import {
   cardFromDraft,
   EMPTY_DRAFT,
 } from "../components/agent-card-form.tsx";
-import { TextField } from "../components/field.tsx";
+import { slugInput, TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
@@ -59,18 +60,22 @@ export function AgentsScreen() {
   const navigate = useNavigate();
   const agents = useQuery(agentsQuery(client));
   const reason = usePermissionReason("agent.manage", agents);
+  // The list is also the permission probe: when it failed, nobody knows.
+  const failed = agents.isError && !isApiError(agents.error, "FORBIDDEN");
 
   return (
     <div className="web-page">
       <div className="web-page__head">
         <h1 className="web-page__title">{t("agents.title")}</h1>
-        <ReasonButton
-          className="ap-button ap-button--primary"
-          reason={reason}
-          onClick={() => void navigate({ to: "/agents/new" })}
-        >
-          {t("agents.new")}
-        </ReasonButton>
+        {failed ? null : (
+          <ReasonButton
+            className="ap-button ap-button--primary"
+            reason={reason}
+            onClick={() => void navigate({ to: "/agents/new" })}
+          >
+            {t("agents.new")}
+          </ReasonButton>
+        )}
       </div>
       {agents.isPending ? (
         <StatusScreen kind="loading" />
@@ -81,9 +86,10 @@ export function AgentsScreen() {
             <AdministeredAgents showEmpty />
           </>
         ) : (
-          <p className="web-form__error" role="alert">
-            {t(errorKey((agents.error as ApiError).code))}
-          </p>
+          <LoadFailure
+            error={agents.error}
+            onRetry={() => void agents.refetch()}
+          />
         )
       ) : agents.data.items.length === 0 ? (
         <p className="web-page__empty">{t("agents.empty")}</p>
@@ -211,8 +217,7 @@ export function NewAgentScreen() {
           label={t("agents.slug")}
           hint={t("agents.slugHint")}
           required
-          maxLength={SLUG_MAX}
-          pattern="[a-z0-9][a-z0-9\-]*"
+          {...slugInput(t("field.slugFormat"))}
           value={slug}
           onChange={(event) => setTypedSlug(event.target.value)}
         />

@@ -8,8 +8,13 @@ import {
   unwrap,
 } from "../api/client.ts";
 import { viewerQuery } from "../api/queries.ts";
-import { DISPLAY_NAME_MAX, PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
+import {
+  DISPLAY_NAME_MAX,
+  INVITE_TOKEN_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../auth/limits.ts";
 import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -43,9 +48,7 @@ export function InviteScreen() {
   if (viewer.isPending) body = <StatusScreen kind="loading" />;
   else if (viewer.error) {
     body = (
-      <p className="web-form__error" role="alert">
-        {t(errorKey((viewer.error as ApiError).code ?? "UNKNOWN"))}
-      </p>
+      <LoadFailure error={viewer.error} onRetry={() => void viewer.refetch()} />
     );
   } else if (viewer.data) {
     // One workspace per installation: anyone signed in is already a member.
@@ -113,7 +116,14 @@ function AcceptForm({ token }: { readonly token: string }) {
     },
   });
 
-  if (accept.error?.code === "INVITE_EXPIRED") {
+  // A link cut short or made up has a token the server can only call an
+  // invalid request, so its length is checked here; a 400 for a valid-looking
+  // token is about the fields and keeps the form.
+  if (
+    token.length < INVITE_TOKEN_LENGTH.min ||
+    token.length > INVITE_TOKEN_LENGTH.max ||
+    accept.error?.code === "INVITE_EXPIRED"
+  ) {
     return (
       <section className="web-status" data-status="invite-expired" role="alert">
         <h2 className="web-status__title">{t("invite.expired.title")}</h2>

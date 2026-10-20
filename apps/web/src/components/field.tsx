@@ -1,8 +1,26 @@
 import {
+  type FormEvent,
   type InputHTMLAttributes,
   type TextareaHTMLAttributes,
   useId,
 } from "react";
+
+/**
+ * A URL name (workspace or agent slug), with our sentence in place of the
+ * browser's "match the requested format", which cannot say what it is.
+ */
+export function slugInput(message: string) {
+  return {
+    pattern: "[a-z0-9][a-z0-9\\-]*",
+    maxLength: 64,
+    onInvalid: (event: FormEvent<HTMLInputElement>) => {
+      const input = event.currentTarget;
+      if (input.validity.patternMismatch) input.setCustomValidity(message);
+    },
+    onInput: (event: FormEvent<HTMLInputElement>) =>
+      event.currentTarget.setCustomValidity(""),
+  };
+}
 
 export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   readonly label: string;

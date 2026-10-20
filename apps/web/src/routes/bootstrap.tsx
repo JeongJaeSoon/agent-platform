@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { type ApiError, unwrap } from "../api/client.ts";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
+import { slugInput } from "../components/field.tsx";
 import { Main } from "../components/main.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
@@ -128,7 +129,7 @@ export function BootstrapScreen() {
                     ? { minLength: PASSWORD_MIN_LENGTH }
                     : {})}
                   {...(field.name === "workspace_slug"
-                    ? { pattern: "[a-z0-9][a-z0-9\\-]*", maxLength: 64 }
+                    ? slugInput(t("field.slugFormat"))
                     : {})}
                   value={form[field.name]}
                   onChange={(event) =>

@@ -27,6 +27,8 @@ export const authKo = {
   "login.google.cancelled":
     "Google 로그인을 마치지 못했습니다 — 다시 시도하세요.",
   "login.google.backToLogin": "로그인 화면으로",
+  "login.google.unavailable":
+    "이 설치에서는 Google 로그인을 쓸 수 없습니다 — 이메일과 비밀번호로 로그인하세요.",
 
   "bootstrap.title": "첫 소유자 만들기",
   "bootstrap.intro":
@@ -100,6 +102,8 @@ export const authEn: Record<keyof typeof authKo, string> = {
     "This Google account cannot log in here — use an account from a domain this workspace allows.",
   "login.google.cancelled": "Google login was not completed — try again.",
   "login.google.backToLogin": "Back to log in",
+  "login.google.unavailable":
+    "Google login is not available on this installation — log in with your email and password.",
 
   "bootstrap.title": "Create the first owner",
   "bootstrap.intro":

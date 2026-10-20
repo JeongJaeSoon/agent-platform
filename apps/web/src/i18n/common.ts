@@ -23,7 +23,12 @@ export const commonKo = {
   "role.admin": "관리자",
   "role.member": "구성원",
 
-  "status.loading.title": "로그인 상태를 확인하는 중입니다",
+  "status.loading.title": "불러오는 중입니다",
+  "status.checkingLogin.title": "로그인 상태를 확인하는 중입니다",
+  "status.notFound.title": "찾을 수 없는 화면입니다",
+  "status.notFound.body": "주소가 바뀌었거나 없는 화면입니다.",
+  "status.notFound.action": "홈으로",
+  "status.loadFailed": "불러오지 못했습니다",
   "status.loginRequired.title": "로그인이 필요합니다",
   "status.loginRequired.body": "로그인하면 열려던 화면으로 돌아갑니다.",
   "status.loginRequired.action": "로그인 화면으로",
@@ -35,6 +40,9 @@ export const commonKo = {
     "설치 때 출력된 bootstrap 토큰으로 첫 소유자를 만드세요.",
   "status.bootstrapRequired.action": "첫 소유자 만들기",
   "status.error.title": "문제가 생겼습니다",
+
+  "field.slugFormat":
+    "영어 소문자·숫자·하이픈(-)만 쓰고, 소문자나 숫자로 시작하세요. 예: my-team",
 
   "guard.missingScope": "{scope} 권한이 있어야 할 수 있습니다.",
   "guard.checking": "권한을 확인하는 중입니다.",
@@ -68,7 +76,12 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "role.admin": "Admin",
   "role.member": "Member",
 
-  "status.loading.title": "Checking your login",
+  "status.loading.title": "Loading",
+  "status.checkingLogin.title": "Checking your login",
+  "status.notFound.title": "Page not found",
+  "status.notFound.body": "The address changed, or there is no such page.",
+  "status.notFound.action": "Go home",
+  "status.loadFailed": "Could not load this",
   "status.loginRequired.title": "Log in to continue",
   "status.loginRequired.body":
     "After you log in, you go back to the page you were opening.",
@@ -81,6 +94,9 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
     "Create the first owner with the bootstrap token printed during installation.",
   "status.bootstrapRequired.action": "Create the first owner",
   "status.error.title": "Something went wrong",
+
+  "field.slugFormat":
+    "Use lowercase letters, digits and hyphens (-), starting with a letter or digit. Example: my-team",
 
   "guard.missingScope": "You need the {scope} permission for this.",
   "guard.checking": "Checking permissions.",
