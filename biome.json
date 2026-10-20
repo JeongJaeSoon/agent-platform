@@ -73,6 +73,53 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/core/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "window": "@agent-platform/core knows no DOM.",
+                  "document": "@agent-platform/core knows no DOM.",
+                  "location": "@agent-platform/core knows no DOM; links belong to the adapter.",
+                  "history": "@agent-platform/core knows no DOM; links belong to the adapter.",
+                  "navigator": "@agent-platform/core knows no DOM.",
+                  "localStorage": "@agent-platform/core knows no DOM.",
+                  "sessionStorage": "@agent-platform/core knows no DOM.",
+                  "fetch": "Requests go through the ApiClient the caller passes in."
+                }
+              }
+            },
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "The core knows no UI framework; hooks belong to @agent-platform/react.",
+                  "react-dom": "The core knows no UI framework.",
+                  "@tanstack/react-query": "The core builds on @tanstack/query-core.",
+                  "@tanstack/react-router": "The core knows no router.",
+                  "zod": "The root entry carries no schema library."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/core/src/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": "off",
+            "noRestrictedImports": "off"
+          }
+        }
+      }
     }
   ]
 }

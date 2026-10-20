@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // No DOM lib: the package knows no UI framework and runs anywhere the
+    // client does. biome.json's override for this package rejects the browser
+    // globals Bun's types still declare.
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*.ts"]
+}
