@@ -36,7 +36,7 @@ describe("에이전트 목록", () => {
   });
 
   test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {
-    renderAt("/agents", {
+    const { history } = renderAt("/agents", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/agents": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
@@ -50,6 +50,9 @@ describe("에이전트 목록", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.body.textContent).not.toContain("agent.manage");
     expect(document.body.textContent).not.toContain("does not hold");
+    const user = await setupUser();
+    await user.click(button);
+    await waitFor(() => expect(history.location.pathname).toBe("/agents/new"));
   });
 
   test("agent.create가 없으면 새 에이전트 버튼을 끈 채 말로 된 이유를 적는다", async () => {

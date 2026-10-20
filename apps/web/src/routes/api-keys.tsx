@@ -44,7 +44,8 @@ function keyRefusal(
   permission: ManagedPermission,
   role: string | undefined,
 ): string {
-  if (error.code === "SCOPE_NOT_GRANTABLE" || error.code === "BAD_REQUEST")
+  // A 403 (SCOPE_NOT_GRANTABLE) falls through: its sentence names scopes.
+  if (error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
   return refusalText(t, error, permission, role);
 }

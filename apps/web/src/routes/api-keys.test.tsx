@@ -297,7 +297,7 @@ describe("API key", () => {
     await waitFor(() => expect(screen.getByText(/^폐기됨/)).toBeDefined());
   });
 
-  test("가진 것보다 넓은 범위는 서버 거절을 그대로 보인다", async () => {
+  test("가진 것보다 넓은 범위(403)는 우리 문구만 보이고 서버의 영어 문구는 없다", async () => {
     renderAt("/settings/api-keys", {
       ...ownerOk,
       ...keysServer(),
@@ -314,7 +314,7 @@ describe("API key", () => {
       within(personal).getByRole("button", { name: "개인 key 발급" }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다. An agent key cannot carry sessions:approve",
+      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다.",
     );
   });
 
