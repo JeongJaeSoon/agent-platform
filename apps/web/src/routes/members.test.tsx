@@ -15,7 +15,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const OTHER_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
 const GONE_ID = "3d8f2e5b-6c7a-4b9f-8e1d-2f3a4b5c6d7e";
@@ -323,9 +323,11 @@ describe("구성원 화면", () => {
       await user.click(
         screen.getByRole("button", { name: "초대 링크 만들기" }),
       );
-      await user.click(
-        await screen.findByRole("button", { name: "링크 복사" }),
-      );
+      const copyButton = await screen.findByRole("button", {
+        name: "링크 복사",
+      });
+      // The refusal settles after user-event's click returns; act flushes it.
+      await act(async () => copyButton.click());
       expect((await screen.findByRole("alert")).textContent).toBe(
         "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
       );
