@@ -23,9 +23,14 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
+// The release check's model refusal (release-ids.ts), as "<field>: <message>".
+const MODEL_REFUSAL =
+  /^card\.model: model (\S+) is not the model of runtime profile (\S+)$/;
+
 /**
  * What a refused agent action says: a 403 in the words of the disabled
- * button, a capability the profile does not have with the server's reason.
+ * button, a model mismatch in our words, any other capability the profile
+ * does not have with the server's reason.
  */
 export function agentRefusal(
   t: Translate,
@@ -34,6 +39,15 @@ export function agentRefusal(
 ): string {
   if (error.code === "FORBIDDEN")
     return `${permissionReason(t, "agent.manage", role)} ${error.message}`;
+  const model =
+    error.code === "UNSUPPORTED_CAPABILITY"
+      ? MODEL_REFUSAL.exec(error.message)
+      : null;
+  if (model)
+    return t("agent.releases.modelRefused", {
+      card: model[1] ?? "",
+      profile: model[2] ?? "",
+    });
   if (error.code === "UNSUPPORTED_CAPABILITY" || error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
   return t(errorKey(error.code));
