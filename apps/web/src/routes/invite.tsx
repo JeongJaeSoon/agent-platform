@@ -8,7 +8,11 @@ import {
   unwrap,
 } from "../api/client.ts";
 import { viewerQuery } from "../api/queries.ts";
-import { DISPLAY_NAME_MAX, PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
+import {
+  DISPLAY_NAME_MAX,
+  INVITE_TOKEN_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../auth/limits.ts";
 import { TextField } from "../components/field.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { Main } from "../components/main.tsx";
@@ -112,12 +116,13 @@ function AcceptForm({ token }: { readonly token: string }) {
     },
   });
 
-  // The form holds the name to its limit and the password to its minimum;
-  // short of a password over 1 KB, a malformed request is the token (a link
-  // cut short or made up), which the server can only call invalid.
+  // A link cut short or made up has a token the server can only call an
+  // invalid request, so its length is checked here; a 400 for a valid-looking
+  // token is about the fields and keeps the form.
   if (
-    accept.error?.code === "INVITE_EXPIRED" ||
-    accept.error?.code === "BAD_REQUEST"
+    token.length < INVITE_TOKEN_LENGTH.min ||
+    token.length > INVITE_TOKEN_LENGTH.max ||
+    accept.error?.code === "INVITE_EXPIRED"
   ) {
     return (
       <section className="web-status" data-status="invite-expired" role="alert">

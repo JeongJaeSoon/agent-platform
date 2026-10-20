@@ -105,7 +105,7 @@ const RETRY_CASES: ReadonlyArray<{
   },
   {
     name: "초대 링크의 로그인 확인",
-    path: "/invite/tok-1",
+    path: `/invite/${"t".repeat(43)}`,
     routes: {},
     failingKey: "GET /v1/auth/me",
     answer: () => apiError(401, "UNAUTHORIZED", "Authentication required"),
@@ -193,8 +193,17 @@ describe("화면별 오류 문구", () => {
     );
   });
 
-  test("형식이 틀린 초대 token은 비밀번호가 아니라 쓸 수 없는 초대라고 한다", async () => {
+  test("형식이 틀린 초대 token은 비밀번호를 받지 않고 쓸 수 없는 초대라고 한다", async () => {
     renderAt("/invite/bogus", {
+      "GET /v1/auth/me": () =>
+        apiError(401, "UNAUTHORIZED", "Authentication required"),
+    });
+    expect(await screen.findByText("쓸 수 없는 초대입니다")).toBeTruthy();
+    expect(screen.queryByLabelText("비밀번호")).toBeNull();
+  });
+
+  test("형식이 맞는 token의 400은 입력 문제라 폼을 남긴다", async () => {
+    renderAt(`/invite/${"t".repeat(43)}`, {
       "GET /v1/auth/me": () =>
         apiError(401, "UNAUTHORIZED", "Authentication required"),
       "POST /v1/invites/accept": () =>
@@ -206,7 +215,8 @@ describe("화면별 오류 문구", () => {
       "correct-horse-battery",
     );
     await user.click(screen.getByRole("button", { name: "초대 수락" }));
-    expect(await screen.findByText("쓸 수 없는 초대입니다")).toBeTruthy();
-    expect(screen.queryByText("입력을 확인하고 다시 보내세요.")).toBeNull();
+    await screen.findByRole("alert");
+    expect(screen.queryByText("쓸 수 없는 초대입니다")).toBeNull();
+    expect(screen.getByLabelText("비밀번호")).toBeTruthy();
   });
 });
