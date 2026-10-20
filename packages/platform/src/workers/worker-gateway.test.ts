@@ -179,6 +179,58 @@ describe("WorkerGateway", () => {
     expect(slept).toEqual([]);
   });
 
+  test("nextInput stops waiting once stopWaiting aborts and answers with no input", async () => {
+    const stop = new AbortController();
+    let calls = 0;
+    const slept: number[] = [];
+    let at = new Date("2026-09-22T00:00:00.000Z");
+    const instance = createWorkerGateway({
+      work: work({
+        async nextInputAtomic(input) {
+          calls += 1;
+          if (calls === 2) stop.abort();
+          return {
+            outcome: "ok",
+            input: null,
+            leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+        maxWaitMs: 25_000,
+        pollIntervalMs: 100,
+        stopWaiting: stop.signal,
+        now: () => at,
+        sleep: async (ms: number) => {
+          slept.push(ms);
+          at = new Date(at.getTime() + ms);
+        },
+      },
+    });
+    const response = await instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    expect(response).toEqual({
+      input: null,
+      lease_expires_at: "2026-09-22T00:00:30.100Z",
+    });
+    expect(calls).toBe(2);
+    expect(slept).toEqual([100]);
+
+    // A poll that arrives after the stop is answered without waiting.
+    calls = 0;
+    slept.length = 0;
+    await instance.nextInput(principal, { ...scope, wait_ms: 20_000 });
+    expect(calls).toBe(1);
+    expect(slept).toEqual([]);
+  });
+
   test("fence rejections map to 409 LEASE_EXPIRED / STALE_EPOCH", async () => {
     const { instance } = gateway({
       async heartbeatAtomic() {

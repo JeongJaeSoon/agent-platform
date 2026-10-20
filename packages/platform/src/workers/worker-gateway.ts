@@ -146,6 +146,12 @@ export type WorkerGatewayOptions = {
   pendingTtlMs?: number;
   /** Upper bound on nextInput long-polling. */
   maxWaitMs?: number;
+  /**
+   * Aborted when the process stops serving: nextInput then answers with what
+   * it has instead of holding the poll open, so a drain does not wait out the
+   * worker's poll while its lease runs down.
+   */
+  stopWaiting?: AbortSignal;
   pollIntervalMs?: number;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -978,6 +984,7 @@ export function createWorkerGateway(deps: {
           result.input ||
           result.draining === true ||
           result.blocked !== undefined ||
+          deps.options.stopWaiting?.aborted === true ||
           now().getTime() >= deadline
         ) {
           return {
