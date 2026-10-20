@@ -687,9 +687,8 @@ integration("API server on PostgreSQL", () => {
   test(
     "SIGTERM answers an open next-input long poll at once instead of draining it",
     async () => {
-      // A worker between turns: claimed, its first turn finished, nothing
-      // queued, so its next poll waits. The repository is this test's own,
-      // so no other suite's queued session is claimed here.
+      // Its own repository, so the claim below cannot take a session another
+      // suite queued in the shared database.
       const repositoryId = `long-poll-${crypto.randomUUID()}`;
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
@@ -846,8 +845,6 @@ integration("API server on PostgreSQL", () => {
         expect(await answered.json()).toMatchObject({ input: null });
         exitCode = await server.exited;
         const exitedAfter = Date.now() - signalledAt;
-        // The poll had most of its 20s wait left; the gateway's poll
-        // interval and one database round trip are all the drain may cost.
         expect(answeredAfter).toBeLessThan(2_000);
         expect(exitedAfter).toBeLessThan(waitMs / 2);
       } finally {

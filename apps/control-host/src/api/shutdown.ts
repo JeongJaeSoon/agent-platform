@@ -40,11 +40,7 @@ export interface ShutdownOptions {
 export interface Shutdown {
   /** Answers not-ready from the moment shutdown starts, ahead of `probe`. */
   readiness(probe: ReadinessProbe): ReadinessProbe;
-  /**
-   * Aborted once the listeners stop accepting. A long poll (worker
-   * next-input) answers on it instead of holding the drain for the rest of
-   * its wait, which the worker's lease cannot afford across a restart.
-   */
+  /** Aborted once the listeners stop accepting; long polls answer on it. */
   readonly stopWaiting: AbortSignal;
   /**
    * readiness withdrawn → listeners stop accepting → long polls answer →

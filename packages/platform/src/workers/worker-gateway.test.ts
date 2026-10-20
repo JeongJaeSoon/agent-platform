@@ -223,7 +223,6 @@ describe("WorkerGateway", () => {
     expect(calls).toBe(2);
     expect(slept).toEqual([100]);
 
-    // A poll that arrives after the stop is answered without waiting.
     calls = 0;
     slept.length = 0;
     await instance.nextInput(principal, { ...scope, wait_ms: 20_000 });
