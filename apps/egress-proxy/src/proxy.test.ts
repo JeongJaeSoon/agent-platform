@@ -179,6 +179,7 @@ describe("egress proxy", () => {
           { host: "sink.test", port: sink.port },
           { host: "127.0.0.1", port: echo.port },
           { host: "metadata.test", port: 80 },
+          { host: "gone.test", port: 80 },
         ],
       },
       port: 0,
@@ -431,6 +432,20 @@ describe("egress proxy", () => {
     talk.send(request("CONNECT public.test:443 HTTP/1.1"));
     expect(await talk.waitFor("403")).toContain("10.0.0.7 is private");
     talk.close();
+  });
+
+  test("an allowlisted host that does not resolve gets 502, not 403", async () => {
+    // A gateway container that is restarting drops out of Docker's DNS for a
+    // few seconds; the worker has to read that as retryable.
+    for (const head of [
+      "GET http://gone.test/ HTTP/1.1",
+      "CONNECT gone.test:80 HTTP/1.1",
+    ]) {
+      const talk = await connect(proxy.port);
+      talk.send(request(head));
+      expect(await talk.waitFor("502")).toContain("does not resolve");
+      talk.close();
+    }
   });
 
   test("link-local is refused even though the host is allowlisted", async () => {
