@@ -26,10 +26,10 @@ test("the package imports no router, not even as types", async () => {
   expect(files).toContain("provider.tsx");
   const found: string[] = [];
   for (const name of files) {
-    for (const [, from, dynamic] of (await read(name)).matchAll(
-      /\bfrom\s+"([^"]+)"|\bimport\s*\(\s*"([^"]+)"/g,
+    // `from "x"`, `from 'x'`, a bare `import "x"` and `import("x")`.
+    for (const [, specifier = ""] of (await read(name)).matchAll(
+      /\b(?:from|import)\s*\(?\s*["']([^"']+)["']/g,
     )) {
-      const specifier = from ?? dynamic ?? "";
       if (ROUTERS.includes(packageName(specifier)))
         found.push(`${name} -> ${specifier}`);
     }
@@ -41,9 +41,11 @@ test("query keys come from the core's factories, never written here", async () =
   const found: string[] = [];
   for (const name of await sourceFiles()) {
     const source = await read(name);
-    if (/\bqueryKey\s*:/.test(source)) found.push(`${name}: queryKey:`);
-    if (/\bqueryKeys?\s*[:=]\s*\[/.test(source))
-      found.push(`${name}: key array`);
+    // Any spelling of the option, quoted or computed, and any hook called
+    // with an inline options object instead of a core factory's result.
+    if (/queryKey/.test(source)) found.push(`${name}: queryKey`);
+    if (/\buse\w*Query\s*\(\s*\{/.test(source))
+      found.push(`${name}: inline query options`);
   }
   expect(found).toEqual([]);
 });
