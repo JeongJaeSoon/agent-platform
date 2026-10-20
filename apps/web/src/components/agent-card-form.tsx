@@ -76,22 +76,25 @@ export function draftFromCard(card: AgentCard): CardDraft {
 }
 
 /**
- * The card to send. Rules have no editor yet, so an edit carries the ones
- * the card already had rather than dropping them.
+ * The card to send. An edit starts from `base` and overwrites only what the
+ * form has a field for, so fields without an editor yet (rules, tool_policy,
+ * credential_refs) survive the save.
  */
 export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
-  const card: components["schemas"]["CreateAgentRequest"]["card"] = {
+  const { tone: _baseTone, ...kept } = base ?? { rules: [] };
+  const card = {
+    ...kept,
     role: draft.role.trim(),
     instructions: draft.instructions,
     ...(draft.tone.trim() ? { tone: draft.tone.trim() } : {}),
     language: draft.language,
     model: draft.model.trim(),
     capabilities: {
+      ...base?.capabilities,
       tools: draft.toolsMode === "all" ? null : splitList(draft.tools),
       mcp: null,
       forbidden: splitList(draft.forbidden),
     },
-    rules: base?.rules ?? [],
   };
   return card as unknown as ApiCard;
 }

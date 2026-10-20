@@ -110,4 +110,92 @@ describe("카드 폼 변환", () => {
     expect(cardFromDraft(draftFromCard(base), base).rules).toBe(rules);
     expect(cardFromDraft(EMPTY_DRAFT).rules).toEqual([]);
   });
+
+  test("편집기에 칸이 없는 필드는 칸 하나를 바꿔 저장해도 남는다", () => {
+    const base: AgentCard = {
+      ...CARD,
+      capabilities: {
+        ...CARD.capabilities,
+        tool_policy: {
+          default: { mcp: "deny" },
+          per_tool: { Read: "allow", Bash: "ask" },
+        },
+        credential_refs: ["github/app", "slack:bot"],
+      },
+      rules: [{ id: "r1", text: "환불은 사람에게 넘긴다.", source: "user" }],
+    };
+    const draft = { ...draftFromCard(base), role: "환불 문의 담당" };
+    expect<unknown>(cardFromDraft(draft, base)).toEqual({
+      ...base,
+      role: "환불 문의 담당",
+    });
+  });
+
+  test("편집기의 칸은 모두 바꾼 값으로 저장된다", () => {
+    const tool_policy = { per_tool: { Write: "ask" as const } };
+    const rules: AgentCard["rules"] = [
+      { id: "r1", text: "환불은 사람에게 넘긴다.", source: "user" },
+    ];
+    const base: AgentCard = {
+      ...CARD,
+      capabilities: {
+        tools: null,
+        mcp: null,
+        forbidden: ["Bash"],
+        tool_policy,
+        credential_refs: ["github/app"],
+      },
+      rules,
+    };
+    const card = cardFromDraft(
+      {
+        role: "새 역할",
+        instructions: "새 지시",
+        tone: "짧게",
+        language: "en",
+        model: "claude-haiku-5",
+        toolsMode: "list",
+        tools: "Write",
+        forbidden: "Read",
+      },
+      base,
+    );
+    expect<unknown>(card).toEqual({
+      role: "새 역할",
+      instructions: "새 지시",
+      tone: "짧게",
+      language: "en",
+      model: "claude-haiku-5",
+      capabilities: {
+        tools: ["Write"],
+        mcp: null,
+        forbidden: ["Read"],
+        tool_policy,
+        credential_refs: ["github/app"],
+      },
+      rules,
+    });
+  });
+
+  test("편집기가 비운 칸은 원래 카드의 값을 되살리지 않는다", () => {
+    const card = cardFromDraft(
+      { ...draftFromCard(CARD), tone: " ", toolsMode: "all" },
+      CARD,
+    );
+    expect("tone" in card).toBe(false);
+    expect(card.capabilities.tools).toBeNull();
+  });
+
+  test("새 카드(base 없음)는 편집기 칸과 기본값만 싣는다", () => {
+    expect<unknown>(
+      cardFromDraft({ ...EMPTY_DRAFT, role: "역할", model: "m" }),
+    ).toEqual({
+      role: "역할",
+      instructions: "",
+      language: "ko",
+      model: "m",
+      capabilities: { tools: null, mcp: null, forbidden: [] },
+      rules: [],
+    });
+  });
 });

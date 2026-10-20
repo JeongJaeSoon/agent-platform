@@ -5,7 +5,7 @@ import type {
 } from "@agent-platform/contracts";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
@@ -17,6 +17,7 @@ import {
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
+import { copyText } from "../components/copy.ts";
 import { TextField } from "../components/field.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -111,6 +112,7 @@ function InviteForm({
   const [link, setLink] = useState<{ url: string; expires: string } | null>(
     null,
   );
+  const linkRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
 
   const invite = useMutation<
@@ -204,6 +206,7 @@ function InviteForm({
           <label className="web-field">
             <span>{t("members.invite.link")}</span>
             <input
+              ref={linkRef}
               className="ap-input"
               type="text"
               readOnly
@@ -220,20 +223,12 @@ function InviteForm({
             type="button"
             className="ap-button"
             onClick={() => {
-              const copyFailed = () =>
-                onOutcome({
-                  kind: "error",
-                  text: t("members.invite.copyFailed"),
-                });
-              // Absent outside a secure context (plain http).
-              if (!navigator.clipboard) return copyFailed();
-              void navigator.clipboard.writeText(link.url).then(
-                () =>
-                  onOutcome({
-                    kind: "notice",
-                    text: t("members.invite.copied"),
-                  }),
-                copyFailed,
+              void copyText(link.url, linkRef).then((copied) =>
+                onOutcome(
+                  copied
+                    ? { kind: "notice", text: t("members.invite.copied") }
+                    : { kind: "error", text: t("members.invite.copyFailed") },
+                ),
               );
             }}
           >
