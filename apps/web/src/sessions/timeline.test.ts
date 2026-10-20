@@ -2,11 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionEventPayload } from "@agent-platform/contracts";
 import { type Translate, translate } from "../i18n/i18n.tsx";
 import type { SessionEventFrame } from "./hooks.ts";
-import {
-  collectToolNames,
-  type TimelineItem,
-  timelineItems,
-} from "./timeline.ts";
+import { type TimelineItem, timelineItems } from "./timeline.ts";
 
 const t: Translate = (key, vars) => translate("ko", key, vars);
 const AT = "2026-10-21T02:54:00.000Z";
@@ -284,18 +280,17 @@ describe("session timeline", () => {
     ]);
   });
 
-  test("a result keeps its tool name after the call slides out of the window", () => {
-    const call = toolUse("tu_w", "Bash", { command: "make" });
-    const result = frame("tool_result", {
-      type: "tool_result",
-      tool_use_id: "tu_w",
-      content: "ok",
-    });
-    const names = collectToolNames([call, result]);
+  test("a result named by the stream keeps its name without its call", () => {
+    const result = {
+      ...frame("tool_result", {
+        type: "tool_result",
+        tool_use_id: "tu_gone",
+        content: "ok",
+      }),
+      toolName: "Bash",
+    };
     expect(
-      timelineItems(t, [result], { debug: false, toolNames: names }).map(
-        (item) => item.summary,
-      ),
+      timelineItems(t, [result], { debug: false }).map((item) => item.summary),
     ).toEqual(["Bash 결과 · 성공 · ok"]);
   });
 });

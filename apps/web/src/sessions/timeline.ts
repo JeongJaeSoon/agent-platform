@@ -181,7 +181,7 @@ function assistantLine(t: Translate, message: unknown): Line | null {
 
 function eventLine(
   t: Translate,
-  payload: SessionEventPayload,
+  { payload, toolName }: SessionEventFrame,
   toolNames: ReadonlyMap<string, string>,
 ): Line | null {
   switch (payload.event) {
@@ -222,7 +222,8 @@ function eventLine(
     case "tool_result": {
       const data = asRecord(payload.data);
       const id = data?.tool_use_id;
-      const tool = typeof id === "string" ? toolNames.get(id) : undefined;
+      const tool =
+        toolName ?? (typeof id === "string" ? toolNames.get(id) : undefined);
       const failed = data?.is_error === true;
       const text = resultText(data?.content).trim();
       const lines = text ? text.split("\n").length : 0;
@@ -282,15 +283,10 @@ function isThinkingTick(payload: SessionEventPayload) {
   );
 }
 
-/**
- * Adds each call's tool_use_id → tool name to `names`, so a result can say
- * which call it answers. A caller that keeps `names` across renders still
- * names a result whose call has slid out of the event window.
- */
-export function collectToolNames(
-  events: readonly SessionEventFrame[],
-  names: Map<string, string> = new Map(),
-) {
+// tool_use_id → tool name for calls still in the window; the stream hook
+// names results whose call has already slid out (SessionEventFrame.toolName).
+function toolNamesById(events: readonly SessionEventFrame[]) {
+  const names = new Map<string, string>();
   for (const { payload } of events) {
     if (payload.event !== "tool_use" && payload.event !== "assistant") continue;
     for (const block of contentBlocks(payload.data.message)) {
@@ -305,14 +301,9 @@ export function collectToolNames(
 export function timelineItems(
   t: Translate,
   events: readonly SessionEventFrame[],
-  {
-    debug,
-    toolNames = collectToolNames(events),
-  }: {
-    readonly debug: boolean;
-    readonly toolNames?: ReadonlyMap<string, string>;
-  },
+  { debug }: { readonly debug: boolean },
 ): TimelineItem[] {
+  const toolNames = toolNamesById(events);
   const items: TimelineItem[] = [];
   let ticks = 0;
   for (const frame of events) {
@@ -335,7 +326,7 @@ export function timelineItems(
       continue;
     }
     ticks = 0;
-    const line = eventLine(t, payload, toolNames);
+    const line = eventLine(t, frame, toolNames);
     if (line?.summary) items.push({ key: frame.id, ...line, ...at });
   }
   return items;

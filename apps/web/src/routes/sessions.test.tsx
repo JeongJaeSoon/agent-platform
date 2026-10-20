@@ -322,6 +322,41 @@ describe("session detail", () => {
     ).toBeTruthy();
   });
 
+  test("a tool result keeps its tool's name after the call leaves the window", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    const stream = await waitFor(() => {
+      const [only] = FakeEventSource.opened;
+      if (!only) throw new Error("no stream");
+      return only;
+    });
+    act(() => {
+      stream.open();
+      stream.emit("ev_call", "tool_use", {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_1",
+              name: "Bash",
+              input: { command: "make" },
+            },
+          ],
+        },
+      });
+      stream.emit("ev_result", "tool_result", {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "built",
+      });
+      for (let i = 0; i < 199; i += 1) {
+        stream.emit(`ev_s${i}`, "status", { phase: "running" });
+      }
+    });
+    expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
+    expect(screen.queryByText("Bash: make")).toBeNull();
+  });
+
   test("leaving the screen closes the stream", async () => {
     const user = await setupUser();
     renderAt(`/sessions/${SESSION_ID}`, {
