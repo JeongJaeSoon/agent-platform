@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { agentDetailSchema } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import type { ApiError } from "../api/client.ts";
 import { queryKeys } from "../api/queries.ts";
+import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
+import { agentRefusal } from "./agents.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
@@ -25,6 +28,37 @@ async function seedRelease(server: ReturnType<typeof agentServer>) {
     }),
   );
 }
+
+describe("agentRefusal", () => {
+  const refusal = (locale: Locale, code: string, message: string) =>
+    agentRefusal(
+      (key, vars) => translate(locale, key, vars),
+      { code, message, status: 422 } as ApiError,
+      "owner",
+    );
+
+  test("모델 불일치는 공백이 든 모델 이름도 원문 없이 옮긴다", () => {
+    const message =
+      "card.model: model custom model is not the model of runtime profile claude-coding-local";
+    expect(refusal("ko", "UNSUPPORTED_CAPABILITY", message)).toBe(
+      "카드 모델 custom model이(가) runtime profile claude-coding-local의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+    );
+    expect(refusal("en", "UNSUPPORTED_CAPABILITY", message)).toBe(
+      "The card's model custom model is not the model of runtime profile claude-coding-local, so no release was created. Choose a profile that runs the card's model.",
+    );
+  });
+
+  test("다른 거부는 지금처럼 이유 뒤에 서버 설명을 붙인다", () => {
+    const tools =
+      "card.capabilities.tools: runtime profile claude-coding-local does not allow WebFetch";
+    expect(refusal("ko", "UNSUPPORTED_CAPABILITY", tools)).toBe(
+      `${translate("ko", "error.UNSUPPORTED_CAPABILITY")} ${tools}`,
+    );
+    expect(refusal("ko", "BAD_REQUEST", "card.model: required")).toBe(
+      `${translate("ko", "error.BAD_REQUEST")} card.model: required`,
+    );
+  });
+});
 
 describe("에이전트 목록", () => {
   test("목록과 상태를 보이고 상세로 잇는다", async () => {
@@ -529,10 +563,56 @@ describe("편집 중 다른 곳의 저장", () => {
       "runtime profile",
     )) as HTMLSelectElement;
     expect([...select.options].map((option) => option.textContent)).toEqual([
-      "claude-coding-fast · claude-haiku-5",
+      "claude-coding-fast · claude-haiku-5 · 카드 모델과 다름",
       "claude-coding-local · claude-sonnet-5",
     ]);
     expect(select.value).toBe(PROFILE);
+  });
+
+  test("모델과 profile 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const described = async (label: string) =>
+      (
+        (await screen.findByLabelText(label)).getAttribute(
+          "aria-describedby",
+        ) ?? ""
+      )
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(" ");
+    expect(await described("모델")).toContain(
+      "release할 runtime profile의 모델과 정확히 같아야 합니다",
+    );
+    expect(await described("runtime profile")).toBe(
+      "각 profile과 그 profile이 쓰는 모델. 카드 모델과 같은 모델의 profile만 release할 수 있습니다",
+    );
+    expect(document.body.textContent).not.toContain("profiles.yaml");
+  });
+
+  test("카드 모델과 다른 profile로 거부된 release는 영어 원문 없이 한국어로 알린다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`POST /v1/agents/${AGENT_ID}/releases`]: () =>
+        apiError(
+          422,
+          "UNSUPPORTED_CAPABILITY",
+          "card.model: model claude-sonnet-5 is not the model of runtime profile claude-coding-fast",
+        ),
+    });
+    const user = await setupUser();
+    await user.selectOptions(
+      await screen.findByLabelText("runtime profile"),
+      "claude-coding-fast",
+    );
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    const refusal = await screen.findByText(/release를 만들지 못했습니다/);
+    expect(refusal.textContent).toBe(
+      "카드 모델 claude-sonnet-5이(가) runtime profile claude-coding-fast의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+    );
+    expect(document.body.textContent).not.toContain("is not the model of");
   });
 
   test("profile 목록을 못 읽으면 이유를 보이고 release를 만들지 못하게 한다", async () => {
@@ -586,7 +666,7 @@ describe("편집 중 다른 곳의 저장", () => {
       .split(" ")
       .map((id) => document.getElementById(id)?.textContent)
       .join(" ");
-    expect(described).toContain("카탈로그(profiles.yaml)에 없어");
+    expect(described).toContain("카탈로그에 없어");
     const instructions = screen.getByLabelText("지시 사항");
     await user.clear(instructions);
     await user.type(instructions, "모델은 그대로.");
