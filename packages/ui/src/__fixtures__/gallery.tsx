@@ -26,9 +26,10 @@ import {
 } from "../status/vocabulary.ts";
 
 /*
- * The gallery stands in for a Storybook: one render that touches every token
- * and every component state, so a snapshot catches drift. Everything in it is
- * fixed — no clocks, no ids, no randomness — or the snapshot would be noise.
+ * One render that touches every token and every component state, so a
+ * snapshot catches drift; apps/storybook shows the same set one story at a
+ * time. Everything in it is fixed — no clocks, no ids, no randomness — or the
+ * snapshot would be noise.
  */
 
 const SESSION_ID = "01J8Z5T7Q0000000000000000A";
