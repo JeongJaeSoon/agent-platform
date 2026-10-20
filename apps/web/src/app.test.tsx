@@ -57,7 +57,7 @@ describe("상태 화면", () => {
     expect(history.location.search).toContain("redirect=%2F");
   });
 
-  test("403이면 권한 없음 화면에 서버 문구를 그대로 보인다", async () => {
+  test("403이면 권한 없음 화면만 보이고 서버의 영어 문구는 보이지 않는다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () =>
         apiError(
@@ -68,9 +68,8 @@ describe("상태 화면", () => {
     });
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("이 화면을 볼 권한이 없습니다");
-    expect(alert.textContent).toContain(
-      "This credential does not hold sessions:read",
-    );
+    expect(document.body.textContent).not.toContain("does not hold");
+    expect(document.body.textContent).not.toContain("sessions:read");
     expect(screen.queryByText("로그인이 필요합니다")).toBeNull();
   });
 

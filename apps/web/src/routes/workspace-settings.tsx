@@ -26,12 +26,47 @@ export const AUDIT_RETENTION_MAX_DAYS = 3650;
 export function WorkspaceSettingsScreen() {
   const { t } = useI18n();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const workspaceManage = useHasPermission("workspace.manage");
+  const retentionManage = useHasPermission("audit_retention.manage");
+  if (!workspaceManage && !retentionManage) return <ReadOnlySettings />;
   return (
     <div className="web-page">
       <h1 className="web-page__title">{t("workspace.title")}</h1>
       <OutcomeLine outcome={outcome} />
       <AuditRetention onOutcome={setOutcome} />
       <SlackGuest onOutcome={setOutcome} />
+    </div>
+  );
+}
+
+/** The settings as they stand, for someone who may change none of them. */
+function ReadOnlySettings() {
+  const { t } = useI18n();
+  const settings = useMe()?.workspace?.settings;
+  return (
+    <div className="web-page">
+      <h1 className="web-page__title">{t("workspace.title")}</h1>
+      <p className="web-page__intro">{t("workspace.readOnly")}</p>
+      <section className="web-section">
+        <h2>{t("workspace.retention")}</h2>
+        <p>
+          {settings
+            ? t("workspace.retentionValue", {
+                days: settings.audit_retention_days,
+              })
+            : "—"}
+        </p>
+      </section>
+      <section className="web-section">
+        <h2>{t("workspace.guest")}</h2>
+        <p>
+          {t(
+            settings?.slack_guest_enabled
+              ? "workspace.guestValueOn"
+              : "workspace.guestValueOff",
+          )}
+        </p>
+      </section>
     </div>
   );
 }

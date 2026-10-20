@@ -52,7 +52,8 @@ export function AuthedLayout() {
   const me = useMe();
   const { client, queryClient } = useServices();
   const navigate = useNavigate();
-  const managesTeams = useHasPermission("team.manage");
+  // Teams stays: a member's teams are listed there.
+  const managesMembers = useHasPermission("member.manage");
   // Admins see the screen with the owner-only parts disabled and explained.
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
@@ -82,8 +83,10 @@ export function AuthedLayout() {
           <Link to="/" activeOptions={{ exact: true }}>
             {t("nav.home")}
           </Link>
-          <Link to="/members">{t("nav.members")}</Link>
-          {managesTeams ? <Link to="/teams">{t("nav.teams")}</Link> : null}
+          {managesMembers ? (
+            <Link to="/members">{t("nav.members")}</Link>
+          ) : null}
+          <Link to="/teams">{t("nav.teams")}</Link>
           <Link to="/agents">{t("nav.agents")}</Link>
           <Link to="/sessions">{t("nav.sessions")}</Link>
           <Link to="/settings/linked-accounts">{t("nav.linkedAccounts")}</Link>
@@ -122,7 +125,7 @@ export function AuthedError({ error, reset }: ErrorComponentProps) {
   if (isApiError(error, "FORBIDDEN")) {
     return (
       <Main className="web-auth">
-        <StatusScreen kind="forbidden" detail={error.message} />
+        <StatusScreen kind="forbidden" />
       </Main>
     );
   }

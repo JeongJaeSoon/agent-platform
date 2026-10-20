@@ -8,11 +8,10 @@ export const GENERATED_SCHEMA = join(
   import.meta.dir,
   "..",
   "src",
-  "api",
   "schema.gen.ts",
 );
 
-const HEADER = `// Generated from docs/openapi.json by \`bun run --cwd apps/web api:generate\`.
+const HEADER = `// Generated from docs/openapi.json by \`bun run --cwd packages/client api:generate\`.
 // Do not edit by hand.
 
 `;

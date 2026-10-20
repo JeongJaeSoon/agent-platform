@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type {
   ListPendingRequestsResponse,
   ListProfilesResponse,
@@ -8,7 +8,13 @@ import type {
   SessionUsageResponse,
 } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
-import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
+import {
+  apiError,
+  json,
+  me,
+  memberMe,
+  RECEIPT_ID,
+} from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, act } = await appHarness();
@@ -17,22 +23,57 @@ const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const AT = "2026-10-11T08:14:02.000Z";
 
-/** Records every stream the screen opens, and lets a test push frames. */
-class FakeEventSource extends EventTarget {
-  static readonly CONNECTING = 0;
-  static readonly OPEN = 1;
-  static readonly CLOSED = 2;
-  static opened: FakeEventSource[] = [];
-  readyState = FakeEventSource.CONNECTING;
-  onopen: (() => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  constructor(readonly url: string) {
-    super();
-    FakeEventSource.opened.push(this);
+interface Connection {
+  readonly request: Request;
+  push(text: string): void;
+  end(): void;
+}
+
+/**
+ * The server's side of the session's event stream. Each connection the
+ * screen asks for waits until the test calls open(), so the screen's
+ * "connecting" state can be seen; frames go to the newest open one.
+ */
+class FakeEventStream {
+  readonly requests: Request[] = [];
+  private waiting: (() => void)[] = [];
+  private live: Connection | null = null;
+  private refusal: (() => Response) | null = null;
+
+  readonly route = (request: Request): Promise<Response> => {
+    this.requests.push(request);
+    if (this.refusal) return Promise.resolve(this.refusal());
+    return new Promise((resolve, reject) => {
+      request.signal.addEventListener("abort", () =>
+        reject(new DOMException("aborted", "AbortError")),
+      );
+      this.waiting.push(() => resolve(this.connect(request)));
+    });
+  };
+
+  private connect(request: Request): Response {
+    const encoder = new TextEncoder();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start: (c) => {
+        controller = c;
+      },
+    });
+    request.signal.addEventListener("abort", () =>
+      controller.error(new DOMException("aborted", "AbortError")),
+    );
+    this.live = {
+      request,
+      push: (text) => controller.enqueue(encoder.encode(text)),
+      end: () => controller.close(),
+    };
+    return new Response(body, {
+      headers: { "content-type": "text/event-stream" },
+    });
   }
+
   open() {
-    this.readyState = FakeEventSource.OPEN;
-    this.onopen?.();
+    for (const release of this.waiting.splice(0)) release();
   }
   emit(id: string, event: string, data: unknown, turnId: string | null = "1") {
     const envelope = {
@@ -43,36 +84,31 @@ class FakeEventSource extends EventTarget {
       occurred_at: AT,
       data,
     };
-    const message = new MessageEvent(event, {
-      data: JSON.stringify(envelope),
-      lastEventId: id,
-    });
-    this.dispatchEvent(message);
-    // As in the browser: onerror is the handler for every "error" event,
-    // a stream's own `event: error` frame included.
-    if (event === "error") this.onerror?.(message);
+    this.live?.push(
+      `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(envelope)}\n\n`,
+    );
   }
+  /** The connection ends; the screen reconnects with Last-Event-ID. */
   drop() {
-    this.readyState = FakeEventSource.CONNECTING;
-    this.onerror?.(new Event("error"));
+    this.live?.end();
+    this.live = null;
   }
+  /** The server refuses every connection from now on (the share is gone). */
   fail() {
-    this.readyState = FakeEventSource.CLOSED;
-    this.onerror?.(new Event("error"));
+    this.refusal = () => apiError(404, "NOT_FOUND", "Resource not found");
+    this.drop();
   }
-  close() {
-    this.readyState = FakeEventSource.CLOSED;
+  /** Whether the screen has let go of the newest connection. */
+  get closed() {
+    return this.requests.at(-1)?.signal.aborted ?? false;
   }
 }
 
-const realEventSource = globalThis.EventSource;
-globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
-afterAll(() => {
-  globalThis.EventSource = realEventSource;
-});
+let stream: FakeEventStream;
 beforeEach(() => {
-  FakeEventSource.opened = [];
+  stream = new FakeEventStream();
 });
+const EVENTS_ROUTE = `GET /v1/sessions/${SESSION_ID}/events`;
 
 function summary(id: string, overrides: Partial<SessionSummary> = {}) {
   return {
@@ -80,7 +116,11 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
     revision: 3,
     admission_state: "active",
     status: "running",
-    runtime: { kind: "claude_code", version: "1.0.0", profile_id: "default" },
+    runtime: {
+      kind: "claude_agent_sdk",
+      version: "1.0.0",
+      profile_id: "default",
+    },
     repository_id: "demo",
     current_turn_id: "1",
     queued_turn_count: 0,
@@ -173,6 +213,7 @@ const detailRoutes = {
   [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, detail),
   [`GET /v1/sessions/${SESSION_ID}/usage`]: () => json(200, usage),
   [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () => json(200, pending),
+  [EVENTS_ROUTE]: (request: Request) => stream.route(request),
 };
 
 describe("sessions list", () => {
@@ -192,7 +233,7 @@ describe("sessions list", () => {
     const link = await screen.findByRole("link", { name: SESSION_ID });
     expect(link.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
     expect(screen.getByText("쉬는 중")).toBeTruthy();
-    expect(screen.getByText("default · claude_code 1.0.0")).toBeTruthy();
+    expect(screen.getByText("default · claude_agent_sdk 1.0.0")).toBeTruthy();
     // An idle session that still takes input: "작업 상태" and "세션 상태" differ.
     expect(
       screen.getAllByRole("columnheader").map((th) => th.textContent),
@@ -325,16 +366,14 @@ describe("session detail", () => {
     ).toBeTruthy();
     expect(await screen.findByText("권한 요청: Bash")).toBeTruthy();
 
-    const stream = await waitFor(() => {
-      const [only] = FakeEventSource.opened;
-      if (!only) throw new Error("no stream");
-      return only;
-    });
-    expect(FakeEventSource.opened).toHaveLength(1);
-    expect(stream.url).toBe(`/v1/sessions/${SESSION_ID}/events`);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    expect(stream.requests[0]?.headers.get("last-event-id")).toBeNull();
+    expect(stream.requests[0]?.headers.get("x-requested-with")).toBe(
+      "agent-platform-web",
+    );
 
+    await act(async () => stream.open());
     act(() => {
-      stream.open();
       stream.emit("ev_1", "status", { phase: "running" });
       stream.emit("ev_2", "assistant", {
         type: "assistant",
@@ -383,12 +422,22 @@ describe("session detail", () => {
     expect(await screen.findByText("engine crashed")).toBeTruthy();
     expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull();
 
+    // A dropped connection resumes after the last event drawn, and what
+    // arrives after it is drawn too.
     act(() => stream.drop());
     expect(await screen.findByText("이벤트에 연결하는 중…")).toBeTruthy();
-    act(() => stream.open());
+    expect(stream.requests.at(-1)?.headers.get("last-event-id")).toBe("ev_4");
+    await act(async () => stream.open());
     await waitFor(() =>
       expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull(),
     );
+    act(() =>
+      stream.emit("ev_6", "assistant", {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "Back again" }] },
+      }),
+    );
+    expect(await screen.findByText("Back again")).toBeTruthy();
 
     act(() => stream.fail());
     expect(
@@ -400,13 +449,9 @@ describe("session detail", () => {
 
   test("a tool result keeps its tool's name after the call leaves the window", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
-    const stream = await waitFor(() => {
-      const [only] = FakeEventSource.opened;
-      if (!only) throw new Error("no stream");
-      return only;
-    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
     act(() => {
-      stream.open();
       stream.emit("ev_call", "tool_use", {
         type: "assistant",
         message: {
@@ -439,15 +484,48 @@ describe("session detail", () => {
       ...detailRoutes,
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     });
-    const stream = await waitFor(() => {
-      const [only] = FakeEventSource.opened;
-      if (!only) throw new Error("no stream");
-      return only;
-    });
-    act(() => stream.open());
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
     await user.click(screen.getByRole("link", { name: "← 세션 목록" }));
     await screen.findByText("아직 세션이 없습니다.");
-    expect(stream.readyState).toBe(FakeEventSource.CLOSED);
+    expect(stream.closed).toBe(true);
+  });
+
+  test("moving to another session shows its stream connecting, not the old one closed", async () => {
+    const next = new FakeEventStream();
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${OTHER_ID}`]: () =>
+        json(200, { ...detail, id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+        json(200, { ...usage, session_id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: (request: Request) =>
+        next.route(request),
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    await waitFor(() =>
+      expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull(),
+    );
+
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await waitFor(() => expect(next.requests).toHaveLength(1));
+    await act(async () => next.open());
+    // Back to a session whose detail is cached: the new stream starts in the
+    // same render that stops the old one, and the old one's close lands
+    // while the new one is still connecting.
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await waitFor(() => expect(stream.requests).toHaveLength(2));
+    expect(next.closed).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.getByText("이벤트에 연결하는 중…")).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
+      ),
+    ).toBeNull();
   });
 
   test("a share taken back while open drops the detail and the stream", async () => {
@@ -459,12 +537,8 @@ describe("session detail", () => {
           ? json(200, detail)
           : apiError(404, "NOT_FOUND", "Resource not found"),
     });
-    const stream = await waitFor(() => {
-      const [only] = FakeEventSource.opened;
-      if (!only) throw new Error("no stream");
-      return only;
-    });
-    act(() => stream.open());
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
     await screen.findByText("권한 요청: Bash");
 
     visible = false;
@@ -480,7 +554,7 @@ describe("session detail", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText("권한 요청: Bash")).toBeNull();
-    expect(stream.readyState).toBe(FakeEventSource.CLOSED);
+    expect(stream.closed).toBe(true);
   });
 
   test("a turn that ended without a cost report is not called running", async () => {
@@ -512,7 +586,7 @@ describe("session detail", () => {
     expect(
       api.calls.filter((call) => call.path.startsWith("/v1/sessions")),
     ).toHaveLength(1);
-    expect(FakeEventSource.opened).toHaveLength(0);
+    expect(stream.requests).toHaveLength(0);
   });
 });
 
@@ -526,7 +600,10 @@ describe("session profile", () => {
         json(200, { ...detail, revision }),
       [`POST /v1/sessions/${SESSION_ID}/profile`]: () => {
         revision = 4;
-        return json(200, { receipt_id: "r1", receipt_status: "succeeded" });
+        return json(200, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "succeeded",
+        });
       },
     });
 

@@ -40,7 +40,7 @@ function LoadError({
   readonly onRetry: () => void;
 }) {
   if (isApiError(error, "FORBIDDEN")) {
-    return <StatusScreen kind="forbidden" detail={error.message} />;
+    return <StatusScreen kind="forbidden" />;
   }
   return <LoadFailure error={error} onRetry={onRetry} />;
 }

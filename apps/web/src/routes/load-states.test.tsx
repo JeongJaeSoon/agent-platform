@@ -122,7 +122,10 @@ const RETRY_CASES: ReadonlyArray<{
       "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
     },
     failingKey: "GET /v1/my-teams",
-    answer: () => json(200, { items: [{ id: "t-1", name: "결제팀" }] }),
+    answer: () =>
+      json(200, {
+        items: [{ id: "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f", name: "결제팀" }],
+      }),
     after: /^결제팀$/,
   },
 ];

@@ -17,6 +17,7 @@ import {
 import {
   ReasonButton,
   refusalText,
+  useHasPermission,
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
@@ -36,7 +37,7 @@ function ListError({
   readonly onRetry: () => void;
 }) {
   return isApiError(error, "FORBIDDEN") ? (
-    <StatusScreen kind="forbidden" detail={error.message} />
+    <StatusScreen kind="forbidden" />
   ) : (
     <LoadFailure error={error} onRetry={onRetry} />
   );
@@ -47,7 +48,8 @@ export function TeamsScreen() {
   const { t } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
-  const teams = useQuery(teamsQuery(client));
+  const manages = useHasPermission("team.manage");
+  const teams = useQuery({ ...teamsQuery(client), enabled: manages });
   const reason = usePermissionReason("team.manage", teams);
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
@@ -81,6 +83,16 @@ export function TeamsScreen() {
     event.preventDefault();
     create.mutate();
   };
+
+  if (!manages) {
+    return (
+      <div className="web-page">
+        <h1 className="web-page__title">{t("teams.title")}</h1>
+        <p className="web-page__intro">{t("teams.intro")}</p>
+        <MyTeams showEmpty />
+      </div>
+    );
+  }
 
   return (
     <div className="web-page">
