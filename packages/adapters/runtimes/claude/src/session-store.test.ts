@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -1513,6 +1514,7 @@ describe("Claude session store writing a resumed transcript to disk", () => {
       await mkdir(stale, { recursive: true });
       await writeFile(join(stale, "stale.jsonl"), "{}\n");
       await writeFile(join(projects, projectKey, `${sessionId}.jsonl`), "{}\n");
+      await writeFile(join(projects, projectKey, "other.jsonl"), "{}\n");
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const second = new ClaudeSessionStore({
           generation: 3 + attempt,
@@ -1535,11 +1537,39 @@ describe("Claude session store writing a resumed transcript to disk", () => {
         (await readdir(join(session, sessionId, "subagents"))).sort(),
       ).toEqual(["agent-1.jsonl", "agent-1.meta.json"]);
       expect(await readdir(join(session, sessionId))).toEqual(["subagents"]);
+      expect(await readFile(join(session, "other.jsonl"), "utf8")).toBe("{}\n");
       expect(await readdir(projects)).toEqual([projectKey]);
     } finally {
       await rm(projects, { force: true, recursive: true });
     }
   });
+
+  // Root ignores the mode that makes the swap fail.
+  test.skipIf(process.getuid?.() === 0)(
+    "keeps the transcript it would replace when publishing fails",
+    async () => {
+      const objects = createMemoryCheckpointObjectStore();
+      const second = await adopted(objects);
+      const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+      const session = join(projects, projectKey);
+      try {
+        await mkdir(session);
+        await writeFile(join(session, `${sessionId}.jsonl`), "{}\n");
+        await chmod(session, 0o500);
+        await expect(second.materialize(projects)).rejects.toThrow();
+        await chmod(session, 0o700);
+        expect(await readdir(session)).toEqual([`${sessionId}.jsonl`]);
+        expect(
+          await readFile(join(session, `${sessionId}.jsonl`), "utf8"),
+        ).toBe("{}\n");
+        expect(await readdir(projects)).toEqual([projectKey]);
+        expect(second.resumedEntryIds()).toBeUndefined();
+      } finally {
+        await chmod(session, 0o700).catch(() => {});
+        await rm(projects, { force: true, recursive: true });
+      }
+    },
+  );
 
   test("only a store that adopted a checkpoint materializes", async () => {
     const { mirror } = store();

@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   open,
+  readdir,
   rename,
   rm,
 } from "node:fs/promises";
@@ -439,15 +440,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
       }
       signal?.throwIfAborted();
       await syncDirectory(session);
-      // A transcript already under the key, left by an earlier attempt or an
-      // engine run in this config dir, is superseded by the checkpoint; it is
-      // moved into staging so the rename lands on an empty name.
-      await rename(target, join(staging, "superseded")).catch(
-        (error: NodeJS.ErrnoException) => {
-          if (error.code !== "ENOENT") throw error;
-        },
-      );
-      await rename(session, target);
+      await publish(session, target, join(staging, "superseded"));
       await syncDirectory(projects);
       this.#materialized = { projectKey, uuids };
     } finally {
@@ -1231,6 +1224,56 @@ async function writeAt(
     offset += bytesWritten;
   }
   return position + offset;
+}
+
+/**
+ * `session` moved to `target` in one rename when nothing is there yet. A
+ * key that already holds transcripts, from an earlier attempt or an engine
+ * run in this config dir, has only the entries `session` brings replaced,
+ * so other sessions under the key stay; what they replace waits in `aside`
+ * and goes back when a rename fails.
+ */
+async function publish(
+  session: string,
+  target: string,
+  aside: string,
+): Promise<void> {
+  try {
+    await rename(session, target);
+    return;
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
+  }
+  await mkdir(aside, { mode: 0o700 });
+  // Sorted, `<sid>` (the subagents) lands before `<sid>.jsonl`, the file
+  // that makes the session resumable.
+  const names = (await readdir(session)).sort();
+  const replaced: string[] = [];
+  const published: string[] = [];
+  try {
+    for (const name of names) {
+      try {
+        await rename(join(target, name), join(aside, name));
+        replaced.push(name);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    for (const name of names) {
+      await rename(join(session, name), join(target, name));
+      published.push(name);
+    }
+  } catch (error) {
+    for (const name of published) {
+      await rm(join(target, name), { force: true, recursive: true });
+    }
+    for (const name of replaced) {
+      await rename(join(aside, name), join(target, name));
+    }
+    throw error;
+  }
+  await syncDirectory(target);
 }
 
 /** A rename is durable once the directory holding it is synced. */
