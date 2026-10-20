@@ -12,6 +12,15 @@ export const membersKo = {
   "members.enableHint": "다시 들어오게 하려면 초대하지 말고 다시 활성화하세요.",
   "members.roleFor": "{name}의 역할",
   "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
+  "members.roleChangeTitle": "{name}의 역할을 {role}(으)로 바꿀까요?",
+  "members.roleChangeConsequence":
+    "바꾸는 즉시 이 사람이 할 수 있는 일이 새 역할에 맞게 바뀝니다.",
+  "members.roleChangeOwnerConsequence":
+    "소유자는 워크스페이스 설정과 다른 소유자의 역할까지 바꿀 수 있습니다. 소유자 역할은 소유자만 다시 거둘 수 있습니다.",
+  "members.roleChangeConfirm": "역할 바꾸기",
+  "members.disableSelf": "자기 자신은 비활성화할 수 없습니다.",
+  "members.disableLastOwner":
+    "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
   "members.disableTitle": "{name}을(를) 비활성화할까요?",
@@ -33,11 +42,16 @@ export const membersKo = {
     "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다. 초대할 사람에게 직접 전하세요.",
   "members.invite.copy": "링크 복사",
   "members.invite.copied": "초대 링크를 복사했습니다.",
+  "members.invite.copyFailed":
+    "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
   "members.invites.title": "대기 중인 초대",
   "members.invites.empty": "대기 중인 초대가 없습니다.",
   "members.invites.expires": "{expires}까지",
   "members.invites.revoke": "회수",
   "members.invites.revokeFor": "{email} 초대 회수",
+  "members.invites.revokeTitle": "{email} 초대를 회수할까요?",
+  "members.invites.revokeConsequence":
+    "보낸 링크로는 더 가입할 수 없습니다. 다시 초대하려면 새 링크를 만들어 보내야 합니다.",
   "members.invites.revoked": "{email} 초대를 회수했습니다.",
 };
 
@@ -56,6 +70,15 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "To let them back in, re-enable them instead of inviting them again.",
   "members.roleFor": "Role of {name}",
   "members.roleChanged": "{name} is now {role}.",
+  "members.roleChangeTitle": "Make {name} {role}?",
+  "members.roleChangeConsequence":
+    "What they can do changes to match the new role as soon as you confirm.",
+  "members.roleChangeOwnerConsequence":
+    "Owners can change workspace settings and even other owners' roles. Only an owner can take the owner role away again.",
+  "members.roleChangeConfirm": "Change role",
+  "members.disableSelf": "You cannot disable yourself.",
+  "members.disableLastOwner":
+    "The only owner cannot be disabled — make someone else an owner first.",
   "members.disable": "Disable",
   "members.disableFor": "Disable {name}",
   "members.disableTitle": "Disable {name}?",
@@ -76,10 +99,15 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "This link is shown only now and works until {expires}. Send it to the person yourself.",
   "members.invite.copy": "Copy link",
   "members.invite.copied": "Invite link copied.",
+  "members.invite.copyFailed":
+    "Could not copy the invite link — select the link field and copy it yourself.",
   "members.invites.title": "Pending invites",
   "members.invites.empty": "No pending invites.",
   "members.invites.expires": "Expires {expires}",
   "members.invites.revoke": "Revoke",
   "members.invites.revokeFor": "Revoke the invite for {email}",
+  "members.invites.revokeTitle": "Revoke the invite for {email}?",
+  "members.invites.revokeConsequence":
+    "The link you sent stops working. To invite them again, create and send a new link.",
   "members.invites.revoked": "The invite for {email} is revoked.",
 };
