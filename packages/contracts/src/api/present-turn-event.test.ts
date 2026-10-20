@@ -24,6 +24,10 @@ const PAYLOADS: Record<SessionEventName, unknown[]> = {
     { type: "system", subtype: "thinking_tokens" },
     { type: "system", subtype: "sdk_event", native_type: "command_lifecycle" },
     { type: "system" },
+    // Loose system payloads: the web folds only on an exact subtype string.
+    { type: "system", subtype: ["thinking_tokens"] },
+    { type: "system", subtype: ["sdk_event"] },
+    { type: "system", subtype: ["init"] },
   ],
   assistant: [
     {
@@ -146,9 +150,14 @@ describe("presentTurnEvent", () => {
     expect(contracts.presentTurnEvent).toBe(presentTurnEvent);
   });
 
-  test("every event name has fixtures, and every status phase its own label", () => {
+  test("every event name × status phase gets a label", () => {
     for (const name of SESSION_EVENT_NAMES) {
       expect(FIXTURES.some((fixture) => fixture.event === name)).toBe(true);
+      for (const phase of STATUS_EVENT_PHASE_VALUES) {
+        const presented = presentTurnEvent({ event: name, data: { phase } });
+        expect(presented.label.key).toBeString();
+        expect(presented.label.key).not.toBe("");
+      }
     }
     for (const phase of STATUS_EVENT_PHASE_VALUES) {
       const presented = presentTurnEvent({ event: "status", data: { phase } });
@@ -183,6 +192,22 @@ describe("presentTurnEvent", () => {
       { event: "system", data: null },
     ];
     for (const event of unreadable) {
+      expect(presentTurnEvent(event)).toEqual(generic);
+    }
+    const throwing = [
+      null,
+      {
+        event: "status",
+        get data(): unknown {
+          throw new Error("getter");
+        },
+      },
+      JSON.parse(
+        '{"event":"assistant","data":{"type":"assistant","message":{"content":[{"type":"text","text":{"toString":null}}]}}}',
+      ),
+      JSON.parse('{"event":"system","data":{"subtype":{"toString":null}}}'),
+    ];
+    for (const event of throwing) {
       expect(presentTurnEvent(event)).toEqual(generic);
     }
     const hostile = {
@@ -231,11 +256,11 @@ describe("presentTurnEvent against the web timeline", () => {
     const t = (key: string, vars?: Record<string, string | number>) =>
       translate(locale, key, vars);
 
-    const render = (presented: TurnEventPresentation) => {
+    const render = (presented: TurnEventPresentation, debug: boolean) => {
       const summary = presented.summary
         .map((part) => ("text" in part ? part.text : t(part.key, part.params)))
         .join(" · ");
-      return summary
+      return summary && (debug || presented.fold !== "debug")
         ? [
             {
               label: t(presented.label.key, presented.label.params),
@@ -254,6 +279,7 @@ describe("presentTurnEvent against the web timeline", () => {
     const timeline = (
       fixture: (typeof FIXTURES)[number],
       context: TurnEventContext,
+      debug: boolean,
     ) =>
       (
         timelineItems(
@@ -267,7 +293,7 @@ describe("presentTurnEvent against the web timeline", () => {
               ...(context.toolName ? { toolName: context.toolName } : {}),
             },
           ],
-          { debug: true },
+          { debug },
         ) as {
           label: string;
           summary: string;
@@ -284,10 +310,17 @@ describe("presentTurnEvent against the web timeline", () => {
     test(`every fixture reads the same in ${locale}`, () => {
       for (const fixture of FIXTURES) {
         for (const context of [{}, { toolName: "Bash" }]) {
-          expect({
-            id: fixture.id,
-            lines: render(presentTurnEvent(fixture, context)),
-          }).toEqual({ id: fixture.id, lines: timeline(fixture, context) });
+          for (const debug of [true, false]) {
+            expect({
+              id: fixture.id,
+              debug,
+              lines: render(presentTurnEvent(fixture, context), debug),
+            }).toEqual({
+              id: fixture.id,
+              debug,
+              lines: timeline(fixture, context, debug),
+            });
+          }
         }
       }
     });

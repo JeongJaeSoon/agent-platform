@@ -287,6 +287,14 @@ function toolResult(
 }
 
 function system(data: Record<string, unknown>): TurnEventPresentation {
+  // Folding matches the subtype exactly; the line itself reads it as text.
+  if (data.subtype === "thinking_tokens") {
+    return {
+      label: message("session.event.kind.thinking"),
+      summary: [message("session.event.thinkingTokens", { count: 1 })],
+      fold: "thinking_tick",
+    };
+  }
   const subtype = String(data.subtype ?? "");
   const label = message("session.event.kind.system");
   switch (subtype) {
@@ -294,17 +302,11 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
       return { label, summary: [message("session.event.init")] };
     case "vcs_state_changed":
       return { label, summary: [message("session.event.vcsChanged")] };
-    case "thinking_tokens":
-      return {
-        label: message("session.event.kind.thinking"),
-        summary: [message("session.event.thinkingTokens", { count: 1 })],
-        fold: "thinking_tick",
-      };
     case "sdk_event":
       return {
         label: message("session.event.kind.internal"),
         summary: text(String(data.native_type ?? subtype)),
-        fold: "debug",
+        ...(data.subtype === "sdk_event" ? { fold: "debug" as const } : {}),
       };
     default:
       return { label, summary: text(subtype) };
@@ -314,6 +316,19 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
 export function presentTurnEvent(
   event: { readonly event: string; readonly data?: unknown },
   context: TurnEventContext = {},
+): TurnEventPresentation {
+  // Event data is JSON from the worker: a field such as {"toString": null}
+  // makes String() throw, and a reader must still get a line.
+  try {
+    return present(event, context);
+  } catch {
+    return GENERIC;
+  }
+}
+
+function present(
+  event: { readonly event: string; readonly data?: unknown },
+  context: TurnEventContext,
 ): TurnEventPresentation {
   const data = asRecord(event.data);
   // A tool result's payload is whatever the tool returned, not always a record.
