@@ -183,6 +183,14 @@ echo '{"status":"ready"}'
     expect(result.stderr).not.toContain("local.sh: deleted");
   });
 
+  test("forget-lost-checkpoints runs its CLI in a one-off api container and deletes nothing", async () => {
+    const result = await run(["forget-lost-checkpoints"]);
+    expect(result.exitCode).toBe(0);
+    expect(await calls("docker-calls")).toEqual([
+      `${noMode} run --rm -T api bun run apps/control-host/src/api/forget-lost-checkpoints.ts`,
+    ]);
+  });
+
   test("up and status read /readyz where compose publishes the api", async () => {
     await writeFile(config, rendered("local"));
     const up = await run(["up"], { ...key, STUB_API: "127.0.0.1:43123" });

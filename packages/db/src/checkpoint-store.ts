@@ -18,17 +18,28 @@ import {
   lt,
   lte,
   notInArray,
+  sql,
 } from "drizzle-orm";
-import { ENDED_ATTEMPT_STATES } from "./control-shared.ts";
+import {
+  ENDED_ATTEMPT_STATES,
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
+import {
+  RESTORE_FAILURE_LIMIT,
+  RESTORE_FAILURES_CLEARED,
+} from "./restore-failures.ts";
 import {
   attempts,
   checkpoints,
   pushRequests,
   sessions,
   turns,
+  unassignedSessions,
 } from "./schema.ts";
+import { recordEvent, recordStatus } from "./session-events.ts";
 import {
   acquireFence,
   advanceCheckpointPointer,
@@ -46,6 +57,115 @@ export async function hasUncollectedCheckpoint(db: Database): Promise<boolean> {
     .where(isNull(checkpoints.collectedAt))
     .limit(1);
   return row !== undefined;
+}
+
+/** The RESTORE_FAILED reason of a session forgetLostCheckpoints holds. */
+export const CHECKPOINT_OBJECTS_LOST_REASON = "checkpoint_objects_lost";
+
+/** What forgetLostCheckpoints gave up, by session id. */
+export type LostCheckpoints = {
+  /** Sessions now in recovery_required: their restore point was lost. */
+  readonly held: string[];
+  /**
+   * Sessions that lost checkpoints but keep their state: closed, retired by
+   * start_fresh, already waiting on an operator, or mid pause/resume/stop
+   * (whose next restore fails as any failed restore does).
+   */
+  readonly unchanged: string[];
+};
+
+const HELD_WHEN_LOST = new Set(["active", "paused", "stopped"]);
+
+/**
+ * Marks every uncollected checkpoint collected, for an operator who has
+ * accepted that the object store lost all of them; the caller checks the
+ * bucket first. A session that would next restore one of them waits in
+ * recovery_required with RESTORE_FAILED (checkpoint_objects_lost) and its
+ * input kept: resume refuses, retry_restore has nothing to retry,
+ * start_fresh goes on without the lost context, close ends the session.
+ */
+export function forgetLostCheckpoints(
+  db: Database,
+  now: Date,
+): Promise<LostCheckpoints> {
+  return db.transaction(async (tx) => {
+    const lost = await tx
+      .selectDistinct({ sessionId: checkpoints.sessionId })
+      .from(checkpoints)
+      .where(isNull(checkpoints.collectedAt));
+    if (lost.length === 0) return { held: [], unchanged: [] };
+    const ids = lost.map((row) => row.sessionId);
+    // Session rows first, as a finalize takes them, so the two never wait
+    // on each other in opposite order.
+    const rows = await tx
+      .select()
+      .from(sessions)
+      .where(inArray(sessions.id, ids))
+      .orderBy(asc(sessions.id))
+      .for("update");
+    await tx
+      .update(checkpoints)
+      .set({ collectedAt: DB_NOW })
+      .where(
+        and(
+          inArray(checkpoints.sessionId, ids),
+          isNull(checkpoints.collectedAt),
+        ),
+      );
+    const held: string[] = [];
+    const unchanged: string[] = [];
+    for (const session of rows) {
+      if (
+        !hasRestorePoint(session) ||
+        !HELD_WHEN_LOST.has(session.admissionState)
+      ) {
+        unchanged.push(session.id);
+        continue;
+      }
+      held.push(session.id);
+      await tx
+        .update(sessions)
+        .set({
+          revision: sql`${sessions.revision} + 1`,
+          status: "failed",
+          admissionState: "recovery_required",
+          ...RESTORE_FAILURES_CLEARED,
+          restoreFailureCount: 1,
+          restoreFailureReason: CHECKPOINT_OBJECTS_LOST_REASON,
+          updatedAt: now,
+        })
+        .where(eq(sessions.id, session.id));
+      await tx
+        .delete(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, session.id));
+      await recordEvent(tx, {
+        sessionId: session.id,
+        type: "system",
+        payload: {
+          type: "system",
+          subtype: "checkpoint_restore_failed",
+          checkpoint_revision: restoreBaseRevision(session),
+          failures: 1,
+          limit: RESTORE_FAILURE_LIMIT,
+          reason: CHECKPOINT_OBJECTS_LOST_REASON,
+          retry_at: null,
+        },
+        turnRowId: null,
+        now,
+      });
+      await recordStatus(tx, {
+        sessionId: session.id,
+        phase: "failed",
+        extra: {
+          admission_state: "recovery_required",
+          reason: CHECKPOINT_OBJECTS_LOST_REASON,
+        },
+        turnRowId: null,
+        now,
+      });
+    }
+    return { held, unchanged };
+  });
 }
 
 /**

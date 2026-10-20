@@ -2,7 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import * as schema from "@agent-platform/db";
 import {
+  CHECKPOINT_OBJECTS_LOST_REASON,
   checkpoints,
+  events,
+  forgetLostCheckpoints,
   hasUncollectedCheckpoint,
   sessions,
 } from "@agent-platform/db";
@@ -22,7 +25,7 @@ import {
   type GitBundleFixture,
 } from "@agent-platform/testkit/git-bundle";
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {
@@ -34,6 +37,7 @@ import {
   checkpointStorageConfigFromEnv,
   createApiCheckpointService,
   createApiCheckpoints,
+  forgetLostCheckpointObjects,
   MIN_CHECKPOINT_GIT_MEMORY_MB,
 } from "./checkpoints.ts";
 
@@ -544,6 +548,139 @@ describe("checkpoint objects present at startup", () => {
       .where(eq(checkpoints.sessionId, sessionId));
     listed = 0;
     await run({});
+    expect(listed).toBe(0);
+  });
+});
+
+describe("forgetting the checkpoints an emptied bucket lost", () => {
+  const config: CheckpointStorageConfig = {
+    bucket: "claude-sessions",
+    protection: "locked",
+    region: "ap-northeast-1",
+  };
+  const client = new PGlite();
+  const db = drizzle(client, { schema });
+  const restorable = crypto.randomUUID();
+  const closed = crypto.randomUUID();
+  let listed = 0;
+  const forget = (page: Record<string, unknown>) =>
+    forgetLostCheckpointObjects(config, {
+      client: {
+        async send() {
+          listed += 1;
+          return page;
+        },
+      },
+      hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+      forget: () => forgetLostCheckpoints(db, new Date()),
+    });
+  const sessionRow = async (id: string) => {
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, id));
+    return row;
+  };
+
+  beforeAll(async () => {
+    await migrate(db, {
+      migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
+    });
+    for (const [id, admissionState] of [
+      [restorable, "stopped"],
+      [closed, "closed"],
+    ] as const) {
+      await db.insert(sessions).values({
+        id,
+        ownerId: "owner",
+        repoUrl: "https://example.invalid/repo.git",
+        branch: `session/${id}`,
+        status: "stopped",
+        admissionState,
+        checkpointRevision: 1,
+      });
+      await db.insert(checkpoints).values({
+        sessionId: id,
+        revision: 1,
+        manifestRef: `s3://claude-sessions/${id}/manifest.json`,
+        manifestSha256: "sha256",
+      });
+    }
+  }, 30_000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  test("changes nothing while the bucket still holds a version", async () => {
+    await expect(
+      forget({ Versions: [{ Key: "manifest.json", VersionId: "v1" }] }),
+    ).rejects.toThrow(
+      "Checkpoint bucket claude-sessions still holds object versions, so it did not lose its checkpoints; nothing was changed",
+    );
+    expect(await hasUncollectedCheckpoint(db)).toBe(true);
+    expect((await sessionRow(restorable))?.admissionState).toBe("stopped");
+  });
+
+  test("on an empty bucket, collects every checkpoint and holds the sessions that would restore one", async () => {
+    const before = await sessionRow(restorable);
+    expect(await forget({})).toEqual({
+      held: [restorable],
+      unchanged: [closed],
+    });
+    expect(await hasUncollectedCheckpoint(db)).toBe(false);
+    const held = await sessionRow(restorable);
+    expect(held).toMatchObject({
+      admissionState: "recovery_required",
+      status: "failed",
+      revision: (before?.revision ?? 0) + 1,
+      checkpointRevision: 1,
+      restoreFailureCount: 1,
+      restoreFailureReason: CHECKPOINT_OBJECTS_LOST_REASON,
+      restoreRetryAt: null,
+    });
+    expect((await sessionRow(closed))?.admissionState).toBe("closed");
+    const recorded = await db
+      .select({ type: events.type, payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, restorable))
+      .orderBy(asc(events.id));
+    expect(recorded).toEqual([
+      {
+        type: "system",
+        payload: {
+          type: "system",
+          subtype: "checkpoint_restore_failed",
+          checkpoint_revision: 1,
+          failures: 1,
+          limit: 3,
+          reason: "checkpoint_objects_lost",
+          retry_at: null,
+        },
+      },
+      {
+        type: "status",
+        payload: {
+          phase: "failed",
+          admission_state: "recovery_required",
+          reason: "checkpoint_objects_lost",
+        },
+      },
+    ]);
+    // The startup guard now lets the API start on the empty bucket.
+    listed = 0;
+    await assertCheckpointObjectsPresent(config, {
+      client: {
+        async send() {
+          listed += 1;
+          return {};
+        },
+      },
+      hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+    });
+    expect(listed).toBe(0);
+  });
+
+  test("a second run finds nothing lost and reads no bucket", async () => {
+    listed = 0;
+    expect(await forget({})).toEqual({ held: [], unchanged: [] });
     expect(listed).toBe(0);
   });
 });
