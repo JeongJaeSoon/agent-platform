@@ -834,7 +834,7 @@ integration("API server on PostgreSQL", () => {
           settled = true;
         };
         poll.then(settle, settle);
-        await Bun.sleep(1_000);
+        await Bun.sleep(2_000);
         expect(settled).toBe(false);
 
         const signalledAt = Date.now();
