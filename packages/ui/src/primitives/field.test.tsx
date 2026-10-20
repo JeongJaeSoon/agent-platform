@@ -97,6 +97,66 @@ describe("Field", () => {
     expect(describedBy(input)).toEqual(["공통 안내", "https로 시작합니다."]);
   });
 
+  test("설명·오류에 준 id가 그대로 연결된다", () => {
+    const [descriptionId, errorId] = ["own-description", "own-error"];
+    const { getByRole } = render(
+      <Field>
+        <FieldLabel>주소</FieldLabel>
+        <Input />
+        <FieldDescription id={descriptionId}>
+          https로 시작합니다.
+        </FieldDescription>
+        <FieldError id={errorId}>주소 형식이 아닙니다.</FieldError>
+      </Field>,
+    );
+    const input = getByRole("textbox", { name: "주소" });
+    expect(input.getAttribute("aria-describedby")).toBe(
+      `${descriptionId} ${errorId}`,
+    );
+  });
+
+  test("설명이 둘이면 둘 다 잇고, 하나가 빠져도 남은 것은 이어진다", async () => {
+    function Harness() {
+      const [extra, setExtra] = useState(true);
+      return (
+        <>
+          <Field>
+            <FieldLabel>이름</FieldLabel>
+            <Input />
+            <FieldDescription>영문 소문자만 씁니다.</FieldDescription>
+            {extra ? (
+              <FieldDescription>나중에 못 바꿉니다.</FieldDescription>
+            ) : null}
+          </Field>
+          <button type="button" onClick={() => setExtra(false)}>
+            줄이기
+          </button>
+        </>
+      );
+    }
+    const { getByRole } = render(<Harness />);
+    const input = getByRole("textbox", { name: "이름" });
+    expect(describedBy(input)).toEqual([
+      "영문 소문자만 씁니다.",
+      "나중에 못 바꿉니다.",
+    ]);
+    await (await setupUser()).click(getByRole("button", { name: "줄이기" }));
+    expect(describedBy(input)).toEqual(["영문 소문자만 씁니다."]);
+  });
+
+  test("빈 문자열 오류는 오류가 아니다", () => {
+    const { getByRole, queryByRole } = render(
+      <Field>
+        <FieldLabel>팀 이름</FieldLabel>
+        <Input />
+        <FieldError>{""}</FieldError>
+      </Field>,
+    );
+    const input = getByRole("textbox", { name: "팀 이름" });
+    expect(queryByRole("alert")).toBeNull();
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+  });
+
   test("Field 밖의 입력은 아무것도 덧붙이지 않는다", () => {
     const { getByRole } = render(<Input aria-label="검색" />);
     const input = getByRole("textbox", { name: "검색" });

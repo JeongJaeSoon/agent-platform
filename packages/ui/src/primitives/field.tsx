@@ -18,21 +18,23 @@ import { cn } from "../lib/cn.ts";
  * Upstream leaves `id`, `htmlFor` and `aria-describedby` to the caller; here
  * the Field mints the ids, FieldLabel points at the control, and the single
  * control inside (Input, Textarea, Checkbox) reads them through
- * `useFieldControl`. FieldDescription and FieldError register themselves, so
- * `aria-describedby` only names elements that are on the page, and a mounted
- * FieldError marks the control `aria-invalid`. FieldLabel is a native <label>
+ * `useFieldControl`. Each FieldDescription and FieldError registers the id it
+ * renders with, so `aria-describedby` only names elements that are on the
+ * page, and a mounted FieldError marks the control `aria-invalid`. The parts
+ * register in an effect, so server-rendered HTML lacks them until hydration;
+ * nothing here renders on a server. FieldLabel is a native <label>
  * rather than Radix Label, Field drops its unnamed `role="group"` (FieldSet
  * is the named group), FieldSeparator and FieldTitle are left out, and there
  * are no `dark:` variants.
  */
 
+type FieldPart = "description" | "error";
+
 interface FieldContextValue {
   readonly controlId: string;
-  readonly descriptionId: string;
-  readonly errorId: string;
-  readonly hasDescription: boolean;
-  readonly hasError: boolean;
-  readonly setPart: (part: "description" | "error", present: boolean) => void;
+  readonly parts: Readonly<Record<FieldPart, readonly string[]>>;
+  /** Adds a rendered part's id; the returned function takes it back out. */
+  readonly register: (part: FieldPart, id: string) => () => void;
 }
 
 const FieldContext = createContext<FieldContextValue | null>(null);
@@ -53,29 +55,27 @@ export function useFieldControl<P extends FieldControlProps>(props: P): P {
   if (!field) return props;
   const describedBy = [
     props["aria-describedby"],
-    field.hasDescription ? field.descriptionId : undefined,
-    field.hasError ? field.errorId : undefined,
+    ...field.parts.description,
+    ...field.parts.error,
   ]
     .filter(Boolean)
     .join(" ");
+  const hasError = field.parts.error.length > 0;
   return {
     ...props,
     id: props.id ?? field.controlId,
     "aria-describedby": describedBy || undefined,
-    "aria-invalid": props["aria-invalid"] ?? (field.hasError || undefined),
+    "aria-invalid": props["aria-invalid"] ?? (hasError || undefined),
   };
 }
 
-function useRegisterPart(part: "description" | "error"): string | undefined {
-  const field = useContext(FieldContext);
-  const setPart = field?.setPart;
-  useLayoutEffect(() => {
-    if (!setPart) return;
-    setPart(part, true);
-    return () => setPart(part, false);
-  }, [setPart, part]);
-  if (!field) return undefined;
-  return part === "description" ? field.descriptionId : field.errorId;
+/** The id a part renders with, registered with its Field under that id. */
+function usePartId(part: FieldPart, id: string | undefined): string {
+  const generated = useId();
+  const ownId = id ?? generated;
+  const register = useContext(FieldContext)?.register;
+  useLayoutEffect(() => register?.(part, ownId), [register, part, ownId]);
+  return ownId;
 }
 
 export function FieldSet({
@@ -164,32 +164,32 @@ export function Field({
   ...props
 }: FieldProps): JSX.Element {
   const id = useId();
-  const [parts, setParts] = useState({ description: false, error: false });
+  const [parts, setParts] = useState<FieldContextValue["parts"]>({
+    description: [],
+    error: [],
+  });
   // Stable, or each registration would re-run every part's effect forever.
-  const setPart = useCallback(
-    (part: "description" | "error", present: boolean) =>
-      setParts((current) =>
-        current[part] === present ? current : { ...current, [part]: present },
-      ),
-    [],
-  );
+  const register = useCallback((part: FieldPart, partId: string) => {
+    setParts((current) => ({
+      ...current,
+      [part]: [...current[part], partId],
+    }));
+    return () =>
+      setParts((current) => ({
+        ...current,
+        [part]: current[part].filter((other) => other !== partId),
+      }));
+  }, []);
   const value = useMemo<FieldContextValue>(
-    () => ({
-      controlId: `${id}-control`,
-      descriptionId: `${id}-description`,
-      errorId: `${id}-error`,
-      hasDescription: parts.description,
-      hasError: parts.error,
-      setPart,
-    }),
-    [id, parts, setPart],
+    () => ({ controlId: `${id}-control`, parts, register }),
+    [id, parts, register],
   );
   return (
     <FieldContext.Provider value={value}>
       <div
         data-slot="field"
         data-orientation={orientation}
-        data-invalid={parts.error || undefined}
+        data-invalid={parts.error.length > 0 || undefined}
         className={cn(fieldVariants({ orientation }), className)}
         {...props}
       />
@@ -240,11 +240,10 @@ export function FieldDescription({
   id,
   ...props
 }: ComponentProps<"p">): JSX.Element {
-  const fieldId = useRegisterPart("description");
   return (
     <p
       data-slot="field-description"
-      id={id ?? fieldId}
+      id={usePartId("description", id)}
       className={cn(
         "font-normal text-muted-foreground text-sm leading-normal group-has-[[data-orientation=horizontal]]/field:text-balance",
         "nth-last-2:-mt-1 last:mt-0 [[data-variant=legend]+&]:-mt-1.5",
@@ -257,16 +256,21 @@ export function FieldDescription({
 }
 
 /**
- * Renders nothing without children, so a form can always place it and only
- * fill it when there is an error; only a rendered error marks the control
- * invalid.
+ * Renders nothing without children (an empty string counts as none), so a
+ * form can always place it and only fill it when there is an error; only a
+ * rendered error marks the control invalid.
  */
 export function FieldError({
   className,
   children,
   ...props
 }: ComponentProps<"div">): JSX.Element | null {
-  if (children === undefined || children === null || children === false) {
+  if (
+    children === undefined ||
+    children === null ||
+    children === false ||
+    children === ""
+  ) {
     return null;
   }
   return (
@@ -281,12 +285,11 @@ function FieldErrorMessage({
   id,
   ...props
 }: ComponentProps<"div">): JSX.Element {
-  const fieldId = useRegisterPart("error");
   return (
     <div
       role="alert"
       data-slot="field-error"
-      id={id ?? fieldId}
+      id={usePartId("error", id)}
       className={cn("font-normal text-destructive text-sm", className)}
       {...props}
     />
