@@ -22,11 +22,11 @@ function statusText(t: Translate, status: SessionStatus) {
   return t(`sessions.status.${status}`);
 }
 
-// Plain text, not StatusLabel: its admission icon, a rounded square, read as
-// a missing-glyph box next to the word.
+// Not StatusLabel: its admission icon, a rounded square, read as a
+// missing-glyph box next to the word.
 function Admission({ state }: { readonly state: AdmissionState }) {
   const { t } = useI18n();
-  return <>{t(`sessions.admission.${state}`)}</>;
+  return <span className="web-badge">{t(`sessions.admission.${state}`)}</span>;
 }
 
 function runtimeText(t: Translate, session: SessionSummary) {
