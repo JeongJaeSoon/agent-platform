@@ -22,6 +22,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -41,9 +42,11 @@ if (!runArg || !cmd) {
 const root =
   process.env.VERIFY_AP_ROOT ??
   join(process.env.TMPDIR ?? tmpdir(), "verify-agent-platform");
-const run = runArg.includes("/")
-  ? runArg
-  : join(root, runArg.replace(/^verify-ap-/, ""));
+// realpath so start and stop name the same profile in Chrome's command line
+// whether the run came by id or by a /private/var… path.
+const run = realpathSync(
+  runArg.includes("/") ? runArg : join(root, runArg.replace(/^verify-ap-/, "")),
+);
 const dir = join(run, "browser");
 const profile = join(dir, "profile");
 const pidFile = join(dir, "pid");
@@ -117,8 +120,15 @@ if (cmd === "stop") {
     if (alive(pid)) process.kill(pid, "SIGKILL");
     for (let i = 0; i < 25 && alive(pid); i++) await sleep(200);
   }
-  if (alive(pid) && ours(pid)) {
-    console.error(`browser.mjs: pid ${pid} still running; profile kept`);
+  // Read-only check: a Chrome on our profile under another PID (not recorded,
+  // so never signalled here) means the profile is still in use.
+  const inUse = execFileSync("ps", ["-axo", "command="], { encoding: "utf8" })
+    .split("\n")
+    .some((line) => line.includes(`--user-data-dir=${profile}`));
+  if (inUse) {
+    console.error(
+      `browser.mjs: a Chrome on ${profile} is still running (recorded pid ${pid}); profile kept, nothing else signalled`,
+    );
     process.exit(1);
   }
   rmSync(profile, { recursive: true, force: true });
@@ -227,7 +237,11 @@ async function capture(name, full = false) {
   writeFileSync(shotPath(name), Buffer.from(r.data, "base64"));
   return shotPath(name);
 }
-const here = () => evaluate("location.pathname + location.search");
+// The invite token is a path segment; never print it.
+const masked = (text) =>
+  String(text).replace(/\/invite\/[^/?#\s|]+/g, "/invite/(token)");
+const here = async () =>
+  masked(await evaluate("location.pathname + location.search"));
 // "@N" is the Nth field in <main> (from 0), for forms whose inputs have no name.
 const field = (selector) => {
   const nth = selector.match(/^@(\d+)$/);
@@ -274,8 +288,10 @@ switch (cmd) {
   case "open":
     await navigate(args[0]);
     console.log(
-      await evaluate(
-        "location.pathname + location.search + ' | ' + document.title",
+      masked(
+        await evaluate(
+          "location.pathname + location.search + ' | ' + document.title",
+        ),
       ),
     );
     break;
