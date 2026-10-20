@@ -10,6 +10,7 @@ import {
 import { viewerQuery } from "../api/queries.ts";
 import { DISPLAY_NAME_MAX, PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -43,9 +44,7 @@ export function InviteScreen() {
   if (viewer.isPending) body = <StatusScreen kind="loading" />;
   else if (viewer.error) {
     body = (
-      <p className="web-form__error" role="alert">
-        {t(errorKey((viewer.error as ApiError).code ?? "UNKNOWN"))}
-      </p>
+      <LoadFailure error={viewer.error} onRetry={() => void viewer.refetch()} />
     );
   } else if (viewer.data) {
     // One workspace per installation: anyone signed in is already a member.
@@ -113,7 +112,13 @@ function AcceptForm({ token }: { readonly token: string }) {
     },
   });
 
-  if (accept.error?.code === "INVITE_EXPIRED") {
+  // The form holds the name to its limit and the password to its minimum;
+  // short of a password over 1 KB, a malformed request is the token (a link
+  // cut short or made up), which the server can only call invalid.
+  if (
+    accept.error?.code === "INVITE_EXPIRED" ||
+    accept.error?.code === "BAD_REQUEST"
+  ) {
     return (
       <section className="web-status" data-status="invite-expired" role="alert">
         <h2 className="web-status__title">{t("invite.expired.title")}</h2>

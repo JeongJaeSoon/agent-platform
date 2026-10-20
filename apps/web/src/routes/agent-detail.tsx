@@ -22,6 +22,7 @@ import {
   draftFromCard,
 } from "../components/agent-card-form.tsx";
 import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -76,9 +77,7 @@ function AgentDetailPage({ id }: { readonly id: string }) {
     return isApiError(detail.error, "FORBIDDEN") ? (
       <StatusScreen kind="forbidden" detail={detail.error.message} />
     ) : (
-      <p className="web-form__error" role="alert">
-        {t(errorKey((detail.error as ApiError).code))}
-      </p>
+      <LoadFailure error={detail.error} onRetry={() => void detail.refetch()} />
     );
   }
   return (

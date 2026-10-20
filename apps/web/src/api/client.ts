@@ -20,6 +20,8 @@ export class ApiError extends Error {
     readonly code: ApiErrorCode | "NETWORK_ERROR" | "UNKNOWN",
     message: string,
     readonly requestId: string | null = null,
+    /** The server's word that the same call may succeed later. */
+    readonly retryable = false,
   ) {
     super(message);
     this.name = "ApiError";
@@ -47,7 +49,12 @@ export function createApiClient(options: ApiClientOptions = {}) {
 }
 
 interface ErrorBody {
-  error?: { code?: string; message?: string; request_id?: string };
+  error?: {
+    code?: string;
+    message?: string;
+    request_id?: string;
+    retryable?: boolean;
+  };
 }
 
 /**
@@ -75,6 +82,7 @@ export async function unwrap<T>(
     (body.error?.code as ApiErrorCode | undefined) ?? "UNKNOWN",
     body.error?.message ?? response.statusText,
     body.error?.request_id ?? response.headers.get("x-request-id"),
+    body.error?.retryable ?? false,
   );
 }
 
