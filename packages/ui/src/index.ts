@@ -37,6 +37,7 @@ export {
   CardHeader,
   CardTitle,
 } from "./primitives/card.tsx";
+export { Checkbox } from "./primitives/checkbox.tsx";
 export {
   Dialog,
   DialogClose,
@@ -49,6 +50,20 @@ export {
   DialogTitle,
   DialogTrigger,
 } from "./primitives/dialog.tsx";
+export {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  type FieldProps,
+  FieldSet,
+  fieldVariants,
+} from "./primitives/field.tsx";
+export { Input } from "./primitives/input.tsx";
+export { Textarea } from "./primitives/textarea.tsx";
 export { formatTimestamp } from "./receipt/format-timestamp.ts";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {

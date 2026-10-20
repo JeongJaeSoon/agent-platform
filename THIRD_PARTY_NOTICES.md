@@ -89,6 +89,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @modelcontextprotocol/sdk | 1.32.1 | MIT | worker |
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
+| @radix-ui/react-checkbox | 1.3.11 | MIT | worker |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT | worker |
 | @radix-ui/react-context | 1.2.2 | MIT | worker |
 | @radix-ui/react-dialog | 1.1.23 | MIT | worker |
@@ -104,6 +105,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-use-controllable-state | 1.2.6 | MIT | worker |
 | @radix-ui/react-use-effect-event | 0.0.5 | MIT | worker |
 | @radix-ui/react-use-layout-effect | 1.1.4 | MIT | worker |
+| @radix-ui/react-use-size | 1.1.4 | MIT | worker |
 | @smithy/core | 3.34.1 | Apache-2.0 | control-host, worker |
 | @smithy/core | 3.35.0 | Apache-2.0 | control-host, worker |
 | @smithy/credential-provider-imds | 4.5.2 | Apache-2.0 | control-host, worker |
