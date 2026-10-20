@@ -167,6 +167,44 @@ describe("subscribeSessionEvents", () => {
     await run.done;
   });
 
+  test("an older frame replayed later does not move the cursor back", async () => {
+    const server = eventServer([
+      {
+        text:
+          frame("ev_1", "status", { phase: "running" }) +
+          frame("ev_2", "status", { phase: "idle" }) +
+          frame("ev_1", "status", { phase: "running" }),
+      },
+      { text: "", hold: true },
+    ]);
+    const run = subscribe(server);
+    await until(() => server.requests.length === 2);
+    expect(run.events.map((e) => e.id)).toEqual(["ev_1", "ev_2"]);
+    expect(lastEventIds(server)).toEqual([null, "ev_2"]);
+    run.stop.abort();
+    await run.done;
+  });
+
+  test("an abort that lands before the wait ends it at once, not after Retry-After", async () => {
+    const stop = new AbortController();
+    const client = createApiClient({
+      baseUrl: "https://api.test",
+      fetch: (async () => {
+        stop.abort();
+        return new Response("{}", {
+          status: 503,
+          headers: { "retry-after": "30" },
+        });
+      }) as unknown as typeof fetch,
+    });
+    const started = Date.now();
+    await subscribeSessionEvents(client, SESSION, {
+      signal: stop.signal,
+      onEvent: () => {},
+    });
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   test("starts after the caller's cursor", async () => {
     const server = eventServer([
       { text: frame("ev_8", "status", { phase: "idle" }), hold: true },

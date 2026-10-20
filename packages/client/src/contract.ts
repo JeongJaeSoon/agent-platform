@@ -91,7 +91,13 @@ export function contractPolicy(options: ContractOptions): ContractPolicy {
     },
     check(operation, validator, value, status, requestId) {
       if (mode === "off" || !validator) return;
-      policy.report({ operation, issues: validator(value) }, status, requestId);
+      // Copied field by field: an injected validator may hang the offending
+      // value on an issue, and a mismatch is reported and logged.
+      const issues = validator(value).map(({ path, message }) => ({
+        path: String(path),
+        message: String(message),
+      }));
+      policy.report({ operation, issues }, status, requestId);
     },
   };
   return policy;

@@ -49,13 +49,16 @@ export class ApiError extends Error {
 
 interface ErrorBody {
   error?: {
-    code?: string;
-    message?: string;
-    request_id?: string;
-    retryable?: boolean;
+    code?: unknown;
+    message?: unknown;
+    request_id?: unknown;
+    retryable?: unknown;
     details?: unknown;
   };
 }
+
+const text = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
 
 /** Seconds from a `Retry-After` header; an HTTP date or junk reads as none. */
 export function retryAfterSeconds(response: Response): number | null {
@@ -65,13 +68,16 @@ export function retryAfterSeconds(response: Response): number | null {
 
 /** A non-2xx response and its parsed body, as one error shape. */
 export function errorFromResponse(response: Response, body: unknown): ApiError {
+  // The body is whatever answered, a proxy's page included; only a field of
+  // the right type is taken from it.
   const error = (body as ErrorBody | null | undefined)?.error;
   return new ApiError(
     response.status,
-    (error?.code as ApiErrorCode | undefined) ?? "UNKNOWN",
-    error?.message ?? response.statusText,
+    (text(error?.code) as ApiErrorCode | undefined) ?? "UNKNOWN",
+    text(error?.message) ?? response.statusText,
     {
-      requestId: error?.request_id ?? response.headers.get("x-request-id"),
+      requestId:
+        text(error?.request_id) ?? response.headers.get("x-request-id"),
       retryable: typeof error?.retryable === "boolean" ? error.retryable : null,
       details: error?.details ?? null,
       retryAfterSeconds: retryAfterSeconds(response),

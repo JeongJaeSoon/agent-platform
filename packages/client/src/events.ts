@@ -14,7 +14,7 @@ export interface SubscribeOptions {
   readonly signal: AbortSignal;
   /** Resume strictly after this cursor; without it the stream replays from the start. */
   readonly lastEventId?: string;
-  /** Each event id at most once per subscription. */
+  /** An event id among the last 1,000 delivered is not delivered again. */
   readonly onEvent: (frame: SessionEventFrame) => void;
   readonly onState?: (state: StreamState) => void;
   /** An error the stream does not recover from; the subscription has ended. */
@@ -59,10 +59,14 @@ export async function subscribeSessionEvents(
 
   /** Returns false once the subscription must end. */
   const receive = (raw: RawFrame): boolean => {
-    // Every frame moves the cursor, dropped ones too, or a reconnect would
-    // stall on the same frame for good.
-    if (raw.id) cursor = raw.id;
     const reading = readFrame(raw, sessionId);
+    // A repeat is an older frame replayed; following it would move the
+    // cursor backwards.
+    if (reading.kind === "event" && delivered.has(reading.frame.id))
+      return true;
+    // Every other frame moves the cursor, dropped ones too, or a reconnect
+    // would stall on the same frame for good.
+    if (raw.id) cursor = raw.id;
     try {
       if (reading.kind !== "event") {
         if (reading.kind === "mismatch" || policy.mode === "strict")
@@ -73,7 +77,6 @@ export async function subscribeSessionEvents(
           );
         return true;
       }
-      if (delivered.has(reading.frame.id)) return true;
       policy.check(
         OPERATION,
         policy.validators.sessionEvent,

@@ -173,6 +173,24 @@ describe("requests", () => {
     });
   });
 
+  test("an error body's fields of the wrong type are not taken", async () => {
+    const api = recording(() =>
+      json(
+        500,
+        { error: { code: 42, message: { text: "no" }, request_id: ["r"] } },
+        { "x-request-id": "req-h" },
+      ),
+    );
+    const client = createApiClient({ baseUrl: BASE, fetch: api.fetch });
+    const error = await unwrap(client.GET("/v1/auth/me")).catch((e) => e);
+    expect(error).toMatchObject({
+      status: 500,
+      code: "UNKNOWN",
+      requestId: "req-h",
+    });
+    expect(typeof error.message).toBe("string");
+  });
+
   test("an unreachable server is a NETWORK_ERROR, not a crash", async () => {
     const client = createApiClient({
       baseUrl: BASE,
@@ -214,6 +232,31 @@ describe("validate", () => {
     expect(JSON.stringify([error.message, error.mismatch])).not.toContain(
       "secret-user-id",
     );
+  });
+
+  test("an issue keeps its place and words, not what else the validator hung on it", async () => {
+    const api = recording(() => json(200, offContract));
+    const client = createApiClient({
+      baseUrl: BASE,
+      fetch: api.fetch,
+      validate: "strict",
+      validators: {
+        responses: {
+          "GET /v1/auth/me": (value) => [
+            {
+              path: "workspace",
+              message: "Required",
+              received: (value as typeof offContract).principal.id,
+            } as never,
+          ],
+        },
+      },
+    });
+    const error = await unwrap(client.GET("/v1/auth/me")).catch((e) => e);
+    expect(error.mismatch.issues).toEqual([
+      { path: "workspace", message: "Required" },
+    ]);
+    expect(JSON.stringify(error.mismatch)).not.toContain("secret-user-id");
   });
 
   test("strict passes a conforming answer and ignores operations it has no validator for", async () => {
