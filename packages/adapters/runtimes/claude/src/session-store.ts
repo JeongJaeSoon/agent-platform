@@ -1159,6 +1159,7 @@ async function writeTranscript(
   const uuids = new Set<string>();
   let metadata: TranscriptEntry | undefined;
   let file: FileHandle | undefined;
+  let position = 0;
   try {
     for (const part of parts) {
       signal?.throwIfAborted();
@@ -1174,10 +1175,9 @@ async function writeTranscript(
       if (lines === "") continue;
       if (file === undefined) {
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-        // Appending, so each part's lines land after the last one's.
-        file = await open(path, "ax", 0o600);
+        file = await open(path, "wx", 0o600);
       }
-      await file.writeFile(lines);
+      position = await writeAt(file, Buffer.from(lines), position);
     }
     if (file === undefined && !subagent) {
       await writeSynced(path, "");
@@ -1193,11 +1193,34 @@ async function writeSynced(path: string, contents: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const file = await open(path, "wx", 0o600);
   try {
-    await file.writeFile(contents);
+    await writeAt(file, Buffer.from(contents), 0);
     await file.sync();
   } finally {
     await file.close();
   }
+}
+
+/**
+ * All of `bytes` at `position`, and the position after them. Positioned
+ * rather than appended: Bun 1.3.14 on Linux writes a large `writeFile` to a
+ * handle opened for appending twice.
+ */
+async function writeAt(
+  file: FileHandle,
+  bytes: Uint8Array,
+  position: number,
+): Promise<number> {
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const { bytesWritten } = await file.write(
+      bytes,
+      offset,
+      bytes.byteLength - offset,
+      position + offset,
+    );
+    offset += bytesWritten;
+  }
+  return position + offset;
 }
 
 /** A rename is durable once the directory holding it is synced. */

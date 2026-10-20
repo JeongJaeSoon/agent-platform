@@ -1469,6 +1469,32 @@ describe("Claude session store writing a resumed transcript to disk", () => {
     }
   });
 
+  test("writes parts of several MiB back to back, each once", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const big = (uuid: string) => entry(uuid, "x".repeat(3 * 1024 * 1024));
+    await first.append(root, [big("a"), big("b")]);
+    await first.append(root, [big("c")]);
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    const second = new ClaudeSessionStore({
+      generation: 2,
+      inherit: { sessionId, transcripts },
+      objects,
+      prefix,
+    });
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      await second.materialize(projects);
+      const file = join(projects, projectKey, `${sessionId}.jsonl`);
+      expect((await stat(file)).size).toBe(
+        transcripts.root.parts.reduce((total, part) => total + part.bytes, 0),
+      );
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
   test("only a store that adopted a checkpoint materializes", async () => {
     const { mirror } = store();
     await expect(mirror.materialize(tmpdir())).rejects.toThrow(
