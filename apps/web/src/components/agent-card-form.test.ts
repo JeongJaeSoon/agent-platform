@@ -131,6 +131,40 @@ describe("카드 폼 변환", () => {
     });
   });
 
+  test("편집기의 칸은 모두 바꾼 값으로 저장된다", () => {
+    const base: AgentCard = {
+      ...CARD,
+      capabilities: { ...CARD.capabilities, credential_refs: ["github/app"] },
+    };
+    const card = cardFromDraft(
+      {
+        role: "새 역할",
+        instructions: "새 지시",
+        tone: "짧게",
+        language: "en",
+        model: "claude-haiku-5",
+        toolsMode: "list",
+        tools: "Write",
+        forbidden: "Read",
+      },
+      base,
+    );
+    expect<unknown>(card).toEqual({
+      role: "새 역할",
+      instructions: "새 지시",
+      tone: "짧게",
+      language: "en",
+      model: "claude-haiku-5",
+      capabilities: {
+        tools: ["Write"],
+        mcp: null,
+        forbidden: ["Read"],
+        credential_refs: ["github/app"],
+      },
+      rules: [],
+    });
+  });
+
   test("편집기가 비운 칸은 원래 카드의 값을 되살리지 않는다", () => {
     const card = cardFromDraft(
       { ...draftFromCard(CARD), tone: " ", toolsMode: "all" },
