@@ -1,15 +1,18 @@
+import {
+  type SessionEventFrame,
+  type StreamState,
+  subscribeSessionEvents,
+} from "@agent-platform/client";
 import type {
   ChangeSessionProfileRequest,
   ListPendingRequestsResponse,
   ListSessionsResponse,
   SessionDetail,
-  SessionEventName,
-  SessionEventPayload,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { type ApiError, unwrap } from "../api/client.ts";
+import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { useServices } from "../services.tsx";
 
 /*
@@ -109,42 +112,17 @@ export function useChangeSessionProfile(id: string) {
   });
 }
 
-// A record, so a kind added to the contract fails the typecheck until it is
-// listened for here (the web app imports contracts as types only).
-const EVENT_NAMES = Object.keys({
-  system: true,
-  assistant: true,
-  tool_use: true,
-  tool_result: true,
-  question: true,
-  result: true,
-  status: true,
-  error: true,
-} satisfies Record<SessionEventName, true>);
-
-export type EventStreamState = "connecting" | "open" | "closed";
-
-/** One SSE frame, its envelope unpacked next to the kind's payload. */
-export interface SessionEventFrame {
-  readonly id: string;
-  readonly occurredAt: string;
-  readonly turnId: string | null;
-  readonly payload: SessionEventPayload;
-}
-
-interface Envelope {
-  readonly occurred_at: string;
-  readonly turn_id: string | null;
-  readonly data: unknown;
-}
+export type { SessionEventFrame };
+export type EventStreamState = StreamState;
 
 /**
- * The session's event stream, replayed from the start. EventSource sends the
- * login cookie on a same-origin URL and resumes with Last-Event-ID on its own
- * after a dropped connection; once it gives up (an error status), the stream
- * is closed for good and the screen says so.
+ * The session's event stream, replayed from the start. The client resumes
+ * with Last-Event-ID after a dropped connection and delivers each event once;
+ * a refusal (the share taken back, the login gone) closes it for good and the
+ * screen says so.
  */
 export function useSessionEvents(id: string, enabled: boolean) {
+  const services = useServices();
   const [events, setEvents] = useState<readonly SessionEventFrame[]>([]);
   const [state, setState] = useState<EventStreamState>("connecting");
 
@@ -152,46 +130,19 @@ export function useSessionEvents(id: string, enabled: boolean) {
     if (!enabled) return;
     setEvents([]);
     setState("connecting");
-    const source = new EventSource(
-      `/v1/sessions/${encodeURIComponent(id)}/events`,
-    );
-    const receive = (message: MessageEvent<string>) => {
-      let envelope: Envelope;
-      try {
-        envelope = JSON.parse(message.data);
-      } catch {
-        return;
-      }
-      const event: SessionEventFrame = {
-        id: message.lastEventId,
-        occurredAt: envelope.occurred_at,
-        turnId: envelope.turn_id,
-        payload: {
-          event: message.type,
-          data: envelope.data,
-        } as SessionEventPayload,
-      };
-      // A resumed stream starts after Last-Event-ID, so a repeat can only be
-      // one still on screen.
-      setEvents((current) =>
-        current.some((held) => held.id === event.id)
-          ? current
-          : [...current, event].slice(-EVENT_WINDOW),
-      );
-    };
-    for (const name of EVENT_NAMES) {
-      source.addEventListener(name, receive);
-    }
-    source.onopen = () => setState("open");
-    // A session's own `event: error` frame reaches onerror too, with the
-    // connection still open, so the state follows readyState alone.
-    source.onerror = () => {
-      if (source.readyState === EventSource.CLOSED) setState("closed");
-      else if (source.readyState === EventSource.CONNECTING)
-        setState("connecting");
-    };
-    return () => source.close();
-  }, [id, enabled]);
+    const stop = new AbortController();
+    void subscribeSessionEvents(services.client, id, {
+      signal: stop.signal,
+      onEvent: (event) =>
+        setEvents((current) => [...current, event].slice(-EVENT_WINDOW)),
+      onState: setState,
+      onError: (error) => {
+        if (isApiError(error, "UNAUTHORIZED")) services.onUnauthorized();
+      },
+      ...(services.eventRetry ? { retry: services.eventRetry } : {}),
+    });
+    return () => stop.abort();
+  }, [services, id, enabled]);
 
   return { events, state };
 }

@@ -62,6 +62,7 @@ export function apiError(status: number, code: string, message: string) {
 
 export const WORKSPACE_ID = "6d4c1f5e-4c39-4d7a-9a51-0f4f3c7a2b10";
 export const USER_ID = "0b1d0c7e-1f27-4a3e-8a8e-9c1b2d3e4f50";
+export const RECEIPT_ID = "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c";
 
 const OWNER_SCOPES: AuthMeResponse["scopes"] = [
   "sessions:read",

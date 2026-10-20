@@ -7,10 +7,10 @@
   "scripts": {
     "dev": "bun --bun vite",
     "build": "bun --bun vite build",
-    "api:generate": "bun run scripts/generate-api.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
+    "@agent-platform/client": "workspace:*",
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/ui": "workspace:*",
     "@happy-dom/global-registrator": "^20.14.5",
@@ -22,11 +22,10 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "5.2.0",
-    "openapi-fetch": "0.17.0",
-    "openapi-typescript": "7.13.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "4.3.3",
-    "vite": "7.3.6"
+    "vite": "7.3.6",
+    "zod": "4.6.5"
   }
 }

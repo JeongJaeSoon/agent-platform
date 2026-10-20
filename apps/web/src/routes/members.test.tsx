@@ -10,6 +10,7 @@ import {
   json,
   me,
   memberMe,
+  RECEIPT_ID,
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
@@ -187,7 +188,7 @@ describe("구성원 화면", () => {
       ...noInvites,
       [`POST /v1/members/${GONE_ID}/enable`]: () => {
         current = { ...gone, disabled_at: null };
-        return json(200, { member: current, receipt_id: "r-1" });
+        return json(200, { member: current, receipt_id: RECEIPT_ID });
       },
     });
     const user = await setupUser();
