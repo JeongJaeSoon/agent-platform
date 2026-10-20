@@ -4,7 +4,7 @@
 // can be checked. TODO(94S-158): Move that browser coverage into apps/web.
 import { createRoot } from "react-dom/client";
 
-import "../styles.css";
+import "./demo.css";
 import { Gallery } from "./gallery.tsx";
 
 const params = new URLSearchParams(location.search);

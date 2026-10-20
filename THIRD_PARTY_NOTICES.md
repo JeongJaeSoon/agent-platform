@@ -127,6 +127,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | bytes | 3.1.2 | MIT | worker |
 | call-bind-apply-helpers | 1.0.2 | MIT | worker |
 | call-bound | 1.0.4 | MIT | worker |
+| class-variance-authority | 0.7.1 | Apache-2.0 | worker |
 | clsx | 2.1.1 | MIT | worker |
 | content-disposition | 1.1.0 | MIT | worker |
 | content-type | 1.0.5 | MIT | worker |
@@ -232,6 +233,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | split2 | 4.2.0 | ISC | control-host, worker |
 | standardwebhooks | 1.1.1 | MIT | worker |
 | statuses | 2.0.2 | MIT | worker |
+| tailwind-merge | 3.5.0 | MIT | worker |
 | toidentifier | 1.0.1 | MIT | worker |
 | ts-algebra | 2.0.0 | MIT | worker |
 | tslib | 2.8.1 | 0BSD | control-host, worker |
