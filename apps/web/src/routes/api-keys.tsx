@@ -25,6 +25,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { copyText } from "../components/copy.ts";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -131,10 +132,6 @@ function IssuedSecret({
   useEffect(() => {
     secretRef.current?.focus();
   }, []);
-  const copyFailed = () => {
-    setCopy("failed");
-    secretRef.current?.focus();
-  };
   return (
     <section
       className="web-status"
@@ -162,11 +159,9 @@ function IssuedSecret({
           type="button"
           className="ap-button"
           onClick={() => {
-            const clipboard = globalThis.navigator?.clipboard;
-            if (!clipboard) return copyFailed();
-            clipboard
-              .writeText(issued.secret)
-              .then(() => setCopy("copied"), copyFailed);
+            void copyText(issued.secret, secretRef).then((copied) =>
+              setCopy(copied ? "copied" : "failed"),
+            );
           }}
         >
           {copy === "copied" ? t("apiKeys.copied") : t("apiKeys.copy")}
