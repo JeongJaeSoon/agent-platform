@@ -25,7 +25,7 @@ import { useServices } from "../services.tsx";
 
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
 const MODEL_REFUSAL =
-  /^card\.model: model (\S+) is not the model of runtime profile (\S+)$/;
+  /^card\.model: model (.+) is not the model of runtime profile (.+)$/;
 
 /**
  * What a refused agent action says: a 403 in the words of the disabled

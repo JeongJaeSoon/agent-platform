@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { agentDetailSchema } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import type { ApiError } from "../api/client.ts";
 import { queryKeys } from "../api/queries.ts";
+import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
+import { agentRefusal } from "./agents.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
@@ -25,6 +28,37 @@ async function seedRelease(server: ReturnType<typeof agentServer>) {
     }),
   );
 }
+
+describe("agentRefusal", () => {
+  const refusal = (locale: Locale, code: string, message: string) =>
+    agentRefusal(
+      (key, vars) => translate(locale, key, vars),
+      { code, message, status: 422 } as ApiError,
+      "owner",
+    );
+
+  test("모델 불일치는 공백이 든 모델 이름도 원문 없이 옮긴다", () => {
+    const message =
+      "card.model: model custom model is not the model of runtime profile claude-coding-local";
+    expect(refusal("ko", "UNSUPPORTED_CAPABILITY", message)).toBe(
+      "카드 모델 custom model이(가) runtime profile claude-coding-local의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+    );
+    expect(refusal("en", "UNSUPPORTED_CAPABILITY", message)).toBe(
+      "The card's model custom model is not the model of runtime profile claude-coding-local, so no release was created. Choose a profile that runs the card's model.",
+    );
+  });
+
+  test("다른 거부는 지금처럼 이유 뒤에 서버 설명을 붙인다", () => {
+    const tools =
+      "card.capabilities.tools: runtime profile claude-coding-local does not allow WebFetch";
+    expect(refusal("ko", "UNSUPPORTED_CAPABILITY", tools)).toBe(
+      `${translate("ko", "error.UNSUPPORTED_CAPABILITY")} ${tools}`,
+    );
+    expect(refusal("ko", "BAD_REQUEST", "card.model: required")).toBe(
+      `${translate("ko", "error.BAD_REQUEST")} card.model: required`,
+    );
+  });
+});
 
 describe("에이전트 목록", () => {
   test("목록과 상태를 보이고 상세로 잇는다", async () => {
