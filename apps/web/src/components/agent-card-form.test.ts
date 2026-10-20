@@ -132,9 +132,20 @@ describe("카드 폼 변환", () => {
   });
 
   test("편집기의 칸은 모두 바꾼 값으로 저장된다", () => {
+    const tool_policy = { per_tool: { Write: "ask" as const } };
+    const rules: AgentCard["rules"] = [
+      { id: "r1", text: "환불은 사람에게 넘긴다.", source: "user" },
+    ];
     const base: AgentCard = {
       ...CARD,
-      capabilities: { ...CARD.capabilities, credential_refs: ["github/app"] },
+      capabilities: {
+        tools: null,
+        mcp: null,
+        forbidden: ["Bash"],
+        tool_policy,
+        credential_refs: ["github/app"],
+      },
+      rules,
     };
     const card = cardFromDraft(
       {
@@ -159,9 +170,10 @@ describe("카드 폼 변환", () => {
         tools: ["Write"],
         mcp: null,
         forbidden: ["Read"],
+        tool_policy,
         credential_refs: ["github/app"],
       },
-      rules: [],
+      rules,
     });
   });
 
