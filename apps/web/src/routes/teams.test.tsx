@@ -449,9 +449,13 @@ describe("에이전트 관리자", () => {
       "GET /v1/administered-agents": () =>
         apiError(500, "INTERNAL", "Internal error"),
     });
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
       "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
     );
+    expect(
+      within(alert).getByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
     expect(
       screen.queryByText(
         "agent.admin.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
@@ -466,9 +470,13 @@ describe("에이전트 관리자", () => {
       [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
         apiError(503, "BACKEND_UNAVAILABLE", "Backend unavailable"),
     });
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
       "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
     );
+    expect(
+      within(alert).getByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
   });
 
   test("관리하지 않는 구성원은 이유만 보고, 관리자 목록을 묻지 않는다", async () => {

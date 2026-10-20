@@ -170,11 +170,44 @@ describe("연동 계정", () => {
           503,
           "BACKEND_UNAVAILABLE",
           "Slack could not be reached, try again later",
+          true,
         ),
     });
     expect((await screen.findByRole("alert")).textContent).toBe(
       "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
     );
+  });
+
+  test("이 설치에 Slack 연결이 설정되지 않았으면 콜백도 쓸 수 없다고 한다", async () => {
+    renderAt("/settings/linked-accounts/slack?code=c1&state=s1", {
+      ...meOk,
+      "POST /v1/linked-accounts/slack/callback": () =>
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Sign in with Slack is not configured on this installation",
+        ),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이 설치에서는 Slack 계정 연결을 쓸 수 없습니다 — 운영자에게 문의하세요.",
+    );
+  });
+
+  test("목록을 불러오지 못하면 다시 시도로 다시 묻는다", async () => {
+    let calls = 0;
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () =>
+        ++calls === 1
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, { items: [] }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    expect(
+      await screen.findByText("연결된 Slack 계정이 없습니다."),
+    ).toBeTruthy();
+    expect(calls).toBe(2);
   });
 
   test("로그인이 끊겼으면 로그인 뒤 같은 콜백으로 돌아오게 한다", async () => {

@@ -48,12 +48,17 @@ export function json(status: number, body: unknown): Response {
   });
 }
 
-export function apiError(status: number, code: string, message: string) {
+export function apiError(
+  status: number,
+  code: string,
+  message: string,
+  retryable = false,
+) {
   return json(status, {
     error: {
       code,
       message,
-      retryable: false,
+      retryable,
       request_id: "req-1",
       details: null,
     },

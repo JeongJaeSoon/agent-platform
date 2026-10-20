@@ -26,6 +26,8 @@ export function googleCallbackSearch(
 function refusalKey(error: ApiError): MessageKey {
   if (error.code === "UNAUTHORIZED") return "login.google.rejected";
   if (error.code === "FORBIDDEN") return "login.google.forbidden";
+  // The callback route answers 404 only when Google sign-in is not set up.
+  if (error.code === "NOT_FOUND") return "login.google.unavailable";
   return errorKey(error.code);
 }
 
