@@ -439,6 +439,14 @@ export class ClaudeSessionStore implements TranscriptMirror {
       }
       signal?.throwIfAborted();
       await syncDirectory(session);
+      // A transcript already under the key, left by an earlier attempt or an
+      // engine run in this config dir, is superseded by the checkpoint; it is
+      // moved into staging so the rename lands on an empty name.
+      await rename(target, join(staging, "superseded")).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error;
+        },
+      );
       await rename(session, target);
       await syncDirectory(projects);
       this.#materialized = { projectKey, uuids };
@@ -637,7 +645,9 @@ export class ClaudeSessionStore implements TranscriptMirror {
       })),
       ...(await Promise.all(
         own.map(async (key) => ({
-          body: () => this.#cached(key),
+          // Not #cached: the tally already dropped this body, and the merged
+          // key it moves to would never evict it again.
+          body: () => this.#parts.get(key) ?? this.#read(key),
           bytes: await this.#sizeOf(key),
           ref: () => this.#ownRef(key),
         })),

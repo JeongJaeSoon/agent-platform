@@ -1,6 +1,14 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
@@ -1490,6 +1498,44 @@ describe("Claude session store writing a resumed transcript to disk", () => {
       expect((await stat(file)).size).toBe(
         transcripts.root.parts.reduce((total, part) => total + part.bytes, 0),
       );
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("replaces a transcript already under the project key", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const loaded = await adopted(objects);
+    const expectedRoot = await loaded.load(root);
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      const stale = join(projects, projectKey, sessionId);
+      await mkdir(stale, { recursive: true });
+      await writeFile(join(stale, "stale.jsonl"), "{}\n");
+      await writeFile(join(projects, projectKey, `${sessionId}.jsonl`), "{}\n");
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const second = new ClaudeSessionStore({
+          generation: 3 + attempt,
+          inherit: {
+            sessionId,
+            transcripts: (await loaded.captureTranscripts(
+              sessionId,
+            )) as CheckpointTranscripts,
+          },
+          objects,
+          prefix,
+        });
+        await second.materialize(projects);
+      }
+      const session = join(projects, projectKey);
+      expect(await lines(join(session, `${sessionId}.jsonl`))).toEqual(
+        expectedRoot as TranscriptEntry[],
+      );
+      expect(
+        (await readdir(join(session, sessionId, "subagents"))).sort(),
+      ).toEqual(["agent-1.jsonl", "agent-1.meta.json"]);
+      expect(await readdir(join(session, sessionId))).toEqual(["subagents"]);
+      expect(await readdir(projects)).toEqual([projectKey]);
     } finally {
       await rm(projects, { force: true, recursive: true });
     }
