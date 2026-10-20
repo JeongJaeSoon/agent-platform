@@ -562,6 +562,24 @@ describe("PendingRequestRegistry", () => {
     expect(await decision).toEqual({ behavior: "allow" });
   });
 
+  test("denies a registered request at the gateway's expiry, not at its own timeout", async () => {
+    const gateway = new FakeWorkerGateway();
+    const register = gateway.registerPending.bind(gateway);
+    gateway.registerPending = async (request) => ({
+      ...(await register(request)),
+      expires_in_ms: 150,
+    });
+    const harness = registry({ gateway, timeoutMs: 5 });
+    const started = performance.now();
+
+    const decision = await harness.registry.request(permission("req-expiry"));
+
+    expect(decision.behavior).toBe("deny");
+    expect(performance.now() - started).toBeGreaterThanOrEqual(150);
+    await waitFor(() => gateway.settled.length === 1, "settlement");
+    expect(gateway.settled[0]?.outcome).toBe("expired");
+  });
+
   test("gives up on a request the gateway never registered after its own timeout", async () => {
     const gateway = new FakeWorkerGateway();
     gateway.registerPending = () => new Promise(() => {});

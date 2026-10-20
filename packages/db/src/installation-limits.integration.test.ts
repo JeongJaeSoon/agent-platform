@@ -21,7 +21,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+} from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -683,6 +686,48 @@ integration("installation limits on PostgreSQL", () => {
       expect(
         await gateway.nextInput(principalOf(claimed), scopeOf(claimed)),
       ).toMatchObject({ input: null, reason: "BUDGET_EXCEEDED" });
+    });
+
+    test("a worker that gives its slot back on a spent budget leaves the last completed turn checkpointed", async () => {
+      const { session, claimed, launched } = await bound();
+      await append(session, "second");
+      await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
+      await finalize(claimed, "1", {
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "s3://bucket/manifest-0.json",
+          manifest_sha256: "a".repeat(64),
+        },
+      });
+      await gateway.recordProviderUsage({
+        exchangeId: crypto.randomUUID(),
+        sessionId: session.session_id,
+        attemptId: claimed.attempt_id,
+        usage: usage({ outputTokens: 700_000 }),
+      });
+      expect(
+        await gateway.nextInput(principalOf(claimed), scopeOf(claimed)),
+      ).toMatchObject({ input: null, reason: "BUDGET_EXCEEDED" });
+
+      // What the worker sends after a BUDGET_EXCEEDED poll: no turn, no
+      // checkpoint of its own.
+      await gateway.release(principalOf(claimed), {
+        ...scopeOf(claimed),
+        reason:
+          "The session has spent its cost or token budget (BUDGET_EXCEEDED)",
+      });
+      await gateway.confirmExecutionGone(launched.executionId);
+
+      const detail = await createPostgresSessionReader(db).getSession(
+        session.ownerId,
+        session.session_id,
+      );
+      expect(detail?.durability).toMatchObject({
+        checkpoint_pending_reason: null,
+        checkpoint_revision: 0,
+        last_checkpointed_turn_id: "1",
+        last_completed_turn_id: "1",
+      });
     });
 
     for (const [cause, text] of [

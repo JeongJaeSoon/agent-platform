@@ -1329,6 +1329,51 @@ describe("WorkerHost cost and provider failures", () => {
     expect(summary.reason).toContain("BUDGET_EXCEEDED");
     expect(gateway.releases).toHaveLength(1);
   });
+
+  test("takes no checkpoint of its own when it gives the slot back for a spent budget", async () => {
+    // The last turn's finalize carried the checkpoint; the release that
+    // follows captures nothing more, so the session resumes from that turn.
+    let captures = 0;
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: {
+          restorePlan: async () => ({ mode: "new" }),
+          capture: async () => {
+            captures += 1;
+            return {
+              revision: captures - 1,
+              manifest_ref: `checkpoints/${captures - 1}.json`,
+              manifest_sha256: "a".repeat(64),
+            };
+          },
+        },
+        gateway,
+        timeouts: { idleTimeoutMs: 60_000 },
+      },
+    );
+    gateway.enqueue("one message");
+
+    const running = host.runLoop();
+    await waitFor(() => gateway.finalized.length === 1, "the first finalize");
+    gateway.overBudget = true;
+    const summary = await running;
+
+    expect(summary.outcome).toBe("idle");
+    expect(captures).toBe(1);
+    expect(gateway.finalized[0]?.checkpoint?.revision).toBe(0);
+    expect(gateway.releases).toEqual([
+      expect.objectContaining({
+        turn_id: null,
+        reason: expect.stringContaining("BUDGET_EXCEEDED"),
+      }),
+    ]);
+  });
 });
 
 describe("inputUuid", () => {
