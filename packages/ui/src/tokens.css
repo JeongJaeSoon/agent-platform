@@ -135,11 +135,13 @@
   --primary: var(--ap-color-accent);
   --primary-hover: var(--ap-color-accent-hover);
   --primary-foreground: var(--ap-color-accent-foreground);
-  --secondary: var(--ap-color-surface-sunken);
-  --secondary-foreground: var(--ap-color-foreground);
+  /* The neutral tone, not surface-sunken: in dark, sunken is darker than the
+     canvas and a secondary button or a hover would vanish into it. */
+  --secondary: var(--ap-tone-neutral-bg);
+  --secondary-foreground: var(--ap-tone-neutral-fg);
   --muted: var(--ap-color-surface-sunken);
   --muted-foreground: var(--ap-color-muted-foreground);
-  --accent: var(--ap-color-surface-sunken);
+  --accent: var(--ap-tone-neutral-bg);
   --accent-foreground: var(--ap-color-foreground);
   --destructive: var(--ap-tone-danger-fg);
   --destructive-foreground: var(--ap-color-surface);
