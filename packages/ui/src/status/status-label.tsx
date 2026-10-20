@@ -15,6 +15,8 @@ export interface StatusLabelProps<A extends StatusAxis> {
   readonly state: StatusStateOf<A>;
   /** Overrides the vocabulary copy; omit to use the §4.1 wording. */
   readonly label?: string | undefined;
+  /** Overrides the hidden axis prefix, for a screen in another language. */
+  readonly axisLabel?: string | undefined;
   /** Secondary line: elapsed time, waiting reason, error code. */
   readonly detail?: string | undefined;
   /** The value may be out of date — say so instead of showing it as fresh. */
@@ -26,6 +28,7 @@ export function StatusLabel<A extends StatusAxis>({
   axis,
   state,
   label,
+  axisLabel,
   detail,
   stale = false,
   className,
@@ -50,7 +53,9 @@ export function StatusLabel<A extends StatusAxis>({
           aria-hidden="true"
         />
       ) : null}
-      <span className="ap-visually-hidden">{STATUS_AXIS_LABEL[axis]}: </span>
+      <span className="ap-visually-hidden">
+        {axisLabel ?? STATUS_AXIS_LABEL[axis]}:{" "}
+      </span>
       <span className="ap-status__text">{text}</span>
       {detail ? <span className="ap-status__detail">{detail}</span> : null}
       {stale ? (

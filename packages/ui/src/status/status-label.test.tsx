@@ -44,6 +44,14 @@ describe("StatusLabel", () => {
     expect(getByText("접수:").className).toContain("ap-visually-hidden");
   });
 
+  test("axisLabel을 주면 숨은 축 이름을 그 말로 읽어 준다", () => {
+    const { getByText, queryByText } = render(
+      <StatusLabel axis="admission" state="active" axisLabel="Session" />,
+    );
+    expect(getByText("Session:").className).toContain("ap-visually-hidden");
+    expect(queryByText("세션:")).toBeNull();
+  });
+
   test("detail과 stale을 덧붙인다", () => {
     const { getByText } = render(
       <StatusLabel
