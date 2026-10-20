@@ -49,6 +49,28 @@ const gone = member({
 
 const noInvites = { "GET /v1/invites": () => json(200, { items: [] }) };
 
+type User = Awaited<ReturnType<typeof setupUser>>;
+
+/** Picks a role and goes through with it in the confirmation. */
+async function changeRole(user: User, label: string, role: string) {
+  await user.selectOptions(await screen.findByLabelText(label), role);
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "역할 바꾸기" }));
+}
+
+const pendingInvite = {
+  id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+  workspace_id: WORKSPACE_ID,
+  email: "late@example.com",
+  role: "member",
+  invited_by: USER_ID,
+  status: "pending",
+  expires_at: "2026-10-18T00:00:00.000Z",
+  accepted_at: null,
+  revoked_at: null,
+  created_at: "2026-10-11T00:00:00.000Z",
+};
+
 describe("구성원 화면", () => {
   test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
     for (const view of [owner, teammate, gone])
@@ -95,7 +117,7 @@ describe("구성원 화면", () => {
     const select = (await screen.findByLabelText(
       "Mate의 역할",
     )) as HTMLSelectElement;
-    await user.selectOptions(select, "owner");
+    await changeRole(user, "Mate의 역할", "owner");
     await waitFor(() => expect(select.disabled).toBe(true));
     expect(select.value).toBe("member");
     expect(screen.queryByText(/역할을 소유자\(으\)로 바꿨습니다/)).toBeNull();
@@ -118,10 +140,7 @@ describe("구성원 화면", () => {
         apiError(409, "LAST_OWNER", "The last owner cannot be demoted"),
     });
     const user = await setupUser();
-    await user.selectOptions(
-      await screen.findByLabelText("Owner의 역할"),
-      "member",
-    );
+    await changeRole(user, "Owner의 역할", "member");
     expect((await screen.findByRole("alert")).textContent).toContain(
       "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다",
     );
@@ -136,10 +155,7 @@ describe("구성원 화면", () => {
         apiError(403, "OWNER_PROTECTED", "Only an owner can grant owner"),
     });
     const user = await setupUser();
-    await user.selectOptions(
-      await screen.findByLabelText("Mate의 역할"),
-      "owner",
-    );
+    await changeRole(user, "Mate의 역할", "owner");
     expect((await screen.findByRole("alert")).textContent).toContain(
       "소유자 역할은 소유자만 주거나 바꿀 수 있습니다",
     );
@@ -239,19 +255,8 @@ describe("구성원 화면", () => {
     });
   });
 
-  test("대기 중인 초대를 회수한다", async () => {
-    const invite = {
-      id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
-      workspace_id: WORKSPACE_ID,
-      email: "late@example.com",
-      role: "member",
-      invited_by: USER_ID,
-      status: "pending",
-      expires_at: "2026-10-18T00:00:00.000Z",
-      accepted_at: null,
-      revoked_at: null,
-      created_at: "2026-10-11T00:00:00.000Z",
-    };
+  test("대기 중인 초대를 확인받고 회수한다", async () => {
+    const invite = pendingInvite;
     let revoked = false;
     const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -266,11 +271,145 @@ describe("구성원 화면", () => {
     await user.click(
       await screen.findByRole("button", { name: "late@example.com 초대 회수" }),
     );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("보낸 링크로는 더 가입할 수 없습니다");
+    expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "회수" }));
     expect(
       await screen.findByText("late@example.com 초대를 회수했습니다."),
     ).toBeDefined();
     expect(await screen.findByText("대기 중인 초대가 없습니다.")).toBeDefined();
     expect(api.calls.some((c) => c.method === "DELETE")).toBe(true);
+  });
+
+  test("초대 회수를 취소하면 아무것도 보내지 않는다", async () => {
+    const { api } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [pendingInvite] }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "late@example.com 초대 회수" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText("late@example.com")).toBeDefined();
+    expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  test("초대 링크를 복사하지 못하면 직접 복사하라고 알린다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      ...noInvites,
+      "POST /v1/invites": () =>
+        json(201, {
+          invite_id: pendingInvite.id,
+          invite_token: "k".repeat(43),
+          expires_at: "2026-10-18T00:00:00.000Z",
+        }),
+    });
+    const user = await setupUser();
+    const writeText = navigator.clipboard.writeText;
+    navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
+    try {
+      await user.type(await screen.findByLabelText("이메일"), "n@example.com");
+      await user.click(
+        screen.getByRole("button", { name: "초대 링크 만들기" }),
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "링크 복사" }),
+      );
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
+      );
+    } finally {
+      navigator.clipboard.writeText = writeText;
+    }
+  });
+});
+
+describe("되돌리기 어려운 동작의 확인", () => {
+  const routes = (calls: string[]) => ({
+    "GET /v1/auth/me": () => json(200, me()),
+    "GET /v1/members": () => json(200, { items: [owner, teammate] }),
+    ...noInvites,
+    [`PATCH /v1/members/${OTHER_ID}`]: () => {
+      calls.push("PATCH");
+      return json(200, { ...teammate, role: "owner" });
+    },
+  });
+
+  test("역할을 골라 넘기기만 해서는 아무것도 보내지 않는다", async () => {
+    const calls: string[] = [];
+    renderAt("/members", routes(calls));
+    const { fireEvent } = await import("@testing-library/react");
+    const select = (await screen.findByLabelText(
+      "Mate의 역할",
+    )) as HTMLSelectElement;
+    // What arrow keys on a closed select do: a change per step.
+    fireEvent.change(select, { target: { value: "admin" } });
+    fireEvent.change(select, { target: { value: "owner" } });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain(
+      "Mate의 역할을 소유자(으)로 바꿀까요?",
+    );
+    expect(dialog.textContent).toContain("소유자는 워크스페이스 설정과");
+    await Bun.sleep(20);
+    expect(calls).toEqual([]);
+  });
+
+  test("역할 변경을 취소하면 원래 역할 그대로다", async () => {
+    const calls: string[] = [];
+    renderAt("/members", routes(calls));
+    const user = await setupUser();
+    const select = (await screen.findByLabelText(
+      "Mate의 역할",
+    )) as HTMLSelectElement;
+    await user.selectOptions(select, "admin");
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(select.value).toBe("member");
+    expect(calls).toEqual([]);
+  });
+
+  test("자기 자신과 하나뿐인 소유자는 비활성화를 막고 이유를 붙인다", async () => {
+    const other = member({
+      user_id: GONE_ID,
+      email: "boss@example.com",
+      display_name: "Boss",
+      role: "owner",
+    });
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, {
+          items: [{ ...owner, role: "admin" }, other, teammate],
+        }),
+      ...noInvites,
+    });
+    const reasonOf = async (name: string) => {
+      const button = (await screen.findByRole("button", {
+        name: `${name} 비활성화`,
+      })) as HTMLButtonElement;
+      const reason = document.getElementById(
+        button.getAttribute("aria-describedby") ?? "",
+      );
+      return { disabled: button.disabled, reason: reason?.textContent };
+    };
+    expect(await reasonOf("Owner")).toEqual({
+      disabled: true,
+      reason: "자기 자신은 비활성화할 수 없습니다.",
+    });
+    expect(await reasonOf("Boss")).toEqual({
+      disabled: true,
+      reason:
+        "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
+    });
+    expect((await reasonOf("Mate")).disabled).toBe(false);
   });
 });
 
@@ -305,10 +444,7 @@ describe("권한", () => {
       [`PATCH /v1/members/${OTHER_ID}`]: forbidden,
     });
     const user = await setupUser();
-    await user.selectOptions(
-      await screen.findByLabelText("Mate의 역할"),
-      "owner",
-    );
+    await changeRole(user, "Mate의 역할", "owner");
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe(
       "member.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. This principal does not hold member.manage",
