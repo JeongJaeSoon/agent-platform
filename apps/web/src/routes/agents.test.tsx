@@ -108,7 +108,14 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("주소 이름"), "billing");
     await user.type(screen.getByLabelText("역할"), CARD.role);
     await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
-    await user.type(screen.getByLabelText("모델"), CARD.model);
+    const model = (await screen.findByLabelText("모델")) as HTMLSelectElement;
+    expect(model.value).toBe("");
+    expect([...model.options].map((option) => option.textContent)).toEqual([
+      "모델을 고르세요",
+      "claude-haiku-5 · claude-coding-fast",
+      "claude-sonnet-5 · claude-coding-local",
+    ]);
+    await user.selectOptions(model, CARD.model);
     await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
     await user.click(screen.getByRole("button", { name: "에이전트 만들기" }));
     expect(
@@ -126,6 +133,37 @@ describe("새 에이전트", () => {
         capabilities: { tools: null, mcp: null, forbidden: ["Bash", "Write"] },
       },
     });
+  });
+
+  test("모델 목록을 읽는 동안과 못 읽었을 때는 이유를 보이고 만들지 못하게 한다", async () => {
+    let fail: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      fail = resolve;
+    });
+    renderAt("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/profiles": async () => {
+        await gate;
+        return apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "The catalog cannot be read",
+        );
+      },
+    });
+    const create = () =>
+      screen.getByRole("button", {
+        name: "에이전트 만들기",
+      }) as HTMLButtonElement;
+    expect(await screen.findByText(/모델 목록을 불러오는 중/)).toBeDefined();
+    expect(create().disabled).toBe(true);
+    fail();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "모델 목록을 불러오지 못해 저장할 수 없습니다",
+    );
+    expect(screen.queryByLabelText("모델")).toBeNull();
+    expect(create().disabled).toBe(true);
   });
 });
 
@@ -250,7 +288,12 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const profile = await screen.findByLabelText("runtime profile");
+    const profile = (await screen.findByLabelText(
+      "runtime profile",
+    )) as HTMLSelectElement;
+    // With no release yet the form offers the profile running the card's model.
+    expect(profile.value).toBe(PROFILE);
+    await user.selectOptions(profile, "claude-coding-fast");
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Unknown runtime profile claude-coding-fast",
@@ -457,17 +500,74 @@ describe("편집 중 다른 곳의 저장", () => {
       "GET /v1/profiles": () =>
         apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
     });
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "profile 목록을 불러오지 못했습니다",
+    const alerts = (await screen.findAllByRole("alert")).map(
+      (alert) => alert.textContent,
+    );
+    expect(alerts).toContainEqual(
+      expect.stringContaining("profile 목록을 불러오지 못했습니다"),
+    );
+    expect(alerts).toContainEqual(
+      expect.stringContaining("모델 목록을 불러오지 못해 저장할 수 없습니다"),
     );
     expect(screen.queryByLabelText("runtime profile")).toBeNull();
+    expect(screen.queryByLabelText("모델")).toBeNull();
+    for (const name of ["release 만들기", "저장"])
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+  });
+
+  test("카탈로그에 없는 카드 모델은 '카탈로그에 없음'으로 남고, 손대지 않으면 그대로 저장한다", async () => {
+    const server = agentServer();
+    const legacy = (body: ReturnType<typeof server.detail>) => ({
+      ...body,
+      versions: body.versions.map((v) => ({
+        ...v,
+        card: { ...v.card, model: "claude-legacy-4" },
+      })),
+    });
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}`]: () => json(200, legacy(server.detail())),
+      [`PATCH /v1/agents/${AGENT_ID}`]: () =>
+        json(200, legacy(server.detail())),
+    });
+    const user = await setupUser();
+    const model = (await screen.findByLabelText("모델")) as HTMLSelectElement;
+    expect(model.value).toBe("claude-legacy-4");
+    expect(model.selectedOptions[0]?.textContent).toBe(
+      "claude-legacy-4 · 카탈로그에 없음",
+    );
+    const described = (model.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent)
+      .join(" ");
+    expect(described).toContain("카탈로그(profiles.yaml)에 없어");
+    const instructions = screen.getByLabelText("지시 사항");
+    await user.clear(instructions);
+    await user.type(instructions, "모델은 그대로.");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다/);
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect((patch?.body as { card: { model: string } }).card.model).toBe(
+      "claude-legacy-4",
+    );
+  });
+
+  test("카드 모델과 다른 모델의 profile을 고르면 release를 만들기 전에 알린다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const select = await screen.findByLabelText("runtime profile");
+    await user.selectOptions(select, PROFILE);
+    expect(screen.queryByText(/이대로 만들면 거부됩니다/)).toBeNull();
+    await user.selectOptions(select, "claude-coding-fast");
     expect(
-      (
-        screen.getByRole("button", {
-          name: "release 만들기",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+      (await screen.findByText(/이대로 만들면 거부됩니다/)).textContent,
+    ).toBe(
+      "카드 모델(이 version): claude-sonnet-5 · 고른 profile의 모델: claude-haiku-5. 둘이 달라 이대로 만들면 거부됩니다.",
+    );
   });
 
   test("저장 응답을 기다리는 동안 이어서 쓴 내용은 응답이 와도 남는다", async () => {
