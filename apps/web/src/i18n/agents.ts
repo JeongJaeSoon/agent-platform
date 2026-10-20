@@ -29,7 +29,7 @@ export const agentsKo = {
   "agentCard.language": "언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "카탈로그(profiles.yaml)의 모델. 옆에 적힌 것은 그 모델을 쓰는 profile이고, release할 profile과 같은 모델이어야 합니다",
+    "release할 runtime profile의 모델과 정확히 같아야 합니다. 옆에 적힌 것은 그 모델을 쓰는 profile입니다",
   "agentCard.tools": "쓸 수 있는 도구",
   "agentCard.toolsAll": "runtime profile이 허용하는 도구 전부",
   "agentCard.toolsList": "고른 도구만",
@@ -77,7 +77,7 @@ export const agentsKo = {
   "agent.releases.version": "version",
   "agent.releases.profile": "runtime profile",
   "agent.releases.profileHint":
-    "플랫폼 설정(profiles.yaml)의 profile과 각 profile이 쓰는 모델",
+    "각 profile과 그 profile이 쓰는 모델. 카드 모델과 같은 모델의 profile만 release할 수 있습니다",
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profilesLoading": "profile 목록을 불러오는 중…",
   "agent.releases.profilesFailed":
@@ -155,7 +155,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.language": "Language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
-    "A model from the catalog (profiles.yaml), next to the profiles that run it. It must match the profile you release to",
+    "It must be exactly the model of the runtime profile you release to. Next to it are the profiles that run it",
   "agentCard.tools": "Tools it may use",
   "agentCard.toolsAll": "Every tool the runtime profile allows",
   "agentCard.toolsList": "Only the tools I choose",
@@ -201,7 +201,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.version": "Version",
   "agent.releases.profile": "Runtime profile",
   "agent.releases.profileHint":
-    "The profiles in the platform settings (profiles.yaml) and the model each runs",
+    "Each profile and the model it runs. Only a profile running the card's model can be released to",
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profilesLoading": "Loading profiles…",
   "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
