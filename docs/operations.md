@@ -922,6 +922,7 @@ scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기�
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker daemon 주소 |
 | `DOCKER_API_VERSION` | `v1.44` | 요청에 쓰는 Engine API 버전 |
 | `EXECUTION_EGRESS_CREDENTIAL_PORT` | 3129 | proxy credential route의 포트. proxy의 `EGRESS_CREDENTIAL_PORT`와 같아야 하고, `EXECUTION_EGRESS_PROXY_URL`의 포트와는 달라야 한다 |
+| `WORKER_OTLP_RELAY_UPSTREAM` | 없음 | 스파이크 전용(`infra/spike/otel/README.md`). `CLAUDE_CODE_ENABLE_TELEMETRY`와 함께 scheduler에 있으면 worker에 넘어가고, worker는 127.0.0.1:4318에서 엔진의 OTLP를 받아 egress proxy를 거쳐 이 주소로 보낸다 |
 
 `EXECUTION_DOCKER_NETWORK`·`EXECUTION_DOCKER_NETWORK_ALLOWLIST`는 더 이상 읽지 않는다. 값이 있으면 기동을 거부한다.
 
