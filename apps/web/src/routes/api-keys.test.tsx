@@ -127,16 +127,15 @@ describe("API key", () => {
     expect(within(row).getByText("발급자가 떠나도 유효")).toBeDefined();
   });
 
-  test("구성원은 워크스페이스 서비스 key 버튼이 이유와 함께 닫혀 있다", async () => {
+  test("에이전트 관리자인 구성원에게는 워크스페이스 서비스 key 버튼이 없다", async () => {
     renderAt("/settings/api-keys", { ...memberOk, ...keysServer() });
-    const button = await screen.findByRole("button", {
-      name: "워크스페이스 서비스 key 발급",
-    });
-    expect(button.hasAttribute("disabled")).toBe(true);
-    const reasonId = button.getAttribute("aria-describedby") ?? "";
-    expect(document.getElementById(reasonId)?.textContent).toBe(
-      "api_key.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
-    );
+    expect(
+      await screen.findByRole("button", { name: "에이전트 전용 key 발급" }),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: "워크스페이스 서비스 key 발급" }),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("api_key.manage");
   });
 
   test("에이전트 관리자인 구성원은 자기 에이전트 전용 key를 받고, 값은 한 번만 보인다", async () => {
@@ -233,20 +232,23 @@ describe("API key", () => {
     expect(screen.queryByText("관리하는 에이전트가 없습니다.")).toBeNull();
   });
 
-  test("관리하는 에이전트가 없으면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
-    renderAt("/settings/api-keys", {
+  test("관리하는 에이전트가 없는 구성원에게는 서비스 key 칸이 없다", async () => {
+    const { services } = renderAt("/settings/api-keys", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
       ...keysServer(),
     });
     expect(
-      await screen.findByText("관리하는 에이전트가 없습니다."),
+      await screen.findByRole("region", { name: "개인 key" }),
     ).toBeDefined();
-    expect(
-      screen
-        .getByRole("button", { name: "에이전트 전용 key 발급" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    // The section stays hidden while the list loads, so wait for the answer.
+    await waitFor(() =>
+      expect(
+        services.queryClient.getQueryState(["administered-agents"])?.status,
+      ).toBe("success"),
+    );
+    expect(screen.queryByRole("region", { name: "서비스 key" })).toBeNull();
+    expect(document.body.textContent).not.toContain("api_key.manage");
   });
 
   test("개인 key는 고른 범위와 만료일로 발급한다", async () => {
@@ -361,7 +363,7 @@ describe("API key", () => {
     await waitFor(() => expect(screen.getByText(/^폐기됨/)).toBeDefined());
   });
 
-  test("가진 것보다 넓은 범위는 서버 거절을 그대로 보인다", async () => {
+  test("가진 것보다 넓은 범위(403)는 우리 문구만 보이고 서버의 영어 문구는 없다", async () => {
     renderAt("/settings/api-keys", {
       ...ownerOk,
       ...keysServer(),
@@ -378,11 +380,11 @@ describe("API key", () => {
       within(personal).getByRole("button", { name: "개인 key 발급" }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다. An agent key cannot carry sessions:approve",
+      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다.",
     );
   });
 
-  test("역할이 바뀌어 서버가 403이면 같은 이유 문구와 서버 문구다", async () => {
+  test("역할이 바뀌어 서버가 403이면 같은 이유 문구이고 서버의 영어 문구는 없다", async () => {
     renderAt("/settings/api-keys", {
       ...ownerOk,
       ...keysServer(),
@@ -400,7 +402,7 @@ describe("API key", () => {
       }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "api_key.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. This principal does not hold api_key.manage",
+      "서비스 key 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });
 });

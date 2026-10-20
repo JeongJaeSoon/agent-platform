@@ -8,7 +8,7 @@ import { agentsQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
-  usePermissionReason,
+  useHasPermission,
   useRole,
 } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
@@ -39,7 +39,7 @@ export function agentRefusal(
   role: string | undefined,
 ): string {
   if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, "agent.manage", role)} ${error.message}`;
+    return permissionReason(t, "agent.manage", role);
   const model =
     error.code === "UNSUPPORTED_CAPABILITY"
       ? MODEL_REFUSAL.exec(error.message)
@@ -58,9 +58,13 @@ export function AgentsScreen() {
   const { t, locale } = useI18n();
   const { client } = useServices();
   const navigate = useNavigate();
+  const role = useRole();
   const agents = useQuery(agentsQuery(client));
-  const reason = usePermissionReason("agent.manage", agents);
-  // The list is also the permission probe: when it failed, nobody knows.
+  // Making an agent needs less than listing them all: a member makes one and
+  // becomes its admin.
+  const reason = useHasPermission("agent.create")
+    ? undefined
+    : permissionReason(t, "agent.create", role);
   const failed = agents.isError && !isApiError(agents.error, "FORBIDDEN");
 
   return (
@@ -82,7 +86,7 @@ export function AgentsScreen() {
       ) : agents.error ? (
         isApiError(agents.error, "FORBIDDEN") ? (
           <>
-            <StatusScreen kind="forbidden" detail={agents.error.message} />
+            <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
         ) : (

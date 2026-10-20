@@ -50,6 +50,18 @@ export const commonKo = {
   "guard.missingPermission": "{permission} 권한이 있어야 할 수 있습니다.",
   "guard.missingPermissionAs":
     "{permission} 권한이 있어야 할 수 있습니다. 지금 역할: {role}.",
+
+  "permission.member.manage": "구성원 관리",
+  "permission.team.manage": "팀 관리",
+  "permission.agent.create": "에이전트 만들기",
+  "permission.agent.manage": "에이전트 관리",
+  "permission.agent.admin.manage": "에이전트 관리자 지정",
+  "permission.api_key.manage": "서비스 key 발급",
+  "permission.api_key.manage_own": "개인 key 발급",
+  "permission.audit_retention.manage": "감사 기록 보존 기간 변경",
+  "permission.workspace.manage": "워크스페이스 설정 변경",
+  "permission.session.control": "세션 제어",
+  "permission.account.link": "계정 연동",
 };
 
 export const commonEn: Record<keyof typeof commonKo, string> = {
@@ -104,4 +116,16 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "guard.missingPermission": "You need the {permission} permission for this.",
   "guard.missingPermissionAs":
     "You need the {permission} permission for this. Your role: {role}.",
+
+  "permission.member.manage": "member management",
+  "permission.team.manage": "team management",
+  "permission.agent.create": "agent creation",
+  "permission.agent.manage": "agent management",
+  "permission.agent.admin.manage": "agent admin assignment",
+  "permission.api_key.manage": "service key",
+  "permission.api_key.manage_own": "personal key",
+  "permission.audit_retention.manage": "audit retention",
+  "permission.workspace.manage": "workspace settings",
+  "permission.session.control": "session control",
+  "permission.account.link": "account linking",
 };
