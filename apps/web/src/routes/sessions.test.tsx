@@ -202,6 +202,52 @@ describe("sessions list", () => {
     ).toHaveLength(2);
   });
 
+  test("a next page that failed is asked for again by the retry button", async () => {
+    const user = await setupUser();
+    let nextCalls = 0;
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("cursor") === "next-1"
+          ? ++nextCalls === 1
+            ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+            : json(200, { items: [summary(OTHER_ID)], next_cursor: null })
+          : json(200, {
+              items: [summary(SESSION_ID, { status: "idle" })],
+              next_cursor: "next-1",
+            }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "더 보기" }));
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    await screen.findByRole("link", { name: OTHER_ID });
+    expect(screen.getByRole("link", { name: SESSION_ID })).toBeTruthy();
+    expect(nextCalls).toBe(2);
+  });
+
+  test("a refresh that failed under a shown list is retried as a refresh", async () => {
+    const user = await setupUser();
+    let firstPageCalls = 0;
+    const { services } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": () =>
+        ++firstPageCalls === 2
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, {
+              items: [summary(SESSION_ID, { status: "idle" })],
+              next_cursor: null,
+            }),
+    });
+
+    await screen.findByRole("link", { name: SESSION_ID });
+    await services.queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull(),
+    );
+    expect(firstPageCalls).toBe(3);
+  });
+
   test("says so when there are none", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),

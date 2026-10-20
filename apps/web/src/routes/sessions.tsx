@@ -69,10 +69,14 @@ export function SessionsScreen() {
           {sessions.error ? (
             <LoadError
               error={sessions.error}
-              onRetry={() => void sessions.fetchNextPage()}
+              onRetry={() =>
+                void (sessions.isFetchNextPageError
+                  ? sessions.fetchNextPage()
+                  : sessions.refetch())
+              }
             />
           ) : null}
-          {sessions.hasNextPage && !sessions.error ? (
+          {sessions.hasNextPage && !sessions.isFetchNextPageError ? (
             <button
               type="button"
               className="ap-button"

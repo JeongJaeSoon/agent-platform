@@ -65,7 +65,7 @@ body {
 }
 
 /* Tailwind's preflight strips link styling; a link must still look like one. */
-.web-auth a,
+.web-auth a:not(.ap-button),
 .web-shell__main a:not(.ap-button) {
   color: var(--ap-color-accent);
   text-decoration: underline;
