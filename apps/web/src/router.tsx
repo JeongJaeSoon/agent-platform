@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { isApiError } from "./api/client.ts";
 import { meQuery } from "./api/queries.ts";
+import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
 import {
   AgentDetailScreen,
@@ -212,8 +213,14 @@ export function createAppRouter(services: Services, history?: RouterHistory) {
     routeTree,
     context: services,
     ...(history ? { history } : {}),
-    defaultPendingComponent: () => <StatusScreen kind="loading" />,
+    // Only the authed gate's principal check makes a route wait.
+    defaultPendingComponent: () => <StatusScreen kind="checking-login" />,
     defaultPendingMs: 150,
+    defaultNotFoundComponent: () => (
+      <Main className="web-auth">
+        <StatusScreen kind="not-found" />
+      </Main>
+    ),
     // Query owns server state and its freshness; the router only sequences.
     defaultPreloadStaleTime: 0,
   });

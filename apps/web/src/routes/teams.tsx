@@ -22,20 +22,24 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
-function ListError({ error }: { readonly error: unknown }) {
-  const { t } = useI18n();
+function ListError({
+  error,
+  onRetry,
+}: {
+  readonly error: unknown;
+  readonly onRetry: () => void;
+}) {
   return isApiError(error, "FORBIDDEN") ? (
     <StatusScreen kind="forbidden" />
   ) : (
-    <p className="web-form__error" role="alert">
-      {t(errorKey((error as ApiError).code))}
-    </p>
+    <LoadFailure error={error} onRetry={onRetry} />
   );
 }
 
@@ -47,6 +51,8 @@ export function TeamsScreen() {
   const manages = useHasPermission("team.manage");
   const teams = useQuery({ ...teamsQuery(client), enabled: manages });
   const reason = usePermissionReason("team.manage", teams);
+  // The list is also the permission probe: when it failed, nobody knows.
+  const failed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
   const [name, setName] = useState("");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
@@ -93,30 +99,32 @@ export function TeamsScreen() {
       <h1 className="web-page__title">{t("teams.title")}</h1>
       <p className="web-page__intro">{t("teams.intro")}</p>
       <OutcomeLine outcome={outcome} />
-      <form className="web-form web-form--inline" onSubmit={submit}>
-        <TextField
-          label={t("teams.name")}
-          name="team-name"
-          required
-          maxLength={100}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <ReasonButton
-          type="submit"
-          className="ap-button ap-button--primary"
-          reason={reason}
-          disabled={create.isPending}
-        >
-          {create.isPending ? t("teams.creating") : t("teams.create")}
-        </ReasonButton>
-      </form>
+      {failed ? null : (
+        <form className="web-form web-form--inline" onSubmit={submit}>
+          <TextField
+            label={t("teams.name")}
+            name="team-name"
+            required
+            maxLength={100}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <ReasonButton
+            type="submit"
+            className="ap-button ap-button--primary"
+            reason={reason}
+            disabled={create.isPending}
+          >
+            {create.isPending ? t("teams.creating") : t("teams.create")}
+          </ReasonButton>
+        </form>
+      )}
       <section className="web-section" aria-labelledby={titleId}>
         <h2 id={titleId}>{t("teams.listTitle")}</h2>
         {teams.isPending ? (
           <StatusScreen kind="loading" />
         ) : teams.error ? (
-          <ListError error={teams.error} />
+          <ListError error={teams.error} onRetry={() => void teams.refetch()} />
         ) : teams.data.items.length === 0 ? (
           <p className="web-page__empty">{t("teams.empty")}</p>
         ) : (
@@ -162,7 +170,7 @@ function TeamPage({ id }: { readonly id: string }) {
       {team.isPending ? (
         <StatusScreen kind="loading" />
       ) : team.error ? (
-        <ListError error={team.error} />
+        <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
         <>
           <h1 className="web-page__title">{team.data.name}</h1>

@@ -29,6 +29,7 @@ import {
   draftFromCard,
 } from "../components/agent-card-form.tsx";
 import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -90,9 +91,7 @@ function AgentDetailPage({ id }: { readonly id: string }) {
       isApiError(detail.error, "NOT_FOUND") ? (
       <AgentNotFound />
     ) : (
-      <p className="web-form__error" role="alert">
-        {t(errorKey((detail.error as ApiError).code))}
-      </p>
+      <LoadFailure error={detail.error} onRetry={() => void detail.refetch()} />
     );
   }
   return (

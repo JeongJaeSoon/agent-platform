@@ -19,6 +19,7 @@ import {
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
 import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { TableScroll } from "../components/table-scroll.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -48,6 +49,8 @@ export function MembersScreen() {
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...membersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
+  // The list is also the permission probe: when it failed, nobody knows.
+  const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
 
@@ -72,11 +75,13 @@ export function MembersScreen() {
           <output className="web-notice">{outcome.text}</output>
         )
       ) : null}
-      <InviteForm
-        reason={reason}
-        members={members.data?.items ?? []}
-        onOutcome={setOutcome}
-      />
+      {failed ? null : (
+        <InviteForm
+          reason={reason}
+          members={members.data?.items ?? []}
+          onOutcome={setOutcome}
+        />
+      )}
       <section className="web-section" aria-labelledby={titleId}>
         <h2 id={titleId}>{t("members.listTitle")}</h2>
         {members.isPending ? (
@@ -85,9 +90,10 @@ export function MembersScreen() {
           isApiError(members.error, "FORBIDDEN") ? (
             <StatusScreen kind="forbidden" />
           ) : (
-            <p className="web-form__error" role="alert">
-              {t(errorKey((members.error as ApiError).code))}
-            </p>
+            <LoadFailure
+              error={members.error}
+              onRetry={() => void members.refetch()}
+            />
           )
         ) : (
           <MemberTable items={members.data.items} onOutcome={setOutcome} />
@@ -523,9 +529,16 @@ function InviteList({
       {invites.isPending ? (
         <StatusScreen kind="loading" />
       ) : invites.error ? (
-        <p className="web-form__error" role="alert">
-          {refusal(t, invites.error as ApiError, role)}
-        </p>
+        isApiError(invites.error, "FORBIDDEN") ? (
+          <p className="web-form__error" role="alert">
+            {refusal(t, invites.error, role)}
+          </p>
+        ) : (
+          <LoadFailure
+            error={invites.error}
+            onRetry={() => void invites.refetch()}
+          />
+        )
       ) : pending.length === 0 ? (
         <p className="web-page__empty">{t("members.invites.empty")}</p>
       ) : (
