@@ -45,6 +45,13 @@ describe("styles.css", () => {
     expect(link).toContain("white-space: nowrap");
   });
 
+  test("keeps nowrap table cells on one line", () => {
+    const rule = css.match(
+      /\.web-table--nowrap th,\s*\.web-table--nowrap td \{([^}]*)\}/,
+    )?.[1];
+    expect(rule).toContain("white-space: nowrap");
+  });
+
   test("draws focus on the dark rail in the rail's light foreground", () => {
     const rule = css.match(/\.web-shell__bar :focus-visible \{([^}]*)\}/)?.[1];
     expect(rule).toContain("var(--ap-color-rail-foreground)");

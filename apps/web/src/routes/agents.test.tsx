@@ -417,6 +417,14 @@ describe("두 탭 동시 활성화", () => {
     );
     const panel = conflict.closest("section") as HTMLElement;
     expect(panel.textContent).toContain("덮어쓰지 않고 멈췄습니다");
+    // The refusal shows by the button that caused it and takes focus.
+    expect(
+      b
+        .getByRole("heading", { name: "release" })
+        .closest("section")
+        ?.contains(panel),
+    ).toBe(true);
+    expect(document.activeElement?.contains(panel)).toBe(true);
     expect(b.queryByText(/활성화됐습니다/)).toBeNull();
     const fromB = tabB.api.calls.filter((c) => c.path.endsWith("/activate"));
     expect(fromB).toHaveLength(1);

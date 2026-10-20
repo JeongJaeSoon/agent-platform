@@ -221,51 +221,53 @@ function AgentView({
         result={
           <>
             <PlacedOutcome placed={placed} at="releases" />
-            {conflict ? (
-              <section
-                className="web-status"
-                data-status="conflict"
-                role="alert"
-              >
-                <h3 className="web-status__title">
-                  {t("agent.conflict.title")}
-                </h3>
-                <p className="web-status__body">
-                  {reloaded
-                    ? t("agent.conflict.reloaded", {
-                        seen: releaseLabel(conflict.seenActiveReleaseId),
-                        now: releaseLabel(agent.active_release_id),
-                      })
-                    : t("agent.conflict.body")}
-                </p>
-                {reloaded ? (
-                  <RevisionDiff
-                    before={
-                      detail.versions.find(
-                        (v) => v.id === seenRelease?.version_id,
-                      )?.card ?? null
-                    }
-                    after={
-                      detail.active_release
-                        ? (detail.versions.find(
-                            (v) => v.id === detail.active_release?.version_id,
-                          )?.card ?? null)
-                        : null
-                    }
-                    beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
-                    afterLabel={releaseLabel(agent.active_release_id)}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    className="ap-button"
-                    onClick={onReload}
-                  >
-                    {t("agent.conflict.reload")}
-                  </button>
-                )}
-              </section>
-            ) : null}
+            <TakesFocus on={conflict}>
+              {conflict ? (
+                <section
+                  className="web-status"
+                  data-status="conflict"
+                  role="alert"
+                >
+                  <h3 className="web-status__title">
+                    {t("agent.conflict.title")}
+                  </h3>
+                  <p className="web-status__body">
+                    {reloaded
+                      ? t("agent.conflict.reloaded", {
+                          seen: releaseLabel(conflict.seenActiveReleaseId),
+                          now: releaseLabel(agent.active_release_id),
+                        })
+                      : t("agent.conflict.body")}
+                  </p>
+                  {reloaded ? (
+                    <RevisionDiff
+                      before={
+                        detail.versions.find(
+                          (v) => v.id === seenRelease?.version_id,
+                        )?.card ?? null
+                      }
+                      after={
+                        detail.active_release
+                          ? (detail.versions.find(
+                              (v) => v.id === detail.active_release?.version_id,
+                            )?.card ?? null)
+                          : null
+                      }
+                      beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
+                      afterLabel={releaseLabel(agent.active_release_id)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="ap-button"
+                      onClick={onReload}
+                    >
+                      {t("agent.conflict.reload")}
+                    </button>
+                  )}
+                </section>
+              ) : null}
+            </TakesFocus>
           </>
         }
         onOutcome={onOutcome}
@@ -286,7 +288,7 @@ function AgentView({
   );
 }
 
-/** Takes focus when it appears, so the result is where the person is. */
+/** The outcome placed here, focused so the result is where the person is. */
 function PlacedOutcome({
   placed,
   at,
@@ -294,14 +296,29 @@ function PlacedOutcome({
   readonly placed: Placed | null;
   readonly at: Place;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
   const outcome = placed?.at === at ? placed.outcome : null;
-  useEffect(() => {
-    if (outcome) ref.current?.focus();
-  }, [outcome]);
-  return outcome ? (
-    <div ref={ref} tabIndex={-1}>
+  return (
+    <TakesFocus on={outcome}>
       <OutcomeLine outcome={outcome} />
+    </TakesFocus>
+  );
+}
+
+/** Each new non-null `on` moves focus to what it wraps. */
+function TakesFocus({
+  on,
+  children,
+}: {
+  readonly on: unknown;
+  readonly children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (on) ref.current?.focus();
+  }, [on]);
+  return on ? (
+    <div ref={ref} tabIndex={-1}>
+      {children}
     </div>
   ) : null;
 }
