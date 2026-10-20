@@ -1,0 +1,20 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/theme.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "@agent-platform/ui/src",
+    "ui": "@agent-platform/ui/src/primitives",
+    "utils": "@agent-platform/ui/src/lib/cn",
+    "lib": "@agent-platform/ui/src/lib",
+    "hooks": "@agent-platform/ui/src/lib"
+  }
+}

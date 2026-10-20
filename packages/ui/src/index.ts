@@ -18,6 +18,37 @@ export { ErrorState, type ErrorStateProps } from "./feedback/error-state.tsx";
 export { Skeleton, type SkeletonProps } from "./feedback/skeleton.tsx";
 export { cn } from "./lib/cn.ts";
 export { useReducedMotion } from "./lib/use-reduced-motion.ts";
+export {
+  Badge,
+  type BadgeProps,
+  badgeVariants,
+} from "./primitives/badge.tsx";
+export {
+  Button,
+  type ButtonProps,
+  buttonVariants,
+} from "./primitives/button.tsx";
+export {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "./primitives/card.tsx";
+export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+} from "./primitives/dialog.tsx";
 export { formatTimestamp } from "./receipt/format-timestamp.ts";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
