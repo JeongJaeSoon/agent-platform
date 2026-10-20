@@ -64,6 +64,8 @@ describe("egress proxy", () => {
         return ["127.0.0.1"];
       case "metadata.test":
         return ["169.254.169.254"];
+      case "empty.test":
+        return [];
       case "public.test":
         // Allowlisted as public, but answers with a private address.
         return ["10.0.0.7"];
@@ -180,6 +182,7 @@ describe("egress proxy", () => {
           { host: "127.0.0.1", port: echo.port },
           { host: "metadata.test", port: 80 },
           { host: "gone.test", port: 80 },
+          { host: "empty.test", port: 80 },
         ],
       },
       port: 0,
@@ -440,10 +443,12 @@ describe("egress proxy", () => {
     for (const head of [
       "GET http://gone.test/ HTTP/1.1",
       "CONNECT gone.test:80 HTTP/1.1",
+      "GET http://empty.test/ HTTP/1.1",
     ]) {
       const talk = await connect(proxy.port);
       talk.send(request(head));
-      expect(await talk.waitFor("502")).toContain("does not resolve");
+      const response = await talk.waitFor("does not resolve");
+      expect(response).toStartWith("HTTP/1.1 502");
       talk.close();
     }
   });
