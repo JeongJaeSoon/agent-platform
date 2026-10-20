@@ -66,6 +66,7 @@
       "devDependencies": {
         "@agent-platform/client": "workspace:*",
         "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/core": "workspace:*",
         "@agent-platform/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@radix-ui/react-dialog": "^1.1.23",
@@ -153,6 +154,15 @@
       "version": "0.0.0",
       "dependencies": {
         "zod": "4.6.5",
+      },
+    },
+    "packages/core": {
+      "name": "@agent-platform/core",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@tanstack/query-core": "5.103.2",
       },
     },
     "packages/db": {
@@ -268,6 +278,8 @@
     "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
 
     "@agent-platform/control-host": ["@agent-platform/control-host@workspace:apps/control-host"],
+
+    "@agent-platform/core": ["@agent-platform/core@workspace:packages/core"],
 
     "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
 
