@@ -21,18 +21,11 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import {
-  ENDED_ATTEMPT_STATES,
-  hasRestorePoint,
-  restoreBaseRevision,
-} from "./control-shared.ts";
+import { ENDED_ATTEMPT_STATES, hasRestorePoint } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import { openPauseReceipt } from "./pause-control.ts";
 import type { Database } from "./queries.ts";
-import {
-  RESTORE_FAILURE_LIMIT,
-  RESTORE_FAILURES_CLEARED,
-} from "./restore-failures.ts";
+import { RESTORE_FAILURES_CLEARED } from "./restore-failures.ts";
 import { openResumeReceipt } from "./resume-control.ts";
 import {
   attempts,
@@ -63,7 +56,7 @@ export async function hasUncollectedCheckpoint(db: Database): Promise<boolean> {
   return row !== undefined;
 }
 
-/** The RESTORE_FAILED reason of a session forgetLostCheckpoints holds. */
+/** Why forgetLostCheckpoints holds a session, in its status and system events. */
 export const CHECKPOINT_OBJECTS_LOST_REASON = "checkpoint_objects_lost";
 
 /** What forgetLostCheckpoints gave up, by session id. */
@@ -87,12 +80,10 @@ const LOST_CHECKPOINT_RECEIPT_ERROR = {
  * Marks every uncollected checkpoint collected, for an operator who has
  * accepted that the object store lost all of them; the caller checks the
  * bucket first. Every session that is not closed and would restore one of
- * them waits in recovery_required with RESTORE_FAILED
- * (checkpoint_objects_lost) and its input kept, whatever it was doing: the
- * restore point checks read the pointer, not collected_at, so leaving one
- * mid pause, resume or stop would restore what is gone. Its open pause or
- * resume receipt fails. Resume refuses, retry_restore has nothing to retry,
- * start_fresh goes on without the lost context, close ends the session.
+ * them, whatever it was doing, has that pointer retired and waits in
+ * recovery_required with its input kept; its open pause or resume receipt
+ * fails. Resume and retry_restore refuse, start_fresh goes on without the
+ * lost context, close ends the session.
  */
 export function forgetLostCheckpoints(
   db: Database,
@@ -144,15 +135,21 @@ export function forgetLostCheckpoints(
           updatedAt: now,
         })
         .where(or(openPauseReceipt(session.id), openResumeReceipt(session.id)));
+      // Retired the way start_fresh retires a pointer, but with no turn
+      // forgiven: every turn that ran is now a context gap, so the claim
+      // gate, resume and each recovery decision judge the session as having
+      // no restore point, whichever state a later decision leaves it in.
       await tx
         .update(sessions)
         .set({
           revision: sql`${sessions.revision} + 1`,
           status: "failed",
           admissionState: "recovery_required",
+          contextResetCheckpointRevision: session.checkpointRevision,
+          checkpointFallbackRevision: null,
+          checkpointRestoreAttemptId: null,
+          // The failing restores were of a checkpoint that is retired now.
           ...RESTORE_FAILURES_CLEARED,
-          restoreFailureCount: 1,
-          restoreFailureReason: CHECKPOINT_OBJECTS_LOST_REASON,
           updatedAt: now,
         })
         .where(eq(sessions.id, session.id));
@@ -164,12 +161,8 @@ export function forgetLostCheckpoints(
         type: "system",
         payload: {
           type: "system",
-          subtype: "checkpoint_restore_failed",
-          checkpoint_revision: restoreBaseRevision(session),
-          failures: 1,
-          limit: RESTORE_FAILURE_LIMIT,
-          reason: CHECKPOINT_OBJECTS_LOST_REASON,
-          retry_at: null,
+          subtype: CHECKPOINT_OBJECTS_LOST_REASON,
+          retired_checkpoint_revision: session.checkpointRevision,
         },
         turnRowId: null,
         now,

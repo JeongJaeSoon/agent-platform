@@ -647,16 +647,18 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
       status: "failed",
       revision: (before?.revision ?? 0) + 1,
       checkpointRevision: 1,
-      restoreFailureCount: 1,
-      restoreFailureReason: CHECKPOINT_OBJECTS_LOST_REASON,
-      restoreRetryAt: null,
+      // Retired, so no path takes it for a restore point any more.
+      contextResetCheckpointRevision: 1,
+      contextResetTurnSequence: null,
     });
-    // Below RESTORE_FAILURE_LIMIT, so retry_restore no longer applies.
+    // The failed restores were of the retired checkpoint: retry_restore no
+    // longer applies.
     for (const id of [pausing, restoresFailed]) {
       expect(await sessionRow(id)).toMatchObject({
         admissionState: "recovery_required",
-        restoreFailureCount: 1,
-        restoreFailureReason: CHECKPOINT_OBJECTS_LOST_REASON,
+        contextResetCheckpointRevision: 1,
+        restoreFailureCount: 0,
+        restoreFailureReason: null,
       });
     }
     const [receipt] = await db
@@ -682,12 +684,8 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
         type: "system",
         payload: {
           type: "system",
-          subtype: "checkpoint_restore_failed",
-          checkpoint_revision: 1,
-          failures: 1,
-          limit: 3,
-          reason: "checkpoint_objects_lost",
-          retry_at: null,
+          subtype: CHECKPOINT_OBJECTS_LOST_REASON,
+          retired_checkpoint_revision: 1,
         },
       },
       {
