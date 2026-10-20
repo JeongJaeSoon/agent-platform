@@ -36,6 +36,9 @@ export const teamsKo = {
   "teams.addedAt": "{at} 추가",
   "teams.removeMember": "빼기",
   "teams.removeMemberFor": "{name}님을 팀에서 빼기",
+  "teams.removeMemberTitle": "{name}님을 {team} 팀에서 뺄까요?",
+  "teams.removeMemberConsequence":
+    "워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다.",
 };
 
 export const teamsEn: Record<keyof typeof teamsKo, string> = {
@@ -78,4 +81,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.addedAt": "added {at}",
   "teams.removeMember": "Remove",
   "teams.removeMemberFor": "Remove {name} from the team",
+  "teams.removeMemberTitle": "Remove {name} from the {team} team?",
+  "teams.removeMemberConsequence":
+    "They stay in the workspace, but can no longer manage agents through this team. Adding them again restores it.",
 };
