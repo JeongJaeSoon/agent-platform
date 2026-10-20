@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  unlink,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
@@ -95,6 +103,13 @@ export type SessionCheckpointsOptions = {
   fingerprint: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
   /** The provisioned root the engine runs in, and the manifest's `cwd`. */
   workspaceRoot: string;
+  /**
+   * The engine's `CLAUDE_CONFIG_DIR`. Its transcripts are moved onto the
+   * workspace volume and a restore writes the resumed one there; absent, the
+   * engine keeps them where it would and a resume hands it the transcript
+   * through the store.
+   */
+  claudeConfigDir?: string;
   codec?: CheckpointCodec;
   /**
    * The commit the workspace preparer read CLAUDE.md from, for a session
@@ -273,6 +288,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         }
       }
     }
+    await this.#transcriptsDirectory();
     const store = await this.#openFreshStore(claim, signal);
     signal.throwIfAborted();
     const commit = this.#options.instructionsCommit?.() ?? null;
@@ -467,6 +483,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         }
       }
       signal.throwIfAborted();
+      // Last, on the volume the new tree is already on: the transcript was
+      // verified before the old tree went, and is fetched again here part by
+      // part rather than held from then.
+      const projects = await this.#transcriptsDirectory();
+      if (projects !== undefined) await store.materialize(projects, signal);
+      signal.throwIfAborted();
       this.#bound = {
         claim,
         instructions:
@@ -514,6 +536,31 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   }
 
   /**
+   * Where the engine keeps its transcripts, `<config dir>/projects`, moved
+   * onto the workspace volume: HOME is a tmpfs paid for out of the worker's
+   * memory, and a transcript is bounded by `MAX_TRANSCRIPT_BYTES`, not by
+   * that. A link into a `workerScratch` directory, made again on every call,
+   * since a restore that started over cleared the directory it pointed at.
+   * Left alone when it is a directory of its own, and when the workspace has
+   * no `.git` to hold one. The engine runs as this worker's user and can move
+   * the link or what it points at; that only misplaces its own transcript,
+   * whose copy of record is the mirror.
+   */
+  async #transcriptsDirectory(): Promise<string | undefined> {
+    const { claudeConfigDir, workspaceRoot } = this.#options;
+    if (claudeConfigDir === undefined) return undefined;
+    const projects = join(claudeConfigDir, "projects");
+    const found = await lstat(projects).catch(() => null);
+    if (found !== null && !found.isSymbolicLink()) return projects;
+    const scratch = await workerScratch(workspaceRoot, "transcripts");
+    if (scratch === undefined) return found === null ? projects : undefined;
+    if (found !== null) await unlink(projects);
+    await mkdir(claudeConfigDir, { recursive: true, mode: 0o700 });
+    await symlink(scratch, projects);
+    return projects;
+  }
+
+  /**
    * The manifest the claim pinned, against everything this worker knows
    * independently of it: the claim, the runtime it would resume on, and the
    * workspace root the backend provisioned.
@@ -552,7 +599,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       manifest.workspace.untracked.map(({ path }) => path),
     );
     if (paths !== undefined) throw refuse(`untracked files: ${paths}`);
-    // Before a single part is fetched: holding and parsing a transcript this
+    // Before a single part is fetched: an engine resuming a transcript this
     // size is what would take the worker down.
     const oversized = transcriptSizeProblem(
       transcriptParts(manifest.transcripts),

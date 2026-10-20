@@ -1,4 +1,13 @@
 import { createHash } from "node:crypto";
+import {
+  type FileHandle,
+  mkdir,
+  mkdtemp,
+  open,
+  rename,
+  rm,
+} from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { canonicalJsonOfJson } from "@agent-platform/contracts";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
@@ -113,15 +122,21 @@ export class ClaudeSessionStore implements TranscriptMirror {
   /** Settles once the generation is known to be this launch's alone. */
   readonly #opened: Promise<void>;
   readonly #sequence = new Map<string, number>();
-  /** Adopted parts that matched their pinned length and digest. */
-  readonly #adopted = new Map<string, Promise<Uint8Array>>();
   /**
-   * Parts are write-once, so what a part holds never has to be fetched twice.
-   * Without this, every capture re-downloads and re-parses the whole
-   * transcript, and a session that checkpoints at each turn boundary pays for
-   * its history again on every turn.
+   * Bodies of parts this generation wrote, held only until a capture has
+   * counted them (`#entryCount`): from then on a capture needs their size and
+   * digest alone, and holding every body would hold the whole history.
    */
   readonly #parts = new Map<string, Promise<Uint8Array>>();
+  /** The byte length of each part this store has seen; parts are write-once. */
+  readonly #sizes = new Map<string, number>();
+  /**
+   * Set once `materialize` wrote the adopted transcripts where the engine
+   * reads them: the project key they went under, and the root's entry uuids.
+   */
+  #materialized:
+    | { readonly projectKey: string; readonly uuids: ReadonlySet<string> }
+    | undefined;
   /**
    * The store's version of each part this store wrote, as `putImmutable`
    * answered it; a checkpoint names parts by version. Absent on a
@@ -285,6 +300,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
       }
       this.#known.add(key);
       this.#parts.set(key, Promise.resolve(bytes));
+      this.#sizes.set(key, bytes.byteLength);
       this.#digests.set(key, sha256(bytes));
       if (written.version !== undefined)
         this.#versions.set(key, written.version);
@@ -303,6 +319,18 @@ export class ClaudeSessionStore implements TranscriptMirror {
   async load(key: TranscriptKey): Promise<TranscriptEntry[] | null> {
     await this.#opened;
     const adopted = this.#pinned(key);
+    if (this.#materialized !== undefined) {
+      // The engine reads what `materialize` wrote, from its own disk; the
+      // SDK writes nothing of its own when the store answers null. A key it
+      // computed differently would send the engine to a file that is not
+      // there, so that is refused before it starts.
+      if (key.projectKey !== this.#materialized.projectKey) {
+        throw new Error(
+          `Transcript was restored under project key ${this.#materialized.projectKey}, not ${key.projectKey}`,
+        );
+      }
+      return null;
+    }
     const own = await this.#listParts(key);
     if (adopted.length === 0 && own.length === 0) return null;
     const bodies = await Promise.all([
@@ -313,23 +341,109 @@ export class ClaudeSessionStore implements TranscriptMirror {
   }
 
   /**
+   * The root transcript's entry uuids, once `materialize` wrote it: what
+   * `load` would have handed the engine, had it not answered null.
+   */
+  resumedEntryIds(): ReadonlySet<string> | undefined {
+    return this.#materialized?.uuids;
+  }
+
+  /**
    * Fetches, checks and parses every part this store adopted, one at a time,
    * so a restore can refuse a checkpoint whose transcript is gone or was
-   * edited while the workspace it would replace is still untouched. The
-   * verified bytes stay cached for the engine's first `load`. Stops between
-   * parts once `signal` aborts.
+   * edited while the workspace it would replace is still untouched. Holds
+   * one part at a time and keeps only the count, so a capture after it does
+   * not fetch them again. Stops between parts once `signal` aborts.
    */
   async verifyInherited(signal?: AbortSignal): Promise<void> {
     await this.#opened;
-    for (const parts of this.#inherit?.parts.values() ?? []) {
+    for (const [lane, parts] of this.#inherit?.parts ?? []) {
       // Throws on a line that is not JSON and on one uuid with two bodies,
       // the two ways a pinned transcript fails only once the engine reads it.
-      // Part by part, so only the bytes stay held, not every parsed entry.
-      const check = deduplicator();
+      const tally: Tally = { check: deduplicator(), count: 0, keys: [] };
       for (const part of parts) {
         signal?.throwIfAborted();
-        check(parseEntries(await this.#adoptedBody(part)));
+        tally.count += tally.check(
+          parseEntries(await this.#adoptedBody(part)),
+        ).length;
+        tally.keys.push(part.key);
       }
+      if (!this.#tallies.has(lane)) this.#tallies.set(lane, tally);
+    }
+  }
+
+  /**
+   * Writes the adopted transcripts where the engine resumes from them:
+   * `projects`, the engine's directory of them, laid out as the SDK lays out a
+   * session it resumes from a store (the root at `<projectKey>/<session>.jsonl`,
+   * each subagent at `<projectKey>/<session>/<subpath>.jsonl` with its last
+   * `agent_metadata` entry beside it as `.meta.json`), each entry as `load`
+   * would have returned it and the SDK serialized it. From then on `load`
+   * answers null, so the SDK spools nothing into its temporary directory.
+   *
+   * Part by part, each fetched again and held to its pinned length and digest,
+   * so the worker holds one part rather than the transcript. Everything is
+   * written and synced under a staging directory first and published with
+   * one rename, so the engine finds the whole session or none of it; a
+   * restore killed half way leaves only a staging directory nothing reads.
+   */
+  async materialize(projects: string, signal?: AbortSignal): Promise<void> {
+    await this.#opened;
+    const inherit = this.#inherit;
+    if (inherit === undefined) {
+      throw new Error("Only a store that adopted a checkpoint materializes it");
+    }
+    const projectKeys = new Set(
+      [...inherit.parts.values()].flatMap((parts) =>
+        parts.map(
+          ({ key }) =>
+            (locate(key.slice(this.#namespace.length)) as PartLocation)
+              .projectKey,
+        ),
+      ),
+    );
+    const [projectKey] = projectKeys;
+    if (projectKeys.size !== 1 || projectKey === undefined) {
+      throw new Error(
+        `Inherited transcripts of ${inherit.sessionId} are not under one project key: ${[...projectKeys].sort().join(", ")}`,
+      );
+    }
+    safeSegment(projectKey);
+    const target = join(projects, projectKey);
+    await mkdir(projects, { recursive: true, mode: 0o700 });
+    const staging = await mkdtemp(join(projects, ".restoring-"));
+    try {
+      const session = join(staging, projectKey);
+      await mkdir(session, { mode: 0o700 });
+      let uuids: ReadonlySet<string> = new Set();
+      for (const [lane, parts] of inherit.parts) {
+        const path =
+          lane === ""
+            ? join(session, `${inherit.sessionId}.jsonl`)
+            : join(session, inherit.sessionId, `${lane}.jsonl`);
+        const written = await writeTranscript(
+          path,
+          parts,
+          (part) => this.#adoptedBody(part),
+          lane !== "",
+          signal,
+        );
+        if (lane === "") uuids = written.uuids;
+        else if (written.metadata !== undefined) {
+          const { type: _type, ...metadata } = written.metadata;
+          await writeSynced(
+            join(session, inherit.sessionId, `${lane}.meta.json`),
+            JSON.stringify(metadata),
+          );
+        }
+      }
+      signal?.throwIfAborted();
+      await syncDirectory(session);
+      await rename(session, target);
+      await syncDirectory(projects);
+      this.#materialized = { projectKey, uuids };
+    } finally {
+      await rm(staging, { force: true, recursive: true });
     }
   }
 
@@ -420,7 +534,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
       total += view.base.length + view.own.length;
       sizes.push(...view.base);
       for (const key of view.own) {
-        sizes.push({ bytes: (await this.#cached(key)).byteLength, key });
+        sizes.push({ bytes: await this.#sizeOf(key), key });
       }
     }
     const oversized = transcriptSizeProblem(sizes);
@@ -501,7 +615,9 @@ export class ClaudeSessionStore implements TranscriptMirror {
    * Merged parts go under this generation, as every write of this store
    * does, at a key named by their digest: create-only, and a retry after a
    * failure writes the same bytes to the same key rather than a second copy.
-   * The store switches to them only once every one landed.
+   * The store switches to them only once every one landed. Runs are cut
+   * from the sizes alone and read one at a time, so a merge holds at most
+   * one run's bytes, and a part kept as it is is never read.
    */
   async #merge(
     lane: string,
@@ -509,60 +625,51 @@ export class ClaudeSessionStore implements TranscriptMirror {
     base: readonly ObjectRef[],
     own: readonly string[],
   ): Promise<ObjectRef[]> {
-    const bodies = await Promise.all([
-      ...base.map((part) => this.#adoptedBody(part)),
-      ...own.map((part) => this.#cached(part)),
-    ]);
-    const refOf = async (index: number): Promise<ObjectRef> => {
-      const adopted = base[index];
-      if (adopted !== undefined) return adopted;
-      const key = own[index - base.length] as string;
-      const body = bodies[index] as Uint8Array;
-      const version = await this.#versionOf(key);
-      // Carried forward as an adopted ref now, so its bytes answer from here.
-      this.#adopted.set(key, Promise.resolve(body));
-      return {
-        bytes: body.byteLength,
-        key,
-        sha256: sha256(body),
-        ...(version === undefined ? {} : { version }),
-      };
-    };
-    const runs: number[][] = [];
-    let run: number[] = [];
+    const sources: Array<{
+      readonly bytes: number;
+      readonly body: () => Promise<Uint8Array>;
+      readonly ref: () => Promise<ObjectRef>;
+    }> = [
+      ...base.map((part) => ({
+        body: () => this.#adoptedBody(part),
+        bytes: part.bytes,
+        ref: async () => part,
+      })),
+      ...(await Promise.all(
+        own.map(async (key) => ({
+          body: () => this.#cached(key),
+          bytes: await this.#sizeOf(key),
+          ref: () => this.#ownRef(key),
+        })),
+      )),
+    ];
+    const runs: (typeof sources)[] = [];
+    let run: typeof sources = [];
     let size = 0;
-    bodies.forEach((body, index) => {
-      if (run.length > 0 && size + body.byteLength > MERGED_PART_BYTES) {
+    for (const source of sources) {
+      if (run.length > 0 && size + source.bytes > MERGED_PART_BYTES) {
         runs.push(run);
         run = [];
         size = 0;
       }
-      run.push(index);
-      size += body.byteLength;
-    });
+      run.push(source);
+      size += source.bytes;
+    }
     if (run.length > 0) runs.push(run);
     const refs: ObjectRef[] = [];
-    for (const indices of runs) {
-      refs.push(
-        indices.length === 1
-          ? await refOf(indices[0] as number)
-          : await this.#writeMerged(
-              directory,
-              indices.map((index) => bodies[index] as Uint8Array),
-            ),
-      );
+    for (const parts of runs) {
+      const [only] = parts;
+      if (parts.length === 1 && only !== undefined) {
+        refs.push(await only.ref());
+        continue;
+      }
+      const bodies: Uint8Array[] = [];
+      for (const part of parts) bodies.push(await part.body());
+      refs.push(await this.#writeMerged(directory, bodies));
     }
     const previous = this.#merged.get(lane);
     const covers = new Set([...(previous?.covers ?? []), ...own]);
     this.#merged.set(lane, { covers, refs });
-    // A merged part this store wrote and has now rewritten is pinned by
-    // nothing it will capture again; a capture still reading it fetches it.
-    const current = new Set(refs.map((ref) => ref.key));
-    for (const { key } of previous?.refs ?? []) {
-      if (!current.has(key) && key.startsWith(`${this.#prefix}/`)) {
-        this.#adopted.delete(key);
-      }
-    }
     return refs;
   }
 
@@ -586,7 +693,6 @@ export class ClaudeSessionStore implements TranscriptMirror {
       throw new Error(`Merged transcript part ${key} holds other bytes`);
     }
     const version = written.version ?? (await this.#objects.head(key))?.version;
-    this.#adopted.set(key, Promise.resolve(bytes));
     return {
       bytes: bytes.byteLength,
       key,
@@ -611,7 +717,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
   ): Promise<TranscriptRevision> {
     // Adopted parts keep the refs the checkpoint pinned rather than ones
     // recomputed here: they are the claim a restore will check the bytes
-    // against, and #adoptedBody has already held the bytes to it.
+    // against, and #adoptedBody holds the bytes to it whenever it reads them.
     const refs: ObjectRef[] = [
       ...adopted,
       ...(await Promise.all(own.map((part) => this.#ownRef(part)))),
@@ -624,21 +730,29 @@ export class ClaudeSessionStore implements TranscriptMirror {
   }
 
   async #ownRef(key: string): Promise<ObjectRef> {
-    const [body, version] = await Promise.all([
-      this.#cached(key),
+    const [bytes, version] = await Promise.all([
+      this.#sizeOf(key),
       this.#versionOf(key),
     ]);
-    let digest = this.#digests.get(key);
-    if (digest === undefined) {
-      digest = sha256(body);
-      this.#digests.set(key, digest);
-    }
     return {
-      bytes: body.byteLength,
+      bytes,
       key,
-      sha256: digest,
+      sha256: this.#digests.get(key) as string,
       ...(version === undefined ? {} : { version }),
     };
+  }
+
+  /**
+   * A part's byte length, and its digest beside it; read from the store only
+   * for a part some other writer put there.
+   */
+  async #sizeOf(key: string): Promise<number> {
+    const known = this.#sizes.get(key);
+    if (known !== undefined && this.#digests.has(key)) return known;
+    const body = await this.#cached(key);
+    this.#sizes.set(key, body.byteLength);
+    this.#digests.set(key, sha256(body));
+    return body.byteLength;
   }
 
   #sources(adopted: readonly ObjectRef[], own: readonly string[]): Source[] {
@@ -667,14 +781,13 @@ export class ClaudeSessionStore implements TranscriptMirror {
       kept.keys.every((key, index) => parts[index]?.key === key)
         ? kept
         : { check: deduplicator(), count: 0, keys: [] };
-    const pending = parts.slice(tally.keys.length);
-    const bodies = await Promise.all(pending.map((part) => part.body()));
-    pending.forEach((part, index) => {
-      tally.count += tally.check(
-        parseEntries(bodies[index] as Uint8Array),
-      ).length;
+    // One part at a time: a tally started over reads the whole history.
+    for (const part of parts.slice(tally.keys.length)) {
+      tally.count += tally.check(parseEntries(await part.body())).length;
       tally.keys.push(part.key);
-    });
+      // Counted, so a capture needs no more of it than its size and digest.
+      this.#parts.delete(part.key);
+    }
     this.#tallies.set(lane, tally);
     return tally.count;
   }
@@ -796,26 +909,16 @@ export class ClaudeSessionStore implements TranscriptMirror {
 
   /**
    * An adopted part, held to the length and digest its checkpoint pinned
-   * before anything reads it. Cached once it passes: the key is write-once,
-   * and a capture that re-verified it every turn would re-download the whole
-   * inherited history every turn.
+   * before anything reads it. Not cached: held, the adopted history would sit
+   * in memory for the life of the worker. A capture reads one again only
+   * when a tally starts over or a merge rewrites it.
    */
-  #adoptedBody(part: ObjectRef): Promise<Uint8Array> {
-    const hit = this.#adopted.get(part.key);
-    if (hit !== undefined) return hit;
-    const pending = this.#read(part.key, part.version)
-      .then((body) => {
-        if (body.byteLength !== part.bytes || sha256(body) !== part.sha256) {
-          throw new Error(`Inherited transcript part changed: ${part.key}`);
-        }
-        return body;
-      })
-      .catch((error: unknown) => {
-        this.#adopted.delete(part.key);
-        throw error;
-      });
-    this.#adopted.set(part.key, pending);
-    return pending;
+  async #adoptedBody(part: ObjectRef): Promise<Uint8Array> {
+    const body = await this.#read(part.key, part.version);
+    if (body.byteLength !== part.bytes || sha256(body) !== part.sha256) {
+      throw new Error(`Inherited transcript part changed: ${part.key}`);
+    }
+    return body;
   }
 
   #pinned(key: TranscriptKey): readonly ObjectRef[] {
@@ -1036,6 +1139,75 @@ function deduplicator(): (
       seen.set(entry.uuid, encoded);
       return true;
     });
+}
+
+/**
+ * One transcript file from its pinned parts, deduplicated as `load` would
+ * return it and serialized as the SDK writes what `load` returns. For a
+ * subagent the `agent_metadata` entries stay out of the file, and the last
+ * one is returned for its `.meta.json`; a subagent holding nothing else gets
+ * no file, as the SDK leaves it.
+ */
+async function writeTranscript(
+  path: string,
+  parts: readonly ObjectRef[],
+  body: (part: ObjectRef) => Promise<Uint8Array>,
+  subagent: boolean,
+  signal: AbortSignal | undefined,
+): Promise<{ uuids: Set<string>; metadata?: TranscriptEntry }> {
+  const check = deduplicator();
+  const uuids = new Set<string>();
+  let metadata: TranscriptEntry | undefined;
+  let file: FileHandle | undefined;
+  try {
+    for (const part of parts) {
+      signal?.throwIfAborted();
+      let lines = "";
+      for (const entry of check(parseEntries(await body(part)))) {
+        if (subagent && entry.type === "agent_metadata") {
+          metadata = entry;
+          continue;
+        }
+        if (typeof entry.uuid === "string") uuids.add(entry.uuid);
+        lines += `${JSON.stringify(entry)}\n`;
+      }
+      if (lines === "") continue;
+      if (file === undefined) {
+        await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+        // Appending, so each part's lines land after the last one's.
+        file = await open(path, "ax", 0o600);
+      }
+      await file.writeFile(lines);
+    }
+    if (file === undefined && !subagent) {
+      await writeSynced(path, "");
+    }
+    await file?.sync();
+  } finally {
+    await file?.close();
+  }
+  return metadata === undefined ? { uuids } : { metadata, uuids };
+}
+
+async function writeSynced(path: string, contents: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const file = await open(path, "wx", 0o600);
+  try {
+    await file.writeFile(contents);
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+}
+
+/** A rename is durable once the directory holding it is synced. */
+async function syncDirectory(path: string): Promise<void> {
+  const directory = await open(path, "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
 }
 
 function parseEntries(bytes: Uint8Array): TranscriptEntry[] {

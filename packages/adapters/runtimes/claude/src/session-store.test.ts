@@ -1,7 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
+  type CheckpointTranscripts,
   MAX_TRANSCRIPT_PART_BYTES,
   type TranscriptEntry,
   type TranscriptRevision,
@@ -715,7 +719,7 @@ describe("Claude session store across execution generations", () => {
     );
   });
 
-  test("verifies every adopted part up front, then loads from what it checked", async () => {
+  test("verifies every adopted part up front, holding none of them", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const first = launch(objects, 1);
     await first.append(root, [entry("a", "first")]);
@@ -726,11 +730,15 @@ describe("Claude session store across execution generations", () => {
     objects.resetReads();
     await second.verifyInherited();
     expect(objects.reads()).toHaveLength(2);
+    // Counted, so a capture does not fetch them again.
     objects.resetReads();
+    await second.captureTranscripts(sessionId);
+    expect(objects.reads()).toEqual([]);
+    // But not held: a load reads them anew.
     expect(await second.load(subagent)).toEqual([entry("b", "subagent")]);
     expect(
       objects.reads().filter((read) => read.includes("generation-0000000001")),
-    ).toEqual([]);
+    ).toHaveLength(1);
 
     const pinned = inherited.transcripts.subagents["agents/reviewer"]?.parts[0];
     if (pinned === undefined) throw new Error("expected a subagent part");
@@ -1335,5 +1343,136 @@ describe("Claude session store counting entries across captures", () => {
         /Conflicting transcript entry uuid: same/,
       );
     }
+  });
+});
+
+describe("Claude session store writing a resumed transcript to disk", () => {
+  const subagent = { ...root, subpath: "subagents/agent-1" };
+  const metadata = { type: "agent_metadata", agentType: "reviewer" };
+
+  async function adopted(objects: MemoryCheckpointObjectStore) {
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    await first.append(root, [entry("a", "first")]);
+    // A retried batch, stored twice, and a uuid-less frame.
+    await first.append(root, [entry("b", "second")]);
+    await first.append(root, [entry("b", "second")]);
+    await first.append(root, [{ type: "title", title: "t" }]);
+    await first.append(subagent, [entry("s", "subagent"), metadata]);
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    return new ClaudeSessionStore({
+      generation: 2,
+      inherit: { sessionId, transcripts },
+      objects,
+      prefix,
+    });
+  }
+
+  async function lines(path: string): Promise<unknown[]> {
+    return (await readFile(path, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  }
+
+  test("lays the session out as the SDK does, each entry as load returned it", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const loaded = await adopted(objects);
+    const expectedRoot = await loaded.load(root);
+    const expectedSubagent = await loaded.load(subagent);
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      const second = new ClaudeSessionStore({
+        generation: 3,
+        inherit: {
+          sessionId,
+          transcripts: (await loaded.captureTranscripts(
+            sessionId,
+          )) as CheckpointTranscripts,
+        },
+        objects,
+        prefix,
+      });
+      await second.materialize(projects);
+
+      const session = join(projects, projectKey);
+      expect(await lines(join(session, `${sessionId}.jsonl`))).toEqual(
+        expectedRoot as TranscriptEntry[],
+      );
+      expect(
+        await lines(join(session, sessionId, `${subagent.subpath}.jsonl`)),
+      ).toEqual(
+        (expectedSubagent as TranscriptEntry[]).filter(
+          (item) => item.type !== "agent_metadata",
+        ),
+      );
+      expect(
+        JSON.parse(
+          await readFile(
+            join(session, sessionId, `${subagent.subpath}.meta.json`),
+            "utf8",
+          ),
+        ),
+      ).toEqual({ agentType: "reviewer" });
+      // Published whole: no staging directory is left beside it.
+      expect(await readdir(projects)).toEqual([projectKey]);
+      expect(
+        (await stat(join(session, `${sessionId}.jsonl`))).mode & 0o777,
+      ).toBe(0o600);
+
+      // The engine reads the disk; the store hands it nothing, and the
+      // history is what it would have handed over.
+      expect(await second.load(root)).toBeNull();
+      expect([...(second.resumedEntryIds() ?? [])].sort()).toEqual(["a", "b"]);
+      await expect(
+        second.load({ ...root, projectKey: "-elsewhere" }),
+      ).rejects.toThrow(/restored under project key/);
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("holds every part to its digest, and publishes nothing when one fails", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const second = await adopted(objects);
+    const transcripts = await second.captureTranscripts(sessionId);
+    const pinned = transcripts?.subagents[subagent.subpath]?.parts[0];
+    if (pinned === undefined) throw new Error("expected a subagent part");
+    const { key: damaged } = pinned;
+    await objects.put(damaged, new TextEncoder().encode('{"type":"x"}\n'));
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      await expect(second.materialize(projects)).rejects.toThrow(
+        /Inherited transcript part changed/,
+      );
+      expect(await readdir(projects)).toEqual([]);
+      expect(second.resumedEntryIds()).toBeUndefined();
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("a capture after it fetches none of what it wrote", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const second = await adopted(objects);
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      await second.verifyInherited();
+      await second.materialize(projects);
+      objects.resetReads();
+      await second.append(root, [entry("c", "third")]);
+      const captured = await second.captureTranscripts(sessionId);
+      expect(objects.reads()).toEqual([]);
+      expect(captured?.root.entryCount).toBe(4);
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("only a store that adopted a checkpoint materializes", async () => {
+    const { mirror } = store();
+    await expect(mirror.materialize(tmpdir())).rejects.toThrow(
+      /adopted a checkpoint/,
+    );
   });
 });
