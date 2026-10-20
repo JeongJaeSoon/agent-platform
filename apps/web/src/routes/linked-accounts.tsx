@@ -135,7 +135,7 @@ function SlackAccounts({
   readonly unlinking: string | undefined;
   readonly onUnlink: (account: LinkedAccount) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   if (accounts.length === 0) {
     return <p className="web-page__empty">{t("linked.none")}</p>;
   }
@@ -153,7 +153,7 @@ function SlackAccounts({
             {account.status === "stale"
               ? t("linked.stale")
               : t("linked.verified", {
-                  at: formatTimestamp(account.verified_at),
+                  at: formatTimestamp(account.verified_at, locale),
                 })}
           </span>
           <button

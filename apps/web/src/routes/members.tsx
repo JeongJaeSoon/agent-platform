@@ -19,6 +19,7 @@ import {
 import { TextField } from "../components/field.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { TableScroll } from "../components/table-scroll.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
@@ -100,7 +101,7 @@ function InviteForm({
   readonly members: readonly MemberView[];
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
   const [email, setEmail] = useState("");
@@ -211,7 +212,7 @@ function InviteForm({
           </label>
           <p className="web-field__hint">
             {t("members.invite.linkOnce", {
-              expires: formatTimestamp(link.expires),
+              expires: formatTimestamp(link.expires, locale),
             })}
           </p>
           <button
@@ -316,7 +317,7 @@ function MemberTable({
 
   return (
     <>
-      <div className="web-table-wrap">
+      <TableScroll label={t("members.tableLabel")}>
         <table className="web-table">
           <thead>
             <tr>
@@ -407,7 +408,7 @@ function MemberTable({
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {
@@ -435,7 +436,7 @@ function InviteList({
 }: {
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
   const invites = useQuery(invitesQuery(client));
@@ -489,7 +490,7 @@ function InviteList({
               <span className="web-table__secondary">
                 {roleLabel(t, invite.role)} ·{" "}
                 {t("members.invites.expires", {
-                  expires: formatTimestamp(invite.expires_at),
+                  expires: formatTimestamp(invite.expires_at, locale),
                 })}
               </span>
               <button
