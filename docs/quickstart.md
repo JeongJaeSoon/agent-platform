@@ -349,8 +349,8 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 
 `forget-lost-checkpoints`는 API가 거부하는 그 상태, 즉 bucket에 object version이 하나도 없는데 DB에 미회수 checkpoint가 남은 경우에만 동작한다. bucket에 버전이 하나라도 있으면 아무것도 바꾸지 않고 실패한다. 동작하면 남은 checkpoint를 모두 회수된 것(`collected_at`)으로 표시하고 잃은 세션 수와 ID를 출력한다.
 
-- `recovery_required <id>`: 그 checkpoint에서 복원될 세션(active·paused·stopped)이다. 세션 상세는 `admission_state: "recovery_required"`, `attention`은 `RESTORE_FAILED`(`reason: "checkpoint_objects_lost"`)다. resume과 새 메시지는 409 `RECOVERY_REQUIRED`로 거부되고, 아무 일도 없었던 것처럼 새로 시작하지 않는다. 대기 중인 입력은 남는다. 이전 문맥 없이 이어 가려면 복구 결정 `start_fresh`, 끝내려면 `close`를 보낸다([api-guide 7절](api-guide.md#7-outcome_unknownrecovery_required-복구-결정)). 같은 checkpoint는 없으므로 `retry_restore`는 거부된다.
-- `unchanged <id>`: 이미 닫혔거나 `start_fresh`로 checkpoint를 버린 세션 등, 상태를 바꿀 필요가 없는 세션이다.
+- `recovery_required <id>`: 그 checkpoint에서 복원될, 닫히지 않은 세션이다. pause·resume·stop 도중이었거나 이미 `recovery_required`였던 세션도 포함하며, 열려 있던 pause·resume receipt는 실패로 끝난다. 세션 상세는 `admission_state: "recovery_required"`, `attention`은 `RESTORE_FAILED`(`reason: "checkpoint_objects_lost"`)다. resume과 새 메시지는 409 `RECOVERY_REQUIRED`로 거부되고, 아무 일도 없었던 것처럼 새로 시작하지 않는다. 대기 중인 입력은 남는다. 이전 문맥 없이 이어 가려면 복구 결정 `start_fresh`, 끝내려면 `close`를 보낸다([api-guide 7절](api-guide.md#7-outcome_unknownrecovery_required-복구-결정)). 같은 checkpoint는 없으므로 `retry_restore`는 거부된다.
+- `unchanged <id>`: 이미 닫혔거나 `start_fresh`로 checkpoint를 버려 복원할 것이 없는 세션이다.
 
 잃은 checkpoint가 없으면 `No checkpoint is missing from the bucket`만 출력하고 끝난다. 세션까지 모두 지우고 새로 하려면 여전히 `scripts/local.sh reset --fake-model`이다.
 

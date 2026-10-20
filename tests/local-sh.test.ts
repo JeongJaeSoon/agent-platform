@@ -187,7 +187,7 @@ echo '{"status":"ready"}'
     const result = await run(["forget-lost-checkpoints"]);
     expect(result.exitCode).toBe(0);
     expect(await calls("docker-calls")).toEqual([
-      `${noMode} run --rm -T api bun run apps/control-host/src/api/forget-lost-checkpoints.ts`,
+      `${noMode} run --rm -T --build api bun run apps/control-host/src/api/forget-lost-checkpoints.ts`,
     ]);
   });
 

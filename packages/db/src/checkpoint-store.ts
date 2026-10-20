@@ -18,6 +18,7 @@ import {
   lt,
   lte,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import {
@@ -26,15 +27,18 @@ import {
   restoreBaseRevision,
 } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { openPauseReceipt } from "./pause-control.ts";
 import type { Database } from "./queries.ts";
 import {
   RESTORE_FAILURE_LIMIT,
   RESTORE_FAILURES_CLEARED,
 } from "./restore-failures.ts";
+import { openResumeReceipt } from "./resume-control.ts";
 import {
   attempts,
   checkpoints,
   pushRequests,
+  receipts,
   sessions,
   turns,
   unassignedSessions,
@@ -67,21 +71,27 @@ export type LostCheckpoints = {
   /** Sessions now in recovery_required: their restore point was lost. */
   readonly held: string[];
   /**
-   * Sessions that lost checkpoints but keep their state: closed, retired by
-   * start_fresh, already waiting on an operator, or mid pause/resume/stop
-   * (whose next restore fails as any failed restore does).
+   * Sessions that lost checkpoints but keep their state: closed, or with no
+   * restore point left among them (retired by start_fresh).
    */
   readonly unchanged: string[];
 };
 
-const HELD_WHEN_LOST = new Set(["active", "paused", "stopped"]);
+const LOST_CHECKPOINT_RECEIPT_ERROR = {
+  code: "RECOVERY_REQUIRED",
+  message:
+    "the object store lost the session's checkpoints; an operator recovery decision is required",
+} as const;
 
 /**
  * Marks every uncollected checkpoint collected, for an operator who has
  * accepted that the object store lost all of them; the caller checks the
- * bucket first. A session that would next restore one of them waits in
- * recovery_required with RESTORE_FAILED (checkpoint_objects_lost) and its
- * input kept: resume refuses, retry_restore has nothing to retry,
+ * bucket first. Every session that is not closed and would restore one of
+ * them waits in recovery_required with RESTORE_FAILED
+ * (checkpoint_objects_lost) and its input kept, whatever it was doing: the
+ * restore point checks read the pointer, not collected_at, so leaving one
+ * mid pause, resume or stop would restore what is gone. Its open pause or
+ * resume receipt fails. Resume refuses, retry_restore has nothing to retry,
  * start_fresh goes on without the lost context, close ends the session.
  */
 export function forgetLostCheckpoints(
@@ -95,8 +105,14 @@ export function forgetLostCheckpoints(
       .where(isNull(checkpoints.collectedAt));
     if (lost.length === 0) return { held: [], unchanged: [] };
     const ids = lost.map((row) => row.sessionId);
-    // Session rows first, as a finalize takes them, so the two never wait
-    // on each other in opposite order.
+    // A claim locks the signal row before the session, a finalize the
+    // session before its checkpoints: this takes them in the same order.
+    await tx
+      .select({ sessionId: unassignedSessions.sessionId })
+      .from(unassignedSessions)
+      .where(inArray(unassignedSessions.sessionId, ids))
+      .orderBy(asc(unassignedSessions.sessionId))
+      .for("update");
     const rows = await tx
       .select()
       .from(sessions)
@@ -115,14 +131,19 @@ export function forgetLostCheckpoints(
     const held: string[] = [];
     const unchanged: string[] = [];
     for (const session of rows) {
-      if (
-        !hasRestorePoint(session) ||
-        !HELD_WHEN_LOST.has(session.admissionState)
-      ) {
+      if (!hasRestorePoint(session) || session.admissionState === "closed") {
         unchanged.push(session.id);
         continue;
       }
       held.push(session.id);
+      await tx
+        .update(receipts)
+        .set({
+          status: "failed",
+          error: LOST_CHECKPOINT_RECEIPT_ERROR,
+          updatedAt: now,
+        })
+        .where(or(openPauseReceipt(session.id), openResumeReceipt(session.id)));
       await tx
         .update(sessions)
         .set({

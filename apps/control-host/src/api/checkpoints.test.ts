@@ -7,6 +7,7 @@ import {
   events,
   forgetLostCheckpoints,
   hasUncollectedCheckpoint,
+  receipts,
   sessions,
 } from "@agent-platform/db";
 import {
@@ -561,7 +562,10 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
   const client = new PGlite();
   const db = drizzle(client, { schema });
   const restorable = crypto.randomUUID();
+  const pausing = crypto.randomUUID();
+  const restoresFailed = crypto.randomUUID();
   const closed = crypto.randomUUID();
+  const pauseReceipt = crypto.randomUUID();
   let listed = 0;
   const forget = (page: Record<string, unknown>) =>
     forgetLostCheckpointObjects(config, {
@@ -583,9 +587,12 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
     await migrate(db, {
       migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
     });
-    for (const [id, admissionState] of [
-      [restorable, "stopped"],
-      [closed, "closed"],
+    for (const [id, admissionState, restoreFailureCount] of [
+      [restorable, "stopped", 0],
+      [pausing, "pausing", 0],
+      // Its failed restores made retry_restore eligible before the loss.
+      [restoresFailed, "recovery_required", 3],
+      [closed, "closed", 0],
     ] as const) {
       await db.insert(sessions).values({
         id,
@@ -595,6 +602,8 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
         status: "stopped",
         admissionState,
         checkpointRevision: 1,
+        restoreFailureCount,
+        restoreFailureReason: restoreFailureCount > 0 ? "execution_gone" : null,
       });
       await db.insert(checkpoints).values({
         sessionId: id,
@@ -603,6 +612,12 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
         manifestSha256: "sha256",
       });
     }
+    await db.insert(receipts).values({
+      id: pauseReceipt,
+      ownerId: "owner",
+      operation: "pause",
+      targetRef: { session_id: pausing, turn_id: null, request_id: null },
+    });
   }, 30_000);
 
   afterAll(async () => {
@@ -619,15 +634,15 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
     expect((await sessionRow(restorable))?.admissionState).toBe("stopped");
   });
 
-  test("on an empty bucket, collects every checkpoint and holds the sessions that would restore one", async () => {
+  test("on an empty bucket, collects every checkpoint and holds every open session that would restore one", async () => {
     const before = await sessionRow(restorable);
-    expect(await forget({})).toEqual({
-      held: [restorable],
-      unchanged: [closed],
-    });
+    const lost = await forget({});
+    expect([...lost.held].sort()).toEqual(
+      [restorable, pausing, restoresFailed].sort(),
+    );
+    expect(lost.unchanged).toEqual([closed]);
     expect(await hasUncollectedCheckpoint(db)).toBe(false);
-    const held = await sessionRow(restorable);
-    expect(held).toMatchObject({
+    expect(await sessionRow(restorable)).toMatchObject({
       admissionState: "recovery_required",
       status: "failed",
       revision: (before?.revision ?? 0) + 1,
@@ -635,6 +650,26 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
       restoreFailureCount: 1,
       restoreFailureReason: CHECKPOINT_OBJECTS_LOST_REASON,
       restoreRetryAt: null,
+    });
+    // Below RESTORE_FAILURE_LIMIT, so retry_restore no longer applies.
+    for (const id of [pausing, restoresFailed]) {
+      expect(await sessionRow(id)).toMatchObject({
+        admissionState: "recovery_required",
+        restoreFailureCount: 1,
+        restoreFailureReason: CHECKPOINT_OBJECTS_LOST_REASON,
+      });
+    }
+    const [receipt] = await db
+      .select({ status: receipts.status, error: receipts.error })
+      .from(receipts)
+      .where(eq(receipts.id, pauseReceipt));
+    expect(receipt).toEqual({
+      status: "failed",
+      error: {
+        code: "RECOVERY_REQUIRED",
+        message:
+          "the object store lost the session's checkpoints; an operator recovery decision is required",
+      },
     });
     expect((await sessionRow(closed))?.admissionState).toBe("closed");
     const recorded = await db
