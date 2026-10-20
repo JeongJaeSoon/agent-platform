@@ -10,7 +10,14 @@ import type {
 import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
-import { type FormEvent, useId, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
@@ -22,6 +29,7 @@ import {
   draftFromCard,
 } from "../components/agent-card-form.tsx";
 import { TextField } from "../components/field.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -36,9 +44,13 @@ export function agentSearch(search: Record<string, unknown>): AgentSearch {
   return search.notice === "created" ? { notice: "created" } : {};
 }
 
-type Outcome =
-  | { readonly kind: "notice"; readonly text: string }
-  | { readonly kind: "error"; readonly text: string };
+type Place = "page" | "card" | "releases" | "admins";
+
+/** An outcome shows in the section whose button caused it. */
+interface Placed {
+  readonly at: Place;
+  readonly outcome: Outcome;
+}
 
 /** What the screen showed when its activation lost the race. */
 interface Conflict {
@@ -65,9 +77,9 @@ function AgentDetailPage({ id }: { readonly id: string }) {
   const search = useSearch({ from: "/authed/agents/$id" });
   const { client } = useServices();
   const detail = useQuery(agentQuery(client, id));
-  const [outcome, setOutcome] = useState<Outcome | null>(() =>
+  const [placed, setPlaced] = useState<Placed | null>(() =>
     search.notice === "created"
-      ? { kind: "notice", text: t("agent.created") }
+      ? { at: "page", outcome: { kind: "notice", text: t("agent.created") } }
       : null,
   );
 
@@ -86,8 +98,8 @@ function AgentDetailPage({ id }: { readonly id: string }) {
   return (
     <AgentView
       detail={detail.data}
-      outcome={outcome}
-      onOutcome={setOutcome}
+      placed={placed}
+      onPlaced={setPlaced}
       onReload={() => detail.refetch()}
     />
   );
@@ -108,16 +120,19 @@ function AgentNotFound() {
 
 function AgentView({
   detail,
-  outcome,
-  onOutcome,
+  placed,
+  onPlaced,
   onReload,
 }: {
   readonly detail: AgentDetail;
-  readonly outcome: Outcome | null;
-  readonly onOutcome: (outcome: Outcome | null) => void;
+  readonly placed: Placed | null;
+  readonly onPlaced: (placed: Placed | null) => void;
   readonly onReload: () => void;
 }) {
   const { t } = useI18n();
+  const outcomeAt = (at: Place) => (outcome: Outcome | null) =>
+    onPlaced(outcome ? { at, outcome } : null);
+  const onOutcome = outcomeAt("releases");
   // Until a version is picked or saved the release form offers the latest.
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   const { client, queryClient } = useServices();
@@ -202,52 +217,11 @@ function AgentView({
           release: releaseLabel(agent.active_release_id),
         })}
       </p>
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <p className="web-form__error" role="alert">
-            {outcome.text}
-          </p>
-        ) : (
-          <output className="web-notice">{outcome.text}</output>
-        )
-      ) : null}
-      {conflict ? (
-        <section className="web-status" data-status="conflict" role="alert">
-          <h2 className="web-status__title">{t("agent.conflict.title")}</h2>
-          <p className="web-status__body">
-            {reloaded
-              ? t("agent.conflict.reloaded", {
-                  seen: releaseLabel(conflict.seenActiveReleaseId),
-                  now: releaseLabel(agent.active_release_id),
-                })
-              : t("agent.conflict.body")}
-          </p>
-          {reloaded ? (
-            <RevisionDiff
-              before={
-                detail.versions.find((v) => v.id === seenRelease?.version_id)
-                  ?.card ?? null
-              }
-              after={
-                detail.active_release
-                  ? (detail.versions.find(
-                      (v) => v.id === detail.active_release?.version_id,
-                    )?.card ?? null)
-                  : null
-              }
-              beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
-              afterLabel={releaseLabel(agent.active_release_id)}
-            />
-          ) : (
-            <button type="button" className="ap-button" onClick={onReload}>
-              {t("agent.conflict.reload")}
-            </button>
-          )}
-        </section>
-      ) : null}
+      <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <CardEditor
         detail={detail}
-        onOutcome={onOutcome}
+        result={<PlacedOutcome placed={placed} at="card" />}
+        onOutcome={outcomeAt("card")}
         onSaved={setReleaseVersion}
       />
       <VersionHistory
@@ -259,6 +233,58 @@ function AgentView({
         picked={releaseVersion}
         onPick={setReleaseVersion}
         versionNo={versionNo}
+        result={
+          <>
+            <PlacedOutcome placed={placed} at="releases" />
+            <TakesFocus on={conflict}>
+              {conflict ? (
+                <section
+                  className="web-status"
+                  data-status="conflict"
+                  role="alert"
+                >
+                  <h3 className="web-status__title">
+                    {t("agent.conflict.title")}
+                  </h3>
+                  <p className="web-status__body">
+                    {reloaded
+                      ? t("agent.conflict.reloaded", {
+                          seen: releaseLabel(conflict.seenActiveReleaseId),
+                          now: releaseLabel(agent.active_release_id),
+                        })
+                      : t("agent.conflict.body")}
+                  </p>
+                  {reloaded ? (
+                    <RevisionDiff
+                      before={
+                        detail.versions.find(
+                          (v) => v.id === seenRelease?.version_id,
+                        )?.card ?? null
+                      }
+                      after={
+                        detail.active_release
+                          ? (detail.versions.find(
+                              (v) => v.id === detail.active_release?.version_id,
+                            )?.card ?? null)
+                          : null
+                      }
+                      beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
+                      afterLabel={releaseLabel(agent.active_release_id)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="ap-button"
+                      onClick={onReload}
+                    >
+                      {t("agent.conflict.reload")}
+                    </button>
+                  )}
+                </section>
+              ) : null}
+            </TakesFocus>
+          </>
+        }
         onOutcome={onOutcome}
         activating={
           activate.isPending ? activate.variables?.release.id : undefined
@@ -271,17 +297,55 @@ function AgentView({
           })
         }
       />
-      <AgentAdmins agentId={agent.id} onOutcome={onOutcome} />
+      <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
+      <PlacedOutcome placed={placed} at="admins" />
     </div>
   );
 }
 
+/** The outcome placed here, focused so the result is where the person is. */
+function PlacedOutcome({
+  placed,
+  at,
+}: {
+  readonly placed: Placed | null;
+  readonly at: Place;
+}) {
+  const outcome = placed?.at === at ? placed.outcome : null;
+  return (
+    <TakesFocus on={outcome}>
+      <OutcomeLine outcome={outcome} />
+    </TakesFocus>
+  );
+}
+
+/** Each new non-null `on` moves focus to what it wraps. */
+function TakesFocus({
+  on,
+  children,
+}: {
+  readonly on: unknown;
+  readonly children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (on) ref.current?.focus();
+  }, [on]);
+  return on ? (
+    <div ref={ref} tabIndex={-1}>
+      {children}
+    </div>
+  ) : null;
+}
+
 function CardEditor({
   detail,
+  result,
   onOutcome,
   onSaved,
 }: {
   readonly detail: AgentDetail;
+  readonly result: ReactNode;
   readonly onOutcome: (outcome: Outcome | null) => void;
   /** The version the save resolved to, which the release form then offers. */
   readonly onSaved: (versionId: string) => void;
@@ -406,6 +470,7 @@ function CardEditor({
           {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
         </button>
       </form>
+      {result}
     </section>
   );
 }
@@ -454,7 +519,7 @@ function savedVersion(
 }
 
 function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const titleId = useId();
   const ordered = [...detail.versions].sort(
     (a, b) => b.version_no - a.version_no,
@@ -479,7 +544,7 @@ function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
           <li key={version.id} className="web-list__item">
             <span className="web-table__primary">{label(version)}</span>
             <span className="web-table__secondary">
-              {formatTimestamp(version.created_at)} ·{" "}
+              {formatTimestamp(version.created_at, locale)} ·{" "}
               {version.content_sha256.slice(0, 12)}
               {version.id === activeVersionId
                 ? ` · ${t("agent.versions.active")}`
@@ -596,6 +661,7 @@ function Releases({
   picked,
   onPick,
   versionNo,
+  result,
   onOutcome,
   activating,
   onActivate,
@@ -605,11 +671,13 @@ function Releases({
   readonly picked: string | null;
   readonly onPick: (versionId: string) => void;
   readonly versionNo: (versionId: string) => number | undefined;
+  /** Release and activation results, between the form and the list. */
+  readonly result: ReactNode;
   readonly onOutcome: (outcome: Outcome | null) => void;
   readonly activating: string | undefined;
   readonly onActivate: (release: AgentRelease) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
   const titleId = useId();
@@ -718,6 +786,7 @@ function Releases({
             : t("agent.releases.create")}
         </button>
       </form>
+      {result}
       {ordered.length === 0 ? (
         <p className="web-page__empty">{t("agent.releases.empty")}</p>
       ) : (
@@ -733,10 +802,10 @@ function Releases({
                 <span>
                   <span className="web-table__primary">{label}</span>
                   <span className="web-table__secondary">
-                    {formatTimestamp(item.created_at)} ·{" "}
+                    {formatTimestamp(item.created_at, locale)} ·{" "}
                     {item.approved_at
                       ? t("agent.releases.approved", {
-                          at: formatTimestamp(item.approved_at),
+                          at: formatTimestamp(item.approved_at, locale),
                         })
                       : t("agent.releases.notApproved")}
                   </span>

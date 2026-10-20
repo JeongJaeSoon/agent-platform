@@ -6,6 +6,7 @@ export const membersKo = {
   "members.column.role": "역할",
   "members.column.state": "상태",
   "members.column.actions": "관리",
+  "members.tableLabel": "구성원 표",
   "members.state.active": "활성",
   "members.state.disabled": "비활성",
   "members.enableHint": "다시 들어오게 하려면 초대하지 말고 다시 활성화하세요.",
@@ -50,6 +51,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.column.role": "Role",
   "members.column.state": "Status",
   "members.column.actions": "Manage",
+  "members.tableLabel": "Members table",
   "members.state.active": "Active",
   "members.state.disabled": "Disabled",
   "members.enableHint":

@@ -400,6 +400,41 @@ describe("에이전트 상세", () => {
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
+  test("결과는 버튼을 누른 섹션에 나오고 포커스가 그리로 간다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const section = (name: string) =>
+      screen.getByRole("heading", { name }).closest("section") as HTMLElement;
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    const saved = await screen.findByText(/저장했습니다/);
+    expect(section("카드").contains(saved)).toBe(true);
+    expect(document.activeElement?.contains(saved)).toBe(true);
+
+    await screen.findByLabelText("runtime profile");
+    await user.selectOptions(
+      screen.getByLabelText("runtime profile"),
+      "claude-coding-fast",
+    );
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    const refused = await screen.findByRole("alert");
+    expect(section("release").contains(refused)).toBe(true);
+    expect(document.activeElement?.contains(refused)).toBe(true);
+    // One result at a time: the card's notice went away with the new action.
+    expect(screen.queryByText(/저장했습니다/)).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("runtime profile"), PROFILE);
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: `version 1 · ${PROFILE} 활성화`,
+      }),
+    );
+    const activated = await screen.findByText(/활성화됐습니다/);
+    expect(section("release").contains(activated)).toBe(true);
+    expect(document.activeElement?.contains(activated)).toBe(true);
+  });
+
   test("새 version을 저장하면 release 폼도 그 version을 고른다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
@@ -455,6 +490,14 @@ describe("두 탭 동시 활성화", () => {
     );
     const panel = conflict.closest("section") as HTMLElement;
     expect(panel.textContent).toContain("덮어쓰지 않고 멈췄습니다");
+    // The refusal shows by the button that caused it and takes focus.
+    expect(
+      b
+        .getByRole("heading", { name: "release" })
+        .closest("section")
+        ?.contains(panel),
+    ).toBe(true);
+    expect(document.activeElement?.contains(panel)).toBe(true);
     expect(b.queryByText(/활성화됐습니다/)).toBeNull();
     const fromB = tabB.api.calls.filter((c) => c.path.endsWith("/activate"));
     expect(fromB).toHaveLength(1);

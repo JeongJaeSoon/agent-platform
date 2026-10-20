@@ -290,7 +290,7 @@ function TeamMembers({
   readonly team: TeamDetail;
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
   const members = useQuery(membersQuery(client));
@@ -409,7 +409,7 @@ function TeamMembers({
                 <span className="web-table__secondary">
                   {member.email} ·{" "}
                   {t("teams.addedAt", {
-                    at: formatTimestamp(member.added_at),
+                    at: formatTimestamp(member.added_at, locale),
                   })}
                 </span>
                 <button
