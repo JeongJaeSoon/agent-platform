@@ -381,7 +381,13 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
     );
   const agentScopes = grantable(true);
 
-  const send = (agent: Agent | undefined) => {
+  // These buttons are not submits, so the expiry min is checked here; the
+  // browser explains it on the field.
+  const send = (agent: Agent | undefined, form: HTMLFormElement | null) => {
+    if (expires !== "" && expires < today()) {
+      form?.reportValidity();
+      return;
+    }
     const expiresAt = expiryOf(expires);
     const granted = grantable(agent !== undefined);
     issue.send(
@@ -425,7 +431,7 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
               : permissionReason(t, "api_key.manage", role)
           }
           disabled={issue.blocked || grantable(false).length === 0}
-          onClick={() => send(undefined)}
+          onClick={(event) => send(undefined, event.currentTarget.form)}
         >
           {t("apiKeys.issueWorkspace")}
         </ReasonButton>
@@ -451,7 +457,7 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
           className="ap-button"
           reason={agentReason}
           disabled={issue.blocked || !chosenAgent || agentScopes.length === 0}
-          onClick={() => send(chosenAgent)}
+          onClick={(event) => send(chosenAgent, event.currentTarget.form)}
         >
           {t("apiKeys.issueAgent")}
         </ReasonButton>

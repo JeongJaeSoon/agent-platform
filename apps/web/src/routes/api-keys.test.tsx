@@ -290,6 +290,23 @@ describe("API key", () => {
     );
   });
 
+  test("서비스 key도 지난 날짜를 만료일로 보내지 않는다", async () => {
+    const { api } = renderAt("/settings/api-keys", {
+      ...ownerOk,
+      ...keysServer(),
+    });
+    const user = await setupUser();
+    const service = await screen.findByRole("region", { name: "서비스 key" });
+    await user.type(within(service).getByLabelText(/^만료일/), "2020-01-01");
+    await user.click(
+      within(service).getByRole("button", {
+        name: "워크스페이스 서비스 key 발급",
+      }),
+    );
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    expect(screen.queryByRole("region", { name: "새 key" })).toBeNull();
+  });
+
   test("새 key 값으로 포커스가 가고, 복사에 실패하면 그렇다고 알린다", async () => {
     renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
     const user = await setupUser();
