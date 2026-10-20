@@ -11,13 +11,13 @@ const UI = ["react", "react-dom", "@tanstack/react-query"];
 const ROUTERS = ["@tanstack/react-router", "react-router", "next"];
 
 const sourceFiles = async () =>
-  (await readdir(import.meta.dir)).filter(
+  (await readdir(import.meta.dir, { recursive: true })).filter(
     (name) => name.endsWith(".ts") && !name.endsWith(".test.ts"),
   );
 
 const specifiers = (source: string) =>
   [...source.matchAll(/\bfrom\s+"([^"]+)"|\bimport\s*\(\s*"([^"]+)"/g)].map(
-    (match) => (match[1] ?? match[2])!,
+    (match) => match[1] ?? match[2] ?? "",
   );
 
 const packageName = (specifier: string) =>
