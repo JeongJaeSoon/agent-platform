@@ -22,6 +22,9 @@ esac
 cd "$VERIFY_REPO" || exit 1
 
 failed=0
+if [ -f "$run/browser/pid" ]; then
+  node "$VERIFY_REPO/.claude/skills/verify-agent-platform/scripts/browser.mjs" "$run" stop >&2 || failed=1
+fi
 "$VERIFY_REPO/scripts/local.sh" down 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
 docker compose --profile apps --profile fake-model \
   -f compose.yaml -f "$run/ports.yml" -f infra/compose.fake-model.yml \
@@ -45,4 +48,5 @@ if [ -n "$left$workers" ]; then
 fi
 # Only this run's tags; layers another tag shares stay.
 docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >>"$run/evidence/down.log" 2>&1 || true
-rm -f "$run/ports.yml" "$run/cookie"
+rm -f "$run/ports.yml" "$run/cookie" "$run"/cookie.*
+rm -rf "$run/users" "$run/keys"
