@@ -190,13 +190,29 @@ describe("API key", () => {
     await waitFor(() => expect(cached()).toBe(false));
   });
 
+  test("권한은 이름과 설명으로 고르고, 목록도 이름으로 보인다", async () => {
+    renderAt("/settings/api-keys", {
+      ...memberOk,
+      ...keysServer([key({ scopes: ["sessions:read", "sessions:write"] })]),
+    });
+    const [read] = await screen.findAllByRole("checkbox", {
+      name: /세션 보기 sessions:read/,
+    });
+    expect(read?.closest("label")?.textContent).toContain(
+      "세션 목록과 상태, 이벤트를 읽습니다.",
+    );
+    expect(
+      await screen.findByText(/ID [0-9a-f]{8} · 세션 보기, 세션 만들기 · /),
+    ).toBeDefined();
+  });
+
   test("승인 범위만 고르면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
     renderAt("/settings/api-keys", { ...memberOk, ...keysServer() });
     const user = await setupUser();
     await screen.findByRole("option", { name: "Billing" });
     const service = screen.getByRole("region", { name: "서비스 key" });
     await user.click(
-      within(service).getByRole("checkbox", { name: "sessions:read" }),
+      within(service).getByRole("checkbox", { name: /sessions:read/ }),
     );
     await user.click(
       within(service).getByRole("checkbox", { name: /sessions:approve/ }),

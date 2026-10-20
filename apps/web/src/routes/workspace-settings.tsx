@@ -1,6 +1,7 @@
-import type {
-  AuditRetentionRequest,
-  SlackGuestRequest,
+import {
+  AUDIT_RETENTION_MAX_DAYS,
+  type AuditRetentionRequest,
+  type SlackGuestRequest,
 } from "@agent-platform/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
@@ -77,13 +78,17 @@ function AuditRetention({
       );
       await queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
-    onError: (error) =>
+    onError: (error, sent) =>
       onOutcome({
         kind: "error",
         text:
-          error.code === "BAD_REQUEST"
-            ? t("workspace.retentionFloor")
-            : refusalText(t, error, "audit_retention.manage", role),
+          error.code !== "BAD_REQUEST"
+            ? refusalText(t, error, "audit_retention.manage", role)
+            : sent > AUDIT_RETENTION_MAX_DAYS
+              ? t("workspace.retentionCeiling", {
+                  max: AUDIT_RETENTION_MAX_DAYS,
+                })
+              : t("workspace.retentionFloor"),
       }),
   });
 

@@ -6,6 +6,8 @@ export const workspaceKo = {
     "허용·거절한 요청 기록을 이 기간 동안 보관합니다. 30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.",
   "workspace.retentionFloor":
     "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
+  "workspace.retentionCeiling":
+    "감사 기록은 최대 {max}일까지 보존할 수 있습니다. {max}일 이하로 정하세요.",
   "workspace.retentionSaved": "감사 기록을 {days}일 보존합니다.",
   "workspace.save": "저장",
   "workspace.guest": "Slack 게스트",
@@ -26,6 +28,8 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "Records of allowed and denied requests are kept this long, for at least 30 days. Only an owner can change this.",
   "workspace.retentionFloor":
     "Audit records must be kept for at least 30 days. Choose a number from 30 to 3650.",
+  "workspace.retentionCeiling":
+    "Audit records can be kept for at most {max} days. Choose {max} or fewer.",
   "workspace.retentionSaved": "Audit records are kept for {days} days.",
   "workspace.save": "Save",
   "workspace.guest": "Slack guests",

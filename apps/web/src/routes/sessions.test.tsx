@@ -193,6 +193,12 @@ describe("sessions list", () => {
     expect(link.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
     expect(screen.getByText("쉬는 중")).toBeTruthy();
     expect(screen.getByText("default · claude_code 1.0.0")).toBeTruthy();
+    // An idle session that still takes input: "작업 상태" and "세션 상태" differ.
+    expect(
+      screen.getAllByRole("columnheader").map((th) => th.textContent),
+    ).toEqual(expect.arrayContaining(["작업 상태", "세션 상태"]));
+    expect(screen.getByText("열림")).toBeTruthy();
+    expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "더 보기" }));
     await screen.findByRole("link", { name: OTHER_ID });
@@ -455,7 +461,7 @@ describe("session profile", () => {
     });
 
     const select = await screen.findByRole("combobox", {
-      name: "다음 turn부터 쓸 프로필",
+      name: "다음 작업부터 쓸 프로필",
     });
     expect(
       Array.from(select.querySelectorAll("option")).map((o) => o.value),
@@ -469,7 +475,7 @@ describe("session profile", () => {
     const before = reads();
     await user.click(screen.getByRole("button", { name: "프로필 바꾸기" }));
     expect(
-      await screen.findByText("다음 turn부터 fast 프로필로 돕니다."),
+      await screen.findByText("다음 작업부터 fast 프로필을 씁니다."),
     ).toBeTruthy();
     const [post] = api.calls.filter((call) => call.method === "POST");
     expect(post?.body).toEqual({ expected_revision: 3, profile_id: "fast" });
@@ -477,7 +483,7 @@ describe("session profile", () => {
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
-  test("shows why the server refused", async () => {
+  test("shows why the server refused, in Korean only", async () => {
     const user = await setupUser();
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
@@ -493,7 +499,29 @@ describe("session profile", () => {
     );
     expect(
       await screen.findByText(
-        "이 프로필로 바꿀 수 없습니다. profile fast is not allowed for repository demo",
+        "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소에서 쓸 수 없는 프로필입니다.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/not allowed/)).toBeNull();
+  });
+
+  test("a session from an agent release says why it keeps its profile", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
+        apiError(
+          409,
+          "RELEASE_PROFILE_MISMATCH",
+          "This session runs its agent release's profile",
+        ),
+    });
+    await user.click(
+      await screen.findByRole("button", { name: "프로필 바꾸기" }),
+    );
+    expect(
+      await screen.findByText(
+        "이 프로필로 바꿀 수 없습니다. 에이전트 release로 만든 세션은 그 release의 프로필만 씁니다.",
       ),
     ).toBeTruthy();
   });

@@ -7,13 +7,13 @@ export const sessionsKo = {
 
   "sessions.title": "세션",
   "sessions.intro":
-    "내가 만든 세션입니다. 세션을 누르면 상태와 이벤트를 봅니다.",
+    "내가 만들었거나 나에게 공유된 세션입니다. 세션을 누르면 상태와 이벤트를 봅니다.",
   "sessions.empty": "아직 세션이 없습니다.",
   "sessions.more": "더 보기",
   "sessions.loadingMore": "불러오는 중…",
   "sessions.column.id": "세션",
-  "sessions.column.status": "상태",
-  "sessions.column.admission": "진행",
+  "sessions.column.status": "작업 상태",
+  "sessions.column.admission": "세션 상태",
   "sessions.column.runtime": "런타임",
   "sessions.column.lastEvent": "최근 이벤트",
   "sessions.column.created": "만든 시각",
@@ -26,7 +26,7 @@ export const sessionsKo = {
   "sessions.status.failed": "실패",
   "sessions.status.stopped": "멈춤",
 
-  "sessions.admission.active": "활성",
+  "sessions.admission.active": "열림",
   "sessions.admission.pausing": "일시정지 중",
   "sessions.admission.paused": "일시정지됨",
   "sessions.admission.resuming": "복원 중",
@@ -39,18 +39,21 @@ export const sessionsKo = {
   "session.notFound":
     "이 세션을 찾을 수 없습니다. 지워졌거나 볼 권한이 없는 세션입니다.",
   "session.overview": "상태",
-  "session.currentTurn": "진행 중인 turn",
-  "session.queuedTurns": "대기 중인 turn",
+  "session.currentTurn": "진행 중인 작업",
+  "session.queuedTurns": "대기 중인 작업",
   "session.attention": "확인 필요",
   "session.updated": "마지막 변경",
 
   "session.profile": "프로필",
-  "session.profile.next": "다음 turn부터 쓸 프로필",
+  "session.profile.next": "다음 작업부터 쓸 프로필",
   "session.profile.hint":
-    "진행 중인 turn은 지금 프로필로 끝나고, 다음 turn부터 새 프로필로 대화를 이어 갑니다.",
+    "진행 중인 작업은 지금 프로필로 끝나고, 다음 작업부터 새 프로필로 대화를 이어 갑니다.",
   "session.profile.submit": "프로필 바꾸기",
-  "session.profile.changed": "다음 turn부터 {profile} 프로필로 돕니다.",
-  "session.profile.refused": "이 프로필로 바꿀 수 없습니다.",
+  "session.profile.changed": "다음 작업부터 {profile} 프로필을 씁니다.",
+  "session.profile.refused.release":
+    "이 프로필로 바꿀 수 없습니다. 에이전트 release로 만든 세션은 그 release의 프로필만 씁니다.",
+  "session.profile.refused.capability":
+    "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소에서 쓸 수 없는 프로필입니다.",
   "session.profile.none":
     "같은 런타임과 과금 방식으로 바꿀 수 있는 다른 프로필이 없습니다.",
   "session.profile.unknown":
@@ -114,13 +117,13 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
 
   "sessions.title": "Sessions",
   "sessions.intro":
-    "Sessions you started. Open one to see its status and events.",
+    "Sessions you started or that are shared with you. Open one to see its status and events.",
   "sessions.empty": "No sessions yet.",
   "sessions.more": "Show more",
   "sessions.loadingMore": "Loading…",
   "sessions.column.id": "Session",
-  "sessions.column.status": "Status",
-  "sessions.column.admission": "State",
+  "sessions.column.status": "Work status",
+  "sessions.column.admission": "Session state",
   "sessions.column.runtime": "Runtime",
   "sessions.column.lastEvent": "Last event",
   "sessions.column.created": "Created",
@@ -133,7 +136,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.status.failed": "Failed",
   "sessions.status.stopped": "Stopped",
 
-  "sessions.admission.active": "Active",
+  "sessions.admission.active": "Open",
   "sessions.admission.pausing": "Pausing",
   "sessions.admission.paused": "Paused",
   "sessions.admission.resuming": "Resuming",
@@ -146,18 +149,21 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.notFound":
     "This session cannot be found. It was removed, or you may not see it.",
   "session.overview": "Status",
-  "session.currentTurn": "Current turn",
-  "session.queuedTurns": "Queued turns",
+  "session.currentTurn": "Work in progress",
+  "session.queuedTurns": "Work waiting",
   "session.attention": "Needs attention",
   "session.updated": "Last changed",
 
   "session.profile": "Profile",
-  "session.profile.next": "Profile for the next turns",
+  "session.profile.next": "Profile from the next piece of work",
   "session.profile.hint":
-    "A turn already running finishes on the current profile; the conversation continues on the new one from the next turn.",
+    "Work already running finishes on the current profile; the conversation continues on the new one from the next piece of work.",
   "session.profile.submit": "Change profile",
-  "session.profile.changed": "The next turns run on {profile}.",
-  "session.profile.refused": "The session cannot move to this profile.",
+  "session.profile.changed": "From the next piece of work, {profile} is used.",
+  "session.profile.refused.release":
+    "The session cannot move to this profile. A session made from an agent release runs only that release's profile.",
+  "session.profile.refused.capability":
+    "The session cannot move to this profile. This profile cannot be used with the session's repository.",
   "session.profile.none":
     "No other profile runs the same runtime and billing, so there is nothing to change to.",
   "session.profile.unknown":

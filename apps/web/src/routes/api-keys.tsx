@@ -38,6 +38,15 @@ type IssueRequest = Pick<CreateApiKeyRequest, "kind" | "scopes"> & {
 // D26: a key bound to an agent never stands in for a person's approval.
 const AGENT_KEY_WITHHELD: readonly SessionScope[] = ["sessions:approve"];
 
+// Message keys are `<area>.<element>`, so the scope's colon stays out of them.
+const SCOPE_KEY = {
+  "sessions:read": "read",
+  "sessions:write": "write",
+  "sessions:approve": "approve",
+  "sessions:control": "control",
+  "sessions:recover": "recover",
+} as const satisfies Record<SessionScope, string>;
+
 function keyRefusal(
   t: Translate,
   error: ApiError,
@@ -190,7 +199,12 @@ function ScopePicker({
                 )
               }
             />
-            <span>{scope}</span>
+            <span>
+              {t(`apiKeys.scope.${SCOPE_KEY[scope]}`)} <code>{scope}</code>
+            </span>
+            <span className="web-field__hint">
+              {t(`apiKeys.scopeHint.${SCOPE_KEY[scope]}`)}
+            </span>
             {withheld.includes(scope) ? (
               <span className="web-field__hint">
                 {t("apiKeys.agentNoApprove")}
@@ -505,7 +519,10 @@ function KeyList({
                 <span className="web-table__primary">{label}</span>
                 <span className="web-table__secondary">
                   {t("apiKeys.keyId", { id: shortId(key.id) })} ·{" "}
-                  {key.scopes.join(", ")} ·{" "}
+                  {key.scopes
+                    .map((scope) => t(`apiKeys.scope.${SCOPE_KEY[scope]}`))
+                    .join(", ")}{" "}
+                  ·{" "}
                   {t("apiKeys.createdAt", {
                     at: formatTimestamp(key.created_at),
                   })}

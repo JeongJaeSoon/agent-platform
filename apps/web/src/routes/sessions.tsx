@@ -188,10 +188,11 @@ function SessionProfile({ session }: { readonly session: SessionDetail }) {
           setOutcome({
             kind: "error",
             text:
-              error.code === "UNSUPPORTED_CAPABILITY" ||
               error.code === "RELEASE_PROFILE_MISMATCH"
-                ? `${t("session.profile.refused")} ${error.message}`
-                : refusalText(t, error, "session.control", role),
+                ? t("session.profile.refused.release")
+                : error.code === "UNSUPPORTED_CAPABILITY"
+                  ? t("session.profile.refused.capability")
+                  : refusalText(t, error, "session.control", role),
           }),
       },
     );

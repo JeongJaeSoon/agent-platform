@@ -20,6 +20,19 @@ export const apiKeysKo = {
   "apiKeys.agentNoApprove":
     "에이전트 전용 key에는 넣을 수 없습니다. 에이전트가 사람 대신 승인할 수는 없습니다.",
   "apiKeys.scopes": "권한",
+  "apiKeys.scope.read": "세션 보기",
+  "apiKeys.scope.write": "세션 만들기",
+  "apiKeys.scope.approve": "요청에 답하기",
+  "apiKeys.scope.control": "세션 제어",
+  "apiKeys.scope.recover": "세션 복구",
+  "apiKeys.scopeHint.read": "세션 목록과 상태, 이벤트를 읽습니다.",
+  "apiKeys.scopeHint.write":
+    "세션을 만들고 진행 중인 세션에 메시지를 보냅니다.",
+  "apiKeys.scopeHint.approve": "세션이 기다리는 권한 요청과 질문에 답합니다.",
+  "apiKeys.scopeHint.control":
+    "세션을 일시정지·재개·종료하고 프로필을 바꿉니다.",
+  "apiKeys.scopeHint.recover":
+    "복구가 필요한 세션을 어떻게 이어 갈지 정합니다.",
   "apiKeys.expires": "만료일(선택)",
   "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
   "apiKeys.secretTitle": "새 key",
@@ -67,6 +80,20 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.agentNoApprove":
     "Not available for agent keys — an agent key cannot approve on a person's behalf.",
   "apiKeys.scopes": "Permissions",
+  "apiKeys.scope.read": "View sessions",
+  "apiKeys.scope.write": "Create sessions",
+  "apiKeys.scope.approve": "Answer requests",
+  "apiKeys.scope.control": "Control sessions",
+  "apiKeys.scope.recover": "Recover sessions",
+  "apiKeys.scopeHint.read": "Reads the session list, status and events.",
+  "apiKeys.scopeHint.write":
+    "Creates sessions and sends messages to running ones.",
+  "apiKeys.scopeHint.approve":
+    "Answers the permission requests and questions a session waits on.",
+  "apiKeys.scopeHint.control":
+    "Pauses, resumes and ends sessions, and changes their profile.",
+  "apiKeys.scopeHint.recover":
+    "Decides how a session that needs recovery continues.",
   "apiKeys.expires": "Expires on (optional)",
   "apiKeys.expiresHint": "Leave empty to keep the key until you revoke it.",
   "apiKeys.secretTitle": "New key",
