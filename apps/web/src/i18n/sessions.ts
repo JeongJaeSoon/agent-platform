@@ -17,6 +17,8 @@ export const sessionsKo = {
   "sessions.column.runtime": "런타임",
   "sessions.column.lastEvent": "최근 이벤트",
   "sessions.column.created": "만든 시각",
+  "sessions.tableLabel": "세션 표",
+  "session.factsTable": "{title} 표",
   "sessions.none": "—",
 
   "sessions.status.queued": "대기 중",
@@ -29,6 +31,7 @@ export const sessionsKo = {
   "sessions.admission.active": "활성",
   "sessions.admission.pausing": "일시정지 중",
   "sessions.admission.paused": "일시정지됨",
+  "sessions.admission.axis": "세션",
   "sessions.admission.resuming": "복원 중",
   "sessions.admission.stopping": "종료 중",
   "sessions.admission.stopped": "종료됨",
@@ -97,6 +100,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.column.runtime": "Runtime",
   "sessions.column.lastEvent": "Last event",
   "sessions.column.created": "Created",
+  "sessions.tableLabel": "Sessions table",
+  "session.factsTable": "{title} table",
   "sessions.none": "—",
 
   "sessions.status.queued": "Queued",
@@ -109,6 +114,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.admission.active": "Active",
   "sessions.admission.pausing": "Pausing",
   "sessions.admission.paused": "Paused",
+  "sessions.admission.axis": "Session",
   "sessions.admission.resuming": "Resuming",
   "sessions.admission.stopping": "Ending",
   "sessions.admission.stopped": "Ended",

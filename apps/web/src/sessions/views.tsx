@@ -10,7 +10,8 @@ import type {
 import { formatTimestamp, StatusLabel } from "@agent-platform/ui";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
-import { type Translate, useI18n } from "../i18n/i18n.tsx";
+import { TableScroll } from "../components/table-scroll.tsx";
+import { type Locale, type Translate, useI18n } from "../i18n/i18n.tsx";
 import type { EventStreamState, SessionEventFrame } from "./hooks.ts";
 
 /*
@@ -38,6 +39,7 @@ function Admission({ state }: { readonly state: AdmissionState }) {
       axis="admission"
       state={state}
       label={t(`sessions.admission.${state}`)}
+      axisLabel={t("sessions.admission.axis")}
     />
   );
 }
@@ -49,8 +51,8 @@ function runtimeText(t: Translate, session: SessionSummary) {
     : t("sessions.none");
 }
 
-function when(t: Translate, at: string | null) {
-  return at ? formatTimestamp(at) : t("sessions.none");
+function when(t: Translate, locale: Locale, at: string | null) {
+  return at ? formatTimestamp(at, locale) : t("sessions.none");
 }
 
 export function SessionTable({
@@ -58,10 +60,10 @@ export function SessionTable({
 }: {
   readonly sessions: readonly SessionSummary[];
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
-    <div className="web-table-wrap">
-      <table className="web-table">
+    <TableScroll label={t("sessions.tableLabel")}>
+      <table className="web-table web-table--nowrap">
         <thead>
           <tr>
             <th scope="col">{t("sessions.column.id")}</th>
@@ -80,8 +82,9 @@ export function SessionTable({
                   to="/sessions/$id"
                   params={{ id: session.id }}
                   className="web-table__primary"
+                  aria-label={session.id}
                 >
-                  <code>{session.id}</code>
+                  <code title={session.id}>{shortId(session.id)}</code>
                 </Link>
               </td>
               <td>{statusText(t, session.status)}</td>
@@ -89,14 +92,19 @@ export function SessionTable({
                 <Admission state={session.admission_state} />
               </td>
               <td>{runtimeText(t, session)}</td>
-              <td>{when(t, session.last_event_at)}</td>
-              <td>{formatTimestamp(session.created_at)}</td>
+              <td>{when(t, locale, session.last_event_at)}</td>
+              <td>{formatTimestamp(session.created_at, locale)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
+}
+
+/** Enough of a UUID to tell sessions apart in a narrow list. */
+function shortId(id: string): string {
+  return id.slice(0, 8);
 }
 
 function Section({
@@ -117,9 +125,15 @@ function Section({
 
 type Fact = readonly [label: string, value: React.ReactNode];
 
-function Facts({ rows }: { readonly rows: readonly (Fact | null)[] }) {
+function Facts({
+  label,
+  rows,
+}: {
+  readonly label: string;
+  readonly rows: readonly (Fact | null)[];
+}) {
   return (
-    <div className="web-table-wrap">
+    <TableScroll label={label}>
       <table className="web-table">
         <tbody>
           {rows.map((row) =>
@@ -132,7 +146,7 @@ function Facts({ rows }: { readonly rows: readonly (Fact | null)[] }) {
           )}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 
@@ -141,11 +155,12 @@ export function SessionOverview({
 }: {
   readonly session: SessionDetail;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { attention } = session;
   return (
     <Section title={t("session.overview")}>
       <Facts
+        label={t("session.factsTable", { title: t("session.overview") })}
         rows={[
           [t("sessions.column.status"), statusText(t, session.status)],
           [
@@ -159,7 +174,7 @@ export function SessionOverview({
           ],
           [t("session.queuedTurns"), session.queued_turn_count],
           [t("session.pendingCount"), session.pending_request_count],
-          [t("session.updated"), formatTimestamp(session.updated_at)],
+          [t("session.updated"), formatTimestamp(session.updated_at, locale)],
           attention
             ? [
                 t("session.attention"),
@@ -185,6 +200,7 @@ export function SessionUsagePanel({
   return (
     <Section title={t("session.usage")}>
       <Facts
+        label={t("session.factsTable", { title: t("session.usage") })}
         rows={[
           [
             t("session.usage.amount"),
@@ -231,7 +247,7 @@ export function PendingRequestList({
 }: {
   readonly items: readonly PendingRequest[];
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <Section title={t("session.pending")}>
       {items.length === 0 ? (
@@ -249,7 +265,7 @@ export function PendingRequestList({
               </span>
               <span className="web-table__secondary">
                 {t("session.pending.expires", {
-                  at: formatTimestamp(request.expires_at),
+                  at: formatTimestamp(request.expires_at, locale),
                 })}
               </span>
             </li>
@@ -324,7 +340,7 @@ export function SessionEventList({
   readonly events: readonly SessionEventFrame[];
   readonly state: EventStreamState;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <Section title={t("session.events")}>
       {state === "closed" ? (
@@ -347,7 +363,7 @@ export function SessionEventList({
                   <span className="web-table__primary">{summary}</span>
                 ) : null}
                 <span className="web-table__secondary">
-                  {formatTimestamp(frame.occurredAt)}
+                  {formatTimestamp(frame.occurredAt, locale)}
                   {frame.turnId ? ` · turn ${frame.turnId}` : ""}
                 </span>
               </li>

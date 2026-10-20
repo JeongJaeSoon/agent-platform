@@ -8,7 +8,7 @@ import type {
 } from "@agent-platform/contracts";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import {
   administeredAgentsQuery,
@@ -47,6 +47,13 @@ function keyRefusal(
   if (error.code === "SCOPE_NOT_GRANTABLE" || error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
   return refusalText(t, error, permission, role);
+}
+
+/** Today in the browser's time zone, as an `<input type="date">` value. */
+function today(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 /** The end of the chosen day, in the browser's time zone. */
@@ -118,7 +125,16 @@ function IssuedSecret({
   readonly onDone: () => void;
 }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
+  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
+  const secretRef = useRef<HTMLInputElement>(null);
+  // The new key appears above the forms; take focus there so it is not missed.
+  useEffect(() => {
+    secretRef.current?.focus();
+  }, []);
+  const copyFailed = () => {
+    setCopy("failed");
+    secretRef.current?.focus();
+  };
   return (
     <section
       className="web-status"
@@ -133,6 +149,7 @@ function IssuedSecret({
       <label className="web-field">
         <span>{t("apiKeys.secret")}</span>
         <input
+          ref={secretRef}
           className="ap-input"
           type="text"
           readOnly
@@ -145,18 +162,24 @@ function IssuedSecret({
           type="button"
           className="ap-button"
           onClick={() => {
-            void navigator.clipboard?.writeText(issued.secret).then(
-              () => setCopied(true),
-              () => {},
-            );
+            const clipboard = globalThis.navigator?.clipboard;
+            if (!clipboard) return copyFailed();
+            clipboard
+              .writeText(issued.secret)
+              .then(() => setCopy("copied"), copyFailed);
           }}
         >
-          {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
+          {copy === "copied" ? t("apiKeys.copied") : t("apiKeys.copy")}
         </button>
         <button type="button" className="ap-button" onClick={onDone}>
           {t("apiKeys.secretDone")}
         </button>
       </div>
+      {copy === "failed" ? (
+        <p className="web-form__error" role="alert">
+          {t("apiKeys.copyFailed")}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -303,6 +326,7 @@ function ExpiryField({
       <input
         className="ap-input"
         type="date"
+        min={today()}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -443,7 +467,7 @@ function KeyList({
   readonly items: readonly ApiKeyView[];
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client, queryClient } = useServices();
   const role = useRole();
   const { agents } = useBindableAgents();
@@ -507,10 +531,10 @@ function KeyList({
                   {t("apiKeys.keyId", { id: shortId(key.id) })} ·{" "}
                   {key.scopes.join(", ")} ·{" "}
                   {t("apiKeys.createdAt", {
-                    at: formatTimestamp(key.created_at),
+                    at: formatTimestamp(key.created_at, locale),
                   })}
                   {key.expires_at
-                    ? ` · ${t("apiKeys.expiresAt", { at: formatTimestamp(key.expires_at) })}`
+                    ? ` · ${t("apiKeys.expiresAt", { at: formatTimestamp(key.expires_at, locale) })}`
                     : ""}
                 </span>
                 {key.kind === "service" ? (
@@ -521,7 +545,7 @@ function KeyList({
                 {key.revoked_at ? (
                   <span className="web-badge" data-tone="pending">
                     {t("apiKeys.revokedAt", {
-                      at: formatTimestamp(key.revoked_at),
+                      at: formatTimestamp(key.revoked_at, locale),
                     })}
                   </span>
                 ) : (
