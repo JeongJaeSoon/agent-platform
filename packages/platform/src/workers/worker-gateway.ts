@@ -146,6 +146,8 @@ export type WorkerGatewayOptions = {
   pendingTtlMs?: number;
   /** Upper bound on nextInput long-polling. */
   maxWaitMs?: number;
+  /** Once aborted, nextInput answers with what it has instead of waiting. */
+  stopWaiting?: AbortSignal;
   pollIntervalMs?: number;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -978,6 +980,7 @@ export function createWorkerGateway(deps: {
           result.input ||
           result.draining === true ||
           result.blocked !== undefined ||
+          deps.options.stopWaiting?.aborted === true ||
           now().getTime() >= deadline
         ) {
           return {
