@@ -36,6 +36,16 @@ describe("styles.css", () => {
     }
   });
 
+  test("link colors leave links drawn as buttons alone", () => {
+    // `.web-auth a` outranks `.ap-button--primary` and painted its label in
+    // the button's own background color.
+    const rule = css.match(/([^{}]*)\{\s*color: var\(--ap-color-accent\);/);
+    const selectors = (rule?.[1] ?? "").split(",").map((s) => s.trim());
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const selector of selectors)
+      expect(selector).toEndWith("a:not(.ap-button)");
+  });
+
   test("breaks Korean between words and keeps nav labels whole", () => {
     const body = css.match(/\nbody \{([^}]*)\}/)?.[1] ?? "";
     expect(body).toContain("word-break: keep-all");
