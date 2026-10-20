@@ -67,6 +67,10 @@ describe("구성원 화면", () => {
     expect(options.map((o) => o.getAttribute("value"))).toEqual([
       ...WORKSPACE_ROLE_VALUES,
     ]);
+    // A keyboard reaches the sideways scroll of a table wider than the screen.
+    const region = screen.getByRole("region", { name: "구성원 표" });
+    expect(region.getAttribute("tabindex")).toBe("0");
+    expect(region.contains(select)).toBe(true);
     const goneRow = screen.getByText("Gone").closest("tr");
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
     expect(within(goneRow as HTMLElement).getByText("비활성")).toBeDefined();
