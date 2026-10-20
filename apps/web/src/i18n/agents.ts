@@ -25,7 +25,7 @@ export const agentsKo = {
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "카탈로그(profiles.yaml)의 모델. 옆에 적힌 것은 그 모델을 쓰는 프로필이고, release할 프로필과 같은 모델이어야 합니다",
+    "release할 프로필의 모델과 정확히 같아야 합니다. 옆에 적힌 것은 그 모델을 쓰는 프로필입니다",
   "agentCard.tools": "쓸 수 있는 도구",
   "agentCard.toolsAll": "프로필이 허용하는 도구 전부",
   "agentCard.toolsList": "고른 도구만",
@@ -73,7 +73,7 @@ export const agentsKo = {
   "agent.releases.version": "version",
   "agent.releases.profile": "프로필",
   "agent.releases.profileHint":
-    "플랫폼 설정(profiles.yaml)의 프로필과 각 프로필이 쓰는 모델",
+    "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profilesLoading": "프로필 목록을 불러오는 중…",
   "agent.releases.profilesFailed":
@@ -105,6 +105,11 @@ export const agentsKo = {
   "agentAdmins.team": "팀",
   "agentAdmins.remove": "빼기",
   "agentAdmins.removeFor": "{name}을(를) 관리자에서 빼기",
+  "agentAdmins.removeTitle": "{name}을(를) 관리자에서 뺄까요?",
+  "agentAdmins.removeConsequence":
+    "관리자로 받은 이 에이전트의 관리 권한이 없어집니다. 다시 관리자로 추가하면 돌아옵니다.",
+  "agentAdmins.removeSelfConsequence":
+    "나 자신을 빼면 관리 권한을 잃습니다. 내가 속한 팀이 관리자가 아니면 이 에이전트를 더 바꿀 수 없고, 나를 다시 추가할 수도 없습니다.",
   "agentAdmins.pickPerson": "관리자로 추가할 사람",
   "agentAdmins.pickTeam": "관리자로 추가할 팀",
   "agentAdmins.pickPlaceholder": "고르세요",
@@ -146,7 +151,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
-    "A model from the catalog (profiles.yaml), next to the profiles that run it. It must match the profile you release to",
+    "It must be exactly the model of the profile you release to. Next to it are the profiles that run it",
   "agentCard.tools": "Tools it may use",
   "agentCard.toolsAll": "Every tool the profile allows",
   "agentCard.toolsList": "Only the tools I choose",
@@ -192,7 +197,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.version": "Version",
   "agent.releases.profile": "Profile",
   "agent.releases.profileHint":
-    "The profiles in the platform settings (profiles.yaml) and the model each runs",
+    "Each profile and the model it runs. Only a profile running the card's model can be released to",
   "agent.releases.profileOption": "{profile} · {model}",
   "agent.releases.profilesLoading": "Loading profiles…",
   "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
@@ -223,6 +228,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.team": "Team",
   "agentAdmins.remove": "Remove",
   "agentAdmins.removeFor": "Remove {name} as an admin",
+  "agentAdmins.removeTitle": "Remove {name} as an admin?",
+  "agentAdmins.removeConsequence":
+    "The rights to manage this agent that came with being its admin go away. Adding them again restores them.",
+  "agentAdmins.removeSelfConsequence":
+    "Removing yourself takes away your admin rights. Unless a team you are in is an admin, you can no longer change this agent or add yourself back.",
   "agentAdmins.pickPerson": "Person to add as admin",
   "agentAdmins.pickTeam": "Team to add as admin",
   "agentAdmins.pickPlaceholder": "Choose one",

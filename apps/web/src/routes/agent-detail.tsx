@@ -604,12 +604,14 @@ function ProfileSelect({
   label,
   hint,
   profiles,
+  cardModel,
   value,
   onChange,
 }: {
   readonly label: string;
   readonly hint: string;
   readonly profiles: readonly ProfileSummary[];
+  readonly cardModel: string | undefined;
   readonly value: string;
   readonly onChange: (id: string) => void;
 }) {
@@ -628,10 +630,12 @@ function ProfileSelect({
         >
           {profiles.map((profile) => (
             <option key={profile.id} value={profile.id}>
-              {t("agent.releases.profileOption", {
-                profile: profile.id,
-                model: profile.model,
-              })}
+              {t(
+                cardModel !== undefined && profile.model !== cardModel
+                  ? "agent.releases.profileOptionMismatch"
+                  : "agent.releases.profileOption",
+                { profile: profile.id, model: profile.model },
+              )}
             </option>
           ))}
         </select>
@@ -751,6 +755,7 @@ function Releases({
             label={t("agent.releases.profile")}
             hint={t("agent.releases.profileHint")}
             profiles={items}
+            cardModel={cardModel}
             value={profile}
             onChange={setProfile}
           />
