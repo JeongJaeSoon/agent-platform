@@ -3,6 +3,8 @@ import { useI18n } from "../i18n/i18n.tsx";
 
 export type StatusKind =
   | "loading"
+  | "checking-login"
+  | "not-found"
   | "login-required"
   | "forbidden"
   | "bootstrap-required";
@@ -24,17 +26,23 @@ export function StatusScreen({
   action = true,
 }: StatusScreenProps) {
   const { t } = useI18n();
-  if (kind === "loading") {
+  if (kind === "loading" || kind === "checking-login") {
     return (
       <section className="web-status" data-status={kind} aria-busy="true">
         <output className="web-status__title">
           <span className="web-spinner" aria-hidden="true" />
-          {t("status.loading.title")}
+          {kind === "loading"
+            ? t("status.loading.title")
+            : t("status.checkingLogin.title")}
         </output>
       </section>
     );
   }
   const copy = {
+    "not-found": {
+      title: t("status.notFound.title"),
+      body: t("status.notFound.body"),
+    },
     "login-required": {
       title: t("status.loginRequired.title"),
       body: t("status.loginRequired.body"),
@@ -64,6 +72,11 @@ export function StatusScreen({
           search={redirect ? { redirect } : {}}
         >
           {t("status.loginRequired.action")}
+        </Link>
+      ) : null}
+      {kind === "not-found" ? (
+        <Link className="ap-button ap-button--primary" to="/">
+          {t("status.notFound.action")}
         </Link>
       ) : null}
       {kind === "bootstrap-required" && action ? (

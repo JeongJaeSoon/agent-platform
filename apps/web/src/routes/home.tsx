@@ -7,6 +7,7 @@ import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
+import { useSessions } from "../sessions/hooks.ts";
 
 /** Done, not yet, or not knowable here (the list refused this viewer, or failed). */
 type StepState = "done" | "pending" | "unknown";
@@ -14,7 +15,7 @@ type StepState = "done" | "pending" | "unknown";
 interface Step {
   readonly key: MessageKey;
   readonly state: StepState;
-  readonly to?: "/members" | "/agents";
+  readonly to?: "/members" | "/agents" | "/sessions";
 }
 
 function stateOf(query: {
@@ -36,8 +37,8 @@ const MARK = { done: "✓", pending: "○", unknown: "–" } as const;
 /**
  * The bootstrap checklist, each step read from the server: someone was
  * invited once an invite exists or a second member joined, and an agent is
- * ready once one has an active release. The session step waits for the
- * session screens (I1).
+ * ready once one has an active release, and a session started once the
+ * viewer's own session list has one.
  */
 export function HomeScreen() {
   const { t } = useI18n();
@@ -57,6 +58,7 @@ export function HomeScreen() {
     select: (page) =>
       page.items.some((agent) => agent.active_release_id !== null),
   });
+  const sessions = useSessions();
   // Either list can show the step done; to call it not done, both must answer.
   const invited: StepState =
     members.data || invites.data
@@ -68,7 +70,15 @@ export function HomeScreen() {
     { key: "home.checklist.admin", state: "done" },
     { key: "home.checklist.invite", state: invited, to: "/members" },
     { key: "home.checklist.agent", state: stateOf(agents), to: "/agents" },
-    { key: "home.checklist.session", state: "pending" },
+    {
+      key: "home.checklist.session",
+      state: stateOf({
+        isSuccess: sessions.isSuccess,
+        isError: sessions.isError,
+        data: (sessions.data?.pages[0]?.items.length ?? 0) > 0,
+      }),
+      to: "/sessions",
+    },
   ];
   return (
     <div className="web-home">
