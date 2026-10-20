@@ -243,13 +243,18 @@ const isTestFile = (file: string) =>
 /**
  * The web app's view of the workspace: every `@agent-platform/*` package it
  * imports, and each runtime file whose contracts import carries values. The
- * bundle ships to browsers, so it takes contracts as types (no zod) and draws
- * through packages/ui; nothing behind the API is reachable from it.
+ * bundle ships to browsers, so it takes contracts as types (no zod), calls the
+ * API through packages/client and draws through packages/ui; nothing behind
+ * the API is reachable from it.
  */
 export async function webBoundaryViolations(
   directory: string,
 ): Promise<string[]> {
-  const allowed = new Set(["@agent-platform/contracts", "@agent-platform/ui"]);
+  const allowed = new Set([
+    "@agent-platform/client",
+    "@agent-platform/contracts",
+    "@agent-platform/ui",
+  ]);
   const offenders: string[] = [];
   for (const file of await scriptFiles(directory)) {
     const source = await readFile(file, "utf8");
@@ -756,13 +761,14 @@ describe("architecture", () => {
     }
   });
 
-  test("the web app imports contracts as types and packages/ui, nothing else of the workspace", async () => {
+  test("the web app imports contracts as types, packages/client and packages/ui, nothing else of the workspace", async () => {
     expect(await webBoundaryViolations(join(root, web, "src"))).toEqual([]);
     const declared = [
       ...declaredDependencies(await manifest(join(root, web))),
       ...Object.keys((await manifest(join(root, web))).devDependencies ?? {}),
     ].filter((name) => name.startsWith("@agent-platform/"));
     expect(declared.sort()).toEqual([
+      "@agent-platform/client",
       "@agent-platform/contracts",
       "@agent-platform/ui",
     ]);

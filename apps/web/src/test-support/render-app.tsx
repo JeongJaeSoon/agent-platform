@@ -14,6 +14,7 @@ export async function appHarness() {
   const { App } = await import("../app.tsx");
   const { createServices } = await import("../services.tsx");
   const { fakeApi } = await import("./fake-api.ts");
+  const { contractValidators } = await import("./contract-validators.ts");
 
   function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
     const api = fakeApi(routes);
@@ -21,6 +22,9 @@ export async function appHarness() {
     const services = createServices({
       baseUrl: "https://console.test",
       fetch: api.fetch,
+      validate: "strict",
+      validators: contractValidators,
+      eventRetry: { initialMs: 1, maxMs: 4 },
       leave: (url) => left.push(url),
     });
     const history = createMemoryHistory({ initialEntries: [path] });

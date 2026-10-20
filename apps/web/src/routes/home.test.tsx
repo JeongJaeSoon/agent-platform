@@ -24,6 +24,24 @@ const noSessions = {
   "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
 };
 
+const oneSession = {
+  id: "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+  revision: 1,
+  admission_state: "active",
+  status: "idle",
+  runtime: {
+    kind: "claude_agent_sdk",
+    version: "1.0.0",
+    profile_id: "default",
+  },
+  repository_id: "demo",
+  current_turn_id: null,
+  queued_turn_count: 0,
+  last_event_at: null,
+  created_at: "2026-10-01T00:00:00.000Z",
+  updated_at: "2026-10-01T00:00:00.000Z",
+};
+
 async function states() {
   await screen.findByRole("heading", { name: "Acme" });
   return () =>
@@ -154,7 +172,7 @@ describe("bootstrap checklist", () => {
       "GET /v1/agents": () => apiError(403, "FORBIDDEN", "not allowed"),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
       "GET /v1/sessions": () =>
-        json(200, { items: [{ id: "s-1" }], next_cursor: null }),
+        json(200, { items: [oneSession], next_cursor: null }),
     });
     const read = await states();
     await waitFor(() =>

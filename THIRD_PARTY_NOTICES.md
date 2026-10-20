@@ -189,6 +189,8 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | object-inspect | 1.13.4 | MIT | worker |
 | on-finished | 2.4.1 | MIT | worker |
 | once | 1.4.0 | ISC | worker |
+| openapi-fetch | 0.17.0 | MIT | worker |
+| openapi-typescript-helpers | 0.1.0 | MIT | worker |
 | openapi3-ts | 4.6.1 | MIT | control-host, worker |
 | parseurl | 1.3.3 | MIT | worker |
 | path-key | 3.1.1 | MIT | worker |

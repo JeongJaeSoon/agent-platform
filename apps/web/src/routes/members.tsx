@@ -12,6 +12,7 @@ import {
   permissionReason,
   ReasonButton,
   roleLabel,
+  useHasPermission,
   useMe,
   usePermissionReason,
   useRole,
@@ -39,19 +40,29 @@ type Outcome =
  */
 function refusal(t: Translate, error: ApiError, role: string | undefined) {
   if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, "member.manage", role)} ${error.message}`;
+    return permissionReason(t, "member.manage", role);
   return t(errorKey(error.code));
 }
 
 export function MembersScreen() {
   const { t } = useI18n();
   const { client } = useServices();
-  const members = useQuery(membersQuery(client));
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
   // The list is also the permission probe: when it failed, nobody knows.
   const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
+
+  if (!manages) {
+    return (
+      <div className="web-page">
+        <h1 className="web-page__title">{t("members.title")}</h1>
+        <p className="web-page__intro">{t("members.withheld")}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="web-page">
@@ -78,7 +89,7 @@ export function MembersScreen() {
           <StatusScreen kind="loading" />
         ) : members.error ? (
           isApiError(members.error, "FORBIDDEN") ? (
-            <StatusScreen kind="forbidden" detail={members.error.message} />
+            <StatusScreen kind="forbidden" />
           ) : (
             <LoadFailure
               error={members.error}

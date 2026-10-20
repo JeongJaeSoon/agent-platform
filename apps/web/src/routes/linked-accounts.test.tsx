@@ -5,7 +5,13 @@ import {
   linkedAccountSchema,
 } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
-import { apiError, json, me, USER_ID } from "../test-support/fake-api.ts";
+import {
+  apiError,
+  json,
+  me,
+  RECEIPT_ID,
+  USER_ID,
+} from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
@@ -73,7 +79,10 @@ describe("연동 계정", () => {
       "GET /v1/linked-accounts": () => json(200, { items }),
       [`DELETE /v1/linked-accounts/${LINK_ID}`]: () => {
         items = [{ ...slack, status: "revoked" }];
-        return json(200, { receipt_id: "r-1", receipt_status: "succeeded" });
+        return json(200, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "succeeded",
+        });
       },
     });
     expect(
@@ -101,7 +110,7 @@ describe("연동 계정", () => {
         ...meOk,
         "POST /v1/linked-accounts/slack/callback": () => {
           items = [slack];
-          return json(201, { linked_account: slack, receipt_id: "r-1" });
+          return json(201, { linked_account: slack, receipt_id: RECEIPT_ID });
         },
         "GET /v1/linked-accounts": () => json(200, { items }),
       },

@@ -9,7 +9,7 @@ import type {
 } from "@agent-platform/contracts";
 import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useParams, useSearch } from "@tanstack/react-router";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 import {
   type FormEvent,
   type ReactNode,
@@ -86,8 +86,10 @@ function AgentDetailPage({ id }: { readonly id: string }) {
 
   if (detail.isPending) return <StatusScreen kind="loading" />;
   if (detail.error) {
-    return isApiError(detail.error, "FORBIDDEN") ? (
-      <StatusScreen kind="forbidden" detail={detail.error.message} />
+    // One page for both, so a refusal does not confirm the agent exists.
+    return isApiError(detail.error, "FORBIDDEN") ||
+      isApiError(detail.error, "NOT_FOUND") ? (
+      <AgentNotFound />
     ) : (
       <LoadFailure error={detail.error} onRetry={() => void detail.refetch()} />
     );
@@ -99,6 +101,19 @@ function AgentDetailPage({ id }: { readonly id: string }) {
       onPlaced={setPlaced}
       onReload={() => detail.refetch()}
     />
+  );
+}
+
+function AgentNotFound() {
+  const { t } = useI18n();
+  return (
+    <div className="web-page">
+      <h1 className="web-page__title">{t("agent.notFound.title")}</h1>
+      <p className="web-page__intro">{t("agent.notFound.body")}</p>
+      <Link className="ap-button" to="/agents">
+        {t("agent.notFound.back")}
+      </Link>
+    </div>
   );
 }
 
