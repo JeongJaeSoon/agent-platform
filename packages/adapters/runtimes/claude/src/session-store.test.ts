@@ -1,11 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
-  chmod,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -25,6 +25,8 @@ import {
 } from "@agent-platform/testkit/checkpoint-objects";
 import {
   ClaudeSessionStore,
+  PublishRollbackFailed,
+  publishRestoredSession,
   type TranscriptInheritance,
   TranscriptTooLarge,
 } from "./session-store.ts";
@@ -1544,32 +1546,72 @@ describe("Claude session store writing a resumed transcript to disk", () => {
     }
   });
 
-  // Root ignores the mode that makes the swap fail.
-  test.skipIf(process.getuid?.() === 0)(
-    "keeps the transcript it would replace when publishing fails",
-    async () => {
-      const objects = createMemoryCheckpointObjectStore();
-      const second = await adopted(objects);
-      const projects = await mkdtemp(join(tmpdir(), "materialize-"));
-      const session = join(projects, projectKey);
-      try {
-        await mkdir(session);
-        await writeFile(join(session, `${sessionId}.jsonl`), "{}\n");
-        await chmod(session, 0o500);
-        await expect(second.materialize(projects)).rejects.toThrow();
-        await chmod(session, 0o700);
-        expect(await readdir(session)).toEqual([`${sessionId}.jsonl`]);
-        expect(
-          await readFile(join(session, `${sessionId}.jsonl`), "utf8"),
-        ).toBe("{}\n");
-        expect(await readdir(projects)).toEqual([projectKey]);
-        expect(second.resumedEntryIds()).toBeUndefined();
-      } finally {
-        await chmod(session, 0o700).catch(() => {});
-        await rm(projects, { force: true, recursive: true });
-      }
-    },
-  );
+  async function occupied() {
+    const directory = await mkdtemp(join(tmpdir(), "publish-"));
+    const target = join(directory, "target");
+    const session = join(directory, "session");
+    const aside = join(directory, "aside");
+    for (const [root, body] of [
+      [target, "old"],
+      [session, "new"],
+    ] as const) {
+      await mkdir(join(root, sessionId, "subagents"), { recursive: true });
+      await writeFile(join(root, `${sessionId}.jsonl`), `${body}\n`);
+      await writeFile(join(root, sessionId, "subagents", `${body}.jsonl`), "");
+    }
+    await writeFile(join(target, "other.jsonl"), "other\n");
+    return { aside, directory, session, target };
+  }
+
+  async function holdsOld(root: string) {
+    expect(await readFile(join(root, `${sessionId}.jsonl`), "utf8")).toBe(
+      "old\n",
+    );
+    expect(await readdir(join(root, sessionId, "subagents"))).toEqual([
+      "old.jsonl",
+    ]);
+  }
+
+  test("puts back what a failed publish replaced", async () => {
+    const { aside, directory, session, target } = await occupied();
+    try {
+      await expect(
+        publishRestoredSession(session, target, sessionId, aside, (from, to) =>
+          from.startsWith(session) && to.endsWith(".jsonl")
+            ? Promise.reject(new Error("disk full"))
+            : rename(from, to),
+        ),
+      ).rejects.toThrow("disk full");
+      await holdsOld(target);
+      expect(await readFile(join(target, "other.jsonl"), "utf8")).toBe(
+        "other\n",
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps what it replaced aside when putting it back fails too", async () => {
+    const { aside, directory, session, target } = await occupied();
+    try {
+      const failed = await publishRestoredSession(
+        session,
+        target,
+        sessionId,
+        aside,
+        (from, to) =>
+          (from.startsWith(session) && to.endsWith(".jsonl")) ||
+          from.startsWith(aside)
+            ? Promise.reject(new Error("disk full"))
+            : rename(from, to),
+      ).catch((error: unknown) => error);
+      expect(failed).toBeInstanceOf(PublishRollbackFailed);
+      expect((failed as PublishRollbackFailed).kept).toBe(aside);
+      await holdsOld(aside);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
 
   test("only a store that adopted a checkpoint materializes", async () => {
     const { mirror } = store();

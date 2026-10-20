@@ -413,6 +413,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const target = join(projects, projectKey);
     await mkdir(projects, { recursive: true, mode: 0o700 });
     const staging = await mkdtemp(join(projects, ".restoring-"));
+    let kept = false;
     try {
       const session = join(staging, projectKey);
       await mkdir(session, { mode: 0o700 });
@@ -440,11 +441,19 @@ export class ClaudeSessionStore implements TranscriptMirror {
       }
       signal?.throwIfAborted();
       await syncDirectory(session);
-      await publish(session, target, join(staging, "superseded"));
+      await publishRestoredSession(
+        session,
+        target,
+        inherit.sessionId,
+        join(staging, "superseded"),
+      );
       await syncDirectory(projects);
       this.#materialized = { projectKey, uuids };
+    } catch (error) {
+      kept = error instanceof PublishRollbackFailed;
+      throw error;
     } finally {
-      await rm(staging, { force: true, recursive: true });
+      if (!kept) await rm(staging, { force: true, recursive: true });
     }
   }
 
@@ -1226,50 +1235,75 @@ async function writeAt(
   return position + offset;
 }
 
+/** A failed publish that could not put back what it replaced. */
+export class PublishRollbackFailed extends Error {
+  constructor(
+    readonly kept: string,
+    cause: unknown,
+  ) {
+    super(
+      `Publishing a restored transcript failed and so did putting back the one it replaced, kept in ${kept}`,
+      { cause },
+    );
+    this.name = "PublishRollbackFailed";
+  }
+}
+
 /**
  * `session` moved to `target` in one rename when nothing is there yet. A
  * key that already holds transcripts, from an earlier attempt or an engine
- * run in this config dir, has only the entries `session` brings replaced,
- * so other sessions under the key stay; what they replace waits in `aside`
- * and goes back when a rename fails.
+ * run in this config dir, has only this session's entries replaced, so
+ * other sessions under the key stay; what they replace waits in `aside` and
+ * goes back when a rename fails, or stays there when that fails too.
  */
-async function publish(
+export async function publishRestoredSession(
   session: string,
   target: string,
+  sessionId: string,
   aside: string,
+  move: (from: string, to: string) => Promise<void> = rename,
 ): Promise<void> {
   try {
-    await rename(session, target);
+    await move(session, target);
     return;
   } catch (error) {
     const { code } = error as NodeJS.ErrnoException;
     if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
   }
   await mkdir(aside, { mode: 0o700 });
-  // Sorted, `<sid>` (the subagents) lands before `<sid>.jsonl`, the file
-  // that makes the session resumable.
-  const names = (await readdir(session)).sort();
+  // `<sid>` (the subagents) lands before `<sid>.jsonl`, the file that makes
+  // the session resumable. An old `<sid>` goes even when the checkpoint
+  // brings none, so no stale subagent outlives it.
+  const names = [sessionId, `${sessionId}.jsonl`];
+  const brought = new Set(await readdir(session));
   const replaced: string[] = [];
   const published: string[] = [];
   try {
     for (const name of names) {
       try {
-        await rename(join(target, name), join(aside, name));
+        await move(join(target, name), join(aside, name));
         replaced.push(name);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
-    for (const name of names) {
-      await rename(join(session, name), join(target, name));
+    for (const name of names.filter((name) => brought.has(name))) {
+      await move(join(session, name), join(target, name));
       published.push(name);
     }
   } catch (error) {
-    for (const name of published) {
-      await rm(join(target, name), { force: true, recursive: true });
-    }
-    for (const name of replaced) {
-      await rename(join(aside, name), join(target, name));
+    try {
+      for (const name of published) {
+        await rm(join(target, name), { force: true, recursive: true });
+      }
+      for (const name of replaced) {
+        await move(join(aside, name), join(target, name));
+      }
+    } catch (rollback) {
+      throw new PublishRollbackFailed(
+        aside,
+        new AggregateError([error, rollback]),
+      );
     }
     throw error;
   }
