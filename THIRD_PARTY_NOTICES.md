@@ -86,7 +86,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @hono/node-server | 2.1.1 | MIT | worker |
 | @hono/zod-openapi | 1.6.3 | MIT | control-host, worker |
 | @hono/zod-validator | 0.9.1 | MIT | control-host, worker |
-| @modelcontextprotocol/sdk | 1.31.0 | MIT | worker |
+| @modelcontextprotocol/sdk | 1.32.1 | MIT | worker |
 | @octokit/auth-app | 8.3.1 | MIT | control-host, worker |
 | @octokit/auth-oauth-app | 9.0.5 | MIT | control-host, worker |
 | @octokit/auth-oauth-device | 8.0.5 | MIT | control-host, worker |
@@ -268,7 +268,6 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | wrappy | 1.0.2 | ISC | worker |
 | xtend | 4.0.2 | MIT | control-host, worker |
 | yaml | 2.9.1 | ISC | control-host, worker |
-| zod | 3.25.76 | MIT | worker |
 | zod | 4.6.5 | MIT | control-host, worker |
 | zod-to-json-schema | 3.25.2 | ISC | worker |
 
