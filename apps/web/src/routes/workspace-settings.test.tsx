@@ -137,6 +137,16 @@ describe("워크스페이스 설정", () => {
     ).toEqual([{ audit_retention_days: 29 }]);
   });
 
+  test("화면의 최대치는 계약의 최대치와 같다", async () => {
+    const { AUDIT_RETENTION_MAX_DAYS: contract } = await import(
+      "@agent-platform/contracts"
+    );
+    const { AUDIT_RETENTION_MAX_DAYS } = await import(
+      "./workspace-settings.tsx"
+    );
+    expect(AUDIT_RETENTION_MAX_DAYS).toBe(contract);
+  });
+
   test("최대치를 넘기면 최대치를 넘겼다고 알린다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),

@@ -1,7 +1,6 @@
-import {
-  AUDIT_RETENTION_MAX_DAYS,
-  type AuditRetentionRequest,
-  type SlackGuestRequest,
+import type {
+  AuditRetentionRequest,
+  SlackGuestRequest,
 } from "@agent-platform/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
@@ -18,6 +17,10 @@ import {
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
+
+// The server's ceiling; the web takes contracts as types only, so a test
+// keeps this equal to the contract's value.
+export const AUDIT_RETENTION_MAX_DAYS = 3650;
 
 /** Workspace-wide settings an owner or admin opens from the menu. */
 export function WorkspaceSettingsScreen() {
