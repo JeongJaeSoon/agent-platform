@@ -28,6 +28,8 @@ export const apiKeysKo = {
   "apiKeys.secret": "key 값",
   "apiKeys.copy": "복사",
   "apiKeys.copied": "복사했습니다",
+  "apiKeys.copyFailed":
+    "복사하지 못했습니다. 위 칸의 값을 직접 선택해 복사하세요.",
   "apiKeys.secretDone": "복사했으니 닫기",
   "apiKeys.listTitle": "발급된 key",
   "apiKeys.empty": "발급된 key가 없습니다.",
@@ -74,6 +76,8 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.secret": "Key value",
   "apiKeys.copy": "Copy",
   "apiKeys.copied": "Copied",
+  "apiKeys.copyFailed":
+    "Couldn't copy. Select the value above and copy it yourself.",
   "apiKeys.secretDone": "I've copied it — close",
   "apiKeys.listTitle": "Issued keys",
   "apiKeys.empty": "No keys issued.",
