@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
+import { startOtlpRelay } from "./otlp-relay.ts";
 import type { WorkerRunSummary } from "./worker-host.ts";
 
 const DRAIN_SIGNALS = ["SIGTERM", "SIGINT"] as const;
@@ -16,6 +17,7 @@ export async function main(
 ): Promise<WorkerRunSummary> {
   const config = workerConfigFromEnv(environment);
   await verifyWorkspace(config.runtime.cwd);
+  startOtlpRelay(environment);
   const host = createWorkerHost(config);
   const handlers = DRAIN_SIGNALS.map((signal) => {
     const handler = () => host.drain(`received ${signal}`);

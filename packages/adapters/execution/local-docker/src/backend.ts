@@ -2267,6 +2267,43 @@ export function workerEnvironmentFor(
     ...(config.logLevel === undefined
       ? []
       : [`${ENV.logLevel}=${config.logLevel}`]),
+    ...telemetryEnvironmentFor(intent, process.env),
+  ];
+}
+
+/**
+ * Spike (OBS-SPIKE): the scheduler's own OTel and Claude Code telemetry
+ * settings, carried to the worker so the engine can export traces. The
+ * platform's session id rides as a resource attribute, since the engine's
+ * `session.id` is its own.
+ */
+export const TELEMETRY_VARIABLES = [
+  "CLAUDE_CODE_ENABLE_TELEMETRY",
+  "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+  "CLAUDE_CODE_OTEL_DIAG_STDERR",
+  "WORKER_OTLP_RELAY_UPSTREAM",
+] as const;
+
+export function telemetryEnvironmentFor(
+  intent: Pick<LaunchIntent, "executionId" | "sessionId">,
+  host: NodeJS.ProcessEnv,
+): string[] {
+  if (host.CLAUDE_CODE_ENABLE_TELEMETRY === undefined) return [];
+  const carried = Object.entries(host).filter(
+    ([name, value]) =>
+      value !== undefined &&
+      name !== "OTEL_RESOURCE_ATTRIBUTES" &&
+      (name.startsWith("OTEL_") ||
+        (TELEMETRY_VARIABLES as readonly string[]).includes(name)),
+  );
+  const resource = [
+    host.OTEL_RESOURCE_ATTRIBUTES,
+    `agent_platform.session_id=${intent.sessionId}`,
+    `agent_platform.execution_id=${intent.executionId}`,
+  ].filter((part) => part !== undefined && part !== "");
+  return [
+    ...carried.map(([name, value]) => `${name}=${value}`),
+    `OTEL_RESOURCE_ATTRIBUTES=${resource.join(",")}`,
   ];
 }
 

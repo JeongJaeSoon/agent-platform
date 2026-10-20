@@ -1,0 +1,44 @@
+# Spike overlay on Langfuse's official docker-compose.yml (fetched at a
+# pinned commit, see README.md), plus grafana/otel-lgtm, as one compose
+# project of their own. Every port on loopback, off the defaults other
+# stacks on this machine use; nothing phones home.
+services:
+  langfuse-worker:
+    image: langfuse/langfuse-worker:4.66.0
+    ports: !override []
+    environment: &spike-langfuse-env
+      NEXTAUTH_URL: http://localhost:23000
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: http://localhost:29090
+
+  langfuse-web:
+    image: langfuse/langfuse:4.66.0
+    ports: !override
+      - "127.0.0.1:23000:3000"
+    environment:
+      <<: *spike-langfuse-env
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:29090
+
+  clickhouse:
+    ports: !override []
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    ports: !override
+      - "127.0.0.1:29090:9000"
+  redis:
+    ports: !override []
+  postgres:
+    image: postgres:17
+    ports: !override []
+
+  lgtm:
+    image: grafana/otel-lgtm:0.37.0
+    environment:
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    ports:
+      - "127.0.0.1:23001:3000"
+      - "127.0.0.1:23200:3200"
+      - "127.0.0.1:24318:4318"

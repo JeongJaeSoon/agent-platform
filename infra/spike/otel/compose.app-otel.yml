@@ -1,0 +1,44 @@
+# Spike overlay on the app stack (up.sh infra/spike/otel/compose.app-otel.yml):
+# an OTel collector on the default network, the egress proxy's forward
+# allowlist extended to it, and the scheduler's telemetry settings that
+# workers and their engine inherit.
+#
+# The engine's exporter tunnels even plain http with CONNECT, which the
+# proxy refuses for anything but TLS, so the engine sends to a relay in the
+# worker on loopback (apps/worker/src/otlp-relay.ts), and the relay sends
+# absolute-form HTTP through the proxy.
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.163.1
+    command: ["--config=/etc/otelcol/collector.yaml"]
+    environment:
+      LANGFUSE_OTLP_ENDPOINT: ${LANGFUSE_OTLP_ENDPOINT:-http://host.docker.internal:23000/api/public/otel}
+      # Empty defaults keep `down` renderable from a shell without them.
+      LANGFUSE_BASIC_AUTH: ${LANGFUSE_BASIC_AUTH:-}
+      LGTM_OTLP_ENDPOINT: ${LGTM_OTLP_ENDPOINT:-http://host.docker.internal:24318}
+    volumes:
+      # Relative to the project directory, the repository root.
+      - ./infra/spike/otel/collector.yaml:/etc/otelcol/collector.yaml:ro
+      - ${OBS_SPIKE_DUMP_DIR:-/tmp/obs-spike-dump}:/dump
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  egress-proxy:
+    environment:
+      EGRESS_PRIVATE_ALLOWLIST: api:3000,host.docker.internal:3000,otel-collector:4318
+
+  scheduler:
+    environment:
+      CLAUDE_CODE_ENABLE_TELEMETRY: "1"
+      CLAUDE_CODE_ENHANCED_TELEMETRY_BETA: "1"
+      CLAUDE_CODE_OTEL_DIAG_STDERR: "1"
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      # The worker's relay; it forwards to WORKER_OTLP_RELAY_UPSTREAM.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      WORKER_OTLP_RELAY_UPSTREAM: http://otel-collector:4318
+      OTEL_TRACES_EXPORT_INTERVAL: "1000"
+      OTEL_LOGS_EXPORT_INTERVAL: "1000"
+      OTEL_SERVICE_NAME: agent-platform-engine

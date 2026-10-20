@@ -1,0 +1,37 @@
+# One OTLP endpoint for the engine, fanned out to both backends under
+# comparison plus a file dump of every span.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  otlphttp/langfuse:
+    endpoint: ${env:LANGFUSE_OTLP_ENDPOINT}
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_BASIC_AUTH}"
+  otlphttp/lgtm:
+    endpoint: ${env:LGTM_OTLP_ENDPOINT}
+  file/spans:
+    path: /dump/spans.jsonl
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/langfuse, otlphttp/lgtm, file/spans, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/lgtm, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/lgtm, debug]

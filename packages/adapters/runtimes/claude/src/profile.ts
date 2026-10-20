@@ -162,6 +162,21 @@ export function runtimeEnvironment(
     const value = host[name];
     if (value !== undefined) environment[name] = value;
   }
+  // Spike (OBS-SPIKE): the worker's OTel settings, as the scheduler handed
+  // them over, so the engine exports traces.
+  for (const [name, value] of Object.entries(host)) {
+    if (
+      value !== undefined &&
+      (name.startsWith("OTEL_") ||
+        name === "TRACEPARENT" ||
+        name === "TRACESTATE" ||
+        name === "CLAUDE_CODE_ENABLE_TELEMETRY" ||
+        name === "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA" ||
+        name === "CLAUDE_CODE_OTEL_DIAG_STDERR")
+    ) {
+      environment[name] = value;
+    }
+  }
   if (config.providerMaxRetries !== undefined) {
     environment.CLAUDE_CODE_MAX_RETRIES = String(config.providerMaxRetries);
   }
