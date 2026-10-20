@@ -2,6 +2,7 @@ import type {
   AgentAdminChangeResponse,
   AgentAdminKind,
 } from "@agent-platform/contracts";
+import { ConfirmDialog } from "@agent-platform/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
@@ -18,6 +19,7 @@ import {
   ReasonButton,
   refusalText,
   useHasPermission,
+  useMe,
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
@@ -103,6 +105,16 @@ function AdminList({
   const teams = useQuery({ ...teamsQuery(client), enabled: listsTeams });
   const [person, setPerson] = useState("");
   const [team, setTeam] = useState("");
+  const [removing, setRemoving] = useState<{
+    kind: AgentAdminKind;
+    id: string;
+    name: string;
+  } | null>(null);
+  const me = useMe();
+  // Owners and admins manage every agent whatever this list says.
+  const everywhere = useHasPermission("agent.admin.manage");
+  const losesAccess =
+    !everywhere && removing?.kind === "users" && removing.id === me?.user?.id;
   const personId = useId();
   const teamId = useId();
 
@@ -123,6 +135,7 @@ function AdminList({
             }),
       ),
     onMutate: () => onOutcome(null),
+    onSettled: () => setRemoving(null),
     onSuccess: async (result, { add, kind, name }) => {
       queryClient.setQueryData(queryKeys.agentAdmins(agentId), result.admins);
       if (kind === "users") setPerson("");
@@ -195,12 +208,7 @@ function AdminList({
                   disabled={change.isPending}
                   aria-label={t("agentAdmins.removeFor", { name })}
                   onClick={() =>
-                    change.mutate({
-                      add: false,
-                      kind: "users",
-                      id: user.user_id,
-                      name,
-                    })
+                    setRemoving({ kind: "users", id: user.user_id, name })
                   }
                 >
                   {t("agentAdmins.remove")}
@@ -220,8 +228,7 @@ function AdminList({
                 disabled={change.isPending}
                 aria-label={t("agentAdmins.removeFor", { name: row.name })}
                 onClick={() =>
-                  change.mutate({
-                    add: false,
+                  setRemoving({
                     kind: "teams",
                     id: row.team_id,
                     name: row.name,
@@ -310,6 +317,25 @@ function AdminList({
           {t("agentAdmins.addTeam")}
         </ReasonButton>
       </form>
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null);
+        }}
+        title={t("agentAdmins.removeTitle", { name: removing?.name ?? "" })}
+        consequence={
+          losesAccess
+            ? t("agentAdmins.removeSelfConsequence")
+            : t("agentAdmins.removeConsequence")
+        }
+        confirmLabel={t("agentAdmins.remove")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={change.isPending}
+        onConfirm={() => {
+          if (removing) change.mutate({ add: false, ...removing });
+        }}
+      />
     </>
   );
 }
