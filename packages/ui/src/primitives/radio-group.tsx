@@ -8,9 +8,10 @@ import { useFieldControl } from "./field.tsx";
  * shadcn/ui new-york RadioGroup. Changed from upstream: an inline dot instead
  * of lucide-react, card background, no `dark:` variants, and the ring drawn
  * in `muted-foreground`: the outline is all that shows an unchecked radio,
- * and `border-input` is under 3:1 against the canvas in both themes. Name the group with a
- * FieldSet and FieldLegend; each item takes the id of the horizontal Field it
- * sits in, so its FieldLabel needs no htmlFor.
+ * and `border-input` is under 3:1 against the canvas in both themes. Name the
+ * group from a visible heading (`aria-labelledby` on a FieldLegend's id);
+ * each item takes the id of the horizontal Field it sits in, so its
+ * FieldLabel needs no htmlFor.
  */
 export function RadioGroup({
   className,

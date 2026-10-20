@@ -49,6 +49,12 @@ export function Stepper({
 }: StepperProps): JSX.Element {
   const currentIndex = steps.findIndex((step) => step.id === currentStepId);
   const [focusId, setFocusId] = useState(currentStepId);
+  // When the screen moves to another step, the tab stop follows it.
+  const [shownStepId, setShownStepId] = useState(currentStepId);
+  if (shownStepId !== currentStepId) {
+    setShownStepId(currentStepId);
+    setFocusId(currentStepId);
+  }
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const selectable = steps.filter((step) => !step.disabled);
   const tabStopId = selectable.some((step) => step.id === focusId)

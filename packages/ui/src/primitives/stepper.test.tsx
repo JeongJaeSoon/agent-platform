@@ -62,6 +62,30 @@ describe("Stepper", () => {
     ).toEqual([-1, -1, -1, 0]);
   });
 
+  test("화면이 현재 단계를 바꾸면 Tab 진입점도 새 현재 단계로 간다", async () => {
+    const user = await setupUser();
+    const props = {
+      label: "만들기 단계",
+      steps: STEPS,
+      onStepSelect: () => {},
+    };
+    const { getByRole, rerender } = render(
+      <>
+        <button type="button">앞</button>
+        <Stepper {...props} currentStepId="basics" />
+      </>,
+    );
+    rerender(
+      <>
+        <button type="button">앞</button>
+        <Stepper {...props} currentStepId="model" />
+      </>,
+    );
+    getByRole("button", { name: "앞" }).focus();
+    await user.tab();
+    expect(document.activeElement).toBe(getByRole("button", { name: /모델/ }));
+  });
+
   test("Enter로 단계를 고르면 onStepSelect가 그 id를 받는다", async () => {
     const user = await setupUser();
     const onStepSelect = mock((_id: string) => {});

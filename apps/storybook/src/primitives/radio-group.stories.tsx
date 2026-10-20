@@ -9,14 +9,16 @@ import {
   RadioGroupItem,
 } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useId } from "react";
 
-const meta = {
-  title: "Primitives/RadioGroup",
-  component: RadioGroup,
-  render: () => (
+function ShareScope() {
+  const legendId = useId();
+  return (
     <FieldSet className="max-w-md">
-      <FieldLegend variant="label">공유 범위</FieldLegend>
-      <RadioGroup name="share" defaultValue="team">
+      <FieldLegend id={legendId} variant="label">
+        공유 범위
+      </FieldLegend>
+      <RadioGroup name="share" defaultValue="team" aria-labelledby={legendId}>
         <Field orientation="horizontal">
           <RadioGroupItem value="private" />
           <FieldLabel>나만</FieldLabel>
@@ -34,7 +36,13 @@ const meta = {
         </Field>
       </RadioGroup>
     </FieldSet>
-  ),
+  );
+}
+
+const meta = {
+  title: "Primitives/RadioGroup",
+  component: RadioGroup,
+  render: () => <ShareScope />,
 } satisfies Meta<typeof RadioGroup>;
 
 export default meta;

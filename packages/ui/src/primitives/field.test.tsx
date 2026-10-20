@@ -211,10 +211,11 @@ describe("Field", () => {
 
   test("RadioGroupItem은 각자 자기 Field의 label로 이름을 얻는다", async () => {
     const user = await setupUser();
+    const legendId = "where";
     const { getByRole, getByText } = render(
       <FieldSet>
-        <FieldLegend>실행 위치</FieldLegend>
-        <RadioGroup defaultValue="local">
+        <FieldLegend id={legendId}>실행 위치</FieldLegend>
+        <RadioGroup defaultValue="local" aria-labelledby={legendId}>
           <Field orientation="horizontal">
             <RadioGroupItem value="local" />
             <FieldLabel>로컬</FieldLabel>
@@ -226,6 +227,7 @@ describe("Field", () => {
         </RadioGroup>
       </FieldSet>,
     );
+    expect(getByRole("radiogroup", { name: "실행 위치" })).toBeTruthy();
     const local = getByRole("radio", { name: "로컬" });
     const remote = getByRole("radio", { name: "원격" });
     expect(local.getAttribute("aria-checked")).toBe("true");
