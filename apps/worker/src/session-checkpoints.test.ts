@@ -27,6 +27,7 @@ import {
 import {
   type CheckpointManifest,
   type CheckpointPreparation,
+  MAX_TRANSCRIPT_BYTES,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
   type ObjectRef,
@@ -1951,6 +1952,48 @@ describe("a long session's transcript", () => {
         ),
     ).toBe(false);
   });
+
+  // 94S-667: pins today's behavior once a session's transcript total passes
+  // MAX_TRANSCRIPT_BYTES, every part still under the part limit.
+  test("a session past the total transcript limit publishes nothing on every later turn", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    const part = MAX_TRANSCRIPT_PART_BYTES - 1024 * 1024;
+    const parts = Math.floor(MAX_TRANSCRIPT_BYTES / part);
+    for (let index = 0; index < parts; index += 1) {
+      await mirror.append(root, [
+        { type: "user", uuid: `u${index}`, message: "x".repeat(part) },
+      ]);
+    }
+    const last = await h.port.capture(ready, context(claim));
+    if (last === null) throw new Error("nothing published within the limit");
+
+    const rejected = () =>
+      h.gateway.checkpointRequests
+        .map((request) => request.preparation)
+        .filter((preparation) => preparation.status === "rejected");
+    const manifests = () =>
+      h.objects.keys().filter((key) => key.endsWith("/manifest.json"));
+    for (let turn = 0; turn < 3; turn += 1) {
+      await mirror.append(root, [
+        { type: "user", uuid: `over${turn}`, message: "x".repeat(part) },
+      ]);
+      expect(await h.port.capture(ready, context(claim))).toBeNull();
+    }
+
+    expect(rejected()).toEqual(
+      Array.from({ length: 3 }, () => ({
+        status: "rejected",
+        reason: "publish_failed",
+        detail: expect.stringMatching(
+          new RegExp(
+            `^transcript: the transcript is \\d+ bytes, over the ${MAX_TRANSCRIPT_BYTES}-byte limit$`,
+          ),
+        ),
+      })),
+    );
+    expect(manifests()).toEqual([last.manifest_ref]);
+  }, 120_000);
 });
 
 describe("restoring a transcript over the size limit", () => {
