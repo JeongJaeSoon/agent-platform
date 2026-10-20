@@ -10,11 +10,17 @@
 #   scripts/local.sh status              containers and /readyz
 #   scripts/local.sh key <owner> --scopes <scope>[,<scope>...]
 #                                        print a new API key once (same CLI as `bun run keys create`)
+#   scripts/local.sh forget-lost-checkpoints
+#                                        after a Docker restart: give up the lost checkpoints, keep the rest
 #
 # A local installation is volatile: LocalStack keeps S3 in memory, so any
 # `down` or Docker restart loses every checkpoint object while postgres keeps
 # the rows that point at them. `down` therefore deletes the volumes too, and
 # the API refuses to start on a bucket emptied behind the database's back.
+# `forget-lost-checkpoints` is the way on without a reset: it marks those
+# checkpoints collected and holds their open sessions in recovery_required,
+# prints them, and acts only on a bucket with no object version left; `up`
+# follows.
 #
 # `up` runs the real Messages API: the catalog in config/, the caller's
 # ANTHROPIC_API_KEY handed by name to the API alone, and the real-model
@@ -65,7 +71,7 @@ compose() {
 }
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -214,6 +220,13 @@ key() {
   compose exec -T api bun run apps/control-host/src/api/keys.ts create "$@"
 }
 
+# The API refuses to start in exactly the state this fixes, so a one-off
+# api container runs it; `run` starts postgres, migrate and LocalStack first.
+# Built first: an image from before this command has no CLI to run.
+forget_lost_checkpoints() {
+  compose run --rm -T --build api bun run apps/control-host/src/api/forget-lost-checkpoints.ts
+}
+
 case "${1:-}" in
   up) shift; mode "$@"; up ;;
   down) down ;;
@@ -222,5 +235,6 @@ case "${1:-}" in
   reset) shift; mode "$@"; preflight; down; up ;;
   status) status ;;
   key) shift; key "$@" ;;
+  forget-lost-checkpoints) forget_lost_checkpoints ;;
   *) usage ;;
 esac
