@@ -11,11 +11,13 @@ import {
   FieldSet,
 } from "./field.tsx";
 import { Input } from "./input.tsx";
+import { NativeSelect, NativeSelectOption } from "./native-select.tsx";
 import { Textarea } from "./textarea.tsx";
 
 const { render } = await setupDom();
 // Radix decides at import time whether a DOM exists; see test-support/dom.ts.
 const { Checkbox } = await import("./checkbox.tsx");
+const { RadioGroup, RadioGroupItem } = await import("./radio-group.tsx");
 
 function describedBy(element: HTMLElement): string[] {
   return (element.getAttribute("aria-describedby") ?? "")
@@ -185,5 +187,50 @@ describe("Field", () => {
     ).not.toBe(first.id);
     await user.click(getByText("승인 요청이 오면 알립니다"));
     expect(first.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("NativeSelect는 label·오류와 이어지고 이름으로 폼에 제출된다", () => {
+    const { getByRole, container } = render(
+      <form>
+        <Field>
+          <FieldLabel>모델</FieldLabel>
+          <NativeSelect name="model" defaultValue="deep">
+            <NativeSelectOption value="fast">빠른 모델</NativeSelectOption>
+            <NativeSelectOption value="deep">깊은 모델</NativeSelectOption>
+          </NativeSelect>
+          <FieldError>이 모델은 지금 쓸 수 없습니다.</FieldError>
+        </Field>
+      </form>,
+    );
+    const select = getByRole("combobox", { name: "모델" });
+    expect(describedBy(select)).toEqual(["이 모델은 지금 쓸 수 없습니다."]);
+    expect(select.getAttribute("aria-invalid")).toBe("true");
+    const form = container.querySelector("form") as HTMLFormElement;
+    expect(new FormData(form).get("model")).toBe("deep");
+  });
+
+  test("RadioGroupItem은 각자 자기 Field의 label로 이름을 얻는다", async () => {
+    const user = await setupUser();
+    const { getByRole, getByText } = render(
+      <FieldSet>
+        <FieldLegend>실행 위치</FieldLegend>
+        <RadioGroup defaultValue="local">
+          <Field orientation="horizontal">
+            <RadioGroupItem value="local" />
+            <FieldLabel>로컬</FieldLabel>
+          </Field>
+          <Field orientation="horizontal">
+            <RadioGroupItem value="remote" />
+            <FieldLabel>원격</FieldLabel>
+          </Field>
+        </RadioGroup>
+      </FieldSet>,
+    );
+    const local = getByRole("radio", { name: "로컬" });
+    const remote = getByRole("radio", { name: "원격" });
+    expect(local.getAttribute("aria-checked")).toBe("true");
+    expect(remote.id).not.toBe(local.id);
+    await user.click(getByText("원격"));
+    expect(remote.getAttribute("aria-checked")).toBe("true");
   });
 });
