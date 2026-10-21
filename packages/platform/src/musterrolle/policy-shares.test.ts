@@ -10,7 +10,7 @@ import {
   type SessionScope,
   scopesForRole,
   type WorkspaceRole,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import type { SessionViewer } from "../ports/session-share-store.ts";
 import {

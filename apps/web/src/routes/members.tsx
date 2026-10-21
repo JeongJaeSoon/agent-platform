@@ -1,10 +1,7 @@
-import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
-import type {
-  Invite,
-  MemberView,
-  WorkspaceRole,
-} from "@agent-platform/contracts";
-import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import type { Invite, MemberView, WorkspaceRole } from "@werft-ai/contracts";
+import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -14,8 +11,7 @@ import {
   formatTimestamp,
   NativeSelect,
   NativeSelectOption,
-} from "@agent-platform/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+} from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {

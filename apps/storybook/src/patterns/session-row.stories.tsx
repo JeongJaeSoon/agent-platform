@@ -1,5 +1,5 @@
-import { SessionRow, Skeleton } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { SessionRow, Skeleton } from "@werft-ai/ui";
 
 import { SESSION, SESSION_ROW_MESSAGES } from "./session-fixtures.ts";
 

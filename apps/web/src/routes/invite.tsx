@@ -1,17 +1,19 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   type ApiError,
   CSRF_HEADER_VALUE,
   isApiError,
   unwrap,
-} from "@agent-platform/client";
-import { acceptInviteStep } from "@agent-platform/core/forms";
+} from "@werft-ai/client";
+import { acceptInviteStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
   submitStep,
   useAgentPlatform,
   useStepForm,
   useStepper,
-} from "@agent-platform/react";
+} from "@werft-ai/react";
 import {
   Button,
   buttonVariants,
@@ -21,9 +23,7 @@ import {
   FieldLabel,
   Input,
   Stepper,
-} from "@agent-platform/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+} from "@werft-ai/ui";
 import { type ReactNode, useId, useState } from "react";
 import { viewerQuery } from "../api/queries.ts";
 import {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { BootstrapClaimResponse } from "@agent-platform/contracts";
+import { PGlite } from "@electric-sql/pglite";
+import type { BootstrapClaimResponse } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
   createAuthorizationPolicy,
@@ -9,9 +10,8 @@ import {
   type SessionCatalog,
   SessionServiceError,
   type WorkerGateway,
-} from "@agent-platform/platform";
-import { testCaller } from "@agent-platform/testkit/callers";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/platform";
+import { testCaller } from "@werft-ai/testkit/callers";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

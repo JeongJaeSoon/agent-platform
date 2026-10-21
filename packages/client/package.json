@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/client",
+  "name": "@werft-ai/client",
   "description": "API client for the agent-platform HTTP API: typed requests, ApiError and the session event stream, with no UI framework",
   "version": "0.0.0",
   "private": true,
@@ -15,7 +15,7 @@
     "openapi-fetch": "0.17.0"
   },
   "devDependencies": {
-    "@agent-platform/contracts": "workspace:*",
+    "@werft-ai/contracts": "workspace:*",
     "openapi-typescript": "7.13.0"
   }
 }

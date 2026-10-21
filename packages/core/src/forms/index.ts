@@ -5,7 +5,7 @@ import {
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the forms entry, like the schemas entry, may name zod; the root entry still may not.
 import { z } from "zod";
 

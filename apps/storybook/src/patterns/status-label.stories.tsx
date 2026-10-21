@@ -1,11 +1,11 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   STATUS_AXIS_VALUES,
   STATUS_VOCABULARY,
   type StatusAxis,
   StatusLabel,
   type StatusStateOf,
-} from "@agent-platform/ui";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+} from "@werft-ai/ui";
 
 const meta = {
   title: "Patterns/StatusLabel",

@@ -7,12 +7,8 @@ import {
   agentCardSchema,
   agentReleaseSchema,
   type ReceiptOperation,
-} from "@agent-platform/contracts";
-import type {
-  ActivateResult,
-  AgentStore,
-  Principal,
-} from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { ActivateResult, AgentStore, Principal } from "@werft-ai/platform";
 import { and, asc, eq, max, sql } from "drizzle-orm";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";

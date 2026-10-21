@@ -7,7 +7,7 @@ import type {
   RevokeAgentIdentityResult,
   SlackEventAgent,
   SlackEventKey,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 import { receiptActorOf } from "./control-shared.ts";

@@ -2,7 +2,7 @@ import {
   type AuthorizationSubject,
   SESSION_SCOPE_VALUES,
   type SessionScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 /**
  * A service caller authenticated the way AUTH_MODE=none authenticates: a

@@ -1,11 +1,7 @@
-import {
-  type ApiError,
-  CSRF_HEADER_VALUE,
-  unwrap,
-} from "@agent-platform/client";
-import { useAgentPlatform } from "@agent-platform/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
+import { useAgentPlatform } from "@werft-ai/react";
 import { useEffect, useRef } from "react";
 import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";

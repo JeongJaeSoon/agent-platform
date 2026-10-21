@@ -3,7 +3,7 @@ import {
   CREDENTIAL_REVOKE_NOTICE,
   scopesForRole,
   type WorkspaceRole,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   BindCredentialResult,
   CredentialBinding,

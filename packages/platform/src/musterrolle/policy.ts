@@ -15,7 +15,7 @@ import {
   SLACK_SURFACE_ACTION_VALUES,
   scopesForRole,
   type WorkspaceRole,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import type {
   SessionShareStore,

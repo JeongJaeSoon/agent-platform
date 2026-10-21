@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ApiClient } from "@agent-platform/client";
+import type { ApiClient } from "@werft-ai/client";
 import * as queries from "./index.ts";
 
 // Pins every key and option a factory hands the cache, and the request its

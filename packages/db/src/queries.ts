@@ -2,7 +2,7 @@ import type {
   SessionScope,
   TurnStatus,
   WorkspaceRole,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   and,
   asc,

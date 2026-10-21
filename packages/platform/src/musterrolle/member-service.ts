@@ -3,7 +3,7 @@ import {
   type MemberView,
   TAKEOVER_LIST_LIMIT,
   type TakeOverSessionResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   AccessEffects,
   AccessScope,

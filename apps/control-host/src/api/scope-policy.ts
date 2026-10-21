@@ -2,8 +2,8 @@ import type {
   AuthorizationAction,
   Principal,
   SessionScope,
-} from "@agent-platform/contracts";
-import { ACTION_SCOPES } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import { ACTION_SCOPES } from "@werft-ai/platform";
 import { API_ROUTE_SCOPES } from "./openapi.ts";
 
 // Which session scope a /v1 request needs, read from the OpenAPI route table

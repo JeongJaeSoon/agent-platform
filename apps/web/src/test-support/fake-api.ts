@@ -1,4 +1,4 @@
-import type { AuthMeResponse, WorkspaceRole } from "@agent-platform/contracts";
+import type { AuthMeResponse, WorkspaceRole } from "@werft-ai/contracts";
 
 export interface Recorded {
   readonly method: string;

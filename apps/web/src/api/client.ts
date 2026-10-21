@@ -2,11 +2,8 @@ import {
   type ApiClient,
   type ApiClientOptions,
   createApiClient as createContractClient,
-} from "@agent-platform/client";
-import {
-  contractValidators,
-  warnOncePerIssue,
-} from "@agent-platform/core/schemas";
+} from "@werft-ai/client";
+import { contractValidators, warnOncePerIssue } from "@werft-ai/core/schemas";
 
 /**
  * A client that holds every answer to the published contract. The mode stays

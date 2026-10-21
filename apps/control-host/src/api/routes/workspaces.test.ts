@@ -8,7 +8,7 @@ import {
   REQUEST_BODY_MAX_BYTES,
   slackGuestResponseSchema,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type AuditRetentionStore,
   createAuthorizationPolicy,
@@ -17,7 +17,7 @@ import {
   type MembershipRole,
   type ResolvedWebSession,
   type SlackGuestSettingStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerWorkspaceRoutes } from "./workspaces.ts";

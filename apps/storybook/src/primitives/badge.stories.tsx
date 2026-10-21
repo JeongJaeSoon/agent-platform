@@ -1,5 +1,5 @@
-import { Badge } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Badge } from "@werft-ai/ui";
 
 const meta = {
   title: "Primitives/Badge",

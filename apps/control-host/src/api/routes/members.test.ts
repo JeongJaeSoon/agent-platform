@@ -7,7 +7,7 @@ import {
   setAccessResponseSchema,
   takeOverSessionResponseSchema,
   updateMemberResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -19,7 +19,7 @@ import {
   type MemberRecord,
   type MemberService,
   type MemberStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerMemberRoutes } from "./members.ts";
 

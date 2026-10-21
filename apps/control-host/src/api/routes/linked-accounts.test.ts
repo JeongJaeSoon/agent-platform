@@ -6,7 +6,7 @@ import {
   slackLinkCallbackResponseSchema,
   startSlackLinkResponseSchema,
   unlinkAccountResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -15,11 +15,11 @@ import {
   type LinkedAccountRecord,
   type LinkedAccountService,
   type LinkedAccountStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   type MockSlackOidc,
   startMockSlackOidc,
-} from "@agent-platform/testkit/mock-slack-oidc";
+} from "@werft-ai/testkit/mock-slack-oidc";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { SLACK_LINK_COOKIE_NAME, type SlackOidcConfig } from "../slack-link.ts";
 import { registerLinkedAccountRoutes } from "./linked-accounts.ts";
