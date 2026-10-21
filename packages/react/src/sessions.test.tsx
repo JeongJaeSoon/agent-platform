@@ -252,7 +252,7 @@ describe("useSessionControl", () => {
 });
 
 describe("a retried command", () => {
-  test("keeps its idempotency key, so the server answers the retry from its receipt", async () => {
+  test("sends its retry under the same idempotency key, the next call under a new one", async () => {
     let calls = 0;
     const h = harness(
       () => (++calls === 1 ? serverError() : receipt()),
@@ -273,6 +273,38 @@ describe("a retried command", () => {
     expect(h.sent).toHaveLength(3);
     expect(retry).toBe(first as string);
     expect(next).not.toBe(first as string);
+  });
+
+  test("overlapping calls with the same variables each keep their own key", async () => {
+    // The first request under each key fails once, so every call retries.
+    const seen = new Set<string | null>();
+    const h = harness(
+      ({ idempotencyKey }) => {
+        if (seen.has(idempotencyKey)) return receipt();
+        seen.add(idempotencyKey);
+        return serverError();
+      },
+      new QueryClient({
+        defaultOptions: { mutations: { retry: 1, retryDelay: 0 } },
+      }),
+    );
+    const { result } = renderHook(() => useSessionControl(SESSION_ID), {
+      wrapper: h.wrapper,
+    });
+    const interrupt = {
+      action: "interrupt",
+      body: { target_turn_id: "1" },
+    } as const;
+    await act(() =>
+      Promise.all([
+        result.current.mutateAsync(interrupt),
+        result.current.mutateAsync(interrupt),
+      ]),
+    );
+    const uses = new Map<string | null, number>();
+    for (const { idempotencyKey } of h.sent)
+      uses.set(idempotencyKey, (uses.get(idempotencyKey) ?? 0) + 1);
+    expect([...uses.values()]).toEqual([2, 2]);
   });
 });
 

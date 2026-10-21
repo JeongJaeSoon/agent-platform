@@ -23,6 +23,7 @@ import {
   sessionUsageQuery,
 } from "@agent-platform/core";
 import {
+  type MutationFunctionContext,
   type QueryClient,
   useInfiniteQuery,
   useMutation,
@@ -61,19 +62,21 @@ export function usePendingRequests(id: string, enabled: boolean) {
   return useQuery({ ...pendingRequestsQuery(client, id), enabled });
 }
 
-// One key per mutate call, set before its first attempt. A retry runs
-// mutationFn again with the same variables; under a new key the server would
-// run a command it already took a second time.
-const idempotencyKeys = new WeakMap<object, string>();
+// One key per mutate call, kept across its retries: under a new key the
+// server would run a command it already took a second time. React Query
+// hands onMutate and every attempt of one call the same context object, and
+// each call its own, so the key hangs off that rather than the variables
+// two calls may share.
+const idempotencyKeys = new WeakMap<MutationFunctionContext, string>();
 
-const newCommand = (variables: object) => {
-  idempotencyKeys.set(variables, crypto.randomUUID());
+const newCommand = (_: unknown, context: MutationFunctionContext) => {
+  idempotencyKeys.set(context, crypto.randomUUID());
 };
 
-const commandParams = (id: string, variables: object) => ({
+const commandParams = (id: string, context: MutationFunctionContext) => ({
   path: { id },
   header: {
-    "Idempotency-Key": idempotencyKeys.get(variables) ?? crypto.randomUUID(),
+    "Idempotency-Key": idempotencyKeys.get(context) ?? crypto.randomUUID(),
   },
 });
 
@@ -83,10 +86,10 @@ export function useChangeSessionProfile(id: string) {
   const queryClient = useQueryClient();
   return useMutation<unknown, ApiError, ChangeSessionProfileRequest>({
     onMutate: newCommand,
-    mutationFn: (body) =>
+    mutationFn: (body, context) =>
       unwrap(
         client.POST("/v1/sessions/{id}/profile", {
-          params: commandParams(id, body),
+          params: commandParams(id, context),
           body,
         }),
       ),
@@ -147,10 +150,10 @@ export function useAnswer(id: string) {
     Body["PostSessionAnswerRequest"]
   >({
     onMutate: newCommand,
-    mutationFn: (body) =>
+    mutationFn: (body, context) =>
       unwrap(
         client.POST("/v1/sessions/{id}/answers", {
-          params: commandParams(id, body),
+          params: commandParams(id, context),
           body,
         }),
       ) as Promise<PostSessionAnswerResponse>,
@@ -169,10 +172,10 @@ export function useSendMessage(id: string) {
     Omit<Body["PostSessionMessageRequest"], "mode">
   >({
     onMutate: newCommand,
-    mutationFn: (body) =>
+    mutationFn: (body, context) =>
       unwrap(
         client.POST("/v1/sessions/{id}/messages", {
-          params: commandParams(id, body),
+          params: commandParams(id, context),
           body: { ...body, mode: "enqueue" },
         }),
       ) as Promise<PostSessionMessageResponse>,
@@ -203,8 +206,8 @@ export function useSessionControl(id: string) {
     SessionControl
   >({
     onMutate: newCommand,
-    mutationFn: (command) => {
-      const params = commandParams(id, command);
+    mutationFn: (command, context) => {
+      const params = commandParams(id, context);
       switch (command.action) {
         case "interrupt":
           return unwrap(
