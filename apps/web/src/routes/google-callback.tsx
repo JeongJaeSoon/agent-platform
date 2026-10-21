@@ -1,8 +1,12 @@
+import {
+  type ApiError,
+  CSRF_HEADER_VALUE,
+  unwrap,
+} from "@agent-platform/client";
 import { useAgentPlatform } from "@agent-platform/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "../api/client.ts";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";

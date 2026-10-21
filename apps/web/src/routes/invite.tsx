@@ -1,13 +1,13 @@
-import { useAgentPlatform } from "@agent-platform/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { type FormEvent, type ReactNode, useState } from "react";
 import {
   type ApiError,
   CSRF_HEADER_VALUE,
   isApiError,
   unwrap,
-} from "../api/client.ts";
+} from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { viewerQuery } from "../api/queries.ts";
 import {
   DISPLAY_NAME_MAX,

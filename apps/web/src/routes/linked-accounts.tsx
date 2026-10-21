@@ -1,3 +1,4 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   LinkedAccount,
   SlackLinkCallbackResponse,
@@ -8,7 +9,6 @@ import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";

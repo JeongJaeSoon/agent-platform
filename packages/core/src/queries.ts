@@ -10,14 +10,20 @@ import type {
   ListLinkedAccountsResponse,
   ListMembersResponse,
   ListMyTeamsResponse,
+  ListPendingRequestsResponse,
   ListProfilesResponse,
+  ListSessionsResponse,
   ListTeamsResponse,
   LoginMethodsResponse,
+  SessionDetail,
+  SessionUsageResponse,
   TeamDetail,
 } from "@agent-platform/contracts";
 import type {
   DataTag,
   DefaultError,
+  InfiniteData,
+  InfiniteQueryObserverOptions,
   QueryFunction,
   QueryKey,
   QueryObserverOptions,
@@ -42,6 +48,29 @@ function queryOptions<T, K extends QueryKey>(
   return options as Options<T, K> & { queryKey: DataTag<K, T, DefaultError> };
 }
 
+type InfiniteOptions<T, K extends QueryKey, P> = InfiniteQueryObserverOptions<
+  T,
+  DefaultError,
+  InfiniteData<T, P>,
+  K,
+  P
+> & { queryKey: K; queryFn: QueryFunction<T, K, P>; initialPageParam: P };
+
+/** `queryOptions` for a paged list, as react-query's `infiniteQueryOptions`. */
+function infiniteQueryOptions<T, K extends QueryKey, P>(
+  options: InfiniteOptions<T, K, P>,
+): InfiniteOptions<T, K, P> & {
+  queryKey: DataTag<K, InfiniteData<T, P>, DefaultError>;
+} {
+  return options as InfiniteOptions<T, K, P> & {
+    queryKey: DataTag<K, InfiniteData<T, P>, DefaultError>;
+  };
+}
+
+// Detail, cost and pending requests change while a turn runs; the event
+// stream is live, the rest is read again on this beat.
+const LIVE_REFETCH_MS = 5_000;
+
 /**
  * Query keys are the cache's public names. A screen that shows server state
  * reads it through one of these; anything that changes who is signed in
@@ -64,6 +93,11 @@ export const queryKeys = {
   apiKeys: ["api-keys"] as const,
   profiles: ["profiles"] as const,
   team: (id: string) => ["teams", id] as const,
+  sessions: ["sessions"] as const,
+  session: (id: string) => ["sessions", id] as const,
+  sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
+  pendingRequests: (id: string) =>
+    ["sessions", id, "pending-requests"] as const,
 };
 
 export function meQuery(client: ApiClient) {
@@ -228,5 +262,58 @@ export function apiKeysQuery(client: ApiClient) {
     queryFn: () =>
       unwrap(client.GET("/v1/api-keys")) as Promise<ListApiKeysResponse>,
     retry: false,
+  });
+}
+
+export function sessionsQuery(client: ApiClient) {
+  return infiniteQueryOptions({
+    queryKey: queryKeys.sessions,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        client.GET("/v1/sessions", {
+          params: { query: pageParam ? { cursor: pageParam } : {} },
+        }),
+      ) as Promise<ListSessionsResponse>,
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    retry: false,
+  });
+}
+
+export function sessionQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.session(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/{id}", { params: { path: { id } } }),
+      ) as Promise<SessionDetail>,
+    retry: false,
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+}
+
+export function sessionUsageQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.sessionUsage(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/{id}/usage", { params: { path: { id } } }),
+      ) as Promise<SessionUsageResponse>,
+    retry: false,
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+}
+
+export function pendingRequestsQuery(client: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.pendingRequests(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/{id}/pending-requests", {
+          params: { path: { id } },
+        }),
+      ) as Promise<ListPendingRequestsResponse>,
+    retry: false,
+    refetchInterval: LIVE_REFETCH_MS,
   });
 }
