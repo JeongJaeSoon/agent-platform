@@ -21,6 +21,9 @@ export interface StatusLabelProps<A extends StatusAxis> {
   readonly detail?: string | undefined;
   /** The value may be out of date — say so instead of showing it as fresh. */
   readonly stale?: boolean | undefined;
+  /** Override the stale mark and its hover text. */
+  readonly staleLabel?: string | undefined;
+  readonly staleHint?: string | undefined;
   readonly className?: string | undefined;
 }
 
@@ -31,6 +34,8 @@ export function StatusLabel<A extends StatusAxis>({
   axisLabel,
   detail,
   stale = false,
+  staleLabel = "갱신 지연",
+  staleHint = "마지막으로 확인한 값입니다",
   className,
 }: StatusLabelProps<A>): JSX.Element {
   const descriptor = describeStatus(axis, state);
@@ -59,8 +64,8 @@ export function StatusLabel<A extends StatusAxis>({
       <span className="ap-status__text">{text}</span>
       {detail ? <span className="ap-status__detail">{detail}</span> : null}
       {stale ? (
-        <span className="ap-status__stale" title="마지막으로 확인한 값입니다">
-          갱신 지연
+        <span className="ap-status__stale" title={staleHint}>
+          {staleLabel}
         </span>
       ) : null}
     </span>
