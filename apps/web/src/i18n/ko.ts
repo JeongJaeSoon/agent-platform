@@ -1,4 +1,4 @@
-import { sessionsKo } from "@agent-platform/react";
+import { flowKo, sessionsKo } from "@agent-platform/react";
 import { agentsKo } from "./agents.ts";
 import { apiKeysKo } from "./api-keys.ts";
 import { authKo } from "./auth.ts";
@@ -31,6 +31,7 @@ export const ko = {
   ...agentsKo,
   ...modelsKo,
   ...sessionsKo,
+  ...flowKo,
   ...linkedKo,
   ...apiKeysKo,
   ...workspaceKo,
