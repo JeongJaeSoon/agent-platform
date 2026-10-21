@@ -4,11 +4,24 @@ import type {
   ListProfilesResponse,
   ProfileSummary,
 } from "@agent-platform/contracts";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  Input,
+  NativeSelect,
+  NativeSelectOption,
+  RadioGroup,
+  RadioGroupItem,
+  Textarea,
+} from "@agent-platform/ui";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useId } from "react";
 import type { components } from "../api/schema.gen.ts";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { TextAreaField, TextField } from "./field.tsx";
 
 /** The card languages; agent-card-form.test.ts pins it to the contract. */
 export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
@@ -128,14 +141,31 @@ export function modelOptions(
     : [...options, { model: current, profileIds: [] }];
 }
 
+/** The fields that show an error: language and tools mode cannot be wrong. */
+export const CARD_ERROR_FIELDS = [
+  "role",
+  "instructions",
+  "tone",
+  "model",
+  "tools",
+  "forbidden",
+] as const satisfies readonly (keyof CardDraft)[];
+
+/** A message per card field, from a form that validates the card. */
+export type CardErrors = Partial<
+  Record<(typeof CARD_ERROR_FIELDS)[number], string>
+>;
+
 export function AgentCardFields({
   draft,
   catalog,
   onChange,
+  errors = {},
 }: {
   readonly draft: CardDraft;
   readonly catalog: UseQueryResult<ListProfilesResponse>;
   readonly onChange: (draft: CardDraft) => void;
+  readonly errors?: CardErrors | undefined;
 }) {
   const { t } = useI18n();
   const toolsLegend = useId();
@@ -143,49 +173,59 @@ export function AgentCardFields({
     onChange({ ...draft, [key]: value });
   return (
     <>
-      <TextField
-        label={t("agentCard.role")}
-        hint={t("agentCard.roleHint")}
-        required
-        maxLength={200}
-        value={draft.role}
-        onChange={(event) => set("role", event.target.value)}
-      />
-      <TextAreaField
-        label={t("agentCard.instructions")}
-        required
-        maxLength={20_000}
-        rows={8}
-        value={draft.instructions}
-        onChange={(event) => set("instructions", event.target.value)}
-      />
-      <TextField
-        label={t("agentCard.tone")}
-        hint={t("agentCard.optional")}
-        maxLength={200}
-        value={draft.tone}
-        onChange={(event) => set("tone", event.target.value)}
-      />
-      <label className="web-field">
-        <span>{t("agentCard.language")}</span>
-        <select
-          className="ap-input"
+      <Field>
+        <FieldLabel>{t("agentCard.role")}</FieldLabel>
+        <Input
+          required
+          maxLength={200}
+          value={draft.role}
+          onChange={(event) => set("role", event.target.value)}
+        />
+        <FieldDescription>{t("agentCard.roleHint")}</FieldDescription>
+        <FieldError>{errors.role}</FieldError>
+      </Field>
+      <Field>
+        <FieldLabel>{t("agentCard.instructions")}</FieldLabel>
+        <Textarea
+          required
+          maxLength={20_000}
+          rows={8}
+          value={draft.instructions}
+          onChange={(event) => set("instructions", event.target.value)}
+        />
+        <FieldError>{errors.instructions}</FieldError>
+      </Field>
+      <Field>
+        <FieldLabel>{t("agentCard.tone")}</FieldLabel>
+        <Input
+          maxLength={200}
+          value={draft.tone}
+          onChange={(event) => set("tone", event.target.value)}
+        />
+        <FieldDescription>{t("agentCard.optional")}</FieldDescription>
+        <FieldError>{errors.tone}</FieldError>
+      </Field>
+      <Field>
+        <FieldLabel>{t("agentCard.language")}</FieldLabel>
+        <NativeSelect
           value={draft.language}
           onChange={(event) =>
             set("language", event.target.value as CardDraft["language"])
           }
         >
           {AGENT_CARD_LANGUAGE_VALUES.map((value) => (
-            <option key={value} value={value}>
+            <NativeSelectOption key={value} value={value}>
               {value === "ko" ? "한국어" : "English"}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
-      </label>
+        </NativeSelect>
+      </Field>
       {catalog.isPending ? (
-        <p className="web-page__empty">{t("agentCard.modelsLoading")}</p>
+        <p className="text-muted-foreground text-sm">
+          {t("agentCard.modelsLoading")}
+        </p>
       ) : catalog.error ? (
-        <p className="web-form__error" role="alert">
+        <p className="text-destructive text-sm" role="alert">
           {t("agentCard.modelsFailed", {
             reason: t(errorKey((catalog.error as ApiError).code)),
           })}
@@ -194,46 +234,53 @@ export function AgentCardFields({
         <ModelSelect
           options={modelOptions(catalog.data.items, draft.model)}
           value={draft.model}
+          error={errors.model}
           onChange={(model) => set("model", model)}
         />
       )}
-      <fieldset className="web-fieldset" aria-labelledby={toolsLegend}>
-        <legend id={toolsLegend}>{t("agentCard.tools")}</legend>
-        <label className="web-choice">
-          <input
-            type="radio"
-            name="tools-mode"
-            checked={draft.toolsMode === "all"}
-            onChange={() => set("toolsMode", "all")}
-          />
-          {t("agentCard.toolsAll")}
-        </label>
-        <label className="web-choice">
-          <input
-            type="radio"
-            name="tools-mode"
-            checked={draft.toolsMode === "list"}
-            onChange={() => set("toolsMode", "list")}
-          />
-          {t("agentCard.toolsList")}
-        </label>
+      <FieldSet className="gap-3">
+        <FieldLegend id={toolsLegend} variant="label">
+          {t("agentCard.tools")}
+        </FieldLegend>
+        <RadioGroup
+          aria-labelledby={toolsLegend}
+          value={draft.toolsMode}
+          onValueChange={(mode) =>
+            set("toolsMode", mode as CardDraft["toolsMode"])
+          }
+        >
+          <Field orientation="horizontal">
+            <RadioGroupItem value="all" />
+            <FieldLabel>{t("agentCard.toolsAll")}</FieldLabel>
+          </Field>
+          <Field orientation="horizontal">
+            <RadioGroupItem value="list" />
+            <FieldLabel>{t("agentCard.toolsList")}</FieldLabel>
+          </Field>
+        </RadioGroup>
         {draft.toolsMode === "list" ? (
-          <TextAreaField
-            rows={3}
-            label={t("agentCard.toolNames")}
-            hint={t("agentCard.listHint")}
-            value={draft.tools}
-            onChange={(event) => set("tools", event.target.value)}
-          />
+          <Field>
+            <FieldLabel>{t("agentCard.toolNames")}</FieldLabel>
+            <Textarea
+              rows={3}
+              value={draft.tools}
+              onChange={(event) => set("tools", event.target.value)}
+            />
+            <FieldDescription>{t("agentCard.listHint")}</FieldDescription>
+            <FieldError>{errors.tools}</FieldError>
+          </Field>
         ) : null}
-      </fieldset>
-      <TextAreaField
-        rows={3}
-        label={t("agentCard.forbidden")}
-        hint={t("agentCard.forbiddenHint")}
-        value={draft.forbidden}
-        onChange={(event) => set("forbidden", event.target.value)}
-      />
+      </FieldSet>
+      <Field>
+        <FieldLabel>{t("agentCard.forbidden")}</FieldLabel>
+        <Textarea
+          rows={3}
+          value={draft.forbidden}
+          onChange={(event) => set("forbidden", event.target.value)}
+        />
+        <FieldDescription>{t("agentCard.forbiddenHint")}</FieldDescription>
+        <FieldError>{errors.forbidden}</FieldError>
+      </Field>
     </>
   );
 }
@@ -241,54 +288,49 @@ export function AgentCardFields({
 function ModelSelect({
   options,
   value,
+  error,
   onChange,
 }: {
   readonly options: readonly ModelOption[];
   readonly value: string;
+  readonly error: string | undefined;
   readonly onChange: (model: string) => void;
 }) {
   const { t } = useI18n();
-  const hintId = useId();
-  const warningId = useId();
   const uncataloged = options.some(
     (option) => option.model === value && option.profileIds.length === 0,
   );
   return (
-    <div className="web-field">
-      <label className="web-field">
-        <span>{t("agentCard.model")}</span>
-        <select
-          className="ap-input"
-          required
-          value={value}
-          aria-describedby={uncataloged ? `${hintId} ${warningId}` : hintId}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          {value === "" ? (
-            <option value="" disabled>
-              {t("agentCard.modelPick")}
-            </option>
-          ) : null}
-          {options.map((option) => (
-            <option key={option.model} value={option.model}>
-              {option.profileIds.length === 0
-                ? t("agentCard.modelUncataloged", { model: option.model })
-                : t("agentCard.modelOption", {
-                    model: option.model,
-                    profiles: option.profileIds.join(", "),
-                  })}
-            </option>
-          ))}
-        </select>
-      </label>
-      <span id={hintId} className="web-field__hint">
-        {t("agentCard.modelHint")}
-      </span>
+    <Field>
+      <FieldLabel>{t("agentCard.model")}</FieldLabel>
+      <NativeSelect
+        required
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {value === "" ? (
+          <NativeSelectOption value="" disabled>
+            {t("agentCard.modelPick")}
+          </NativeSelectOption>
+        ) : null}
+        {options.map((option) => (
+          <NativeSelectOption key={option.model} value={option.model}>
+            {option.profileIds.length === 0
+              ? t("agentCard.modelUncataloged", { model: option.model })
+              : t("agentCard.modelOption", {
+                  model: option.model,
+                  profiles: option.profileIds.join(", "),
+                })}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <FieldDescription>{t("agentCard.modelHint")}</FieldDescription>
       {uncataloged ? (
-        <p id={warningId} className="web-notice">
+        <FieldDescription className="web-notice">
           {t("agentCard.modelUncatalogedWarning")}
-        </p>
+        </FieldDescription>
       ) : null}
-    </div>
+      <FieldError>{error}</FieldError>
+    </Field>
   );
 }
