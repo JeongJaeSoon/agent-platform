@@ -92,6 +92,19 @@ export {
   type ReceiptTimestamps,
 } from "./receipt/receipt-summary.tsx";
 export {
+  ApprovalCard,
+  type ApprovalCardMessages,
+  type ApprovalCardProps,
+  type PermissionRequest,
+} from "./session/approval-card.tsx";
+export {
+  Composer,
+  type ComposerMessages,
+  type ComposerProps,
+  type ComposerQueuedMessage,
+} from "./session/composer.tsx";
+export { Message, type MessageProps } from "./session/message.tsx";
+export {
   SessionRow,
   type SessionRowMessages,
   type SessionRowProps,
