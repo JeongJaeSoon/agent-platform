@@ -11,30 +11,29 @@ export type StatusKind =
   | "bootstrap-required"
   | "error";
 
-export interface StatusScreenProps {
-  readonly kind: StatusKind;
-  /** Where login-required sends the reader back to after logging in. */
-  readonly redirect?: string | undefined;
-  /** Off where the screen already is the way forward (the login form). */
-  readonly action?: boolean;
-  /** What went wrong, for kind "error". */
-  readonly detail?: MessageKey;
-  /** Offered as "try again" for kind "error". */
-  readonly onRetry?: () => void;
-}
+export type StatusScreenProps =
+  | {
+      readonly kind: Exclude<StatusKind, "error">;
+      /** Where login-required sends the reader back to after logging in. */
+      readonly redirect?: string | undefined;
+      /** Off where the screen already is the way forward (the login form). */
+      readonly action?: boolean;
+    }
+  | {
+      readonly kind: "error";
+      readonly detail?: MessageKey;
+      readonly onRetry?: () => void;
+    };
 
 const BOX =
   "flex flex-col items-start gap-2 rounded-md border bg-card p-4 text-card-foreground";
 const TITLE = "m-0 flex items-center gap-2 font-semibold text-lg";
 
-export function StatusScreen({
-  kind,
-  redirect,
-  action = true,
-  detail,
-  onRetry,
-}: StatusScreenProps) {
+export function StatusScreen(props: StatusScreenProps) {
   const { t } = useI18n();
+  const { kind } = props;
+  const { redirect, action = true } = props.kind === "error" ? {} : props;
+  const { detail, onRetry } = props.kind === "error" ? props : {};
   if (kind === "loading" || kind === "checking-login") {
     return (
       <section className={BOX} data-status={kind} aria-busy="true">

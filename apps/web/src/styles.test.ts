@@ -66,8 +66,6 @@ describe("styles.css", () => {
   });
 
   test("declares no animation of its own; motion comes from utilities", () => {
-    // Utilities pair with `motion-reduce:`; a keyframe here would need its own
-    // prefers-reduced-motion twin.
     expect(css).not.toContain("@keyframes");
   });
 });
