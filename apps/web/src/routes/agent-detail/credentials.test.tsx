@@ -189,7 +189,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     const server = serverNaming("github/app", "slack:bot");
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    await screen.findByLabelText("runtime profile");
+    await screen.findByLabelText("프로필");
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     const activate = await screen.findByRole("button", {
       name: `version 1 · ${PROFILE} 활성화`,
@@ -264,7 +264,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         }),
     });
     const user = await setupUser();
-    await screen.findByLabelText("runtime profile");
+    await screen.findByLabelText("프로필");
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     await user.click(
       await screen.findByRole("button", {
@@ -297,7 +297,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         apiError(409, "CREDENTIAL_UNBOUND", "unbound"),
     });
     const user = await setupUser();
-    await screen.findByLabelText("runtime profile");
+    await screen.findByLabelText("프로필");
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     await user.click(
       await screen.findByRole("button", {
