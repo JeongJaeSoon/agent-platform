@@ -90,6 +90,11 @@ select:focus-visible,
   font-size: var(--ap-text-xl);
   margin: 0;
 }
+.web-auth__intro {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-sm);
+  margin: 0;
+}
 
 .web-form {
   display: flex;
