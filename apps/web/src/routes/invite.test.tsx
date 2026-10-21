@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import type { QueryClient } from "@tanstack/react-query";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -307,5 +308,64 @@ describe("이미 로그인한 사람", () => {
       ko["invite.invalid.title"],
     ];
     expect(new Set(titles).size).toBe(5);
+  });
+});
+
+describe("단계 이동", () => {
+  test("단계를 옮길 때마다 포커스가 그 단계의 제목으로 간다", async () => {
+    renderAt(`/invite/${TOKEN}`, { "GET /v1/auth/me": signedOut });
+    const user = await setupUser();
+    const focusedHeading = (name: string) =>
+      waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("heading", { level: 2, name }),
+        ),
+      );
+
+    const newcomer = await screen.findByRole("button", {
+      name: "아니요, 처음입니다",
+    });
+    // Arriving on the first step leaves focus where the page put it.
+    expect(document.activeElement?.tagName).not.toBe("H2");
+    await user.click(newcomer);
+    await focusedHeading("새 계정으로 수락");
+    await user.click(screen.getByRole("button", { name: "이전" }));
+    await focusedHeading("초대받은 이메일로 쓰는 계정이 있나요?");
+    await user.click(
+      screen.getByRole("button", { name: "네, 계정이 있습니다" }),
+    );
+    await focusedHeading("기존 계정으로 수락");
+  });
+});
+
+describe("비밀번호 보존 범위", () => {
+  const cachedPassword = (services: { queryClient: QueryClient }) =>
+    services.queryClient
+      .getMutationCache()
+      .getAll()
+      .some((m) => JSON.stringify(m.state).includes(SECRET));
+
+  test("틀린 비밀번호(401) 뒤 MutationCache에 비밀번호가 남지 않는다", async () => {
+    const { api, services } = renderAt(`/invite/${TOKEN}`, {
+      "GET /v1/auth/me": signedOut,
+      "POST /v1/invites/accept": () =>
+        apiError(401, "UNAUTHORIZED", "Invite token or password is invalid"),
+    });
+    await accept();
+    await screen.findByRole("alert");
+    expect(acceptCalls(api)).toHaveLength(1);
+    await waitFor(() => expect(cachedPassword(services)).toBe(false));
+    expect(screen.getByRole("button", { name: "초대 수락" })).toBeDefined();
+  });
+
+  test("쓸 수 없는 초대(410) 뒤에도 남지 않고, 안내는 그대로 보인다", async () => {
+    const { services } = renderAt(`/invite/${TOKEN}`, {
+      "GET /v1/auth/me": signedOut,
+      "POST /v1/invites/accept": () =>
+        apiError(410, "INVITE_EXPIRED", "This invite was revoked"),
+    });
+    await accept();
+    await screen.findByText("쓸 수 없는 초대입니다");
+    await waitFor(() => expect(cachedPassword(services)).toBe(false));
   });
 });
