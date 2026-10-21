@@ -63,13 +63,41 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 계획. API는 표준 OTLP로 내보낸다. OTLP를 받는 수집기면 어느 것이든 된다. Grafana Tempo, Langfuse, OpenTelemetry Collector, OTLP를 받는 상용 백엔드가 그 예다. 특정 벤더는 필요 없다. 운영자가 endpoint를 설정하기 전에는 export가 꺼져 있고, 꺼져 있어도 ① 경로는 그대로 동작한다. 수집기 설정 키와 Tempo·Langfuse 설정 예시는 [94S-733](https://linear.app/94soon/issue/94S-733)과 [94S-737](https://linear.app/94soon/issue/94S-737)이 운영 문서에 더한다.
 
+### 이름 규칙 (계획)
+
+계획. 트레이스에 새로 생기는 이름은 바깥 이름 Werft를 쓴다. 표준 이름이 있으면 표준을 먼저 쓰고, 이미 코드와 대시보드에 있는 이름은 바꾸지 않는다.
+
+| 대상 | 이름 | 비고 |
+|---|---|---|
+| resource | `service.namespace=werft`, `service.name`은 `werft-api`·`werft-worker`, `service.version`은 릴리스 버전 | OTel 표준 키. worker span의 `service.name`은 ingest가 정한다. 엔진 CLI의 span(2단계)도 `werft-worker` 밑에 둔다 |
+| 엔진 버전 | `werft.engine.version` | 엔진(Claude Code CLI) 버전. `service.version`과 따로 둔다 |
+| Werft 속성 | `werft.workspace_id`, `werft.session_id`, `werft.execution_id`, `werft.attempt_id`, `werft.turn_id`, `werft.agent_id` 등 | `werft.<명사>_<명사>` 한 단계로 짓는다 |
+| worker span | `werft.turn`, `werft.llm_request`, `werft.tool`, `werft.permission_wait`, `werft.question_wait`, `werft.checkpoint` | 수집기가 종류를 알아보도록 `gen_ai.operation.name`(`chat`·`execute_tool`)을 함께 싣는다 |
+| API HTTP span | `{method} {http.route}`(예: `POST /v1/sessions/{id}/turns`) | OTel HTTP semantic conventions 그대로 |
+| 모델·토큰·도구 | `gen_ai.*` | OTel GenAI semantic conventions 그대로. 예: `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.tool.call.id` |
+| 세션 묶음 | `session.id`, `gen_ai.conversation.id` | 수집기가 세션 단위로 묶을 때 쓰는 표준 키. 값은 `werft.session_id`와 같다 |
+| worker·pod | `service.instance.id` | OTel 표준 키. 값은 로그의 `pod_id`와 같다 |
+| 설정 키 | `OTEL_*`(표준), `TRACE_*` | 운영자 키는 지금처럼 기능 이름으로 시작한다. `WERFT_*`는 클라이언트 SDK 키(`WERFT_API_KEY`·`WERFT_BASE_URL`)에만 쓴다 |
+
+바꾸지 않는 이름은 다음과 같다.
+
+- **로그 필드.** stdout JSON 로그의 `session_id`·`turn_id`·`pod_id`·`request_id`·`trace_id`(`packages/observability/src/index.ts`의 `ObservabilityContext`)는 그대로다. span 쪽 `werft.session_id`·`werft.turn_id`와 값은 같고 키만 다르다. 바꾸면 Datadog의 facet과 log metric이 끊긴다.
+- **Datadog 메트릭과 태그.** `agent_platform.*` 메트릭, `source:agent-platform`, `service:api` 같은 태그([monitoring-datadog.md](monitoring-datadog.md))는 이미 배포된 monitor와 대시보드가 쓰므로 그대로 둔다.
+- **엔진 CLI의 이름.** 2단계 엔진 telemetry의 `claude_code.*` span과 `assistant_response` 로그는 엔진이 정하는 이름이라 바꿀 수 없다.
+
 ## 내용 수집과 비밀값 마스킹
 
 ### 무엇을 담나
 
 ① 이벤트는 지금도 내용을 담는다. assistant 텍스트, 도구 입력(`tool_use`), 도구 결과 본문(`tool_result`), 질문과 권한 요청의 입력이 들어간다(`packages/adapters/runtimes/claude/src/mapper.ts`의 `projectPublicEvents`·`pendingRequestEvent`).
 
-② 트레이스(계획)는 export를 켠 설치에서 내용도 기본으로 싣는다. 사용자 입력은 turn span에, 답변 텍스트는 모델 응답 span에, 도구 입력과 출력은 도구 span에 실린다. thinking 블록은 싣지 않는다. 워크스페이스 설정으로 메타데이터(시각, 토큰 수, 도구 이름, 결과)만 보내도록 낮출 수 있다. 속성 하나는 UTF-8 32KiB에서 자르고, 자른 속성에는 잘렸다는 표시와 원래 바이트 수를 붙인다. turn 트레이스 하나가 20MiB를 넘으면 그 뒤 span에서는 내용을 빼고 메타데이터만 보낸다. 잘리지 않은 내용은 ① 이벤트에 남는다.
+② 트레이스(계획)는 두 스위치가 모두 켜져야 내용을 싣는다. 첫째, 설치가 export를 켠다(`OTEL_TRACES_EXPORTER=otlp`, 기본 `none`). 둘째, 내용 모드가 `full`이다(설치 상한 `TRACE_CONTENT_MODE`, 기본 `full`). 워크스페이스는 이 상한 안에서 메타데이터(시각, 토큰 수, 도구 이름, 결과)만 보내도록 낮출 수만 있다. 그래서 export를 켜지 않은 설치에서는 내용이 어디에도 나가지 않고, 켠 설치에서는 따로 설정하지 않아도 내용이 나간다. 두 키는 [94S-733](https://linear.app/94soon/issue/94S-733)이 만들고, [94S-737](https://linear.app/94soon/issue/94S-737)이 기본값과 함께 운영 문서에 적는다.
+
+계획. 내용은 OTel GenAI semantic conventions 속성에 싣는다. 사용자 입력은 turn span의 `gen_ai.input.messages`, 답변 텍스트는 모델 응답 span의 `gen_ai.output.messages`, 도구 입력과 출력은 도구 span의 `gen_ai.tool.call.arguments`·`gen_ai.tool.call.result`다. thinking 블록은 싣지 않는다.
+
+계획. 속성 하나는 UTF-8 32KiB(`TRACE_CONTENT_MAX_BYTES`, 기본 32768)에서 자르고, `werft.truncated.<원래 키>`에 원래 바이트 수를 적는다. 글자 수가 아니라 바이트로 자르는 이유는 한국어 텍스트가 글자 수 한도보다 훨씬 빨리 커지기 때문이다. turn 트레이스 하나가 20MiB를 넘으면 그 뒤 span에서는 내용을 빼고 메타데이터만 보낸다. 잘리지 않은 내용은 ① 이벤트에 남는다.
+
+**엔진 CLI 자체 telemetry와의 차이.** 위 정책은 worker가 만드는 span의 것이다. 엔진 CLI도 자체 OTel을 낼 수 있지만(2단계 선택 기능, [94S-739](https://linear.app/94soon/issue/94S-739)) 성질이 다르다. 내용 수집이 기본으로 꺼져 있고 `OTEL_LOG_USER_PROMPTS`·`OTEL_LOG_ASSISTANT_RESPONSES`·`OTEL_LOG_TOOL_DETAILS`·`OTEL_LOG_TOOL_CONTENT`로 켠다. 끈 항목은 `<REDACTED>`와 길이만 남는다. 켜도 답변 텍스트는 span이 아니라 OTLP 로그 `assistant_response`에만 실린다. 그래서 트레이스만 받는 수집기(Langfuse, Tempo)에는 답변이 보이지 않는다. 프롬프트도 `gen_ai.*`가 아니라 CLI 고유 키 `user_prompt`에 실려, Langfuse에서는 Input 칸이 아니라 Metadata에만 보인다. 길이 한도는 CLI 쪽 `CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH`(UTF-16 단위)를 따르고 `TRACE_CONTENT_MAX_BYTES`는 걸리지 않는다. 관측 스파이크의 화면은 이 CLI telemetry로 만든 것이라 1단계 동작과 다르다.
 
 ### 비밀값을 어디서 가리나
 
@@ -90,7 +118,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 - **지금.** 세션 이벤트는 그 세션을 만든 주체(principal의 `ownerId`)만 `sessions:read` scope로 읽는다. 다른 주체의 세션은 404다(`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). scope는 HTTP 경계에서 `apps/control-host/src/api/scope-policy.ts`가 검사한다.
 - **계획: 에이전트 오너와 관리 팀.** 에이전트 admin과 admin 팀 구성원이 그 에이전트의 세션 내용을 보게 하고, 열람마다 기록을 남긴다([94S-735](https://linear.app/94soon/issue/94S-735)). 팀과 권한 모델을 main에 반영하는 [JeongJaeSoon/agent-platform#427](https://github.com/JeongJaeSoon/agent-platform/pull/427) 위에 올린다. 권한은 열람할 때마다 다시 읽으므로, 팀에서 빠진 사람은 다음 요청부터 못 본다.
 - **계획: 트레이스 상세 탭(2단계).** 우리 API가 위 권한을 검사한 뒤, 그 워크스페이스의 테넌트 안에서 세션 id와 turn의 trace id로 수집기를 조회해 보여 준다([94S-738](https://linear.app/94soon/issue/94S-738)). trace id만으로는 조회하지 않는다.
-- **계획: 수집기 화면.** 수집기 UI에 직접 들어가는 사람은 운영자뿐이다. 수집기의 권한 단위(Langfuse의 프로젝트, Tempo의 테넌트)는 세션·에이전트 단위의 우리 규칙을 표현하지 못한다. 그래서 고객에게 수집기 계정을 주지 않는다. 워크스페이스는 테넌트 헤더나 워크스페이스별 키로 나눈다(속성 필터는 분리 수단이 아니다, [94S-732](https://linear.app/94soon/issue/94S-732)).
+- **계획: 수집기 화면.** 수집기 UI에 직접 들어가는 사람은 운영자뿐이다. 수집기의 권한 단위(Langfuse의 프로젝트, Tempo의 테넌트)는 세션·에이전트 단위의 우리 규칙을 표현하지 못한다. 그래서 고객에게 수집기 계정을 주지 않는다. 워크스페이스는 테넌트 헤더나 워크스페이스별 키로 나눈다(속성 필터는 분리 수단이 아니다, [94S-732](https://linear.app/94soon/issue/94S-732)). 수집기 화면에서 내용이 어느 칸에 보이는지는 수집기의 매핑에 달려 있다. Werft는 `gen_ai.*` 속성만 내고 수집기별 매핑은 하지 않는다. Langfuse가 이 속성을 Input·Output 칸으로 읽는지는 1단계 구현 때 확인한다.
 
 ## 보존 기간으로 중복 저장 줄이기
 
