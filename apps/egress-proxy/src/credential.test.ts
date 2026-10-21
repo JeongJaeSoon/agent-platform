@@ -850,6 +850,22 @@ describe("startCredentialProxy", () => {
     expect(up.seen).toEqual([]);
   });
 
+  test("an allowlisted upstream that does not resolve gets 502, not 403", async () => {
+    const up = upstream(() => new Response("ok"));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    const server = proxy(auth.url, up.port, {
+      resolve: async (host) => {
+        throw new Error(`getaddrinfo ENOTFOUND ${host}`);
+      },
+    });
+    expect((await messages(server.port)).status).toBe(502);
+    expect(up.seen).toEqual([]);
+  });
+
   test("a redirect is not followed and not relayed", async () => {
     const up = upstream(
       () =>

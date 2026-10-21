@@ -41,9 +41,14 @@ export type EgressPolicy = {
 
 export type EgressResolver = (host: string) => Promise<string[]>;
 
+/**
+ * `denied` is the policy saying no. `unresolved` is an allowlisted name with
+ * no answer right now — a restarting container drops out of Docker's DNS —
+ * which is an outage the caller may retry, not a verdict on the destination.
+ */
 export type EgressDecision =
   | { addresses: string[]; allowed: true; scope: "private" | "public" }
-  | { allowed: false; reason: string };
+  | { allowed: false; failure: "denied" | "unresolved"; reason: string };
 
 export function normalizeHost(host: string): string {
   const unbracketed =
@@ -107,7 +112,11 @@ export async function decideEgress(
       ? "private"
       : null;
   if (scope === null) {
-    return { allowed: false, reason: "destination is not allowlisted" };
+    return {
+      allowed: false,
+      failure: "denied",
+      reason: "destination is not allowlisted",
+    };
   }
   let addresses: string[];
   try {
@@ -115,24 +124,41 @@ export async function decideEgress(
   } catch (error) {
     return {
       allowed: false,
+      failure: "unresolved",
       reason: `host does not resolve: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
   if (addresses.length === 0) {
-    return { allowed: false, reason: "host does not resolve" };
+    return {
+      allowed: false,
+      failure: "unresolved",
+      reason: "host does not resolve",
+    };
   }
   // All of them, not the first: a name that resolves to one good and one bad
   // address is a rebinding attempt, and the loser of that race is us.
   for (const address of addresses) {
     const kind = classifyAddress(address);
     if (kind === null) {
-      return { allowed: false, reason: `${address} is not an IP address` };
+      return {
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is not an IP address`,
+      };
     }
     if (ALWAYS_DENIED.has(kind)) {
-      return { allowed: false, reason: `${address} is ${kind}` };
+      return {
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is ${kind}`,
+      };
     }
     if (scope === "public" && kind !== "public") {
-      return { allowed: false, reason: `${address} is ${kind}, not public` };
+      return {
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is ${kind}, not public`,
+      };
     }
   }
   return { addresses, allowed: true, scope };

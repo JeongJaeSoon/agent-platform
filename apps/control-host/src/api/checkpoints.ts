@@ -1,4 +1,4 @@
-import type { Database } from "@agent-platform/db";
+import type { Database, LostCheckpoints } from "@agent-platform/db";
 import { createPostgresCheckpointStore } from "@agent-platform/db";
 import {
   type CheckpointProtocol,
@@ -393,13 +393,50 @@ export async function assertCheckpointObjectsPresent(
   const check = async (client: S3ClientLike) => {
     if (await bucketHoldsObjectVersion(client, config.bucket)) return;
     throw new Error(
-      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
+      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Keep accounts, keys and sessions and give up only the lost checkpoints with \`scripts/local.sh forget-lost-checkpoints\` (their sessions wait for a recovery decision), or start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
     );
   };
   if (options.client !== undefined) return check(options.client);
   const client = checkpointS3Client(config);
   try {
     await check(client);
+  } finally {
+    client.destroy();
+  }
+}
+
+/**
+ * The operator's way past assertCheckpointObjectsPresent short of a reset:
+ * runs `forget` only in the state that guard refuses, a bucket holding no
+ * object version while the database still has uncollected checkpoints.
+ * A bucket with any version left did not lose everything, so nothing is
+ * given up there; a missing object or two is the backup's per-version
+ * check to find.
+ */
+export async function forgetLostCheckpointObjects(
+  config: CheckpointStorageConfig,
+  options: {
+    readonly hasUncollectedCheckpoint: () => Promise<boolean>;
+    readonly forget: () => Promise<LostCheckpoints>;
+    /** Tests substitute a fake; the product path never passes this. */
+    readonly client?: S3ClientLike;
+  },
+): Promise<LostCheckpoints> {
+  if (!(await options.hasUncollectedCheckpoint())) {
+    return { held: [], unchanged: [] };
+  }
+  const check = async (client: S3ClientLike) => {
+    if (await bucketHoldsObjectVersion(client, config.bucket)) {
+      throw new Error(
+        `Checkpoint bucket ${config.bucket} still holds object versions, so it did not lose its checkpoints; nothing was changed`,
+      );
+    }
+    return options.forget();
+  };
+  if (options.client !== undefined) return check(options.client);
+  const client = checkpointS3Client(config);
+  try {
+    return await check(client);
   } finally {
     client.destroy();
   }

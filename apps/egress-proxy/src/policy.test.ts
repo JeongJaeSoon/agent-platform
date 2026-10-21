@@ -126,7 +126,11 @@ describe("decideEgress", () => {
         { host: "api.example.com", port: 8443 },
         resolver({ "api.example.com": ["93.184.216.34"] }),
       ),
-    ).toEqual({ allowed: false, reason: "destination is not allowlisted" });
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "destination is not allowlisted",
+    });
   });
 
   test("a host outside both lists is denied before it is resolved", async () => {
@@ -136,7 +140,11 @@ describe("decideEgress", () => {
         resolved = true;
         return ["93.184.216.34"];
       }),
-    ).toEqual({ allowed: false, reason: "destination is not allowlisted" });
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "destination is not allowlisted",
+    });
     expect(resolved).toBe(false);
   });
 
@@ -147,7 +155,11 @@ describe("decideEgress", () => {
         { host: "api.example.com", port: 443 },
         resolver({ "api.example.com": ["10.0.0.5"] }),
       ),
-    ).toEqual({ allowed: false, reason: "10.0.0.5 is private, not public" });
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "10.0.0.5 is private, not public",
+    });
   });
 
   test("one bad address among good ones denies the whole destination", async () => {
@@ -157,7 +169,11 @@ describe("decideEgress", () => {
         { host: "api.example.com", port: 443 },
         resolver({ "api.example.com": ["93.184.216.34", "127.0.0.1"] }),
       ),
-    ).toEqual({ allowed: false, reason: "127.0.0.1 is loopback, not public" });
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "127.0.0.1 is loopback, not public",
+    });
   });
 
   test("a private entry may resolve to a private address", async () => {
@@ -181,7 +197,11 @@ describe("decideEgress", () => {
         { host: "metadata.test", port: 80 },
         resolver({ "metadata.test": ["169.254.169.254"] }),
       ),
-    ).toEqual({ allowed: false, reason: "169.254.169.254 is link_local" });
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "169.254.169.254 is link_local",
+    });
   });
 
   test("a host that does not resolve is denied, not allowed by default", async () => {
@@ -191,14 +211,22 @@ describe("decideEgress", () => {
         { host: "api.example.com", port: 443 },
         resolver({}),
       ),
-    ).toMatchObject({ allowed: false });
+    ).toEqual({
+      allowed: false,
+      failure: "unresolved",
+      reason: "host does not resolve: no such host api.example.com",
+    });
     expect(
       await decideEgress(
         policy,
         { host: "api.example.com", port: 443 },
         async () => [],
       ),
-    ).toEqual({ allowed: false, reason: "host does not resolve" });
+    ).toEqual({
+      allowed: false,
+      failure: "unresolved",
+      reason: "host does not resolve",
+    });
   });
 
   test("the trailing dot spelling of an allowlisted host still matches", async () => {

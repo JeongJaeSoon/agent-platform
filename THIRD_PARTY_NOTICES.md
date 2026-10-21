@@ -280,7 +280,6 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | wrappy | 1.0.2 | ISC | worker |
 | xtend | 4.0.2 | MIT | control-host, worker |
 | yaml | 2.9.1 | ISC | control-host, worker |
-| zod | 3.25.76 | MIT | worker |
 | zod | 4.6.5 | MIT | control-host, worker |
 | zod-to-json-schema | 3.25.2 | ISC | worker |
 
