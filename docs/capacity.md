@@ -8,9 +8,9 @@
 |---|---|---|
 | transcript 합계 상한 `MAX_TRANSCRIPT_BYTES` | 512MiB | `packages/runtime-core/src/checkpoint-manifest.ts` |
 | transcript part 상한 `MAX_TRANSCRIPT_PART_BYTES` | 16MiB | 같은 파일 |
-| 경고 문턱 | 상한의 80%, 409.6MiB | `transcriptWarnBytes()`, 같은 파일 |
+| 경고 문턱 (예정) | 상한의 80%, 409.6MiB | 아직 없다. 아래 "80% 경고와 상한 초과 차단 (예정)" |
 | worker 메모리 `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608MiB | `apps/control-host/src/scheduler/config.ts`, `deploy/helm/agent-platform/values.yaml`, `infra/compose.core.yml` |
-| workspace 상한 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096MiB (최솟값 1024) | 같은 곳 |
+| workspace 상한 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096MiB (Kubernetes 최솟값 1024) | `packages/adapters/execution/kubernetes/src/config.ts`, `packages/adapters/execution/local-docker/src/config.ts`, `deploy/helm/agent-platform/values.yaml` |
 
 `.env.example`은 로컬 개발용으로 `WORKER_MEMORY_MB=2048`을 둔다. 이 값을 그대로 쓰면 아래 절반 기준이 지켜지지 않는다. 큰 transcript를 resume하는 로컬 시험에서는 이 줄을 지우거나 4608로 바꾼다.
 
@@ -24,21 +24,19 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 
 크기는 compaction 뒤에도 남는 JSONL 전체다. 엔진(Claude Code CLI)은 resume할 때 마지막 compaction 이전을 다시 읽지 않지만, 플랫폼은 파일 전체를 저장하고 복원한다. 그래서 상한은 파일 전체 크기에 건다.
 
-### 80% 경고
+### 상한을 넘으면 (지금 동작)
 
-커밋된 checkpoint의 transcript가 처음으로 409.6MiB 이상이 되면 다음 두 가지가 생긴다.
+- worker의 사전검사가 checkpoint를 거절한다(checkpoint 결과 `refused`). turn은 그대로 끝나지만 그 turn의 checkpoint는 커밋되지 않는다.
+- 세션은 막히지 않는다. 새 메시지를 받고 turn도 계속 돈다. 다만 transcript가 상한 아래로 줄지 않으므로 이후 checkpoint도 모두 거절된다. mirror에 쌓이는 transcript는 계속 커진다.
+- 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다. 보존되는 것은 그 checkpoint까지다. 그 뒤의 turn은 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn들의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
+- 경고도 없다. 세션이 상한에 다가가는지 API로 알 수 없다.
 
-- SSE에 `system` 이벤트(`subtype: "transcript_near_limit"`, `transcript_bytes`, `warn_bytes`, `limit_bytes`, `checkpoint_revision`)가 한 번 온다.
-- 세션 상세 `attention`이 `{ "code": "TRANSCRIPT_LIMIT", "reason": "transcript_near_limit", … }`가 된다.
+### 80% 경고와 상한 초과 차단 (예정)
 
-이 단계에서 막는 것은 없다. 하던 일을 마무리하고 새 세션으로 옮길 때라는 신호다.
+[JeongJaeSoon/agent-platform#478](https://github.com/JeongJaeSoon/agent-platform/pull/478)이 다음 동작을 더한다. 그 PR은 migration 번호가 JeongJaeSoon/agent-platform#427과 겹쳐 #427 뒤로 미뤘다. land할 때 이 절을 실제 동작으로 바꾼다.
 
-### 상한을 넘으면
-
-- 넘긴 그 turn은 checkpoint 없이 `completed`로 끝난다. worker는 workspace를 올리지 않고, finalize는 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)를 세션에 기록한다.
-- 그 뒤로 새 메시지는 409로 거절되고, queue에 있던 turn도 실행되지 않는다. 세션 상세 `attention`의 reason은 `transcript_too_large`다.
-- 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다(`restorable: true`). 보존되는 것은 그 checkpoint까지다. 상한을 넘긴 turn은 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
-- 이어 가려면 새 세션을 만든다. 세션이 recovery 경로(`recovery_required`)에 있으면 `start_fresh`로 새 transcript에서 이어 갈 수도 있다. 막힌 active 세션에서 바로 `start_fresh`를 부르는 길은 아직 없다.
+- 커밋된 checkpoint의 transcript가 처음으로 상한의 80%(409.6MiB) 이상이 되면 SSE `system` 이벤트(`transcript_near_limit`)를 한 번 보내고, 세션 상세 `attention`을 `TRANSCRIPT_LIMIT`로 둔다. 막지는 않는다.
+- 상한을 넘으면 finalize가 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)를 세션에 기록하고, 그 뒤 새 메시지와 queue의 turn을 막는다. 이어 가려면 새 세션을 만든다.
 
 ## worker 메모리와 transcript 크기 (실측)
 
@@ -86,7 +84,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 | 600MiB | 2178MiB (실측) | 4608MiB | 6 | 12/12 | 480MiB |
 | 800MiB | 2785MiB (실측) | 5632MiB | 5 | 12/12 | 640MiB |
 
-- 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나이고, 이런 세션은 409.6MiB에서 경고를 받은 뒤 새 세션으로 옮긴다.
+- 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나다. 경고(예정)가 들어오면 이런 세션은 409.6MiB에서 경고를 받고 새 세션으로 옮긴다.
 - 400MiB는 400.1MiB 세션을 바로 끊는다. 256MiB는 217MiB 세션도 경고 구간에 넣는다.
 - 공개된 다른 시스템도 활성 기록은 작게 묶는다. Temporal은 event history가 50MB에 닿으면 실행을 끝낸다([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). Inngest는 run state를 32MiB로 묶는다([usage limits](https://www.inngest.com/docs/usage-limits/inngest)). Claude Code의 선택형 `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`는 compaction 뒤 파일이 5MB를 넘으면 그 이전을 지운다([env vars](https://code.claude.com/docs/en/env-vars)). 수백 MiB를 통째로 복원하는 사례는 찾지 못했다(2026-10-21 조사).
 - 메모리는 4096MiB가 아니라 4608MiB다. 512MiB의 실측 peak 1970MiB는 4096MiB의 절반(2048)에 78MiB밖에 남지 않는다. 4608MiB면 여유가 334MiB다.
@@ -118,7 +116,7 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 | ① `worker.memoryMb` 낮추기 | values 값 하나만 바꾼다(`WORKER_MEMORY_MB`, 다음 launch부터 적용) | 노드당 세션이 는다. 예를 들어 3584MiB면 30GiB 노드에 8개다 | compaction 없는 큰 transcript를 resume할 여유가 같이 준다. 절반 기준을 지키려면 상한도 같이 내려야 한다(3584MiB면 상한 약 400MiB, 추정). 상한은 코드 상수라 빌드가 필요하다 |
 | ② requests < limits 오버커밋 | chart의 worker Pod requests를 limits보다 작게 둔다 | 작은 세션이 많을 때 노드당 세션이 크게 는다. 실측에서 64~150MiB transcript의 resume peak는 726~839MiB였다 | 지금 chart와 scheduler는 requests = limits로만 Pod를 만든다. 바꾸려면 코드 변경이 필요하다. QoS가 Burstable로 내려가, 큰 세션 몇 개가 동시에 resume하면 노드 메모리 압박으로 OOM kill이나 eviction이 난다 |
 | ③ 노드 그룹 키우기 | worker 노드 수나 노드 크기를 늘린다 | 세션당 보장은 그대로 두고 총 세션 수를 늘린다 | 비용이 는다. 코드 변경은 없다 |
-| ④ 세션 크기별 Pod 크기 | 복원할 transcript 크기를 보고 scheduler가 Pod 메모리를 고른다 | 작은 세션은 작게, 큰 세션만 크게 띄운다 | **미구현.** scheduler가 launch 전에 checkpoint 크기를 알아야 하고, 실행 중에 transcript가 커지는 경우(같은 Pod 안에서 경고 문턱을 넘는 경우)를 따로 다뤄야 한다 |
+| ④ 세션 크기별 Pod 크기 | 복원할 transcript 크기를 보고 scheduler가 Pod 메모리를 고른다 | 작은 세션은 작게, 큰 세션만 크게 띄운다 | **미구현.** scheduler가 launch 전에 checkpoint 크기를 알아야 하고, 실행 중에 같은 Pod 안에서 transcript가 커지는 경우를 따로 다뤄야 한다 |
 
 상한(`MAX_TRANSCRIPT_BYTES`)만 올리고 메모리를 그대로 두는 것은 권하지 않는다. compaction 없는 큰 transcript의 resume이 한도에 닿으면 worker가 재기동을 반복하다 세션이 `recovery_required`가 된다. 상한을 바꿀 때는 이 문서의 방법으로 다시 재고, 위 표를 갱신한다.
 
@@ -126,16 +124,10 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 이 값들을 바꾸는 변경은 control-host와 worker 이미지를 **같은 릴리스로** 올린다. 상한은 worker(capture, restore)와 API(finalize)가 따로 검사한다. 그래서 한쪽만 새 값이면 다음과 같이 된다.
 
-- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절하고, 그 세션에 `transcript_too_large`를 기록한다. 그 뒤 새 입력과 queue의 turn이 막힌다. worker 기준으로는 상한 안인 세션도 이렇게 막힐 수 있다.
-- worker만 옛 값(작은 상한): 큰 checkpoint의 restore를 거절한다. 작은 상한으로 capture도 거절하므로 같은 reason이 기록된다.
+- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절한다. 세션은 마지막 checkpoint로 계속 돈다. worker 기준으로는 상한 안인 세션도 checkpoint가 이렇게 멈출 수 있다.
+- worker만 옛 값(작은 상한): 큰 checkpoint의 restore를 거절하고, 작은 상한으로 capture도 거절한다.
 
-상한을 처음 넘은 세션을 막는 reason(`transcript_too_large`, `transcript_part_too_large`, `transcript_near_limit`)을 더할 때는 다음 순서를 지킨다.
-
-1. migration(0134, nullable 컬럼을 더하는 additive 변경). Kubernetes에서는 Helm의 `pre-upgrade` migrate Job이 먼저 돈다.
-2. control-host(api)의 **모든** 인스턴스. 옛 api는 worker가 보낸 새 reason을 400으로 거절하고, 새 worker는 그 보고가 실패하면 capture를 실패시킨다.
-3. worker 이미지.
-
-롤백 하한은 이 reason을 아는 빌드다. 그보다 옛 control-host로 되돌리면, 새 reason이 남은 세션에서 worker 경로의 strict parse가 예외를 낸다.
+[JeongJaeSoon/agent-platform#478](https://github.com/JeongJaeSoon/agent-platform/pull/478)(예정)은 상한을 넘은 세션을 막는 reason(`transcript_too_large`, `transcript_part_too_large`, `transcript_near_limit`)과 migration 하나를 더한다. 그 PR을 배포할 때는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서를 지킨다. 옛 api는 worker가 보낸 새 reason을 거절하기 때문이다. 자세한 순서와 롤백 하한은 그 PR이 land할 때 여기에 적는다.
 
 `WORKER_MEMORY_MB`(`worker.memoryMb`)는 다음 launch부터 적용된다. 실행 중인 worker는 교체되지 않는다.
 
@@ -144,4 +136,3 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 - [operations.md § scheduler·worker 컨테이너·egress 설정](operations.md#schedulerworker-컨테이너egress-설정): `WORKER_MEMORY_MB` 등 환경 변수
 - [operations.md § worker workspace의 상한과 회수](operations.md#worker-workspace의-상한과-회수): workspace quota
 - [kubernetes-deployment.md](kubernetes-deployment.md): chart 설치와 업그레이드
-- [api-guide.md](api-guide.md): `transcript_near_limit`·`transcript_too_large`의 API 모양
