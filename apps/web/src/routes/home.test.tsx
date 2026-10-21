@@ -33,6 +33,8 @@ const oneSession = {
     kind: "claude_agent_sdk",
     version: "1.0.0",
     profile_id: "default",
+    model: "model-default",
+    permission_mode: "default",
   },
   repository_id: "demo",
   current_turn_id: null,
