@@ -69,7 +69,7 @@ describe("bootstrap checklist", () => {
     );
     expect(
       screen
-        .getByRole("link", { name: "첫 세션 시작하기" })
+        .getByRole("link", { name: "첫 세션 확인하기" })
         .getAttribute("href"),
     ).toBe("/sessions");
     expect(

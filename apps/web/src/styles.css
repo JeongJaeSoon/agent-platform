@@ -90,23 +90,6 @@ select:focus-visible,
   font-size: var(--ap-text-xl);
   margin: 0;
 }
-.web-auth__intro,
-.web-auth__aside {
-  color: var(--ap-color-muted-foreground);
-  font-size: var(--ap-text-sm);
-  margin: 0;
-}
-.web-auth__alt {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ap-space-3);
-}
-.web-auth__divider {
-  color: var(--ap-color-muted-foreground);
-  font-size: var(--ap-text-sm);
-  text-align: center;
-  margin: 0;
-}
 
 .web-form {
   display: flex;
@@ -170,21 +153,6 @@ select:focus-visible,
   margin: 0;
 }
 
-.web-spinner {
-  width: 1em;
-  height: 1em;
-  border: 2px solid var(--ap-color-border-strong);
-  border-top-color: var(--ap-color-accent);
-  border-radius: var(--ap-radius-pill);
-  animation: web-spin var(--ap-motion-normal) linear infinite;
-  animation-duration: 900ms;
-}
-@keyframes web-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .web-guarded {
   display: inline-flex;
   flex-direction: column;
@@ -192,44 +160,6 @@ select:focus-visible,
 }
 .web-guarded__reason {
   color: var(--ap-color-muted-foreground);
-  font-size: var(--ap-text-xs);
-}
-
-.web-home__title {
-  margin: 0 0 var(--ap-space-2);
-  font-size: var(--ap-text-xl);
-}
-.web-home__who {
-  margin: 0 0 var(--ap-space-6);
-  color: var(--ap-color-muted-foreground);
-  overflow-wrap: anywhere;
-}
-.web-checklist h2 {
-  margin: 0 0 var(--ap-space-3);
-  font-size: var(--ap-text-lg);
-}
-.web-checklist ol {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ap-space-2);
-}
-.web-checklist__step {
-  display: flex;
-  align-items: center;
-  gap: var(--ap-space-3);
-  padding: var(--ap-space-3);
-  border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
-  background: var(--ap-color-surface);
-}
-.web-checklist__step[data-done="false"] {
-  color: var(--ap-color-muted-foreground);
-}
-.web-checklist__state {
-  margin-left: auto;
   font-size: var(--ap-text-xs);
 }
 
@@ -256,9 +186,6 @@ select:focus-visible,
 .web-section h2 {
   margin: 0;
   font-size: var(--ap-text-lg);
-}
-.web-home > .web-section {
-  margin-top: var(--ap-space-6);
 }
 .web-form--inline {
   max-width: none;
@@ -430,11 +357,5 @@ select:focus-visible,
 @media (min-width: 48rem) {
   .web-auth {
     padding: var(--ap-space-10) var(--ap-space-6);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .web-spinner {
-    animation: none;
   }
 }

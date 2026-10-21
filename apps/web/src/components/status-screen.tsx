@@ -1,5 +1,6 @@
+import { Button, cn } from "@agent-platform/ui";
 import { Link } from "@tanstack/react-router";
-import { useI18n } from "../i18n/i18n.tsx";
+import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 export type StatusKind =
   | "loading"
@@ -7,7 +8,8 @@ export type StatusKind =
   | "not-found"
   | "login-required"
   | "forbidden"
-  | "bootstrap-required";
+  | "bootstrap-required"
+  | "error";
 
 export interface StatusScreenProps {
   readonly kind: StatusKind;
@@ -15,19 +17,32 @@ export interface StatusScreenProps {
   readonly redirect?: string | undefined;
   /** Off where the screen already is the way forward (the login form). */
   readonly action?: boolean;
+  /** What went wrong, for kind "error". */
+  readonly detail?: MessageKey;
+  /** Offered as "try again" for kind "error". */
+  readonly onRetry?: () => void;
 }
+
+const BOX =
+  "flex flex-col items-start gap-2 rounded-md border bg-card p-4 text-card-foreground";
+const TITLE = "m-0 flex items-center gap-2 font-semibold text-lg";
 
 export function StatusScreen({
   kind,
   redirect,
   action = true,
+  detail,
+  onRetry,
 }: StatusScreenProps) {
   const { t } = useI18n();
   if (kind === "loading" || kind === "checking-login") {
     return (
-      <section className="web-status" data-status={kind} aria-busy="true">
-        <output className="web-status__title">
-          <span className="web-spinner" aria-hidden="true" />
+      <section className={BOX} data-status={kind} aria-busy="true">
+        <output className={TITLE}>
+          <span
+            className="size-4 animate-spin rounded-full border-2 border-input border-t-primary motion-reduce:animate-none"
+            aria-hidden="true"
+          />
           {kind === "loading"
             ? t("status.loading.title")
             : t("status.checkingLogin.title")}
@@ -52,33 +67,46 @@ export function StatusScreen({
       title: t("status.bootstrapRequired.title"),
       body: t("status.bootstrapRequired.body"),
     },
+    error: {
+      title: t("status.error.title"),
+      body: t(detail ?? "error.UNKNOWN"),
+    },
   }[kind];
+  const alert = kind === "forbidden" || kind === "error";
   return (
     <section
-      className="web-status"
+      className={cn(
+        BOX,
+        alert && "border-[var(--ap-tone-danger-border)]",
+        kind === "bootstrap-required" &&
+          "border-[var(--ap-tone-attention-border)]",
+      )}
       data-status={kind}
-      role={kind === "forbidden" ? "alert" : undefined}
+      role={alert ? "alert" : undefined}
     >
-      <h2 className="web-status__title">{copy.title}</h2>
-      <p className="web-status__body">{copy.body}</p>
+      <h2 className={TITLE}>{copy.title}</h2>
+      <p className="m-0">{copy.body}</p>
       {kind === "login-required" && action ? (
-        <Link
-          className="ap-button ap-button--primary"
-          to="/login"
-          search={redirect ? { redirect } : {}}
-        >
-          {t("status.loginRequired.action")}
-        </Link>
+        <Button asChild>
+          <Link to="/login" search={redirect ? { redirect } : {}}>
+            {t("status.loginRequired.action")}
+          </Link>
+        </Button>
       ) : null}
       {kind === "not-found" ? (
-        <Link className="ap-button ap-button--primary" to="/">
-          {t("status.notFound.action")}
-        </Link>
+        <Button asChild>
+          <Link to="/">{t("status.notFound.action")}</Link>
+        </Button>
       ) : null}
       {kind === "bootstrap-required" && action ? (
-        <Link className="ap-button ap-button--primary" to="/bootstrap">
-          {t("status.bootstrapRequired.action")}
-        </Link>
+        <Button asChild>
+          <Link to="/bootstrap">{t("status.bootstrapRequired.action")}</Link>
+        </Button>
+      ) : null}
+      {kind === "error" && onRetry ? (
+        <Button type="button" variant="outline" onClick={onRetry}>
+          {t("common.retry")}
+        </Button>
       ) : null}
     </section>
   );

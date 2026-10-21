@@ -1,4 +1,5 @@
 import { useAgentPlatform, useSessions } from "@agent-platform/react";
+import { Card, CardContent, CardHeader, CardTitle } from "@agent-platform/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
@@ -15,6 +16,7 @@ interface Step {
   readonly key: MessageKey;
   readonly state: StepState;
   readonly to?: "/members" | "/agents" | "/sessions";
+  readonly hint?: MessageKey;
 }
 
 function stateOf(query: {
@@ -77,46 +79,67 @@ export function HomeScreen() {
         data: (sessions.data?.pages[0]?.items.length ?? 0) > 0,
       }),
       to: "/sessions",
+      hint: "home.checklist.sessionHint",
     },
   ];
   return (
-    <div className="web-home">
-      <h1 className="web-home__title">
-        {me?.workspace?.name ?? t("home.title")}
-      </h1>
-      {me?.user ? (
-        <p className="web-home__who">
-          {t("home.signedInAs", {
-            name: me.user.display_name,
-            email: me.user.email,
-          })}
-        </p>
-      ) : null}
-      <section className="web-checklist" aria-labelledby={checklistTitle}>
-        <h2 id={checklistTitle}>{t("home.checklist.title")}</h2>
-        <ol>
-          {steps.map((step) => (
-            <li
-              key={step.key}
-              className="web-checklist__step"
-              data-done={step.state === "done"}
-              data-state={step.state}
-            >
-              <span className="web-checklist__mark" aria-hidden="true">
-                {MARK[step.state]}
-              </span>
-              {step.to ? (
-                <Link to={step.to}>{t(step.key)}</Link>
-              ) : (
-                <span>{t(step.key)}</span>
-              )}
-              <span className="web-checklist__state">
-                {t(STATE_KEY[step.state])}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </section>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="m-0 font-semibold text-xl">
+          {me?.workspace?.name ?? t("home.title")}
+        </h1>
+        {me?.user ? (
+          <p className="m-0 text-muted-foreground [overflow-wrap:anywhere]">
+            {t("home.signedInAs", {
+              name: me.user.display_name,
+              email: me.user.email,
+            })}
+          </p>
+        ) : null}
+      </div>
+      <Card className="gap-4" aria-labelledby={checklistTitle} role="region">
+        <CardHeader>
+          <CardTitle>
+            <h2 id={checklistTitle} className="m-0 text-lg">
+              {t("home.checklist.title")}
+            </h2>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ol className="m-0 flex list-none flex-col gap-2 p-0">
+            {steps.map((step) => (
+              <li
+                key={step.key}
+                className="flex items-start gap-3 rounded-md border p-3 data-[done=false]:text-muted-foreground"
+                data-done={step.state === "done"}
+                data-state={step.state}
+              >
+                <span aria-hidden="true">{MARK[step.state]}</span>
+                <span className="flex min-w-0 flex-col gap-1">
+                  {step.to ? (
+                    <Link
+                      className="text-primary underline underline-offset-2"
+                      to={step.to}
+                    >
+                      {t(step.key)}
+                    </Link>
+                  ) : (
+                    <span>{t(step.key)}</span>
+                  )}
+                  {step.hint ? (
+                    <span className="text-muted-foreground text-sm">
+                      {t(step.hint)}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="ml-auto shrink-0 text-xs">
+                  {t(STATE_KEY[step.state])}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </CardContent>
+      </Card>
       <AdministeredAgents showEmpty={false} />
       <MyTeams showEmpty={false} />
     </div>
