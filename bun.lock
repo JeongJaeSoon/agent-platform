@@ -11,17 +11,17 @@
       },
     },
     "apps/control-host": {
-      "name": "@werft-ai/control-host",
+      "name": "@agent-platform/control-host",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/db": "workspace:*",
-        "@werft-ai/execution-kubernetes": "workspace:*",
-        "@werft-ai/execution-local-docker": "workspace:*",
-        "@werft-ai/observability": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
-        "@werft-ai/runtime-claude-codec": "workspace:*",
-        "@werft-ai/storage": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/db": "workspace:*",
+        "@agent-platform/execution-kubernetes": "workspace:*",
+        "@agent-platform/execution-local-docker": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+        "@agent-platform/runtime-claude-codec": "workspace:*",
+        "@agent-platform/storage": "workspace:*",
         "@aws-sdk/client-secrets-manager": "^3.888.0",
         "@hono/zod-openapi": "1.6.3",
         "@octokit/auth-app": "8.3.1",
@@ -36,28 +36,28 @@
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
         "@electric-sql/pglite": "0.3.10",
         "@scalar/api-reference": "1.72.1",
         "@types/pg": "8.15.5",
       },
     },
     "apps/egress-proxy": {
-      "name": "@werft-ai/egress-proxy",
+      "name": "@agent-platform/egress-proxy",
       "version": "0.0.0",
     },
     "apps/storybook": {
-      "name": "@werft-ai/storybook",
+      "name": "@agent-platform/storybook",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/react": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
-        "@storybook/addon-a11y": "10.6.1",
-        "@storybook/addon-vitest": "10.6.1",
-        "@storybook/react-vite": "10.6.1",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/core": "workspace:*",
+        "@agent-platform/react": "workspace:*",
+        "@agent-platform/ui": "workspace:*",
+        "@storybook/addon-a11y": "10.6.2",
+        "@storybook/addon-vitest": "10.6.2",
+        "@storybook/react-vite": "10.6.2",
         "@tailwindcss/vite": "4.3.3",
         "@tanstack/react-query": "5.103.2",
         "@types/react": "^19.3.0",
@@ -65,21 +65,21 @@
         "playwright": "1.64.1",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
-        "storybook": "10.6.1",
+        "storybook": "10.6.2",
         "tailwindcss": "4.3.3",
         "vite": "7.3.7",
         "vitest": "4.1.12",
       },
     },
     "apps/web": {
-      "name": "@werft-ai/web",
+      "name": "@agent-platform/web",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/react": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/core": "workspace:*",
+        "@agent-platform/react": "workspace:*",
+        "@agent-platform/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@hookform/resolvers": "5.9.1",
         "@radix-ui/react-dialog": "^1.1.23",
@@ -105,136 +105,136 @@
       },
     },
     "apps/worker": {
-      "name": "@werft-ai/worker",
+      "name": "@agent-platform/worker",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/observability": "workspace:*",
-        "@werft-ai/runtime-claude": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
-        "@werft-ai/storage": "workspace:*",
-        "@werft-ai/system": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
+        "@agent-platform/runtime-claude": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
+        "@agent-platform/storage": "workspace:*",
+        "@agent-platform/system": "workspace:*",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/adapters/execution/kubernetes": {
-      "name": "@werft-ai/execution-kubernetes",
+      "name": "@agent-platform/execution-kubernetes",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
       },
       "devDependencies": {
-        "@werft-ai/execution-local-docker": "workspace:*",
+        "@agent-platform/execution-local-docker": "workspace:*",
       },
     },
     "packages/adapters/execution/local-docker": {
-      "name": "@werft-ai/execution-local-docker",
+      "name": "@agent-platform/execution-local-docker",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/adapters/runtimes/claude": {
-      "name": "@werft-ai/runtime-claude",
+      "name": "@agent-platform/runtime-claude",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/runtime-claude-codec": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-claude-codec": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/adapters/runtimes/claude-codec": {
-      "name": "@werft-ai/runtime-claude-codec",
+      "name": "@agent-platform/runtime-claude-codec",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "zod": "4.6.5",
       },
     },
     "packages/client": {
-      "name": "@werft-ai/client",
+      "name": "@agent-platform/client",
       "version": "0.0.0",
       "dependencies": {
         "openapi-fetch": "0.17.0",
       },
       "devDependencies": {
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "openapi-typescript": "7.13.0",
       },
     },
     "packages/contracts": {
-      "name": "@werft-ai/contracts",
+      "name": "@agent-platform/contracts",
       "version": "0.0.0",
       "dependencies": {
         "zod": "4.6.5",
       },
     },
     "packages/core": {
-      "name": "@werft-ai/core",
+      "name": "@agent-platform/core",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "@tanstack/query-core": "5.103.2",
         "zod": "4.6.5",
       },
     },
     "packages/db": {
-      "name": "@werft-ai/db",
+      "name": "@agent-platform/db",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/observability": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
-        "@werft-ai/system": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+        "@agent-platform/system": "workspace:*",
         "drizzle-orm": "0.45.2",
         "pg": "8.16.3",
         "pg-connection-string": "2.14.0",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
         "@electric-sql/pglite": "0.3.10",
         "@types/pg": "8.15.5",
         "drizzle-kit": "0.31.4",
       },
     },
     "packages/observability": {
-      "name": "@werft-ai/observability",
+      "name": "@agent-platform/observability",
       "version": "0.0.0",
     },
     "packages/platform": {
-      "name": "@werft-ai/platform",
+      "name": "@agent-platform/platform",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/react": {
-      "name": "@werft-ai/react",
+      "name": "@agent-platform/react",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/core": "workspace:*",
+        "@agent-platform/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@hookform/resolvers": "5.9.1",
         "@tanstack/react-query": "5.103.2",
@@ -250,19 +250,19 @@
       },
     },
     "packages/runtime-core": {
-      "name": "@werft-ai/runtime-core",
+      "name": "@agent-platform/runtime-core",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
       },
     },
     "packages/storage": {
-      "name": "@werft-ai/storage",
+      "name": "@agent-platform/storage",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/platform": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
-        "@werft-ai/system": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
+        "@agent-platform/system": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@aws-sdk/credential-provider-node": "^3.972.84",
         "@smithy/core": "^3.34.1",
@@ -271,30 +271,30 @@
         "@smithy/types": "^4.18.0",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/system": {
-      "name": "@werft-ai/system",
+      "name": "@agent-platform/system",
       "version": "0.0.0",
     },
     "packages/testkit": {
-      "name": "@werft-ai/testkit",
+      "name": "@agent-platform/testkit",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/db": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/db": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@types/pg": "8.15.5",
         "pg": "8.16.3",
       },
     },
     "packages/ui": {
-      "name": "@werft-ai/ui",
+      "name": "@agent-platform/ui",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "@radix-ui/react-checkbox": "1.3.11",
         "@radix-ui/react-dialog": "^1.1.23",
         "@radix-ui/react-radio-group": "1.4.7",
@@ -325,47 +325,47 @@
   "packages": {
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
 
-    "@werft-ai/client": ["@werft-ai/client@workspace:packages/client"],
+    "@agent-platform/client": ["@agent-platform/client@workspace:packages/client"],
 
-    "@werft-ai/contracts": ["@werft-ai/contracts@workspace:packages/contracts"],
+    "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
 
-    "@werft-ai/control-host": ["@werft-ai/control-host@workspace:apps/control-host"],
+    "@agent-platform/control-host": ["@agent-platform/control-host@workspace:apps/control-host"],
 
-    "@werft-ai/core": ["@werft-ai/core@workspace:packages/core"],
+    "@agent-platform/core": ["@agent-platform/core@workspace:packages/core"],
 
-    "@werft-ai/db": ["@werft-ai/db@workspace:packages/db"],
+    "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
 
-    "@werft-ai/egress-proxy": ["@werft-ai/egress-proxy@workspace:apps/egress-proxy"],
+    "@agent-platform/egress-proxy": ["@agent-platform/egress-proxy@workspace:apps/egress-proxy"],
 
-    "@werft-ai/execution-kubernetes": ["@werft-ai/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
+    "@agent-platform/execution-kubernetes": ["@agent-platform/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
 
-    "@werft-ai/execution-local-docker": ["@werft-ai/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
+    "@agent-platform/execution-local-docker": ["@agent-platform/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
 
-    "@werft-ai/observability": ["@werft-ai/observability@workspace:packages/observability"],
+    "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
 
-    "@werft-ai/platform": ["@werft-ai/platform@workspace:packages/platform"],
+    "@agent-platform/platform": ["@agent-platform/platform@workspace:packages/platform"],
 
-    "@werft-ai/react": ["@werft-ai/react@workspace:packages/react"],
+    "@agent-platform/react": ["@agent-platform/react@workspace:packages/react"],
 
-    "@werft-ai/runtime-claude": ["@werft-ai/runtime-claude@workspace:packages/adapters/runtimes/claude"],
+    "@agent-platform/runtime-claude": ["@agent-platform/runtime-claude@workspace:packages/adapters/runtimes/claude"],
 
-    "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
+    "@agent-platform/runtime-claude-codec": ["@agent-platform/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
 
-    "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
+    "@agent-platform/runtime-core": ["@agent-platform/runtime-core@workspace:packages/runtime-core"],
 
-    "@werft-ai/storage": ["@werft-ai/storage@workspace:packages/storage"],
+    "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
 
-    "@werft-ai/storybook": ["@werft-ai/storybook@workspace:apps/storybook"],
+    "@agent-platform/storybook": ["@agent-platform/storybook@workspace:apps/storybook"],
 
-    "@werft-ai/system": ["@werft-ai/system@workspace:packages/system"],
+    "@agent-platform/system": ["@agent-platform/system@workspace:packages/system"],
 
-    "@werft-ai/testkit": ["@werft-ai/testkit@workspace:packages/testkit"],
+    "@agent-platform/testkit": ["@agent-platform/testkit@workspace:packages/testkit"],
 
-    "@werft-ai/ui": ["@werft-ai/ui@workspace:packages/ui"],
+    "@agent-platform/ui": ["@agent-platform/ui@workspace:packages/ui"],
 
-    "@werft-ai/web": ["@werft-ai/web@workspace:apps/web"],
+    "@agent-platform/web": ["@agent-platform/web@workspace:apps/web"],
 
-    "@werft-ai/worker": ["@werft-ai/worker@workspace:apps/worker"],
+    "@agent-platform/worker": ["@agent-platform/worker@workspace:apps/worker"],
 
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.13", "", { "dependencies": { "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.5", "@vercel/oidc": "3.1.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-g7nE4PFtngOZNZSy1lOPpkC+FAiHxqBJXqyRMEG7NUrEVZlz5goBdtHg1YgWRJIX776JTXAmbOI5JreAKVAsVA=="],
 
@@ -648,6 +648,7 @@
     "@napi-rs/lzma-linux-x64-gnu": ["@napi-rs/lzma-linux-x64-gnu@1.5.1", "", { "os": "linux", "cpu": "x64" }, "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.2.5", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.4", "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.4" } }, "sha512-HshSvXzmBxNzqejd3k/KemgQ3hdREUYFRRrgxOZ+gPljDIsO2SDZrVZMd4Z/HsxudQbE62OVyVFE8z9BCurfjA=="],
+
     "@octokit/auth-app": ["@octokit/auth-app@8.3.1", "", { "dependencies": { "@octokit/auth-oauth-app": "^9.0.5", "@octokit/auth-oauth-user": "^6.0.4", "@octokit/request": "^10.0.16", "@octokit/request-error": "^7.1.2", "@octokit/types": "^18.0.0", "toad-cache": "^3.7.0", "universal-github-app-jwt": "^2.2.0", "universal-user-agent": "^7.0.0" } }, "sha512-XHWxZsF4mvGTQCv7AOxgby9t9OjVO19FBuKq+QmyBxFrf+B2hR/P5j/MTF8g95bITf8cRtR17KIXThpFNqiKbg=="],
 
     "@octokit/auth-oauth-app": ["@octokit/auth-oauth-app@9.0.5", "", { "dependencies": { "@octokit/auth-oauth-device": "^8.0.5", "@octokit/auth-oauth-user": "^6.0.4", "@octokit/request": "^10.0.16", "@octokit/types": "^18.0.0", "universal-user-agent": "^7.0.0" } }, "sha512-Hn2yAlIDjFLGjAz7t+CRu7e9VYoFW1W3LLyOLyahFoJGlCf4PtDkHKtRET8w/2CJpsrC0FxIF5g5Xtx9E4O78w=="],
@@ -946,21 +947,21 @@
 
     "@standard-schema/utils": ["@standard-schema/utils@0.3.0", "", {}, "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g=="],
 
-    "@storybook/addon-a11y": ["@storybook/addon-a11y@10.6.1", "", { "dependencies": { "@storybook/global": "^5.0.0", "axe-core": "^4.2.0" }, "peerDependencies": { "storybook": "^10.6.1" } }, "sha512-73wx4xyOMBbFIF4DnlfHy5o/c5sWjawn/tb+zq/GAKXkYCuBziE5aa3WDzRDhdxN259p5kTDyJcRi1SlUEUexg=="],
+    "@storybook/addon-a11y": ["@storybook/addon-a11y@10.6.2", "", { "dependencies": { "@storybook/global": "^5.0.0", "axe-core": "^4.2.0" }, "peerDependencies": { "storybook": "^10.6.2" } }, "sha512-zleS+btwrTRcUf3opbZntKsEt6PTqAtxsek08tx5jh5fRvd6wWmtnwW3uaBcypfIKnheTB3KGljJwFX+Mc+Umg=="],
 
-    "@storybook/addon-vitest": ["@storybook/addon-vitest@10.6.1", "", { "dependencies": { "@storybook/global": "^5.0.0", "@storybook/icons": "^2.0.2" }, "peerDependencies": { "@vitest/browser": "^3.0.0 || ^4.0.0 || ^5.0.0", "@vitest/browser-playwright": "^4.0.0 || ^5.0.0", "@vitest/runner": "^3.0.0 || ^4.0.0 || ^5.0.0", "storybook": "^10.6.1", "vitest": "^3.0.0 || ^4.0.0 || ^5.0.0" }, "optionalPeers": ["@vitest/browser", "@vitest/browser-playwright", "@vitest/runner", "vitest"] }, "sha512-ZGB7kDd9o0UiXIIXLZMKK9ruNyqo2jEBT+2YjlpKGDtJR6iAEhfWyiPY8JkobCV5Fge0oBqyg1x9am4wv/vp5w=="],
+    "@storybook/addon-vitest": ["@storybook/addon-vitest@10.6.2", "", { "dependencies": { "@storybook/global": "^5.0.0", "@storybook/icons": "^2.0.2" }, "peerDependencies": { "@vitest/browser": "^3.0.0 || ^4.0.0 || ^5.0.0", "@vitest/browser-playwright": "^4.0.0 || ^5.0.0", "@vitest/runner": "^3.0.0 || ^4.0.0 || ^5.0.0", "storybook": "^10.6.2", "vitest": "^3.0.0 || ^4.0.0 || ^5.0.0" }, "optionalPeers": ["@vitest/browser", "@vitest/browser-playwright", "@vitest/runner", "vitest"] }, "sha512-gyyBzncvUyEgWQR3LinnGuI4UsWIUYLyw1u8i244aTxmY4uxCYjsDmUNkaSr8xQzNz8nh2Ckh3G4bO4SvJ6nJQ=="],
 
-    "@storybook/builder-vite": ["@storybook/builder-vite@10.6.1", "", { "dependencies": { "ts-dedent": "^2.0.0" }, "peerDependencies": { "storybook": "^10.6.1", "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-kUMRRRS4MpJdxOLhrlQX3cpMYi2vVB3tIIRXyqWmAjVM6xT7OZ1SCQEMFPP+S3ToRqaYWZQb8aBqrJucbbYufA=="],
+    "@storybook/builder-vite": ["@storybook/builder-vite@10.6.2", "", { "dependencies": { "ts-dedent": "^2.0.0" }, "peerDependencies": { "storybook": "^10.6.2", "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-SzeQEGjvybdhP2coF4aIX6JX/7rZTrQCpRU3vAEO/R98Vr3xM8jdg7a3nvt91TeF/P8iWqljLIpaDjTdk2r/sQ=="],
 
     "@storybook/global": ["@storybook/global@5.0.0", "", {}, "sha512-FcOqPAXACP0I3oJ/ws6/rrPT9WGhu915Cg8D02a9YxLo0DE9zI+a9A5gRGvmQ09fiWPukqI8ZAEoQEdWUKMQdQ=="],
 
     "@storybook/icons": ["@storybook/icons@2.2.0", "", { "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-FpUB/xizIrV1ILhCIYFo+TtQNN9YEoLjfcnAW0JtOXL+BcM2aisSysI0B54JMWDnljriXySBHgN6ps4s9lb75A=="],
 
-    "@storybook/react": ["@storybook/react@10.6.1", "", { "dependencies": { "@storybook/global": "^5.0.0", "@storybook/react-dom-shim": "10.6.1", "react-docgen": "^8.0.2", "react-docgen-typescript": "^2.2.2" }, "peerDependencies": { "@types/react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "@types/react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.1", "typescript": ">= 4.9.x" }, "optionalPeers": ["@types/react", "@types/react-dom", "typescript"] }, "sha512-t0QIzO0MVcpD52UEMZKSv35nO/+8vUnLGoFC1E3BIVjHEIdr6IFFM7ty2E7FWsaZGsah3XrFINKT3dPd2Atz+Q=="],
+    "@storybook/react": ["@storybook/react@10.6.2", "", { "dependencies": { "@storybook/global": "^5.0.0", "@storybook/react-dom-shim": "10.6.2", "react-docgen": "^8.0.2", "react-docgen-typescript": "^2.2.2" }, "peerDependencies": { "@types/react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "@types/react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.2", "typescript": ">= 4.9.x" }, "optionalPeers": ["@types/react", "@types/react-dom", "typescript"] }, "sha512-kNWUU6Q8TrLmEqAzYmNYhC9A3i3kbjFxqIcLL3eu+o4gDu0afp1Of6Sy6jIF2qPGH05A3r6FWMzD03y4Mm5xRw=="],
 
-    "@storybook/react-dom-shim": ["@storybook/react-dom-shim@10.6.1", "", { "peerDependencies": { "@types/react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "@types/react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.1" }, "optionalPeers": ["@types/react", "@types/react-dom"] }, "sha512-OkPFycR6kVE+9ZsgQWRqnUfZm/sLY6dxsNAn3lsvV7DSAQWH9QnHLkqP9E/N/Hg6cKPDtGzDZ8vPNDz2FuaDuQ=="],
+    "@storybook/react-dom-shim": ["@storybook/react-dom-shim@10.6.2", "", { "peerDependencies": { "@types/react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "@types/react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.2" }, "optionalPeers": ["@types/react", "@types/react-dom"] }, "sha512-k0262Vqxjk3wHeg3g/QO/ENDrkC7kkbuwsFSXOdYr7Sl888tsF1DAS7uQ/gr+s/BRz1FLYRX7wBY3smEUV4MJg=="],
 
-    "@storybook/react-vite": ["@storybook/react-vite@10.6.1", "", { "dependencies": { "@joshwooding/vite-plugin-react-docgen-typescript": "^0.7.0", "@rollup/pluginutils": "^5.0.2", "@storybook/builder-vite": "10.6.1", "@storybook/react": "10.6.1", "empathic": "^2.0.0", "magic-string": "^1.1.0", "react-docgen": "^8.0.2", "resolve": "^1.22.8", "tsconfig-paths": "^4.2.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.1", "typescript": ">= 4.9.x", "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "optionalPeers": ["typescript"] }, "sha512-oyUZxuW2lIJN8BRbYyMyZbfjeYqtF6HwmNfqa1SAF525zRnMewYp66wm/5d8FAgwqejOf6N2+wR3hX866lSwMA=="],
+    "@storybook/react-vite": ["@storybook/react-vite@10.6.2", "", { "dependencies": { "@joshwooding/vite-plugin-react-docgen-typescript": "^0.7.0", "@rollup/pluginutils": "^5.0.2", "@storybook/builder-vite": "10.6.2", "@storybook/react": "10.6.2", "empathic": "^2.0.0", "magic-string": "^1.1.0", "react-docgen": "^8.0.2", "resolve": "^1.22.8", "tsconfig-paths": "^4.2.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.2", "typescript": ">= 4.9.x", "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "optionalPeers": ["typescript"] }, "sha512-RfYSW9eefxRXk7IXKBTBkBYAspHKaxNVBR7mlXQAt+Z2bJZzj+S21mv6kBcpFIfAIT9wSIq8xMg0RbeR7CneVQ=="],
 
     "@swc/helpers": ["@swc/helpers@0.5.23", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw=="],
 
@@ -1159,6 +1160,7 @@
     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
 
     "baseline-browser-mapping": ["baseline-browser-mapping@2.11.28", "", { "bin": { "baseline-browser-mapping": "dist/cli.cjs" } }, "sha512-br0LOmjJqr6Rt4AEkadbcNf67Zpo7EPwKsWbjnRrJIa1QYFHQBqM4C7F2WTbV8ahTEcg1Eo+Y0aWjjORInYFyA=="],
+
     "before-after-hook": ["before-after-hook@4.0.0", "", {}, "sha512-q6tR3RPqIB1pMiTRMFcZwuG5T8vwp+vUvEG0vuI6B+Rikh5BfPp2fQ82c925FOs+b0lcFQ8CFrL+KbilfZFhOQ=="],
 
     "body-parser": ["body-parser@2.3.0", "", { "dependencies": { "bytes": "^3.1.2", "content-type": "^2.0.0", "debug": "^4.4.3", "http-errors": "^2.0.1", "iconv-lite": "^0.7.2", "on-finished": "^2.4.1", "qs": "^6.15.2", "raw-body": "^3.0.2", "type-is": "^2.1.0" } }, "sha512-2cGmJupaNgg+QUwVLAucDuWuoMZ6EX9iHDRswZ5lsNYEmwPaRknMPCLZz07yTzVq/83p4o/wzbDZbBrTvGGTIw=="],
@@ -1469,8 +1471,9 @@
 
     "json-schema-typed": ["json-schema-typed@8.0.2", "", {}, "sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA=="],
 
-    "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
     "json-with-bigint": ["json-with-bigint@3.5.12", "", {}, "sha512-uwbF/wSSuOgC7qqlq27Xp5B6a2MHVug3t0idZdTqu0JnlFvgJuH7ju+KAk/J06C7GfhoYy2gnb9wz2INqcne7w=="],
+
+    "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
 
     "jsonc-parser": ["jsonc-parser@3.3.1", "", {}, "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ=="],
 
@@ -1838,7 +1841,7 @@
 
     "std-env": ["std-env@4.3.0", "", {}, "sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag=="],
 
-    "storybook": ["storybook@10.6.1", "", { "dependencies": { "@storybook/global": "^5.0.0", "@storybook/icons": "^2.0.2", "@testing-library/dom": "^10.4.1", "@testing-library/jest-dom": "6.9.1", "@testing-library/user-event": "^14.6.3", "@vitest/expect": "3.2.4", "@vitest/spy": "3.2.4", "@webcontainer/env": "^1.1.1", "esbuild": "^0.18.0 || ^0.19.0 || ^0.20.0 || ^0.21.0 || ^0.22.0 || ^0.23.0 || ^0.24.0 || ^0.25.0 || ^0.26.0 || ^0.27.0 || ^0.28.0", "jsonc-parser": "^3.3.1", "open": "^10.2.0", "oxc-parser": "^0.127.0", "oxc-resolver": "11.21.2", "recast": "^0.23.5", "semver": "^7.7.3", "use-sync-external-store": "^1.5.0", "ws": "^8.21.1" }, "peerDependencies": { "@types/react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "prettier": "^2 || ^3", "vite-plus": "^0.1.15 || ^0.2.0" }, "optionalPeers": ["@types/react", "prettier", "vite-plus"], "bin": "./dist/bin/dispatcher.js" }, "sha512-NeEmukMWPA5OqHizUkQtxCIhGt7MUZLPY4FFgpC0LNiipjrac/oKpH0TxI+9Zc+vI5+IoN+NiskOmBP7gtYfmA=="],
+    "storybook": ["storybook@10.6.2", "", { "dependencies": { "@storybook/global": "^5.0.0", "@storybook/icons": "^2.0.2", "@testing-library/dom": "^10.4.1", "@testing-library/jest-dom": "6.9.1", "@testing-library/user-event": "^14.6.3", "@vitest/expect": "3.2.4", "@vitest/spy": "3.2.4", "@webcontainer/env": "^1.1.1", "esbuild": "^0.18.0 || ^0.19.0 || ^0.20.0 || ^0.21.0 || ^0.22.0 || ^0.23.0 || ^0.24.0 || ^0.25.0 || ^0.26.0 || ^0.27.0 || ^0.28.0", "jsonc-parser": "^3.3.1", "open": "^10.2.0", "oxc-parser": "^0.127.0", "oxc-resolver": "11.21.2", "recast": "^0.23.5", "semver": "^7.7.3", "use-sync-external-store": "^1.5.0", "ws": "^8.21.1" }, "peerDependencies": { "@types/react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "prettier": "^2 || ^3", "vite-plus": "^0.1.15 || ^0.2.0" }, "optionalPeers": ["@types/react", "prettier", "vite-plus"], "bin": "./dist/bin/dispatcher.js" }, "sha512-qHDINMiapxFUxYb+xC3j8u7Y+85X3u+/PlytE/wmnyg+bU0agCW3jUmWP4vIh2MioO2jTK/2B3Lcw6IpRFzQBA=="],
 
     "string-byte-length": ["string-byte-length@3.0.1", "", {}, "sha512-yJ8vP0HMwZ54CcA8S8mKoXbkezpZHANFtmafFo8lGxZThCQcAwRHjdFabuSLgOzxj9OFJcmssmiAvmcOK4O2Hw=="],
 
@@ -1879,6 +1882,7 @@
     "tinyrainbow": ["tinyrainbow@3.2.0", "", {}, "sha512-LgO3D9yZJjApUiuUfl9iFAwrtaX4+lok3wJIqttGoKCHlWUqHqbQpnxCf82L8FjgKsh4iGo78hqJwgL8F6To2A=="],
 
     "tinyspy": ["tinyspy@4.0.6", "", {}, "sha512-u8KszXvGfU68hVcZpRHKG28T0krMuv2G5nDhiHaMLen/gIuFEgIJhaJuO69qjnXg5paSrbPMFfx3brNuN8eVSg=="],
+
     "toad-cache": ["toad-cache@3.7.4", "", {}, "sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg=="],
 
     "toidentifier": ["toidentifier@1.0.1", "", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
@@ -2039,14 +2043,15 @@
 
     "@floating-ui/vue/@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
 
-    "@oxc-resolver/binding-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.11.0", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-l9Oo58x0HOP5znGzVhYW9U3e5wVuA4LAZU2AGezTmkhO1CgQRFDhDg4nneHsu/t3WniXg9QrG2nIXL/ZS8ln8Q=="],
-
-    "@oxc-resolver/binding-wasm32-wasi/@emnapi/runtime": ["@emnapi/runtime@1.11.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-55coeOFKHv1ywEcUXJtWU5f+Jr/W5tZDvZig8DLKSwUN1JpROQ4rk/SNOQiFWmaR/VKF4zuFyW1B8JduOSv6Pg=="],
     "@modelcontextprotocol/sdk/content-type": ["content-type@1.0.5", "", {}, "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA=="],
 
     "@octokit/plugin-retry/@octokit/types": ["@octokit/types@17.0.0", "", { "dependencies": { "@octokit/openapi-types": "^28.0.0" } }, "sha512-ByP1v7YL5SMveFPP7+sj0/ZuWCOOg/Chs4NafOMpq6WNIM/hdGY0S7C0TCGDBWu1aGmOxmUIhMx3cO+IdwYZ1Q=="],
 
     "@octokit/plugin-throttling/@octokit/types": ["@octokit/types@17.0.0", "", { "dependencies": { "@octokit/openapi-types": "^28.0.0" } }, "sha512-ByP1v7YL5SMveFPP7+sj0/ZuWCOOg/Chs4NafOMpq6WNIM/hdGY0S7C0TCGDBWu1aGmOxmUIhMx3cO+IdwYZ1Q=="],
+
+    "@oxc-resolver/binding-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.11.0", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-l9Oo58x0HOP5znGzVhYW9U3e5wVuA4LAZU2AGezTmkhO1CgQRFDhDg4nneHsu/t3WniXg9QrG2nIXL/ZS8ln8Q=="],
+
+    "@oxc-resolver/binding-wasm32-wasi/@emnapi/runtime": ["@emnapi/runtime@1.11.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-55coeOFKHv1ywEcUXJtWU5f+Jr/W5tZDvZig8DLKSwUN1JpROQ4rk/SNOQiFWmaR/VKF4zuFyW1B8JduOSv6Pg=="],
 
     "@scalar/icons/@types/node": ["@types/node@24.19.0", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-zY+5tKxXdhGh1PYI0ac+7juvEu4OI6vWtVVoj5i2m42jxAY1U+zHGt6QCyOFwykdP62sM3MJ9stoYYUw5aCWew=="],
 
@@ -2106,8 +2111,9 @@
 
     "body-parser/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
 
-    "glob/minimatch": ["minimatch@10.2.6", "", { "dependencies": { "brace-expansion": "^5.0.8" } }, "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A=="],
     "express/content-type": ["content-type@1.0.5", "", {}, "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA=="],
+
+    "glob/minimatch": ["minimatch@10.2.6", "", { "dependencies": { "brace-expansion": "^5.0.8" } }, "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A=="],
 
     "lowlight/highlight.js": ["highlight.js@11.11.2", "", {}, "sha512-oaXMACAU0kzOMXBjWpNcX+vlwSBCIAiZ9BHa7gA15NOTtT2L/l8OSZDuqS2XppOhZBPJ7hm4o8ep2kyuip2uEQ=="],
 
@@ -2199,10 +2205,11 @@
 
     "@esbuild-kit/core-utils/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.18.20", "", { "os": "win32", "cpu": "x64" }, "sha512-kTdfRcSiDfQca/y9QIkng02avJ+NCaQvrMejlsB3RRv5sE9rRoeBPISaZpKxHELzRxZyLvNts1P27W3wV+8geQ=="],
 
-    "@oxc-resolver/binding-wasm32-wasi/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
     "@octokit/plugin-retry/@octokit/types/@octokit/openapi-types": ["@octokit/openapi-types@28.0.0", "", {}, "sha512-0rFyLuyHvIj6uuZWuDslxkowFYdPXoNIkeAv4b27dzm2Tf4vGWXnPsMcxs7d65kLdMERgP3wc1AEPlqMz8e1cQ=="],
 
     "@octokit/plugin-throttling/@octokit/types/@octokit/openapi-types": ["@octokit/openapi-types@28.0.0", "", {}, "sha512-0rFyLuyHvIj6uuZWuDslxkowFYdPXoNIkeAv4b27dzm2Tf4vGWXnPsMcxs7d65kLdMERgP3wc1AEPlqMz8e1cQ=="],
+
+    "@oxc-resolver/binding-wasm32-wasi/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
 
     "@scalar/icons/@types/node/undici-types": ["undici-types@7.24.6", "", {}, "sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg=="],
 
