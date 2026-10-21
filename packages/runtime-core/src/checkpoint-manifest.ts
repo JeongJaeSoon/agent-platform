@@ -107,12 +107,13 @@ export type CheckpointTranscripts = {
  * the root and every subagent. A restore streams the transcript to the
  * workspace volume one part at a time, so what the total is sized against is
  * the engine: resuming a transcript with no compaction in it, the engine
- * holds about twice its size (spikes/94s-667), and the worker's memory
+ * holds about twice its size, and the worker's memory
  * (`WORKER_MEMORY_MB`) is sized so that stays under half the limit. A part
  * is what the worker holds at once. The worker checks these before
  * publishing, finalize before reading any part, and a restore before
  * fetching any part — all against these same values. A session past it keeps
  * running on its last checkpoint.
+ * Measurements, sessions per node and how to change both: docs/capacity.md.
  */
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
 export const MAX_TRANSCRIPT_BYTES = 512 * 1024 * 1024;
