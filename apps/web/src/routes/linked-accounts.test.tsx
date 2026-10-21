@@ -255,6 +255,62 @@ describe("연동 계정", () => {
     );
   });
 
+  test("포커스를 넘겨받은 행도 해제 중이었다면 그 행이 빠질 때 다시 옮긴다", async () => {
+    let items = [slack, other];
+    const revoke = (id: string) => {
+      items = items.map((a) =>
+        a.id === id ? { ...a, status: "revoked" as const } : a,
+      );
+    };
+    const ok = () =>
+      json(200, { receipt_id: RECEIPT_ID, receipt_status: "succeeded" });
+    let releaseFirst: () => void = () => {};
+    let releaseOther: () => void = () => {};
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const otherGate = new Promise<void>((resolve) => {
+      releaseOther = resolve;
+    });
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items }),
+      // Applied only when answered, so the other row leaves first.
+      [`DELETE /v1/linked-accounts/${LINK_ID}`]: async () => {
+        await firstGate;
+        revoke(LINK_ID);
+        return ok();
+      },
+      [`DELETE /v1/linked-accounts/${OTHER_ID}`]: async () => {
+        await otherGate;
+        revoke(OTHER_ID);
+        return ok();
+      },
+    });
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
+    await user.keyboard("{Enter}");
+    await user.tab();
+    await user.keyboard("{Enter}");
+    releaseOther();
+    await waitFor(() =>
+      expect(
+        document.activeElement?.closest("li")?.textContent?.includes("U0MOCK"),
+      ).toBe(true),
+    );
+    releaseFirst();
+    expect(
+      await screen.findByText("연결된 Slack 계정이 없습니다."),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("heading", { name: "Slack" }),
+      ).toBe(true),
+    );
+  });
+
   test("해제를 기다리는 동안 같은 버튼을 다시 눌러도 다음 행으로 간다", async () => {
     const { release, routes } = heldUnlink();
     const { api } = renderAt("/settings/linked-accounts", routes);

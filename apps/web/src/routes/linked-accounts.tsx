@@ -64,33 +64,51 @@ export function LinkedAccountsScreen() {
   const titleId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // The account being unlinked, its neighbours nearest first (those below,
-  // then those above) when the request started, and whether focus is still
-  // on its row, until the row leaves the list.
-  const unlinked = useRef<{
-    id: string;
-    neighbours: readonly string[];
-    held: boolean;
-    stop: AbortController;
-  } | null>(null);
+  // The account whose row holds focus, until focus or a press goes elsewhere.
+  // Its row leaving takes focus with it, which fires neither event.
+  const focusedRow = useRef<string | null>(null);
+  const shownIds = useRef<readonly string[]>([]);
 
   const live =
     accounts.data?.items.filter((account) => account.status !== "revoked") ??
     [];
 
-  useEffect(() => () => unlinked.current?.stop.abort(), []);
+  useEffect(() => {
+    const track = (event: Event) => {
+      const row =
+        event.target instanceof Element
+          ? event.target.closest<HTMLElement>("li[data-account]")
+          : null;
+      focusedRow.current =
+        row && sectionRef.current?.contains(row)
+          ? (row.dataset.account ?? null)
+          : null;
+    };
+    const stop = new AbortController();
+    for (const type of ["focusin", "pointerdown"]) {
+      document.addEventListener(type, track, {
+        capture: true,
+        signal: stop.signal,
+      });
+    }
+    return () => stop.abort();
+  }, []);
 
-  // The pressed button leaves with its row and focus falls to the page. It
-  // goes to the nearest row left below, else above, else the heading of the
-  // emptied list.
+  // Focus that fell to the page with its row goes to the nearest row left
+  // below it, else above it, else the heading of the emptied list.
   useLayoutEffect(() => {
-    const gone = unlinked.current;
-    if (!gone || live.some((account) => account.id === gone.id)) return;
-    unlinked.current = null;
-    gone.stop.abort();
-    if (!gone.held || document.activeElement !== document.body) return;
     const ids = live.map(({ id }) => id);
-    const next = gone.neighbours.find((id) => ids.includes(id));
+    const before = shownIds.current;
+    shownIds.current = ids;
+    const gone = focusedRow.current;
+    if (!gone || ids.includes(gone)) return;
+    focusedRow.current = null;
+    if (document.activeElement !== document.body) return;
+    const at = before.indexOf(gone);
+    const next = [
+      ...before.slice(at + 1),
+      ...before.slice(0, Math.max(at, 0)).reverse(),
+    ].find((id) => ids.includes(id));
     const buttons =
       sectionRef.current?.querySelectorAll<HTMLElement>("li button") ?? [];
     (next ? buttons[ids.indexOf(next)] : headingRef.current)?.focus();
@@ -111,49 +129,15 @@ export function LinkedAccountsScreen() {
           params: { path: { id: account.id } },
         }),
       ),
-    onMutate: (account) => {
-      setOutcome(null);
-      unlinked.current?.stop.abort();
-      const ids = live.map(({ id }) => id);
-      const index = ids.indexOf(account.id);
-      const row = sectionRef.current?.querySelectorAll("li")[index];
-      const gone = {
-        id: account.id,
-        neighbours: [
-          ...ids.slice(index + 1),
-          ...ids.slice(0, Math.max(index, 0)).reverse(),
-        ],
-        held: row?.contains(document.activeElement) ?? false,
-        stop: new AbortController(),
-      };
-      unlinked.current = gone;
-      // Focus moved anywhere outside the row meanwhile is left where it went.
-      const away = (event: Event) => {
-        if (event.target instanceof Node && row?.contains(event.target)) return;
-        gone.held = false;
-        gone.stop.abort();
-      };
-      for (const type of ["focusin", "pointerdown"]) {
-        document.addEventListener(type, away, {
-          capture: true,
-          signal: gone.stop.signal,
-        });
-      }
-    },
+    onMutate: () => setOutcome(null),
     onSuccess: async () => {
       setOutcome({ kind: "notice", text: t("linked.unlinked") });
       await queryClient.invalidateQueries({
         queryKey: queryKeys.linkedAccounts,
       });
     },
-    onError: (error, account) => {
-      // A later unlink of another row keeps its own record.
-      if (unlinked.current?.id === account.id) {
-        unlinked.current.stop.abort();
-        unlinked.current = null;
-      }
-      setOutcome({ kind: "error", text: linkRefusal(t, error, role) });
-    },
+    onError: (error) =>
+      setOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
   });
 
   const notice = outcome?.kind === "notice" ? outcome.text : null;
@@ -230,6 +214,7 @@ function SlackAccounts({
       {accounts.map((account) => (
         <li
           key={account.id}
+          data-account={account.id}
           className="flex flex-col items-start gap-1 border-b py-3 sm:flex-row sm:items-center sm:gap-3"
         >
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
