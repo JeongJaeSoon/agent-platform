@@ -1,4 +1,10 @@
-import { useEffect, useState } from "react";
+import {
+  type FocusEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 const TIMER_MAX = 2 ** 31 - 1;
 
@@ -33,4 +39,37 @@ export function useExpired(
   }, [expired, expiresAt, now, requestId]);
 
   return expired;
+}
+
+/**
+ * Expiry takes the card's controls away, and the focus with them when the
+ * keyboard was on one: hand it to the expiry notice instead. Spread
+ * `within` on the card and put `noticeRef` on the notice.
+ */
+export function useExpiryFocus(expired: boolean) {
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+  // Whether focus was inside the card; a removed element sends no blur.
+  const inside = useRef(false);
+
+  useLayoutEffect(() => {
+    const notice = noticeRef.current;
+    const page = notice?.ownerDocument;
+    if (expired && inside.current && page?.activeElement === page?.body) {
+      notice?.focus();
+    }
+  }, [expired]);
+
+  return {
+    noticeRef,
+    within: {
+      onFocus: () => {
+        inside.current = true;
+      },
+      onBlur: (event: FocusEvent<HTMLElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          inside.current = false;
+        }
+      },
+    },
+  };
 }

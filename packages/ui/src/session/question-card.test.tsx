@@ -8,7 +8,7 @@ import {
   type QuestionRequest,
 } from "./question-card.tsx";
 
-const { render } = await setupDom();
+const { render, waitFor } = await setupDom();
 
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
 
@@ -128,6 +128,22 @@ describe("QuestionCard", () => {
     expect(
       (getByRole("checkbox", { name: "git" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  test("보낼 버튼에 포커스를 둔 채 만료되면 포커스가 만료 안내로 간다", async () => {
+    const now = Date.now();
+    const { getByRole, getByText } = render(
+      <QuestionCard
+        request={{ ...REQUEST, expires_at: new Date(now + 50).toISOString() }}
+        messages={MESSAGES}
+        onSubmit={() => {}}
+        now={now}
+      />,
+    );
+    getByRole("button", { name: "Send answer" }).focus();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(getByText("expired")),
+    );
   });
 
   test("보내는 중에는 막히고 거절 이유가 경고로 보인다", () => {

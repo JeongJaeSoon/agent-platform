@@ -17,7 +17,7 @@ import {
   formatTimestamp,
   type TimestampLocale,
 } from "../receipt/format-timestamp.ts";
-import { useExpired } from "./expiry.ts";
+import { useExpired, useExpiryFocus } from "./expiry.ts";
 
 export type QuestionRequest = Extract<PendingRequest, { kind: "question" }>;
 type Question = QuestionRequest["questions"][number];
@@ -90,6 +90,7 @@ export function QuestionCard({
   const [drafts, setDrafts] = useState<Readonly<Record<string, Draft>>>({});
   const [tried, setTried] = useState(false);
   const expired = useExpired(request.request_id, request.expires_at, now);
+  const { noticeRef, within } = useExpiryFocus(expired);
 
   const draftOf = (question: Question) => drafts[question.question_id] ?? EMPTY;
   const edit = (question: Question, change: Partial<Draft>) =>
@@ -123,13 +124,18 @@ export function QuestionCard({
         "flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 text-sm",
         className,
       )}
+      {...within}
     >
       <div className="flex flex-col gap-1">
         {/* Not a heading: the level depends on the screen around the card. */}
         <p id={titleId} className="font-medium">
           {messages.title}
         </p>
-        <p className="text-muted-foreground text-xs">
+        <p
+          ref={noticeRef}
+          tabIndex={expired ? -1 : undefined}
+          className="text-muted-foreground text-xs"
+        >
           {expired
             ? messages.expired
             : messages.expires(formatTimestamp(request.expires_at, locale))}
