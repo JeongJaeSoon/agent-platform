@@ -41,6 +41,7 @@ import {
   type RejectedCheckpoint,
   type RuntimeFingerprint,
   restoreCwdRefusal,
+  runtimeFor,
   TRANSCRIPT_MIRROR_DIRECTORY,
   type TranscriptRevision,
   transcriptParts,
@@ -239,6 +240,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const runtime = this.#options.fingerprint(claim);
+    // Profiles the session ran before its profile was changed; the
+    // checkpoints this run takes carry `runtime`.
+    const alternates = (claim.restore_runtime_configs ?? []).map(
+      (config) =>
+        this.#options.fingerprint({ ...claim, runtime_config: config })
+          .profileSha256,
+    );
     const pointer = claim.restore;
     if (pointer !== null) {
       // The store not answering is no fault of the checkpoint: the restore
@@ -247,7 +255,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       // answer is held to the manifest as ever.
       for (let retries = 0; ; retries += 1) {
         try {
-          return await this.#restore(claim, pointer, runtime, signal);
+          return await this.#restore(
+            claim,
+            pointer,
+            { runtime, alternates },
+            signal,
+          );
         } catch (caught) {
           if (!signal.aborted && isRestoreOutage(caught)) {
             const retryInMs = Math.min(
@@ -359,7 +372,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   async #restore(
     claim: BootstrapClaimResponse,
     pointer: CheckpointRef,
-    runtime: RuntimeFingerprint,
+    {
+      runtime,
+      alternates,
+    }: { runtime: RuntimeFingerprint; alternates: readonly string[] },
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const { objects, workspaceRoot } = this.#options;
@@ -371,6 +387,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         profile_sha256: runtime.profileSha256,
         sdk_version: runtime.sdkVersion,
       },
+      ...(alternates.length === 0
+        ? {}
+        : { alternate_profile_sha256s: [...alternates] }),
     });
     signal.throwIfAborted();
     const { plan, restoring } = planFor(answer, pointer);
@@ -393,7 +412,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
     }
     const manifest = this.#codec.decode(manifestBytes);
-    this.#checkManifest(claim, restoring, runtime, manifest);
+    this.#checkManifest(
+      claim,
+      restoring,
+      runtimeFor(manifest, runtime, alternates),
+      manifest,
+    );
     const pinned = <T extends ObjectRef>(ref: T): T => {
       const { version: _stale, ...rest } = ref;
       const version = versions.get(ref.key);

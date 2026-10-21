@@ -5,7 +5,7 @@ import {
   type SseEvent,
 } from "@agent-platform/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
   type ReadEventsQuery,
@@ -32,6 +32,9 @@ const unusedControls: SessionControl = {
   resumeAtomic: async () => {
     throw new Error("not reached");
   },
+  changeProfileAtomic: async () => {
+    throw new Error("not reached");
+  },
 };
 
 const SESSION = "019a0000-0000-7000-8000-000000000001";
@@ -40,6 +43,9 @@ const KEY = {
   id: "key-a",
   ownerId: OWNER,
   workspaceId: null,
+  kind: "service" as const,
+  createdByUserId: null,
+  creatorRole: null,
   scopes: ["sessions:read" as const],
 };
 
@@ -154,7 +160,7 @@ function harness(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     controls: unusedControls,
     catalog: { profiles: {}, repositories: {} },
     inputs: {
@@ -379,6 +385,23 @@ describe("GET /v1/sessions/{id}/events", () => {
     await frames.cancel();
   });
 
+  test("a share narrowed while a page is in flight stops the page", async () => {
+    const { app, store, wakeup } = harness({ keepaliveMs: 5_000 });
+    store.append(event(1), event(2), event(3));
+    // The narrowing commits while the first page is being read: from then on
+    // the session is out of this caller's sight.
+    store.onRead = (query) => {
+      if (query.after === undefined) {
+        wakeup.notify();
+        store.owner = "someone-else";
+      }
+    };
+    const response = await open(app);
+    expect(response.status).toBe(200);
+    const frames = new FrameReader(response);
+    expect(await frames.ended()).toBe(true);
+  });
+
   test("a revoked credential ends a stream that is still replaying", async () => {
     const store = new FakeStore();
     const wakeup = new FakeWakeup();
@@ -393,7 +416,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -495,7 +518,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -549,7 +572,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -605,7 +628,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -668,7 +691,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -737,7 +760,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -815,7 +838,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -907,7 +930,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {

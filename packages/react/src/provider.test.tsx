@@ -1,0 +1,115 @@
+import { describe, expect, test } from "bun:test";
+import type { ApiClient } from "@agent-platform/client";
+import { meQuery } from "@agent-platform/core";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+  AgentPlatformProvider,
+  type AgentPlatformProviderProps,
+  sessionsEn,
+  sessionsKo,
+  useAgentPlatform,
+  useMe,
+} from "./index.ts";
+
+// A server render reads the cache and the context without a DOM; requests
+// are the core's to make and are pinned there.
+
+const client = {} as ApiClient;
+
+function render(
+  node: ReactNode,
+  props: Partial<AgentPlatformProviderProps> = {},
+  queryClient = new QueryClient(),
+) {
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <AgentPlatformProvider
+        client={client}
+        locale="ko"
+        renderLink={({ to, id, children }) => (
+          <a href={`/${to}/${id}`}>{children}</a>
+        )}
+        {...props}
+      >
+        {node}
+      </AgentPlatformProvider>
+    </QueryClientProvider>,
+  );
+}
+
+function Message({ name }: { name: keyof typeof sessionsKo }) {
+  return <>{useAgentPlatform().messages[name]}</>;
+}
+
+describe("AgentPlatformProvider", () => {
+  test("hands the hooks the client it was given", () => {
+    let seen: ApiClient | undefined;
+    function Probe() {
+      seen = useAgentPlatform().client;
+      return null;
+    }
+    render(<Probe />);
+    expect(seen).toBe(client);
+  });
+
+  test("the locale picks the default messages", () => {
+    expect(render(<Message name="sessions.title" />)).toBe(
+      sessionsKo["sessions.title"],
+    );
+    expect(render(<Message name="sessions.title" />, { locale: "en" })).toBe(
+      sessionsEn["sessions.title"],
+    );
+  });
+
+  test("messages replace the defaults key by key", () => {
+    const html = render(
+      <>
+        <Message name="sessions.status.needs_input" />|
+        <Message name="sessions.status.running" />
+      </>,
+      { messages: { "sessions.status.needs_input": "확인이 필요해요" } },
+    );
+    expect(html).toBe(
+      `확인이 필요해요|${sessionsKo["sessions.status.running"]}`,
+    );
+  });
+
+  test("links are drawn by the host's renderLink", () => {
+    function SessionLink() {
+      const { renderLink } = useAgentPlatform();
+      return renderLink({ to: "session", id: "s-1", children: "열기" });
+    }
+    expect(render(<SessionLink />)).toBe('<a href="/session/s-1">열기</a>');
+  });
+
+  test("a hook outside the provider says so", () => {
+    function Probe() {
+      useAgentPlatform();
+      return null;
+    }
+    expect(() => renderToStaticMarkup(<Probe />)).toThrow(
+      "useAgentPlatform outside AgentPlatformProvider",
+    );
+  });
+
+  test("both locales carry the same keys", () => {
+    expect(Object.keys(sessionsEn).sort()).toEqual(
+      Object.keys(sessionsKo).sort(),
+    );
+  });
+});
+
+describe("useMe", () => {
+  test("reads the principal under the core's me key", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(meQuery(client).queryKey, {
+      user: { display_name: "Ada" },
+    } as never);
+    function Name() {
+      return <>{useMe().data?.user?.display_name}</>;
+    }
+    expect(render(<Name />, {}, queryClient)).toBe("Ada");
+  });
+});

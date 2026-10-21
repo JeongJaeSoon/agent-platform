@@ -26,7 +26,7 @@ import {
 } from "@agent-platform/db";
 import { createLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
 } from "@agent-platform/platform";
@@ -104,7 +104,7 @@ integration("sessions API on PostgreSQL", () => {
     }) =>
       createSessionService({
         limits,
-        authorization: allowAllPolicy,
+        authorization: createAuthorizationPolicy(),
         inputs: createPostgresSessionUnitOfWork(db),
         controls: createPostgresSessionControl(db),
         reader: createPostgresSessionReader(db),

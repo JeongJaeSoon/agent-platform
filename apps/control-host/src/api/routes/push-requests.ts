@@ -19,6 +19,7 @@ import { mapped, requireIdempotencyKey, requireParams } from "./errors.ts";
 
 export function actorOf(context: Context<ApiEnvironment>): PushActor {
   return {
+    caller: context.get("caller"),
     principal: context.get("principal"),
     ownerId: context.get("ownerId"),
     verified: context.get("verified"),

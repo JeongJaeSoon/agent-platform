@@ -7,6 +7,7 @@ import type {
   ReceiptActor,
 } from "@agent-platform/contracts";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
+import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import {
   PUSH_REFUSAL_ERRORS,
   type PushRequestStore,
@@ -16,10 +17,13 @@ import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import {
   idempotencyConflict,
   payloadHash,
+  requirePermitted,
   SessionServiceError,
 } from "./session-service.ts";
 
 export type PushActor = {
+  /** Who asks the authorization policy, as every other session entry does. */
+  caller: Caller;
   principal: Principal;
   ownerId: string;
   /**
@@ -92,12 +96,25 @@ function settled(result: PushWriteResult): PushRequest {
  * (94S-629, push-executor.ts).
  */
 export function createPushRequestService(deps: {
+  authorization: AuthorizationPolicy;
   store: PushRequestStore;
   source: PushSource;
   /** Pins the repository entry the push must still match (94S-629). */
   catalog: SessionCatalog;
 }) {
-  const { store, source, catalog } = deps;
+  const { authorization, store, source, catalog } = deps;
+
+  // The session's share decides who may see or act on it, as for every other
+  // session command; a session the caller cannot see is NOT_FOUND.
+  const requireSession = (
+    actor: PushActor,
+    action: "session.read" | "session.submit" | "session.approve",
+    sessionId: string,
+  ) =>
+    requirePermitted(authorization, actor.caller, action, {
+      kind: "session",
+      id: sessionId,
+    });
 
   return {
     async create(
@@ -107,6 +124,7 @@ export function createPushRequestService(deps: {
     ): Promise<PushRequest> {
       requireVerified(actor);
       const sessionId = rawSessionId.toLowerCase();
+      await requireSession(actor, "session.submit", sessionId);
       const refuse = async (
         refusal: PushRefusal,
         fields: { repository_id?: string } = {},
@@ -173,6 +191,7 @@ export function createPushRequestService(deps: {
       sessionId: string,
     ): Promise<ListPushRequestsResponse> {
       requireVerified(actor);
+      await requireSession(actor, "session.read", sessionId);
       const items = await store.list(actor.ownerId, sessionId);
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -186,6 +205,7 @@ export function createPushRequestService(deps: {
       pushRequestId: string,
     ): Promise<PushRequest> {
       requireVerified(actor);
+      await requireSession(actor, "session.read", sessionId);
       const request = await store.get(actor.ownerId, sessionId, pushRequestId);
       if (request === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -229,6 +249,7 @@ export function createPushRequestService(deps: {
           }),
         );
       }
+      await requireSession(actor, "session.approve", sessionId);
       const body = await input.readBody();
       return settled(
         await store.decide({

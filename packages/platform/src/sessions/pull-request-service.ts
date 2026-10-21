@@ -8,6 +8,7 @@ import {
   type PullRequestRefusal,
   pushBranchFor,
 } from "@agent-platform/contracts";
+import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import {
   ForgeCredentialError,
   type ForgeResolver,
@@ -28,7 +29,7 @@ import {
   receiptActorOf,
   requireVerified,
 } from "./push-request-service.ts";
-import { SessionServiceError } from "./session-service.ts";
+import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
 const EMPTY_RESULT: PullRequestReceiptResult = {
   push_request_id: null,
@@ -54,13 +55,14 @@ export function commentMarker(sessionId: string, marker: string): string {
  * decision decide who may; every attempt leaves a receipt.
  */
 export function createPullRequestService(deps: {
+  authorization: AuthorizationPolicy;
   store: PullRequestStore;
   catalog: SessionCatalog;
   forges: ForgeResolver;
   /** Applied to each line of caller text before the forge sees it. */
   redact: (line: string) => string;
 }) {
-  const { store, catalog, forges, redact } = deps;
+  const { authorization, store, catalog, forges, redact } = deps;
 
   async function begin(
     actor: PushActor,
@@ -100,6 +102,12 @@ export function createPullRequestService(deps: {
     };
     const scopeRefusal = mayDecidePush(actor.principal);
     if (scopeRefusal !== null) await refuse(scopeRefusal);
+    // As for a push decision, the session's share decides who may act on it;
+    // a session the caller cannot see is NOT_FOUND.
+    await requirePermitted(authorization, actor.caller, "session.approve", {
+      kind: "session",
+      id: sessionId,
+    });
     return { sessionId, pushRequestId, receipt, refuse };
   }
 

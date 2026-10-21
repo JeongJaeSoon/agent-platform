@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  type ApprovalRecord,
+  approvalRecordSchema,
   type PendingQuestion,
   type PendingRequest,
   pendingQuestionSchema,
@@ -26,6 +28,7 @@ import {
   ENDED_ATTEMPT_STATES,
   findIdempotent,
   lockIdempotencyScope,
+  receiptActorOf,
 } from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -280,6 +283,8 @@ export function createPostgresPendingRequests(
       const sessionId = input.sessionId.toLowerCase();
       const scope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: ANSWER,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -293,11 +298,22 @@ export function createPostgresPendingRequests(
           }
           // The receipt's current status: by now the worker may have
           // settled what the first call only stored.
+          const [stored] = await tx
+            .select({
+              answeredBy: pendingRequests.answeredBy,
+              surface: pendingRequests.answerSurface,
+              decisionId: pendingRequests.answerDecisionId,
+            })
+            .from(pendingRequests)
+            .where(eq(pendingRequests.answerReceiptId, existing.receiptId))
+            .limit(1);
+          const approval = stored ? approvalOf(stored) : undefined;
           return {
             outcome: "replayed",
             response: {
               receipt_id: existing.receiptId,
               receipt_status: existing.status,
+              ...(approval ? { approval } : {}),
             },
           };
         }
@@ -373,6 +389,8 @@ export function createPostgresPendingRequests(
         await tx.insert(receipts).values({
           id: receiptId,
           ownerId: scope.principal,
+          actor: scope.actor,
+          requestId: scope.requestId,
           operation: ANSWER,
           targetRef: {
             session_id: sessionId,
@@ -400,6 +418,9 @@ export function createPostgresPendingRequests(
             resolvedAt: at,
             answerSequence: sequence,
             answerReceiptId: receiptId,
+            answeredBy: scope.actor,
+            answerSurface: input.approval.surface,
+            answerDecisionId: input.approval.decisionId,
           })
           .where(eq(pendingRequests.requestId, pending.requestId));
         await announceInputWaitEnded(tx, {
@@ -410,9 +431,30 @@ export function createPostgresPendingRequests(
         });
         return {
           outcome: "accepted",
-          response: { receipt_id: receiptId, receipt_status: "accepted" },
+          response: {
+            receipt_id: receiptId,
+            receipt_status: "accepted",
+            approval: {
+              answered_by: scope.actor,
+              surface: input.approval.surface,
+              decision_id: input.approval.decisionId,
+            },
+          },
         };
       });
     },
   };
+}
+
+function approvalOf(row: {
+  answeredBy: unknown;
+  surface: string | null;
+  decisionId: string | null;
+}): ApprovalRecord | undefined {
+  if (row.surface === null || row.decisionId === null) return undefined;
+  return approvalRecordSchema.parse({
+    answered_by: row.answeredBy,
+    surface: row.surface,
+    decision_id: row.decisionId,
+  });
 }

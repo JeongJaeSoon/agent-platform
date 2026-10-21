@@ -5,7 +5,7 @@ import {
   type Receipt,
 } from "@agent-platform/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   type SessionReader,
 } from "@agent-platform/platform";
@@ -37,7 +37,7 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     catalog: { profiles: {}, repositories: {} },
     inputs: {
       acceptInputAtomic: async () => {
@@ -58,6 +58,9 @@ function app(getReceipt: SessionReader["getReceipt"]) {
         throw new Error("not reached");
       },
       resumeAtomic: async () => {
+        throw new Error("not reached");
+      },
+      changeProfileAtomic: async () => {
         throw new Error("not reached");
       },
     },

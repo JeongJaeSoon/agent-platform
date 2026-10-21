@@ -20,7 +20,40 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   terminate: "종료 요청",
   resume: "재개 요청",
   recovery_decision: "복구 결정",
+  change_profile: "프로필 변경",
   revoke_execution: "실행 권한 회수",
+  issue_password_reset: "비밀번호 재설정 링크 발급",
+  reset_password: "비밀번호 재설정",
+  recover_owner: "owner 복구",
+  takeover: "세션 인수",
+  link_account: "Slack 계정 연결",
+  unlink_account: "Slack 계정 연결 해제",
+  invite_member: "초대 발급",
+  accept_invite: "초대 수락",
+  revoke_invite: "초대 회수",
+  change_member_role: "역할 변경",
+  disable_member: "멤버 비활성화",
+  enable_member: "멤버 재활성화",
+  disable_user: "계정 정지",
+  enable_user: "계정 정지 해제",
+  create_agent: "에이전트 생성",
+  update_agent: "에이전트 수정",
+  create_agent_release: "에이전트 release 생성",
+  activate_agent: "에이전트 활성화",
+  create_api_key: "API key 발급",
+  revoke_api_key: "API key 폐기",
+  create_team: "팀 생성",
+  rename_team: "팀 이름 변경",
+  delete_team: "팀 삭제",
+  add_team_member: "팀에 추가됨",
+  remove_team_member: "팀에서 빠짐",
+  add_agent_admin: "에이전트 관리자 지정",
+  remove_agent_admin: "에이전트 관리자 해제",
+  bind_credential: "자격 연결",
+  unbind_credential: "자격 연결 해제",
+  link_agent_identity: "에이전트 Slack 앱 연결",
+  revoke_agent_identity: "에이전트 Slack 앱 연결 회수",
+  share_session: "공유 범위 변경",
   request_push: "push 요청",
   decide_push: "push 승인·거부",
   push: "push",
@@ -88,6 +121,11 @@ export function ReceiptSummary({
               </div>
             ) : null}
           </>
+        ) : "user_id" in target ? (
+          <div className="ap-receipt__field">
+            <dt>사용자</dt>
+            <dd className="ap-receipt__id">{target.user_id}</dd>
+          </div>
         ) : (
           // A mutation outside a session names its resource instead.
           // The kind shows raw until a screen actually renders one of these —

@@ -9,6 +9,7 @@ import {
   apiKeys,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
+  sessions,
 } from "@agent-platform/db";
 import {
   acceptAllCheckpoints,
@@ -323,6 +324,10 @@ integration("API server on PostgreSQL", () => {
   }, 60_000);
 
   afterAll(async () => {
+    await db
+      .update(sessions)
+      .set({ createdByApiKeyId: null })
+      .where(eq(sessions.ownerId, ownerId));
     await db.delete(apiKeys).where(eq(apiKeys.ownerId, ownerId));
     await pool.end();
     await rm(root, { recursive: true, force: true });

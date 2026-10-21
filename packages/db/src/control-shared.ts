@@ -1,14 +1,28 @@
+import type { ReceiptActor } from "@agent-platform/contracts";
 import {
+  type Principal,
   type SessionBudget,
   storedPendingReasonHoldsWork,
 } from "@agent-platform/platform";
-import { and, eq, inArray, lt, min, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  min,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   idempotencyKeys,
+  memberships,
   receipts,
   sessions,
   turns,
+  users,
   workerLaunches,
 } from "./schema.ts";
 
@@ -53,7 +67,98 @@ export type IdempotencyScope = {
   operation: string;
   resource: string;
   key: string;
+  actor: ReceiptActor | null;
+  requestId: string | null;
 };
+
+/**
+ * The actor's user row, before any membership: accepting takes it in that
+ * order, and an invite's invited_by key check would otherwise wait on it
+ * while holding the membership. A share lock rather than a key share, so an
+ * account disable either waits for this write or is seen by it — re-checked
+ * after a membership lock wait, a joined user row is the old snapshot's.
+ */
+export async function lockActorAccount(tx: Database, userId: string) {
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .for("share");
+}
+
+/**
+ * Several people's user rows, then their memberships of `workspaceId`, each
+ * in user_id order as a suspension and a role change take them, so a write
+ * that reads the actor and the person it acts on queues behind those
+ * instead of deadlocking them.
+ */
+export async function lockPeople(
+  tx: Database,
+  workspaceId: string,
+  userIds: readonly string[],
+) {
+  const ids = [...new Set(userIds)];
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.id, ids))
+    .orderBy(asc(users.id))
+    .for("share");
+  return tx
+    .select({
+      userId: memberships.userId,
+      role: memberships.role,
+      live: sql<boolean>`${memberships.disabledAt} is null and ${users.disabledAt} is null`,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, workspaceId),
+        inArray(memberships.userId, ids),
+      ),
+    )
+    .orderBy(asc(memberships.userId))
+    .for("share", { of: memberships });
+}
+
+// Authorization read the membership before this transaction opened. The share
+// locks make an offboarding or a suspension that commits since then either
+// wait for this write (and see what it wrote) or be seen here. Take them
+// before any session row lock: user, membership, session.
+export async function actorStillMember(
+  tx: Database,
+  principal: Principal,
+): Promise<boolean> {
+  const actor = principal.actor;
+  if (!actor?.userId || !actor.workspaceId) return true;
+  await lockActorAccount(tx, actor.userId);
+  const live = await tx
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, actor.workspaceId),
+        eq(memberships.userId, actor.userId),
+        isNull(memberships.disabledAt),
+        isNull(users.disabledAt),
+      ),
+    )
+    .limit(1)
+    .for("share", { of: memberships });
+  return live.length > 0;
+}
+
+export function receiptActorOf(principal: Principal): ReceiptActor | null {
+  const actor = principal.actor;
+  if (!actor) return null;
+  return {
+    principal: actor.principal,
+    actor_user_id: actor.userId,
+    agent_id: null,
+  };
+}
 
 export type ControlStageMeasure = <T>(
   stage: string,

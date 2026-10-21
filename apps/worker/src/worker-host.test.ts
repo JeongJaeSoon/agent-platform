@@ -944,6 +944,29 @@ describe("WorkerHost ownership and shutdown", () => {
     expect(gateway.releases).toHaveLength(1);
   });
 
+  test("gives the slot back at once when the gateway hands it no more input", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      timeouts: { idleTimeoutMs: 60_000 },
+    });
+    // What the gateway answers an attempt whose session moved to another
+    // profile: no reason, so a build that predates it parses the answer.
+    gateway.nextInput = async () => ({
+      input: null,
+      lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+      draining: true,
+    });
+
+    const started = Date.now();
+    const summary = await host.runLoop();
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(summary.outcome).toBe("idle");
+    expect(summary.reason).toContain("no more input");
+    expect(gateway.releases).toHaveLength(1);
+  });
+
   test("releases the session when it has been idle for long enough", async () => {
     const gateway = new FakeWorkerGateway();
     const { host } = harness([{ type: "await-input" }], {

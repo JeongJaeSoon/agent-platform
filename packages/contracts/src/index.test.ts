@@ -332,13 +332,14 @@ describe("answers, pending requests and control", () => {
         answer: { kind: "permission", behavior: "allow" },
       }).success,
     ).toBe(false);
+    // A denial reason is optional.
     expect(
       postSessionAnswerRequestSchema.safeParse({
         request_id: "perm_03",
         kind: "permission",
         decision: "deny",
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("types pending requests by kind", () => {
@@ -872,6 +873,18 @@ describe("worker protocol", () => {
         manifest_ref: "m",
         manifest_sha256: "a".repeat(64),
       },
+      restore_runtime_configs: [
+        {
+          model: "claude-opus-5",
+          tools: ["Read"],
+          permission_mode: "default",
+          provider: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.com",
+            auth: { kind: "egress_token", token: "restore-provider-token" },
+          },
+        },
+      ],
       remaining_budget_usd: 12.5,
     });
     expect(loggableBootstrapClaim(claim)).toEqual({
@@ -892,10 +905,12 @@ describe("worker protocol", () => {
       branch: "main",
       owner_scope: "owner_1",
       restore_revision: 4,
+      restore_models: ["claude-opus-5"],
       remaining_budget_usd: 12.5,
     });
     const line = JSON.stringify(loggableBootstrapClaim(claim));
     for (const secret of [
+      "restore-provider-token",
       "wsc_token",
       "provider-token",
       "repository-token",

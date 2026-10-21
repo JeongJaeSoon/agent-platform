@@ -1,4 +1,9 @@
-import type { Principal, SessionScope } from "@agent-platform/contracts";
+import type {
+  AuthorizationAction,
+  Principal,
+  SessionScope,
+} from "@agent-platform/contracts";
+import { ACTION_SCOPES } from "@agent-platform/platform";
 import { API_ROUTE_SCOPES } from "./openapi.ts";
 
 // Which session scope a /v1 request needs, read from the OpenAPI route table
@@ -7,9 +12,8 @@ import { API_ROUTE_SCOPES } from "./openapi.ts";
 // scope learns nothing about the session it named, and the owner check that
 // follows still answers 404 for another owner's resource.
 //
-// Enforced here, at the only production entry into the session services.
-// A caller that reaches those services without HTTP (a chat adapter, a job)
-// is the trigger for moving this into the platform policy.
+// The first refusal only: every session service asks the platform policy
+// again before it reads anything, so a caller without HTTP is refused too.
 
 const TABLE = API_ROUTE_SCOPES.map((route) => ({
   method: route.method,
@@ -41,6 +45,22 @@ export function missingScope(
   return (principal.scopes as readonly SessionScope[]).includes(scope)
     ? null
     : scope;
+}
+
+// The edge names the action it refused when it asks the policy to record
+// that refusal, so a scope two actions need would be ambiguous.
+const ACTION_FOR_SCOPE = new Map<SessionScope, AuthorizationAction>();
+for (const [action, scope] of Object.entries(ACTION_SCOPES)) {
+  if (ACTION_FOR_SCOPE.has(scope)) {
+    throw new Error(`${scope} is needed by more than one action`);
+  }
+  ACTION_FOR_SCOPE.set(scope, action as AuthorizationAction);
+}
+
+export function actionForScope(scope: SessionScope): AuthorizationAction {
+  const action = ACTION_FOR_SCOPE.get(scope);
+  if (action === undefined) throw new Error(`no action needs ${scope}`);
+  return action;
 }
 
 // What the check adds to every scoped route's error table.

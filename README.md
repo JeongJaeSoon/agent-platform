@@ -22,4 +22,17 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 
 `docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
 
+## UI 컴포넌트 보기 (Storybook)
+
+`packages/ui`의 primitive·pattern과 화면 상태(로딩·빈·오류)는 [apps/storybook](apps/storybook)에서 스토리로 본다. 툴바의 Theme으로 라이트·다크를, Viewport로 390px(Mobile 390)·360px·768px·1440px를 바꾼다.
+
+```bash
+bun install
+bun run --filter @agent-platform/storybook dev     # http://localhost:6006
+bun run --filter @agent-platform/storybook build   # 정적 빌드: apps/storybook/dist
+bun run --filter @agent-platform/storybook test:stories  # 모든 스토리를 Chrome에서 그리고 a11y(axe) 위반이 있으면 실패
+```
+
+Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다.
+
 라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다.

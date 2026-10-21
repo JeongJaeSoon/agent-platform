@@ -17,13 +17,14 @@ import {
 } from "@agent-platform/db";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createInterruptService,
   createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
 } from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -114,7 +115,7 @@ integration("reconciler passes that overlap", () => {
   /** A session whose first turn is running on a claimed attempt. */
   async function runningSession() {
     const partition = `overlap-${crypto.randomUUID()}`;
-    const owner = { ownerId: `owner-${crypto.randomUUID()}` };
+    const owner = testCaller(`owner-${crypto.randomUUID()}`);
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -215,7 +216,7 @@ integration("reconciler passes that overlap", () => {
     // Heartbeating, but its interrupt is past both deadlines.
     const stuck = await runningSession();
     const interrupted = await createInterruptService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       store: createPostgresTurnInterrupts(db),
     }).interrupt(stuck.owner, stuck.sessionId, {
       idempotencyKey: crypto.randomUUID(),

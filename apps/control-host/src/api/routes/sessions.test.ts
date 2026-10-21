@@ -5,7 +5,7 @@ import {
 } from "@agent-platform/contracts";
 import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
   type SessionCatalog,
@@ -65,8 +65,13 @@ function app(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     catalog,
+    releases: {
+      resolveRelease: async () => {
+        throw new Error("not reached");
+      },
+    },
     inputs: {
       acceptInputAtomic: async () => {
         throw new Error("not reached");
@@ -87,6 +92,9 @@ function app(
         throw new Error("not reached");
       },
       resumeAtomic: async () => {
+        throw new Error("not reached");
+      },
+      changeProfileAtomic: async () => {
         throw new Error("not reached");
       },
       ...overrides,
@@ -164,6 +172,11 @@ describe("POST /v1/sessions validation", () => {
     const disallowed = await request({ ...valid, repository_id: "other-app" });
     expect(disallowed.status).toBe(422);
     expect(await errorCode(disallowed)).toBe("UNSUPPORTED_CAPABILITY");
+  });
+
+  test("a key from before workspaces names no agent release", async () => {
+    const response = await post({ ...valid, agent_release_id: "rel-1" });
+    expect(response.status).toBe(404);
   });
 
   test("replays an accepted receipt even when the catalog no longer lists the profile", async () => {
@@ -816,7 +829,22 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         sessionTokenLimit: null,
       },
       authorization: {
-        authorize: (_actor, action) => action !== "sessions:recover",
+        authorize: async ({ action }) =>
+          action === "session.recover"
+            ? {
+                outcome: "deny",
+                reason_code: "role",
+                effective_scopes: [],
+                policy_version: "test",
+                decision_id: crypto.randomUUID(),
+              }
+            : {
+                outcome: "allow",
+                reason_code: "ok",
+                effective_scopes: [],
+                policy_version: "test",
+                decision_id: crypto.randomUUID(),
+              },
       },
       catalog,
       inputs: {
@@ -838,6 +866,9 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
           throw new Error("must not reach the transaction");
         },
         resumeAtomic: async () => {
+          throw new Error("not reached");
+        },
+        changeProfileAtomic: async () => {
           throw new Error("not reached");
         },
       },

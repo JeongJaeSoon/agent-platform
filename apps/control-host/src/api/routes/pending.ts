@@ -20,10 +20,7 @@ export function registerPendingRoutes(
   apiRoute(router, "listPendingRequests", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const page = await mapped(() =>
-      service.listPendingRequests(
-        { ownerId: context.get("ownerId") },
-        params.id,
-      ),
+      service.listPendingRequests(context.get("caller"), params.id),
     );
     return jsonWithSchema(context, listPendingRequestsResponseSchema, page);
   });
@@ -33,7 +30,7 @@ export function registerPendingRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, postSessionAnswerRequestSchema);
     const accepted = await mapped(() =>
-      service.answer({ ownerId: context.get("ownerId") }, params.id, {
+      service.answer(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),

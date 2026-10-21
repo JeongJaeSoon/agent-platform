@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import type {
   AdmissionState,
+  AgentRelease,
   ApiErrorCode,
+  AuditReadResponse,
+  AuthorizationAction,
+  AuthorizationDecision,
+  AuthorizationResource,
+  ChangeSessionProfileRequest,
   ControlAcceptedResponse,
   CreateSessionRequest,
   CreateSessionResponse,
@@ -15,21 +21,24 @@ import type {
   Receipt,
   RecoveryDecisionRequest,
   ResumeSessionRequest,
+  SessionCredentialUnboundDetails,
   SessionDetail,
   SessionRuntimeView,
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
 } from "@agent-platform/contracts";
+import { CREDENTIAL_UNBOUND_GUIDANCE } from "@agent-platform/contracts";
 import {
   budgetExceeded,
   type SessionSpend,
 } from "../limits/installation-limits.ts";
-import type {
-  AuthorizationPolicy,
-  Principal,
-  SessionAction,
+import {
+  ACTION_SCOPES,
+  type AuthorizationPolicy,
+  type Caller,
 } from "../musterrolle/policy.ts";
+import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type {
   EventPage,
@@ -53,7 +62,7 @@ export class SessionServiceError extends Error {
     readonly code: ApiErrorCode,
     message: string,
     readonly retry?: { afterSeconds: number },
-    readonly details?: Record<string, unknown>,
+    readonly details: unknown = null,
   ) {
     super(message);
   }
@@ -163,19 +172,68 @@ export function payloadHash(payload: unknown): string {
     .digest("hex");
 }
 
-// A missing scope is refused at the API edge before a service is called
-// this answers the same 403 for a policy that refuses the action.
-export function requirePermitted(
+// Every service entry asks before any store call. Over HTTP the edge has
+// already refused a missing scope, so only a caller without HTTP meets the
+// FORBIDDEN here, with the same message. A decision that cannot be reached
+// is a refusal.
+export async function requirePermitted(
   authorization: AuthorizationPolicy,
-  actor: Principal,
-  action: SessionAction,
-) {
-  if (!authorization.authorize(actor, action)) {
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+  justification?: string,
+): Promise<void> {
+  await requireAllowed(authorization, caller, action, resource, justification);
+}
+
+/** requirePermitted, for a caller that records which decision allowed it. */
+export async function requireAllowed(
+  authorization: AuthorizationPolicy,
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+  // A manager's reason for acting outside a session's share; recorded with
+  // the decision.
+  justification?: string,
+): Promise<AuthorizationDecision> {
+  const decision = await authorization
+    .authorize({
+      subject:
+        justification === undefined
+          ? caller.subject
+          : { ...caller.subject, justification },
+      action,
+      resource: { ...resource, owner_scope: caller.ownerId },
+      request_id: caller.requestId,
+    })
+    .catch(() => null);
+  if (decision?.outcome === "allow") return decision;
+  if (decision?.reason_code === "not_found") {
+    throw new SessionServiceError("NOT_FOUND", "Resource not found");
+  }
+  if (decision?.reason_code === "justification_required") {
     throw new SessionServiceError(
       "FORBIDDEN",
-      `This principal does not hold ${action}`,
+      "This action on this session needs a justification",
+      undefined,
+      { reason_code: "justification_required" },
     );
   }
+  if (decision?.reason_code === "credential_unbound") {
+    throw new SessionServiceError(
+      "CREDENTIAL_UNBOUND",
+      "A credential this agent's release uses is no longer bound to the agent",
+      undefined,
+      { reason_code: "credential_unbound" },
+    );
+  }
+  throw new SessionServiceError(
+    "FORBIDDEN",
+    `This principal does not hold ${ACTION_SCOPES[action] ?? action}`,
+    undefined,
+    // The policy's reason, so a screen can say why (design 3.3).
+    { reason_code: decision?.reason_code ?? "error" },
+  );
 }
 
 export function createSessionService(deps: {
@@ -184,6 +242,15 @@ export function createSessionService(deps: {
   controls: SessionControl;
   reader: SessionReader;
   catalog: SessionCatalog;
+  // Resolves a release a session pins; absent, no session may name one.
+  releases?: {
+    resolveRelease(
+      workspaceId: string,
+      releaseId: string,
+    ): Promise<Pick<AgentRelease, "id" | "agent_id" | "runtime_profile_id">>;
+  };
+  // Who a requester refused for an unbound credential is told to ask.
+  credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
     sessionCostLimitUsd: number;
     sessionTokenLimit: number | null;
@@ -267,12 +334,135 @@ export function createSessionService(deps: {
     );
   }
 
+  async function credentialUnbound(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<SessionServiceError> {
+    const admins = (
+      (await deps.credentials?.contacts(workspaceId, agentId)) ?? []
+    ).map((contact) => ({
+      user_id: contact.userId,
+      display_name: contact.displayName,
+      email: contact.email,
+    }));
+    const details: SessionCredentialUnboundDetails = {
+      reason_code: "credential_unbound",
+      guidance: CREDENTIAL_UNBOUND_GUIDANCE,
+      agent_id: agentId,
+      admins,
+      admin_link:
+        admins.length === 0
+          ? null
+          : `mailto:${admins.map((admin) => encodeURIComponent(admin.email)).join(",")}`,
+    };
+    return new SessionServiceError(
+      "CREDENTIAL_UNBOUND",
+      "A credential this agent's release uses is no longer bound to the agent",
+      undefined,
+      details,
+    );
+  }
+
+  async function pinnedRelease(actor: Caller, body: CreateSessionRequest) {
+    if (body.agent_release_id === undefined) return null;
+    if (!deps.releases) {
+      throw new SessionServiceError(
+        "UNSUPPORTED_CAPABILITY",
+        "This deployment does not pin sessions to agent releases",
+      );
+    }
+    // A key from before workspaces has no agents to name.
+    if ((actor.subject.principal?.workspace_id ?? null) === null) {
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
+    }
+    const release = await deps.releases.resolveRelease(
+      actor.ownerId,
+      body.agent_release_id,
+    );
+    if (release.runtime_profile_id !== body.profile_id) {
+      throw new SessionServiceError(
+        "RELEASE_PROFILE_MISMATCH",
+        `Release ${release.id} runs on profile ${release.runtime_profile_id}, not ${body.profile_id}`,
+      );
+    }
+    return release;
+  }
+
+  async function detailOf(
+    actor: Caller,
+    sessionId: string,
+  ): Promise<SessionDetail> {
+    const record = await reader.getSession(actor.ownerId, sessionId);
+    if (!record) {
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
+    }
+    const {
+      profile_id,
+      cost_usd,
+      provider_tokens,
+      repo_url,
+      branch,
+      profile_fingerprint,
+      ...detail
+    } = record;
+    const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
+    return {
+      ...detail,
+      attention:
+        detail.attention ??
+        // The claim matches the same values (runnablePairOf), so this says
+        // exactly when no worker of this host would take the session.
+        (catalogAllows(record)
+          ? null
+          : {
+              code: "CATALOG_MISMATCH",
+              reason:
+                "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
+            }) ??
+        // Dispatch stops at the same predicate (nextInputAtomic), so what
+        // this says and what the gateway does come from one comparison.
+        (budgetExceeded(spend, budget)
+          ? {
+              code: "BUDGET_EXCEEDED",
+              reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
+            }
+          : null),
+      runtime: runtimeFor({ profile_id, profile_fingerprint }),
+    };
+  }
+
   return {
     async createSession(
-      actor: Principal,
+      actor: Caller,
       input: { idempotencyKey: string; body: CreateSessionRequest },
     ): Promise<CreateSessionResponse> {
-      requirePermitted(authorization, actor, "sessions:write");
+      const release = await pinnedRelease(actor, input.body);
+      // An unbound name refuses a new session but not the replay of one
+      // accepted before the unbind, which only the acceptance can tell.
+      const credentialsUnbound = await requirePermitted(
+        authorization,
+        actor,
+        "session.submit",
+        {
+          kind: "session",
+          id: null,
+          ...(release
+            ? { agent_id: release.agent_id, release_id: release.id }
+            : {}),
+        },
+      ).then(
+        () => false,
+        (error: unknown) => {
+          if (
+            release &&
+            error instanceof SessionServiceError &&
+            error.code === "CREDENTIAL_UNBOUND"
+          ) {
+            return true;
+          }
+          throw error;
+        },
+      );
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
       const allowed = allowedPair(
@@ -305,12 +495,19 @@ export function createSessionService(deps: {
               unmetered: isUnmetered(pair.profile),
             }
           : {}),
+        ...(release ? { agentReleaseId: release.id } : {}),
+        ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         message: input.body.message,
         limits: inputLimits,
       });
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        case "credential_unbound":
+          if (!release) {
+            throw new Error("Only a pinned release names credentials");
+          }
+          throw await credentialUnbound(actor.ownerId, release.agent_id);
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -321,17 +518,25 @@ export function createSessionService(deps: {
               ? `Profile ${input.body.profile_id} does not offer model ${input.body.model}`
               : "Unknown profile_id or repository_id, or a pair the catalog does not allow",
           );
+        case "actor_inactive":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal is no longer a member of the workspace",
+          );
         default:
           return result.response;
       }
     },
 
     async appendMessage(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: PostSessionMessageRequest },
     ): Promise<PostSessionMessageResponse> {
-      requirePermitted(authorization, actor, "sessions:write");
+      await requirePermitted(authorization, actor, "session.submit", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await inputs.appendInputAtomic({
         principal: actor,
         sessionId,
@@ -354,6 +559,16 @@ export function createSessionService(deps: {
             "CHECKPOINT_UNAVAILABLE",
             `Session cannot be checkpointed: ${result.reason}`,
           );
+        case "awaiting_takeover":
+          throw new SessionServiceError(
+            "TAKEOVER_REQUIRED",
+            "The person who asked for this session has left; it takes no messages until an owner takes it over",
+          );
+        case "actor_inactive":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal is no longer a member of the workspace",
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -363,18 +578,42 @@ export function createSessionService(deps: {
     },
 
     async terminateSession(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; body: TerminateSessionRequest },
+      input: {
+        idempotencyKey: string;
+        body: TerminateSessionRequest;
+        // An owner or admin stopping a session outside its share; the
+        // reason then also becomes the stop reason.
+        justification?: string;
+      },
     ): Promise<TerminateSessionResponse> {
-      requirePermitted(authorization, actor, "sessions:control");
+      // A stop with a reason is a manager's, whoever else sees the session.
+      if (input.justification !== undefined) {
+        await requirePermitted(authorization, actor, "session.admin_list", {
+          kind: "workspace",
+          id: actor.ownerId,
+        });
+      }
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.control",
+        { kind: "session", id: sessionId },
+        input.justification,
+      );
       const result = await controls.terminateAtomic({
         principal: actor,
         sessionId,
         idempotencyKey: input.idempotencyKey,
-        payloadHash: payloadHash(input.body),
+        // The reason becomes the stop reason, so it is part of the request.
+        payloadHash: payloadHash(
+          input.justification === undefined
+            ? input.body
+            : { ...input.body, justification: input.justification },
+        ),
         expectedRevision: input.body.expected_revision,
-        reason: input.body.reason ?? null,
+        reason: input.body.reason ?? input.justification ?? null,
         now: now(),
       });
       switch (result.outcome) {
@@ -399,11 +638,14 @@ export function createSessionService(deps: {
     },
 
     async pauseSession(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: PauseSessionRequest },
     ): Promise<ControlAcceptedResponse> {
-      requirePermitted(authorization, actor, "sessions:control");
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await controls.pauseAtomic({
         principal: actor,
         sessionId,
@@ -439,12 +681,109 @@ export function createSessionService(deps: {
       }
     },
 
-    async decideRecovery(
-      actor: Principal,
+    async changeSessionProfile(
+      actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; body: RecoveryDecisionRequest },
+      input: { idempotencyKey: string; body: ChangeSessionProfileRequest },
     ): Promise<ControlAcceptedResponse> {
-      requirePermitted(authorization, actor, "sessions:recover");
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
+      const record = await reader.getSession(actor.ownerId, sessionId);
+      if (!record) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      const wanted = input.body.profile_id;
+      const pair = record.repository_id
+        ? allowedPair(catalog, wanted, record.repository_id)
+        : null;
+      // The session row keeps no runtime of its own: only its profile, as the
+      // catalog still defines it, says which runtime took its checkpoints.
+      const found = record.profile_id
+        ? own(catalog.profiles, record.profile_id)
+        : undefined;
+      const current = found
+        ? (sessionProfile(found, record.profile_fingerprint) ?? undefined)
+        : undefined;
+      // The next attempt restores checkpoints the current runtime took, so
+      // the runtime has to stay; the model, tools and provider may change.
+      const refusal =
+        pair === null ||
+        pair.repository.url !== record.repo_url ||
+        pair.repository.branch !== record.branch
+          ? `Profile ${wanted} is not in this host's catalog or not allowed with the session's repository`
+          : current === undefined
+            ? `The session's profile ${record.profile_id} is no longer in this host's catalog as the session runs it, so the runtime its checkpoints were taken on cannot be checked`
+            : current.runtime_kind !== pair.profile.runtime_kind ||
+                current.runtime_version !== pair.profile.runtime_version
+              ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
+              : null;
+      const result = await controls.changeProfileAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        expectedRevision: input.body.expected_revision,
+        profile:
+          refusal === null && pair !== null
+            ? {
+                id: wanted,
+                fingerprint: profileFingerprint(pair.profile),
+                unmetered: isUnmetered(pair.profile),
+              }
+            : null,
+        judgedFrom: record.profile_id,
+        now: now(),
+      });
+      switch (result.outcome) {
+        case "conflict":
+          return idempotencyConflict();
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "revision_conflict":
+          return revisionConflict(result.currentRevision);
+        case "rejected": {
+          const rejection = ADMISSION_REJECTIONS[result.admissionState];
+          throw new SessionServiceError(rejection.code, rejection.message);
+        }
+        case "release_bound":
+          throw new SessionServiceError(
+            "RELEASE_PROFILE_MISMATCH",
+            `The session runs agent release ${result.releaseId}, which sets its profile`,
+          );
+        case "billing_mismatch":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            `Profile ${wanted} is billed differently from the session's (billing: none on one side only), so the session's cost limit would change`,
+          );
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            refusal ?? `Profile ${wanted} cannot run this session`,
+          );
+        default:
+          return result.response;
+      }
+    },
+
+    async decideRecovery(
+      actor: Caller,
+      sessionId: string,
+      input: {
+        idempotencyKey: string;
+        body: RecoveryDecisionRequest;
+        // An owner deciding for a session outside its share.
+        justification?: string;
+      },
+    ): Promise<ControlAcceptedResponse> {
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.recover",
+        { kind: "session", id: sessionId },
+        input.justification,
+      );
       const result = await controls.decideRecoveryAtomic({
         principal: actor,
         sessionId,
@@ -516,11 +855,14 @@ export function createSessionService(deps: {
     },
 
     async resumeSession(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       input: { idempotencyKey: string; body: ResumeSessionRequest },
     ): Promise<ControlAcceptedResponse> {
-      requirePermitted(authorization, actor, "sessions:control");
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
       const result = await controls.resumeAtomic({
         principal: actor,
         sessionId,
@@ -578,11 +920,17 @@ export function createSessionService(deps: {
     },
 
     async listSessions(
-      actor: Principal,
+      actor: Caller,
       query: ListSessionsQuery,
     ): Promise<ListSessionsResponse> {
-      requirePermitted(authorization, actor, "sessions:read");
-      const page = await reader.listSessions(actor.ownerId, query);
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: null,
+      });
+      const page = await reader.listSessions(actor.ownerId, query, {
+        userId: actor.actor?.userId ?? null,
+        apiKeyId: actor.actor?.apiKeyId ?? null,
+      });
       return {
         items: page.items.map(
           ({ profile_id, profile_fingerprint, ...item }) => ({
@@ -594,56 +942,46 @@ export function createSessionService(deps: {
       };
     },
 
-    async getSession(
-      actor: Principal,
+    async getSession(actor: Caller, sessionId: string): Promise<SessionDetail> {
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
+      return detailOf(actor, sessionId);
+    },
+
+    // Read-only by construction: it reads through the same reader as
+    // getSession and listTurns and allows nothing else on the session.
+    async auditRead(
+      actor: Caller,
       sessionId: string,
-    ): Promise<SessionDetail> {
-      requirePermitted(authorization, actor, "sessions:read");
-      const record = await reader.getSession(actor.ownerId, sessionId);
-      if (!record) {
+      input: { justification: string } & ListTurnsQuery,
+    ): Promise<AuditReadResponse> {
+      const { justification, ...query } = input;
+      await requirePermitted(
+        authorization,
+        actor,
+        "session.audit_read",
+        { kind: "session", id: sessionId },
+        justification,
+      );
+      const session = await detailOf(actor, sessionId);
+      const turns = await reader.listTurns(actor.ownerId, sessionId, query);
+      if (!turns) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const {
-        profile_id,
-        cost_usd,
-        provider_tokens,
-        repo_url,
-        branch,
-        profile_fingerprint,
-        ...detail
-      } = record;
-      const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
-      return {
-        ...detail,
-        attention:
-          detail.attention ??
-          // The claim matches the same values (runnablePairOf), so this says
-          // exactly when no worker of this host would take the session.
-          (catalogAllows(record)
-            ? null
-            : {
-                code: "CATALOG_MISMATCH",
-                reason:
-                  "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
-              }) ??
-          // Dispatch stops at the same predicate (nextInputAtomic), so what
-          // this says and what the gateway does come from one comparison.
-          (budgetExceeded(spend, budget)
-            ? {
-                code: "BUDGET_EXCEEDED",
-                reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
-              }
-            : null),
-        runtime: runtimeFor({ profile_id, profile_fingerprint }),
-      };
+      return { session, turns };
     },
 
     async listTurns(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       query: ListTurnsQuery,
     ): Promise<ListTurnsResponse> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const page = await reader.listTurns(actor.ownerId, sessionId, query);
       if (!page) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -652,11 +990,14 @@ export function createSessionService(deps: {
     },
 
     async getTurn(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       turnId: string,
     ): Promise<TurnDetail> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const turn = await reader.getTurn(actor.ownerId, sessionId, turnId);
       if (!turn) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -665,11 +1006,14 @@ export function createSessionService(deps: {
     },
 
     async readEvents(
-      actor: Principal,
+      actor: Caller,
       sessionId: string,
       query: ReadEventsQuery,
     ): Promise<EventPage> {
-      requirePermitted(authorization, actor, "sessions:read");
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
       const page = await reader.readEvents(actor.ownerId, sessionId, query);
       if (!page) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -679,12 +1023,22 @@ export function createSessionService(deps: {
 
     // Any principal of the issuing owner's partition may read a receipt,
     // not only the one that issued the command; another owner sees the same
-    // 404 as for a receipt that never existed.
-    async getReceipt(actor: Principal, receiptId: string): Promise<Receipt> {
-      requirePermitted(authorization, actor, "sessions:read");
+    // 404 as for a receipt that never existed, and so does anyone outside
+    // the share of the session it names.
+    async getReceipt(actor: Caller, receiptId: string): Promise<Receipt> {
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: null,
+      });
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      if ("session_id" in receipt.target_ref) {
+        await requirePermitted(authorization, actor, "session.read", {
+          kind: "session",
+          id: receipt.target_ref.session_id,
+        });
       }
       return receipt;
     },

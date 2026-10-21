@@ -23,7 +23,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
-import type { RuntimeConfig } from "@agent-platform/contracts";
+import {
+  MAX_RESTORE_PROFILES,
+  type RuntimeConfig,
+} from "@agent-platform/contracts";
 import {
   allowedPair,
   runtimeConfigOf,
@@ -190,6 +193,70 @@ export function sessionClaim(
     principal: { owner_scope: session.ownerId },
     runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
   };
+}
+
+/**
+ * The image claim key for a profile a session ran before its profile was
+ * changed; the image hashes every key it is given the same way.
+ */
+export function earlierProfileKey(sessionId: string, profileId: string) {
+  return `${sessionId}#${profileId}`;
+}
+
+/**
+ * The claims for the profiles a session's restorable checkpoints were made
+ * under other than the one it runs now (`earlier`, newest first), keyed by
+ * earlierProfileKey and chosen as the gateway's claim chooses them: the
+ * catalog must still hold the profile with the same fingerprint, the
+ * repository need not allow it any longer, and no more than
+ * MAX_RESTORE_PROFILES are offered.
+ */
+export function earlierProfileClaims(
+  session: { readonly id: string; readonly ownerId: string },
+  earlier: readonly {
+    readonly profileId: string;
+    readonly profileFingerprint: string;
+  }[],
+  catalog: SessionCatalog,
+): [key: string, claim: ReturnType<typeof sessionClaim>][] {
+  return earlier
+    .flatMap(({ profileId, profileFingerprint: made }) => {
+      const listed = Object.hasOwn(catalog.profiles, profileId)
+        ? catalog.profiles[profileId]
+        : undefined;
+      const profile = listed ? sessionProfile(listed, made) : null;
+      if (!profile) return [];
+      return [
+        [
+          earlierProfileKey(session.id, profileId),
+          {
+            principal: { owner_scope: session.ownerId },
+            runtime_config: runtimeConfigOf(profile, "verify-restore-stand-in"),
+          },
+        ] as [string, ReturnType<typeof sessionClaim>],
+      ];
+    })
+    .slice(0, MAX_RESTORE_PROFILES);
+}
+
+/**
+ * The digests the target image computes for a session's earlier profiles,
+ * the ones a worker of it would send as alternate_profile_sha256s. A
+ * profile it could not hash is left out, as the gateway leaves out one the
+ * catalog no longer holds.
+ */
+export function alternateDigests(
+  image: ImageRuntime,
+  keys: readonly string[],
+): string[] {
+  return keys.flatMap((key) => {
+    const profile = Object.hasOwn(image.profiles, key)
+      ? image.profiles[key]
+      : undefined;
+    return profile !== undefined && "profileSha256" in profile
+      ? [profile.profileSha256]
+      : [];
+  });
 }
 
 export function describeMismatches(

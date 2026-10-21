@@ -12,6 +12,7 @@ import type {
   TurnSummary,
 } from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
+import type { SessionViewer } from "./session-share-store.ts";
 
 // Checked inside the acceptance transaction, after an idempotent replay has
 // been answered: a replay is never refused for a limit.
@@ -40,6 +41,13 @@ export type AcceptSessionInput = {
   profileFingerprint?: string;
   // The profile declared `billing: none`; fixed on the session for good.
   unmetered?: boolean;
+  // The agent release the session belongs to, already checked against
+  // profileId.
+  agentReleaseId?: string;
+  // The policy found a name the release uses unbound: only a replay of an
+  // earlier acceptance goes through. Without it, the names are rechecked
+  // under lock against a concurrent unbind.
+  credentialsUnbound?: true;
   message: string;
   limits: InputLimits;
 };
@@ -47,6 +55,8 @@ export type AcceptSessionInput = {
 export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
   | { outcome: "conflict" | "unsupported" }
+  | { outcome: "actor_inactive" }
+  | { outcome: "credential_unbound" }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {
@@ -67,6 +77,8 @@ export type AppendMessageResult =
   // now could never be reported as durably finished, so none is accepted.
   // `reason` is the stored text, which may be one a newer build recorded.
   | { outcome: "checkpoint_unavailable"; reason: string }
+  | { outcome: "awaiting_takeover" }
+  | { outcome: "actor_inactive" }
   | InputLimitRefusal;
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.
@@ -106,9 +118,11 @@ export class InvalidCursorError extends Error {
 }
 
 export interface SessionReader {
+  // Only the sessions shared with `viewer` (design 4.6).
   listSessions(
     ownerId: string,
     query: ListSessionsQuery,
+    viewer: SessionViewer,
   ): Promise<{ items: SessionRecord[]; next_cursor: string | null }>;
   getSession(
     ownerId: string,

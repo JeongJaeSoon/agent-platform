@@ -1,12 +1,18 @@
 import { z } from "zod";
 
 import {
+  surfaceChannelKindSchema,
+  surfaceKindSchema,
+} from "../kollegium/surfaces.ts";
+import {
   agentIdSchema,
+  agentReleaseIdSchema,
   grantIdSchema,
   installationIdSchema,
   opaqueIdSchema,
   ownerScopeSchema,
   revisionSchema,
+  surfaceBindingIdSchema,
   timestampSchema,
   userIdSchema,
   workspaceIdSchema,
@@ -27,13 +33,14 @@ export const SESSION_SCOPE_VALUES = [
 ] as const;
 export const sessionScopeSchema = z.enum(SESSION_SCOPE_VALUES);
 
-export const WORKSPACE_ROLE_VALUES = ["owner", "member"] as const;
+export const WORKSPACE_ROLE_VALUES = ["owner", "admin", "member"] as const;
 export const workspaceRoleSchema = z.enum(WORKSPACE_ROLE_VALUES);
 
 export type SessionScope = z.infer<typeof sessionScopeSchema>;
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;
 
-// 03 §3.2: owner gets everything, member everything but recovery.
+// 03 §3.2: owner gets everything; admin and member everything but recovery
+// (design 4.1: admin's session rights are a member's).
 const MEMBER_SCOPES = SESSION_SCOPE_VALUES.filter(
   (scope) => scope !== "sessions:recover",
 );
@@ -111,7 +118,8 @@ export const principalSchema = z
     z
       .object({
         kind: z.literal("api_key"),
-        id: opaqueIdSchema,
+        // Uncapped for the reason principalRefSchema gives.
+        id: z.string().min(1),
         owner_id: ownerScopeSchema,
         // Legacy keys predate workspaces and stay unmapped until an explicit
         // owner_workspace_map row exists.
@@ -284,6 +292,9 @@ export const RESOURCE_KIND_VALUES = [
   "memory",
   "routine",
   "artifact",
+  // Receipt targets only: no action is granted on a key or a team.
+  "api_key",
+  "team",
 ] as const;
 export const resourceKindSchema = z.enum(RESOURCE_KIND_VALUES);
 export const resourceRefSchema = z
@@ -304,7 +315,25 @@ export const audienceRefSchema = z
 export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.read",
   "workspace.manage",
+  // Owner-only, unlike the rest of the workspace settings (design 4.1).
+  "audit_retention.manage",
+  // Invites, roles, offboarding and taking over what a member leaves behind.
+  "member.manage",
+  "team.manage",
+  // Issuing and revoking a workspace's service keys; on an agent, the keys
+  // bound to that agent.
+  "api_key.manage",
+  // Issuing and revoking the caller's own personal keys.
+  "api_key.manage_own",
+  // Linking and unlinking the caller's own account on another service.
+  "account.link",
+  // Any member may create an agent and becomes its admin (D3).
+  "agent.create",
   "agent.manage",
+  // Bringing an archived agent back is the owner's alone.
+  "agent.restore",
+  "agent.admin.manage",
+  "credential.bind",
   "binding.manage",
   "routine.manage",
   "session.read",
@@ -312,6 +341,13 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "session.approve",
   "session.control",
   "session.recover",
+  // Changing who sees a session: its creator, or for a key's session the
+  // workspace's managers and the agent's admins (D21).
+  "session.share",
+  // Reading a session outside its share, read-only and with a reason (D22).
+  "session.audit_read",
+  // Every session's metadata, none of its content (design 4.6).
+  "session.admin_list",
   "memory.read",
   "memory.write",
   "artifact.read",
@@ -336,7 +372,17 @@ const ACTION_RESOURCE_KINDS: Record<
 > = {
   "workspace.read": new Set(["workspace"]),
   "workspace.manage": new Set(["workspace"]),
+  "audit_retention.manage": new Set(["workspace"]),
+  "member.manage": new Set(["workspace", "session"]),
+  "team.manage": new Set(["workspace"]),
+  "api_key.manage": new Set(["workspace", "agent"]),
+  "api_key.manage_own": new Set(["workspace"]),
+  "account.link": new Set(["workspace"]),
+  "agent.create": new Set(["workspace"]),
   "agent.manage": new Set(["workspace", "agent"]),
+  "agent.restore": new Set(["agent"]),
+  "agent.admin.manage": new Set(["agent"]),
+  "credential.bind": new Set(["agent"]),
   "binding.manage": new Set(["workspace", "agent", "surface_binding"]),
   "routine.manage": new Set(["workspace", "agent", "routine"]),
   "session.read": new Set(["session", "session_link"]),
@@ -344,11 +390,21 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.approve": new Set(["session", "session_link"]),
   "session.control": new Set(["session", "session_link"]),
   "session.recover": new Set(["session"]),
+  "session.share": new Set(["session"]),
+  "session.audit_read": new Set(["session"]),
+  "session.admin_list": new Set(["workspace"]),
   "memory.read": new Set(["workspace", "agent", "memory"]),
   "memory.write": new Set(["workspace", "agent", "memory"]),
   "artifact.read": new Set(["artifact", "session"]),
   "delivery.send": new Set(["session", "session_link", "surface_binding"]),
 };
+
+export function actionAppliesTo(
+  action: AuthorizationAction,
+  kind: ResourceKind,
+): boolean {
+  return ACTION_RESOURCE_KINDS[action]?.has(kind) ?? false;
+}
 
 // ---------------------------------------------------------------------------
 // Grant
@@ -431,3 +487,247 @@ export const receiptActorSchema = z
 export const turnActorIdSchema = userIdSchema.nullable();
 
 export type ReceiptActor = z.infer<typeof receiptActorSchema>;
+
+// ---------------------------------------------------------------------------
+// The authorize() decision (Musterrolle design, appendix A.3)
+// ---------------------------------------------------------------------------
+
+/** The partition every existing store reads and writes under. */
+export function ownerScopeOf(principal: Principal): string {
+  return principal.kind === "user"
+    ? principal.workspace_id
+    : principal.owner_id;
+}
+
+export const AUTHORIZATION_OUTCOME_VALUES = [
+  "allow",
+  "deny",
+  "redact",
+  "require_approval",
+] as const;
+export const authorizationOutcomeSchema = z.enum(AUTHORIZATION_OUTCOME_VALUES);
+
+export const AUTHORIZATION_REASON_VALUES = [
+  "ok",
+  "not_found",
+  "unlinked",
+  // An agent starting work with no person or key asking: v1 has no
+  // autonomous runs, so this is always a refusal.
+  "no_requester",
+  "role",
+  "surface_ceiling",
+  "agent_ceiling",
+  "disabled",
+  "stale_link",
+  "credential_unbound",
+  "guest_disabled",
+  // A Slack Connect user from another organization, whatever the guest
+  // setting says: they are no member of this workspace to link.
+  "external_user",
+  // An audit read, or a manager's action on a session outside its share,
+  // that gave no reason.
+  "justification_required",
+  // Fail-closed: a throw, a storage error, a malformed request or an
+  // action/resource pair the policy has no rule for.
+  "error",
+] as const;
+export const authorizationReasonSchema = z.enum(AUTHORIZATION_REASON_VALUES);
+
+export const SLACK_USER_KIND_VALUES = ["member", "guest", "external"] as const;
+export const slackUserKindSchema = z.enum(SLACK_USER_KIND_VALUES);
+
+/**
+ * The fields of a Slack user object the decision reads (design A.3 step 4).
+ * Not strict: Slack sends many more, and they are dropped.
+ */
+export const slackUserSchema = z.object({
+  id: opaqueIdSchema,
+  team_id: opaqueIdSchema,
+  is_restricted: z.boolean().optional(),
+  is_ultra_restricted: z.boolean().optional(),
+  is_stranger: z.boolean().optional(),
+  is_external: z.boolean().optional(),
+});
+
+/**
+ * Who a Slack user is to the workspace that installed the app in
+ * `installedTeamId`. A Slack Connect user is not a guest — `is_restricted`
+ * stays false for them — so they are told apart first, by the flags Slack
+ * sets on strangers and by a team that is not the install's.
+ */
+export function slackUserKindOf(
+  user: z.infer<typeof slackUserSchema>,
+  installedTeamId: string,
+): SlackUserKind {
+  if (user.is_stranger || user.is_external || user.team_id !== installedTeamId)
+    return "external";
+  if (user.is_restricted || user.is_ultra_restricted) return "guest";
+  return "member";
+}
+
+/**
+ * What a Slack installation can ever do: read, ask, steer and approve.
+ * Recovery, sharing, audit reads, the admin list and deletion are web
+ * actions, so no channel setting can hand them to Slack.
+ */
+export const SLACK_SURFACE_ACTION_VALUES = [
+  "session.read",
+  "session.submit",
+  "session.control",
+  "session.approve",
+] as const;
+export const slackSurfaceActionSchema = z.enum(SLACK_SURFACE_ACTION_VALUES);
+
+/** `summary`: reads in this channel get a summary and a web link (D13). */
+export const SURFACE_DISCLOSURE_VALUES = ["full", "summary"] as const;
+export const surfaceDisclosureSchema = z.enum(SURFACE_DISCLOSURE_VALUES);
+
+/**
+ * A channel's ceiling: the actions its binding allows — approvals only when
+ * `session.approve` is listed — and how much of a session it may show.
+ */
+export const surfaceCeilingSchema = z
+  .object({
+    actions: z.array(slackSurfaceActionSchema),
+    disclosure: surfaceDisclosureSchema,
+  })
+  .strict();
+
+export const authorizationSurfaceSchema = z
+  .object({
+    kind: surfaceKindSchema,
+    binding_id: surfaceBindingIdSchema.optional(),
+    channel_kind: surfaceChannelKindSchema.optional(),
+    slack_user_kind: slackUserKindSchema.optional(),
+    // Until bindings are stored (94S-177) the Slack channel hands its
+    // binding's ceiling in. It can only narrow: a slack request without one
+    // is refused.
+    ceiling: surfaceCeilingSchema.optional(),
+    // The agent whose Slack app received the input. An installation speaks
+    // for that agent alone, so a slack request without one is refused.
+    agent_id: agentIdSchema.optional(),
+  })
+  .strict()
+  .superRefine((surface, ctx) => {
+    if (surface.kind === "slack") return;
+    for (const key of ["slack_user_kind", "ceiling", "agent_id"] as const) {
+      if (surface[key] !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `only a slack surface carries ${key}`,
+        });
+      }
+    }
+  });
+
+/**
+ * Who is asking. The whole authenticated principal travels here rather than
+ * a ref, so the policy judges the ceiling that authenticated instead of
+ * one a caller restated. `null` is an autonomous run: no person or key
+ * asked for it.
+ */
+export const authorizationSubjectSchema = z
+  .object({
+    principal: principalSchema.nullable(),
+    actor_user_id: userIdSchema.optional(),
+    linked_account: z
+      .object({ id: opaqueIdSchema, revision: revisionSchema })
+      .strict()
+      .optional(),
+    /** The agent acting for the requester, whose ceiling also applies. */
+    agent: z
+      .object({ agent_id: agentIdSchema, release_id: agentReleaseIdSchema })
+      .strict()
+      .optional(),
+    surface: authorizationSurfaceSchema,
+    justification: z.string().min(1).max(1000).optional(),
+  })
+  .strict();
+
+/**
+ * What the action is on. `id` is null for something not yet identified: a
+ * session about to be created, a list, or a receipt whose session the store
+ * has not read yet. `owner_scope` is the partition the resource lives in;
+ * a subject from another partition is told it does not exist.
+ */
+export const authorizationResourceSchema = z
+  .object({
+    kind: resourceKindSchema,
+    id: z.string().min(1).max(512).nullable(),
+    owner_scope: ownerScopeSchema,
+    /**
+     * The agent a resource not yet identified will belong to: a session about
+     * to be created on one of its releases. A resource that exists is read
+     * for its agent instead, never told.
+     */
+    agent_id: agentIdSchema.optional(),
+    /**
+     * The release that session is to run, so the decision sees the
+     * credentials it names are still bound (design 4.4).
+     */
+    release_id: agentReleaseIdSchema.optional(),
+  })
+  .strict()
+  .superRefine((resource, ctx) => {
+    for (const key of ["agent_id", "release_id"] as const) {
+      if (resource[key] !== undefined && resource.id !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "an identified resource is read for its agent",
+        });
+      }
+    }
+  });
+
+export const authorizationRequestSchema = z
+  .object({
+    subject: authorizationSubjectSchema,
+    action: authorizationActionSchema,
+    resource: authorizationResourceSchema,
+    request_id: z.string().min(1).max(512),
+  })
+  .strict();
+
+export const authorizationDecisionSchema = z
+  .object({
+    outcome: authorizationOutcomeSchema,
+    reason_code: authorizationReasonSchema,
+    effective_scopes: z.array(sessionScopeSchema),
+    redact: z
+      .object({ view: z.literal("summary") })
+      .strict()
+      .optional(),
+    approval: z
+      .object({ approvers: z.literal("session.approve") })
+      .strict()
+      .optional(),
+    policy_version: z.string().min(1),
+    decision_id: z.uuid(),
+  })
+  .strict()
+  .superRefine((decision, ctx) => {
+    const ok = decision.reason_code === "ok";
+    if (
+      decision.outcome === "allow" ? !ok : decision.outcome === "deny" && ok
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reason_code"],
+        message: `${decision.outcome} cannot carry ${decision.reason_code}`,
+      });
+    }
+  });
+
+export type AuthorizationOutcome = z.infer<typeof authorizationOutcomeSchema>;
+export type AuthorizationReason = z.infer<typeof authorizationReasonSchema>;
+export type AuthorizationSurface = z.infer<typeof authorizationSurfaceSchema>;
+export type SlackUserKind = z.infer<typeof slackUserKindSchema>;
+export type SlackUser = z.infer<typeof slackUserSchema>;
+export type SlackSurfaceAction = z.infer<typeof slackSurfaceActionSchema>;
+export type SurfaceCeiling = z.infer<typeof surfaceCeilingSchema>;
+export type AuthorizationSubject = z.infer<typeof authorizationSubjectSchema>;
+export type AuthorizationResource = z.infer<typeof authorizationResourceSchema>;
+export type AuthorizationRequest = z.infer<typeof authorizationRequestSchema>;
+export type AuthorizationDecision = z.infer<typeof authorizationDecisionSchema>;

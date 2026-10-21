@@ -12,6 +12,7 @@ import {
   sessionIdSchema,
   timestampSchema,
   turnIdSchema,
+  userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
 
@@ -30,9 +31,56 @@ export const RECEIPT_OPERATION_VALUES = [
   "terminate",
   "resume",
   "recovery_decision",
+  // A session moved onto another catalog profile from its next turn on.
+  "change_profile",
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
+  // Account recovery (94S-264): a one-time link issued and the password set
+  // from it, and an owner added or restored by BOOTSTRAP_TOKEN when no live
+  // owner remained.
+  "issue_password_reset",
+  "reset_password",
+  "recover_owner",
+  // An owner taking over a session whose requester was offboarded.
+  "takeover",
+  // A person linking or unlinking their own Slack account.
+  "link_account",
+  "unlink_account",
+  // Invites and roles (94S-153).
+  "invite_member",
+  "accept_invite",
+  "revoke_invite",
+  "change_member_role",
+  // Turning a membership or a whole account off and back on (94S-464).
+  "disable_member",
+  "enable_member",
+  "disable_user",
+  "enable_user",
+  "create_agent",
+  "update_agent",
+  "create_agent_release",
+  "activate_agent",
+  // Issuing and revoking an API key from the web or the API (94S-574).
+  "create_api_key",
+  "revoke_api_key",
+  // Teams and who administers an agent (94S-582). Adding a member writes its
+  // receipt on that member, so it is also their notice of the change.
+  "create_team",
+  "rename_team",
+  "delete_team",
+  "add_team_member",
+  "remove_team_member",
+  "add_agent_admin",
+  "remove_agent_admin",
+  // Binding a credential name to an agent and taking it off (94S-581).
+  "bind_credential",
+  "unbind_credential",
+  // Pinning an agent to its Slack app and bot, and taking that back (M8).
+  "link_agent_identity",
+  "revoke_agent_identity",
+  // Changing who sees a session (94S-584).
+  "share_session",
   // A push request, a human's decision on one (or a refused attempt at
   // either), and the platform's push of an approved one.
   "request_push",
@@ -67,9 +115,18 @@ export const receiptResourceTargetSchema = z
     workspace_id: workspaceIdSchema.nullable(),
   })
   .strict();
+// A user is not a grantable resource, so it has its own variant instead of a
+// resource kind.
+export const receiptUserTargetSchema = z
+  .object({
+    user_id: userIdSchema,
+    workspace_id: workspaceIdSchema,
+  })
+  .strict();
 export const receiptTargetSchema = z.union([
   receiptSessionTargetSchema,
   receiptResourceTargetSchema,
+  receiptUserTargetSchema,
 ]);
 export const receiptErrorSchema = z.object({
   code: apiErrorCodeSchema,
@@ -115,6 +172,7 @@ export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
 export type ReceiptOperation = z.infer<typeof receiptOperationSchema>;
 export type ReceiptSessionTarget = z.infer<typeof receiptSessionTargetSchema>;
 export type ReceiptResourceTarget = z.infer<typeof receiptResourceTargetSchema>;
+export type ReceiptUserTarget = z.infer<typeof receiptUserTargetSchema>;
 export type ReceiptTarget = z.infer<typeof receiptTargetSchema>;
 export type Receipt = z.infer<typeof receiptSchema>;
 export type GetReceiptResponse = z.infer<typeof getReceiptResponseSchema>;

@@ -1,0 +1,335 @@
+/*
+ * `@theme inline` makes a utility like `bg-canvas` resolve to
+ * var(--ap-color-canvas) at runtime, so it follows the dark theme with no
+ * rebuild.
+ */
+@import "tailwindcss";
+@import "@agent-platform/ui/styles.css";
+@import "@agent-platform/ui/theme.css";
+
+/*
+ * Tailwind's automatic detection stays inside this app and skips
+ * node_modules, where the packages/ui and packages/react symlinks live, so
+ * they are named here.
+ */
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/ui/src";
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/react/src";
+
+/*
+ * Tokens with no shadcn name. Colours shadcn names (`border`, `foreground`,
+ * `accent`…) come from theme.css, where `accent` is a quiet hover surface and
+ * the brand colour is `primary`.
+ */
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@theme inline {
+  --color-canvas: var(--ap-color-canvas);
+  --color-surface: var(--ap-color-surface);
+  --color-surface-sunken: var(--ap-color-surface-sunken);
+  --color-rail: var(--ap-color-rail);
+  --color-rail-foreground: var(--ap-color-rail-foreground);
+  --color-rail-muted-foreground: var(--ap-color-rail-muted-foreground);
+  --color-border-strong: var(--ap-color-border-strong);
+  --color-focus-ring: var(--ap-color-focus-ring);
+  --font-sans: var(--ap-font-sans);
+  --font-mono: var(--ap-font-mono);
+  --radius-sm: var(--ap-radius-sm);
+  --radius-md: var(--ap-radius-md);
+  --radius-lg: var(--ap-radius-lg);
+  --shadow-sm: var(--ap-shadow-sm);
+  --shadow-md: var(--ap-shadow-md);
+  --shadow-lg: var(--ap-shadow-lg);
+}
+
+body {
+  margin: 0;
+  background: var(--ap-color-canvas);
+  color: var(--ap-color-foreground);
+  font-family: var(--ap-font-sans);
+  line-height: var(--ap-leading-normal);
+  /* Korean breaks between words, not syllables; a word too long still wraps. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Tailwind's preflight strips link styling; a link must still look like one. */
+.web-auth a:not([data-slot="button"]):not(.ap-button),
+.web-shell__main a:not([data-slot="button"]):not(.ap-button) {
+  color: var(--ap-color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ap-color-focus-ring);
+  outline-offset: 2px;
+}
+/* The light ring is too dark to see against the dark rail (WCAG 1.4.11). */
+[data-slot="app-sidebar"] :focus-visible {
+  outline-color: var(--ap-color-rail-foreground);
+}
+
+.web-auth {
+  width: 100%;
+  max-width: min(100%, 28rem);
+  margin: 0 auto;
+  padding: var(--ap-space-6) var(--ap-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-4);
+}
+
+.web-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-3);
+}
+.web-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-1);
+  font-size: var(--ap-text-label);
+}
+.web-field .ap-input {
+  width: 100%;
+}
+.web-field__hint {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+}
+.web-form__error {
+  margin: 0;
+  color: var(--ap-tone-danger-fg);
+}
+
+.web-notice {
+  display: block;
+  margin: 0;
+  padding: var(--ap-space-3);
+  border: 1px solid var(--ap-tone-progress-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-tone-progress-bg);
+  color: var(--ap-tone-progress-fg);
+}
+
+.web-status {
+  padding: var(--ap-space-4);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ap-space-2);
+}
+.web-status[data-status="forbidden"],
+.web-status[data-status="error"] {
+  border-color: var(--ap-tone-danger-border);
+}
+.web-status[data-status="bootstrap-required"] {
+  border-color: var(--ap-tone-attention-border);
+}
+.web-status__title {
+  margin: 0;
+  font-weight: var(--ap-weight-bold);
+  font-size: var(--ap-text-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--ap-space-2);
+}
+.web-status__body {
+  margin: 0;
+}
+
+.web-guarded {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--ap-space-1);
+}
+.web-guarded__reason {
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+}
+
+.web-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-6);
+}
+.web-page__title {
+  margin: 0;
+  font-size: var(--ap-text-xl);
+}
+.web-page__empty,
+.web-page__intro {
+  margin: 0;
+  color: var(--ap-color-muted-foreground);
+}
+.web-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-3);
+}
+.web-section h2 {
+  margin: 0;
+  font-size: var(--ap-text-lg);
+}
+.web-form--inline {
+  max-width: none;
+}
+
+.web-table-wrap {
+  overflow-x: auto;
+}
+.web-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ap-text-sm);
+}
+.web-table th,
+.web-table td {
+  padding: var(--ap-space-2);
+  border-bottom: 1px solid var(--ap-color-border);
+  text-align: left;
+  vertical-align: top;
+}
+/* Cells keep one line; the wrap scrolls sideways instead of growing tall. */
+.web-table--nowrap th,
+.web-table--nowrap td {
+  white-space: nowrap;
+}
+.web-table__primary {
+  display: block;
+  font-weight: var(--ap-weight-bold);
+  overflow-wrap: anywhere;
+}
+.web-table__secondary {
+  display: block;
+  color: var(--ap-color-muted-foreground);
+  font-size: var(--ap-text-xs);
+  overflow-wrap: anywhere;
+}
+.web-table tr[data-disabled="true"] .web-table__primary {
+  color: var(--ap-color-muted-foreground);
+}
+.web-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+}
+.web-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ap-space-2) var(--ap-space-3);
+  padding: var(--ap-space-3);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  background: var(--ap-color-surface);
+}
+.web-list__item > :last-child {
+  margin-left: auto;
+}
+.web-list__item > :only-child {
+  margin-left: 0;
+}
+
+.web-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ap-space-3);
+}
+.web-form--wide {
+  max-width: min(100%, 40rem);
+}
+.web-field__area {
+  min-height: 8rem;
+  resize: vertical;
+}
+.web-fieldset {
+  margin: 0;
+  padding: var(--ap-space-3);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+}
+.web-badge {
+  display: inline-block;
+  padding: 0 var(--ap-space-2);
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  font-size: var(--ap-text-xs);
+  white-space: nowrap;
+}
+.web-badge[data-tone="ok"] {
+  border-color: var(--ap-tone-progress-border);
+}
+.web-badge[data-tone="pending"],
+.web-badge[data-tone="muted"] {
+  color: var(--ap-color-muted-foreground);
+}
+.web-diff {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ap-space-2);
+}
+.web-diff figcaption {
+  font-size: var(--ap-text-sm);
+  color: var(--ap-color-muted-foreground);
+}
+.web-diff__body {
+  margin: 0;
+  padding: var(--ap-space-3);
+  overflow-x: auto;
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--ap-radius-md);
+  font-family: var(--ap-font-mono);
+  font-size: var(--ap-text-xs);
+}
+.web-diff__line {
+  display: block;
+}
+.web-diff__line[data-kind="added"] {
+  background: var(--ap-tone-progress-bg);
+}
+.web-diff__line[data-kind="removed"] {
+  background: var(--ap-tone-danger-bg);
+  text-decoration: line-through;
+}
+.web-diff__mark {
+  display: inline-block;
+  width: 1.5ch;
+}
+.web-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (min-width: 48rem) {
+  .web-auth {
+    padding: var(--ap-space-10) var(--ap-space-6);
+  }
+}

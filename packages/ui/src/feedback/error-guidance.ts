@@ -43,8 +43,39 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "실행 환경에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   LAUNCH_FAILED:
     "작업 환경을 여러 번 띄우지 못해 입력이 처리되지 않았습니다 — 담당자에게 알린 뒤 다시 보내세요.",
+  LOGIN_LINK_REQUIRED:
+    "이 이메일로 만든 계정이 이미 있어요 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
+  TAKEOVER_REQUIRED:
+    "요청한 분이 떠나 관리자가 이어받을 때까지 멈춰요 — 워크스페이스 owner에게 인수를 요청하세요.",
+  INVITE_EXPIRED:
+    "초대가 회수됐거나 새 초대로 바뀌었거나 만료됐습니다 — 관리자에게 새 초대를 요청하세요.",
+  INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
+  LAST_OWNER:
+    "워크스페이스에는 owner가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 owner로 바꾸세요.",
+  SCOPE_NOT_GRANTABLE:
+    "발급하는 사람이 지금 가진 권한보다 넓은 key는 만들 수 없고, 에이전트 전용 key는 승인 권한을 갖지 못합니다 — scope를 줄여 다시 발급하세요.",
+  RELEASE_PROFILE_MISMATCH:
+    "이 release는 다른 실행 프로필로 만들어졌습니다 — release의 실행 프로필로 세션을 만드세요.",
+  CREDENTIAL_UNBOUND:
+    "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
+  CREDENTIAL_REF_IN_USE:
+    "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
+  OWNER_PROTECTED:
+    "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
+  PROFILE_DIGEST_MISMATCH:
+    "이 release를 만든 뒤 실행 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
+  ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
   CATALOG_MISMATCH:
     "이 세션의 프로필·저장소 조합이 더 이상 허용되지 않아 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
+  SLACK_NOT_INSTALLED:
+    "Slack이 아직 설치되지 않았어요 — owner·admin에게 Slack 설치를 요청하세요.",
+  LINK_TEAM_MISMATCH:
+    "연결된 Slack 워크스페이스가 아니에요 — 안내된 워크스페이스 계정으로 다시 시도하세요.",
+  LINK_TAKEN:
+    "이 Slack 계정은 다른 사용자에게 연결돼 있어요 — owner·admin에게 문의하세요.",
+  LINK_EXISTS: "이미 연결된 Slack 계정이 있어요 — 해제한 뒤 다시 연결하세요.",
+  AGENT_IDENTITY_TAKEN:
+    "이 Slack 앱은 다른 에이전트에 연결돼 있어요 — 그 연결을 회수한 뒤 다시 연결하세요.",
   NOT_READY: "아직 준비되지 않았습니다 — 잠시 뒤 다시 시도하세요.",
   CURSOR_EXPIRED: "이어보기 위치가 만료됐습니다 — 처음부터 다시 불러오세요.",
   LEASE_EXPIRED: "실행 점유가 만료됐습니다 — 현재 상태를 확인하세요.",

@@ -123,10 +123,22 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "provider_tokens",
     // arrives as false
     "unmetered",
+    //
+    "created_by_api_key_id",
+    "takeover_required_at",
   ],
   turns: ["actor_id"],
-  api_keys: ["workspace_id", "scopes"],
-  receipts: ["actor"],
+  // kind arrives as 'service'
+  api_keys: [
+    "workspace_id",
+    "scopes",
+    "kind",
+    "created_by_user_id",
+    "expires_at",
+    // 0142
+    "agent_id",
+  ],
+  receipts: ["actor", "request_id"],
 };
 
 async function seedAlphaRows(pool: Pool): Promise<string[]> {
@@ -191,8 +203,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 34, total: 43 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 43 });
+      expect(first).toEqual({ adopted: 0, applied: 48, total: 57 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 57 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",
@@ -346,7 +358,7 @@ integration("0100 identity migration on PostgreSQL", () => {
           ],
           [
             "23514",
-            `INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin')`,
+            `INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, 'guest')`,
             [workspaceId, randomUUID()],
           ],
           [
@@ -487,12 +499,19 @@ integration("0100 identity migration on PostgreSQL", () => {
           [randomUUID(), workspaceId, userId, workspaceId],
         );
         expect(ok.rows).toHaveLength(1);
-        // A derived release id is opaque text, not a uuid.
-        await pool.query(
-          `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, agent_release_id)
-           VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, 'rel_' || encode(sha256('r'::bytea), 'hex'))`,
-          [randomUUID(), workspaceId],
-        );
+        // A derived release id is opaque text, and since 0139 it must name
+        // a release that exists.
+        const unpinned = await pool
+          .query(
+            `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, agent_release_id)
+             VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, 'sha256:' || encode(sha256('r'::bytea), 'hex'))`,
+            [randomUUID(), workspaceId],
+          )
+          .then(
+            () => undefined,
+            (error: unknown) => error,
+          );
+        expect(sqlState(unpinned)).toBe("23503");
         const tokens = await pool
           .query(
             `INSERT INTO web_sessions (id, user_id, token_hash, expires_at) VALUES ($1, $2, sha256('c'::bytea), now() + interval '1 day'), ($3, $2, sha256('c'::bytea), now() + interval '1 day')`,
