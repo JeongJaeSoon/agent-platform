@@ -8,7 +8,7 @@ import {
   type Recorded,
 } from "./test-support/fake-api.ts";
 
-const { render, screen, waitFor } = await setupDom();
+const { render, screen, waitFor, within } = await setupDom();
 // After the DOM exists: the router and Testing Library look for it on load.
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
@@ -293,18 +293,23 @@ describe("bootstrap", () => {
     expect(history.location.search).not.toContain("owner");
   });
 
-  test("이미 끝났으면(409) 로그인으로 보낸다", async () => {
+  test("이미 소유자가 있으면(409) 그 자리에서 로그인 링크를 보인다", async () => {
     const { history } = renderAt("/bootstrap", {
       "POST /v1/auth/bootstrap": () =>
         apiError(409, "BOOTSTRAP_DONE", "Bootstrap already done"),
     });
     await fill();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "이미 소유자가 있습니다. 로그인해 주세요.",
+    );
+    expect(alert.textContent).not.toContain("owner@example.com");
     expect(
-      await screen.findByText(
-        "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
-      ),
-    ).toBeDefined();
-    expect(history.location.pathname).toBe("/login");
+      within(alert)
+        .getByRole("link", { name: "로그인하기" })
+        .getAttribute("href"),
+    ).toBe("/login");
+    expect(history.location.pathname).toBe("/bootstrap");
   });
 
   test("토큰이 틀리면(401) 토큰 문구다", async () => {
@@ -313,9 +318,9 @@ describe("bootstrap", () => {
         apiError(401, "UNAUTHORIZED", "Bootstrap token is invalid"),
     });
     await fill();
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "Bootstrap 토큰이 맞지 않습니다",
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Bootstrap 토큰이 맞지 않습니다");
+    expect(within(alert).queryByRole("link")).toBeNull();
   });
 });
 
