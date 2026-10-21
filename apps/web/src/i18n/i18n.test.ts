@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { flowEn, flowKo, sessionsEn, sessionsKo } from "@agent-platform/react";
+import {
+  flowEn,
+  flowKo,
+  formsEn,
+  formsKo,
+  sessionsEn,
+  sessionsKo,
+} from "@agent-platform/react";
 import { agentsEn, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysKo } from "./api-keys.ts";
 import { authEn, authKo } from "./auth.ts";
@@ -46,6 +53,7 @@ describe("i18n", () => {
         apiKeysKo,
         workspaceKo,
         errorsKo,
+        formsKo,
       ]),
     ).toBe(Object.keys(ko).length);
     expect(
@@ -64,6 +72,7 @@ describe("i18n", () => {
         apiKeysEn,
         workspaceEn,
         errorsEn,
+        formsEn,
       ]),
     ).toBe(Object.keys(en).length);
   });

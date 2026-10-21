@@ -1,18 +1,22 @@
 import { isApiError } from "@agent-platform/client";
-import type { SessionDetail } from "@agent-platform/contracts";
+import type { SessionDetail as SessionDetailData } from "@agent-platform/contracts";
+import { profilesQuery } from "@agent-platform/core";
 import {
   useAgentPlatform,
   useChangeSessionProfile,
-  usePendingRequests,
-  useSession,
-  useSessionEvents,
-  useSessions,
-  useSessionUsage,
 } from "@agent-platform/react";
+import { SessionDetail, SessionList } from "@agent-platform/react/blocks";
+import {
+  buttonVariants,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  NativeSelect,
+  NativeSelectOption,
+} from "@agent-platform/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
-import { profilesQuery } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
@@ -24,72 +28,29 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import {
-  PendingRequestList,
-  SessionEventList,
-  SessionOverview,
-  SessionTable,
-  SessionUsagePanel,
-} from "../sessions/views.tsx";
 
-function LoadError({
-  error,
-  onRetry,
-}: {
-  readonly error: unknown;
-  readonly onRetry: () => void;
-}) {
+function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
     return <StatusScreen kind="forbidden" />;
   }
   return <LoadFailure error={error} onRetry={onRetry} />;
 }
 
-/** The caller's own sessions; the API lists nobody else's. */
+const PAGE = "flex flex-col gap-6";
+const TITLE = "m-0 font-semibold text-xl";
+
 export function SessionsScreen() {
   const { t } = useI18n();
-  const sessions = useSessions();
-  const items = sessions.data?.pages.flatMap((page) => page.items) ?? [];
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("sessions.title")}</h1>
-      <p className="web-page__intro">{t("sessions.intro")}</p>
-      {sessions.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : sessions.error && items.length === 0 ? (
-        <LoadError
-          error={sessions.error}
-          onRetry={() => void sessions.refetch()}
-        />
-      ) : items.length === 0 ? (
-        <p className="web-page__empty">{t("sessions.empty")}</p>
-      ) : (
-        <>
-          <SessionTable sessions={items} />
-          {sessions.error ? (
-            <LoadError
-              error={sessions.error}
-              onRetry={() =>
-                void (sessions.isFetchNextPageError
-                  ? sessions.fetchNextPage()
-                  : sessions.refetch())
-              }
-            />
-          ) : null}
-          {sessions.hasNextPage && !sessions.isFetchNextPageError ? (
-            <button
-              type="button"
-              className="ap-button"
-              disabled={sessions.isFetchingNextPage}
-              onClick={() => sessions.fetchNextPage()}
-            >
-              {sessions.isFetchingNextPage
-                ? t("sessions.loadingMore")
-                : t("sessions.more")}
-            </button>
-          ) : null}
-        </>
-      )}
+    <div className={PAGE}>
+      <div className="flex flex-col gap-1">
+        <h1 className={TITLE}>{t("sessions.title")}</h1>
+        <p className="m-0 text-muted-foreground">{t("sessions.intro")}</p>
+      </div>
+      <SessionList
+        loading={<StatusScreen kind="loading" />}
+        renderError={loadError}
+      />
     </div>
   );
 }
@@ -97,64 +58,27 @@ export function SessionsScreen() {
 export function SessionDetailScreen() {
   const { t } = useI18n();
   const { id } = useParams({ from: "/authed/sessions/$id" });
-  const session = useSession(id);
-  // The rest waits for the detail, so a session the caller may not read is
-  // not asked about four times over. A refetch that failed on the network
-  // keeps the last detail and the stream; one that says the caller may no
-  // longer see the session (a share taken back) drops both.
-  const lostAccess =
-    isApiError(session.error, "NOT_FOUND") ||
-    isApiError(session.error, "FORBIDDEN");
-  const detail = lostAccess ? undefined : session.data;
-  const readable = detail !== undefined;
-  const usage = useSessionUsage(id, readable);
-  const pending = usePendingRequests(id, readable);
-  const events = useSessionEvents(id, readable);
-
   return (
-    <div className="web-page">
-      <p>
-        <Link to="/sessions">← {t("session.back")}</Link>
-      </p>
-      <h1 className="web-page__title">
-        <code>{id}</code>
-      </h1>
-      {detail === undefined && session.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : detail === undefined ? (
-        isApiError(session.error, "NOT_FOUND") ? (
-          <p className="web-form__error" role="alert">
-            {t("session.notFound")}
-          </p>
-        ) : (
-          <LoadError
-            error={session.error}
-            onRetry={() => void session.refetch()}
-          />
-        )
-      ) : (
-        <>
-          <SessionOverview session={detail} />
-          <SessionProfile session={detail} />
-          {usage.data ? (
-            <SessionUsagePanel usage={usage.data} />
-          ) : usage.error ? (
-            <LoadError
-              error={usage.error}
-              onRetry={() => void usage.refetch()}
-            />
-          ) : null}
-          {pending.data ? (
-            <PendingRequestList items={pending.data.items} />
-          ) : pending.error ? (
-            <LoadError
-              error={pending.error}
-              onRetry={() => void pending.refetch()}
-            />
-          ) : null}
-          <SessionEventList events={events.events} state={events.state} />
-        </>
-      )}
+    <div className={PAGE}>
+      <div className="flex flex-col gap-2">
+        <p className="m-0">
+          <Link
+            to="/sessions"
+            className="text-primary underline underline-offset-2"
+          >
+            ← {t("session.back")}
+          </Link>
+        </p>
+        <h1 className={`${TITLE} [overflow-wrap:anywhere]`}>
+          <code>{id}</code>
+        </h1>
+      </div>
+      <SessionDetail
+        id={id}
+        loading={<StatusScreen kind="loading" />}
+        renderError={loadError}
+        controls={(session) => <SessionProfile session={session} />}
+      />
     </div>
   );
 }
@@ -165,7 +89,7 @@ export function SessionDetailScreen() {
  * decides the rest (the repository's catalog pairing, a release session) and
  * says why it refused.
  */
-function SessionProfile({ session }: { readonly session: SessionDetail }) {
+function SessionProfile({ session }: { readonly session: SessionDetailData }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const role = useRole();
@@ -222,41 +146,39 @@ function SessionProfile({ session }: { readonly session: SessionDetail }) {
   };
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("session.profile")}</h2>
+    <section className="flex flex-col gap-3" aria-labelledby={titleId}>
+      <h2 id={titleId} className="m-0 font-semibold text-lg">
+        {t("session.profile")}
+      </h2>
       <OutcomeLine outcome={outcome} />
       {profiles.isPending ? (
         <StatusScreen kind="loading" />
       ) : profiles.error ? (
-        <LoadError
-          error={profiles.error}
-          onRetry={() => void profiles.refetch()}
-        />
+        loadError(profiles.error, () => void profiles.refetch())
       ) : choices.length === 0 ? (
-        <p className="web-page__empty">
+        <p className="m-0 text-muted-foreground text-sm">
           {current ? t("session.profile.none") : t("session.profile.unknown")}
         </p>
       ) : (
-        <form className="web-form" onSubmit={submit}>
-          <label className="web-field">
-            <span>{t("session.profile.next")}</span>
-            <select
-              className="ap-input"
+        <form className="flex flex-col items-start gap-3" onSubmit={submit}>
+          <Field className="max-w-md">
+            <FieldLabel>{t("session.profile.next")}</FieldLabel>
+            <NativeSelect
               value={target}
               disabled={reason !== undefined}
               onChange={(event) => setPicked(event.target.value)}
             >
               {choices.map((profile) => (
-                <option key={profile.id} value={profile.id}>
+                <NativeSelectOption key={profile.id} value={profile.id}>
                   {`${profile.id} · ${profile.model}`}
-                </option>
+                </NativeSelectOption>
               ))}
-            </select>
-          </label>
-          <p className="web-field__hint">{t("session.profile.hint")}</p>
+            </NativeSelect>
+            <FieldDescription>{t("session.profile.hint")}</FieldDescription>
+          </Field>
           <ReasonButton
             type="submit"
-            className="ap-button ap-button--primary"
+            className={buttonVariants()}
             reason={reason}
             disabled={change.isPending}
           >

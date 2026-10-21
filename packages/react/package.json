@@ -5,20 +5,28 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./blocks": "./src/blocks/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.blocks.json"
   },
   "devDependencies": {
     "@agent-platform/client": "workspace:*",
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/core": "workspace:*",
+    "@agent-platform/ui": "workspace:*",
+    "@happy-dom/global-registrator": "^20.14.5",
+    "@hookform/resolvers": "5.9.1",
     "@tanstack/react-query": "5.103.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@use-funnel/core": "0.1.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "react-hook-form": "7.90.0",
+    "zod": "4.6.5"
   }
 }

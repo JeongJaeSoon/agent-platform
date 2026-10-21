@@ -235,9 +235,9 @@ describe("sessions list", () => {
     expect(screen.getByText("쉬는 중")).toBeTruthy();
     expect(screen.getByText("default · claude_agent_sdk 1.0.0")).toBeTruthy();
     // An idle session that still takes input: "작업 상태" and "세션 상태" differ.
-    expect(
-      screen.getAllByRole("columnheader").map((th) => th.textContent),
-    ).toEqual(expect.arrayContaining(["작업 상태", "세션 상태"]));
+    const row = link.closest("li") as HTMLElement;
+    expect(row.textContent).toContain("작업 상태: 쉬는 중");
+    expect(row.textContent).toContain("세션 상태: 열림");
     expect(screen.getByText("열림")).toBeTruthy();
     expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
@@ -298,7 +298,7 @@ describe("sessions list", () => {
     expect(firstPageCalls).toBe(3);
   });
 
-  test("in en the table speaks English and scrolls by keyboard", async () => {
+  test("in en the list speaks English", async () => {
     renderAt(
       "/sessions",
       {
@@ -310,16 +310,26 @@ describe("sessions list", () => {
     );
     const link = await screen.findByRole("link", { name: SESSION_ID });
     expect(link.textContent).toBe(SESSION_ID.slice(0, 8));
-    const region = screen.getByRole("region", { name: "Sessions table" });
-    expect(region.getAttribute("tabindex")).toBe("0");
-    expect(region.querySelector("table")?.className).toContain(
-      "web-table--nowrap",
-    );
+    expect(screen.getByRole("list", { name: "Sessions table" })).toBeTruthy();
     expect(screen.getByText("Open")).toBeTruthy();
     expect(screen.queryByText(/세션/)).toBeNull();
     expect(screen.getAllByText("Oct 11, 2026, 17:14").length).toBeGreaterThan(
       0,
     );
+  });
+
+  test("a row's link opens the session inside the app", async () => {
+    const user = await setupUser();
+    const { history } = renderAt("/sessions", {
+      ...detailRoutes,
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    await user.click(await screen.findByRole("link", { name: SESSION_ID }));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    expect(await screen.findByText("권한 요청: Bash")).toBeTruthy();
   });
 
   test("says so when there are none", async () => {
@@ -400,7 +410,7 @@ describe("session detail", () => {
     // Only the latest status is announced; the list itself is not live.
     const list = screen.getByText("Listing files").closest("ol");
     expect(list?.getAttribute("aria-live")).toBeNull();
-    expect(document.querySelector("output.web-sr-only")?.textContent).toBe(
+    expect(document.querySelector("output.sr-only")?.textContent).toBe(
       "작업 중",
     );
     // The pending section says how many are waiting; the overview does not.
@@ -479,6 +489,35 @@ describe("session detail", () => {
     });
     expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
     expect(screen.queryByText("Bash: make")).toBeNull();
+  });
+
+  test("thinking ticks fold into one line and an empty message draws no card", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      for (const id of ["ev_t1", "ev_t2", "ev_t3"]) {
+        stream.emit(id, "system", {
+          type: "system",
+          subtype: "thinking_tokens",
+        });
+      }
+      // The next turn's tick starts its own line.
+      stream.emit(
+        "ev_t4",
+        "system",
+        { type: "system", subtype: "thinking_tokens" },
+        "2",
+      );
+      stream.emit("ev_empty", "assistant", {
+        type: "assistant",
+        message: { content: [] },
+      });
+    });
+    expect(await screen.findByText("생각 중 (3)")).toBeTruthy();
+    expect(screen.getByText("생각 중 (1)")).toBeTruthy();
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.querySelectorAll("li")).toHaveLength(2);
   });
 
   test("leaving the screen closes the stream", async () => {

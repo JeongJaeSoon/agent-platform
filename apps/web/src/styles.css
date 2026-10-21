@@ -9,10 +9,13 @@
 
 /*
  * Tailwind's automatic detection stays inside this app and skips
- * node_modules, where the packages/ui symlink lives, so it is named here.
+ * node_modules, where the packages/ui and packages/react symlinks live, so
+ * they are named here.
  */
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../../../packages/ui/src";
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/react/src";
 
 /*
  * Tokens with no shadcn name. Colours shadcn names (`border`, `foreground`,
@@ -178,8 +181,7 @@ select:focus-visible,
   font-size: var(--ap-text-xl);
 }
 .web-page__empty,
-.web-page__intro,
-.web-page__back {
+.web-page__intro {
   margin: 0;
   color: var(--ap-color-muted-foreground);
 }
@@ -194,18 +196,6 @@ select:focus-visible,
 }
 .web-form--inline {
   max-width: none;
-}
-.web-invite-link {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ap-space-2);
-  padding: var(--ap-space-3);
-  border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
-  background: var(--ap-color-surface);
-}
-.web-invite-link .ap-input {
-  font-family: var(--ap-font-mono);
 }
 
 .web-table-wrap {

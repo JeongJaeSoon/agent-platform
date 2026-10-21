@@ -18,8 +18,8 @@ const withTheme: Decorator = (Story, { globals }) => {
   return <Story />;
 };
 
-const renderLink: RenderLink = ({ to, id, children }) => (
-  <a href={`#${to}/${id}`}>{children}</a>
+const renderLink: RenderLink = ({ to, id, ...anchor }) => (
+  <a href={`#${to}/${id}`} {...anchor} />
 );
 
 function Platform({

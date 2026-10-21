@@ -106,9 +106,14 @@ export {
 export { Message, type MessageProps } from "./session/message.tsx";
 export {
   SessionRow,
+  type SessionRowLink,
   type SessionRowMessages,
   type SessionRowProps,
 } from "./session/session-row.tsx";
+export {
+  SessionStatusLabel,
+  type SessionStatusLabelProps,
+} from "./session/session-status-label.tsx";
 export {
   StageIndicator,
   type StageIndicatorProps,
