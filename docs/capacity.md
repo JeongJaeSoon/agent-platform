@@ -18,7 +18,7 @@
 
 checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512MiB를 넘으면 안 된다. part 하나는 16MiB를 넘으면 안 된다. 세 곳이 같은 값으로 검사한다.
 
-1. worker가 checkpoint를 올리기 전(`captureTranscripts`, 업로드 전 사전검사).
+1. worker가 checkpoint를 올리기 전(`captureTranscripts`, manifest를 올리고 커밋하기 전).
 2. API의 finalize가 part를 읽기 전. 이 판정이 기준이다.
 3. restore가 part를 받기 전(`#checkManifest`).
 
@@ -125,7 +125,7 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 이 값들을 바꾸는 변경은 control-host와 worker 이미지를 **같은 릴리스로** 올린다. 상한은 worker(capture, restore)와 API(finalize)가 따로 검사한다. 그래서 한쪽만 새 값이면 다음과 같이 된다.
 
-- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절한다. 같은 worker는 지금 context로 계속 돌고, 복원 지점만 이전 checkpoint에 머문다. worker가 바뀌면 보존되지 않은 turn 때문에 `CONTEXT_GAP`이 된다. worker 기준으로는 상한 안인 세션도 checkpoint가 이렇게 멈출 수 있다.
+- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절한다. 정상으로 끝난 turn이면 같은 worker는 지금 context로 계속 돌고, 복원 지점만 이전 checkpoint에 머문다. interrupt된 turn이면 위와 같이 `recovery_required`가 된다. worker가 바뀌면 보존되지 않은 turn 때문에 `CONTEXT_GAP`이 된다. worker 기준으로는 상한 안인 세션도 checkpoint가 이렇게 멈출 수 있다.
 - worker만 옛 값(작은 상한): 큰 checkpoint의 restore를 거절하고, 작은 상한으로 capture도 거절한다.
 
 [JeongJaeSoon/agent-platform#478](https://github.com/JeongJaeSoon/agent-platform/pull/478)(예정)은 상한을 넘은 세션을 막는 reason(`transcript_too_large`, `transcript_part_too_large`, `transcript_near_limit`)과 migration 하나를 더한다. 그 PR을 배포할 때는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서를 지킨다. 옛 api는 worker가 보낸 새 reason을 거절하기 때문이다. 자세한 순서와 롤백 하한은 그 PR이 land할 때 여기에 적는다.
