@@ -91,7 +91,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 ① 이벤트는 지금도 내용을 담는다. assistant 텍스트, 도구 입력(`tool_use`), 도구 결과 본문(`tool_result`), 질문과 권한 요청의 입력이 들어간다(`packages/adapters/runtimes/claude/src/mapper.ts`의 `projectPublicEvents`·`pendingRequestEvent`).
 
-② 트레이스(계획)는 두 스위치가 모두 켜져야 내용을 싣는다. 첫째, 설치가 export를 켠다(`OTEL_TRACES_EXPORTER=otlp`, 기본 `none`). 둘째, 내용 모드가 `full`이다(설치 상한 `TRACE_CONTENT_MODE`, 기본 `full`). 워크스페이스는 이 상한 안에서 메타데이터(시각, 토큰 수, 도구 이름, 결과)만 보내도록 낮출 수만 있다. 그래서 export를 켜지 않은 설치에서는 내용이 어디에도 나가지 않고, 켠 설치에서는 따로 설정하지 않아도 내용이 나간다. 두 키는 [94S-733](https://linear.app/94soon/issue/94S-733)이 만들고, [94S-737](https://linear.app/94soon/issue/94S-737)이 기본값과 함께 운영 문서에 적는다.
+② 트레이스(계획)는 두 스위치가 모두 켜져야 내용을 싣는다. 첫째, 설치가 export를 켠다(`OTEL_TRACES_EXPORTER=otlp`, 기본 `none`). 둘째, 내용 모드가 `full`이다(설치 상한 `TRACE_CONTENT_MODE`, 기본 `full`). 워크스페이스는 이 상한 안에서 메타데이터(시각, 토큰 수, 도구 이름, 결과)만 보내도록 낮출 수만 있다. 그래서 export를 켜지 않은 설치에서는 트레이스로 내용이 나가지 않고, 켠 설치에서는 따로 설정하지 않아도 트레이스에 내용이 실린다. 두 경우 모두 ① 이벤트에는 내용이 그대로 저장된다. 두 키는 [94S-733](https://linear.app/94soon/issue/94S-733)이 만들고, [94S-737](https://linear.app/94soon/issue/94S-737)이 기본값과 함께 운영 문서에 적는다.
 
 계획. 내용은 OTel GenAI semantic conventions 속성에 싣는다. 사용자 입력은 turn span의 `gen_ai.input.messages`, 답변 텍스트는 모델 응답 span의 `gen_ai.output.messages`, 도구 입력과 출력은 도구 span의 `gen_ai.tool.call.arguments`·`gen_ai.tool.call.result`다. thinking 블록은 싣지 않는다.
 
