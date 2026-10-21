@@ -39,8 +39,25 @@ exports[`query keys 1`] = `
     "teams",
     "mine",
   ],
+  "pendingRequests": [
+    "sessions",
+    "id-1",
+    "pending-requests",
+  ],
   "profiles": [
     "profiles",
+  ],
+  "session": [
+    "sessions",
+    "id-1",
+  ],
+  "sessionUsage": [
+    "sessions",
+    "id-1",
+    "usage",
+  ],
+  "sessions": [
+    "sessions",
   ],
   "team": [
     "teams",
@@ -221,6 +238,29 @@ exports[`query options and the request each query makes 1`] = `
       "retry": false,
     },
   },
+  "pendingRequestsQuery": {
+    "calls": [
+      [
+        "/v1/sessions/{id}/pending-requests",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        "id-1",
+        "pending-requests",
+      ],
+      "refetchInterval": 5000,
+      "retry": false,
+    },
+  },
   "profilesQuery": {
     "calls": [
       [
@@ -233,6 +273,71 @@ exports[`query options and the request each query makes 1`] = `
       ],
       "retry": false,
       "staleTime": 300000,
+    },
+  },
+  "sessionQuery": {
+    "calls": [
+      [
+        "/v1/sessions/{id}",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        "id-1",
+      ],
+      "refetchInterval": 5000,
+      "retry": false,
+    },
+  },
+  "sessionUsageQuery": {
+    "calls": [
+      [
+        "/v1/sessions/{id}/usage",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        "id-1",
+        "usage",
+      ],
+      "refetchInterval": 5000,
+      "retry": false,
+    },
+  },
+  "sessionsQuery": {
+    "calls": [
+      [
+        "/v1/sessions",
+        {
+          "params": {
+            "query": {},
+          },
+        },
+      ],
+    ],
+    "options": {
+      "getNextPageParam": [Function],
+      "initialPageParam": null,
+      "queryKey": [
+        "sessions",
+      ],
+      "retry": false,
     },
   },
   "teamQuery": {

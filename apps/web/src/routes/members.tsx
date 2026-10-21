@@ -1,3 +1,4 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   Invite,
   MemberView,
@@ -7,7 +8,6 @@ import { useAgentPlatform } from "@agent-platform/react";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useRef, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
