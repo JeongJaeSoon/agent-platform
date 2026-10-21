@@ -89,15 +89,6 @@ select:focus-visible,
   flex-direction: column;
   gap: var(--ap-space-4);
 }
-.web-auth__title {
-  font-size: var(--ap-text-xl);
-  margin: 0;
-}
-.web-auth__intro {
-  color: var(--ap-color-muted-foreground);
-  font-size: var(--ap-text-sm);
-  margin: 0;
-}
 
 .web-form {
   display: flex;

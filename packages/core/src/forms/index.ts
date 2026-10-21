@@ -1,5 +1,6 @@
 import {
   type AgentCard,
+  acceptInviteRequestSchema,
   agentCardSchema,
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
@@ -33,6 +34,19 @@ export const agentReleaseStep = z.object({
 export const inviteStep = z.object({
   email: trimmed(createInviteRequestSchema.shape.email),
   role: createInviteRequestSchema.shape.role,
+});
+
+/**
+ * Redeeming an invite. The password is taken as typed, spaces included; a
+ * name left empty is left out, as an existing account needs none.
+ */
+export const acceptInviteStep = z.object({
+  password: acceptInviteRequestSchema.shape.password,
+  display_name: z
+    .string()
+    .trim()
+    .transform((name) => name || undefined)
+    .pipe(acceptInviteRequestSchema.shape.display_name),
 });
 
 /** The card as its form holds it: lists as one name per line. */
