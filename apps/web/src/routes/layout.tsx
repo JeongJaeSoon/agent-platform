@@ -125,7 +125,12 @@ export function AuthedLayout() {
         id={sidebarId}
         openBelowMd={menuOpen}
         groups={groups}
-        onNavigate={() => setMenuOpen(false)}
+        onNavigate={() => {
+          if (!menuOpen) return;
+          setMenuOpen(false);
+          // The followed link hides with the menu; focus lands on the page.
+          document.getElementById(MAIN_CONTENT_ID)?.focus();
+        }}
         logout={{ pending: logout.isPending, run: () => logout.mutate() }}
       />
       <ShellMain>

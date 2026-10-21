@@ -164,5 +164,6 @@ describe("app shell", () => {
         .getByRole("button", { name: "메뉴 열기" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
+    expect(document.activeElement?.id).toBe("main");
   });
 });
