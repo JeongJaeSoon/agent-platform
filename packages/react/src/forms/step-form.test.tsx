@@ -10,17 +10,17 @@ import {
   agentCardStep,
   agentIdentityStep,
 } from "@agent-platform/core/forms";
-import { Field, FieldError, FieldLabel, Input } from "@agent-platform/ui";
 import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
 import type { ReactNode } from "react";
 import type { DefaultValues } from "react-hook-form";
-import type { z } from "zod";
+import { z } from "zod";
 import { defaultMessages } from "../messages/index.ts";
 import { AgentPlatformProvider } from "../provider.tsx";
 import {
   formAlerts,
   type StepForm,
   type StepSchema,
+  stepResolver,
   submitStep,
   useStepForm,
 } from "./step-form.ts";
@@ -28,6 +28,11 @@ import {
 // Queries come from each render's result, not `screen`: Testing Library is
 // cached across files and its `screen` keeps the first file's document.
 const { render, waitFor } = await setupDom();
+// After setupDom: the ui entry loads Radix, which decides at import time
+// whether a DOM exists, for every later file in the run too.
+const { Field, FieldError, FieldLabel, Input } = await import(
+  "@agent-platform/ui"
+);
 type View = ReturnType<typeof render>;
 const ko = defaultMessages.ko;
 
@@ -246,11 +251,77 @@ describe("formAlerts", () => {
     ).toEqual(["server", "root", "other", "tool"]);
   });
 
-  test("an error inside a field's path belongs to that field", () => {
+  test("an error inside a field's path is listed, as the field shows only its own", () => {
     expect(
-      formAlerts({ tools: [{ type: "too_big", message: "tool" }] } as never, [
-        "tools",
-      ]),
-    ).toEqual([]);
+      formAlerts(
+        {
+          tools: Object.assign([{ type: "too_big", message: "tool" }], {
+            type: "too_small",
+            message: "list",
+          }),
+        } as never,
+        ["tools"],
+      ),
+    ).toEqual(["tool"]);
+  });
+});
+
+describe("stepResolver words every issue from its own facts", () => {
+  const resolve = async (
+    schema: StepSchema,
+    values: object,
+    criteriaMode?: "all",
+  ) =>
+    (
+      await stepResolver(schema, ko)(values, undefined, {
+        fields: {},
+        shouldUseNativeValidation: false,
+        ...(criteriaMode ? { criteriaMode } : {}),
+      } as never)
+    ).errors as Record<
+      string,
+      { message?: string; types?: Record<string, unknown> }
+    >;
+
+  test("a check with its own message keeps its limit", async () => {
+    const errors = await resolve(
+      z.object({ x: z.string().min(5, "custom limit") }),
+      { x: "a" },
+    );
+    expect(errors.x?.message).toBe("5자 이상 입력하세요.");
+  });
+
+  test("an own message equal to another issue's wording is still reworded", async () => {
+    const errors = await resolve(
+      z.object({
+        a: z.string().min(1),
+        b: z.email(ko["form.error.required"]),
+      }),
+      { a: "", b: "nope" },
+    );
+    expect(errors.a?.message).toBe(ko["form.error.required"]);
+    expect(errors.b?.message).toBe(ko["form.error.email"]);
+  });
+
+  test("criteriaMode all words every listed check", async () => {
+    const errors = await resolve(
+      z.object({ x: z.string().min(5).regex(/^A/, "must start A") }),
+      { x: "b" },
+      "all",
+    );
+    expect(errors.x?.types).toEqual({
+      too_small: "5자 이상 입력하세요.",
+      invalid_format: ko["form.error.format"],
+    });
+  });
+
+  test("a missing value reads as required, a wrong type as invalid", async () => {
+    const schema = z.object({ n: z.number() });
+    expect((await resolve(schema, {})).n?.message).toBe(
+      ko["form.error.required"],
+    );
+    expect((await resolve(schema, { n: "1" })).n?.message).toBe(
+      ko["form.error.invalid"],
+    );
   });
 });

@@ -40,38 +40,38 @@ function walk(
 }
 
 /**
- * zodResolver with the console's wording. The per-parse error map turns each
- * issue into a message; a check that carries its own message (the contract's
- * `.regex(re, "must be lowercase kebab-case")`) outranks that map in zod, so
- * any message the map did not write is replaced by the one for its code.
+ * zodResolver with the console's wording on every issue. A check's own
+ * message (the contract's `.regex(re, "must be lowercase kebab-case")`)
+ * outranks a per-parse error map in zod, so instead the schema handed to
+ * zodResolver words the final issues, each from its own code and limits.
  */
 export function stepResolver<S extends StepSchema>(
   schema: S,
   messages: ModuleMessages,
 ): Resolver<z.input<S>, unknown, z.output<S>> {
-  return async (values, context, options) => {
-    const written = new Set<string>();
-    // A generic S does not narrow to zodResolver's Zod 4 overload on its own.
-    const typed = schema as unknown as z.ZodType<z.output<S>, z.input<S>>;
-    const resolve = zodResolver(typed, {
-      error: (issue) => {
-        const text = issueText(issue, messages);
-        written.add(text);
-        return text;
-      },
-    });
-    const result = await resolve(values, context, options);
-    walk(result.errors, "", (_path, error) => {
-      if (typeof error.message === "string" && !written.has(error.message)) {
-        // zodResolver sets `type` to the issue code.
-        error.message = issueText(
-          { code: error.type as z.core.$ZodIssueCode },
-          messages,
-        );
-      }
-    });
-    return result;
+  const word = (issue: z.core.$ZodIssue) => {
+    // Final issues are plain objects; zodResolver reads `message` from them.
+    (issue as { message: string }).message = issueText(issue, messages);
+    if (issue.code === "invalid_union")
+      for (const branch of issue.errors) branch.forEach(word);
   };
+  const settle = (result: z.ZodSafeParseResult<z.output<S>>) => {
+    if (result.success) return result.data;
+    result.error.issues.forEach(word);
+    throw result.error;
+  };
+  // `reportInput` keeps the input on each issue, which tells an empty field
+  // from a wrong type.
+  const worded = {
+    _zod: schema._zod,
+    parse: (values: unknown) =>
+      settle(schema.safeParse(values, { reportInput: true })),
+    parseAsync: async (values: unknown) =>
+      settle(await schema.safeParseAsync(values, { reportInput: true })),
+  };
+  return zodResolver(
+    worded as unknown as z.ZodType<z.output<S>, z.input<S>>,
+  ) as Resolver<z.input<S>, unknown, z.output<S>>;
 }
 
 /**
@@ -115,8 +115,9 @@ export function submitStep<TInput extends FieldValues, TOutput>(
 
 /**
  * The messages a form shows above its fields: the server's line, then other
- * root errors, then any error whose path is not one of `fields` (or inside
- * one) and so has no FieldError to show it.
+ * root errors, then any error whose path is not one of `fields`, the paths
+ * whose own message the form renders in a FieldError. An error inside such a
+ * path (`tools.0` under `tools`) is listed too, as the field shows only its own.
  */
 export function formAlerts<T extends FieldValues>(
   errors: FieldErrors<T>,
@@ -130,10 +131,7 @@ export function formAlerts<T extends FieldValues>(
     if (path === SERVER_ERROR) server.push(error.message);
     else if (path === "root" || path.startsWith("root."))
       root.push(error.message);
-    else if (
-      !fields.some((field) => path === field || path.startsWith(`${field}.`))
-    )
-      unmapped.push(error.message);
+    else if (!fields.includes(path)) unmapped.push(error.message);
   });
   return [...new Set([...server, ...root, ...unmapped])];
 }
