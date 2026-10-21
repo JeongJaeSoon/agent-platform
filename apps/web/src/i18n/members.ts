@@ -44,6 +44,13 @@ export const membersKo = {
   "members.invite.copied": "초대 링크를 복사했습니다.",
   "members.invite.copyFailed":
     "초대 링크를 복사하지 못했습니다 — 링크 칸을 눌러 직접 복사하세요.",
+  "members.invite.description":
+    "받는 사람의 이메일과 역할을 정하면 한 번만 보이는 초대 링크를 만듭니다.",
+  "members.invite.steps": "초대 단계",
+  "members.invite.step.details": "받는 사람",
+  "members.invite.step.link": "초대 링크",
+  "members.invite.again": "다른 사람 초대",
+  "members.invite.close": "닫기",
   "members.invites.title": "대기 중인 초대",
   "members.invites.empty": "대기 중인 초대가 없습니다.",
   "members.invites.expires": "{expires}까지",
@@ -103,6 +110,13 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invite.copied": "Invite link copied.",
   "members.invite.copyFailed":
     "Could not copy the invite link — select the link field and copy it yourself.",
+  "members.invite.description":
+    "Choose the email and role, and a link that is shown only once is made for them.",
+  "members.invite.steps": "Invite steps",
+  "members.invite.step.details": "Recipient",
+  "members.invite.step.link": "Invite link",
+  "members.invite.again": "Invite someone else",
+  "members.invite.close": "Close",
   "members.invites.title": "Pending invites",
   "members.invites.empty": "No pending invites.",
   "members.invites.expires": "Expires {expires}",

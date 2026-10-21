@@ -25,14 +25,14 @@ export const apiKeysKo = {
   "apiKeys.scope.approve": "요청에 답하기",
   "apiKeys.scope.control": "세션 제어",
   "apiKeys.scope.recover": "세션 복구",
-  "apiKeys.scopeHint.read": "세션 목록과 상태, 이벤트를 읽습니다.",
-  "apiKeys.scopeHint.write":
-    "세션을 만들고 진행 중인 세션에 메시지를 보냅니다.",
+  "apiKeys.scopeHint.read":
+    "세션과 그 턴·이벤트·영수증·사용량·공유 설정, 답을 기다리는 요청을 읽습니다.",
+  "apiKeys.scopeHint.write": "새 세션을 시작하고 세션에 메시지를 보냅니다.",
   "apiKeys.scopeHint.approve": "세션이 기다리는 권한 요청과 질문에 답합니다.",
   "apiKeys.scopeHint.control":
-    "세션을 일시정지·재개·종료하고 프로필을 바꿉니다.",
+    "세션을 멈추고, 다시 잇고, 중단하고, 끝내고, 실행 프로필을 바꿉니다.",
   "apiKeys.scopeHint.recover":
-    "복구가 필요한 세션을 어떻게 이어 갈지 정합니다.",
+    "복구가 필요한 세션을 어떻게 이을지 정합니다: 턴 버리기·완료 확정·닫기·새로 시작·복원 재시도.",
   "apiKeys.expires": "만료일(선택)",
   "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
   "apiKeys.secretTitle": "새 key",
@@ -87,15 +87,15 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.scope.approve": "Answer requests",
   "apiKeys.scope.control": "Control sessions",
   "apiKeys.scope.recover": "Recover sessions",
-  "apiKeys.scopeHint.read": "Reads the session list, status and events.",
-  "apiKeys.scopeHint.write":
-    "Creates sessions and sends messages to running ones.",
+  "apiKeys.scopeHint.read":
+    "Read sessions with their turns, events, receipts, usage and sharing, and the requests waiting for an answer.",
+  "apiKeys.scopeHint.write": "Start sessions and send messages to them.",
   "apiKeys.scopeHint.approve":
-    "Answers the permission requests and questions a session waits on.",
+    "Answer the permission requests and questions a session is waiting on.",
   "apiKeys.scopeHint.control":
-    "Pauses, resumes and ends sessions, and changes their profile.",
+    "Pause, resume, interrupt or end sessions, and change their profile.",
   "apiKeys.scopeHint.recover":
-    "Decides how a session that needs recovery continues.",
+    "Decide how a session that needs recovery goes on: abandon a turn, confirm it completed, close, start fresh or retry the restore.",
   "apiKeys.expires": "Expires on (optional)",
   "apiKeys.expiresHint": "Leave empty to keep the key until you revoke it.",
   "apiKeys.secretTitle": "New key",

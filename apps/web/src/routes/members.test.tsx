@@ -236,6 +236,9 @@ describe("구성원 화면", () => {
         }),
     });
     const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "초대 링크 만들기" }),
+    );
     const email = await screen.findByLabelText("이메일");
     await user.type(email, "GONE@example.com");
     const hint = document.getElementById(
@@ -328,6 +331,9 @@ describe("구성원 화면", () => {
           }),
       });
       const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "초대 링크 만들기" }),
+      );
       await user.type(await screen.findByLabelText("이메일"), "n@example.com");
       await user.click(
         screen.getByRole("button", { name: "초대 링크 만들기" }),

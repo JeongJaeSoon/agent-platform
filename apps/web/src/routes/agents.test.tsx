@@ -9,7 +9,33 @@ import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 import { agentRefusal } from "./agents.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
+type User = Awaited<ReturnType<typeof setupUser>>;
+type Api = ReturnType<typeof renderAt>["api"];
+
+const currentStep = () =>
+  screen
+    .getByRole("navigation", { name: "에이전트 만들기 단계" })
+    .querySelector('[aria-current="step"]')?.textContent;
+const STEP_NO = { 이름: 1, "하는 일": 2, "배포 판": 3, 켜기: 4 } as const;
+const atStep = (label: keyof typeof STEP_NO) =>
+  waitFor(() => expect(currentStep()).toBe(`${STEP_NO[label]}${label}`));
+const posted = (api: Api, path: string) =>
+  api.calls.find((c) => c.method === "POST" && c.path === path)?.body;
+
+async function toJobStep(user: User) {
+  await user.type(await screen.findByLabelText("이름"), "결제 담당");
+  await user.type(screen.getByLabelText("식별자"), "billing");
+  await user.click(screen.getByRole("button", { name: "다음" }));
+  await atStep("하는 일");
+}
+
+async function fillJob(user: User) {
+  await user.type(screen.getByLabelText("역할"), CARD.role);
+  await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
+  await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
+  await user.click(screen.getByRole("button", { name: "초안 저장하고 다음" }));
+}
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
@@ -243,23 +269,27 @@ describe("찾을 수 없는 에이전트", () => {
 });
 
 describe("새 에이전트", () => {
-  test("빈 카드 폼으로 시작하고, 만들면 상세로 가서 아직 활성이 아니라고 말한다", async () => {
+  test("이름 → 하는 일 → 배포 판 → 켜기로 만들고, Stepper가 지금 단계를 가리킨다", async () => {
     const server = agentServer();
-    const { api, history } = renderAt("/agents/new", {
+    const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
-      "POST /v1/agents": () => json(201, server.detail()),
     });
     const user = await setupUser();
-    expect(
-      ((await screen.findByLabelText("역할")) as HTMLInputElement).value,
-    ).toBe("");
-    expect(screen.queryByRole("button", { name: /초안/ })).toBeNull();
+    await atStep("이름");
     await user.type(screen.getByLabelText("이름"), "결제 담당");
-    await user.type(screen.getByLabelText("식별자 (slug)"), "billing");
+    await user.type(screen.getByLabelText("식별자"), "billing");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+
+    await atStep("하는 일");
+    expect(
+      screen.getByRole("button", { name: /^이름\s*, 완료$/ }),
+    ).toBeDefined();
+    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe("");
     await user.type(screen.getByLabelText("역할"), CARD.role);
     await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
-    const model = (await screen.findByLabelText("모델")) as HTMLSelectElement;
+    const model = screen.getByLabelText("모델") as HTMLSelectElement;
+    expect(model.getAttribute("data-slot")).toBe("native-select");
     expect(model.value).toBe("");
     expect([...model.options].map((option) => option.textContent)).toEqual([
       "모델을 고르세요",
@@ -268,15 +298,12 @@ describe("새 에이전트", () => {
     ]);
     await user.selectOptions(model, CARD.model);
     await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
-    await user.click(screen.getByRole("button", { name: "에이전트 만들기" }));
-    expect(
-      await screen.findByText(/에이전트를 만들었습니다\(version 1\)/),
-    ).toBeDefined();
-    expect(history.location.pathname).toBe(DETAIL);
-    expect(
-      api.calls.find((c) => c.path === "/v1/agents" && c.method === "POST")
-        ?.body,
-    ).toEqual({
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+
+    await atStep("배포 판");
+    expect(posted(api, "/v1/agents")).toEqual({
       slug: "billing",
       name: "결제 담당",
       card: {
@@ -284,6 +311,259 @@ describe("새 에이전트", () => {
         capabilities: { tools: null, mcp: null, forbidden: ["Bash", "Write"] },
       },
     });
+    // The profile that runs the card's model is offered first.
+    const profile = (await screen.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(profile.value).toBe(PROFILE);
+    await user.click(screen.getByRole("button", { name: "배포 판 만들기" }));
+
+    await atStep("켜기");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
+      version_id: server.versions[0]?.id,
+      runtime_profile_id: PROFILE,
+    });
+    await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
+    expect(
+      (await screen.findByText(/결제 담당을\(를\) 켰습니다/)).tagName,
+    ).toBe("OUTPUT");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/activate`)).toEqual({
+      release_id: server.releases[0]?.id,
+      expected_revision: -1,
+    });
+    expect(
+      screen.getByRole("link", { name: "에이전트 보기" }).getAttribute("href"),
+    ).toBe(DETAIL);
+  });
+
+  test("식별자는 이름에서 채워지고, 고친 뒤에는 이름을 따라가지 않는다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    const name = (await screen.findByLabelText("이름")) as HTMLInputElement;
+    const slug = screen.getByLabelText("식별자") as HTMLInputElement;
+    await user.type(name, "Refund Desk 2");
+    expect(slug.value).toBe("refund-desk-2");
+    await user.clear(slug);
+    await user.type(slug, "refunds");
+    await user.type(name, "b");
+    expect(slug.value).toBe("refunds");
+  });
+
+  test("영문이 없는 이름은 식별자를 비워 두고, 빈 칸은 다음으로 넘기지 않는다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "결제 담당");
+    const slug = screen.getByLabelText("식별자") as HTMLInputElement;
+    expect(slug.value).toBe("");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await waitFor(() => expect(slug.getAttribute("aria-invalid")).toBe("true"));
+    expect(currentStep()).toBe("1이름");
+  });
+
+  test("하는 일 칸이 비면 칸마다 이유를 보이고 아무것도 저장하지 않는다", async () => {
+    const { api } = renderAt("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("역할").getAttribute("aria-invalid")).toBe(
+        "true",
+      ),
+    );
+    expect(
+      screen.getByLabelText("지시 사항").getAttribute("aria-invalid"),
+    ).toBe("true");
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    expect(currentStep()).toBe("2하는 일");
+  });
+
+  test("하는 일까지 마치고 나가도 에이전트는 목록에 초안으로 남는다", async () => {
+    const server = agentServer();
+    let saved = false;
+    const { history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/agents": () =>
+        json(200, { items: saved ? [server.detail().agent] : [] }),
+      "POST /v1/agents": (request: Request) => {
+        saved = true;
+        return server.routes["POST /v1/agents"](request);
+      },
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+
+    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
+    act(() => history.push("/agents"));
+    const link = await screen.findByRole("link", { name: "결제 담당" });
+    expect(
+      link.closest("li")?.querySelector("[data-slot=badge]")?.textContent,
+    ).toBe("초안");
+  });
+
+  test("초안을 저장한 뒤 뒤로 가서 고치면 새로 만들지 않고 그 초안을 고친다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+    // Past the save the stepper does not lead back.
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /^하는 일\s*, 완료$/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    act(() => history.back());
+    await atStep("하는 일");
+    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
+    ).toHaveLength(1);
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect(
+      (patch?.body as { card: { instructions: string } }).card.instructions,
+    ).toBe(`${CARD.instructions} 더.`);
+    // The release is made from the version this save produced.
+    await user.click(
+      await screen.findByRole("button", { name: "배포 판 만들기" }),
+    );
+    await atStep("켜기");
+    expect(
+      (posted(api, `/v1/agents/${AGENT_ID}/releases`) as { version_id: string })
+        .version_id,
+    ).toBe(server.versions[1]?.id ?? "missing");
+
+    act(() => history.go(-3));
+    await atStep("이름");
+    expect((screen.getByLabelText("식별자") as HTMLInputElement).readOnly).toBe(
+      true,
+    );
+  });
+
+  test("나갔다가 뒤로 돌아와도 그 초안을 이어서 고치고 새로 만들지 않는다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+
+    // Leaving unmounts the flow; coming back mounts a new one.
+    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
+    act(() => history.back());
+    await atStep("배포 판");
+    act(() => history.back());
+    await atStep("하는 일");
+    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
+      CARD.role,
+    );
+    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
+    ).toHaveLength(1);
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(true);
+    // The release goes to the version that save made, not the first one.
+    await user.click(
+      await screen.findByRole("button", { name: "배포 판 만들기" }),
+    );
+    await atStep("켜기");
+    expect(
+      (posted(api, `/v1/agents/${AGENT_ID}/releases`) as { version_id: string })
+        .version_id,
+    ).toBe(server.versions[1]?.id ?? "missing");
+  });
+
+  test("첫 단계에서 나갔다 돌아와도 그 초안의 이름·식별자를 이어 간다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+
+    act(() => history.go(-2));
+    await atStep("이름");
+    act(() => history.push("/agents"));
+    await screen.findByRole("link", { name: "결제 담당" });
+    act(() => history.back());
+    await atStep("이름");
+    const slug = screen.getByLabelText("식별자") as HTMLInputElement;
+    expect(slug.value).toBe("billing");
+    expect(slug.readOnly).toBe(true);
+    expect((screen.getByLabelText("이름") as HTMLInputElement).value).toBe(
+      "결제 담당",
+    );
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
+      CARD.role,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
+    ).toHaveLength(1);
+  });
+
+  test("Stepper로 앞 단계에 돌아가면 그 단계 제목이 포커스를 받는다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    await toJobStep(user);
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("하는 일"),
+    );
+    await user.click(screen.getByRole("button", { name: /^이름\s*, 완료$/ }));
+    await atStep("이름");
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
+    expect(document.activeElement?.textContent).toBe("이름");
+  });
+
+  test("거부된 초안 저장은 서버 이유를 한 줄로 보이고 그 단계에 머문다", async () => {
+    renderAt("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+      "POST /v1/agents": () =>
+        apiError(409, "ALREADY_EXISTS", "slug billing is taken"),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이 식별자는 다른 에이전트가 이미 씁니다. '이름' 단계로 돌아가 식별자를 바꾸세요.",
+    );
+    expect(currentStep()).toBe("2하는 일");
   });
 
   test("모델 목록을 읽는 동안과 못 읽었을 때는 이유를 보이고 만들지 못하게 한다", async () => {
@@ -303,9 +583,10 @@ describe("새 에이전트", () => {
         );
       },
     });
+    await toJobStep(await setupUser());
     const create = () =>
       screen.getByRole("button", {
-        name: "에이전트 만들기",
+        name: "초안 저장하고 다음",
       }) as HTMLButtonElement;
     expect(await screen.findByText(/모델 목록을 불러오는 중/)).toBeDefined();
     expect(create().disabled).toBe(true);
@@ -926,24 +1207,17 @@ describe("식별자와 상태 문구", () => {
   test("slug는 이름을 따라 채워지다가 직접 고치면 멈춘다", async () => {
     renderAt("/agents/new", { ...meOk, ...agentServer().routes });
     const user = await setupUser();
-    const slug = (await screen.findByLabelText(
-      "식별자 (slug)",
-    )) as HTMLInputElement;
+    const slug = (await screen.findByLabelText("식별자")) as HTMLInputElement;
+    expect(
+      document.getElementById(slug.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toContain("다른 에이전트와 겹칠 수 없습니다");
     await user.type(screen.getByLabelText("이름"), "Billing Bot 2");
     expect(slug.value).toBe("billing-bot-2");
     await user.clear(slug);
     await user.type(slug, "pay");
     await user.type(screen.getByLabelText("이름"), "!");
     expect(slug.value).toBe("pay");
-  });
-
-  test("slugFromName은 허용 문자만 남기고 64자를 넘지 않는다", async () => {
-    const { slugFromName } = await import("./agents.tsx");
-    expect(slugFromName("  Hello, World!  ")).toBe("hello-world");
-    expect(slugFromName("결제 담당")).toBe("");
-    expect(slugFromName("결제 bot")).toBe("bot");
-    const long = slugFromName(`${"a".repeat(63)} b`);
-    expect(long).toBe("a".repeat(63));
   });
 
   test("상세는 활성 release가 없을 때 배지로만 말하고 version 해시를 보이지 않는다", async () => {

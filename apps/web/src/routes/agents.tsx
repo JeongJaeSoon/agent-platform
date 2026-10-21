@@ -1,11 +1,10 @@
-import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
-import type { Agent, AgentDetail } from "@agent-platform/contracts";
+import { type ApiError, isApiError } from "@agent-platform/client";
+import type { Agent } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
 import { Badge, type BadgeProps, formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useId, useState } from "react";
-import { agentsQuery, profilesQuery, queryKeys } from "../api/queries.ts";
+import { agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
@@ -13,14 +12,8 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
-import {
-  AgentCardFields,
-  type CardDraft,
-  cardFromDraft,
-  EMPTY_DRAFT,
-} from "../components/agent-card-form.tsx";
-import { slugInput, TextField } from "../components/field.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
@@ -40,6 +33,8 @@ export function agentRefusal(
 ): string {
   if (error.code === "FORBIDDEN")
     return permissionReason(t, "agent.manage", role);
+  // Only making an agent answers this: its slug is taken.
+  if (error.code === "ALREADY_EXISTS") return t("agents.slugTaken");
   const model =
     error.code === "UNSUPPORTED_CAPABILITY"
       ? MODEL_REFUSAL.exec(error.message)
@@ -129,7 +124,7 @@ type AgentState = "draft" | Agent["status"];
 type AgentSummary = Pick<Agent, "status" | "active_release_id">;
 
 /** An agent never released is a draft, whatever its status; archived wins. */
-function agentState(agent: AgentSummary): AgentState {
+export function agentState(agent: AgentSummary): AgentState {
   if (agent.status === "archived") return "archived";
   return agent.active_release_id === null ? "draft" : agent.status;
 }
@@ -157,109 +152,20 @@ function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
   );
 }
 
-const SLUG_MAX = 64;
-
 /**
- * The slug a name suggests; a name without Latin letters or digits suggests
- * nothing and leaves the field to the person.
- */
-export function slugFromName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .slice(0, SLUG_MAX)
-    .replace(/-+$/, "");
-}
-
-/**
- * A blank card. One-line hiring (a model drafting the card) is 94S-156's
- * and adds its button here when it lands.
+ * A blank card, made in steps. One-line hiring (a model drafting the card)
+ * is 94S-156's and adds its button here when it lands.
  */
 export function NewAgentScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const role = useRole();
-  const [name, setName] = useState("");
-  // Null until the person edits the slug; till then it follows the name.
-  const [typedSlug, setTypedSlug] = useState<string | null>(null);
-  const slug = typedSlug ?? slugFromName(name);
-  const [draft, setDraft] = useState<CardDraft>(EMPTY_DRAFT);
-  const catalog = useQuery(profilesQuery(client));
-  const titleId = useId();
-
-  const create = useMutation<AgentDetail, ApiError>({
-    mutationFn: () =>
-      unwrap(
-        client.POST("/v1/agents", {
-          body: {
-            slug: slug.trim(),
-            name: name.trim(),
-            card: cardFromDraft(draft),
-          },
-        }),
-      ) as Promise<AgentDetail>,
-    onSuccess: async (detail) => {
-      queryClient.setQueryData(queryKeys.agent(detail.agent.id), detail);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.agents,
-        exact: true,
-      });
-      await navigate({
-        to: "/agents/$id",
-        params: { id: detail.agent.id },
-        search: { notice: "created" },
-      });
-    },
-  });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    create.mutate();
-  };
-
+  const refuse = (error: unknown) =>
+    isApiError(error) ? agentRefusal(t, error, role) : t(errorKey("UNKNOWN"));
   return (
     <div className="web-page">
-      <h1 className="web-page__title" id={titleId}>
-        {t("agents.newTitle")}
-      </h1>
+      <h1 className="web-page__title">{t("agents.newTitle")}</h1>
       <p className="web-page__empty">{t("agents.newIntro")}</p>
-      <form
-        className="web-form web-form--wide"
-        aria-labelledby={titleId}
-        onSubmit={submit}
-      >
-        <TextField
-          label={t("agents.name")}
-          required
-          maxLength={120}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <TextField
-          label={t("agents.slug")}
-          hint={t("agents.slugHint")}
-          required
-          {...slugInput(t("field.slugFormat"))}
-          value={slug}
-          onChange={(event) => setTypedSlug(event.target.value)}
-        />
-        <AgentCardFields draft={draft} catalog={catalog} onChange={setDraft} />
-        {create.error ? (
-          <p className="web-form__error" role="alert">
-            {agentRefusal(t, create.error, role)}
-          </p>
-        ) : null}
-        <button
-          type="submit"
-          className="ap-button ap-button--primary"
-          disabled={create.isPending || !catalog.isSuccess}
-        >
-          {create.isPending ? t("agents.creating") : t("agents.create")}
-        </button>
-      </form>
+      <NewAgentFlow refuse={refuse} />
     </div>
   );
 }

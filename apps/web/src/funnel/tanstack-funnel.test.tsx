@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ApiClient } from "@agent-platform/client";
 import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
+import { Fragment, StrictMode } from "react";
 
 // The DOM has to exist before the router and Testing Library load. The
 // router runs on a browser history over happy-dom's window.history, so
@@ -25,7 +26,9 @@ const { AgentPlatformProvider, useStepper } = await import(
 );
 const { Stepper } = await import("@agent-platform/ui");
 const { I18nProvider } = await import("../i18n/i18n.tsx");
-const { FunnelResetNotice, useFunnel } = await import("./tanstack-funnel.tsx");
+const { FunnelResetNotice, useDialogFunnel, useFunnel } = await import(
+  "./tanstack-funnel.tsx"
+);
 
 type Steps = {
   name: { name?: string };
@@ -46,8 +49,12 @@ const STEPS = [
   { id: "done", label: "끝" },
 ];
 
-function Flow() {
-  const funnel = useFunnel<Steps>({
+function Flow({
+  useFlow = useFunnel,
+}: {
+  readonly useFlow?: typeof useFunnel;
+}) {
+  const funnel = useFlow<Steps>({
     id: "new-agent",
     initial: { step: "name", context: {} },
     steps: {
@@ -103,28 +110,36 @@ function Flow() {
   );
 }
 
-function mount() {
+function mount({ strict = false }: { readonly strict?: boolean } = {}) {
+  const Wrap = strict ? StrictMode : Fragment;
   const root = createRootRoute();
   const flow = createRoute({
     getParentRoute: () => root,
     path: "/flow",
     component: Flow,
   });
+  const dialog = createRoute({
+    getParentRoute: () => root,
+    path: "/dialog",
+    component: () => <Flow useFlow={useDialogFunnel} />,
+  });
   const history = createBrowserHistory();
   const router = createRouter({
-    routeTree: root.addChildren([flow]),
+    routeTree: root.addChildren([flow, dialog]),
     history,
   });
   const view = render(
-    <I18nProvider locale="ko">
-      <AgentPlatformProvider
-        client={{} as ApiClient}
-        locale="ko"
-        renderLink={({ children }) => children}
-      >
-        <RouterProvider router={router} />
-      </AgentPlatformProvider>
-    </I18nProvider>,
+    <Wrap>
+      <I18nProvider locale="ko">
+        <AgentPlatformProvider
+          client={{} as ApiClient}
+          locale="ko"
+          renderLink={({ children }) => children}
+        >
+          <RouterProvider router={router} />
+        </AgentPlatformProvider>
+      </I18nProvider>
+    </Wrap>,
   );
   return { history, view };
 }
@@ -223,6 +238,66 @@ describe("the TanStack Router funnel adapter", () => {
   });
 });
 
+describe("a flow in a dialog", () => {
+  test("mounting again starts over in the same entry, without a notice", async () => {
+    window.history.replaceState(
+      routerWritten({
+        "new-agent.histories": [
+          { step: "name", context: {} },
+          { step: "role", context: { name: "triage" } },
+          { step: "done", context: { name: "triage", role: "support" } },
+        ],
+      }),
+      "",
+      "/dialog?new-agent.step=done",
+    );
+    const entries = window.history.length;
+    mount();
+    await at("name:{}");
+    await waitFor(() =>
+      expect(stored()).toEqual([{ step: "name", context: {} }]),
+    );
+    expect(window.location.search).toBe("?new-agent.step=name");
+    expect(window.history.length).toBe(entries);
+    expect(screen.queryByText(RESET_TEXT)).toBeNull();
+  });
+
+  test("under StrictMode the restart writes one entry and keeps the first move", async () => {
+    window.history.replaceState(
+      routerWritten({
+        "new-agent.histories": [
+          { step: "name", context: {} },
+          { step: "role", context: { name: "triage" } },
+        ],
+      }),
+      "",
+      "/dialog?new-agent.step=role",
+    );
+    const entries = window.history.length;
+    const user = await setupUser();
+    mount({ strict: true });
+    await at("name:{}");
+    await user.click(screen.getByRole("button", { name: "next" }));
+    await at('role:{"name":"triage"}');
+    expect(stored()).toEqual([
+      { step: "name", context: {} },
+      { step: "role", context: { name: "triage" } },
+    ]);
+    expect(window.history.length).toBe(entries + 1);
+  });
+
+  test("once started, it moves and goes back like any flow", async () => {
+    window.history.replaceState(null, "", "/dialog");
+    const user = await setupUser();
+    const { history } = mount();
+    await at("name:{}");
+    await user.click(screen.getByRole("button", { name: "next" }));
+    await at('role:{"name":"triage"}');
+    act(() => history.back());
+    await at("name:{}");
+  });
+});
+
 describe("a step guard that turns the input away", () => {
   test("stored input that no longer fits restarts the flow with a notice", async () => {
     // A reload after a deploy renamed the role step's field.
@@ -237,9 +312,25 @@ describe("a step guard that turns the input away", () => {
       "/flow?new-agent.step=role",
     );
     const user = await setupUser();
+    // What the live region held when it entered the page.
+    const arrived: string[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof Element)
+            for (const region of [
+              ...(node.matches("[aria-live]") ? [node] : []),
+              ...node.querySelectorAll("[aria-live]"),
+            ])
+              arrived.push(region.textContent ?? "");
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
     mount();
     await at("name:{}");
     expect(await screen.findByText(RESET_TEXT)).toBeTruthy();
+    watch.disconnect();
+    // It arrived empty, so the text that followed is read out.
+    expect(arrived).toEqual([""]);
     // The stale input is gone, so the next reload starts clean too.
     await waitFor(() =>
       expect((stored() as unknown[]).at(-1)).toEqual({

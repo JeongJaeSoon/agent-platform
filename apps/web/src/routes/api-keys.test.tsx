@@ -5,8 +5,10 @@ import {
   agentSchema,
   apiKeyViewSchema,
   createApiKeyResponseSchema,
+  SESSION_SCOPE_VALUES,
 } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import { apiKeysEn, apiKeysKo } from "../i18n/api-keys.ts";
 import {
   apiError,
   json,
@@ -195,10 +197,10 @@ describe("API key", () => {
       ...keysServer([key({ scopes: ["sessions:read", "sessions:write"] })]),
     });
     const [read] = await screen.findAllByRole("checkbox", {
-      name: /세션 보기 sessions:read/,
+      name: "세션 보기 sessions:read",
     });
-    expect(read?.closest("label")?.textContent).toContain(
-      "세션 목록과 상태, 이벤트를 읽습니다.",
+    expect(describedBy(read as HTMLElement)[0]).toContain(
+      "영수증·사용량·공유 설정",
     );
     expect(
       await screen.findByText(/ID [0-9a-f]{8} · 세션 보기, 세션 만들기 · /),
@@ -421,4 +423,83 @@ describe("API key", () => {
       "서비스 key 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });
+
+  for (const [locale, catalog, region] of [
+    ["ko", apiKeysKo, "개인 key"],
+    ["en", apiKeysEn, "Personal key"],
+  ] as const) {
+    test(`권한마다 무엇을 허락하는지 한 줄 설명이 붙는다 (${locale})`, async () => {
+      renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() }, locale);
+      const personal = await screen.findByRole("region", { name: region });
+      for (const scope of SESSION_SCOPE_VALUES) {
+        const box = within(personal).getByRole("checkbox", {
+          name: new RegExp(`${scope}$`),
+        });
+        const hint = `apiKeys.scopeHint.${scope.slice("sessions:".length)}`;
+        expect(describedBy(box)).toEqual([
+          catalog[hint as keyof typeof catalog],
+        ]);
+      }
+    });
+  }
+
+  test("에이전트 전용 key에 넣을 수 없는 권한은 설명 뒤에 그 이유도 읽힌다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
+    const service = await screen.findByRole("region", { name: "서비스 key" });
+    expect(
+      describedBy(
+        within(service).getByRole("checkbox", {
+          name: "요청에 답하기 sessions:approve",
+        }),
+      ),
+    ).toEqual([
+      "세션이 기다리는 권한 요청과 질문에 답합니다.",
+      "에이전트 전용 key에는 넣을 수 없습니다. 에이전트가 사람 대신 승인할 수는 없습니다.",
+    ]);
+  });
+
+  test("발급된 값은 query 캐시와 console에 남지 않는다", async () => {
+    const logged: unknown[] = [];
+    const methods = ["log", "info", "warn", "error", "debug"] as const;
+    const originals = methods.map((name) => console[name]);
+    for (const name of methods) {
+      console[name] = (...args: unknown[]) => {
+        logged.push(...args);
+      };
+    }
+    try {
+      const { services } = renderAt("/settings/api-keys", {
+        ...ownerOk,
+        ...keysServer(),
+      });
+      const user = await setupUser();
+      const personal = await screen.findByRole("region", { name: "개인 key" });
+      await user.click(
+        within(personal).getByRole("button", { name: "개인 key 발급" }),
+      );
+      await screen.findByRole("region", { name: "새 key" });
+      // The list refetch after issuing must carry the key, not its secret.
+      await waitFor(() =>
+        expect(screen.getAllByText("개인 key").length).toBe(2),
+      );
+      const queries = services.queryClient.getQueryCache().getAll();
+      expect(
+        queries.some((q) =>
+          JSON.stringify(q.state.data ?? null).includes(SECRET),
+        ),
+      ).toBe(false);
+      expect(logged.some((arg) => String(arg).includes(SECRET))).toBe(false);
+    } finally {
+      methods.forEach((name, index) => {
+        console[name] = originals[index] as (typeof console)[typeof name];
+      });
+    }
+  });
 });
+
+function describedBy(element: HTMLElement): string[] {
+  return (element.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? `missing:${id}`);
+}

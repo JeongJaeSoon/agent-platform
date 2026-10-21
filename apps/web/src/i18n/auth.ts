@@ -72,6 +72,16 @@ export const authKo = {
     "{email} 계정으로 {workspace}에 로그인되어 있어 초대를 수락할 필요가 없습니다.",
   "invite.member.home": "워크스페이스로 가기",
   "invite.member.switch": "로그아웃하고 다른 계정으로 수락",
+  "invite.steps": "초대 수락 단계",
+  "invite.step.account": "계정 확인",
+  "invite.step.password": "비밀번호 입력",
+  "invite.account.question": "초대받은 이메일로 쓰는 계정이 있나요?",
+  "invite.account.existing": "네, 계정이 있습니다",
+  "invite.account.new": "아니요, 처음입니다",
+  "invite.back": "이전",
+  "invite.invalid.title": "초대 링크가 올바르지 않습니다",
+  "invite.invalid.body":
+    "링크가 잘렸거나 바뀐 것 같습니다. 받은 링크 전체를 그대로 다시 여세요.",
 };
 
 export const authEn: Record<keyof typeof authKo, string> = {
@@ -148,4 +158,15 @@ export const authEn: Record<keyof typeof authKo, string> = {
     "You are logged in to {workspace} as {email}, so there is nothing to accept.",
   "invite.member.home": "Go to the workspace",
   "invite.member.switch": "Log out and accept with another account",
+  "invite.steps": "Invite steps",
+  "invite.step.account": "Account",
+  "invite.step.password": "Password",
+  "invite.account.question":
+    "Do you already have an account with the invited email?",
+  "invite.account.existing": "Yes, I have an account",
+  "invite.account.new": "No, I am new here",
+  "invite.back": "Back",
+  "invite.invalid.title": "This invite link is not valid",
+  "invite.invalid.body":
+    "It looks cut short or changed. Open the full link you received again.",
 };
