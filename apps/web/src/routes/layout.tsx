@@ -1,28 +1,55 @@
+import {
+  Button,
+  cn,
+  Field,
+  FieldLabel,
+  NativeSelect,
+  NativeSelectOption,
+} from "@agent-platform/ui";
 import { useMutation } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
-  Link,
   Outlet,
   useNavigate,
+  useRouterState,
 } from "@tanstack/react-router";
+import { type ReactNode, useId, useLayoutEffect, useState } from "react";
 import { ApiError, isApiError, unwrap } from "../api/client.ts";
-import { useHasPermission, useMe } from "../auth/guard.tsx";
+import { useMe } from "../auth/guard.tsx";
+import {
+  AppSidebar,
+  type NavGroup,
+  navItemFor,
+  useNavGroups,
+} from "../components/app-sidebar.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { applyTheme, storedTheme } from "../components/theme.ts";
 import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
 import { useServices } from "../services.tsx";
 
 export function RootLayout() {
   const { t } = useI18n();
+  // Signed in, the language moves into the sidebar's user menu.
+  const authed = useRouterState({
+    select: (state) =>
+      state.matches.some((match) => match.routeId === "/authed"),
+  });
+  useLayoutEffect(() => applyTheme(storedTheme()), []);
   return (
-    <div className="web-root">
-      <a className="web-skip" href={`#${MAIN_CONTENT_ID}`}>
+    <div className="flex min-h-dvh flex-col">
+      <a
+        className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-sm bg-card px-3 py-2 focus:translate-y-0"
+        href={`#${MAIN_CONTENT_ID}`}
+      >
         {t("common.skipToContent")}
       </a>
       <Outlet />
-      <footer className="web-footer">
-        <LocaleSwitch />
-      </footer>
+      {authed ? null : (
+        <footer className="mt-auto flex justify-end p-4">
+          <LocaleSwitch />
+        </footer>
+      )}
     </div>
   );
 }
@@ -30,33 +57,43 @@ export function RootLayout() {
 function LocaleSwitch() {
   const { t, locale, setLocale } = useI18n();
   return (
-    <label className="web-locale">
-      <span>{t("common.language")}</span>
-      <select
-        className="ap-input"
+    <Field orientation="horizontal" className="w-auto gap-2">
+      <FieldLabel>{t("common.language")}</FieldLabel>
+      <NativeSelect
         value={locale}
         onChange={(event) => setLocale(event.target.value as Locale)}
       >
         {LOCALES.map((value) => (
-          <option key={value} value={value}>
+          <NativeSelectOption key={value} value={value}>
             {value === "ko" ? "한국어" : "English"}
-          </option>
+          </NativeSelectOption>
         ))}
-      </select>
-    </label>
+      </NativeSelect>
+    </Field>
   );
 }
 
+/*
+ * Width rule: forms and settings keep the reading column; lists, details and
+ * home take the wide one, which leaves room for tables and side-by-side cards.
+ */
+function readingWidth(pathname: string) {
+  return pathname === "/agents/new" || pathname.startsWith("/settings/");
+}
+
+/*
+ * The path is read only by the header and the main column below, never here:
+ * a re-render of this layout after logout cleared the cache would re-read
+ * /auth/me through its useMe and put the old identity back.
+ */
 export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
+  const groups = useNavGroups();
   const { client, queryClient } = useServices();
   const navigate = useNavigate();
-  // Teams stays: a member's teams are listed there.
-  const managesMembers = useHasPermission("member.manage");
-  // Admins see the screen with the owner-only parts disabled and explained.
-  const workspaceManage = useHasPermission("workspace.manage");
-  const retentionManage = useHasPermission("audit_retention.manage");
+  const sidebarId = useId();
+  const [menuOpen, setMenuOpen] = useState(false);
   const logout = useMutation<unknown, ApiError>({
     // A 401 means the session is already gone, which is what was asked.
     meta: { public: true },
@@ -73,50 +110,89 @@ export function AuthedLayout() {
   });
 
   return (
-    <div className="web-shell">
-      <header className="web-shell__bar">
-        <span className="web-shell__brand">{t("common.appName")}</span>
-        {me?.workspace ? (
-          <span className="web-shell__workspace">{me.workspace.name}</span>
-        ) : null}
-        <nav className="web-shell__nav" aria-label={t("nav.label")}>
-          <Link to="/" activeOptions={{ exact: true }}>
-            {t("nav.home")}
-          </Link>
-          {managesMembers ? (
-            <Link to="/members">{t("nav.members")}</Link>
+    <div className="flex flex-1 flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
+      <AppSidebar
+        id={sidebarId}
+        open={menuOpen}
+        groups={groups}
+        // A link followed from the open menu lands on the page, not the menu.
+        onNavigate={() => setMenuOpen(false)}
+        logout={{ pending: logout.isPending, run: () => logout.mutate() }}
+      />
+      <div className="flex min-w-0 flex-col">
+        <header className="flex min-h-14 items-center gap-3 border-b bg-card px-4 md:px-8">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="md:hidden"
+            aria-expanded={menuOpen}
+            aria-controls={sidebarId}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
+          </Button>
+          <Whereabouts
+            groups={groups}
+            fallback={me?.workspace?.name ?? t("common.appName")}
+          />
+        </header>
+        <ShellMain>
+          {logout.error ? (
+            <p className="m-0 text-destructive" role="alert">
+              {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
+            </p>
           ) : null}
-          <Link to="/teams">{t("nav.teams")}</Link>
-          <Link to="/agents">{t("nav.agents")}</Link>
-          <Link to="/sessions">{t("nav.sessions")}</Link>
-          <Link to="/settings/linked-accounts">{t("nav.linkedAccounts")}</Link>
-          <Link to="/settings/api-keys">{t("nav.apiKeys")}</Link>
-          {workspaceManage || retentionManage ? (
-            <Link to="/settings/workspace">{t("nav.workspace")}</Link>
-          ) : null}
-        </nav>
-        <span className="web-shell__spacer" />
-        {me?.user ? (
-          <span className="web-shell__user">{me.user.display_name}</span>
-        ) : null}
-        <button
-          type="button"
-          className="ap-button ap-button--quiet"
-          disabled={logout.isPending}
-          onClick={() => logout.mutate()}
-        >
-          {logout.isPending ? t("common.loggingOut") : t("common.logout")}
-        </button>
-      </header>
-      <Main className="web-shell__main">
-        {logout.error ? (
-          <p className="web-form__error" role="alert">
-            {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
-          </p>
-        ) : null}
-        <Outlet />
-      </Main>
+          <Outlet />
+        </ShellMain>
+      </div>
     </div>
+  );
+}
+
+function usePathname() {
+  return useRouterState({ select: (state) => state.location.pathname });
+}
+
+/** The page header's "group / page" line for where the reader is. */
+function Whereabouts({
+  groups,
+  fallback,
+}: {
+  readonly groups: readonly NavGroup[];
+  readonly fallback: string;
+}) {
+  const { t } = useI18n();
+  const here = navItemFor(groups, usePathname());
+  return (
+    <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-sm">
+      {here ? (
+        <>
+          <span className="text-muted-foreground">{t(here.group.label)}</span>
+          <span aria-hidden="true" className="text-muted-foreground">
+            /
+          </span>
+          <span className="font-medium">{t(here.item.label)}</span>
+        </>
+      ) : (
+        <span className="font-medium">{fallback}</span>
+      )}
+    </p>
+  );
+}
+
+function ShellMain({ children }: { readonly children: ReactNode }) {
+  return (
+    <Main
+      className={cn(
+        "web-shell__main mx-auto flex w-full flex-col gap-4 px-4 py-6 md:px-8 md:py-8",
+        readingWidth(usePathname())
+          ? "max-w-[var(--ap-layout-reading-width)]"
+          : "max-w-6xl",
+      )}
+    >
+      {children}
+    </Main>
   );
 }
 

@@ -239,7 +239,10 @@ describe("sessions list", () => {
     await screen.findByRole("link", { name: OTHER_ID });
     expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
     expect(
-      api.calls.filter((call) => call.path === "/v1/sessions"),
+      api.calls.filter(
+        (call) =>
+          call.path === "/v1/sessions" && call.search !== "?status=needs_input",
+      ),
     ).toHaveLength(2);
   });
 
@@ -578,7 +581,7 @@ describe("session detail", () => {
       ),
     ).toBeTruthy();
     expect(
-      api.calls.filter((call) => call.path.startsWith("/v1/sessions")),
+      api.calls.filter((call) => call.path.startsWith("/v1/sessions/")),
     ).toHaveLength(1);
     expect(stream.requests).toHaveLength(0);
   });

@@ -26,6 +26,7 @@
   --color-surface-sunken: var(--ap-color-surface-sunken);
   --color-rail: var(--ap-color-rail);
   --color-rail-foreground: var(--ap-color-rail-foreground);
+  --color-rail-muted-foreground: var(--ap-color-rail-muted-foreground);
   --color-border-strong: var(--ap-color-border-strong);
   --color-focus-ring: var(--ap-color-focus-ring);
   --font-sans: var(--ap-font-sans);
@@ -55,28 +56,13 @@ body {
   box-sizing: border-box;
 }
 
-.web-root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.web-skip {
-  position: absolute;
-  left: var(--ap-space-2);
-  top: var(--ap-space-2);
-  padding: var(--ap-space-2) var(--ap-space-3);
-  background: var(--ap-color-surface);
-  border-radius: var(--ap-radius-sm);
-  transform: translateY(-200%);
-}
-.web-skip:focus {
-  transform: none;
-}
-
-/* Tailwind's preflight strips link styling; a link must still look like one. */
-.web-auth a:not(.ap-button),
-.web-shell__main a:not(.ap-button) {
+/*
+ * Tailwind's preflight strips link styling; a link must still look like one.
+ * For the screens not yet on packages/ui (W17); a Button drawn as a link
+ * keeps its own colours.
+ */
+.web-auth a:not([data-slot="button"]):not(.ap-button),
+.web-shell__main a:not([data-slot="button"]):not(.ap-button) {
   color: var(--ap-color-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -91,7 +77,7 @@ select:focus-visible,
   outline-offset: 2px;
 }
 /* The light ring is too dark to see against the dark rail (WCAG 1.4.11). */
-.web-shell__bar :focus-visible {
+[data-slot="app-sidebar"] :focus-visible {
   outline-color: var(--ap-color-rail-foreground);
 }
 
@@ -213,42 +199,6 @@ select:focus-visible,
   font-size: var(--ap-text-xs);
 }
 
-.web-shell {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.web-shell__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ap-space-2) var(--ap-space-3);
-  padding: var(--ap-space-3) var(--ap-space-4);
-  background: var(--ap-color-rail);
-  color: var(--ap-color-rail-foreground);
-}
-.web-shell__brand {
-  font-weight: var(--ap-weight-bold);
-}
-.web-shell__workspace,
-.web-shell__user {
-  color: var(--ap-color-rail-muted-foreground);
-  font-size: var(--ap-text-sm);
-}
-.web-shell__spacer {
-  flex: 1;
-}
-.web-shell__bar .ap-button {
-  border-color: var(--ap-color-rail-muted-foreground);
-  background: transparent;
-  color: var(--ap-color-rail-foreground);
-}
-.web-shell__main {
-  padding: var(--ap-space-4);
-  width: 100%;
-  max-width: min(100%, var(--ap-layout-reading-width));
-}
-
 .web-home__title {
   margin: 0 0 var(--ap-space-2);
   font-size: var(--ap-text-xl);
@@ -285,22 +235,6 @@ select:focus-visible,
 .web-checklist__state {
   margin-left: auto;
   font-size: var(--ap-text-xs);
-}
-
-.web-shell__nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--ap-space-2) var(--ap-space-3);
-  font-size: var(--ap-text-sm);
-}
-.web-shell__nav a {
-  color: var(--ap-color-rail-muted-foreground);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.web-shell__nav a[data-status="active"] {
-  color: var(--ap-color-rail-foreground);
-  font-weight: var(--ap-weight-bold);
 }
 
 .web-page {
@@ -497,36 +431,9 @@ select:focus-visible,
   white-space: nowrap;
 }
 
-.web-footer {
-  margin-top: auto;
-  padding: var(--ap-space-4);
-  display: flex;
-  justify-content: flex-end;
-}
-.web-locale {
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ap-space-2);
-  font-size: var(--ap-text-sm);
-}
-
 @media (min-width: 48rem) {
   .web-auth {
     padding: var(--ap-space-10) var(--ap-space-6);
-  }
-  .web-shell__bar {
-    padding: var(--ap-space-3) var(--ap-space-6);
-  }
-  .web-shell__main {
-    padding: var(--ap-space-8) var(--ap-space-6);
-  }
-}
-
-@media (min-width: 90rem) {
-  .web-shell__main {
-    margin: 0 auto;
-    padding: var(--ap-space-10) var(--ap-space-8);
   }
 }
 
