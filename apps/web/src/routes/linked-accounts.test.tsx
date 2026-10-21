@@ -113,9 +113,10 @@ describe("연동 계정", () => {
     );
   });
 
+  const OTHER_ID = "5f6a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c";
   const other: LinkedAccount = {
     ...slack,
-    id: "5f6a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
+    id: OTHER_ID,
     external_tenant: "T0OTHER",
     external_user_id: "U0OTHER",
   };
@@ -134,7 +135,7 @@ describe("연동 계정", () => {
           receipt_status: "succeeded",
         });
       },
-      [`DELETE /v1/linked-accounts/${other.id}`]: () => {
+      [`DELETE /v1/linked-accounts/${OTHER_ID}`]: () => {
         items = items.map((a) =>
           a.id === other.id ? { ...a, status: "revoked" as const } : a,
         );
@@ -252,6 +253,50 @@ describe("연동 계정", () => {
     expect(
       document.activeElement?.closest("li")?.textContent?.includes("U0OTHER"),
     ).toBe(true);
+  });
+
+  test("먼저 누른 해제가 나중에 거절돼도 이어서 누른 행의 해제는 포커스를 옮긴다", async () => {
+    const routes = twoLinks();
+    const removeOther = routes[`DELETE /v1/linked-accounts/${OTHER_ID}`];
+    let refuse: () => void = () => {};
+    let answer: () => void = () => {};
+    const refused = new Promise<void>((resolve) => {
+      refuse = resolve;
+    });
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    renderAt("/settings/linked-accounts", {
+      ...routes,
+      [`DELETE /v1/linked-accounts/${LINK_ID}`]: async () => {
+        await refused;
+        return apiError(500, "INTERNAL", "boom");
+      },
+      [`DELETE /v1/linked-accounts/${OTHER_ID}`]: async () => {
+        const response = removeOther();
+        await answered;
+        return response;
+      },
+    });
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
+    await user.keyboard("{Enter}");
+    await user.tab();
+    await user.keyboard("{Enter}");
+    refuse();
+    await screen.findByRole("alert");
+    answer();
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "연결 해제" }).length).toBe(
+        1,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement?.closest("li")?.textContent?.includes("U0MOCK"),
+      ).toBe(true),
+    );
   });
 
   test("해제가 거절되면 포커스는 누른 버튼에 남고 이유를 알린다", async () => {

@@ -77,6 +77,8 @@ export function LinkedAccountsScreen() {
     accounts.data?.items.filter((account) => account.status !== "revoked") ??
     [];
 
+  useEffect(() => () => unlinked.current?.stop.abort(), []);
+
   // The pressed button leaves with its row and focus falls to the page. It
   // goes to the row now in that place, else the one above, else the
   // heading of the emptied list.
@@ -140,9 +142,12 @@ export function LinkedAccountsScreen() {
         queryKey: queryKeys.linkedAccounts,
       });
     },
-    onError: (error) => {
-      unlinked.current?.stop.abort();
-      unlinked.current = null;
+    onError: (error, account) => {
+      // A later unlink of another row keeps its own record.
+      if (unlinked.current?.id === account.id) {
+        unlinked.current.stop.abort();
+        unlinked.current = null;
+      }
       setOutcome({ kind: "error", text: linkRefusal(t, error, role) });
     },
   });
