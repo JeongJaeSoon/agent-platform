@@ -11,6 +11,7 @@ import {
 import {
   Button,
   buttonVariants,
+  ConfirmDialog,
   Dialog,
   DialogClose,
   DialogContent,
@@ -69,8 +70,21 @@ export function InviteDialog({
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  // A link on screen that was never copied: leaving loses it for good.
+  const [uncopied, setUncopied] = useState(false);
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
+  const confirmLeave = (leave: () => void) => {
+    if (uncopied) setLeaving(() => leave);
+    else leave();
+  };
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setOpen(true);
+        else confirmLeave(() => setOpen(false));
+      }}
+    >
       {/* As the trigger, the button gets the focus back when the dialog closes. */}
       <DialogTrigger asChild>
         <ReasonButton
@@ -82,7 +96,28 @@ export function InviteDialog({
         </ReasonButton>
       </DialogTrigger>
       <DialogContent>
-        <InviteFlow members={members} refusal={refusal} />
+        <InviteFlow
+          members={members}
+          refusal={refusal}
+          onUncopied={setUncopied}
+          confirmLeave={confirmLeave}
+        />
+        {/* Inside the content, so Radix stacks it over the invite dialog:
+            Escape and outside clicks close this one alone. */}
+        <ConfirmDialog
+          open={leaving !== null}
+          onOpenChange={(next) => {
+            if (!next) setLeaving(null);
+          }}
+          title={t("members.invite.leave.title")}
+          consequence={t("members.invite.leave.consequence")}
+          confirmLabel={t("members.invite.leave.confirm")}
+          cancelLabel={t("members.invite.leave.cancel")}
+          onConfirm={() => {
+            leaving?.();
+            setLeaving(null);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -100,8 +135,13 @@ type Outcome =
 function InviteFlow({
   members,
   refusal,
+  onUncopied,
+  confirmLeave,
 }: {
   readonly members: readonly MemberView[];
+  readonly onUncopied: (uncopied: boolean) => void;
+  /** Runs `leave` now, or once the inviter agrees to lose the link. */
+  readonly confirmLeave: (leave: () => void) => void;
   readonly refusal: (error: ApiError, role: string | undefined) => string;
 }) {
   const { t, locale } = useI18n();
@@ -110,6 +150,7 @@ function InviteFlow({
   const role = useRole();
   const [url, setUrl] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [copied, setCopied] = useState(false);
   const linkRef = useRef<HTMLInputElement>(null);
   // A request still out when the dialog closes must not move the next opening.
   const mounted = useRef(false);
@@ -134,6 +175,12 @@ function InviteFlow({
     ],
     currentStepId: funnel.step,
   });
+  // Only the link step asks: after browser Back the link is already off screen.
+  const uncopied = funnel.step === "link" && url !== null && !copied;
+  useEffect(() => {
+    onUncopied(uncopied);
+    return () => onUncopied(false);
+  }, [uncopied, onUncopied]);
 
   const invite = useMutation<
     { invite_token: string; expires_at: string },
@@ -141,6 +188,8 @@ function InviteFlow({
     { email: string; role: WorkspaceRole }
   >({
     mutationFn: (body) => unwrap(client.POST("/v1/invites", { body })),
+    // The response carries the token; keep it nowhere but the screen.
+    gcTime: 0,
     onSuccess: async (created) => {
       if (mounted.current) {
         setUrl(
@@ -201,11 +250,16 @@ function InviteFlow({
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => {
-                    setUrl(null);
-                    setOutcome(null);
-                    void history.replace("details", {});
-                  }}
+                  onClick={() =>
+                    confirmLeave(() => {
+                      setUrl(null);
+                      setOutcome(null);
+                      setCopied(false);
+                      // Detach the observer so gcTime 0 drops the response too.
+                      invite.reset();
+                      void history.replace("details", {});
+                    })
+                  }
                 >
                   {t("members.invite.again")}
                 </Button>
@@ -213,16 +267,17 @@ function InviteFlow({
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    void copyText(url, linkRef).then((copied) =>
+                    void copyText(url, linkRef).then((worked) => {
+                      if (worked) setCopied(true);
                       setOutcome(
-                        copied
+                        worked
                           ? { kind: "notice", text: t("members.invite.copied") }
                           : {
                               kind: "error",
                               text: t("members.invite.copyFailed"),
                             },
-                      ),
-                    );
+                      );
+                    });
                   }}
                 >
                   {t("members.invite.copy")}
