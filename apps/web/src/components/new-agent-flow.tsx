@@ -36,7 +36,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
 import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
@@ -50,6 +50,7 @@ import {
   type CardErrors,
   EMPTY_DRAFT,
 } from "./agent-card-form.tsx";
+import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
 /** `flow` names one run of the flow; every step's input carries it. */
 type Steps = {
@@ -226,10 +227,7 @@ export function NewAgentFlow({
   });
   const catalog = useQuery(profilesQuery(client));
   const savedPastJob = funnel.step === "release" || funnel.step === "activate";
-  // A step heading takes focus once the flow has moved, not on arrival.
-  const [firstStep] = useState(funnel.step);
-  const [moved, setMoved] = useState(false);
-  if (!moved && funnel.step !== firstStep) setMoved(true);
+  const moved = useStepMoved(funnel.step);
 
   const stepper = useStepper({
     steps: STEP_IDS.map((id) => ({ id, label: t(STEP_LABEL[id]) })),
@@ -339,29 +337,6 @@ export function NewAgentFlow({
         )}
       />
     </div>
-  );
-}
-
-/** A step's heading, which takes focus when the flow moves onto the step. */
-function StepHeading({
-  focus,
-  children,
-}: {
-  readonly focus: boolean;
-  readonly children: ReactNode;
-}) {
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (focus) heading.current?.focus();
-  }, [focus]);
-  return (
-    <h2
-      ref={heading}
-      tabIndex={-1}
-      className="m-0 font-semibold text-lg outline-none"
-    >
-      {children}
-    </h2>
   );
 }
 
