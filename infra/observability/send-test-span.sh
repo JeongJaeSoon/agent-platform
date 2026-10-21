@@ -23,11 +23,17 @@ resource='{"attributes":[
   {"key":"service.version","value":{"stringValue":"0.0.0-example"}}]}'
 
 post() {
-  status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$endpoint/$1" \
+  response=$(curl -sS -w '\n%{http_code}' -X POST "$endpoint/$1" \
     -H 'Content-Type: application/json' --data-binary "$2")
+  status=$(printf '%s\n' "$response" | tail -n 1)
+  body=$(printf '%s\n' "$response" | sed '$d')
   case $status in
     2*) ;;
-    *) echo "POST $endpoint/$1 returned HTTP $status" >&2; exit 1 ;;
+    *) echo "POST $endpoint/$1 returned HTTP $status: $body" >&2; exit 1 ;;
+  esac
+  # A 200 can still carry a partial success that rejected some items.
+  case $body in
+    *'"rejected'*) echo "POST $endpoint/$1 rejected items: $body" >&2; exit 1 ;;
   esac
 }
 

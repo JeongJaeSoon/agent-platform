@@ -188,7 +188,7 @@ Langfuse 예제는 처음 뜰 때 `LANGFUSE_INIT_*` 설정으로 조직 `Werft l
 2. 두 값을 환경 변수로 넘겨 collector만 다시 만든다. 값을 파일에 적지 않는다.
 
 ```sh
-LANGFUSE_PUBLIC_KEY=<public key> LANGFUSE_SECRET_KEY=<secret key> \
+LANGFUSE_PUBLIC_KEY='<public key>' LANGFUSE_SECRET_KEY='<secret key>' \
   docker compose -p werft-obs-langfuse -f infra/observability/langfuse/compose.yml up -d --no-deps otel-collector
 ```
 
