@@ -742,6 +742,46 @@ describe("session profile", () => {
     expect(
       await screen.findByText("답을 기다리는 요청이 없습니다."),
     ).toBeTruthy();
+    // The answered card took focus with it; the notice holds it now.
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe(
+        "답을 보냈습니다. 세션이 이어서 진행합니다.",
+      ),
+    );
+  });
+
+  test("after an answer the keyboard moves on to the next request", async () => {
+    const user = await setupUser();
+    const second = {
+      ...pending.items[0],
+      request_id: "req_2",
+      tool: "Write",
+      expires_at: LATER,
+    };
+    let open = [{ ...pending.items[0], expires_at: LATER }, second];
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { items: open }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+        open = [second];
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    const [allow] = await screen.findAllByRole("button", { name: "허용" });
+    allow?.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.queryByText("권한 요청: Bash")).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.closest("article")?.textContent).toContain(
+        "권한 요청: Write",
+      ),
+    );
   });
 
   test("a denial carries its reason, and an expired request says why it was refused", async () => {

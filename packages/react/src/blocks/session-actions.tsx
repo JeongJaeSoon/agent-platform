@@ -10,7 +10,7 @@ import {
   ConfirmDialog,
   QuestionCard,
 } from "@agent-platform/ui";
-import { useId, useState } from "react";
+import { type Ref, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   type SessionControl,
   useAnswer,
@@ -34,10 +34,18 @@ export interface SessionActionProps {
 
 type Outcome = { readonly kind: "notice" | "error"; readonly text: string };
 
-function OutcomeLine({ outcome }: { readonly outcome: Outcome | null }) {
+function OutcomeLine({
+  outcome,
+  ref,
+}: {
+  readonly outcome: Outcome | null;
+  readonly ref?: Ref<HTMLOutputElement>;
+}) {
   // Always mounted, so a screen reader hears the line when it changes.
   return (
     <output
+      ref={ref}
+      tabIndex={-1}
       className={
         outcome?.kind === "error"
           ? "m-0 text-destructive text-sm"
@@ -98,16 +106,37 @@ export function PendingAnswers({
   >(null);
   const reason = unavailable?.answer;
   const busyId = answer.isPending ? answer.variables?.request_id : undefined;
+  const listRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLOutputElement>(null);
+  // The answered request whose card may still hold the keyboard.
+  const answered = useRef<string | null>(null);
+
+  // An answered card leaves with the next read and takes focus with it:
+  // hand the keyboard to the next request, or to the notice when none is left.
+  useLayoutEffect(() => {
+    const id = answered.current;
+    if (id === null || items.some((request) => request.request_id === id)) {
+      return;
+    }
+    answered.current = null;
+    if (document.activeElement !== document.body) return;
+    const next = listRef.current?.querySelector<HTMLElement>(
+      "li button:not(:disabled), li input:not(:disabled)",
+    );
+    (next ?? noticeRef.current)?.focus();
+  }, [items]);
 
   const send = (body: Parameters<typeof answer.mutate>[0]) => {
     setOutcome(null);
     answer.mutate(body, {
-      onSuccess: () =>
+      onSuccess: () => {
+        answered.current = body.request_id;
         setOutcome({
           kind: "notice",
           requestId: body.request_id,
           text: t("session.answer.sent"),
-        }),
+        });
+      },
       onError: (error) =>
         setOutcome({
           kind: "error",
@@ -123,8 +152,11 @@ export function PendingAnswers({
   const expires = (at: string) => t("session.pending.expires", { at });
 
   return (
-    <div className="flex flex-col gap-2">
-      <OutcomeLine outcome={outcome?.kind === "notice" ? outcome : null} />
+    <div ref={listRef} className="flex flex-col gap-2">
+      <OutcomeLine
+        ref={noticeRef}
+        outcome={outcome?.kind === "notice" ? outcome : null}
+      />
       {reason === undefined ? null : <Reason text={reason} />}
       {items.length === 0 ? (
         <p className="m-0 text-muted-foreground text-sm">
