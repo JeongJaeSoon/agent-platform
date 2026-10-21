@@ -94,7 +94,7 @@ export async function call<T>(
       if (response.ok) return data as T;
       const apiError = errorFromResponse(response, error, tags);
       failure = apiError;
-      retryable = isRetryable(response.status, error);
+      retryable = isRetryable(response.status, error, kind);
     } catch (cause) {
       if (signal?.aborted) throw new AbortedError(signal.reason, tags);
       failure = deadline.signal.aborted
@@ -138,13 +138,14 @@ function apiErrorBody(body: unknown): ErrorBody["error"] | undefined {
 /**
  * 409 is always a state conflict and 500 a server bug: neither is retried
  * whatever the body says. A 502 or 504 without the API's error body came
- * from a proxy in front of it.
+ * from a proxy in front of it, so the API may have run the call: like a
+ * lost response, it is retried only for reads and keyed commands.
  */
-function isRetryable(status: number, body: unknown): boolean {
+function isRetryable(status: number, body: unknown, kind: CallKind): boolean {
   if (status === 409 || status === 500) return false;
   const error = apiErrorBody(body);
   if (error) return error.retryable === true;
-  return status === 502 || status === 504;
+  return kind !== "unkeyed" && (status === 502 || status === 504);
 }
 
 /** A failure `call` would have retried: worth another try on the next poll. */

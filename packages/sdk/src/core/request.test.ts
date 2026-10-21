@@ -89,6 +89,15 @@ describe("retry policy", () => {
       ]);
       expect(result.attempts).toBe(2);
       expect(result.data).toEqual(ACCEPTED);
+      const unkeyed = await outcome(
+        [
+          new Response("<html>bad gateway</html>", { status }),
+          json(202, ACCEPTED),
+        ],
+        "unkeyed",
+      );
+      expect(unkeyed.attempts).toBe(1);
+      expect((unkeyed.error as APIError).status).toBe(status);
     }
   });
 
@@ -307,10 +316,15 @@ describe("errors", () => {
     const gateway = fakeApi(() =>
       ++calls === 1 ? html(502) : json(201, { url: "u", created: true }),
     );
-    await werft(gateway.fetch, {
-      maxRetryDelayMs: 0,
-    }).sessions.pushRequests.openPullRequest("s1", "pr1");
+    await werft(gateway.fetch, { maxRetryDelayMs: 0 }).sessions.get("s1");
     expect(gateway.seen).toHaveLength(2);
+
+    const unkeyed = fakeApi(() => html(502));
+    const lost = await werft(unkeyed.fetch, { maxRetryDelayMs: 0 })
+      .sessions.pushRequests.openPullRequest("s1", "pr1")
+      .catch((e: unknown) => e);
+    expect((lost as APIError).status).toBe(502);
+    expect(unkeyed.seen).toHaveLength(1);
   });
 
   test("errors reach the caller through the real client too", async () => {
