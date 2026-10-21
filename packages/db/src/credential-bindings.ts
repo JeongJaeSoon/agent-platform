@@ -66,7 +66,7 @@ const liveOnAgent = (workspaceId: string, agentId: string) =>
     isNull(credentialBindings.revokedAt),
   );
 
-// The key the 0140 trigger takes, so the store's checks and the trigger's
+// The key the 0143 trigger takes, so the store's checks and the trigger's
 // see the same writers of one name in one workspace.
 async function lockRef(tx: Database, workspaceId: string, ref: string) {
   await tx.execute(
@@ -79,7 +79,7 @@ export type CredentialBindingTarget = "agent" | "agent_identity";
 /**
  * Binds a name to a target inside the caller's transaction, for any writer
  * of bindings (an agent identity's link too). A name an agent identity holds
- * is that identity's alone; the 0140 trigger refuses the same, this answers
+ * is that identity's alone; the 0143 trigger refuses the same, this answers
  * it as an outcome instead of an error.
  */
 export async function bindCredentialRef(

@@ -596,7 +596,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 
 #### Google 로그인 (94S-575)
 
-로그인 수단은 `login_methods` 테이블에 사용자별로 둔다. 비밀번호는 `kind=password` 행 하나이고(bootstrap과 migration 0134가 만든다), Google 계정은 `kind=google` 행의 (issuer, subject)로 찾는다. 이메일로는 찾지 않는다. Google로만 들어온 사용자는 `users.password_hash`가 NULL이고, 비밀번호 로그인은 틀린 비밀번호와 같은 `401`, owner의 재설정 링크 발급은 `404`다.
+로그인 수단은 `login_methods` 테이블에 사용자별로 둔다. 비밀번호는 `kind=password` 행 하나이고(bootstrap과 migration 0138이 만든다), Google 계정은 `kind=google` 행의 (issuer, subject)로 찾는다. 이메일로는 찾지 않는다. Google로만 들어온 사용자는 `users.password_hash`가 NULL이고, 비밀번호 로그인은 틀린 비밀번호와 같은 `401`, owner의 재설정 링크 발급은 `404`다.
 
 설정은 env 하나로 전역에 둔다. 셋 다 비어 있으면 Google 로그인은 꺼지고 두 route가 `404`다. 일부만 있거나 값이 틀리면 API가 기동하지 않고 `/readyz`도 `503`이다.
 
@@ -641,7 +641,7 @@ curl -s -b jar https://<host>/v1/auth/me
 
 `keys create <owner_id>`로 만든 기존 key는 모두 service key다. 응답과 partition은 이전과 같다. `keys create --workspace <workspace_id> --scopes …`로 만든 key는 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--personal <user_id>`를 더하면 그 멤버의 개인 key가 된다. 이 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. service key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수·key 발급 등)을 할 수 없다(`403`). 관리 action은 사람의 cookie 세션으로만 한다. 누가 무엇을 하는지는 아래 역할 표를 따른다.
 
-누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0133 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
+누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0136 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
 멤버를 내보내는 것은 owner의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, API key는 `403`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기하고, 그 workspace에 연결된 Slack 계정을 `revoked`로 바꾼다(열린 SSE는 keepalive 주기 안에 끊긴다). service key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 세션이 인수하는 owner에게 보이지 않는 공유 범위면 `{"justification"}`이 필요하다(아래 세션 공유 범위 절).
 
@@ -703,7 +703,7 @@ curl -s -b jar -X DELETE "http://127.0.0.1:3000/v1/linked-accounts/$LINKED_ACCOU
 
 workspace 역할은 owner·admin·member 셋이다. admin은 owner와 같은 관리 권한을 갖되 세 가지가 다르다: 감사 보존 기간을 바꾸지 못하고, 보관한 에이전트를 되살리지 못하고, 세션 복구 결정(`sessions:recover`)을 하지 못한다. admin은 owner를 초대하거나 owner의 역할을 바꾸거나 누구를 owner로 올리지 못한다(`403 OWNER_PROTECTED`).
 
-에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0139 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자 지정·해제와 팀을 관리자로 두는 방법은 아래 "팀과 에이전트 관리자 지정"에 있다.
+에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0142 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자 지정·해제와 팀을 관리자로 두는 방법은 아래 "팀과 에이전트 관리자 지정"에 있다.
 
 key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 

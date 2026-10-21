@@ -360,7 +360,7 @@ integration("account recovery on PostgreSQL", () => {
 
   test("an install that predates the spent-token record retires its configured token at startup", async () => {
     const { db, start, ownerId } = await install();
-    // What an install bootstrapped before 0131 looks like.
+    // What an install bootstrapped before 0134 looks like.
     await db.delete(bootstrapTokenUses);
     await bootstrapGateFromEnv(
       INSTALL_TOKEN,

@@ -187,7 +187,7 @@ Preconditions:
 - c: mock overlay 없이 띄운 스택은 `SLACK_OIDC_*`가 비어 있어 시작 요청이 `503 BACKEND_UNAVAILABLE`이다. state는 10분, 한 번만 쓴다. 같은 code·state를 다시 보내면 `400`.
 - d의 8은 판정이 `allow`인 채로 거절된다. 권한(`api_key.manage`)은 있고 scope만 넘친 것이라, 판정 행은 `allow`이고 응답은 `SCOPE_NOT_GRANTABLE`이다.
 - 에이전트 전용 key는 receipt를 읽지 못한다. receipt 조회는 세션을 가리키지 않아 에이전트를 확인할 수 없기 때문이다.
-- 에이전트 관리자는 에이전트를 만든 사람(과 0139 backfill), 그리고 `POST /v1/agents/{id}/admins`로 지정한 사람·팀이다.
+- 에이전트 관리자는 에이전트를 만든 사람(과 0142 backfill), 그리고 `POST /v1/agents/{id}/admins`로 지정한 사람·팀이다.
 - b: 팀 목록·상세(`GET /v1/teams`)는 owner·admin만 본다. member는 `GET /v1/my-teams`로 자기가 든 팀의 `id`·`name`만 본다(다른 팀원 없음, 94S-619). 추가 알림은 아직 receipt 기록뿐이다(Slack 알림 없음).
 - f: 본문 검증(`400`)은 판정보다 먼저라 판정 행을 남기지 않는다. 해제한 연결을 다시 `DELETE`하면 `404`다.
 - g: 연결은 확인된(`verified`) 설치에만 된다. `registerSlackInstallation`만 하고 `verifySlackInstallation`을 빠뜨리면 `409 SLACK_NOT_INSTALLED`, 해석은 `installation_unverified`다. 같은 team·app을 다른 bot으로 다시 확인하면 연결은 남아 있어도 해석은 `bot_mismatch`다.

@@ -135,7 +135,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "kind",
     "created_by_user_id",
     "expires_at",
-    // 0139
+    // 0142
     "agent_id",
   ],
   receipts: ["actor", "request_id"],
@@ -499,7 +499,7 @@ integration("0100 identity migration on PostgreSQL", () => {
           [randomUUID(), workspaceId, userId, workspaceId],
         );
         expect(ok.rows).toHaveLength(1);
-        // A derived release id is opaque text, and since 0134 it must name
+        // A derived release id is opaque text, and since 0139 it must name
         // a release that exists.
         const unpinned = await pool
           .query(
