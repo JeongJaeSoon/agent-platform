@@ -17,11 +17,13 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, act } = await appHarness();
+const { renderAt, screen, waitFor, act, within } = await appHarness();
 
 const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const AT = "2026-10-11T08:14:02.000Z";
+// Far enough ahead that a request still takes answers.
+const LATER = "2099-01-01T00:00:00.000Z";
 
 interface Connection {
   readonly request: Request;
@@ -706,6 +708,234 @@ describe("session profile", () => {
       name: "프로필 바꾸기",
     });
     expect(button.hasAttribute("disabled")).toBe(true);
+  });
+
+  test("allows a permission request from the keyboard; the answered request leaves", async () => {
+    const user = await setupUser();
+    let open = [{ ...pending.items[0], expires_at: LATER }];
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { items: open }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+        open = [];
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    const allow = await screen.findByRole("button", { name: "허용" });
+    allow.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByText("답을 보냈습니다. 세션이 이어서 진행합니다."),
+    ).toBeTruthy();
+    const post = api.calls.find((call) => call.method === "POST");
+    expect(post?.path).toBe(`/v1/sessions/${SESSION_ID}/answers`);
+    expect(post?.body).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(post?.headers.get("idempotency-key")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(
+      await screen.findByText("답을 기다리는 요청이 없습니다."),
+    ).toBeTruthy();
+  });
+
+  test("a denial carries its reason, and an expired request says why it was refused", async () => {
+    const user = await setupUser();
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { items: [{ ...pending.items[0], expires_at: LATER }] }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
+        apiError(409, "REQUEST_EXPIRED", "request expired"),
+    });
+    await user.click(await screen.findByRole("button", { name: "거부" }));
+    await user.keyboard("not now");
+    await user.click(screen.getByRole("button", { name: "거부 보내기" }));
+    expect(
+      await screen.findByText("이미 답했거나 만료되었거나 닫힌 요청입니다."),
+    ).toBeTruthy();
+    expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      decision: "deny",
+      reason: "not now",
+    });
+  });
+
+  test("answers a question with the picked option", async () => {
+    const user = await setupUser();
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          items: [
+            {
+              kind: "question",
+              request_id: "req_q",
+              turn_id: "1",
+              attempt_id: "att_1",
+              created_at: AT,
+              expires_at: LATER,
+              questions: [
+                {
+                  question_id: "q1",
+                  prompt: "Which branch?",
+                  options: [
+                    { option_id: "main", label: "main" },
+                    { option_id: "dev", label: "dev" },
+                  ],
+                  multi_select: false,
+                  allow_free_text: false,
+                },
+              ],
+            },
+          ],
+        }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+    });
+    await user.click(await screen.findByRole("radio", { name: "dev" }));
+    await user.click(screen.getByRole("button", { name: "답 보내기" }));
+    await waitFor(() =>
+      expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+        request_id: "req_q",
+        kind: "question",
+        answers: [{ question_id: "q1", selected_option_ids: ["dev"] }],
+      }),
+    );
+  });
+
+  test("interrupts the running turn and shows the stop the stream reports", async () => {
+    const user = await setupUser();
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/interrupt`]: () =>
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+    });
+    const stop = await screen.findByRole("button", {
+      name: "지금 turn 멈추기",
+    });
+    stop.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByText(
+        "요청을 보냈습니다. 바뀐 상태는 위 개요에 반영됩니다.",
+      ),
+    ).toBeTruthy();
+    const post = api.calls.find((call) => call.method === "POST");
+    expect(post?.path).toBe(`/v1/sessions/${SESSION_ID}/interrupt`);
+    expect(post?.body).toEqual({ target_turn_id: "1" });
+
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => stream.emit("ev_1", "status", { phase: "interrupting" }));
+    await waitFor(() =>
+      expect(document.querySelector("output.sr-only")?.textContent).toBe(
+        "멈추는 중",
+      ),
+    );
+  });
+
+  test("terminating asks first and sends the session's revision", async () => {
+    const user = await setupUser();
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () =>
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+    });
+    await user.click(await screen.findByRole("button", { name: "세션 종료" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "세션을 종료할까요?",
+    });
+    expect(api.calls.some((call) => call.method === "POST")).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "종료" }));
+    await waitFor(() =>
+      expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+        expected_revision: 3,
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  test("sends a message with Ctrl+Enter and names the turn it became", async () => {
+    const user = await setupUser();
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/messages`]: () =>
+        json(202, {
+          turn_id: "2",
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        }),
+    });
+    await user.click(await screen.findByRole("textbox", { name: "메시지" }));
+    await user.keyboard("next step{Control>}{Enter}{/Control}");
+    expect(
+      await screen.findByText("메시지를 보냈습니다(turn 2)."),
+    ).toBeTruthy();
+    const post = api.calls.find((call) => call.method === "POST");
+    expect(post?.path).toBe(`/v1/sessions/${SESSION_ID}/messages`);
+    expect(post?.body).toEqual({ message: "next step", mode: "enqueue" });
+    expect(
+      (screen.getByRole("textbox", { name: "메시지" }) as HTMLTextAreaElement)
+        .value,
+    ).toBe("");
+  });
+
+  test("a stopped session offers resume and takes no message", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          admission_state: "stopped",
+          status: "stopped",
+          current_turn_id: null,
+        }),
+    });
+    expect(
+      await screen.findByRole("button", { name: "다시 시작" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "지금 turn 멈추기" }),
+    ).toBeNull();
+    expect(
+      (screen.getByRole("textbox", { name: "메시지" }) as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      screen.getByText("진행 중인 세션만 메시지를 받습니다."),
+    ).toBeTruthy();
+  });
+
+  test("a key without the scopes sees each action disabled and why", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      "GET /v1/auth/me": () => json(200, me(["sessions:read"], "member")),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { items: [{ ...pending.items[0], expires_at: LATER }] }),
+    });
+    const allow = await screen.findByRole("button", { name: "허용" });
+    expect(allow.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByText("sessions:approve 권한이 있어야 할 수 있습니다."),
+    ).toBeTruthy();
+    const stop = screen.getByRole("button", { name: "지금 turn 멈추기" });
+    expect(stop.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByText("sessions:control 권한이 있어야 할 수 있습니다."),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("textbox", { name: "메시지" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen.getByText("sessions:write 권한이 있어야 할 수 있습니다."),
+    ).toBeTruthy();
   });
 
   test("says so when the current profile left the catalog", async () => {
