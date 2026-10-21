@@ -34,14 +34,16 @@ export const Empty: Story = {
 };
 
 /** What a list shows in a row's place while it loads. */
-export const Loading: Story = {
-  render: () => (
+function LoadingRow() {
+  return (
     <div className="flex flex-col gap-2 rounded-md border p-3">
       <Skeleton width="30%" label="Loading session" />
       <Skeleton width="70%" />
     </div>
-  ),
-};
+  );
+}
+
+export const Loading: Story = { render: () => <LoadingRow /> };
 
 export const Failed: Story = {
   args: {
@@ -54,18 +56,26 @@ export const Failed: Story = {
   },
 };
 
-export const DefaultDark: Story = {
-  name: "Default (dark)",
+/** Every state above in one column, so dark and 390px cover them all. */
+export const States: Story = {
+  render: (args) => (
+    <div className="flex flex-col gap-3">
+      <SessionRow {...args} />
+      <SessionRow {...args} {...Empty.args} />
+      <LoadingRow />
+      <SessionRow {...args} {...Failed.args} />
+    </div>
+  ),
+};
+
+export const StatesDark: Story = {
+  ...States,
+  name: "States (dark)",
   globals: { theme: "dark" },
 };
 
-export const FailedDark: Story = {
-  ...Failed,
-  name: "Failed (dark)",
-  globals: { theme: "dark" },
-};
-
-export const DefaultMobile: Story = {
-  name: "Default (390px)",
+export const StatesMobile: Story = {
+  ...States,
+  name: "States (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };

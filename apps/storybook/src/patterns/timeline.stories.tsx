@@ -36,18 +36,27 @@ export const Failed: Story = {
   args: { entries: timelineEntries(FAILED_EVENTS), state: "closed" },
 };
 
-export const DefaultDark: Story = {
-  name: "Default (dark)",
+/** Every state above in one column, so dark and 390px cover them all. */
+export const States: Story = {
+  render: (args) => (
+    <div className="flex flex-col gap-6">
+      {Object.entries({ Default, Empty, Loading, Failed }).map(
+        ([name, story]) => (
+          <Timeline key={name} {...args} {...story.args} />
+        ),
+      )}
+    </div>
+  ),
+};
+
+export const StatesDark: Story = {
+  ...States,
+  name: "States (dark)",
   globals: { theme: "dark" },
 };
 
-export const FailedDark: Story = {
-  ...Failed,
-  name: "Failed (dark)",
-  globals: { theme: "dark" },
-};
-
-export const DefaultMobile: Story = {
-  name: "Default (390px)",
+export const StatesMobile: Story = {
+  ...States,
+  name: "States (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
 };
