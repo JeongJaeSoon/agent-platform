@@ -3,7 +3,12 @@ import type {
   CloseReceiptResult,
   ControlAcceptedResponse,
 } from "@werft-ai/contracts";
-import type { CloseSessionInput, CloseSessionResult } from "@werft-ai/platform";
+import {
+  type CloseSessionInput,
+  type CloseSessionResult,
+  storedPendingReasonBlocks,
+  storedPendingReasonHoldsWork,
+} from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
@@ -174,6 +179,16 @@ export function closeAtomic(
       return { outcome: "unsupported" };
     }
 
+    // A transcript past the limits ended its last turn without a checkpoint,
+    // and no drain by this attempt can commit one: refuse as for a session
+    // with no drainer, rather than hold it closing until the execution goes.
+    if (
+      session.admissionState === "active" &&
+      storedPendingReasonHoldsWork(session.checkpointPendingReason) &&
+      !storedPendingReasonBlocks(session.checkpointPendingReason)
+    ) {
+      return { outcome: "checkpoint_unavailable" };
+    }
     const drainer =
       session.admissionState === "active"
         ? await liveDrainer(tx, session.executionId)
