@@ -308,6 +308,26 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     )) as HTMLInputElement;
     expect(email.value).toBe("");
     expect(within(dialog).queryByLabelText("초대 링크")).toBeNull();
+    // The button that opened the confirmation is gone; the keyboard lands on
+    // the field the next invite starts from instead of <body>.
+    await waitFor(() => expect(document.activeElement).toBe(email));
+  });
+
+  test("앞 링크를 복사한 뒤 뒤로 가서 새로 만든 링크는 다시 묻는다", async () => {
+    const { history } = renderMembers();
+    const { user, dialog } = await toLink();
+    await copy(user, dialog);
+    history.back();
+    const email = await within(dialog).findByLabelText("이메일");
+    await user.clear(email);
+    await user.type(email, "other@example.com");
+    await user.click(
+      within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+    expect(within(dialog).queryByText("초대 링크를 복사했습니다.")).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
   });
 
   test("복사한 뒤에는 묻지 않고 닫힌다", async () => {

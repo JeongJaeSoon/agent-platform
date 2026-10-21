@@ -192,6 +192,9 @@ function InviteFlow({
     gcTime: 0,
     onSuccess: async (created) => {
       if (mounted.current) {
+        // A new link, reached again after browser Back: nothing of it is copied.
+        setCopied(false);
+        setOutcome(null);
         setUrl(
           `${window.location.origin}/invite/${encodeURIComponent(created.invite_token)}`,
         );
@@ -332,6 +335,10 @@ function DetailsStep({
   });
   const { errors } = form.formState;
   const email = form.watch("email");
+  // On opening Radix does this; back from the link step the button that was
+  // focused is gone and the keyboard would land on <body>.
+  const { setFocus } = form;
+  useEffect(() => setFocus("email"), [setFocus]);
 
   // Re-inviting someone whose membership is off leads nowhere when their
   // account has no password (Google sign-in only): the invite asks for one.
