@@ -1,5 +1,4 @@
-import { unwrap } from "@agent-platform/client";
-import type { ListSessionsResponse } from "@agent-platform/contracts";
+import { waitingSessionsQuery } from "@agent-platform/core";
 import { useAgentPlatform } from "@agent-platform/react";
 import {
   Badge,
@@ -95,26 +94,16 @@ export function navItemFor(
   return undefined;
 }
 
-const WAITING_REFETCH_MS = 30_000;
-
 function useWaitingSessions() {
   const { client } = useAgentPlatform();
   const canRead = useCan("sessions:read");
   return useQuery({
-    queryKey: ["sessions", "waiting"],
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/sessions", {
-          params: { query: { status: "needs_input" } },
-        }),
-      ) as Promise<ListSessionsResponse>,
+    ...waitingSessionsQuery(client),
     select: (page) => ({
       count: page.items.length,
       more: page.next_cursor !== null,
     }),
     enabled: canRead,
-    retry: false,
-    refetchInterval: WAITING_REFETCH_MS,
   });
 }
 
