@@ -1,4 +1,4 @@
-import { sessionsKo } from "@agent-platform/react";
+import { formsKo, sessionsKo } from "@agent-platform/react";
 import { agentsKo } from "./agents.ts";
 import { apiKeysKo } from "./api-keys.ts";
 import { authKo } from "./auth.ts";
@@ -33,6 +33,7 @@ export const ko = {
   ...apiKeysKo,
   ...workspaceKo,
   ...errorsKo,
+  ...formsKo,
 } as const;
 
 export type MessageKey = keyof typeof ko;
