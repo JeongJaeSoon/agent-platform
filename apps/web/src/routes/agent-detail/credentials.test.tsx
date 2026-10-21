@@ -243,6 +243,51 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     );
   });
 
+  test("응답의 missing에 카드가 쓰지 않는 문자열이 섞여도 화면과 연결에 내보내지 않는다", async () => {
+    const server = serverNaming("github/app");
+    const stray = "NOT A NAME 0123456789abcdef";
+    const { services } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`POST /v1/agents/${AGENT_ID}/activate`]: () =>
+        json(409, {
+          error: {
+            code: "CREDENTIAL_UNBOUND",
+            message: "unbound",
+            retryable: false,
+            request_id: "req-1",
+            details: {
+              reason_code: "credential_unbound",
+              missing: [stray, "github/app"],
+            },
+          },
+        }),
+    });
+    const user = await setupUser();
+    await screen.findByLabelText("runtime profile");
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: `version 1 · ${PROFILE} 활성화`,
+      }),
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "이 release가 쓰는 자격 github/app이(가)",
+    );
+    const section = await step();
+    await user.click(
+      within(section).getByRole("button", { name: "github/app 연결" }),
+    );
+    await within(section).findByText("github/app을(를) 연결했습니다.");
+    expect(document.body.textContent).not.toContain(stray);
+    const variables = services.queryClient
+      .getMutationCache()
+      .getAll()
+      .map((m) => m.state.variables);
+    expect(JSON.stringify(variables)).not.toContain(stray);
+  });
+
   test("details가 계약 모양이 아니어도 이름 없이 안내한다", async () => {
     const server = agentServer();
     renderAt(DETAIL, {

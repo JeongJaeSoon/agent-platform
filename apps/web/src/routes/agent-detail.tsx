@@ -175,7 +175,7 @@ function AgentView({
         });
         return;
       }
-      const missing = unboundRefs(error);
+      const missing = unboundRefs(error, detail);
       if (missing) {
         setUnbound(missing);
         return;

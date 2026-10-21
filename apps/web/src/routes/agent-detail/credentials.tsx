@@ -248,19 +248,26 @@ export function Credentials({
 }
 
 /**
- * The names a 409 CREDENTIAL_UNBOUND from activation reports, an empty list
- * when its details are not the shape the contract promises, or null for any
- * other error.
+ * The names a 409 CREDENTIAL_UNBOUND from activation reports, or null for any
+ * other error. Only names one of this agent's cards holds are kept: the
+ * server checked those against the name pattern when the card was saved,
+ * and anything else in a malformed answer never reaches the screen or a bind.
  */
-export function unboundRefs(error: ApiError): readonly string[] | null {
+export function unboundRefs(
+  error: ApiError,
+  detail: AgentDetail,
+): readonly string[] | null {
   if (error.code !== "CREDENTIAL_UNBOUND") return null;
-  const missing = (
-    error.details as Partial<ActivationCredentialUnboundDetails> | null
-  )?.missing;
-  return Array.isArray(missing) &&
-    missing.every((ref) => typeof ref === "string")
-    ? missing
-    : [];
+  const details = error.details as Partial<ActivationCredentialUnboundDetails>;
+  if (details?.reason_code !== "credential_unbound") return [];
+  const missing: unknown = details.missing;
+  if (!Array.isArray(missing)) return [];
+  const named = new Set(
+    detail.versions.flatMap(
+      (version) => version.card.capabilities.credential_refs ?? [],
+    ),
+  );
+  return missing.filter((ref) => named.has(ref));
 }
 
 /** Why activation stopped, with the way to the step that fixes it. */
