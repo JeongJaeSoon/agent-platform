@@ -312,17 +312,18 @@ export function SessionControls({
   // The commands drawn when one ran; a pause swaps its button for resume.
   const ranOn = useRef<string | null>(null);
 
-  // A command's button goes while it runs or leaves with the new state,
-  // taking focus with it: hand the keyboard to what the session takes now.
+  // A command's button is turned off while it runs and may leave with the
+  // new state, taking focus with it each time: hand the keyboard to what the
+  // session takes now, until the state the command made has arrived.
   useLayoutEffect(() => {
     if (ranOn.current === null) return;
     if (focusLost(outcomeRef.current)) {
-      ranOn.current = null;
       const next = groupRef.current?.querySelector<HTMLElement>(
         "button:not(:disabled)",
       );
       (next ?? outcomeRef.current)?.focus();
-    } else if (!control.isPending && actionSet !== ranOn.current) {
+    }
+    if (!control.isPending && actionSet !== ranOn.current) {
       ranOn.current = null;
     }
   }, [actionSet, control.isPending]);
