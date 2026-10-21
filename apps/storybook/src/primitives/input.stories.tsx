@@ -1,4 +1,10 @@
-import { Field, FieldDescription, FieldLabel, Input } from "@agent-platform/ui";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  Input,
+} from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta = {
@@ -17,7 +23,8 @@ const meta = {
       </Field>
       <Field>
         <FieldLabel>팀 이름</FieldLabel>
-        <Input defaultValue="결제" aria-invalid={true} />
+        <Input defaultValue="결제" />
+        <FieldError>이미 있는 팀 이름입니다.</FieldError>
       </Field>
     </div>
   ),

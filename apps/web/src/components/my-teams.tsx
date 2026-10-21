@@ -1,3 +1,4 @@
+import { useAgentPlatform } from "@agent-platform/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
@@ -5,7 +6,6 @@ import { isApiError } from "../api/client.ts";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 
 /**
@@ -19,7 +19,7 @@ export function MyTeams({
   readonly showEmpty: boolean;
 }) {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const manages = useHasPermission("team.manage");
   const teams = useQuery(myTeamsQuery(client));
   const titleId = useId();

@@ -3,8 +3,9 @@ import type {
   SlackLinkCallbackResponse,
   StartSlackLinkResponse,
 } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
@@ -14,7 +15,7 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
+import { useAppServices } from "../services.tsx";
 
 // Refusals whose server message is the product copy written for the person
 // linking (contracts LINK_MESSAGES); the page shows those words unchanged.
@@ -44,7 +45,9 @@ function linkRefusal(
 /** The caller's accounts on other services; v1 links Slack only. */
 export function LinkedAccountsScreen() {
   const { t } = useI18n();
-  const { client, queryClient, leave } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const { leave } = useAppServices();
   const role = useRole();
   const accounts = useQuery(linkedAccountsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -192,7 +195,8 @@ export function slackLinkSearch(
  */
 export function SlackLinkCallbackScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const role = useRole();
   const { code, state } = useSearch({

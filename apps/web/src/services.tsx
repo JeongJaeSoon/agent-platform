@@ -1,6 +1,6 @@
 import type { RetryTiming } from "@agent-platform/client";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext } from "react";
+import { rootRouteId, useRouteContext } from "@tanstack/react-router";
 import {
   type ApiClient,
   type ApiClientOptions,
@@ -8,6 +8,11 @@ import {
   isApiError,
 } from "./api/client.ts";
 
+/**
+ * What the app builds once at start. The client and the cache reach screens
+ * through AgentPlatformProvider and QueryClientProvider; the rest is the
+ * app's own and rides on the router's context.
+ */
 export interface Services {
   readonly client: ApiClient;
   readonly queryClient: QueryClient;
@@ -60,20 +65,6 @@ export function createServices(
   return services;
 }
 
-const ServicesContext = createContext<Services | null>(null);
-
-export function ServicesProvider({
-  services,
-  children,
-}: {
-  readonly services: Services;
-  readonly children: ReactNode;
-}) {
-  return <ServicesContext value={services}>{children}</ServicesContext>;
-}
-
-export function useServices(): Services {
-  const services = useContext(ServicesContext);
-  if (!services) throw new Error("useServices outside ServicesProvider");
-  return services;
+export function useAppServices(): Services {
+  return useRouteContext({ from: rootRouteId });
 }
