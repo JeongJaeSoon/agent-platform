@@ -32,12 +32,12 @@ const integrationTest = testDatabaseUrl() ? test : test.skip;
 // Listed exactly, so a migration that loses, disables or rewrites one fails
 // as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
-  // 0134: agent versions, releases and their audit rows are insert-only; a
-  // release takes its first approval and nothing else.
+  // 0137, 0139: agent versions, releases and their audit rows are
+  // insert-only; a release takes its first approval and nothing else.
   "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 c6e3025aa20a67be3dc0885bb3301b1b",
   "function agents_reject_mutation() trigger language plpgsql volatility=v parallel=u body md5 f434237a3126c21bab918af2558fbc88",
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
-  // 0140: an agent identity's credential name is never an agent's.
+  // 0143: an agent identity's credential name is never an agent's.
   "function credential_bindings_exclusive_target() trigger language plpgsql volatility=v parallel=u body md5 55270e3870adbfee5a5edd2ab0daf6a8",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",

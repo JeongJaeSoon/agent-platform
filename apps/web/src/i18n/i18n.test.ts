@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import {
+  flowEn,
+  flowKo,
+  formsEn,
+  formsKo,
+  sessionsEn,
+  sessionsKo,
+} from "@agent-platform/react";
+import { agentsEn, agentsKo } from "./agents.ts";
+import { apiKeysEn, apiKeysKo } from "./api-keys.ts";
+import { authEn, authKo } from "./auth.ts";
+import { commonEn, commonKo } from "./common.ts";
 import { en } from "./en.ts";
+import { errorsEn, errorsKo } from "./errors.ts";
+import { homeEn, homeKo } from "./home.ts";
 import {
   errorKey,
   initialLocale,
@@ -7,10 +21,60 @@ import {
   translate,
 } from "./i18n.tsx";
 import { ko } from "./ko.ts";
+import { linkedEn, linkedKo } from "./linked.ts";
+import { membersEn, membersKo } from "./members.ts";
+import { modelsEn, modelsKo } from "./models.ts";
+import { shellEn, shellKo } from "./shell.ts";
+import { teamsEn, teamsKo } from "./teams.ts";
+import { workspaceEn, workspaceKo } from "./workspace.ts";
 
 describe("i18n", () => {
   test("every locale has exactly the Korean keys", () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(ko).sort());
+  });
+
+  // A key in two area files would silently win by spread order.
+  test("no key is defined in two area files", () => {
+    const count = (areas: object[]) =>
+      areas.reduce((sum, area) => sum + Object.keys(area).length, 0);
+    expect(
+      count([
+        commonKo,
+        shellKo,
+        authKo,
+        homeKo,
+        membersKo,
+        teamsKo,
+        agentsKo,
+        modelsKo,
+        sessionsKo,
+        flowKo,
+        linkedKo,
+        apiKeysKo,
+        workspaceKo,
+        errorsKo,
+        formsKo,
+      ]),
+    ).toBe(Object.keys(ko).length);
+    expect(
+      count([
+        commonEn,
+        shellEn,
+        authEn,
+        homeEn,
+        membersEn,
+        teamsEn,
+        agentsEn,
+        modelsEn,
+        sessionsEn,
+        flowEn,
+        linkedEn,
+        apiKeysEn,
+        workspaceEn,
+        errorsEn,
+        formsEn,
+      ]),
+    ).toBe(Object.keys(en).length);
   });
 
   test("keys follow <area>.<element>", () => {

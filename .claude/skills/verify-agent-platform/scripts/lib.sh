@@ -7,7 +7,7 @@
 # project, so refuse to define them at all.
 unset VERIFY_RUN VERIFY_REPO VERIFY_API VERIFY_BUILT_FROM VERIFY_BOOTSTRAP_TOKEN API EVIDENCE \
   COMPOSE_PROJECT_NAME COMPOSE_FILE EXECUTION_INSTALLATION_ID API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
-unset -f ap_compose ap_key ap_revoke ap_get ap_post ap_web 2>/dev/null
+unset -f ap_compose ap_key ap_revoke ap_get ap_post ap_web ap_as 2>/dev/null
 # bash names a sourced file in BASH_SOURCE, zsh in $0.
 . "$(dirname "${BASH_SOURCE[0]:-$0}")/run.sh" "${1:-}" || return 1
 _verify_run=$VERIFY_RUN_DIR
@@ -52,4 +52,18 @@ ap_web() {
     tr -d '\r' | while read -r c; do printf '%s' "$c" >"$VERIFY_RUN/cookie"; done
   rm -f "$headers"
   return "$curl_rc"
+}
+
+# Act as a web user web-user.mjs signed in: their cookie for ap_web, and
+# their key (if web-user.mjs issued one) as $KEY for ap_get/ap_post.
+ap_as() {
+  [ -s "$VERIFY_RUN/cookie.$1" ] || { echo "ap_as: no cookie for '$1'; web-user.mjs login or accept first" >&2; return 1; }
+  cp "$VERIFY_RUN/cookie.$1" "$VERIFY_RUN/cookie"
+  if [ -s "$VERIFY_RUN/keys/$1" ]; then
+    KEY=$(cat "$VERIFY_RUN/keys/$1")
+    echo "acting as $1 (cookie, key of ${#KEY} chars)" >&2
+  else
+    unset KEY
+    echo "acting as $1 (cookie, no key)" >&2
+  fi
 }

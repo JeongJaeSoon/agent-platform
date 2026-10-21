@@ -1,28 +1,55 @@
-import { useMutation } from "@tanstack/react-query";
+import { ApiError, isApiError, unwrap } from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
+import {
+  Button,
+  cn,
+  Field,
+  FieldLabel,
+  NativeSelect,
+  NativeSelectOption,
+} from "@agent-platform/ui";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
-  Link,
   Outlet,
   useNavigate,
+  useRouter,
+  useRouterState,
 } from "@tanstack/react-router";
-import { ApiError, isApiError, unwrap } from "../api/client.ts";
-import { useHasPermission, useMe } from "../auth/guard.tsx";
+import { type ReactNode, useId, useLayoutEffect, useState } from "react";
+import { useMe } from "../auth/guard.tsx";
+import {
+  AppSidebar,
+  type NavGroup,
+  navItemFor,
+  useNavGroups,
+} from "../components/app-sidebar.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { applyTheme, storedTheme } from "../components/theme.ts";
 import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 export function RootLayout() {
   const { t } = useI18n();
+  const authed = useRouterState({
+    select: (state) =>
+      state.matches.some((match) => match.routeId === "/authed"),
+  });
+  useLayoutEffect(() => applyTheme(storedTheme()), []);
   return (
-    <div className="web-root">
-      <a className="web-skip" href={`#${MAIN_CONTENT_ID}`}>
+    <div className="flex min-h-dvh flex-col">
+      <a
+        className="absolute top-2 left-2 z-50 -translate-y-[200%] rounded-sm bg-card px-3 py-2 focus:translate-y-0"
+        href={`#${MAIN_CONTENT_ID}`}
+      >
         {t("common.skipToContent")}
       </a>
       <Outlet />
-      <footer className="web-footer">
-        <LocaleSwitch />
-      </footer>
+      {authed ? null : (
+        <footer className="mt-auto flex justify-end p-4">
+          <LocaleSwitch />
+        </footer>
+      )}
     </div>
   );
 }
@@ -30,32 +57,35 @@ export function RootLayout() {
 function LocaleSwitch() {
   const { t, locale, setLocale } = useI18n();
   return (
-    <label className="web-locale">
-      <span>{t("common.language")}</span>
-      <select
-        className="ap-input"
+    <Field orientation="horizontal" className="w-auto gap-2">
+      <FieldLabel>{t("common.language")}</FieldLabel>
+      <NativeSelect
         value={locale}
         onChange={(event) => setLocale(event.target.value as Locale)}
       >
         {LOCALES.map((value) => (
-          <option key={value} value={value}>
+          <NativeSelectOption key={value} value={value}>
             {value === "ko" ? "한국어" : "English"}
-          </option>
+          </NativeSelectOption>
         ))}
-      </select>
-    </label>
+      </NativeSelect>
+    </Field>
   );
+}
+
+function usesReadingColumn(pathname: string) {
+  return pathname === "/agents/new" || pathname.startsWith("/settings/");
 }
 
 export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
-  const { client, queryClient } = useServices();
+  const groups = useNavGroups();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const managesTeams = useHasPermission("team.manage");
-  // Admins see the screen with the owner-only parts disabled and explained.
-  const workspaceManage = useHasPermission("workspace.manage");
-  const retentionManage = useHasPermission("audit_retention.manage");
+  const sidebarId = useId();
+  const [menuOpen, setMenuOpen] = useState(false);
   const logout = useMutation<unknown, ApiError>({
     // A 401 means the session is already gone, which is what was asked.
     meta: { public: true },
@@ -72,73 +102,115 @@ export function AuthedLayout() {
   });
 
   return (
-    <div className="web-shell">
-      <header className="web-shell__bar">
-        <span className="web-shell__brand">{t("common.appName")}</span>
-        {me?.workspace ? (
-          <span className="web-shell__workspace">{me.workspace.name}</span>
-        ) : null}
-        <nav className="web-shell__nav" aria-label={t("nav.label")}>
-          <Link to="/" activeOptions={{ exact: true }}>
-            {t("nav.home")}
-          </Link>
-          <Link to="/members">{t("nav.members")}</Link>
-          {managesTeams ? <Link to="/teams">{t("nav.teams")}</Link> : null}
-          <Link to="/agents">{t("nav.agents")}</Link>
-          <Link to="/sessions">{t("nav.sessions")}</Link>
-          <Link to="/settings/linked-accounts">{t("nav.linkedAccounts")}</Link>
-          <Link to="/settings/api-keys">{t("nav.apiKeys")}</Link>
-          {workspaceManage || retentionManage ? (
-            <Link to="/settings/workspace">{t("nav.workspace")}</Link>
-          ) : null}
-        </nav>
-        <span className="web-shell__spacer" />
-        {me?.user ? (
-          <span className="web-shell__user">{me.user.display_name}</span>
-        ) : null}
-        <button
+    // Header, sidebar, main in reading order: below md the open menu unfolds
+    // under its button; from md on the grid puts the sidebar on the left.
+    <div className="flex flex-1 flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
+      <header className="flex min-h-14 items-center gap-3 border-b bg-card px-4 md:col-start-2 md:row-start-1 md:px-8">
+        <Button
           type="button"
-          className="ap-button ap-button--quiet"
-          disabled={logout.isPending}
-          onClick={() => logout.mutate()}
+          variant="outline"
+          size="sm"
+          className="md:hidden"
+          aria-expanded={menuOpen}
+          aria-controls={sidebarId}
+          onClick={() => setMenuOpen((open) => !open)}
         >
-          {logout.isPending ? t("common.loggingOut") : t("common.logout")}
-        </button>
+          {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
+        </Button>
+        <PageTrail
+          groups={groups}
+          fallback={me?.workspace?.name ?? t("common.appName")}
+        />
       </header>
-      <Main className="web-shell__main">
+      <AppSidebar
+        id={sidebarId}
+        openBelowMd={menuOpen}
+        groups={groups}
+        onNavigate={() => {
+          if (!menuOpen) return;
+          setMenuOpen(false);
+          // The followed link hides with the menu; focus lands on the page.
+          document.getElementById(MAIN_CONTENT_ID)?.focus();
+        }}
+        logout={{ pending: logout.isPending, run: () => logout.mutate() }}
+      />
+      <ShellMain>
         {logout.error ? (
-          <p className="web-form__error" role="alert">
+          <p className="m-0 text-destructive" role="alert">
             {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
           </p>
         ) : null}
         <Outlet />
-      </Main>
+      </ShellMain>
     </div>
   );
 }
 
-export function AuthedError({ error, reset }: ErrorComponentProps) {
+function usePathname() {
+  return useRouterState({ select: (state) => state.location.pathname });
+}
+
+function PageTrail({
+  groups,
+  fallback,
+}: {
+  readonly groups: readonly NavGroup[];
+  readonly fallback: string;
+}) {
   const { t } = useI18n();
+  const here = navItemFor(groups, usePathname());
+  return (
+    <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-sm">
+      {here ? (
+        <>
+          <span className="text-muted-foreground">{t(here.group.label)}</span>
+          <span aria-hidden="true" className="text-muted-foreground">
+            /
+          </span>
+          <span className="font-medium">{t(here.item.label)}</span>
+        </>
+      ) : (
+        <span className="font-medium">{fallback}</span>
+      )}
+    </p>
+  );
+}
+
+function ShellMain({ children }: { readonly children: ReactNode }) {
+  return (
+    <Main
+      className={cn(
+        "web-shell__main mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-6 md:col-start-2 md:row-start-2 md:px-8 md:py-8",
+        usesReadingColumn(usePathname())
+          ? "max-w-[var(--ap-layout-reading-width)]"
+          : "max-w-6xl",
+      )}
+    >
+      {children}
+    </Main>
+  );
+}
+
+export function AuthedError({ error }: ErrorComponentProps) {
+  const router = useRouter();
   if (isApiError(error, "FORBIDDEN")) {
     return (
-      <Main className="web-auth">
-        <StatusScreen kind="forbidden" detail={error.message} />
+      <Main className="mx-auto w-full max-w-md px-4 py-10">
+        <StatusScreen kind="forbidden" />
       </Main>
     );
   }
   return (
-    <Main className="web-auth">
-      <section className="web-status" data-status="error" role="alert">
-        <h2 className="web-status__title">{t("status.error.title")}</h2>
-        <p className="web-status__body">
-          {t(
-            error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN",
-          )}
-        </p>
-        <button type="button" className="ap-button" onClick={reset}>
-          {t("common.retry")}
-        </button>
-      </section>
+    <Main className="mx-auto w-full max-w-md px-4 py-10">
+      <StatusScreen
+        kind="error"
+        detail={
+          error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN"
+        }
+        // reset() only clears the boundary; the failure is in beforeLoad,
+        // which runs again only when the router reloads.
+        onRetry={() => void router.invalidate()}
+      />
     </Main>
   );
 }

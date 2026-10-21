@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -125,6 +127,7 @@ function harness(
       | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     instructionsCommit?: () => string | null;
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+    claudeConfigDir?: string;
   } = {},
 ) {
   const gateway = options.gateway ?? new FakeWorkerGateway();
@@ -156,6 +159,9 @@ function harness(
       ? {}
       : { instructionsCommit: options.instructionsCommit }),
     ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+    ...(options.claudeConfigDir === undefined
+      ? {}
+      : { claudeConfigDir: options.claudeConfigDir }),
   });
   return { errors, gateway, infos, logger, objects, port, warnings };
 }
@@ -228,6 +234,24 @@ describe("SessionCheckpoints", () => {
         },
       })),
     );
+  });
+
+  test("keeps a fresh engine's transcripts on the workspace volume, not in HOME", async () => {
+    const config = join(scratch, "home", ".claude");
+    const h = harness({ claudeConfigDir: config });
+
+    await opened(h);
+
+    const projects = join(config, "projects");
+    expect((await lstat(projects)).isSymbolicLink()).toBe(true);
+    expect(await realpath(projects)).toStartWith(
+      join(await realpath(workspace), ".git", "agent-platform-transcripts-"),
+    );
+    // A directory of its own is left where it is.
+    const own = join(scratch, "own-home", ".claude");
+    await mkdir(join(own, "projects"), { recursive: true });
+    await opened(harness({ claudeConfigDir: own }));
+    expect((await lstat(join(own, "projects"))).isDirectory()).toBe(true);
   });
 
   test("publishes the workspace, the pinned transcript and a manifest under the key it was handed", async () => {
@@ -1337,6 +1361,7 @@ function restoring(
       | RuntimeFingerprint
       | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+    claudeConfigDir?: string;
   } = {},
 ) {
   const gateway = new PlanningGateway(
@@ -1350,6 +1375,9 @@ function restoring(
       ? {}
       : { fingerprint: options.fingerprint }),
     ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+    ...(options.claudeConfigDir === undefined
+      ? {}
+      : { claudeConfigDir: options.claudeConfigDir }),
   });
 }
 
@@ -1439,6 +1467,35 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     // CLAUDE.md as fetched, not as the engine left it on disk.
     expect(plan.committedClaudeMd?.()).toBe("rules as fetched\n");
     expect(plan.sessionStore).toBeDefined();
+  });
+
+  test("writes the resumed transcript where the engine reads it, on the workspace volume", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const config = join(scratch, "home", ".claude");
+    const h = restoring(from, { claudeConfigDir: config });
+
+    const plan = await h.port.restorePlan(
+      await claimOf(h.gateway),
+      neverStopped(),
+    );
+
+    if (plan.mode !== "resume") throw new Error("expected a resume plan");
+    const projects = join(config, "projects");
+    expect((await lstat(projects)).isSymbolicLink()).toBe(true);
+    expect(await realpath(projects)).toStartWith(
+      join(await realpath(workspace), ".git", "agent-platform-transcripts-"),
+    );
+    const file = join(projects, root.projectKey, `${resume}.jsonl`);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      type: "user",
+      uuid: "u1",
+      message: "hi",
+    });
+    // The engine reads the file; the store hands it nothing and names the
+    // uuids instead.
+    expect(await plan.sessionStore?.load(root)).toBeNull();
+    expect([...(plan.sessionStore?.resumedEntryIds?.() ?? [])]).toEqual(["u1"]);
   });
 
   test("restores the earlier revision a fallback plan names in place of the claim's damaged pointer", async () => {

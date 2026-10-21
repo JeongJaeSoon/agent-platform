@@ -2,13 +2,24 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentCard,
   AGENT_CARD_LANGUAGE_VALUES as CONTRACT_LANGUAGES,
+  type ProfileSummary,
 } from "@agent-platform/contracts";
 import {
   AGENT_CARD_LANGUAGE_VALUES,
   cardFromDraft,
   draftFromCard,
   EMPTY_DRAFT,
+  modelOptions,
 } from "./agent-card-form.tsx";
+
+const profile = (id: string, model: string): ProfileSummary => ({
+  id,
+  model,
+  tools: [],
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "1",
+  billing: "none",
+});
 
 const CARD: AgentCard = {
   role: "결제 문의 담당",
@@ -63,6 +74,34 @@ describe("카드 폼 변환", () => {
     expect<unknown>(cardFromDraft(draftFromCard(card), card)).toEqual(card);
   });
 
+  test("모델 선택지는 카탈로그의 모델을 한 번씩, 그 모델을 쓰는 profile과 함께 둔다", () => {
+    const profiles = [
+      profile("coding-fast", "claude-haiku-5"),
+      profile("coding-local", "claude-sonnet-5"),
+      profile("coding-review", "claude-sonnet-5"),
+    ];
+    expect(modelOptions(profiles, "")).toEqual([
+      { model: "claude-haiku-5", profileIds: ["coding-fast"] },
+      {
+        model: "claude-sonnet-5",
+        profileIds: ["coding-local", "coding-review"],
+      },
+    ]);
+    expect(modelOptions(profiles, "claude-sonnet-5")).toHaveLength(2);
+  });
+
+  test("카탈로그에 없는 지금 모델은 profile 없는 선택지로 남는다", () => {
+    expect(
+      modelOptions([profile("coding-local", "claude-sonnet-5")], "gpt-x"),
+    ).toEqual([
+      { model: "claude-sonnet-5", profileIds: ["coding-local"] },
+      { model: "gpt-x", profileIds: [] },
+    ]);
+    expect(modelOptions([], "gpt-x")).toEqual([
+      { model: "gpt-x", profileIds: [] },
+    ]);
+  });
+
   test("편집기가 없는 rules는 원래 카드의 것을 그대로 싣는다", () => {
     const rules: AgentCard["rules"] = [
       { id: "r1", text: "환불은 사람에게 넘긴다.", source: "user" },
@@ -70,5 +109,93 @@ describe("카드 폼 변환", () => {
     const base = { ...CARD, rules };
     expect(cardFromDraft(draftFromCard(base), base).rules).toBe(rules);
     expect(cardFromDraft(EMPTY_DRAFT).rules).toEqual([]);
+  });
+
+  test("편집기에 칸이 없는 필드는 칸 하나를 바꿔 저장해도 남는다", () => {
+    const base: AgentCard = {
+      ...CARD,
+      capabilities: {
+        ...CARD.capabilities,
+        tool_policy: {
+          default: { mcp: "deny" },
+          per_tool: { Read: "allow", Bash: "ask" },
+        },
+        credential_refs: ["github/app", "slack:bot"],
+      },
+      rules: [{ id: "r1", text: "환불은 사람에게 넘긴다.", source: "user" }],
+    };
+    const draft = { ...draftFromCard(base), role: "환불 문의 담당" };
+    expect<unknown>(cardFromDraft(draft, base)).toEqual({
+      ...base,
+      role: "환불 문의 담당",
+    });
+  });
+
+  test("편집기의 칸은 모두 바꾼 값으로 저장된다", () => {
+    const tool_policy = { per_tool: { Write: "ask" as const } };
+    const rules: AgentCard["rules"] = [
+      { id: "r1", text: "환불은 사람에게 넘긴다.", source: "user" },
+    ];
+    const base: AgentCard = {
+      ...CARD,
+      capabilities: {
+        tools: null,
+        mcp: null,
+        forbidden: ["Bash"],
+        tool_policy,
+        credential_refs: ["github/app"],
+      },
+      rules,
+    };
+    const card = cardFromDraft(
+      {
+        role: "새 역할",
+        instructions: "새 지시",
+        tone: "짧게",
+        language: "en",
+        model: "claude-haiku-5",
+        toolsMode: "list",
+        tools: "Write",
+        forbidden: "Read",
+      },
+      base,
+    );
+    expect<unknown>(card).toEqual({
+      role: "새 역할",
+      instructions: "새 지시",
+      tone: "짧게",
+      language: "en",
+      model: "claude-haiku-5",
+      capabilities: {
+        tools: ["Write"],
+        mcp: null,
+        forbidden: ["Read"],
+        tool_policy,
+        credential_refs: ["github/app"],
+      },
+      rules,
+    });
+  });
+
+  test("편집기가 비운 칸은 원래 카드의 값을 되살리지 않는다", () => {
+    const card = cardFromDraft(
+      { ...draftFromCard(CARD), tone: " ", toolsMode: "all" },
+      CARD,
+    );
+    expect("tone" in card).toBe(false);
+    expect(card.capabilities.tools).toBeNull();
+  });
+
+  test("새 카드(base 없음)는 편집기 칸과 기본값만 싣는다", () => {
+    expect<unknown>(
+      cardFromDraft({ ...EMPTY_DRAFT, role: "역할", model: "m" }),
+    ).toEqual({
+      role: "역할",
+      instructions: "",
+      language: "ko",
+      model: "m",
+      capabilities: { tools: null, mcp: null, forbidden: [] },
+      rules: [],
+    });
   });
 });

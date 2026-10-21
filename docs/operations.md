@@ -1,6 +1,6 @@
 # 운영 참고 — 실행 기반과 설정
 
-로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
+로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 세션 데이터가 이벤트 표와 OTel 트레이스로 흐르는 길은 [observability.md](observability.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 
@@ -49,7 +49,7 @@ EXECUTION_WORKSPACE_QUOTA=off \
 
 worker 컨테이너는 scheduler가 execution마다 만드는 **전용 네트워크** `ap-net-<installationId>-<executionId>-g<generation>` 하나에만 붙는다(94S-216). 이 네트워크는 bridge driver, `internal: true`, `EnableIPv6: false`, `com.docker.network.bridge.gateway_mode_ipv4=isolated`로 만들어진다. Docker가 이 네트워크에서 바깥으로 나가는 경로를 만들지 않고 host 쪽 bridge 주소(IPAM gateway)도 두지 않는다. 그래서 worker는 host·host에서 도는 프로세스·LAN·instance metadata(`169.254.169.254`)·다른 compose 서비스·다른 worker에 직접 닿지 못한다. 이 네트워크의 구성원은 worker 자신과 egress proxy 둘뿐이다. scheduler는 `agent-platform.egress-proxy=<installationId>` label이 붙은 **실행 중인 컨테이너 정확히 하나**를 그 설치의 proxy로 보고, 네트워크마다 `EXECUTION_EGRESS_PROXY_URL`의 host 이름을 alias로 붙여 connect한다. worker는 `HTTP_PROXY`/`HTTPS_PROXY`로 그 이름을 가리킨다. proxy 주소가 네트워크마다 다르므로 `EXECUTION_EGRESS_PROXY_URL`의 host는 이름이어야 하고, IP literal과 `localhost`는 거부한다. compose의 `egress-proxy` 서비스는 이 label을 달고 있다. `host.docker.internal:host-gateway` 매핑은 worker에서 제거했다 — gateway도 proxy를 거친다.
 
-차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway)다. compose 기본값은 `EGRESS_ALLOWLIST`가 비어 있고 `EGRESS_PRIVATE_ALLOWLIST`가 `api:3000,host.docker.internal:3000`이다. provider·저장소·object store는 두 목록 어디에도 두지 않는다(94S-383). forward proxy로 닿으면 각자의 credential route를 우회하기 때문이다. provider에는 worker가 가진 임의 key로 비용 계측 밖에서 닿고, Gitea·GitHub의 public 저장소는 token 없이 읽히며, LocalStack은 서명을 검사하지 않으므로 다른 세션의 prefix까지 닿는다. 이들은 credential route만 닿는 목록 `EGRESS_CREDENTIAL_ALLOWLIST`(compose 기본값 `api.anthropic.com:443`, GitHub 저장소를 쓰면 `github.com:443`을 더한다)·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(compose 기본값 `gitea:3000,fake-messages:4010,localstack:4566`)에 둔다(94S-251·94S-252). credential 목록의 목적지가 forward 목록에도 있으면 proxy는 기동을 거부한다. 그래서 수정 전 예시 값을 복사해 둔 설치는 업그레이드 뒤 자기 환경 파일의 forward 목록에서 그 값들을 지워야 proxy가 뜬다. 비교는 적힌 `host:port` 그대로이므로, 같은 upstream을 다른 이름이나 IP로 적으면 잡지 못한다. `.env.example`도 같은 값이다(`tests/images.test.ts`가 둘을 묶는다). 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다.
+차단 정책은 proxy의 두 목록으로 버전 관리한다. `EGRESS_ALLOWLIST`는 공인 목적지(`host:port`)이고 해석된 주소가 전부 public unicast여야 통과한다. `EGRESS_PRIVATE_ALLOWLIST`는 사설 대역에 있다고 알고 허용하는 목적지(gateway)다. compose 기본값은 `EGRESS_ALLOWLIST`가 비어 있고 `EGRESS_PRIVATE_ALLOWLIST`가 `api:3000,host.docker.internal:3000`이다. provider·저장소·object store는 두 목록 어디에도 두지 않는다(94S-383). forward proxy로 닿으면 각자의 credential route를 우회하기 때문이다. provider에는 worker가 가진 임의 key로 비용 계측 밖에서 닿고, Gitea·GitHub의 public 저장소는 token 없이 읽히며, LocalStack은 서명을 검사하지 않으므로 다른 세션의 prefix까지 닿는다. 이들은 credential route만 닿는 목록 `EGRESS_CREDENTIAL_ALLOWLIST`(compose 기본값 `api.anthropic.com:443`, GitHub 저장소를 쓰면 `github.com:443`을 더한다)·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(compose 기본값 `gitea:3000,fake-messages:4010,localstack:4566`)에 둔다(94S-251·94S-252). credential 목록의 목적지가 forward 목록에도 있으면 proxy는 기동을 거부한다. 그래서 수정 전 예시 값을 복사해 둔 설치는 업그레이드 뒤 자기 환경 파일의 forward 목록에서 그 값들을 지워야 proxy가 뜬다. 비교는 적힌 `host:port` 그대로이므로, 같은 upstream을 다른 이름이나 IP로 적으면 잡지 못한다. `.env.example`도 같은 값이다(`tests/images.test.ts`가 둘을 묶는다). 두 목록 모두 link-local(`169.254.0.0/16`·`fe80::/10`)·multicast·reserved로 해석되면 거부하므로 allowlist에 오른 이름이 metadata 주소로 해석되는 rebinding도 막힌다. 목록에 없는 host·port는 CONNECT·absolute-form 모두 `403`이고, absolute-form이 아닌 요청은 `/healthz` 외에는 `400`이다. 목록에 있는 이름이 조회되지 않으면(재시작 중인 `api` 컨테이너가 Docker DNS에서 잠시 빠질 때) 정책 거부가 아니라 `502`이고, 조회가 시간 안에 끝나지 않으면 `504`다. worker는 둘 다 재시도한다(94S-671).
 
 CONNECT 터널은 TLS만 나른다(94S-219). proxy는 `200 Connection Established`를 쓴 뒤 클라이언트의 첫 바이트를 upstream에 흘리기 전에 TLS ClientHello로 읽어, DNS 이름 authority면 `server_name`이 그 authority와(대소문자만 무시하고) 같아야 하고, allowlist에 명시된 IP literal authority면 `server_name`이 없어야 한다. `encrypted_client_hello`(0xfe0d)는 GREASE 여부와 관계없이 거부한다 — proxy는 둘을 구별할 수 없고, 진짜 ECH는 검사 대상인 이름을 숨긴다. handshake가 아닌 첫 레코드, host_name이 둘인 hello, 최초 16KiB(record header 포함) 또는 15초(`handshakeTimeoutMs`) 안에 완성되지 않는 hello는 전부 연결을 끊는다. 거부는 200 뒤에 일어나므로 클라이언트에는 handshake 도중 연결 종료로 보인다.
 
@@ -596,7 +596,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 
 #### Google 로그인 (94S-575)
 
-로그인 수단은 `login_methods` 테이블에 사용자별로 둔다. 비밀번호는 `kind=password` 행 하나이고(bootstrap과 migration 0134가 만든다), Google 계정은 `kind=google` 행의 (issuer, subject)로 찾는다. 이메일로는 찾지 않는다. Google로만 들어온 사용자는 `users.password_hash`가 NULL이고, 비밀번호 로그인은 틀린 비밀번호와 같은 `401`, owner의 재설정 링크 발급은 `404`다.
+로그인 수단은 `login_methods` 테이블에 사용자별로 둔다. 비밀번호는 `kind=password` 행 하나이고(bootstrap과 migration 0138이 만든다), Google 계정은 `kind=google` 행의 (issuer, subject)로 찾는다. 이메일로는 찾지 않는다. Google로만 들어온 사용자는 `users.password_hash`가 NULL이고, 비밀번호 로그인은 틀린 비밀번호와 같은 `401`, owner의 재설정 링크 발급은 `404`다.
 
 설정은 env 하나로 전역에 둔다. 셋 다 비어 있으면 Google 로그인은 꺼지고 두 route가 `404`다. 일부만 있거나 값이 틀리면 API가 기동하지 않고 `/readyz`도 `503`이다.
 
@@ -641,7 +641,7 @@ curl -s -b jar https://<host>/v1/auth/me
 
 `keys create <owner_id>`로 만든 기존 key는 모두 service key다. 응답과 partition은 이전과 같다. `keys create --workspace <workspace_id> --scopes …`로 만든 key는 그 workspace를 partition으로 쓰므로 웹에서 만든 세션을 API에서도 같은 목록으로 본다. `--personal <user_id>`를 더하면 그 멤버의 개인 key가 된다. 이 key는 key scope와 만든 사람의 지금 역할이 허용하는 scope의 교집합만 갖는다(`/v1/auth/me`의 `scopes`도 그 교집합을 보여 준다). 만든 사람의 계정이나 그 workspace의 membership이 비활성이 되면 다음 요청부터 `401`을 받는다. service key는 사람과 무관하게 계속 동작한다. 이 판정은 요청마다 DB를 다시 읽어서 한다. API key는 scope와 관계없이 관리 action(인수 목록·세션 인수·key 발급 등)을 할 수 없다(`403`). 관리 action은 사람의 cookie 세션으로만 한다. 누가 무엇을 하는지는 아래 역할 표를 따른다.
 
-누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0133 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
+누가 했는지는 새로 쓰는 행에 남는다. cookie로 만든 세션은 `sessions.workspace_id`·`created_by_user_id`를, key로 만든 세션은 `created_by_api_key_id`를 기록한다(개인 key는 만든 사람도 함께 기록한다). turn은 `actor_id`를, receipt는 `actor`를 남긴다. service key는 key만 기록하고 사람은 기록하지 않는다. 0136 migration은 사람을 추측하지 않는다. `owner_id`가 workspace id인 세션만 `workspace_id`를 채우고(채운 수는 migration NOTICE로 나온다), 나머지 actor 컬럼은 기존 행에서 비워 둔다.
 
 멤버를 내보내는 것은 owner의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, API key는 `403`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기하고, 그 workspace에 연결된 Slack 계정을 `revoked`로 바꾼다(열린 SSE는 keepalive 주기 안에 끊긴다). service key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 세션이 인수하는 owner에게 보이지 않는 공유 범위면 `{"justification"}`이 필요하다(아래 세션 공유 범위 절).
 
@@ -703,7 +703,7 @@ curl -s -b jar -X DELETE "http://127.0.0.1:3000/v1/linked-accounts/$LINKED_ACCOU
 
 workspace 역할은 owner·admin·member 셋이다. admin은 owner와 같은 관리 권한을 갖되 세 가지가 다르다: 감사 보존 기간을 바꾸지 못하고, 보관한 에이전트를 되살리지 못하고, 세션 복구 결정(`sessions:recover`)을 하지 못한다. admin은 owner를 초대하거나 owner의 역할을 바꾸거나 누구를 owner로 올리지 못한다(`403 OWNER_PROTECTED`).
 
-에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0139 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자 지정·해제와 팀을 관리자로 두는 방법은 아래 "팀과 에이전트 관리자 지정"에 있다.
+에이전트 관리자는 `agent_admins`의 행이다. 에이전트를 만든 사람이 그 에이전트의 관리자가 된다. 0142 migration은 기존 에이전트의 `created_by`가 아직 그 workspace의 멤버이면 그 사람을 관리자로 채운다. 에이전트 관리자는 member여도 그 에이전트의 정의 수정·release·활성화·보관, 자격 참조 연결, 관리자 지정, Slack 설정, 그 에이전트 전용 서비스 key 발급을 할 수 있다. 다른 에이전트와 workspace 전체 목록은 못 한다. 관리자 지정·해제와 팀을 관리자로 두는 방법은 아래 "팀과 에이전트 관리자 지정"에 있다.
 
 key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
@@ -1029,10 +1029,12 @@ worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 �
 
 scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기본값을 쓰고, 형식이 틀리면 기동하지 않는다. user, HOME·workspace 경로, tmpfs 크기, credential 포트, stop timeout은 `agent-platform.isolation` 지문에 들어간다(위 "reconciler·scheduler와 worker 격리"). 그래서 바꾸면 실행 중인 worker가 교체된다. CPU·메모리·PID 한도는 다음 launch부터 적용된다.
 
+`WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 실측, 노드당 세션 수, 바꾸는 방법은 [capacity.md](capacity.md)에 있다.
+
 | 변수 | 기본값 | 의미 |
 |---|---|---|
 | `WORKER_CPUS` | 1 | worker 하나의 CPU 몫. 0.01 이상 |
-| `WORKER_MEMORY_MB` | 2048 | worker 하나의 메모리 한도(MiB) |
+| `WORKER_MEMORY_MB` | 4608 | worker 하나의 메모리 한도(MiB). 압축 없는 512MiB transcript를 resume한 엔진이 한도의 절반 아래에 들도록 잡은 값이다(94S-667) |
 | `WORKER_PIDS_LIMIT` | 512 | worker 하나의 PID 한도. compose는 넘기지 않는다 |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | worker의 숫자 `uid[:gid]`. uid나 gid가 0이면 기동을 거부한다. worker 이미지의 `/workspace` 소유자와 같아야 한다 |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs로 마운트하는 HOME. 절대 경로 |

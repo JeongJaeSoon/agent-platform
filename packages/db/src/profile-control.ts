@@ -110,7 +110,7 @@ export function changeProfileAtomic(
       session.profileFingerprint === profile.fingerprint;
     if (!unchanged) {
       // Rows an older build wrote during a rollout name no profile, and rows
-      // 0144 copied from a session older than its fingerprint name no
+      // 0147 copied from a session older than its fingerprint name no
       // fingerprint; they ran the profile being replaced, and say so before
       // it stops being the session's.
       const was = {

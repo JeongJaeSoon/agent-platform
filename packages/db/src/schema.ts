@@ -1583,7 +1583,7 @@ export const AGENT_ACTIVATION_EVENT_KINDS = [
 export const CREDENTIAL_BINDING_TARGETS = ["agent", "agent_identity"] as const;
 export const CREDENTIAL_REF_PATTERN = "^[a-z0-9][a-z0-9._:/-]{0,127}$";
 
-// Versions, releases and activation events are insert-only (migration 0134
+// Versions, releases and activation events are insert-only (migration 0139
 // triggers); a release's approval is set once, by its first activation.
 export const agents = pgTable(
   "agents",

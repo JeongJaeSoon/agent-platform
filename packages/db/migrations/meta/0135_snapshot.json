@@ -1,6 +1,6 @@
 {
-  "id": "b96f282c-5b60-400a-93ef-cf368add38a5",
-  "prevId": "f6c3a642-4048-410e-88dc-01371215c8b4",
+  "id": "123c2ebb-cf51-415d-a839-a6977ae1bf46",
+  "prevId": "216ed472-6665-416d-8523-0488a96510df",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -50,25 +50,6 @@
           "type": "text[]",
           "primaryKey": false,
           "notNull": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'service'"
-        },
-        "created_by_user_id": {
-          "name": "created_by_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -87,22 +68,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "api_keys_personal_creator_idx": {
-          "name": "api_keys_personal_creator_idx",
-          "columns": [
-            {
-              "expression": "created_by_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"api_keys\".\"kind\" = 'personal'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -111,15 +76,6 @@
           "tableFrom": "api_keys",
           "tableTo": "workspaces",
           "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "api_keys_created_by_user_id_users_id_fk": {
-          "name": "api_keys_created_by_user_id_users_id_fk",
-          "tableFrom": "api_keys",
-          "tableTo": "users",
-          "columnsFrom": ["created_by_user_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -135,14 +91,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "api_keys_kind_check": {
-          "name": "api_keys_kind_check",
-          "value": "\"api_keys\".\"kind\" IN ('personal', 'service')"
-        },
-        "api_keys_personal_check": {
-          "name": "api_keys_personal_check",
-          "value": "\"api_keys\".\"kind\" <> 'personal' OR (\"api_keys\".\"created_by_user_id\" IS NOT NULL AND \"api_keys\".\"workspace_id\" IS NOT NULL)"
-        },
         "api_keys_scopes_check": {
           "name": "api_keys_scopes_check",
           "value": "\"api_keys\".\"scopes\" IS NULL OR (coalesce(array_ndims(\"api_keys\".\"scopes\"), 1) = 1 AND \"api_keys\".\"scopes\" <@ ARRAY['sessions:read','sessions:write','sessions:approve','sessions:control','sessions:recover']::text[])"
@@ -288,180 +236,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.authz_decisions": {
-      "name": "authz_decisions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "at": {
-          "name": "at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "principal_kind": {
-          "name": "principal_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "principal_id": {
-          "name": "principal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agent_release_id": {
-          "name": "agent_release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "linked_account_id": {
-          "name": "linked_account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "linked_account_revision": {
-          "name": "linked_account_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "surface": {
-          "name": "surface",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "action": {
-          "name": "action",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "resource_kind": {
-          "name": "resource_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "resource_id": {
-          "name": "resource_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason_code": {
-          "name": "reason_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "justification": {
-          "name": "justification",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "policy_version": {
-          "name": "policy_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "request_id": {
-          "name": "request_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "authz_decisions_request_idx": {
-          "name": "authz_decisions_request_idx",
-          "columns": [
-            {
-              "expression": "request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "authz_decisions_at_idx": {
-          "name": "authz_decisions_at_idx",
-          "columns": [
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "authz_decisions_outcome_check": {
-          "name": "authz_decisions_outcome_check",
-          "value": "\"authz_decisions\".\"outcome\" IN ('allow', 'deny', 'redact', 'require_approval')"
-        },
-        "authz_decisions_principal_check": {
-          "name": "authz_decisions_principal_check",
-          "value": "(\"authz_decisions\".\"principal_kind\" IS NULL) = (\"authz_decisions\".\"principal_id\" IS NULL)"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.bootstrap_token_uses": {
@@ -1443,131 +1217,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.login_methods": {
-      "name": "login_methods",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issuer": {
-          "name": "issuer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "subject": {
-          "name": "subject",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "email_at_link": {
-          "name": "email_at_link",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "last_login_at": {
-          "name": "last_login_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "login_methods_external_uniq": {
-          "name": "login_methods_external_uniq",
-          "columns": [
-            {
-              "expression": "kind",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "issuer",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "subject",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "login_methods_password_user_uniq": {
-          "name": "login_methods_password_user_uniq",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"login_methods\".\"kind\" = 'password'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "login_methods_user_id_users_id_fk": {
-          "name": "login_methods_user_id_users_id_fk",
-          "tableFrom": "login_methods",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "login_methods_kind_check": {
-          "name": "login_methods_kind_check",
-          "value": "\"login_methods\".\"kind\" IN ('password', 'google')"
-        },
-        "login_methods_external_check": {
-          "name": "login_methods_external_check",
-          "value": "CASE WHEN \"login_methods\".\"kind\" = 'password' THEN \"login_methods\".\"issuer\" IS NULL AND \"login_methods\".\"subject\" IS NULL ELSE \"login_methods\".\"issuer\" IS NOT NULL AND \"login_methods\".\"subject\" IS NOT NULL END"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.memberships": {
       "name": "memberships",
       "schema": "",
@@ -2464,12 +2113,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "request_id": {
-          "name": "request_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -2484,21 +2127,6 @@
             },
             {
               "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "receipts_request_idx": {
-          "name": "receipts_request_idx",
-          "columns": [
-            {
-              "expression": "request_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2765,18 +2393,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "created_by_api_key_id": {
-          "name": "created_by_api_key_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "takeover_required_at": {
-          "name": "takeover_required_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "agent_release_id": {
           "name": "agent_release_id",
           "type": "text",
@@ -2882,44 +2498,6 @@
           "method": "btree",
           "with": {}
         },
-        "sessions_created_by_user_idx": {
-          "name": "sessions_created_by_user_idx",
-          "columns": [
-            {
-              "expression": "created_by_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"sessions\".\"created_by_user_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sessions_takeover_idx": {
-          "name": "sessions_takeover_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "takeover_required_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"sessions\".\"takeover_required_at\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "sessions_input_announced_idx": {
           "name": "sessions_input_announced_idx",
           "columns": [
@@ -2952,15 +2530,6 @@
           "tableFrom": "sessions",
           "tableTo": "users",
           "columnsFrom": ["created_by_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "sessions_created_by_api_key_id_api_keys_id_fk": {
-          "name": "sessions_created_by_api_key_id_api_keys_id_fk",
-          "tableFrom": "sessions",
-          "tableTo": "api_keys",
-          "columnsFrom": ["created_by_api_key_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -3330,7 +2899,7 @@
           "name": "password_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "display_name": {
           "name": "display_name",
