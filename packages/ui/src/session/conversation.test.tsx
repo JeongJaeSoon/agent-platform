@@ -123,6 +123,49 @@ describe("ApprovalCard", () => {
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
+  test("허용 버튼에 포커스를 둔 채 만료되면 포커스가 만료 안내로 간다", async () => {
+    const now = Date.now();
+    const { getByRole, getByText } = render(
+      <ApprovalCard
+        request={{
+          ...REQUEST,
+          expires_at: new Date(now + 50).toISOString(),
+        }}
+        messages={APPROVAL}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={now}
+      />,
+    );
+    getByRole("button", { name: "Allow" }).focus();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(getByText("expired")),
+    );
+  });
+
+  test("포커스가 카드 밖에 있으면 만료가 포커스를 가져가지 않는다", async () => {
+    const now = Date.now();
+    const { getByRole, getByText } = render(
+      <>
+        <button type="button">elsewhere</button>
+        <ApprovalCard
+          request={{
+            ...REQUEST,
+            expires_at: new Date(now + 50).toISOString(),
+          }}
+          messages={APPROVAL}
+          onAllow={() => {}}
+          onDeny={() => {}}
+          now={now}
+        />
+      </>,
+    );
+    const elsewhere = getByRole("button", { name: "elsewhere" });
+    elsewhere.focus();
+    await waitFor(() => expect(getByText("expired")).toBeTruthy());
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
   test("보내는 중에는 버튼이 막히고 거절 이유가 경고로 보인다", () => {
     const { getByRole } = render(
       <ApprovalCard
