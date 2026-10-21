@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   type ApiClient,
@@ -49,7 +50,7 @@ const receipt = () =>
 const serverError = () =>
   json(500, {
     error: {
-      code: "INTERNAL",
+      code: "INTERNAL_ERROR",
       message: "Internal error",
       retryable: true,
       request_id: "req-1",
@@ -91,7 +92,7 @@ function eventStream() {
     return `id: ev_${seq}\nevent: ${event}\ndata: ${JSON.stringify(envelope)}\n\n`;
   };
   /** Every frame in one write, as one read of a busy stream delivers them. */
-  const push = (...frames: [event: string, data: unknown][]) =>
+  const push = (...frames: (readonly [event: string, data: unknown])[]) =>
     controller?.enqueue(
       encoder.encode(frames.map(([e, d]) => frame(e, d)).join("")),
     );
@@ -234,12 +235,10 @@ describe("useSessionControl", () => {
     ];
     for (const command of commands)
       await act(() => result.current.mutateAsync(command));
-    expect(h.sent.map(({ method, path, body }) => [method, path, body])).toEqual(
-      commands.map(({ action, body }) => [
-        "POST",
-        `${BASE}/${action}`,
-        body,
-      ]),
+    expect(
+      h.sent.map(({ method, path, body }) => [method, path, body]),
+    ).toEqual(
+      commands.map(({ action, body }) => ["POST", `${BASE}/${action}`, body]),
     );
     expect(new Set(h.sent.map((s) => s.idempotencyKey)).size).toBe(4);
     expect(h.invalidated().slice(0, 3)).toEqual([
@@ -302,7 +301,7 @@ describe("a refused command", () => {
       );
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).status).toBe(500);
-      expect((error as ApiError).code).toBe("INTERNAL");
+      expect((error as ApiError).code).toBe("INTERNAL_ERROR");
       expect(h.sent).toHaveLength(1);
       expect(h.invalidated()).toEqual([]);
       const detail = h.queryClient
@@ -318,7 +317,10 @@ describe("useSessionEvents", () => {
   const status = ["status", { phase: "running" }] as const;
   const assistant = [
     "assistant",
-    { type: "assistant", message: { content: [{ type: "text", text: "on it" }] } },
+    {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "on it" }] },
+    },
   ] as const;
   const toolUse = [
     "tool_use",
@@ -389,9 +391,12 @@ describe("useSessionEvents", () => {
       await waitFor(() =>
         expect(h.invalidated().length).toBe(seen + keys.length),
       );
-      expect(h.invalidated().slice(seen).map(([key]) => key)).toEqual([
-        ...keys,
-      ]);
+      expect(
+        h
+          .invalidated()
+          .slice(seen)
+          .map(([key]) => key),
+      ).toEqual([...keys]);
       seen += keys.length;
     }
   });
