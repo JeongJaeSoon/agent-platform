@@ -1,6 +1,6 @@
 import { isApiError } from "@agent-platform/client";
-import { profilesQuery } from "@agent-platform/core";
 import type { SessionDetail as SessionDetailData } from "@agent-platform/contracts";
+import { profilesQuery } from "@agent-platform/core";
 import {
   useAgentPlatform,
   useChangeSessionProfile,

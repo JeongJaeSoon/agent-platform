@@ -491,7 +491,10 @@ describe("session detail", () => {
     await act(async () => stream.open());
     act(() => {
       for (const id of ["ev_t1", "ev_t2", "ev_t3"]) {
-        stream.emit(id, "system", { type: "system", subtype: "thinking_tokens" });
+        stream.emit(id, "system", {
+          type: "system",
+          subtype: "thinking_tokens",
+        });
       }
       stream.emit("ev_empty", "assistant", {
         type: "assistant",

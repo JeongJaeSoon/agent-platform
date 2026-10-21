@@ -268,7 +268,10 @@ describe("SessionRow", () => {
       />,
     );
     const labels = [...container.querySelectorAll(".ap-status")].map(
-      (label) => [label.getAttribute("data-axis"), label.getAttribute("data-tone")],
+      (label) => [
+        label.getAttribute("data-axis"),
+        label.getAttribute("data-tone"),
+      ],
     );
     // An idle session's last turn finished; it is not an unknown state.
     expect(labels).toEqual([
