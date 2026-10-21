@@ -7,7 +7,7 @@ import type {
   AgentRelease,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
@@ -17,6 +17,11 @@ import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { CardEditor } from "./agent-detail/card-editor.tsx";
+import {
+  Credentials,
+  CredentialUnbound,
+  unboundRefs,
+} from "./agent-detail/credentials.tsx";
 import {
   type Place,
   type Placed,
@@ -114,6 +119,9 @@ function AgentView({
   const queryClient = useQueryClient();
   const role = useRole();
   const [conflict, setConflict] = useState<Conflict | null>(null);
+  // The names the last refused activation found unbound.
+  const [unbound, setUnbound] = useState<readonly string[] | null>(null);
+  const credentialsTitle = useRef<HTMLHeadingElement>(null);
   const { agent } = detail;
   const versionNo = (versionId: string) =>
     detail.versions.find((version) => version.id === versionId)?.version_no;
@@ -139,7 +147,10 @@ function AgentView({
           body: { release_id: release.id, expected_revision: expected },
         }),
       ),
-    onMutate: () => onOutcome(null),
+    onMutate: () => {
+      onOutcome(null);
+      setUnbound(null);
+    },
     onSuccess: async (result) => {
       setConflict(null);
       onOutcome({
@@ -162,6 +173,11 @@ function AgentView({
           seenRevision: expected,
           seenActiveReleaseId: seenActive,
         });
+        return;
+      }
+      const missing = unboundRefs(error);
+      if (missing) {
+        setUnbound(missing);
         return;
       }
       onOutcome({ kind: "error", text: agentRefusal(t, error, role) });
@@ -207,6 +223,13 @@ function AgentView({
         key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
         detail={detail}
       />
+      <Credentials
+        detail={detail}
+        missing={unbound ?? []}
+        titleRef={credentialsTitle}
+        result={<PlacedOutcome placed={placed} at="credentials" />}
+        onOutcome={outcomeAt("credentials")}
+      />
       <Releases
         detail={detail}
         picked={releaseVersion}
@@ -215,6 +238,14 @@ function AgentView({
         result={
           <>
             <PlacedOutcome placed={placed} at="releases" />
+            <TakesFocus on={unbound}>
+              {unbound ? (
+                <CredentialUnbound
+                  missing={unbound}
+                  onGo={() => credentialsTitle.current?.focus()}
+                />
+              ) : null}
+            </TakesFocus>
             <TakesFocus on={conflict}>
               {conflict ? (
                 <section

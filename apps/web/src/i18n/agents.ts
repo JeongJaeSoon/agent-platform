@@ -124,6 +124,41 @@ export const agentsKo = {
     "release를 만들었습니다(version {version}). 아직 활성화되지 않았습니다.",
   "agent.releaseExisted":
     "같은 내용의 release가 이미 있어 그것을 씁니다. 아직 활성화되지 않았다면 활성화하세요.",
+  "agent.credentials.title": "자격 연결",
+  "agent.credentials.intro":
+    "카드가 쓰는 자격의 이름을 이 에이전트에 연결합니다. 연결되지 않은 이름이 있는 release는 활성화할 수 없고 새 세션도 시작하지 않습니다. 여기서는 이름만 다루고 값은 다루지 않습니다.",
+  "agent.credentials.unboundList": "연결되지 않은 자격",
+  "agent.credentials.boundList": "연결된 자격",
+  "agent.credentials.neededToActivate": "활성화에 필요 · 연결 안 됨",
+  "agent.credentials.namedByCard": "카드가 씀 · 연결 안 됨",
+  "agent.credentials.empty": "아직 연결된 자격이 없습니다.",
+  "agent.credentials.running": "실행 중인 세션 {count}개",
+  "agent.credentials.name": "자격 이름",
+  "agent.credentials.nameHint":
+    "영문 소문자로 시작하는 이름(예: github/app). 토큰·비밀번호 같은 값은 넣지 마세요",
+  "agent.credentials.invalidName":
+    "이름 형식이 아닙니다. 영문 소문자·숫자와 . _ : / - 만 씁니다. 값을 넣었다면 지우고 이름을 적으세요",
+  "agent.credentials.bind": "연결",
+  "agent.credentials.binding": "연결하는 중…",
+  "agent.credentials.bindFor": "{name} 연결",
+  "agent.credentials.bound": "{name}을(를) 연결했습니다.",
+  "agent.credentials.alreadyBound": "{name}은(는) 이미 연결되어 있습니다.",
+  "agent.credentials.inUse":
+    "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없습니다. 다른 이름을 고르세요.",
+  "agent.credentials.revoke": "연결 해제",
+  "agent.credentials.revokeFor": "{name} 연결 해제",
+  "agent.credentials.revokeTitle": "{name}의 연결을 해제할까요?",
+  "agent.credentials.revokeConsequence":
+    "이 이름을 쓰는 release는 다음 세션부터 시작하지 못합니다. 실행 중인 세션은 끝날 때까지 이 자격을 씁니다. 바로 막으려면 외부 서비스에서 폐기하세요.",
+  "agent.credentials.revokeRunning":
+    "지금 실행 중인 세션이 {count}개 있습니다.",
+  "agent.credentials.revoked": "{name}의 연결을 해제했습니다.",
+  "agent.unbound.title": "연결되지 않은 자격이 있어 활성화하지 못했습니다",
+  "agent.unbound.body":
+    "이 release가 쓰는 자격 {names}이(가) 에이전트에 연결되어 있지 않습니다. 자격 연결에서 연결한 뒤 다시 활성화하세요.",
+  "agent.unbound.bodyUnnamed":
+    "이 release가 쓰는 자격 중 연결되지 않은 것이 있습니다. 자격 연결에서 연결한 뒤 다시 활성화하세요.",
+  "agent.unbound.go": "자격 연결로 가기",
   "diff.caption": "{before} → {after}",
   "diff.added": "추가: ",
   "diff.removed": "삭제: ",
@@ -281,6 +316,40 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Release created for version {version}. It is not active yet.",
   "agent.releaseExisted":
     "A release with the same content already exists, so that one is used. Activate it if it is not active yet.",
+  "agent.credentials.title": "Credentials",
+  "agent.credentials.intro":
+    "Connect the credential names the card uses to this agent. A release that names an unconnected credential cannot be activated and starts no new session. Only names are handled here, never values.",
+  "agent.credentials.unboundList": "Not connected",
+  "agent.credentials.boundList": "Connected",
+  "agent.credentials.neededToActivate": "Needed to activate · not connected",
+  "agent.credentials.namedByCard": "Named by the card · not connected",
+  "agent.credentials.empty": "No credentials connected yet.",
+  "agent.credentials.running": "{count} running sessions",
+  "agent.credentials.name": "Credential name",
+  "agent.credentials.nameHint":
+    "A name starting with a lowercase letter or digit (for example github/app). Never a value such as a token or password",
+  "agent.credentials.invalidName":
+    "That is not a name. Use lowercase letters, digits and . _ : / - only. If you pasted a value, clear it and type the name",
+  "agent.credentials.bind": "Connect",
+  "agent.credentials.binding": "Connecting…",
+  "agent.credentials.bindFor": "Connect {name}",
+  "agent.credentials.bound": "Connected {name}.",
+  "agent.credentials.alreadyBound": "{name} was already connected.",
+  "agent.credentials.inUse":
+    "This credential name is already tied to something else (an agent or a Slack app connection). Pick another name.",
+  "agent.credentials.revoke": "Disconnect",
+  "agent.credentials.revokeFor": "Disconnect {name}",
+  "agent.credentials.revokeTitle": "Disconnect {name}?",
+  "agent.credentials.revokeConsequence":
+    "Releases that name it will not start their next session. Running sessions keep using it until they end; to stop it now, revoke it at the external service.",
+  "agent.credentials.revokeRunning": "{count} sessions are running now.",
+  "agent.credentials.revoked": "Disconnected {name}.",
+  "agent.unbound.title": "Could not activate: a credential is not connected",
+  "agent.unbound.body":
+    "This release uses {names}, which is not connected to the agent. Connect it under Credentials, then activate again.",
+  "agent.unbound.bodyUnnamed":
+    "This release uses a credential that is not connected to the agent. Connect it under Credentials, then activate again.",
+  "agent.unbound.go": "Go to Credentials",
   "diff.caption": "{before} → {after}",
   "diff.added": "added: ",
   "diff.removed": "removed: ",
