@@ -311,6 +311,30 @@ describe("연동 계정", () => {
     );
   });
 
+  test("해제 뒤 목록을 다시 읽지 못해 목록이 사라지면 제목으로 간다", async () => {
+    let reads = 0;
+    renderAt("/settings/linked-accounts", {
+      ...twoLinks(),
+      "GET /v1/linked-accounts": () =>
+        ++reads === 1
+          ? json(200, { items: [slack, other] })
+          : apiError(500, "INTERNAL", "boom"),
+    });
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByRole("button", { name: "다시 시도" }),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("heading", { name: "Slack" }),
+      ).toBe(true),
+    );
+  });
+
   test("해제를 기다리는 동안 같은 버튼을 다시 눌러도 다음 행으로 간다", async () => {
     const { release, routes } = heldUnlink();
     const { api } = renderAt("/settings/linked-accounts", routes);

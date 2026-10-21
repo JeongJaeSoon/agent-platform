@@ -97,7 +97,13 @@ export function LinkedAccountsScreen() {
   // Focus that fell to the page with its row goes to the nearest row left
   // below it, else above it, else the heading of the emptied list.
   useLayoutEffect(() => {
-    const ids = live.map(({ id }) => id);
+    // Rows as drawn: a failed reread keeps the data but draws no list.
+    const rows = [
+      ...(sectionRef.current?.querySelectorAll<HTMLElement>(
+        "li[data-account]",
+      ) ?? []),
+    ];
+    const ids = rows.map((row) => row.dataset.account ?? "");
     const before = shownIds.current;
     shownIds.current = ids;
     const gone = focusedRow.current;
@@ -109,9 +115,10 @@ export function LinkedAccountsScreen() {
       ...before.slice(at + 1),
       ...before.slice(0, Math.max(at, 0)).reverse(),
     ].find((id) => ids.includes(id));
-    const buttons =
-      sectionRef.current?.querySelectorAll<HTMLElement>("li button") ?? [];
-    (next ? buttons[ids.indexOf(next)] : headingRef.current)?.focus();
+    (next
+      ? rows[ids.indexOf(next)]?.querySelector("button")
+      : headingRef.current
+    )?.focus();
   });
 
   const start = useMutation<StartSlackLinkResponse, ApiError>({
