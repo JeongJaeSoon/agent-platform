@@ -45,6 +45,7 @@
       "version": "0.0.0",
       "devDependencies": {
         "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "@agent-platform/core": "workspace:*",
         "@agent-platform/react": "workspace:*",
         "@agent-platform/ui": "workspace:*",
