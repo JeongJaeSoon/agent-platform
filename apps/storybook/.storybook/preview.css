@@ -6,6 +6,8 @@
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../../../packages/ui/src";
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/react/src";
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../src";
 
 body {
