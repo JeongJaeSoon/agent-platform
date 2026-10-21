@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
-import {
-  type AgentDetail,
-  activationCredentialUnboundDetailsSchema,
-  type CreateCredentialBindingResponse,
-  type CredentialBindingView,
-  type RevokeCredentialBindingResponse,
+import type {
+  ActivationCredentialUnboundDetails,
+  AgentDetail,
+  CreateCredentialBindingResponse,
+  CredentialBindingView,
+  RevokeCredentialBindingResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import { ConfirmDialog } from "@werft-ai/ui";
@@ -254,10 +254,13 @@ export function Credentials({
  */
 export function unboundRefs(error: ApiError): readonly string[] | null {
   if (error.code !== "CREDENTIAL_UNBOUND") return null;
-  const details = activationCredentialUnboundDetailsSchema.safeParse(
-    error.details,
-  );
-  return details.success ? details.data.missing : [];
+  const missing = (
+    error.details as Partial<ActivationCredentialUnboundDetails> | null
+  )?.missing;
+  return Array.isArray(missing) &&
+    missing.every((ref) => typeof ref === "string")
+    ? missing
+    : [];
 }
 
 /** Why activation stopped, with the way to the step that fixes it. */
