@@ -57,6 +57,12 @@ function OutcomeLine({
   );
 }
 
+/** Whether focus fell back to the page, as when its element was removed. */
+export function focusLost(node: Element | null): boolean {
+  const page = node?.ownerDocument;
+  return page !== undefined && page.activeElement === page.body;
+}
+
 function Reason({ id, text }: { readonly id?: string; readonly text: string }) {
   return (
     <p id={id} className="m-0 text-muted-foreground text-sm">
@@ -119,7 +125,7 @@ export function PendingAnswers({
       return;
     }
     answered.current = null;
-    if (document.activeElement !== document.body) return;
+    if (!focusLost(listRef.current)) return;
     // While another answer is on its way the buttons are off; the next
     // card's folded input still takes focus.
     const root = listRef.current;
@@ -157,13 +163,15 @@ export function PendingAnswers({
       ? outcome.text
       : undefined;
   const expires = (at: string) => t("session.pending.expires", { at });
+  // An error shows on its card; once the card is gone, it shows here.
+  const shownHere =
+    outcome?.kind === "notice" ||
+    (outcome !== null &&
+      !items.some((request) => request.request_id === outcome.requestId));
 
   return (
     <div ref={listRef} className="flex flex-col gap-2">
-      <OutcomeLine
-        ref={noticeRef}
-        outcome={outcome?.kind === "notice" ? outcome : null}
-      />
+      <OutcomeLine ref={noticeRef} outcome={shownHere ? outcome : null} />
       {reason === undefined ? null : <Reason text={reason} />}
       {items.length === 0 ? (
         <p className="m-0 text-muted-foreground text-sm">
@@ -298,9 +306,30 @@ export function SessionControls({
   const reason = unavailable?.control;
   const reasonId = useId();
   const actions = actionsFor(session);
+  const actionSet = actions.join(" ");
+  const groupRef = useRef<HTMLDivElement>(null);
+  const outcomeRef = useRef<HTMLOutputElement>(null);
+  // The commands drawn when one ran; a pause swaps its button for resume.
+  const ranOn = useRef<string | null>(null);
+
+  // A command's button goes while it runs or leaves with the new state,
+  // taking focus with it: hand the keyboard to what the session takes now.
+  useLayoutEffect(() => {
+    if (ranOn.current === null) return;
+    if (focusLost(outcomeRef.current)) {
+      ranOn.current = null;
+      const next = groupRef.current?.querySelector<HTMLElement>(
+        "button:not(:disabled)",
+      );
+      (next ?? outcomeRef.current)?.focus();
+    } else if (!control.isPending && actionSet !== ranOn.current) {
+      ranOn.current = null;
+    }
+  }, [actionSet, control.isPending]);
 
   const run = (action: ControlAction) => {
     setOutcome(null);
+    ranOn.current = actionSet;
     control.mutate(commandFor(action, session), {
       onSuccess: () => {
         setConfirming(false);
@@ -320,7 +349,7 @@ export function SessionControls({
           {t("session.control.none")}
         </p>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div ref={groupRef} className="flex flex-wrap gap-2">
           {actions.map((action) => (
             <Button
               key={action}
@@ -338,7 +367,7 @@ export function SessionControls({
         </div>
       )}
       {reason === undefined ? null : <Reason id={reasonId} text={reason} />}
-      <OutcomeLine outcome={outcome} />
+      <OutcomeLine ref={outcomeRef} outcome={outcome} />
       <ConfirmDialog
         open={confirming}
         onOpenChange={(open) => {

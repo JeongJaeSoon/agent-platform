@@ -829,6 +829,42 @@ describe("session profile", () => {
     );
   });
 
+  test("an answer refused after an event took its card still says why", async () => {
+    const user = await setupUser();
+    let open = [{ ...pending.items[0], expires_at: LATER }];
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let posted = false;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { items: open }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+        posted = true;
+        return held;
+      },
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    const allow = await screen.findByRole("button", { name: "허용" });
+    allow.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(posted).toBe(true));
+    open = [];
+    act(() => stream.emit("ev_1", "status", { phase: "running" }));
+    // As above, the clock instead of waitFor while the answer is held.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(screen.queryByText("권한 요청: Bash")).toBeNull();
+    await act(async () =>
+      release(apiError(409, "REQUEST_EXPIRED", "request expired")),
+    );
+    expect(
+      await screen.findByText("이미 답했거나 만료되었거나 닫힌 요청입니다."),
+    ).toBeTruthy();
+  });
+
   test("a denial carries its reason, and an expired request says why it was refused", async () => {
     const user = await setupUser();
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
@@ -923,6 +959,36 @@ describe("session profile", () => {
       expect(document.querySelector("output.sr-only")?.textContent).toBe(
         "멈추는 중",
       ),
+    );
+  });
+
+  test("after a pause the keyboard lands on resume", async () => {
+    const user = await setupUser();
+    let state = { ...detail };
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`POST /v1/sessions/${SESSION_ID}/pause`]: () => {
+        state = {
+          ...detail,
+          admission_state: "paused",
+          status: "idle",
+          current_turn_id: null,
+        };
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    const pause = await screen.findByRole("button", { name: "일시 정지" });
+    pause.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "일시 정지" })).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("다시 시작"),
     );
   });
 
