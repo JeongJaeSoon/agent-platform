@@ -32,7 +32,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 
 - worker의 사전검사(workspace를 올리기 전)나 finalize(part를 읽기 전)가 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)를 세션의 `durability.checkpoint_pending_reason`에 기록한다. 처음 기록될 때 SSE `system` 이벤트(`transcript_limit_reached`)를 한 번 보낸다.
 - 상한을 넘긴 turn은 실행된 대로 `completed`로 끝나지만 그 turn의 checkpoint는 커밋되지 않는다.
-- 그 뒤 새 메시지는 409 `CHECKPOINT_UNAVAILABLE`로 거절되고, queue에 있던 turn도 실행되지 않는다. 이어 가려면 새 세션을 만들거나 recovery 경로의 `start_fresh`를 쓴다.
+- 그 뒤 새 메시지는 409 `CHECKPOINT_UNAVAILABLE`로 거절되고, queue에 있던 turn도 실행되지 않는다. 이어 가려면 새 세션을 만들거나 recovery 경로의 `start_fresh`를 쓴다. close도 409 `CHECKPOINT_UNAVAILABLE`이다. terminate한 뒤 recovery close로 닫는다.
 - interrupt된 turn은 다르다. 그 turn의 checkpoint가 거절되면 turn은 `outcome_unknown`(`interrupt_checkpoint_unavailable`)으로 끝나고 세션은 `recovery_required`로 간다.
 - 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다. 상한을 넘긴 turn 하나는 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
 

@@ -732,6 +732,18 @@ integration("close on PostgreSQL", () => {
       expect(after.admissionState).toBe("active");
       expect(after.revision).toBe(before.revision);
       expect(await closeReceipts(live.session)).toEqual([]);
+      // The way out the guide names: terminate, then recovery close.
+      expect((await terminate(live.session)).outcome).toBe("accepted");
+      await gateway.confirmExecutionGone(live.worker.executionId);
+      const stopped = await sessionRow(live.session.sessionId);
+      expect(stopped.admissionState).toBe("stopped");
+      expect(await close(live.session, stopped.revision)).toEqual({
+        outcome: "recovery_required",
+      });
+      expect((await recoveryClose(live.session)).outcome).toBe("accepted");
+      expect((await sessionRow(live.session.sessionId)).admissionState).toBe(
+        "closed",
+      );
 
       const gone = await exhausted(`gone-${reason}`, reason);
       await finalize(gone.worker, gone.turn, null);
