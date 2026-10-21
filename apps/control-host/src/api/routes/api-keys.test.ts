@@ -6,8 +6,11 @@ import {
   listApiKeysResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   revokeApiKeyResponseSchema,
-} from "@werft-ai/contracts";
-import { type ApiKeyService, SessionServiceError } from "@werft-ai/platform";
+} from "@agent-platform/contracts";
+import {
+  type ApiKeyService,
+  SessionServiceError,
+} from "@agent-platform/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerApiKeyRoutes } from "./api-keys.ts";
 

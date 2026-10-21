@@ -6,11 +6,11 @@ import {
   listAgentIdentitiesResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   revokeAgentIdentityResponseSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type AgentIdentityService,
   SessionServiceError,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerAgentIdentityRoutes } from "./agent-identities.ts";
 

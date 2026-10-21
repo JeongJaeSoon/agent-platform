@@ -1,4 +1,4 @@
-import { setupDom } from "@werft-ai/ui/test-support/dom";
+import { setupDom } from "@agent-platform/ui/test-support/dom";
 import type { fakeApi as FakeApi } from "./fake-api.ts";
 
 export type Routes = Parameters<typeof FakeApi>[0];

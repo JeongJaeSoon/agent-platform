@@ -1,17 +1,17 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, unwrap } from "@agent-platform/client";
 import type {
   AuditRetentionRequest,
   SlackGuestRequest,
-} from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+} from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import {
   buttonVariants,
   Field,
   FieldDescription,
   FieldLabel,
   Input,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
 import {

@@ -6,8 +6,8 @@ import {
   TEAM_LIST_LIMIT,
   type TeamDetail,
   teamDetailSchema,
-} from "@werft-ai/contracts";
-import { setupUser } from "@werft-ai/ui/test-support/dom";
+} from "@agent-platform/contracts";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {

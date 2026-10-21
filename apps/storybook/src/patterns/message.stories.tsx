@@ -1,5 +1,5 @@
+import { Message, Skeleton } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Message, Skeleton } from "@werft-ai/ui";
 
 const meta = {
   title: "Patterns/Session/Message",

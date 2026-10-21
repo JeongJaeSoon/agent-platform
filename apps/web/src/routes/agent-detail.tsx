@@ -1,6 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearch } from "@tanstack/react-router";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   ActivateAgentResponse,
   AgentCard,
@@ -9,9 +7,11 @@ import type {
   AgentVersion,
   CreateAgentReleaseResponse,
   ProfileSummary,
-} from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
-import { formatTimestamp } from "@werft-ai/ui";
+} from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
+import { formatTimestamp } from "@agent-platform/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 import {
   type FormEvent,
   type ReactNode,
@@ -633,6 +633,7 @@ function ProfileSelect({
 }) {
   const { t } = useI18n();
   const hintId = useId();
+  const unlistedId = useId();
   return (
     <div className="web-field">
       <label className="web-field">
@@ -641,7 +642,7 @@ function ProfileSelect({
           className="ap-input"
           required
           value={value}
-          aria-describedby={hintId}
+          aria-describedby={`${hintId} ${unlistedId}`}
           onChange={(event) => onChange(event.target.value)}
         >
           {profiles.map((profile) => (
@@ -658,6 +659,9 @@ function ProfileSelect({
       </label>
       <span id={hintId} className="web-field__hint">
         {hint}
+      </span>
+      <span id={unlistedId} className="web-field__hint">
+        {t("agent.releases.profileUnlisted")}
       </span>
     </div>
   );

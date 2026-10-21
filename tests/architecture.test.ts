@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 const root = join(import.meta.dir, "..");
-const testkit = "@werft-ai/testkit";
+const testkit = "@agent-platform/testkit";
 const claudeSdk = "@anthropic-ai/claude-agent-sdk";
 const runtimeCore = join("packages", "runtime-core");
 const claudeAdapter = join("packages", "adapters", "runtimes", "claude");
@@ -29,7 +29,7 @@ const routes = join("apps", "control-host", "src", "api", "routes");
 const worker = join("apps", "worker");
 const web = join("apps", "web");
 const ui = join("packages", "ui");
-const storage = "@werft-ai/storage";
+const storage = "@agent-platform/storage";
 /** The one worker file allowed to know objects live in S3. */
 const workerObjectStore = join(worker, "src", "object-store.ts");
 
@@ -203,8 +203,8 @@ export async function forbiddenImports(
 // What stays behind the platform ports (module-design.md): the business
 // logic never sees a driver, an ORM, a cloud SDK or an agent SDK.
 const platformForbidden = [
-  "@werft-ai/db",
-  "@werft-ai/storage",
+  "@agent-platform/db",
+  "@agent-platform/storage",
   "@anthropic-ai",
   "@aws-sdk",
   "drizzle-orm",
@@ -247,7 +247,7 @@ const isTestFile = (file: string) =>
   /\.test\.tsx?$/.test(file) || file.includes(`${sep}test-support${sep}`);
 
 /**
- * The web app's view of the workspace: every `@werft-ai/*` package it
+ * The web app's view of the workspace: every `@agent-platform/*` package it
  * imports, and each runtime file whose contracts import carries values. The
  * bundle ships to browsers, so it takes contracts as types (no zod), calls the
  * API through packages/client, keys its cache through packages/core, takes
@@ -258,11 +258,11 @@ export async function webBoundaryViolations(
   directory: string,
 ): Promise<string[]> {
   const allowed = new Set([
-    "@werft-ai/client",
-    "@werft-ai/contracts",
-    "@werft-ai/core",
-    "@werft-ai/react",
-    "@werft-ai/ui",
+    "@agent-platform/client",
+    "@agent-platform/contracts",
+    "@agent-platform/core",
+    "@agent-platform/react",
+    "@agent-platform/ui",
   ]);
   const offenders: string[] = [];
   for (const file of await scriptFiles(directory)) {
@@ -270,12 +270,12 @@ export async function webBoundaryViolations(
     const name = relative(directory, file);
     for (const specifier of specifiers(source)) {
       const target = packageOf(specifier);
-      if (target.startsWith("@werft-ai/") && !allowed.has(target))
+      if (target.startsWith("@agent-platform/") && !allowed.has(target))
         offenders.push(`${name} -> ${specifier}`);
     }
     if (isTestFile(file)) continue;
     for (const match of source.matchAll(
-      /import\s+(type\s+)?[^;]*?from\s*["']@werft-ai\/contracts["']/g,
+      /import\s+(type\s+)?[^;]*?from\s*["']@agent-platform\/contracts["']/g,
     )) {
       if (!match[1]) offenders.push(`${name} -> contracts value import`);
     }
@@ -427,10 +427,10 @@ describe("architecture", () => {
   test("runtime-core depends on contracts only and never mentions the Claude SDK", async () => {
     const directory = join(root, runtimeCore);
     expect([...declaredDependencies(await manifest(directory))]).toEqual([
-      "@werft-ai/contracts",
+      "@agent-platform/contracts",
     ]);
     expect([...(await packageImports(directory))]).toEqual([
-      "@werft-ai/contracts",
+      "@agent-platform/contracts",
     ]);
     const mentions: string[] = [];
     for (const file of await sourceFiles(join(directory, "src"))) {
@@ -443,9 +443,9 @@ describe("architecture", () => {
   test("the Claude adapter never reaches into platform, db or storage", async () => {
     const directory = join(root, claudeAdapter);
     const forbidden = [
-      "@werft-ai/db",
-      "@werft-ai/platform",
-      "@werft-ai/storage",
+      "@agent-platform/db",
+      "@agent-platform/platform",
+      "@agent-platform/storage",
       "@aws-sdk",
       "pg",
     ];
@@ -458,8 +458,8 @@ describe("architecture", () => {
   test("platform depends on contracts, runtime-core and zod only", async () => {
     const directory = join(root, platform);
     const allowed = new Set([
-      "@werft-ai/contracts",
-      "@werft-ai/runtime-core",
+      "@agent-platform/contracts",
+      "@agent-platform/runtime-core",
       "zod",
     ]);
     const declared = [...declaredDependencies(await manifest(directory))];
@@ -473,7 +473,7 @@ describe("architecture", () => {
     const imported = [...(await packageImports(directory))].filter(installed);
     expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
     expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
-    expect(imported).toContain("@werft-ai/contracts");
+    expect(imported).toContain("@agent-platform/contracts");
   });
 
   test("no platform file, tests included, imports a driver, ORM or SDK", async () => {
@@ -494,7 +494,7 @@ describe("architecture", () => {
           'import { query } from "@anthropic-ai/claude-agent-sdk";',
           'import { Pool } from "pg";',
           'import { pgTable } from "pg-core-lookalike";',
-          'import type { Session } from "@werft-ai/contracts";',
+          'import type { Session } from "@agent-platform/contracts";',
         ].join("\n"),
       );
       expect(await forbiddenImports(fixture, platformForbidden)).toEqual([
@@ -540,7 +540,10 @@ describe("architecture", () => {
     "the %s backend depends on platform and contracts only and never on db, pg or provider SDKs",
     async (_name, backend) => {
       const directory = join(root, backend);
-      const allowed = new Set(["@werft-ai/contracts", "@werft-ai/platform"]);
+      const allowed = new Set([
+        "@agent-platform/contracts",
+        "@agent-platform/platform",
+      ]);
       const declared = [...declaredDependencies(await manifest(directory))];
       const imported = [...(await packageImports(directory))];
       expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
@@ -591,8 +594,8 @@ describe("architecture", () => {
   });
 
   test.each([
-    ["Docker", "@werft-ai/execution-local-docker"],
-    ["Kubernetes", "@werft-ai/execution-kubernetes"],
+    ["Docker", "@agent-platform/execution-local-docker"],
+    ["Kubernetes", "@agent-platform/execution-kubernetes"],
   ])(
     "only the control host's scheduler role reaches the %s backend",
     async (_, backend) => {
@@ -626,13 +629,13 @@ describe("architecture", () => {
 
   test("the worker imports runtime-core, the Claude adapter, contracts, storage, system and observability only", async () => {
     const allowed = new Set([
-      "@werft-ai/contracts",
+      "@agent-platform/contracts",
       // The log format and masking rules; it imports nothing itself.
-      "@werft-ai/observability",
-      "@werft-ai/runtime-claude",
-      "@werft-ai/runtime-core",
+      "@agent-platform/observability",
+      "@agent-platform/runtime-claude",
+      "@agent-platform/runtime-core",
       storage,
-      "@werft-ai/system",
+      "@agent-platform/system",
     ]);
     const directory = join(root, worker);
     const declared = [...declaredDependencies(await manifest(directory))];
@@ -680,7 +683,7 @@ describe("architecture", () => {
       );
       await writeFile(
         join(fixture, "src", "clean.ts"),
-        'import type { CheckpointObjectStore } from "@werft-ai/runtime-core";\nexport type S = CheckpointObjectStore;\n',
+        'import type { CheckpointObjectStore } from "@agent-platform/runtime-core";\nexport type S = CheckpointObjectStore;\n',
       );
       expect(
         await importsOutside(fixture, storage, join("src", "object-store.ts")),
@@ -698,7 +701,7 @@ describe("architecture", () => {
     const directory = join(root, system);
     expect([...declaredDependencies(await manifest(directory))]).toEqual([]);
     expect([...(await packageImports(directory))]).toEqual([]);
-    const core = await import("@werft-ai/runtime-core");
+    const core = await import("@agent-platform/runtime-core");
     for (const name of [
       "gitCommand",
       "killProcessGroup",
@@ -712,7 +715,7 @@ describe("architecture", () => {
     const importing = (
       await filesImporting(
         await sourceFiles(join(root, routes)),
-        "@werft-ai/db",
+        "@agent-platform/db",
       )
     ).map((file) => relative(join(root, routes), file));
     expect(importing).toEqual([]);
@@ -729,11 +732,11 @@ describe("architecture", () => {
   test("operational scripts take the checkpoint codec from the SDK-free package", async () => {
     const lib = join(root, "scripts", "lib");
     const scripts = await sourceFiles(lib);
-    expect(await filesImporting(scripts, "@werft-ai/runtime-claude")).toEqual(
-      [],
-    );
     expect(
-      (await filesImporting(scripts, "@werft-ai/runtime-claude-codec"))
+      await filesImporting(scripts, "@agent-platform/runtime-claude"),
+    ).toEqual([]);
+    expect(
+      (await filesImporting(scripts, "@agent-platform/runtime-claude-codec"))
         .map((file) => relative(lib, file))
         .sort(),
     ).toEqual(["checkpoint-pins-cli.ts", "decode-manifest.ts"]);
@@ -750,7 +753,8 @@ describe("architecture", () => {
       }
     }
     expect(declaring).toEqual([]);
-    const fromCore = /import\s*\{([^}]*)\}\s*from\s*"@werft-ai\/runtime-core"/g;
+    const fromCore =
+      /import\s*\{([^}]*)\}\s*from\s*"@agent-platform\/runtime-core"/g;
     const consumers: Array<[string, string[]]> = [
       [
         join(worker, "src", "session-checkpoints.ts"),
@@ -794,13 +798,13 @@ describe("architecture", () => {
     const declared = [
       ...declaredDependencies(await manifest(join(root, web))),
       ...Object.keys((await manifest(join(root, web))).devDependencies ?? {}),
-    ].filter((name) => name.startsWith("@werft-ai/"));
+    ].filter((name) => name.startsWith("@agent-platform/"));
     expect(declared.sort()).toEqual([
-      "@werft-ai/client",
-      "@werft-ai/contracts",
-      "@werft-ai/core",
-      "@werft-ai/react",
-      "@werft-ai/ui",
+      "@agent-platform/client",
+      "@agent-platform/contracts",
+      "@agent-platform/core",
+      "@agent-platform/react",
+      "@agent-platform/ui",
     ]);
   });
 
@@ -810,19 +814,19 @@ describe("architecture", () => {
       await writeFile(
         join(fixture, "screen.tsx"),
         [
-          'import { authMeResponseSchema } from "@werft-ai/contracts";',
-          'import type { AuthMeResponse } from "@werft-ai/contracts";',
-          'import { createPool } from "@werft-ai/db";',
-          "const lazy = () => import('@werft-ai/platform');",
+          'import { authMeResponseSchema } from "@agent-platform/contracts";',
+          'import type { AuthMeResponse } from "@agent-platform/contracts";',
+          'import { createPool } from "@agent-platform/db";',
+          "const lazy = () => import('@agent-platform/platform');",
         ].join("\n"),
       );
       await writeFile(
         join(fixture, "screen.test.tsx"),
-        'import { authMeResponseSchema } from "@werft-ai/contracts";',
+        'import { authMeResponseSchema } from "@agent-platform/contracts";',
       );
       expect(await webBoundaryViolations(fixture)).toEqual([
-        "screen.tsx -> @werft-ai/db",
-        "screen.tsx -> @werft-ai/platform",
+        "screen.tsx -> @agent-platform/db",
+        "screen.tsx -> @agent-platform/platform",
         "screen.tsx -> contracts value import",
       ]);
     } finally {

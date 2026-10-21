@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
   installationLimitsResponseSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   createAuthorizationPolicy,
   createUsageService,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerUsageRoutes } from "./usage.ts";
 

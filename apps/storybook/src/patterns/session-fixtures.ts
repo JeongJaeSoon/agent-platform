@@ -3,8 +3,8 @@ import {
   type SessionSummary,
   type TurnEventMessage,
   type TurnEventMessageKey,
-} from "@werft-ai/contracts";
-import type { TimelineEntry } from "@werft-ai/ui";
+} from "@agent-platform/contracts";
+import type { TimelineEntry } from "@agent-platform/ui";
 
 /*
  * Short English copy for the session stories. The real wording lives in the

@@ -1,17 +1,20 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { type AuthorizationRequest, scopesForRole } from "@werft-ai/contracts";
+import {
+  type AuthorizationRequest,
+  scopesForRole,
+} from "@agent-platform/contracts";
 import {
   createAuthorizationPolicy,
   type ExternalAccountRef,
   type IdentityReader,
   type Principal,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

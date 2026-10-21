@@ -6,9 +6,9 @@ import {
   slackLinkCallbackResponseSchema,
   startSlackLinkResponseSchema,
   unlinkAccountResponseSchema,
-} from "@werft-ai/contracts";
-import type { StructuredLogger } from "@werft-ai/observability";
-import type { LinkedAccountService } from "@werft-ai/platform";
+} from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
+import type { LinkedAccountService } from "@agent-platform/platform";
 import {
   ApiHttpError,
   type ApiRouter,

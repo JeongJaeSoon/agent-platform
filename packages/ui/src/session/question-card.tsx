@@ -1,4 +1,4 @@
-import type { PendingRequest } from "@werft-ai/contracts";
+import type { PendingRequest } from "@agent-platform/contracts";
 import { type FormEvent, type JSX, useId, useState } from "react";
 
 import { cn } from "../lib/cn.ts";

@@ -1,12 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   AgentAdminChangeResponse,
   AgentAdminKind,
-} from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
-import { ConfirmDialog } from "@werft-ai/ui";
+} from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
+import { ConfirmDialog } from "@agent-platform/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import {
   administeredAgentsQuery,

@@ -1,11 +1,11 @@
-import type { SessionShareScope } from "@werft-ai/contracts";
+import type { SessionShareScope } from "@agent-platform/contracts";
 import type {
   SessionShare,
   SessionShareStore,
   SessionViewer,
   SetSessionShareInput,
   SetSessionShareResult,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   and,
   asc,

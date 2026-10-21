@@ -3,8 +3,8 @@ import type {
   CheckpointRef,
   FinalizeRequest,
   WorkerScope,
-} from "@werft-ai/contracts";
-import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+} from "@agent-platform/contracts";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   createAuthorizationPolicy,
   createInterruptService,
@@ -15,13 +15,13 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@werft-ai/platform";
-import { testCaller } from "@werft-ai/testkit/callers";
+} from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

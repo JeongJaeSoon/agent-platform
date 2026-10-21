@@ -3,7 +3,7 @@ import {
   presentTurnEvent,
   type SessionSummary,
   type TurnEventMessage,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 
 import { setupDom } from "../test-support/dom.ts";
 import { SessionRow, type SessionRowMessages } from "./session-row.tsx";

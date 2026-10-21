@@ -1,5 +1,5 @@
+import { Timeline } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Timeline } from "@werft-ai/ui";
 
 import {
   FAILED_EVENTS,

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { queryKeys } from "@werft-ai/core";
-import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { queryKeys } from "@agent-platform/core";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { THEME_STORAGE_KEY } from "../components/theme.ts";
 import { json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness, WAITING_SESSIONS } from "../test-support/render-app.tsx";

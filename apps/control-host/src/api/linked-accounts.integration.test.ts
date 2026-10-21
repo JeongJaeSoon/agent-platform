@@ -9,8 +9,8 @@ import {
   slackLinkCallbackResponseSchema,
   startSlackLinkResponseSchema,
   unlinkAccountResponseSchema,
-} from "@werft-ai/contracts";
-import * as schema from "@werft-ai/db";
+} from "@agent-platform/contracts";
+import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
   createPostgresLinkedAccountStore,
@@ -21,16 +21,16 @@ import {
   resolveLinkedSubject,
   users,
   verifySlackInstallation,
-} from "@werft-ai/db";
+} from "@agent-platform/db";
 import {
   createAuthorizationPolicy,
   createLinkedAccountService,
-} from "@werft-ai/platform";
-import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
+} from "@agent-platform/platform";
+import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import {
   type MockSlackOidc,
   startMockSlackOidc,
-} from "@werft-ai/testkit/mock-slack-oidc";
+} from "@agent-platform/testkit/mock-slack-oidc";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

@@ -3,7 +3,7 @@ import {
   type AgentDetail,
   type AgentRelease,
   agentCardSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as schema from "@werft-ai/db";
+import * as schema from "@agent-platform/db";
 import {
   attempts,
   controlIntents,
@@ -14,8 +14,8 @@ import {
   turns,
   unassignedSessions,
   workers,
-} from "@werft-ai/db";
-import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+} from "@agent-platform/db";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   createAuthorizationPolicy,
   createInterruptService,
@@ -23,13 +23,13 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
-} from "@werft-ai/platform";
-import { testCaller } from "@werft-ai/testkit/callers";
+} from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

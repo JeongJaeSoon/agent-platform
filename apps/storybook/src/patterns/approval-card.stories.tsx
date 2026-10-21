@@ -1,5 +1,5 @@
+import { ApprovalCard, type PermissionRequest } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ApprovalCard, type PermissionRequest } from "@werft-ai/ui";
 
 // A fixed clock, as in the other stories.
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");

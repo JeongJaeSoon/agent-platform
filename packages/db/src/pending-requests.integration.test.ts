@@ -4,7 +4,7 @@ import type {
   PostSessionAnswerRequest,
   RegisterPendingRequest,
   WorkerScope,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   createAuthorizationPolicy,
   createPendingRequestService,
@@ -15,13 +15,13 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@werft-ai/platform";
-import { testCaller } from "@werft-ai/testkit/callers";
+} from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

@@ -1,7 +1,7 @@
+import { isApiError } from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { isApiError } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
 import { useId } from "react";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";

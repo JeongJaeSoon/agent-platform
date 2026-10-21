@@ -4,8 +4,8 @@ import type {
   ContractMismatch,
   OperationKey,
   Validator,
-} from "@werft-ai/client";
-import { sseEventSchema } from "@werft-ai/contracts";
+} from "@agent-platform/client";
+import { sseEventSchema } from "@agent-platform/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
 import type { ZodType } from "zod";
 import { responseSchemas } from "./responses.ts";

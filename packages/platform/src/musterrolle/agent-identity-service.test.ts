@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { WorkspaceRole } from "@werft-ai/contracts";
+import type { WorkspaceRole } from "@agent-platform/contracts";
 import type {
   AgentIdentityRecord,
   AgentIdentityStore,

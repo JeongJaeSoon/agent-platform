@@ -1,11 +1,11 @@
-import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
-import { rootRouteId, useRouteContext } from "@tanstack/react-router";
 import {
   type ApiClient,
   type ApiClientOptions,
   isApiError,
   type RetryTiming,
-} from "@werft-ai/client";
+} from "@agent-platform/client";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import { rootRouteId, useRouteContext } from "@tanstack/react-router";
 import { createApiClient } from "./api/client.ts";
 
 /**

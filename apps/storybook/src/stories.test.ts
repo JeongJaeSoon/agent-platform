@@ -30,7 +30,7 @@ async function storyImports(): Promise<Set<string>> {
   for await (const file of glob.scan({ cwd: import.meta.dir })) {
     const source = await Bun.file(`${import.meta.dir}/${file}`).text();
     for (const match of source.matchAll(
-      /import\s*\{([^}]*)\}\s*from\s*"@werft-ai\/ui"/g,
+      /import\s*\{([^}]*)\}\s*from\s*"@agent-platform\/ui"/g,
     )) {
       for (const name of (match[1] ?? "").split(",")) {
         imported.add(name.replace(/^\s*type\s+/, "").trim());

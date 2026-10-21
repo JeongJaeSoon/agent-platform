@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Button,
   Field,
@@ -8,7 +7,8 @@ import {
   FieldLabel,
   Input,
   Textarea,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta = {
   title: "Primitives/Field",

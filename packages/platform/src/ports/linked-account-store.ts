@@ -2,7 +2,7 @@ import type {
   LinkedAccountProvider,
   LinkedAccountStatus,
   WorkspaceRole,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type LinkedAccountRecord = {

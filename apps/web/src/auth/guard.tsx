@@ -1,11 +1,11 @@
-import { type ApiError, isApiError } from "@werft-ai/client";
+import { type ApiError, isApiError } from "@agent-platform/client";
 import type {
   AuthMeResponse,
   AuthorizationAction,
   SessionScope,
   WorkspaceRole,
-} from "@werft-ai/contracts";
-import { useMe as useMeQuery } from "@werft-ai/react";
+} from "@agent-platform/contracts";
+import { useMe as useMeQuery } from "@agent-platform/react";
 import { type ButtonHTMLAttributes, useId } from "react";
 import {
   errorKey,

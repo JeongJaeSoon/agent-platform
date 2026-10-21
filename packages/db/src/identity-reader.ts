@@ -1,5 +1,5 @@
-import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
-import type { IdentityReader } from "@werft-ai/platform";
+import { scopesForRole, type WorkspaceRole } from "@agent-platform/contracts";
+import type { IdentityReader } from "@agent-platform/platform";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   apiKeyRecordOf,

@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   installationLimitsResponseSchema,
   sessionUsageResponseSchema,
-} from "@werft-ai/contracts";
-import { testCaller } from "@werft-ai/testkit/callers";
+} from "@agent-platform/contracts";
+import { testCaller } from "@agent-platform/testkit/callers";
 import type { InstallationLimits } from "../limits/installation-limits.ts";
 import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { SessionUsageRecord } from "../ports/usage-reader.ts";

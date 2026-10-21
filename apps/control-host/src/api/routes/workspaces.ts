@@ -4,12 +4,12 @@ import {
   slackGuestRequestSchema,
   slackGuestResponseSchema,
   workspaceParamsSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   AuditRetentionStore,
   AuthorizationPolicy,
   SlackGuestSettingStore,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   ApiHttpError,
   type ApiRouter,

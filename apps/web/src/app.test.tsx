@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
+import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
 import {
   apiError,
   fakeApi,
@@ -15,7 +15,7 @@ const { App } = await import("./app.tsx");
 const { GuardedButton } = await import("./auth/guard.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
 const { createServices } = await import("./services.tsx");
-const { AgentPlatformProvider } = await import("@werft-ai/react");
+const { AgentPlatformProvider } = await import("@agent-platform/react");
 
 type Routes = Parameters<typeof fakeApi>[0];
 
@@ -379,7 +379,9 @@ describe("i18n·반응형·키보드", () => {
   test.each([360, 768, 1440])(
     "%ipx에서 shell이 같은 내용으로 그려진다",
     async (width) => {
-      const { setViewport } = await import("@werft-ai/ui/test-support/dom");
+      const { setViewport } = await import(
+        "@agent-platform/ui/test-support/dom"
+      );
       setViewport({ width, height: 800 });
       renderAt("/", meOk);
       expect(

@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import type {
   ChangeProfileReceiptResult,
   ControlAcceptedResponse,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type ChangeProfileInput,
   type ChangeProfileResult,
   PROFILE_CHANGE_ADMISSION_STATES,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   controlClock,

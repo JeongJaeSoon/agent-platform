@@ -2,7 +2,7 @@ import type {
   AdmissionState,
   SessionStatus,
   SessionSummary,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { JSX, ReactNode } from "react";
 
 import { cn } from "../lib/cn.ts";

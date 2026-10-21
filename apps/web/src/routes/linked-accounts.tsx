@@ -1,13 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   LinkedAccount,
   SlackLinkCallbackResponse,
   StartSlackLinkResponse,
-} from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
-import { Button, EmptyState, formatTimestamp } from "@werft-ai/ui";
+} from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
+import { Button, EmptyState, formatTimestamp } from "@agent-platform/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";

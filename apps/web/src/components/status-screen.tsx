@@ -1,5 +1,5 @@
+import { Button, cn } from "@agent-platform/ui";
 import { Link } from "@tanstack/react-router";
-import { Button, cn } from "@werft-ai/ui";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 export type StatusKind =

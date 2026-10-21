@@ -1,5 +1,5 @@
+import { QuestionCard, type QuestionRequest } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { QuestionCard, type QuestionRequest } from "@werft-ai/ui";
 
 // A fixed clock, as in the other stories.
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");

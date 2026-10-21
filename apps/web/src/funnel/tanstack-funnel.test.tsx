@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { ApiClient } from "@werft-ai/client";
-import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
+import type { ApiClient } from "@agent-platform/client";
+import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
 import { Fragment, StrictMode } from "react";
 
 // The DOM has to exist before the router and Testing Library load. The
@@ -21,8 +21,10 @@ const {
   createRouter,
   RouterProvider,
 } = await import("@tanstack/react-router");
-const { AgentPlatformProvider, useStepper } = await import("@werft-ai/react");
-const { Stepper } = await import("@werft-ai/ui");
+const { AgentPlatformProvider, useStepper } = await import(
+  "@agent-platform/react"
+);
+const { Stepper } = await import("@agent-platform/ui");
 const { I18nProvider } = await import("../i18n/i18n.tsx");
 const { FunnelResetNotice, useDialogFunnel, useFunnel } = await import(
   "./tanstack-funnel.tsx"

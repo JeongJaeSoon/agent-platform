@@ -18,12 +18,12 @@ const FORBIDDEN_IMPORTS = [
 ];
 
 const ALLOWED_RUNTIME_DEPENDENCIES = [
+  "@agent-platform/contracts",
   "@radix-ui/react-checkbox",
   "@radix-ui/react-dialog",
   "@radix-ui/react-radio-group",
   "@radix-ui/react-slot",
   "@radix-ui/react-tabs",
-  "@werft-ai/contracts",
   "class-variance-authority",
   "clsx",
   "react",
@@ -97,7 +97,7 @@ describe("패키지 경계", () => {
       if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
       const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
       const imports = source.matchAll(
-        /import\s+(type\s+)?[^;]*?from\s+["']@werft-ai\/contracts["']/g,
+        /import\s+(type\s+)?[^;]*?from\s+["']@agent-platform\/contracts["']/g,
       );
       for (const match of imports) {
         // A value import would drag zod into the browser bundle for nothing.
@@ -106,10 +106,10 @@ describe("패키지 경계", () => {
       // Forms with no `type` to look for: a dynamic import, a bare
       // side-effect import, and a re-export. Each pulls zod in at runtime.
       const RUNTIME_FORMS: [RegExp, string][] = [
-        [/\bimport\s*\(\s*["'`]@werft-ai\/contracts["'`]/, "dynamic"],
-        [/\bimport\s+["']@werft-ai\/contracts["']/, "side effect"],
+        [/\bimport\s*\(\s*["'`]@agent-platform\/contracts["'`]/, "dynamic"],
+        [/\bimport\s+["']@agent-platform\/contracts["']/, "side effect"],
         [
-          /\bexport\s+(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s+["']@werft-ai\/contracts["']/,
+          /\bexport\s+(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s+["']@agent-platform\/contracts["']/,
           "re-export",
         ],
       ];

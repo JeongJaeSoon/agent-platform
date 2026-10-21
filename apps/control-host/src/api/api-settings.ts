@@ -3,14 +3,17 @@ import { isAbsolute, join } from "node:path";
 import {
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
-} from "@werft-ai/contracts";
-import { integerSetting, settingProblems } from "@werft-ai/contracts/settings";
-import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
+} from "@agent-platform/contracts";
+import {
+  integerSetting,
+  settingProblems,
+} from "@agent-platform/contracts/settings";
+import { type LogLevel, logLevelFromEnv } from "@agent-platform/observability";
 import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_PENDING_TTL_MS,
   installationLimitProblems,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { googleLoginConfigFromEnv } from "./google-login.ts";
 
 /**

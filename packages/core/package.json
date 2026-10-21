@@ -1,6 +1,6 @@
 {
-  "name": "@werft-ai/core",
-  "description": "Framework-free state logic over @werft-ai/client: query keys and query option factories on @tanstack/query-core; the schemas entry checks responses against @werft-ai/contracts; the forms entry holds the form steps built from its request schemas",
+  "name": "@agent-platform/core",
+  "description": "Framework-free state logic over @agent-platform/client: query keys and query option factories on @tanstack/query-core; the schemas entry checks responses against @agent-platform/contracts; the forms entry holds the form steps built from its request schemas",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@werft-ai/client": "workspace:*",
-    "@werft-ai/contracts": "workspace:*",
+    "@agent-platform/client": "workspace:*",
+    "@agent-platform/contracts": "workspace:*",
     "@tanstack/query-core": "5.103.2",
     "zod": "4.6.5"
   }

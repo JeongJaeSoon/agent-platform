@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Checkbox,
   Field,
@@ -7,7 +6,8 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta = {
   title: "Primitives/Checkbox",

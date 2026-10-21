@@ -1,13 +1,16 @@
 /// <reference lib="dom" />
 import { describe, expect, mock, test } from "bun:test";
-import { type ApiClient, ApiError } from "@werft-ai/client";
-import { type AgentCard, createAgentRequestSchema } from "@werft-ai/contracts";
+import { type ApiClient, ApiError } from "@agent-platform/client";
+import {
+  type AgentCard,
+  createAgentRequestSchema,
+} from "@agent-platform/contracts";
 import {
   type AgentCardDraft,
   agentCardStep,
   agentIdentityStep,
-} from "@werft-ai/core/forms";
-import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
+} from "@agent-platform/core/forms";
+import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
 import type { ReactNode } from "react";
 import type { DefaultValues } from "react-hook-form";
 import { z } from "zod";
@@ -27,7 +30,9 @@ import {
 const { render, waitFor } = await setupDom();
 // After setupDom: the ui entry loads Radix, which decides at import time
 // whether a DOM exists, for every later file in the run too.
-const { Field, FieldError, FieldLabel, Input } = await import("@werft-ai/ui");
+const { Field, FieldError, FieldLabel, Input } = await import(
+  "@agent-platform/ui"
+);
 type View = ReturnType<typeof render>;
 const ko = defaultMessages.ko;
 

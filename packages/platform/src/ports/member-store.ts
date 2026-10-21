@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@werft-ai/contracts";
+import type { SessionStatus } from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { ActingOwner, MemberRecord } from "./identity-store.ts";
 

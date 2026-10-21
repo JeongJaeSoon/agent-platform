@@ -59,7 +59,7 @@ Preconditions:
   ```sh
   . .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
   # owner bootstrap + login: web-login.md. WS·ME는 login 응답의 workspace_id·user_id
-  DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db";
+  DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@agent-platform/db";
   const pool = new Pool({ connectionString: process.env.DATABASE_URL }); const db = drizzle(pool, { schema });'
   ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
   const key = { appId: \"A0VERIFY\", teamId: \"T0MOCK\" };
@@ -84,7 +84,7 @@ Preconditions:
 - **c. 멘션·승인 판정.** 위 c처럼 mock overlay로 띄운다. owner bootstrap·login, member 초대·수락(d의 1), 설치 행(c), owner가 에이전트(`research`→`AID`)를 만들고 `POST /v1/agents/$AID/identities '{"provider":"slack_bot","app_id":"A0VERIFY","team_id":"T0MOCK","credential_ref":"slack/research-bot-token"}'`로 그 앱을 연결한다. owner가 d의 2처럼 다른 에이전트(`finance`→`BID`)도 만들고, 두 에이전트의 release(`REL`·`BREL`)로 owner cookie로 세션을 만든다. `POST /v1/sessions`는 `Idempotency-Key`가 필요한데 `ap_web`은 붙이지 않으니 curl로 부른다: `curl -sS -w '\n%{http_code}\n' -X POST "$API/v1/sessions" -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -H "Cookie: $(cat "$VERIFY_RUN/cookie")" -d "{\"profile_id\":\"claude-coding-local\",\"repository_id\":\"sample-app\",\"message\":\"verify\",\"agent_release_id\":\"$REL\"}"` → `201`, 세션 id를 `S`(`BREL`로 만든 것은 `OS`)로 둔다. Slack 판정은 세션이 어느 에이전트 것인지 다시 읽으므로 실제 세션이어야 한다. member가 위 c의 시작·callback으로 `U0MOCK`을 연결한다(`LAID` = `linked_account.id`). 판정은 Slack 채널이 할 호출을 그대로 한다. 채널 상한은 binding 테이블(94S-177) 전까지 입력으로 넘긴다.
 
   ```sh
-  DECIDE='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db"; import * as platform from "@werft-ai/platform";
+  DECIDE='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@agent-platform/db"; import * as platform from "@agent-platform/platform";
   const pool = new Pool({ connectionString: process.env.DATABASE_URL }); const db = drizzle(pool, { schema });
   const authorization = platform.createAuthorizationPolicy({
     identity: schema.createDatabaseIdentityReader(db), agents: schema.createDatabaseAgentAuthority(db),
@@ -132,7 +132,7 @@ Preconditions:
 - **g. 에이전트의 Slack 앱 연결.** owner bootstrap·login은 [web-login.md](./web-login.md). 에이전트는 d의 2처럼 `ap_web POST /v1/agents`로 둘(`research`→`AID`, `finance`→`BID`) 만든다. 설치 행은 c처럼 repository로 만든다(`A0VERIFY`·`T0VERIFY`·bot `B0VERIFY`). 해석은 이벤트 수신 경로가 없어 함수로 부른다.
 
   ```sh
-  DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db"; import * as platform from "@werft-ai/platform";
+  DB='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@agent-platform/db"; import * as platform from "@agent-platform/platform";
   const pool = new Pool({ connectionString: process.env.DATABASE_URL }); const db = drizzle(pool, { schema });'
   resolve() { ap_compose exec -T -w /app/apps/control-host api bun -e "$DB
   console.log(JSON.stringify(await platform.agentForSlackEvent(schema.createPostgresAgentIdentityStore(db), JSON.parse(process.argv[1])))); await pool.end();" "$1"; }

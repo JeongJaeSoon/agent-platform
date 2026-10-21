@@ -4,7 +4,7 @@ import {
   type SessionShareView,
   type SetSessionShareRequest,
   type SetSessionShareResponse,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   SessionShare,
   SessionShareStore,

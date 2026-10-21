@@ -3,7 +3,7 @@ import type {
   CredentialBinding,
   CredentialBindingStore,
   Principal,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 import { receiptActorOf } from "./control-shared.ts";

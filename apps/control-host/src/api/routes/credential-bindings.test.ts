@@ -7,11 +7,11 @@ import {
   listCredentialBindingsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   revokeCredentialBindingResponseSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type CredentialBindingService,
   SessionServiceError,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerCredentialBindingRoutes } from "./credential-bindings.ts";
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ApiClient } from "@werft-ai/client";
+import type { ApiClient } from "@agent-platform/client";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {

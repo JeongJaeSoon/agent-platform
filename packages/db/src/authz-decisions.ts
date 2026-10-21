@@ -2,8 +2,11 @@ import {
   AUDIT_RETENTION_DEFAULT_DAYS,
   AUDIT_RETENTION_MIN_DAYS,
   auditRetentionDaysSchema,
-} from "@werft-ai/contracts";
-import type { AuditRetentionStore, DecisionLog } from "@werft-ai/platform";
+} from "@agent-platform/contracts";
+import type {
+  AuditRetentionStore,
+  DecisionLog,
+} from "@agent-platform/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { lockActorAccount } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";

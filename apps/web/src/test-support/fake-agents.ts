@@ -4,7 +4,7 @@ import type {
   AgentRelease,
   AgentVersion,
   ProfileSummary,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import { apiError, json, USER_ID, WORKSPACE_ID } from "./fake-api.ts";
 
 export const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";

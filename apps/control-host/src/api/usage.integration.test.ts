@@ -3,8 +3,8 @@ import {
   apiErrorResponseSchema,
   installationLimitsResponseSchema,
   sessionUsageResponseSchema,
-} from "@werft-ai/contracts";
-import * as schema from "@werft-ai/db";
+} from "@agent-platform/contracts";
+import * as schema from "@agent-platform/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresUsageReader,
@@ -12,19 +12,19 @@ import {
   storageUsage,
   turns,
   workerLaunches,
-} from "@werft-ai/db";
+} from "@agent-platform/db";
 import {
   createAuthorizationPolicy,
   createUsageService,
   type InputLimits,
   type InstallationLimits,
-} from "@werft-ai/platform";
-import { testCaller } from "@werft-ai/testkit/callers";
+} from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

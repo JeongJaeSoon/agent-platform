@@ -11,10 +11,10 @@
     "prefix": ""
   },
   "aliases": {
-    "components": "@werft-ai/ui/src",
-    "ui": "@werft-ai/ui/src/primitives",
-    "utils": "@werft-ai/ui/src/lib/cn",
-    "lib": "@werft-ai/ui/src/lib",
-    "hooks": "@werft-ai/ui/src/lib"
+    "components": "@agent-platform/ui/src",
+    "ui": "@agent-platform/ui/src/primitives",
+    "utils": "@agent-platform/ui/src/lib/cn",
+    "lib": "@agent-platform/ui/src/lib",
+    "hooks": "@agent-platform/ui/src/lib"
   }
 }

@@ -5,9 +5,9 @@ import {
   linkAgentIdentityResponseSchema,
   listAgentIdentitiesResponseSchema,
   revokeAgentIdentityResponseSchema,
-} from "@werft-ai/contracts";
-import type { StructuredLogger } from "@werft-ai/observability";
-import type { AgentIdentityService } from "@werft-ai/platform";
+} from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
+import type { AgentIdentityService } from "@agent-platform/platform";
 import {
   type ApiRouter,
   apiRoute,

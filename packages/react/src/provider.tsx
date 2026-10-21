@@ -1,4 +1,4 @@
-import type { ApiClient, RetryTiming } from "@werft-ai/client";
+import type { ApiClient, RetryTiming } from "@agent-platform/client";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import {
   defaultMessages,

@@ -4,7 +4,7 @@ import {
   type Invite,
   type MemberView,
   type WorkspaceRole,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   ActingOwner,
   InviteRecord,

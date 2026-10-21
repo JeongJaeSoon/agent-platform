@@ -1,5 +1,5 @@
 {
-  "name": "@werft-ai/testkit",
+  "name": "@agent-platform/testkit",
   "description": "Kiel session runtime: test fakes and fixtures (Postgres, LocalStack, fake Messages API, git)",
   "version": "0.0.0",
   "private": true,
@@ -23,9 +23,9 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@werft-ai/contracts": "workspace:*",
-    "@werft-ai/db": "workspace:*",
-    "@werft-ai/runtime-core": "workspace:*",
+    "@agent-platform/contracts": "workspace:*",
+    "@agent-platform/db": "workspace:*",
+    "@agent-platform/runtime-core": "workspace:*",
     "@aws-sdk/client-s3": "^3.888.0",
     "@types/pg": "8.15.5",
     "pg": "8.16.3"

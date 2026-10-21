@@ -1,8 +1,8 @@
 import {
   type ListProfilesResponse,
   listProfilesResponseSchema,
-} from "@werft-ai/contracts";
-import { isUnmetered, type SessionCatalog } from "@werft-ai/platform";
+} from "@agent-platform/contracts";
+import { isUnmetered, type SessionCatalog } from "@agent-platform/platform";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
 
 /** Picked field by field: a profile also holds its provider credential. */

@@ -1,22 +1,15 @@
-import {
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { Link, useBlocker, useRouter } from "@tanstack/react-router";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, unwrap } from "@agent-platform/client";
 import type {
   ActivateAgentResponse,
   AgentCard,
   AgentDetail,
   ProfileSummary,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   agentCardStep,
   agentIdentityStep,
   agentReleaseStep,
-} from "@werft-ai/core/forms";
+} from "@agent-platform/core/forms";
 import {
   formAlerts,
   type StepForm,
@@ -24,7 +17,7 @@ import {
   useAgentPlatform,
   useStepForm,
   useStepper,
-} from "@werft-ai/react";
+} from "@agent-platform/react";
 import {
   Button,
   ConfirmDialog,
@@ -36,7 +29,14 @@ import {
   NativeSelect,
   NativeSelectOption,
   Stepper,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
+import {
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { Link, useBlocker, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
@@ -310,7 +310,13 @@ export function NewAgentFlow({
           await queryClient.fetchQuery(agentQuery(client, saved.agentId)),
         )
       : undefined;
-    const sent = base ? agentCardStep(base).parse(input) : values;
+    // The form has no tone input; the step would trim or drop the base's,
+    // so it goes back exactly as stored.
+    const edited = base
+      ? agentCardStep(base).parse({ ...input, tone: "" })
+      : values;
+    const sent =
+      base?.tone === undefined ? edited : { ...edited, tone: base.tone };
     const detail = (await unwrap(
       saved
         ? client.PATCH("/v1/agents/{id}", {
@@ -654,6 +660,9 @@ function ReleaseForm({
           ))}
         </NativeSelect>
         <FieldDescription>{t("agent.releases.profileHint")}</FieldDescription>
+        <FieldDescription>
+          {t("agent.releases.profileUnlisted")}
+        </FieldDescription>
         {cardModel !== undefined &&
         profileModel !== undefined &&
         cardModel !== profileModel ? (

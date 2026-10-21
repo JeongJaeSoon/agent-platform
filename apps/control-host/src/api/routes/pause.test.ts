@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
+import {
+  type ApiErrorCode,
+  apiErrorResponseSchema,
+} from "@agent-platform/contracts";
 import {
   createAuthorizationPolicy,
   createSessionService,
   type PauseSessionResult,
   type SessionControl,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPauseRoutes } from "./pause.ts";
 

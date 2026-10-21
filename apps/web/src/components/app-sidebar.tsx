@@ -1,7 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { waitingSessionsQuery } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { waitingSessionsQuery } from "@agent-platform/core";
+import { useAgentPlatform } from "@agent-platform/react";
 import {
   Badge,
   Button,
@@ -10,7 +8,9 @@ import {
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useCan, useHasPermission, useMe } from "../auth/guard.tsx";
 import {
@@ -114,7 +114,10 @@ function WaitingBadge() {
   const { count, more } = waiting;
   return (
     <>
-      <Badge className="ml-auto" aria-hidden="true">
+      <Badge
+        className="ml-auto bg-rail-foreground text-rail"
+        aria-hidden="true"
+      >
         {more ? `${count}+` : count}
       </Badge>
       <span className="sr-only">

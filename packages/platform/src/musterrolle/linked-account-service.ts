@@ -5,7 +5,7 @@ import {
   type ListLinkedAccountsResponse,
   type SlackLinkCallbackResponse,
   type UnlinkAccountResponse,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   LinkedAccountRecord,
   LinkedAccountStore,

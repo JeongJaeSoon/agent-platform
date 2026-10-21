@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   GOOGLE_LOGIN_FLOW_TTL_MINUTES,
   normalizeEmail,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import { Jwt } from "hono/utils/jwt";
 import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
 

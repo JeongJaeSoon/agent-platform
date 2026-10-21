@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { ApiClient } from "@agent-platform/client";
+import { meQuery } from "@agent-platform/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ApiClient } from "@werft-ai/client";
-import { meQuery } from "@werft-ai/core";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {

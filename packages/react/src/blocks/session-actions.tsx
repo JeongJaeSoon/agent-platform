@@ -1,15 +1,15 @@
-import type { ApiError } from "@werft-ai/client";
+import type { ApiError } from "@agent-platform/client";
 import type {
   PendingRequest,
   SessionDetail as SessionDetailData,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   ApprovalCard,
   Button,
   Composer,
   ConfirmDialog,
   QuestionCard,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
 import { type Ref, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   type SessionControl,

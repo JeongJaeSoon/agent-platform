@@ -6,7 +6,7 @@ import {
   createApiClient,
   isApiError,
   type ValidateMode,
-} from "@werft-ai/client";
+} from "@agent-platform/client";
 import { z } from "zod";
 import * as entry from "./index.ts";
 import {

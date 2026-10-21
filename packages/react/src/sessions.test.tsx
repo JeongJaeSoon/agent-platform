@@ -1,20 +1,20 @@
 /// <reference lib="dom" />
 import { describe, expect, spyOn, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   type ApiClient,
   type ApiClientOptions,
   ApiError,
   createApiClient,
-} from "@werft-ai/client";
+} from "@agent-platform/client";
 import {
   pendingRequestsQuery,
   sessionQuery,
   sessionsQuery,
   sessionUsageQuery,
   waitingSessionsQuery,
-} from "@werft-ai/core";
-import { setupDom } from "@werft-ai/ui/test-support/dom";
+} from "@agent-platform/core";
+import { setupDom } from "@agent-platform/ui/test-support/dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import {
   AgentPlatformProvider,

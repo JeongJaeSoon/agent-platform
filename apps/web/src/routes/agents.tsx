@@ -1,9 +1,9 @@
+import { type ApiError, isApiError } from "@agent-platform/client";
+import type { Agent } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
+import { Badge, type BadgeProps, formatTimestamp } from "@agent-platform/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ApiError, isApiError } from "@werft-ai/client";
-import type { Agent } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
-import { Badge, type BadgeProps, formatTimestamp } from "@werft-ai/ui";
 import { agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,

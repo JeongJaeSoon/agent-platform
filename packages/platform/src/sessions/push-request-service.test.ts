@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Principal } from "@werft-ai/contracts";
-import { testCaller } from "@werft-ai/testkit";
+import type { Principal } from "@agent-platform/contracts";
+import { testCaller } from "@agent-platform/testkit";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,

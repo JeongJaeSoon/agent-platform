@@ -8,8 +8,8 @@ import {
   createAgentRequestSchema,
   listAgentsResponseSchema,
   updateAgentRequestSchema,
-} from "@werft-ai/contracts";
-import type { AgentService } from "@werft-ai/platform";
+} from "@agent-platform/contracts";
+import type { AgentService } from "@agent-platform/platform";
 import {
   type ApiRouter,
   apiRoute,

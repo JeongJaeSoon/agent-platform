@@ -1,18 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import type { SessionScope } from "@werft-ai/contracts";
+import type { SessionScope } from "@agent-platform/contracts";
 import {
   createWorkerGateway,
   type IdentityReader,
   type Principal,
   type WorkerGateway,
   type WorkerPrincipal,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

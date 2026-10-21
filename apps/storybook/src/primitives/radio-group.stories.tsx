@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Field,
   FieldContent,
@@ -8,7 +7,8 @@ import {
   FieldSet,
   RadioGroup,
   RadioGroupItem,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useId } from "react";
 
 function ShareScope() {

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
+import { MAX_RESTORE_PROFILES } from "@agent-platform/contracts";
 import {
   type CatalogProfile,
   type CheckpointPointer,
@@ -12,27 +12,27 @@ import {
   profileFingerprint,
   profileWithModel,
   resolveSessionCatalog,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
-} from "@werft-ai/runtime-claude";
+} from "@agent-platform/runtime-claude";
 import type {
   CheckpointManifest,
   ObjectRef,
   TranscriptRevision,
-} from "@werft-ai/runtime-core";
-import { createGitWorkspaceBundleVerifier } from "@werft-ai/storage";
+} from "@agent-platform/runtime-core";
+import { createGitWorkspaceBundleVerifier } from "@agent-platform/storage";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@werft-ai/testkit/checkpoint-objects";
+} from "@agent-platform/testkit/checkpoint-objects";
 import {
   createGitBundle,
   createGitBundleChain,
   type GitBundleFixture,
-} from "@werft-ai/testkit/git-bundle";
+} from "@agent-platform/testkit/git-bundle";
 import { readCatalogConfig } from "../apps/control-host/src/api/catalog-config.ts";
 import {
   imageClaimFingerprint,

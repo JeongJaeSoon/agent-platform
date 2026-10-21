@@ -7,7 +7,7 @@ import {
   type CreateApiKeyResponse,
   type ListApiKeysResponse,
   type RevokeApiKeyResponse,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   WorkspaceKey,
   WorkspaceKeyStore,

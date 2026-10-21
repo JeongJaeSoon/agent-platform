@@ -1,5 +1,5 @@
+import { Skeleton } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Skeleton } from "@werft-ai/ui";
 
 const meta = {
   title: "States/Skeleton",

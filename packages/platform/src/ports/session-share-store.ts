@@ -2,7 +2,7 @@ import type {
   AdmissionState,
   SessionShareScope,
   SessionStatus,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 /**

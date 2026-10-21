@@ -9,7 +9,7 @@ import type {
   CreateAgentRequest,
   ListAgentsResponse,
   UpdateAgentRequest,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";

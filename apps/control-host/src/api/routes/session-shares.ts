@@ -10,8 +10,11 @@ import {
   setSessionShareRequestSchema,
   setSessionShareResponseSchema,
   terminateSessionResponseSchema,
-} from "@werft-ai/contracts";
-import type { SessionService, SessionShareService } from "@werft-ai/platform";
+} from "@agent-platform/contracts";
+import type {
+  SessionService,
+  SessionShareService,
+} from "@agent-platform/platform";
 import {
   type ApiRouter,
   apiRoute,

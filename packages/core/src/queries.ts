@@ -1,13 +1,4 @@
-import type {
-  DataTag,
-  DefaultError,
-  InfiniteData,
-  InfiniteQueryObserverOptions,
-  QueryFunction,
-  QueryKey,
-  QueryObserverOptions,
-} from "@tanstack/query-core";
-import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
+import { type ApiClient, isApiError, unwrap } from "@agent-platform/client";
 import type {
   AgentAdminsView,
   AgentDetail,
@@ -27,7 +18,16 @@ import type {
   SessionDetail,
   SessionUsageResponse,
   TeamDetail,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
+import type {
+  DataTag,
+  DefaultError,
+  InfiniteData,
+  InfiniteQueryObserverOptions,
+  QueryFunction,
+  QueryKey,
+  QueryObserverOptions,
+} from "@tanstack/query-core";
 
 type Options<T, K extends QueryKey> = QueryObserverOptions<
   T,

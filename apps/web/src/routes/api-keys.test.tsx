@@ -6,8 +6,8 @@ import {
   apiKeyViewSchema,
   createApiKeyResponseSchema,
   SESSION_SCOPE_VALUES,
-} from "@werft-ai/contracts";
-import { setupUser } from "@werft-ai/ui/test-support/dom";
+} from "@agent-platform/contracts";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { apiKeysEn, apiKeysKo } from "../i18n/api-keys.ts";
 import {
   apiError,
@@ -24,6 +24,8 @@ const { act, renderAt, screen, waitFor, within } = await appHarness();
 const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
 const OTHER_AGENT_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
 const KEY_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+// An agent the caller's agent list does not include.
+const GONE_ID = "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c";
 const RECEIPT_ID = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
 // A placeholder shaped like a secret; it reaches nothing.
 const SECRET = `ap_test_${"x".repeat(40)}`;
@@ -118,24 +120,91 @@ describe("API key", () => {
     );
   });
 
-  test("서비스 key 영역은 발급자가 떠나도 유효하다고 말한다", async () => {
-    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer([key()]) });
-    expect(
-      (await screen.findByTestId("survives-issuer")).textContent,
-    ).toContain("발급자가 떠나도 유효");
-    const row = (
-      await screen.findByText("에이전트 전용 key · Billing")
-    ).closest("li") as HTMLElement;
-    expect(within(row).getByText("발급자가 떠나도 유효")).toBeDefined();
+  test("세 종류마다 누구로 동작하는지, 발급자가 떠나면 어떻게 되는지, 닿는 세션, 승인 가능 여부를 한 줄씩 말한다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
+    for (const kind of ["personal", "service", "agent"] as const) {
+      const guide = await screen.findByTestId(`guide-${kind}`);
+      expect(
+        within(guide)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual([
+        apiKeysKo[`apiKeys.guide.${kind}.actsAs`],
+        apiKeysKo[`apiKeys.guide.${kind}.issuerLeaves`],
+        apiKeysKo[`apiKeys.guide.${kind}.sessions`],
+        apiKeysKo[`apiKeys.guide.${kind}.approve`],
+      ]);
+    }
   });
 
-  test("에이전트 관리자인 구성원에게는 워크스페이스 서비스 key 버튼이 없다", async () => {
+  test("목록은 세 종류를 서로 다른 배지로, 에이전트 전용 key는 에이전트 이름으로 보인다", async () => {
+    renderAt("/settings/api-keys", {
+      ...ownerOk,
+      ...keysServer([
+        key(),
+        key({
+          id: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+          agent_id: null,
+        }),
+        key({
+          id: "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a",
+          kind: "personal",
+          agent_id: null,
+        }),
+        key({ id: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b", agent_id: GONE_ID }),
+      ]),
+    });
+    await screen.findByText("Billing");
+    const rows = screen
+      .getAllByRole("listitem")
+      .filter((li) => li.dataset.revoked);
+    const badgeOf = (row: HTMLElement) =>
+      row.querySelector("[data-slot=badge]") as HTMLElement;
+    expect(rows.map((row) => badgeOf(row).textContent)).toEqual([
+      "에이전트 전용 key",
+      "서비스 key",
+      "개인 key",
+      "에이전트 전용 key",
+    ]);
+    const variants = new Set(
+      rows.slice(0, 3).map((row) => badgeOf(row).className),
+    );
+    expect(variants.size).toBe(3);
+    expect(within(rows[0] as HTMLElement).getByText("Billing")).toBeDefined();
+    // An agent this person cannot list still shows by its id.
+    expect(within(rows[3] as HTMLElement).getAllByText(GONE_ID).length).toBe(1);
+    expect(
+      within(rows[1] as HTMLElement).getByText("발급자가 떠나도 유효"),
+    ).toBeDefined();
+  });
+
+  test("key ID는 잘리지 않고 전체로 보이며 복사할 수 있다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer([key()]) });
+    expect(await screen.findByText(KEY_ID)).toBeDefined();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void written.push(text) },
+    });
+    try {
+      const button = screen.getByRole("button", { name: `ID ${KEY_ID} 복사` });
+      await act(async () => button.click());
+      expect(written).toEqual([KEY_ID]);
+      expect(button.textContent).toBe("복사했습니다");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("에이전트 관리자인 구성원에게는 서비스 key 발급 버튼이 없다", async () => {
     renderAt("/settings/api-keys", { ...memberOk, ...keysServer() });
     expect(
       await screen.findByRole("button", { name: "에이전트 전용 key 발급" }),
     ).toBeDefined();
     expect(
-      screen.queryByRole("button", { name: "워크스페이스 서비스 key 발급" }),
+      screen.queryByRole("button", { name: "서비스 key 발급" }),
     ).toBeNull();
     expect(document.body.textContent).not.toContain("api_key.manage");
   });
@@ -179,7 +248,12 @@ describe("API key", () => {
         screen.getByRole("button", { name }).hasAttribute("disabled"),
       ).toBe(true);
     }
-    expect(within(secret).getByText(/ID [0-9a-f]{8}/)).toBeDefined();
+    // The whole id, not a prefix.
+    expect(
+      within(secret).getByText(
+        /ID [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      ),
+    ).toBeDefined();
     await user.click(screen.getByRole("button", { name: "복사했으니 닫기" }));
     expect(
       screen
@@ -202,9 +276,7 @@ describe("API key", () => {
     expect(describedBy(read as HTMLElement)[0]).toContain(
       "영수증·사용량·공유 설정",
     );
-    expect(
-      await screen.findByText(/ID [0-9a-f]{8} · 세션 보기, 세션 만들기 · /),
-    ).toBeDefined();
+    expect(await screen.findByText(/^세션 보기, 세션 만들기 · /)).toBeDefined();
   });
 
   test("승인 범위만 고르면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
@@ -293,7 +365,8 @@ describe("API key", () => {
       new Date(String(body?.expires_at)).getTime() >
         new Date("2026-12-31T00:00:00").getTime(),
     ).toBe(true);
-    expect((await screen.findAllByText("개인 key")).length).toBe(2);
+    // The section title, the guide's badge and the new row's badge.
+    expect((await screen.findAllByText("개인 key")).length).toBe(3);
   });
 
   test("만료일은 오늘부터 고를 수 있다", async () => {
@@ -319,9 +392,7 @@ describe("API key", () => {
     const service = await screen.findByRole("region", { name: "서비스 key" });
     await user.type(within(service).getByLabelText(/^만료일/), "2020-01-01");
     await user.click(
-      within(service).getByRole("button", {
-        name: "워크스페이스 서비스 key 발급",
-      }),
+      within(service).getByRole("button", { name: "서비스 key 발급" }),
     );
     expect(api.calls.some((c) => c.method === "POST")).toBe(false);
     expect(screen.queryByRole("region", { name: "새 key" })).toBeNull();
@@ -367,12 +438,12 @@ describe("API key", () => {
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", {
-        name: "에이전트 전용 key · Billing (1a2b3c4d) 폐기",
+        name: `에이전트 전용 key · Billing (${KEY_ID}) 폐기`,
       }),
     );
     const dialog = await screen.findByRole("dialog");
     expect(
-      within(dialog).getByText("ID 1a2b3c4d key를 폐기할까요?"),
+      within(dialog).getByText(`ID ${KEY_ID} key를 폐기할까요?`),
     ).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "폐기" }));
     expect((await screen.findByRole("status")).textContent).toBe(
@@ -415,9 +486,7 @@ describe("API key", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", {
-        name: "워크스페이스 서비스 key 발급",
-      }),
+      await screen.findByRole("button", { name: "서비스 key 발급" }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
       "서비스 key 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
@@ -480,7 +549,7 @@ describe("API key", () => {
       await screen.findByRole("region", { name: "새 key" });
       // The list refetch after issuing must carry the key, not its secret.
       await waitFor(() =>
-        expect(screen.getAllByText("개인 key").length).toBe(2),
+        expect(screen.getAllByText("개인 key").length).toBe(3),
       );
       const queries = services.queryClient.getQueryCache().getAll();
       expect(

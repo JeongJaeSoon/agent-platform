@@ -1,4 +1,4 @@
-import type { TurnEventMessage } from "@werft-ai/contracts";
+import type { TurnEventMessage } from "@agent-platform/contracts";
 import type { ModuleMessageKey } from "../messages/index.ts";
 import { useAgentPlatform } from "../provider.tsx";
 

@@ -5,7 +5,7 @@ import {
   type CredentialBindingView,
   type ListCredentialBindingsResponse,
   type RevokeCredentialBindingResponse,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   CredentialBinding,
   CredentialBindingStore,

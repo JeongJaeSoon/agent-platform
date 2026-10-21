@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness, type Routes } from "../test-support/render-app.tsx";

@@ -11,17 +11,17 @@
       },
     },
     "apps/control-host": {
-      "name": "@werft-ai/control-host",
+      "name": "@agent-platform/control-host",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/db": "workspace:*",
-        "@werft-ai/execution-kubernetes": "workspace:*",
-        "@werft-ai/execution-local-docker": "workspace:*",
-        "@werft-ai/observability": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
-        "@werft-ai/runtime-claude-codec": "workspace:*",
-        "@werft-ai/storage": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/db": "workspace:*",
+        "@agent-platform/execution-kubernetes": "workspace:*",
+        "@agent-platform/execution-local-docker": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+        "@agent-platform/runtime-claude-codec": "workspace:*",
+        "@agent-platform/storage": "workspace:*",
         "@aws-sdk/client-secrets-manager": "^3.888.0",
         "@hono/zod-openapi": "1.6.3",
         "@octokit/auth-app": "8.3.1",
@@ -36,25 +36,25 @@
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
         "@electric-sql/pglite": "0.3.10",
         "@scalar/api-reference": "1.72.1",
         "@types/pg": "8.15.5",
       },
     },
     "apps/egress-proxy": {
-      "name": "@werft-ai/egress-proxy",
+      "name": "@agent-platform/egress-proxy",
       "version": "0.0.0",
     },
     "apps/storybook": {
-      "name": "@werft-ai/storybook",
+      "name": "@agent-platform/storybook",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/react": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/core": "workspace:*",
+        "@agent-platform/react": "workspace:*",
+        "@agent-platform/ui": "workspace:*",
         "@storybook/addon-a11y": "10.6.1",
         "@storybook/addon-vitest": "10.6.1",
         "@storybook/react-vite": "10.6.1",
@@ -72,14 +72,14 @@
       },
     },
     "apps/web": {
-      "name": "@werft-ai/web",
+      "name": "@agent-platform/web",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/react": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/core": "workspace:*",
+        "@agent-platform/react": "workspace:*",
+        "@agent-platform/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@hookform/resolvers": "5.9.1",
         "@radix-ui/react-dialog": "^1.1.23",
@@ -105,136 +105,136 @@
       },
     },
     "apps/worker": {
-      "name": "@werft-ai/worker",
+      "name": "@agent-platform/worker",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/observability": "workspace:*",
-        "@werft-ai/runtime-claude": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
-        "@werft-ai/storage": "workspace:*",
-        "@werft-ai/system": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
+        "@agent-platform/runtime-claude": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
+        "@agent-platform/storage": "workspace:*",
+        "@agent-platform/system": "workspace:*",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/adapters/execution/kubernetes": {
-      "name": "@werft-ai/execution-kubernetes",
+      "name": "@agent-platform/execution-kubernetes",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
       },
       "devDependencies": {
-        "@werft-ai/execution-local-docker": "workspace:*",
+        "@agent-platform/execution-local-docker": "workspace:*",
       },
     },
     "packages/adapters/execution/local-docker": {
-      "name": "@werft-ai/execution-local-docker",
+      "name": "@agent-platform/execution-local-docker",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/adapters/runtimes/claude": {
-      "name": "@werft-ai/runtime-claude",
+      "name": "@agent-platform/runtime-claude",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/runtime-claude-codec": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-claude-codec": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/adapters/runtimes/claude-codec": {
-      "name": "@werft-ai/runtime-claude-codec",
+      "name": "@agent-platform/runtime-claude-codec",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "zod": "4.6.5",
       },
     },
     "packages/client": {
-      "name": "@werft-ai/client",
+      "name": "@agent-platform/client",
       "version": "0.0.0",
       "dependencies": {
         "openapi-fetch": "0.17.0",
       },
       "devDependencies": {
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "openapi-typescript": "7.13.0",
       },
     },
     "packages/contracts": {
-      "name": "@werft-ai/contracts",
+      "name": "@agent-platform/contracts",
       "version": "0.0.0",
       "dependencies": {
         "zod": "4.6.5",
       },
     },
     "packages/core": {
-      "name": "@werft-ai/core",
+      "name": "@agent-platform/core",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "@tanstack/query-core": "5.103.2",
         "zod": "4.6.5",
       },
     },
     "packages/db": {
-      "name": "@werft-ai/db",
+      "name": "@agent-platform/db",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/observability": "workspace:*",
-        "@werft-ai/platform": "workspace:*",
-        "@werft-ai/system": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/observability": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+        "@agent-platform/system": "workspace:*",
         "drizzle-orm": "0.45.2",
         "pg": "8.16.3",
         "pg-connection-string": "2.14.0",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
         "@electric-sql/pglite": "0.3.10",
         "@types/pg": "8.15.5",
         "drizzle-kit": "0.31.4",
       },
     },
     "packages/observability": {
-      "name": "@werft-ai/observability",
+      "name": "@agent-platform/observability",
       "version": "0.0.0",
     },
     "packages/platform": {
-      "name": "@werft-ai/platform",
+      "name": "@agent-platform/platform",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/react": {
-      "name": "@werft-ai/react",
+      "name": "@agent-platform/react",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/core": "workspace:*",
+        "@agent-platform/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@hookform/resolvers": "5.9.1",
         "@tanstack/react-query": "5.103.2",
@@ -250,19 +250,19 @@
       },
     },
     "packages/runtime-core": {
-      "name": "@werft-ai/runtime-core",
+      "name": "@agent-platform/runtime-core",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
       },
     },
     "packages/storage": {
-      "name": "@werft-ai/storage",
+      "name": "@agent-platform/storage",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/platform": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
-        "@werft-ai/system": "workspace:*",
+        "@agent-platform/platform": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
+        "@agent-platform/system": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@aws-sdk/credential-provider-node": "^3.972.84",
         "@smithy/core": "^3.34.1",
@@ -271,30 +271,30 @@
         "@smithy/types": "^4.18.0",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
+        "@agent-platform/testkit": "workspace:*",
       },
     },
     "packages/system": {
-      "name": "@werft-ai/system",
+      "name": "@agent-platform/system",
       "version": "0.0.0",
     },
     "packages/testkit": {
-      "name": "@werft-ai/testkit",
+      "name": "@agent-platform/testkit",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/db": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
+        "@agent-platform/db": "workspace:*",
+        "@agent-platform/runtime-core": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@types/pg": "8.15.5",
         "pg": "8.16.3",
       },
     },
     "packages/ui": {
-      "name": "@werft-ai/ui",
+      "name": "@agent-platform/ui",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
+        "@agent-platform/contracts": "workspace:*",
         "@radix-ui/react-checkbox": "1.3.11",
         "@radix-ui/react-dialog": "^1.1.23",
         "@radix-ui/react-radio-group": "1.4.7",
@@ -325,47 +325,47 @@
   "packages": {
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
 
-    "@werft-ai/client": ["@werft-ai/client@workspace:packages/client"],
+    "@agent-platform/client": ["@agent-platform/client@workspace:packages/client"],
 
-    "@werft-ai/contracts": ["@werft-ai/contracts@workspace:packages/contracts"],
+    "@agent-platform/contracts": ["@agent-platform/contracts@workspace:packages/contracts"],
 
-    "@werft-ai/control-host": ["@werft-ai/control-host@workspace:apps/control-host"],
+    "@agent-platform/control-host": ["@agent-platform/control-host@workspace:apps/control-host"],
 
-    "@werft-ai/core": ["@werft-ai/core@workspace:packages/core"],
+    "@agent-platform/core": ["@agent-platform/core@workspace:packages/core"],
 
-    "@werft-ai/db": ["@werft-ai/db@workspace:packages/db"],
+    "@agent-platform/db": ["@agent-platform/db@workspace:packages/db"],
 
-    "@werft-ai/egress-proxy": ["@werft-ai/egress-proxy@workspace:apps/egress-proxy"],
+    "@agent-platform/egress-proxy": ["@agent-platform/egress-proxy@workspace:apps/egress-proxy"],
 
-    "@werft-ai/execution-kubernetes": ["@werft-ai/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
+    "@agent-platform/execution-kubernetes": ["@agent-platform/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
 
-    "@werft-ai/execution-local-docker": ["@werft-ai/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
+    "@agent-platform/execution-local-docker": ["@agent-platform/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
 
-    "@werft-ai/observability": ["@werft-ai/observability@workspace:packages/observability"],
+    "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
 
-    "@werft-ai/platform": ["@werft-ai/platform@workspace:packages/platform"],
+    "@agent-platform/platform": ["@agent-platform/platform@workspace:packages/platform"],
 
-    "@werft-ai/react": ["@werft-ai/react@workspace:packages/react"],
+    "@agent-platform/react": ["@agent-platform/react@workspace:packages/react"],
 
-    "@werft-ai/runtime-claude": ["@werft-ai/runtime-claude@workspace:packages/adapters/runtimes/claude"],
+    "@agent-platform/runtime-claude": ["@agent-platform/runtime-claude@workspace:packages/adapters/runtimes/claude"],
 
-    "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
+    "@agent-platform/runtime-claude-codec": ["@agent-platform/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
 
-    "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
+    "@agent-platform/runtime-core": ["@agent-platform/runtime-core@workspace:packages/runtime-core"],
 
-    "@werft-ai/storage": ["@werft-ai/storage@workspace:packages/storage"],
+    "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
 
-    "@werft-ai/storybook": ["@werft-ai/storybook@workspace:apps/storybook"],
+    "@agent-platform/storybook": ["@agent-platform/storybook@workspace:apps/storybook"],
 
-    "@werft-ai/system": ["@werft-ai/system@workspace:packages/system"],
+    "@agent-platform/system": ["@agent-platform/system@workspace:packages/system"],
 
-    "@werft-ai/testkit": ["@werft-ai/testkit@workspace:packages/testkit"],
+    "@agent-platform/testkit": ["@agent-platform/testkit@workspace:packages/testkit"],
 
-    "@werft-ai/ui": ["@werft-ai/ui@workspace:packages/ui"],
+    "@agent-platform/ui": ["@agent-platform/ui@workspace:packages/ui"],
 
-    "@werft-ai/web": ["@werft-ai/web@workspace:apps/web"],
+    "@agent-platform/web": ["@agent-platform/web@workspace:apps/web"],
 
-    "@werft-ai/worker": ["@werft-ai/worker@workspace:apps/worker"],
+    "@agent-platform/worker": ["@agent-platform/worker@workspace:apps/worker"],
 
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.13", "", { "dependencies": { "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.5", "@vercel/oidc": "3.1.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-g7nE4PFtngOZNZSy1lOPpkC+FAiHxqBJXqyRMEG7NUrEVZlz5goBdtHg1YgWRJIX776JTXAmbOI5JreAKVAsVA=="],
 

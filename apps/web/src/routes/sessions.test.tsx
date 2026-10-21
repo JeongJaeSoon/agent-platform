@@ -6,8 +6,8 @@ import type {
   SessionDetail,
   SessionSummary,
   SessionUsageResponse,
-} from "@werft-ai/contracts";
-import { setupUser } from "@werft-ai/ui/test-support/dom";
+} from "@agent-platform/contracts";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
 import {
   apiError,
   json,

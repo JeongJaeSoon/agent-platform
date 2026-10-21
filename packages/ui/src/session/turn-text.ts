@@ -1,4 +1,7 @@
-import type { TurnEventMessage, TurnEventPart } from "@werft-ai/contracts";
+import type {
+  TurnEventMessage,
+  TurnEventPart,
+} from "@agent-platform/contracts";
 
 /*
  * presentTurnEvent says what an event is as message keys; the screen owns the

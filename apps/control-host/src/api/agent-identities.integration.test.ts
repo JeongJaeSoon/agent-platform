@@ -7,8 +7,8 @@ import {
   linkAgentIdentityResponseSchema,
   listAgentIdentitiesResponseSchema,
   revokeAgentIdentityResponseSchema,
-} from "@werft-ai/contracts";
-import * as schema from "@werft-ai/db";
+} from "@agent-platform/contracts";
+import * as schema from "@agent-platform/db";
 import {
   agentAdmins,
   agents,
@@ -22,13 +22,13 @@ import {
   registerSlackInstallation,
   users,
   verifySlackInstallation,
-} from "@werft-ai/db";
+} from "@agent-platform/db";
 import {
   agentForSlackEvent,
   createAgentIdentityService,
   createAuthorizationPolicy,
-} from "@werft-ai/platform";
-import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
+} from "@agent-platform/platform";
+import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

@@ -1,10 +1,10 @@
+import { AgentPlatformProvider, type RenderLink } from "@agent-platform/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   Link,
   type RouterHistory,
   RouterProvider,
 } from "@tanstack/react-router";
-import { AgentPlatformProvider, type RenderLink } from "@werft-ai/react";
 import { type ReactNode, useCallback, useState } from "react";
 import { I18nProvider, type Locale, useI18n } from "./i18n/i18n.tsx";
 import { createAppRouter } from "./router.tsx";

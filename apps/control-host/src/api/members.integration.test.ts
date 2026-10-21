@@ -11,8 +11,8 @@ import {
   type SessionScope,
   scopesForRole,
   setAccessResponseSchema,
-} from "@werft-ai/contracts";
-import * as schema from "@werft-ai/db";
+} from "@agent-platform/contracts";
+import * as schema from "@agent-platform/db";
 import {
   createDatabaseIdentityReader,
   createPostgresDecisionLog,
@@ -24,15 +24,15 @@ import {
   memberships,
   sessions,
   users,
-} from "@werft-ai/db";
-import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+} from "@agent-platform/db";
+import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import {
   createAuthorizationPolicy,
   createInviteService,
   createMemberService,
   createSessionService,
-} from "@werft-ai/platform";
-import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
+} from "@agent-platform/platform";
+import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

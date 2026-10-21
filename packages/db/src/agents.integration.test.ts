@@ -4,7 +4,7 @@ import {
   type AgentCard,
   agentCardSchema,
   SESSION_SCOPE_VALUES,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type AgentService,
   type Caller,
@@ -17,12 +17,12 @@ import {
   resolveReleaseContent,
   type SessionCatalog,
   SessionServiceError,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

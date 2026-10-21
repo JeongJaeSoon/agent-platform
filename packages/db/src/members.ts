@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { SessionStatus } from "@werft-ai/contracts";
+import type { SessionStatus } from "@agent-platform/contracts";
 import type {
   MemberStore,
   SetAccessResult,
   TakeOverResult,
   TakeoverRecord,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   and,
   asc,

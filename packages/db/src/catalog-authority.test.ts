@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
 import {
   type CatalogProfile,
   catalogRevision,
@@ -9,8 +8,9 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   WorkerGatewayError,
-} from "@werft-ai/platform";
-import { testCaller } from "@werft-ai/testkit/callers";
+} from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
+import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

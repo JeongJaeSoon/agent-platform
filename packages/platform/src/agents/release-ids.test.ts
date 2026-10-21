@@ -4,7 +4,7 @@ import {
   type AgentRelease,
   agentCardSchema,
   agentReleaseSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type CatalogProfile,
   profileFingerprint,

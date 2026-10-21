@@ -1,4 +1,4 @@
-import type { ReceiptStatus } from "@werft-ai/contracts";
+import type { ReceiptStatus } from "@agent-platform/contracts";
 import type { JSX } from "react";
 
 import { cn } from "../lib/cn.ts";

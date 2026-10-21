@@ -1,6 +1,6 @@
+import { SESSION_STATUS_VALUES } from "@agent-platform/contracts";
+import { SessionStatusLabel } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SESSION_STATUS_VALUES } from "@werft-ai/contracts";
-import { SessionStatusLabel } from "@werft-ai/ui";
 
 import { SESSION_ROW_MESSAGES } from "./session-fixtures.ts";
 

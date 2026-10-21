@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
-import { SESSION_SCOPE_VALUES } from "@werft-ai/contracts";
+import { SESSION_SCOPE_VALUES } from "@agent-platform/contracts";
 import {
   type AcceptInviteInput,
   type ActingOwner,
   BootstrapDoneError,
   callerFor,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+} from "@agent-platform/testkit/postgres";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

@@ -3,7 +3,7 @@ import type {
   AgentAdminStore,
   AgentAdmins,
   TeamActor,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   and,
   asc,

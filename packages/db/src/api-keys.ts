@@ -2,12 +2,12 @@ import {
   type SessionScope,
   scopesForRole,
   type WorkspaceRole,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   Principal,
   WorkspaceKey,
   WorkspaceKeyStore,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   and,
   desc,

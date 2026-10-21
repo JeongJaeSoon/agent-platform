@@ -8,14 +8,14 @@ import {
   inviteIdParamsSchema,
   listInvitesResponseSchema,
   normalizeEmail,
-} from "@werft-ai/contracts";
-import type { StructuredLogger } from "@werft-ai/observability";
+} from "@agent-platform/contracts";
+import type { StructuredLogger } from "@agent-platform/observability";
 import type {
   AcceptInviteInput,
   IdentityStore,
   InviteService,
   InviteStore,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   ApiHttpError,
   type ApiRouter,

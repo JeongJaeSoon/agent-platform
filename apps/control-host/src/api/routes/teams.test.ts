@@ -6,12 +6,12 @@ import {
   REQUEST_BODY_MAX_BYTES,
   type TeamView,
   teamChangeResponseSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type AgentAdminService,
   SessionServiceError,
   type TeamService,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerTeamRoutes } from "./teams.ts";
 

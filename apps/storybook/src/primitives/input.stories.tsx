@@ -1,11 +1,11 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
   Input,
-} from "@werft-ai/ui";
+} from "@agent-platform/ui";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta = {
   title: "Primitives/Input",

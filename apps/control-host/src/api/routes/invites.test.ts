@@ -8,7 +8,7 @@ import {
   DISPLAY_NAME_MAX,
   listInvitesResponseSchema,
   WEB_SESSION_COOKIE_NAME,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type AcceptInviteInput,
   type AuthorizationPolicy,
@@ -19,7 +19,7 @@ import {
   type InviteRecord,
   type InviteService,
   type InviteStore,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import { hashPassword, hashWebSessionToken, LoginLockout } from "../auth.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerInviteRoutes, registerPublicInviteRoutes } from "./invites.ts";

@@ -1,7 +1,7 @@
 import type {
   AuthorizationDecision,
   AuthorizationRequest,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 
 export interface DecisionLog {
   record(entry: {

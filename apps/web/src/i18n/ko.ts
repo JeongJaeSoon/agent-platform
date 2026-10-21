@@ -1,4 +1,4 @@
-import { flowKo, formsKo, sessionsKo } from "@werft-ai/react";
+import { flowKo, formsKo, sessionsKo } from "@agent-platform/react";
 import { agentsKo } from "./agents.ts";
 import { apiKeysKo } from "./api-keys.ts";
 import { authKo } from "./auth.ts";

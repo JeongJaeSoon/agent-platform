@@ -9,7 +9,7 @@ import {
   type SessionScope,
   scopesForRole,
   type WorkspaceRole,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type AgentAuthority,
   type Caller,

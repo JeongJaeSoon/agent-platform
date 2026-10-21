@@ -1,7 +1,7 @@
 import type {
   SessionEventName,
   SessionEventPayload,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { ContractIssue } from "./contract.ts";
 
 /** One `text/event-stream` frame as it came off the wire. */

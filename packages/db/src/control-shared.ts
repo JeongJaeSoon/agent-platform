@@ -1,9 +1,9 @@
-import type { ReceiptActor } from "@werft-ai/contracts";
+import type { ReceiptActor } from "@agent-platform/contracts";
 import {
   type Principal,
   type SessionBudget,
   storedPendingReasonHoldsWork,
-} from "@werft-ai/platform";
+} from "@agent-platform/platform";
 import {
   and,
   asc,

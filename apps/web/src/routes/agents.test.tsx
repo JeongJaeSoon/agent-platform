@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { ApiError } from "@werft-ai/client";
-import { agentDetailSchema } from "@werft-ai/contracts";
-import { setupUser } from "@werft-ai/ui/test-support/dom";
+import type { ApiError } from "@agent-platform/client";
+import { agentDetailSchema } from "@agent-platform/contracts";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { queryKeys } from "../api/queries.ts";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
@@ -343,8 +343,8 @@ describe("새 에이전트", () => {
     expect(model.value).toBe("");
     expect([...model.options].map((option) => option.textContent)).toEqual([
       "모델을 고르세요",
-      "claude-haiku-5 · claude-coding-fast",
-      "claude-sonnet-5 · claude-coding-local",
+      "claude-haiku-5",
+      "claude-sonnet-5",
     ]);
     await user.selectOptions(model, CARD.model);
     await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
@@ -457,6 +457,36 @@ describe("새 에이전트", () => {
     expect(
       link.closest("li")?.querySelector("[data-slot=badge]")?.textContent,
     ).toBe("초안");
+  });
+
+  test("초안을 다시 저장해도 다른 곳에서 넣은 말투는 글자 그대로 남는다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+    const first = server.versions[0] as (typeof server.versions)[number];
+    server.versions.push({
+      ...first,
+      id: "7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b",
+      version_no: 2,
+      card: { ...first.card, tone: " 공손하게 " },
+    });
+
+    act(() => history.back());
+    await atStep("하는 일");
+    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    const card = (patch?.body as { card: { tone?: string } }).card;
+    expect(card.tone).toBe(" 공손하게 ");
   });
 
   test("초안을 저장한 뒤 뒤로 가서 고치면 새로 만들지 않고 그 초안을 고친다", async () => {
@@ -1026,10 +1056,10 @@ describe("편집 중 다른 곳의 저장", () => {
         .map((id) => document.getElementById(id)?.textContent)
         .join(" ");
     expect(await described("모델")).toContain(
-      "release할 프로필의 모델과 정확히 같아야 합니다",
+      "release할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
     );
     expect(await described("프로필")).toBe(
-      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
+      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다 프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
     );
     expect(document.body.textContent).not.toContain("profiles.yaml");
   });

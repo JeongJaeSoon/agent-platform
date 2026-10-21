@@ -4,7 +4,7 @@ import type {
   AgentDetail,
   AgentRelease,
   AgentVersion,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 /** A release as the service builds it; the store stamps the times. */

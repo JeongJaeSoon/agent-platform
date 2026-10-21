@@ -3,7 +3,7 @@ import {
   SESSION_SCOPE_VALUES,
   scopesForRole,
   type WorkspaceRole,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type {
   InviteRecord,
   InviteStore,

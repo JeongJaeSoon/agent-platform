@@ -1,5 +1,5 @@
+import { Stepper, type StepperStep } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Stepper, type StepperStep } from "@werft-ai/ui";
 import { useState } from "react";
 
 const STEPS: StepperStep[] = [

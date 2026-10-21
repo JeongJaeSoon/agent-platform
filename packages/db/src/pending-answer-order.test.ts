@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
-import type { WorkerScope } from "@werft-ai/contracts";
+import type { WorkerScope } from "@agent-platform/contracts";
 import {
   createAuthorizationPolicy,
   createPendingRequestService,
@@ -10,8 +9,9 @@ import {
   SessionServiceError,
   type WorkerGateway,
   type WorkerPrincipal,
-} from "@werft-ai/platform";
-import { testCaller } from "@werft-ai/testkit/callers";
+} from "@agent-platform/platform";
+import { testCaller } from "@agent-platform/testkit/callers";
+import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { loginMethodsResponseSchema } from "@werft-ai/contracts";
-import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { loginMethodsResponseSchema } from "@agent-platform/contracts";
+import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 

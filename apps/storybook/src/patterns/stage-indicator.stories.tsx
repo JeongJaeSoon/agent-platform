@@ -1,6 +1,6 @@
+import { presentTurnEvent } from "@agent-platform/contracts";
+import { StageIndicator } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { presentTurnEvent } from "@werft-ai/contracts";
-import { StageIndicator } from "@werft-ai/ui";
 
 import { formatMessage } from "./session-fixtures.ts";
 

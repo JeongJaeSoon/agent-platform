@@ -7,7 +7,7 @@ import {
   type PullRequestReceiptResult,
   type PullRequestRefusal,
   pushBranchFor,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import {
   ForgeCredentialError,

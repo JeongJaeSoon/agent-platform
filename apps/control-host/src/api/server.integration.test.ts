@@ -4,14 +4,17 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as schema from "@werft-ai/db";
+import * as schema from "@agent-platform/db";
 import {
   apiKeys,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
   sessions,
-} from "@werft-ai/db";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+} from "@agent-platform/db";
+import {
+  acceptAllCheckpoints,
+  createWorkerGateway,
+} from "@agent-platform/platform";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";

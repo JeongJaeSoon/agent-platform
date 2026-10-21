@@ -41,7 +41,7 @@ async function runtimeGraph(entry: string): Promise<Set<string>> {
       if (path.startsWith("node:")) continue;
       if (path.startsWith(".")) {
         await visit(resolve(dirname(file), path));
-      } else if (path.startsWith("@werft-ai/")) {
+      } else if (path.startsWith("@agent-platform/")) {
         await visit(Bun.resolveSync(path, dirname(file)));
       } else {
         external.add(packageName(path));

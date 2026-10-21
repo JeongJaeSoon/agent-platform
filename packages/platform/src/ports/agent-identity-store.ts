@@ -3,7 +3,7 @@ import type {
   AgentIdentityStatus,
   SlackEventDropReason,
   WorkspaceRole,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type AgentIdentityRecord = {

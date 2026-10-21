@@ -1,6 +1,6 @@
+import type { SessionSummary } from "@agent-platform/contracts";
+import { waitingSessionsQuery } from "@agent-platform/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SessionSummary } from "@werft-ai/contracts";
-import { waitingSessionsQuery } from "@werft-ai/core";
 import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
 import { useAgentPlatform } from "../provider.tsx";
 import { usePendingRequests } from "../sessions.ts";

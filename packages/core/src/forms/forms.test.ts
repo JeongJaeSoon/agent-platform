@@ -4,7 +4,7 @@ import {
   acceptInviteRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
-} from "@werft-ai/contracts";
+} from "@agent-platform/contracts";
 import {
   type AgentCardDraft,
   acceptInviteStep,
