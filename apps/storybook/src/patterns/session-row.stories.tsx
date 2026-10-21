@@ -9,7 +9,7 @@ const meta = {
   component: SessionRow,
   args: {
     session: SESSION,
-    href: `/sessions/${SESSION.id}`,
+    renderLink: (link) => <a href={`/sessions/${SESSION.id}`} {...link} />,
     messages: SESSION_ROW_MESSAGES,
     locale: "en",
   },
