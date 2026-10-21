@@ -24,6 +24,17 @@ const created = () =>
     expires_at: "2026-10-18T00:00:00.000Z",
   });
 
+// Each answer a token of its own, as the server gives.
+const createdEach = () => {
+  let n = 0;
+  return () =>
+    json(201, {
+      invite_id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+      invite_token: `${"k".repeat(42)}${n++}`,
+      expires_at: "2026-10-18T00:00:00.000Z",
+    });
+};
+
 function renderMembers(invite: () => Response = created) {
   return renderAt("/members", {
     "GET /v1/auth/me": () => json(200, me()),
@@ -314,7 +325,7 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
   });
 
   test("앞 링크를 복사한 뒤 뒤로 가서 새로 만든 링크는 다시 묻는다", async () => {
-    const { history } = renderMembers();
+    const { history } = renderMembers(createdEach());
     const { user, dialog } = await toLink();
     await copy(user, dialog);
     history.back();
@@ -328,6 +339,42 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     expect(within(dialog).queryByText("초대 링크를 복사했습니다.")).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
+  });
+
+  test("앞 링크의 복사가 새 링크를 만든 뒤에 끝나도 새 링크는 다시 묻는다", async () => {
+    let finish: () => void = () => {};
+    const { history } = renderMembers(createdEach());
+    // After setupUser, which installs a clipboard of its own.
+    const { user, dialog } = await toLink();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      },
+    });
+    try {
+      await user.click(
+        within(dialog).getByRole("button", { name: "링크 복사" }),
+      );
+      history.back();
+      const email = await within(dialog).findByLabelText("이메일");
+      await user.type(email, "other@example.com");
+      await user.click(
+        within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+      );
+      await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+      finish();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+      expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   test("복사한 뒤에는 묻지 않고 닫힌다", async () => {

@@ -150,7 +150,8 @@ function InviteFlow({
   const role = useRole();
   const [url, setUrl] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [copied, setCopied] = useState(false);
+  // Which link the clipboard took: a late copy of an earlier one is not this one.
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const linkRef = useRef<HTMLInputElement>(null);
   // A request still out when the dialog closes must not move the next opening.
   const mounted = useRef(false);
@@ -176,7 +177,7 @@ function InviteFlow({
     currentStepId: funnel.step,
   });
   // Only the link step asks: after browser Back the link is already off screen.
-  const uncopied = funnel.step === "link" && url !== null && !copied;
+  const uncopied = funnel.step === "link" && url !== null && copiedUrl !== url;
   useEffect(() => {
     onUncopied(uncopied);
     return () => onUncopied(false);
@@ -192,8 +193,7 @@ function InviteFlow({
     gcTime: 0,
     onSuccess: async (created) => {
       if (mounted.current) {
-        // A new link, reached again after browser Back: nothing of it is copied.
-        setCopied(false);
+        // A new link after browser Back: the last one's copy notice is not about it.
         setOutcome(null);
         setUrl(
           `${window.location.origin}/invite/${encodeURIComponent(created.invite_token)}`,
@@ -257,7 +257,6 @@ function InviteFlow({
                     confirmLeave(() => {
                       setUrl(null);
                       setOutcome(null);
-                      setCopied(false);
                       // Detach the observer so gcTime 0 drops the response too.
                       invite.reset();
                       void history.replace("details", {});
@@ -271,7 +270,7 @@ function InviteFlow({
                   variant="outline"
                   onClick={() => {
                     void copyText(url, linkRef).then((worked) => {
-                      if (worked) setCopied(true);
+                      if (worked) setCopiedUrl(url);
                       setOutcome(
                         worked
                           ? { kind: "notice", text: t("members.invite.copied") }
