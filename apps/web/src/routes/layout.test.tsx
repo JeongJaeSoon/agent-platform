@@ -111,6 +111,22 @@ describe("app shell", () => {
     expect(link.textContent).toContain("1+");
   });
 
+  test("retry on the shell's error screen asks who is signed in again", async () => {
+    let failures = 1;
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () =>
+        failures-- > 0
+          ? json(500, { error: { code: "INTERNAL" } })
+          : json(200, me()),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(
+      api.calls.filter((call) => call.path === "/v1/auth/me"),
+    ).toHaveLength(2);
+  });
+
   test("nothing waiting, or a list that failed, shows no badge", async () => {
     renderAt("/", {
       ...signedIn,
