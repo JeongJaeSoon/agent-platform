@@ -105,7 +105,7 @@ export function AgentsScreen() {
                   {agent.name}
                 </Link>
                 <span className="web-table__secondary">
-                  {agent.slug} ·{" "}
+                  {t("agents.slugLine", { slug: agent.slug })} ·{" "}
                   {t("agents.updated", {
                     at: formatTimestamp(agent.updated_at, locale),
                   })}

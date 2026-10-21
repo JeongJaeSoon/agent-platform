@@ -73,6 +73,14 @@ type IssueRequest = Pick<CreateApiKeyRequest, "kind" | "scopes"> & {
 // D26: a key bound to an agent never stands in for a person's approval.
 const AGENT_KEY_WITHHELD: readonly SessionScope[] = ["sessions:approve"];
 
+const SCOPE_NAME: Record<SessionScope, MessageKey> = {
+  "sessions:read": "apiKeys.scope.read",
+  "sessions:write": "apiKeys.scope.write",
+  "sessions:approve": "apiKeys.scope.approve",
+  "sessions:control": "apiKeys.scope.control",
+  "sessions:recover": "apiKeys.scope.recover",
+};
+
 // What the server lets each scope do (ACTION_SCOPES in packages/platform).
 const SCOPE_HINT: Record<SessionScope, MessageKey> = {
   "sessions:read": "apiKeys.scopeHint.read",
@@ -254,7 +262,9 @@ function ScopePicker({
             }
           />
           <FieldContent>
-            <FieldLabel className="font-mono">{scope}</FieldLabel>
+            <FieldLabel>
+              {t(SCOPE_NAME[scope])} <code className="font-mono">{scope}</code>
+            </FieldLabel>
             <FieldDescription>{t(SCOPE_HINT[scope])}</FieldDescription>
             {withheld.includes(scope) ? (
               <FieldDescription>{t("apiKeys.agentNoApprove")}</FieldDescription>
@@ -582,7 +592,8 @@ function KeyList({
                   <span className={PRIMARY}>{label}</span>
                   <span className={SECONDARY}>
                     {t("apiKeys.keyId", { id: shortId(key.id) })} ·{" "}
-                    {key.scopes.join(", ")} ·{" "}
+                    {key.scopes.map((scope) => t(SCOPE_NAME[scope])).join(", ")}{" "}
+                    ·{" "}
                     {t("apiKeys.createdAt", {
                       at: formatTimestamp(key.created_at, locale),
                     })}

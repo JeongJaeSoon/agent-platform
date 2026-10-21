@@ -20,6 +20,11 @@ export const apiKeysKo = {
   "apiKeys.agentNoApprove":
     "에이전트 전용 key에는 넣을 수 없습니다. 에이전트가 사람 대신 승인할 수는 없습니다.",
   "apiKeys.scopes": "권한",
+  "apiKeys.scope.read": "세션 보기",
+  "apiKeys.scope.write": "세션 만들기",
+  "apiKeys.scope.approve": "요청에 답하기",
+  "apiKeys.scope.control": "세션 제어",
+  "apiKeys.scope.recover": "세션 복구",
   "apiKeys.scopeHint.read":
     "세션과 그 턴·이벤트·영수증·사용량·공유 설정, 답을 기다리는 요청을 읽습니다.",
   "apiKeys.scopeHint.write": "새 세션을 시작하고 세션에 메시지를 보냅니다.",
@@ -77,6 +82,11 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.agentNoApprove":
     "Not available for agent keys — an agent key cannot approve on a person's behalf.",
   "apiKeys.scopes": "Permissions",
+  "apiKeys.scope.read": "View sessions",
+  "apiKeys.scope.write": "Create sessions",
+  "apiKeys.scope.approve": "Answer requests",
+  "apiKeys.scope.control": "Control sessions",
+  "apiKeys.scope.recover": "Recover sessions",
   "apiKeys.scopeHint.read":
     "Read sessions with their turns, events, receipts, usage and sharing, and the requests waiting for an answer.",
   "apiKeys.scopeHint.write": "Start sessions and send messages to them.",

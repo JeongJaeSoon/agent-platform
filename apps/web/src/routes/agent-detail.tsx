@@ -212,10 +212,13 @@ function AgentView({
         </span>
       </div>
       <p className="web-table__secondary">
-        {agent.slug} ·{" "}
-        {t("agent.activeRelease", {
-          release: releaseLabel(agent.active_release_id),
-        })}
+        {t("agents.slugLine", { slug: agent.slug })}
+        {/* Without one, the badge already says so. */}
+        {agent.active_release_id
+          ? ` · ${t("agent.activeRelease", {
+              release: releaseLabel(agent.active_release_id),
+            })}`
+          : null}
       </p>
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <CardEditor
@@ -545,8 +548,7 @@ function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
           <li key={version.id} className="web-list__item">
             <span className="web-table__primary">{label(version)}</span>
             <span className="web-table__secondary">
-              {formatTimestamp(version.created_at, locale)} ·{" "}
-              {version.content_sha256.slice(0, 12)}
+              {formatTimestamp(version.created_at, locale)}
               {version.id === activeVersionId
                 ? ` · ${t("agent.versions.active")}`
                 : ""}

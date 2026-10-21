@@ -181,7 +181,7 @@ describe("주소 이름 형식", () => {
   });
 
   for (const item of [
-    { path: "/bootstrap", label: "워크스페이스 주소 이름", routes: {} },
+    { path: "/bootstrap", label: "워크스페이스 식별자 (slug)", routes: {} },
   ]) {
     test(`${item.path}: 형식이 틀리면 허용 형식을 알려 준다`, async () => {
       renderAt(item.path, item.routes);

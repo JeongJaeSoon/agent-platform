@@ -4,7 +4,10 @@ export const authKo = {
   "login.password": "비밀번호",
   "login.submit": "로그인",
   "login.submitting": "로그인하는 중…",
-  "login.bootstrapPrompt": "처음 설치했다면 소유자부터 만드세요.",
+  "login.bootstrapPrompt":
+    "첫 소유자는 설치 때 출력된 bootstrap 토큰으로 한 번만 만들 수 있습니다.",
+  "login.signedIn": "이미 {email} 계정으로 로그인되어 있습니다.",
+  "login.signedInHome": "워크스페이스로 가기",
   "login.bootstrapLink": "첫 소유자 만들기",
   "login.notice.bootstrapDone":
     "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
@@ -29,15 +32,16 @@ export const authKo = {
 
   "bootstrap.title": "첫 소유자 만들기",
   "bootstrap.intro":
-    "설치할 때 한 번 출력된 bootstrap 토큰으로 첫 소유자와 워크스페이스를 만듭니다. 토큰은 한 번만 쓸 수 있습니다.",
+    "설치 때 출력된 bootstrap 토큰으로 첫 소유자와 워크스페이스를 만듭니다. 토큰은 한 번만 쓸 수 있고, 소유자가 이미 있으면 로그인 화면으로 안내합니다.",
   "bootstrap.token": "Bootstrap 토큰",
   "bootstrap.email": "소유자 이메일",
   "bootstrap.displayName": "이름",
   "bootstrap.password": "비밀번호",
   "bootstrap.passwordHint": "{min}자 이상",
   "bootstrap.workspaceName": "워크스페이스 이름",
-  "bootstrap.workspaceSlug": "워크스페이스 주소 이름",
-  "bootstrap.workspaceSlugHint": "영문 소문자, 숫자, 하이픈(-)",
+  "bootstrap.workspaceSlug": "워크스페이스 식별자 (slug)",
+  "bootstrap.workspaceSlugHint":
+    "워크스페이스를 서로 구분하는 이름이라 다른 워크스페이스와 겹칠 수 없고, 나중에 바꿀 수 없습니다. 영문 소문자, 숫자, 하이픈(-)",
   "bootstrap.submit": "소유자 만들기",
   "bootstrap.submitting": "만드는 중…",
   "bootstrap.tokenInvalid":
@@ -88,7 +92,10 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "login.password": "Password",
   "login.submit": "Log in",
   "login.submitting": "Logging in…",
-  "login.bootstrapPrompt": "Just installed? Create the first owner.",
+  "login.bootstrapPrompt":
+    "The first owner is created once, with the bootstrap token printed during installation.",
+  "login.signedIn": "You are already logged in as {email}.",
+  "login.signedInHome": "Go to the workspace",
   "login.bootstrapLink": "Create the first owner",
   "login.notice.bootstrapDone":
     "An owner already exists. Log in with that account.",
@@ -112,15 +119,16 @@ export const authEn: Record<keyof typeof authKo, string> = {
 
   "bootstrap.title": "Create the first owner",
   "bootstrap.intro":
-    "Enter the bootstrap token printed once during installation to create the first owner and the workspace. The token works only once.",
+    "Enter the bootstrap token printed during installation to create the first owner and the workspace. The token works only once; if an owner already exists, you are sent to log in.",
   "bootstrap.token": "Bootstrap token",
   "bootstrap.email": "Owner email",
   "bootstrap.displayName": "Name",
   "bootstrap.password": "Password",
   "bootstrap.passwordHint": "At least {min} characters",
   "bootstrap.workspaceName": "Workspace name",
-  "bootstrap.workspaceSlug": "Workspace URL name",
-  "bootstrap.workspaceSlugHint": "Lowercase letters, digits and hyphens (-)",
+  "bootstrap.workspaceSlug": "Workspace identifier (slug)",
+  "bootstrap.workspaceSlugHint":
+    "Tells workspaces apart, so no other workspace can use it, and it cannot be changed later. Lowercase letters, digits and hyphens (-)",
   "bootstrap.submit": "Create owner",
   "bootstrap.submitting": "Creating…",
   "bootstrap.tokenInvalid":

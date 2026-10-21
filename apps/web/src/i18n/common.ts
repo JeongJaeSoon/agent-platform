@@ -29,9 +29,8 @@ export const commonKo = {
   "status.notFound.body": "주소가 바뀌었거나 없는 화면입니다.",
   "status.notFound.action": "홈으로",
   "status.loadFailed": "불러오지 못했습니다",
-  "status.loginRequired.title": "다시 로그인하세요",
-  "status.loginRequired.body":
-    "로그아웃됐거나 이 계정으로는 더 이상 로그인할 수 없습니다.",
+  "status.loginRequired.title": "로그인이 필요합니다",
+  "status.loginRequired.body": "로그인하면 열려던 화면으로 돌아갑니다.",
   "status.loginRequired.action": "로그인 화면으로",
   "status.forbidden.title": "이 화면을 볼 권한이 없습니다",
   "status.forbidden.body":
@@ -95,9 +94,9 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "status.notFound.body": "The address changed, or there is no such page.",
   "status.notFound.action": "Go home",
   "status.loadFailed": "Could not load this",
-  "status.loginRequired.title": "Log in again",
+  "status.loginRequired.title": "Log in to continue",
   "status.loginRequired.body":
-    "You were logged out, or this account can no longer log in.",
+    "After you log in, you go back to the page you were opening.",
   "status.loginRequired.action": "Log in",
   "status.forbidden.title": "You do not have access to this page",
   "status.forbidden.body":

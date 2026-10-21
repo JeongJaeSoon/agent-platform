@@ -304,7 +304,7 @@ function AccountStep({
   );
 }
 
-const FIELDS = ["password", "display_name"] as const;
+const FIELDS = ["display_name", "password"] as const;
 
 function PasswordStep({
   account,
@@ -349,6 +349,19 @@ function PasswordStep({
       {alerts.map((alert) => (
         <FormError key={alert}>{alert}</FormError>
       ))}
+      {account === "new" ? (
+        <Field>
+          <FieldLabel>{t("invite.displayName")}</FieldLabel>
+          <Input
+            type="text"
+            autoComplete="name"
+            maxLength={DISPLAY_NAME_MAX}
+            {...form.register("display_name")}
+          />
+          <FieldDescription>{t("invite.displayNameHint")}</FieldDescription>
+          <FieldError>{errors.display_name?.message}</FieldError>
+        </Field>
+      ) : null}
       <Field>
         <FieldLabel>{t("invite.password")}</FieldLabel>
         <Input
@@ -363,19 +376,6 @@ function PasswordStep({
         </FieldDescription>
         <FieldError>{errors.password?.message}</FieldError>
       </Field>
-      {account === "new" ? (
-        <Field>
-          <FieldLabel>{t("invite.displayName")}</FieldLabel>
-          <Input
-            type="text"
-            autoComplete="name"
-            maxLength={DISPLAY_NAME_MAX}
-            {...form.register("display_name")}
-          />
-          <FieldDescription>{t("invite.displayNameHint")}</FieldDescription>
-          <FieldError>{errors.display_name?.message}</FieldError>
-        </Field>
-      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={onBack}>
           {t("invite.back")}

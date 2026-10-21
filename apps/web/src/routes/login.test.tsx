@@ -146,3 +146,48 @@ describe("Google 콜백", () => {
     expect(api.calls).toEqual([]);
   });
 });
+
+describe("로그인 화면 안내", () => {
+  test("로그인에 실패하면 '소유자를 만들었습니다' 알림을 거둔다", async () => {
+    renderAt("/login?notice=created", {
+      ...methods("password"),
+      "POST /v1/auth/login": () =>
+        apiError(401, "UNAUTHORIZED", "Invalid credentials"),
+    });
+    expect(await screen.findByText(/소유자를 만들었습니다/)).toBeDefined();
+    const user = await setupUser();
+    await user.type(screen.getByLabelText("이메일"), "owner@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "wrong-wrong-wrong");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    expect(await screen.findByRole("alert")).toBeDefined();
+    expect(screen.queryByText(/소유자를 만들었습니다/)).toBeNull();
+  });
+
+  test("이미 로그인했으면 그 계정과 워크스페이스로 가는 링크를 보인다", async () => {
+    renderAt("/login", {
+      ...methods("password"),
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    expect(
+      await screen.findByText(/이미 owner@example.com 계정으로/),
+    ).toBeDefined();
+    expect(
+      screen
+        .getByRole("link", { name: "워크스페이스로 가기" })
+        .getAttribute("href"),
+    ).toBe("/");
+  });
+
+  test("로그인하지 않았으면 그 안내가 없다", async () => {
+    renderAt("/login", {
+      ...methods("password"),
+      "GET /v1/auth/me": () =>
+        apiError(401, "UNAUTHORIZED", "Authentication is required"),
+    });
+    expect(await screen.findByLabelText("비밀번호")).toBeDefined();
+    await waitFor(() =>
+      expect(screen.queryByText(/이미 .* 계정으로/)).toBeNull(),
+    );
+    expect(screen.queryByText("로그인이 필요합니다")).toBeNull();
+  });
+});

@@ -45,12 +45,12 @@ describe("상태 화면", () => {
     ).toBeDefined();
   });
 
-  test("401이면 로그인 화면이 '다시 로그인' 문구로 열리고 돌아올 곳을 기억한다", async () => {
+  test("401이면 로그인 화면이 '로그인 필요' 문구로 열리고 돌아올 곳을 기억한다", async () => {
     const { history } = renderAt("/", {
       "GET /v1/auth/me": () =>
         apiError(401, "UNAUTHORIZED", "Authentication is required"),
     });
-    expect(await screen.findByText("다시 로그인하세요")).toBeDefined();
+    expect(await screen.findByText("로그인이 필요합니다")).toBeDefined();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "로그인",
     );
@@ -71,13 +71,18 @@ describe("상태 화면", () => {
     expect(alert.textContent).toContain("이 화면을 볼 권한이 없습니다");
     expect(document.body.textContent).not.toContain("does not hold");
     expect(document.body.textContent).not.toContain("sessions:read");
-    expect(screen.queryByText("다시 로그인하세요")).toBeNull();
+    expect(screen.queryByText("로그인이 필요합니다")).toBeNull();
   });
 
-  test("bootstrap 화면은 소유자가 없다는 문구로 열린다", async () => {
+  // Nothing public says whether an owner exists, so the screen must not claim it.
+  test("bootstrap 화면은 소유자 유무를 단정하지 않고 안내를 한 번만 한다", async () => {
     renderAt("/bootstrap", {});
-    expect(await screen.findByText("아직 소유자가 없습니다")).toBeDefined();
-    expect(screen.queryByText("다시 로그인하세요")).toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: "첫 소유자 만들기" }),
+    ).toBeDefined();
+    expect(screen.queryByText("아직 소유자가 없습니다")).toBeNull();
+    expect(screen.getAllByText(/설치 때 출력된/)).toHaveLength(1);
+    expect(screen.queryByText("로그인이 필요합니다")).toBeNull();
     expect(screen.queryByText("이 화면을 볼 권한이 없습니다")).toBeNull();
   });
 
@@ -160,7 +165,7 @@ describe("workspace shell", () => {
     expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
     expired = true;
     await services.queryClient.refetchQueries({ queryKey: ["me"] });
-    expect(await screen.findByText("다시 로그인하세요")).toBeDefined();
+    expect(await screen.findByText("로그인이 필요합니다")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
     expect(screen.queryByText("Acme")).toBeNull();
     expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
@@ -251,7 +256,10 @@ describe("bootstrap", () => {
     await user.type(screen.getByLabelText("이름"), "Owner");
     await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
     await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
-    await user.type(screen.getByLabelText("워크스페이스 주소 이름"), "acme");
+    await user.type(
+      screen.getByLabelText("워크스페이스 식별자 (slug)"),
+      "acme",
+    );
     await user.click(screen.getByRole("button", { name: "소유자 만들기" }));
   }
 
@@ -279,6 +287,10 @@ describe("bootstrap", () => {
       email: "owner@example.com",
       workspace_slug: "acme",
     });
+    expect((screen.getByLabelText("이메일") as HTMLInputElement).value).toBe(
+      "owner@example.com",
+    );
+    expect(history.location.search).not.toContain("owner");
   });
 
   test("이미 끝났으면(409) 로그인으로 보낸다", async () => {

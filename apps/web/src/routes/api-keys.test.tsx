@@ -191,13 +191,29 @@ describe("API key", () => {
     await waitFor(() => expect(cached()).toBe(false));
   });
 
+  test("권한은 이름과 설명으로 고르고, 목록도 이름으로 보인다", async () => {
+    renderAt("/settings/api-keys", {
+      ...memberOk,
+      ...keysServer([key({ scopes: ["sessions:read", "sessions:write"] })]),
+    });
+    const [read] = await screen.findAllByRole("checkbox", {
+      name: "세션 보기 sessions:read",
+    });
+    expect(describedBy(read as HTMLElement)[0]).toContain(
+      "영수증·사용량·공유 설정",
+    );
+    expect(
+      await screen.findByText(/ID [0-9a-f]{8} · 세션 보기, 세션 만들기 · /),
+    ).toBeDefined();
+  });
+
   test("승인 범위만 고르면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
     renderAt("/settings/api-keys", { ...memberOk, ...keysServer() });
     const user = await setupUser();
     await screen.findByRole("option", { name: "Billing" });
     const service = screen.getByRole("region", { name: "서비스 key" });
     await user.click(
-      within(service).getByRole("checkbox", { name: "sessions:read" }),
+      within(service).getByRole("checkbox", { name: /sessions:read/ }),
     );
     await user.click(
       within(service).getByRole("checkbox", { name: /sessions:approve/ }),
@@ -416,7 +432,9 @@ describe("API key", () => {
       renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() }, locale);
       const personal = await screen.findByRole("region", { name: region });
       for (const scope of SESSION_SCOPE_VALUES) {
-        const box = within(personal).getByRole("checkbox", { name: scope });
+        const box = within(personal).getByRole("checkbox", {
+          name: new RegExp(`${scope}$`),
+        });
         const hint = `apiKeys.scopeHint.${scope.slice("sessions:".length)}`;
         expect(describedBy(box)).toEqual([
           catalog[hint as keyof typeof catalog],
@@ -430,7 +448,9 @@ describe("API key", () => {
     const service = await screen.findByRole("region", { name: "서비스 key" });
     expect(
       describedBy(
-        within(service).getByRole("checkbox", { name: "sessions:approve" }),
+        within(service).getByRole("checkbox", {
+          name: "요청에 답하기 sessions:approve",
+        }),
       ),
     ).toEqual([
       "세션이 기다리는 권한 요청과 질문에 답합니다.",

@@ -9,7 +9,8 @@ export const agentsKo = {
   "agent.notFound.back": "에이전트 목록으로",
   "agents.empty": "아직 에이전트가 없습니다. 새 에이전트를 눌러 만드세요.",
   "agents.updated": "{at} 수정",
-  "agents.state.notReleased": "활성 release 없음",
+  "agents.slugLine": "식별자 {slug}",
+  "agents.state.notReleased": "아직 쓸 수 없음",
   "agents.state.draft": "초안",
   "agents.status.active": "활성",
   "agents.status.paused": "일시정지",
@@ -20,7 +21,7 @@ export const agentsKo = {
   "agents.name": "이름",
   "agents.slug": "식별자",
   "agents.slugHint":
-    "영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
+    "이 워크스페이스에서 에이전트를 구분하는 이름으로, 목록과 상세 화면에 보이고 다른 에이전트와 겹칠 수 없습니다. 영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
   "agents.slugLocked": "초안으로 저장해 식별자는 더 바꿀 수 없습니다",
   "agents.slugTaken":
     "이 식별자는 다른 에이전트가 이미 씁니다. '이름' 단계로 돌아가 식별자를 바꾸세요.",
@@ -35,7 +36,7 @@ export const agentsKo = {
   "agents.flow.saveDraft": "초안 저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseIntro":
-    "초안으로 저장했습니다. 카드를 runtime profile에 묶어 배포 판(release)을 만듭니다. 만들기만 해서는 세션이 쓰지 않습니다.",
+    "초안으로 저장했습니다. 카드를 프로필에 묶어 배포 판(release)을 만듭니다. 만들기만 해서는 세션이 쓰지 않습니다.",
   "agents.flow.createRelease": "배포 판 만들기",
   "agents.flow.activateIntro": "켜면 새 세션이 이 배포 판으로 시작합니다.",
   "agents.flow.turnOn": "에이전트 켜기",
@@ -54,12 +55,12 @@ export const agentsKo = {
   "agentCard.instructions": "지시 사항",
   "agentCard.tone": "말투",
   "agentCard.optional": "선택",
-  "agentCard.language": "언어",
+  "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "release할 runtime profile의 모델과 정확히 같아야 합니다. 옆에 적힌 것은 그 모델을 쓰는 profile입니다",
+    "release할 프로필의 모델과 정확히 같아야 합니다. 옆에 적힌 것은 그 모델을 쓰는 프로필입니다",
   "agentCard.tools": "쓸 수 있는 도구",
-  "agentCard.toolsAll": "runtime profile이 허용하는 도구 전부",
+  "agentCard.toolsAll": "프로필이 허용하는 도구 전부",
   "agentCard.toolsList": "고른 도구만",
   "agentCard.toolNames": "도구 이름",
   "agentCard.listHint": "한 줄에 하나",
@@ -67,7 +68,7 @@ export const agentsKo = {
   "agentCard.forbiddenHint":
     "한 줄에 하나. 에이전트는 이 도구를 쓸 수 없습니다",
   "agent.created":
-    "에이전트를 만들었습니다(version 1). release를 만들고 활성화해야 세션에서 쓸 수 있습니다.",
+    "에이전트를 만들었습니다(version 1). 세션에서 쓰려면 아래 release에서 version과 프로필을 골라 release를 만들고 활성화하세요.",
   "agent.noActive": "없음",
   "agent.activeRelease": "활성 release: {release}",
   "agent.releaseLabel": "version {version} · {profile}",
@@ -101,15 +102,15 @@ export const agentsKo = {
   "agent.versions.after": "비교 대상",
   "agent.releases.title": "release",
   "agent.releases.intro":
-    "release는 version을 runtime profile에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
+    "release는 version을 프로필에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
   "agent.releases.version": "version",
-  "agent.releases.profile": "runtime profile",
+  "agent.releases.profile": "프로필",
   "agent.releases.profileHint":
-    "각 profile과 그 profile이 쓰는 모델. 카드 모델과 같은 모델의 profile만 release할 수 있습니다",
+    "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
   "agent.releases.profileOption": "{profile} · {model}",
-  "agent.releases.profilesLoading": "profile 목록을 불러오는 중…",
+  "agent.releases.profilesLoading": "프로필 목록을 불러오는 중…",
   "agent.releases.profilesFailed":
-    "profile 목록을 불러오지 못했습니다: {reason}",
+    "프로필 목록을 불러오지 못했습니다: {reason}",
   "agent.releases.create": "release 만들기",
   "agent.releases.creating": "만드는 중…",
   "agent.releases.empty": "아직 release가 없습니다.",
@@ -167,7 +168,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.notFound.back": "Back to agents",
   "agents.empty": "No agents yet. Select New agent to create one.",
   "agents.updated": "updated {at}",
-  "agents.state.notReleased": "No active release",
+  "agents.slugLine": "identifier {slug}",
+  "agents.state.notReleased": "Not usable yet",
   "agents.state.draft": "Draft",
   "agents.status.active": "Active",
   "agents.status.paused": "Paused",
@@ -178,7 +180,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.name": "Name",
   "agents.slug": "Identifier",
   "agents.slugHint":
-    "Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved",
+    "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved",
   "agents.slugLocked":
     "The draft is saved, so the identifier can no longer change",
   "agents.slugTaken":
@@ -194,7 +196,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.saveDraft": "Save draft and continue",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseIntro":
-    "Saved as a draft. A release ties the card to a runtime profile. Sessions do not use a release until it is turned on.",
+    "Saved as a draft. A release ties the card to a profile. Sessions do not use a release until it is turned on.",
   "agents.flow.createRelease": "Create release",
   "agents.flow.activateIntro":
     "Once it is on, new sessions start with this release.",
@@ -213,19 +215,19 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.instructions": "Instructions",
   "agentCard.tone": "Tone",
   "agentCard.optional": "Optional",
-  "agentCard.language": "Language",
+  "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
-    "It must be exactly the model of the runtime profile you release to. Next to it are the profiles that run it",
+    "It must be exactly the model of the profile you release to. Next to it are the profiles that run it",
   "agentCard.tools": "Tools it may use",
-  "agentCard.toolsAll": "Every tool the runtime profile allows",
+  "agentCard.toolsAll": "Every tool the profile allows",
   "agentCard.toolsList": "Only the tools I choose",
   "agentCard.toolNames": "Tool names",
   "agentCard.listHint": "One per line",
   "agentCard.forbidden": "Blocked tools",
   "agentCard.forbiddenHint": "One per line. The agent can never use these",
   "agent.created":
-    "Agent created as version 1. To use it in sessions, create a release and activate it.",
+    "Agent created as version 1. To use it in sessions, pick a version and a profile under Releases below, create the release and activate it.",
   "agent.noActive": "none",
   "agent.activeRelease": "Active release: {release}",
   "agent.releaseLabel": "version {version} · {profile}",
@@ -258,9 +260,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.versions.after": "Compare to",
   "agent.releases.title": "Releases",
   "agent.releases.intro":
-    "A release pins a version to a runtime profile. Creating one changes nothing until you activate it.",
+    "A release pins a version to a profile. Creating one changes nothing until you activate it.",
   "agent.releases.version": "Version",
-  "agent.releases.profile": "Runtime profile",
+  "agent.releases.profile": "Profile",
   "agent.releases.profileHint":
     "Each profile and the model it runs. Only a profile running the card's model can be released to",
   "agent.releases.profileOption": "{profile} · {model}",
