@@ -201,6 +201,19 @@ describe("팀 화면", () => {
     expect(await screen.findByText("아직 속한 팀이 없습니다.")).toBeDefined();
   });
 
+  test("팀 상세를 볼 수 없는 사람에게도 화면 제목이 있다", async () => {
+    renderAt(`/teams/${TEAM_ID}`, {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET /v1/teams/${TEAM_ID}`]: () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "이 화면을 볼 권한이 없습니다",
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "팀" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "← 팀 목록" })).toBeDefined();
+  });
+
   test("팀을 관리하는 사람의 팀 화면에는 전체 목록만 있다", async () => {
     const server = teamServer();
     const { api } = renderAt("/teams", server.routes);

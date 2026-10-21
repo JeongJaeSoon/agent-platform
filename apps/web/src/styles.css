@@ -178,8 +178,7 @@ select:focus-visible,
   font-size: var(--ap-text-xl);
 }
 .web-page__empty,
-.web-page__intro,
-.web-page__back {
+.web-page__intro {
   margin: 0;
   color: var(--ap-color-muted-foreground);
 }
