@@ -56,11 +56,7 @@ body {
   box-sizing: border-box;
 }
 
-/*
- * Tailwind's preflight strips link styling; a link must still look like one.
- * For the screens not yet on packages/ui (W17); a Button drawn as a link
- * keeps its own colours.
- */
+/* Tailwind's preflight strips link styling; a link must still look like one. */
 .web-auth a:not([data-slot="button"]):not(.ap-button),
 .web-shell__main a:not([data-slot="button"]):not(.ap-button) {
   color: var(--ap-color-accent);

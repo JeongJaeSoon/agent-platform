@@ -3,7 +3,6 @@ import type { AuthMeResponse, WorkspaceRole } from "@agent-platform/contracts";
 export interface Recorded {
   readonly method: string;
   readonly path: string;
-  /** The query string with its "?", or "" without one. */
   readonly search: string;
   readonly headers: Headers;
   readonly body: unknown;
@@ -11,11 +10,7 @@ export interface Recorded {
 
 type Handler = (request: Request) => Response | Promise<Response>;
 
-/**
- * A fetch that answers by "METHOD /path?query" when such a route is given,
- * else by "METHOD /path", and records what it was sent, so a screen test can
- * assert on the request as well as on what it drew.
- */
+/** Answers by "METHOD /path?query" when that route exists, else by "METHOD /path", and records each request. */
 export function fakeApi(routes: Record<string, Handler>) {
   const calls: Recorded[] = [];
   const fetch = async (input: Request): Promise<Response> => {

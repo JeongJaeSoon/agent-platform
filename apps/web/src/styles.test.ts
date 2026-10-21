@@ -36,13 +36,11 @@ describe("styles.css", () => {
   });
 
   test("link colors leave links drawn as buttons alone", () => {
-    // `.web-auth a` outranks `.ap-button--primary` and painted its label in
-    // the button's own background color; a packages/ui Button drawn as a
-    // link is the same case under its own marker.
-    const rule = css.match(
-      /\*\/\s*([^{}/]*)\{\s*color: var\(--ap-color-accent\);/,
-    );
-    const selectors = (rule?.[1] ?? "").split(",").map((s) => s.trim());
+    const prelude =
+      css.match(/([^{}]*)\{\s*color: var\(--ap-color-accent\);/)?.[1] ?? "";
+    const selectors = (prelude.split("*/").pop() ?? "")
+      .split(",")
+      .map((s) => s.trim());
     expect(selectors.length).toBeGreaterThan(0);
     for (const selector of selectors)
       expect(selector).toEndWith('a:not([data-slot="button"]):not(.ap-button)');

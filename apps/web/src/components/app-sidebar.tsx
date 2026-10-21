@@ -42,13 +42,11 @@ export interface NavGroup {
   readonly items: readonly NavItem[];
 }
 
-/** The groups and items this viewer is offered, in sidebar order. */
 export function useNavGroups(): readonly NavGroup[] {
-  // Teams stays: a member's teams are listed there.
   const managesMembers = useHasPermission("member.manage");
-  // Admins see the screen with the owner-only parts disabled and explained.
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
+  const showsWorkspaceSettings = workspaceManage || retentionManage;
   const groups: NavGroup[] = [
     {
       label: "shell.group.work",
@@ -65,7 +63,7 @@ export function useNavGroups(): readonly NavGroup[] {
           ? [{ to: "/members", label: "nav.members" } as const]
           : []),
         { to: "/teams", label: "nav.teams" },
-        ...(workspaceManage || retentionManage
+        ...(showsWorkspaceSettings
           ? [{ to: "/settings/workspace", label: "nav.workspace" } as const]
           : []),
       ],
@@ -81,7 +79,6 @@ export function useNavGroups(): readonly NavGroup[] {
   return groups;
 }
 
-/** The item a path belongs to: home only on "/", the rest by prefix. */
 export function navItemFor(
   groups: readonly NavGroup[],
   pathname: string,
@@ -98,10 +95,8 @@ export function navItemFor(
   return undefined;
 }
 
-// Read again on this beat so a wait that opened elsewhere shows up.
 const WAITING_REFETCH_MS = 30_000;
 
-/** The viewer's sessions waiting on an answer, counted from the first page. */
 function useWaitingSessions() {
   const { client } = useAgentPlatform();
   const canRead = useCan("sessions:read");
@@ -142,14 +137,13 @@ function WaitingBadge() {
 
 export function AppSidebar({
   id,
-  open,
+  openBelowMd,
   groups,
   onNavigate,
   logout,
 }: {
   readonly id: string;
-  /** Below md the sidebar shows only while open; from md on, always. */
-  readonly open: boolean;
+  readonly openBelowMd: boolean;
   readonly groups: readonly NavGroup[];
   readonly onNavigate: () => void;
   readonly logout: { readonly pending: boolean; readonly run: () => void };
@@ -160,7 +154,7 @@ export function AppSidebar({
     <div
       id={id}
       data-slot="app-sidebar"
-      data-open={open}
+      data-open={openBelowMd}
       className="hidden flex-col gap-6 bg-rail px-3 py-4 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:overflow-y-auto"
     >
       <div className="hidden px-2 md:block">

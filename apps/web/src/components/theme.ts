@@ -17,10 +17,6 @@ export function storedTheme(): Theme {
   return "system";
 }
 
-/**
- * tokens.css reads `data-theme` on <html>; without it the OS preference
- * decides, so "system" removes the attribute rather than naming a theme.
- */
 export function applyTheme(theme: Theme) {
   const root = globalThis.document?.documentElement;
   if (!root) return;
@@ -33,6 +29,6 @@ export function chooseTheme(theme: Theme) {
   try {
     globalThis.localStorage?.setItem(THEME_STORAGE_KEY, theme);
   } catch {
-    // Kept for this page only.
+    // Storage can be blocked; the choice then lasts for this page only.
   }
 }

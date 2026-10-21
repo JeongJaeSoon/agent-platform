@@ -30,7 +30,6 @@ import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
 
 export function RootLayout() {
   const { t } = useI18n();
-  // Signed in, the language moves into the sidebar's user menu.
   const authed = useRouterState({
     select: (state) =>
       state.matches.some((match) => match.routeId === "/authed"),
@@ -73,19 +72,10 @@ function LocaleSwitch() {
   );
 }
 
-/*
- * Width rule: forms and settings keep the reading column; lists, details and
- * home take the wide one, which leaves room for tables and side-by-side cards.
- */
-function readingWidth(pathname: string) {
+function usesReadingColumn(pathname: string) {
   return pathname === "/agents/new" || pathname.startsWith("/settings/");
 }
 
-/*
- * The path is read only by the header and the main column below, never here:
- * a re-render of this layout after logout cleared the cache would re-read
- * /auth/me through its useMe and put the old identity back.
- */
 export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
@@ -126,16 +116,15 @@ export function AuthedLayout() {
         >
           {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
         </Button>
-        <Whereabouts
+        <PageTrail
           groups={groups}
           fallback={me?.workspace?.name ?? t("common.appName")}
         />
       </header>
       <AppSidebar
         id={sidebarId}
-        open={menuOpen}
+        openBelowMd={menuOpen}
         groups={groups}
-        // A link followed from the open menu lands on the page, not the menu.
         onNavigate={() => setMenuOpen(false)}
         logout={{ pending: logout.isPending, run: () => logout.mutate() }}
       />
@@ -155,8 +144,7 @@ function usePathname() {
   return useRouterState({ select: (state) => state.location.pathname });
 }
 
-/** The page header's "group / page" line for where the reader is. */
-function Whereabouts({
+function PageTrail({
   groups,
   fallback,
 }: {
@@ -187,7 +175,7 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
     <Main
       className={cn(
         "web-shell__main mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-6 md:col-start-2 md:row-start-2 md:px-8 md:py-8",
-        readingWidth(usePathname())
+        usesReadingColumn(usePathname())
           ? "max-w-[var(--ap-layout-reading-width)]"
           : "max-w-6xl",
       )}

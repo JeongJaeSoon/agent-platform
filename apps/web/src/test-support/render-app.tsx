@@ -3,7 +3,6 @@ import type { fakeApi as FakeApi } from "./fake-api.ts";
 
 export type Routes = Parameters<typeof FakeApi>[0];
 
-/** The route the shell's waiting badge asks, for a test to answer itself. */
 export const WAITING_SESSIONS = "GET /v1/sessions?status=needs_input";
 
 /**
@@ -17,14 +16,12 @@ export async function appHarness() {
   const { App } = await import("../app.tsx");
   const { createServices } = await import("../services.tsx");
   const { fakeApi, json } = await import("./fake-api.ts");
+  const nothingWaiting: Routes = {
+    [WAITING_SESSIONS]: () => json(200, { items: [], next_cursor: null }),
+  };
 
   function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
-    // The shell's waiting badge reads on every signed-in screen; a test that
-    // is not about it gets nothing waiting instead of its own list's answers.
-    const api = fakeApi({
-      [WAITING_SESSIONS]: () => json(200, { items: [], next_cursor: null }),
-      ...routes,
-    });
+    const api = fakeApi({ ...nothingWaiting, ...routes });
     const left: string[] = [];
     const services = createServices({
       baseUrl: "https://console.test",
