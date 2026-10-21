@@ -383,6 +383,9 @@ export function createPostgresCheckpointStore(
           turnRowId: null,
           now: input.now,
           versionsHeld: input.versionsHeld === true,
+          ...(input.transcriptBytes === undefined
+            ? {}
+            : { transcriptBytes: input.transcriptBytes }),
         });
         if (advanced.outcome === "committed") {
           return { outcome: "committed", revision: advanced.revision };

@@ -296,6 +296,7 @@ export type FinalizeInput = {
   tokenLimit: number | null;
   // The verifier's verdict on `checkpoint`, never the worker's say.
   checkpointVersionsHeld?: boolean;
+  checkpointTranscriptBytes?: number;
 };
 export type FinalizeOutcome = {
   turnId: string;

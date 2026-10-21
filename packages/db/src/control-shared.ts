@@ -2,7 +2,7 @@ import type { ReceiptActor } from "@werft-ai/contracts";
 import {
   type Principal,
   type SessionBudget,
-  storedPendingReasonHoldsWork,
+  storedPendingReasonBlocks,
 } from "@werft-ai/platform";
 import {
   and,
@@ -375,7 +375,7 @@ export function hasRestorePoint<
 >(session: T): session is T & { checkpointRevision: number } {
   return (
     session.checkpointRevision !== null &&
-    !storedPendingReasonHoldsWork(session.checkpointPendingReason) &&
+    !storedPendingReasonBlocks(session.checkpointPendingReason) &&
     (session.contextResetCheckpointRevision === null ||
       session.checkpointRevision > session.contextResetCheckpointRevision)
   );
