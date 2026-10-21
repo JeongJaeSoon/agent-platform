@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { AgentCard, AgentDetail, AgentVersion } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
+import { Button, cn, Field, FieldLabel, Input } from "@werft-ai/ui";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
@@ -11,10 +12,11 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
-import { TextField } from "../../components/field.tsx";
+import { NOTICE } from "../../components/auth-page.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
+import { MUTED, SECTION, SECTION_TITLE } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 export function CardEditor({
@@ -110,31 +112,35 @@ export function CardEditor({
   };
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("agent.card.title")}</h2>
-      <p className="web-page__empty">{t("agent.card.intro")}</p>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("agent.card.title")}
+      </h2>
+      <p className={MUTED}>{t("agent.card.intro")}</p>
       {stale && latest ? (
-        <div className="web-notice">
+        <div className={cn(NOTICE, "flex flex-col items-start gap-2")}>
           <output>
             {t("agent.card.stale", { version: latest.version_no })}
           </output>
-          <button
+          <Button
             type="button"
-            className="ap-button"
+            variant="outline"
             onClick={() => setEdit(startEdit(detail))}
           >
             {t("agent.card.takeLatest")}
-          </button>
+          </Button>
         </div>
       ) : null}
-      <form className="web-form web-form--wide" onSubmit={submit}>
-        <TextField
-          label={t("agents.name")}
-          required
-          maxLength={120}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
+      <form className="flex max-w-2xl flex-col gap-4" onSubmit={submit}>
+        <Field>
+          <FieldLabel>{t("agents.name")}</FieldLabel>
+          <Input
+            required
+            maxLength={120}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
         {draft ? (
           <AgentCardFields
             draft={draft}
@@ -142,13 +148,13 @@ export function CardEditor({
             onChange={setDraft}
           />
         ) : null}
-        <button
+        <Button
           type="submit"
-          className="ap-button ap-button--primary"
+          className="self-start"
           disabled={save.isPending || (draft !== null && !catalog.isSuccess)}
         >
           {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
-        </button>
+        </Button>
       </form>
       {result}
     </section>

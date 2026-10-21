@@ -8,7 +8,7 @@ import type {
   RevokeCredentialBindingResponse,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { ConfirmDialog } from "@werft-ai/ui";
+import { Button, ConfirmDialog, cn } from "@werft-ai/ui";
 import { type ReactNode, type RefObject, useId, useState } from "react";
 import { queryKeys } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
@@ -17,6 +17,18 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
+import {
+  ALERT,
+  ALERT_TITLE,
+  HINT,
+  LIST,
+  LIST_ITEM,
+  MUTED,
+  PRIMARY,
+  SECONDARY,
+  SECTION,
+  SECTION_TITLE,
+} from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
@@ -131,18 +143,16 @@ export function Credentials({
   const busy = bind.isPending || revoke.isPending;
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId} ref={titleRef} tabIndex={-1}>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} ref={titleRef} tabIndex={-1} className={SECTION_TITLE}>
         {t("agent.credentials.title")}
       </h2>
-      <p className="web-page__empty">{t("agent.credentials.intro")}</p>
+      <p className={MUTED}>{t("agent.credentials.intro")}</p>
       {bindings.isPending ? (
         <StatusScreen kind="loading" />
       ) : bindings.error ? (
         isApiError(bindings.error, "FORBIDDEN") ? (
-          <p className="web-guarded__reason">
-            {permissionReason(t, "agent.manage", role)}
-          </p>
+          <p className={HINT}>{permissionReason(t, "agent.manage", role)}</p>
         ) : (
           <LoadFailure
             error={bindings.error}
@@ -153,38 +163,43 @@ export function Credentials({
         <>
           {unbound.length > 0 ? (
             <ul
-              className="web-list"
+              className={LIST}
               aria-label={t("agent.credentials.unboundList")}
             >
               {unbound.map((ref) => (
                 <li
                   key={ref}
-                  className="web-list__item"
+                  className={cn(
+                    LIST_ITEM,
+                    missing.includes(ref) &&
+                      "border-[var(--ap-tone-attention-border)]",
+                  )}
                   data-missing={missing.includes(ref)}
                 >
-                  <span>
-                    <span className="web-table__primary">{ref}</span>
-                    <span className="web-table__secondary">
+                  <span className="min-w-0 flex-1">
+                    <span className={PRIMARY}>{ref}</span>
+                    <span className={SECONDARY}>
                       {missing.includes(ref)
                         ? t("agent.credentials.neededToActivate")
                         : t("agent.credentials.namedByCard")}
                     </span>
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="ap-button"
+                    variant="outline"
+                    size="sm"
                     disabled={busy}
                     aria-label={t("agent.credentials.bindFor", { name: ref })}
                     onClick={() => bind.mutate(ref)}
                   >
                     {t("agent.credentials.bind")}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
           ) : null}
           {active.length === 0 ? (
-            <p className="web-page__empty">
+            <p className={MUTED}>
               {t(
                 unbound.length === 0
                   ? "agent.credentials.noneNamed"
@@ -192,25 +207,21 @@ export function Credentials({
               )}
             </p>
           ) : (
-            <ul
-              className="web-list"
-              aria-label={t("agent.credentials.boundList")}
-            >
+            <ul className={LIST} aria-label={t("agent.credentials.boundList")}>
               {active.map((binding) => (
-                <li key={binding.id} className="web-list__item">
-                  <span>
-                    <span className="web-table__primary">
-                      {binding.credential_ref}
-                    </span>
-                    <span className="web-table__secondary">
+                <li key={binding.id} className={LIST_ITEM}>
+                  <span className="min-w-0 flex-1">
+                    <span className={PRIMARY}>{binding.credential_ref}</span>
+                    <span className={SECONDARY}>
                       {t("agent.credentials.running", {
                         count: binding.running_sessions,
                       })}
                     </span>
                   </span>
-                  <button
+                  <Button
                     type="button"
-                    className="ap-button"
+                    variant="outline"
+                    size="sm"
                     disabled={busy}
                     aria-label={t("agent.credentials.revokeFor", {
                       name: binding.credential_ref,
@@ -218,7 +229,7 @@ export function Credentials({
                     onClick={() => setRevoking(binding)}
                   >
                     {t("agent.credentials.revoke")}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -280,16 +291,16 @@ export function CredentialUnbound({
 }) {
   const { t } = useI18n();
   return (
-    <section className="web-status" data-status="conflict" role="alert">
-      <h3 className="web-status__title">{t("agent.unbound.title")}</h3>
-      <p className="web-status__body">
+    <section className={ALERT} data-status="conflict" role="alert">
+      <h3 className={ALERT_TITLE}>{t("agent.unbound.title")}</h3>
+      <p className="m-0">
         {missing.length > 0
           ? t("agent.unbound.body", { names: missing.join(", ") })
           : t("agent.unbound.bodyUnnamed")}
       </p>
-      <button type="button" className="ap-button" onClick={onGo}>
+      <Button type="button" variant="outline" onClick={onGo}>
         {t("agent.unbound.go")}
-      </button>
+      </Button>
     </section>
   );
 }

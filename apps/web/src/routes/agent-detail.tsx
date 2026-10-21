@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearch } from "@tanstack/react-router";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearch,
+} from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   ActivateAgentResponse,
@@ -7,6 +12,16 @@ import type {
   AgentRelease,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
+import {
+  Badge,
+  Button,
+  buttonVariants,
+  cn,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@werft-ai/ui";
 import { useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
@@ -17,11 +32,13 @@ import { RevisionDiff } from "../components/revision-diff.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { CardEditor } from "./agent-detail/card-editor.tsx";
+import { ALERT, ALERT_TITLE, MUTED } from "./agent-detail/classes.ts";
 import {
   Credentials,
   CredentialUnbound,
   unboundRefs,
 } from "./agent-detail/credentials.tsx";
+import { Overview } from "./agent-detail/overview.tsx";
 import {
   type Place,
   type Placed,
@@ -33,12 +50,27 @@ import { VersionHistory } from "./agent-detail/version-history.tsx";
 import { latestVersion } from "./agent-detail/versions.tsx";
 import { agentRefusal } from "./agents.tsx";
 
+const PAGE = "flex flex-col gap-6";
+const TITLE = "m-0 font-semibold text-xl";
+const PANEL = "flex flex-col gap-8 pt-4";
+
+export const AGENT_TABS = ["overview", "card", "release", "admins"] as const;
+export type AgentTab = (typeof AGENT_TABS)[number];
+
 export interface AgentSearch {
   readonly notice?: "created";
+  /** Absent for the overview, so a plain agent link opens it. */
+  readonly tab?: Exclude<AgentTab, "overview">;
 }
 
 export function agentSearch(search: Record<string, unknown>): AgentSearch {
-  return search.notice === "created" ? { notice: "created" } : {};
+  const tab = AGENT_TABS.find(
+    (name) => name !== "overview" && name === search.tab,
+  ) as AgentSearch["tab"];
+  return {
+    ...(search.notice === "created" ? { notice: "created" as const } : {}),
+    ...(tab ? { tab } : {}),
+  };
 }
 
 /** What the screen showed when its activation lost the race. */
@@ -88,10 +120,16 @@ function AgentDetailPage({ id }: { readonly id: string }) {
 function AgentNotFound() {
   const { t } = useI18n();
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("agent.notFound.title")}</h1>
-      <p className="web-page__intro">{t("agent.notFound.body")}</p>
-      <Link className="ap-button" to="/agents">
+    <div className={PAGE}>
+      <h1 className={TITLE}>{t("agent.notFound.title")}</h1>
+      <p className={MUTED}>{t("agent.notFound.body")}</p>
+      <Link
+        className={buttonVariants({
+          variant: "outline",
+          className: "self-start",
+        })}
+        to="/agents"
+      >
         {t("agent.notFound.back")}
       </Link>
     </div>
@@ -110,6 +148,19 @@ function AgentView({
   readonly onReload: () => void;
 }) {
   const { t } = useI18n();
+  // Validated again: the root route passes the raw query through, so an
+  // unknown `tab` still reaches this route's search.
+  const tab: AgentTab =
+    agentSearch(useSearch({ from: "/authed/agents/$id" })).tab ?? "overview";
+  const navigate = useNavigate({ from: "/agents/$id" });
+  // Replace, not push: arrowing across the tabs would otherwise fill the
+  // back button with tab entries.
+  const openTab = (next: AgentTab) =>
+    void navigate({
+      search: ({ tab: _, ...rest }) =>
+        next === "overview" ? rest : { ...rest, tab: next },
+      replace: true,
+    });
   const outcomeAt = (at: Place) => (outcome: Outcome | null) =>
     onPlaced(outcome ? { at, outcome } : null);
   const onOutcome = outcomeAt("releases");
@@ -190,20 +241,38 @@ function AgentView({
   const reloaded =
     conflict !== null && agent.activation_revision !== conflict.seenRevision;
 
+  const tabLabel = (name: AgentTab) => t(`agent.tabs.${name}`);
+  // Every panel stays mounted, so leaving a tab never drops an unsaved card;
+  // Radix leaves a force-mounted panel visible and in the tab order.
+  const panel = (name: AgentTab) => ({
+    value: name,
+    forceMount: true as const,
+    hidden: name !== tab,
+    tabIndex: name === tab ? 0 : -1,
+    className: PANEL,
+  });
+  const toRelease = (
+    <Button
+      type="button"
+      variant="outline"
+      className="self-start"
+      onClick={() => openTab("release")}
+    >
+      {t("agent.tabs.toRelease")}
+    </Button>
+  );
+
   return (
-    <div className="web-page">
-      <div className="web-page__head">
-        <h1 className="web-page__title">{agent.name}</h1>
-        <span
-          className="web-badge"
-          data-tone={agent.active_release_id ? "ok" : "pending"}
-        >
+    <div className={PAGE}>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className={cn(TITLE, "[overflow-wrap:anywhere]")}>{agent.name}</h1>
+        <Badge variant={agent.active_release_id ? "default" : "outline"}>
           {agent.active_release_id
             ? t(`agents.status.${agent.status}`)
             : t("agents.state.notReleased")}
-        </span>
+        </Badge>
       </div>
-      <p className="web-table__secondary">
+      <p className={cn(MUTED, "text-sm [overflow-wrap:anywhere]")}>
         {t("agents.slugLine", { slug: agent.slug })}
         {/* Without one, the badge already says so. */}
         {agent.active_release_id
@@ -213,102 +282,134 @@ function AgentView({
           : null}
       </p>
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
-      <CardEditor
-        detail={detail}
-        result={<PlacedOutcome placed={placed} at="card" />}
-        onOutcome={outcomeAt("card")}
-        onSaved={setReleaseVersion}
-      />
-      <VersionHistory
-        key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
-        detail={detail}
-      />
-      <Credentials
-        detail={detail}
-        missing={unbound ?? []}
-        titleRef={credentialsTitle}
-        result={<PlacedOutcome placed={placed} at="credentials" />}
-        onOutcome={outcomeAt("credentials")}
-      />
-      <Releases
-        detail={detail}
-        picked={releaseVersion}
-        onPick={setReleaseVersion}
-        versionNo={versionNo}
-        result={
-          <>
-            <PlacedOutcome placed={placed} at="releases" />
-            <TakesFocus on={unbound}>
-              {unbound ? (
-                <CredentialUnbound
-                  missing={unbound}
-                  onGo={() => credentialsTitle.current?.focus()}
-                />
-              ) : null}
-            </TakesFocus>
-            <TakesFocus on={conflict}>
-              {conflict ? (
-                <section
-                  className="web-status"
-                  data-status="conflict"
-                  role="alert"
-                >
-                  <h3 className="web-status__title">
-                    {t("agent.conflict.title")}
-                  </h3>
-                  <p className="web-status__body">
-                    {reloaded
-                      ? t("agent.conflict.reloaded", {
-                          seen: releaseLabel(conflict.seenActiveReleaseId),
-                          now: releaseLabel(agent.active_release_id),
-                        })
-                      : t("agent.conflict.body")}
-                  </p>
-                  {reloaded ? (
-                    <RevisionDiff
-                      before={
-                        detail.versions.find(
-                          (v) => v.id === seenRelease?.version_id,
-                        )?.card ?? null
-                      }
-                      after={
-                        detail.active_release
-                          ? (detail.versions.find(
-                              (v) => v.id === detail.active_release?.version_id,
-                            )?.card ?? null)
-                          : null
-                      }
-                      beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
-                      afterLabel={releaseLabel(agent.active_release_id)}
+      <Tabs value={tab} onValueChange={(next) => openTab(next as AgentTab)}>
+        <div className="max-w-full overflow-x-auto">
+          <TabsList variant="line" aria-label={t("agent.tabs.label")}>
+            {AGENT_TABS.map((name) => (
+              <TabsTrigger key={name} value={name}>
+                {tabLabel(name)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        <TabsContent {...panel("overview")}>
+          <Overview detail={detail} releaseLabel={releaseLabel}>
+            {toRelease}
+          </Overview>
+        </TabsContent>
+        <TabsContent {...panel("card")}>
+          <CardEditor
+            detail={detail}
+            result={
+              <>
+                <PlacedOutcome placed={placed} at="card" />
+                {placed?.at === "card" && placed.outcome.kind === "notice"
+                  ? toRelease
+                  : null}
+              </>
+            }
+            onOutcome={outcomeAt("card")}
+            onSaved={setReleaseVersion}
+          />
+          <VersionHistory
+            key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
+            detail={detail}
+          />
+        </TabsContent>
+        <TabsContent {...panel("release")}>
+          <Credentials
+            detail={detail}
+            missing={unbound ?? []}
+            titleRef={credentialsTitle}
+            result={<PlacedOutcome placed={placed} at="credentials" />}
+            onOutcome={outcomeAt("credentials")}
+          />
+          <Releases
+            detail={detail}
+            picked={releaseVersion}
+            onPick={setReleaseVersion}
+            versionNo={versionNo}
+            result={
+              <>
+                <PlacedOutcome placed={placed} at="releases" />
+                <TakesFocus on={unbound}>
+                  {unbound ? (
+                    <CredentialUnbound
+                      missing={unbound}
+                      onGo={() => credentialsTitle.current?.focus()}
                     />
-                  ) : (
-                    <button
-                      type="button"
-                      className="ap-button"
-                      onClick={onReload}
+                  ) : null}
+                </TakesFocus>
+                <TakesFocus on={conflict}>
+                  {conflict ? (
+                    <section
+                      className={ALERT}
+                      data-status="conflict"
+                      role="alert"
                     >
-                      {t("agent.conflict.reload")}
-                    </button>
-                  )}
-                </section>
-              ) : null}
-            </TakesFocus>
-          </>
-        }
-        onOutcome={onOutcome}
-        activating={
-          activate.isPending ? activate.variables?.release.id : undefined
-        }
-        onActivate={(release) =>
-          activate.mutate({
-            release,
-            expected: agent.activation_revision,
-            seenActive: agent.active_release_id,
-          })
-        }
-      />
-      <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
-      <PlacedOutcome placed={placed} at="admins" />
+                      <h3 className={ALERT_TITLE}>
+                        {t("agent.conflict.title")}
+                      </h3>
+                      <p className="m-0">
+                        {reloaded
+                          ? t("agent.conflict.reloaded", {
+                              seen: releaseLabel(conflict.seenActiveReleaseId),
+                              now: releaseLabel(agent.active_release_id),
+                            })
+                          : t("agent.conflict.body")}
+                      </p>
+                      {reloaded ? (
+                        <RevisionDiff
+                          before={
+                            detail.versions.find(
+                              (v) => v.id === seenRelease?.version_id,
+                            )?.card ?? null
+                          }
+                          after={
+                            detail.active_release
+                              ? (detail.versions.find(
+                                  (v) =>
+                                    v.id === detail.active_release?.version_id,
+                                )?.card ?? null)
+                              : null
+                          }
+                          beforeLabel={releaseLabel(
+                            conflict.seenActiveReleaseId,
+                          )}
+                          afterLabel={releaseLabel(agent.active_release_id)}
+                        />
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={onReload}
+                        >
+                          {t("agent.conflict.reload")}
+                        </Button>
+                      )}
+                    </section>
+                  ) : null}
+                </TakesFocus>
+              </>
+            }
+            onOutcome={onOutcome}
+            activating={
+              activate.isPending ? activate.variables?.release.id : undefined
+            }
+            onActivate={(release) =>
+              activate.mutate({
+                release,
+                expected: agent.activation_revision,
+                seenActive: agent.active_release_id,
+              })
+            }
+          />
+        </TabsContent>
+        <TabsContent {...panel("admins")}>
+          <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
+          <PlacedOutcome placed={placed} at="admins" />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

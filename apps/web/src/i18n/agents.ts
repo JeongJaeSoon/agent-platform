@@ -72,7 +72,7 @@ export const agentsKo = {
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
   "agent.saved":
-    "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 쓰려면 release를 만들고 활성화하세요.",
+    "저장했습니다 — version {version}. 아직 활성화되지 않았습니다. 배포 탭에서 release를 만들고 활성화해야 반영됩니다.",
   "agent.savedExisting":
     "저장했습니다. 같은 카드가 이미 있어(version {version}) 새 version은 생기지 않았습니다.",
   "agent.savedNoChange":
@@ -155,6 +155,19 @@ export const agentsKo = {
   "agent.unbound.bodyUnnamed":
     "이 release가 쓰는 자격 중 연결되지 않은 것이 있습니다. 자격 연결에서 연결한 뒤 다시 활성화하세요.",
   "agent.unbound.go": "자격 연결로 가기",
+  "agent.tabs.label": "에이전트 상세",
+  "agent.tabs.overview": "개요",
+  "agent.tabs.card": "카드",
+  "agent.tabs.release": "배포",
+  "agent.tabs.admins": "관리자",
+  "agent.tabs.toRelease": "배포 탭으로",
+  "agent.overview.active": "활성 release",
+  "agent.overview.latest": "최신 version",
+  "agent.overview.notActive":
+    "아직 켜지지 않았습니다. 배포 탭에서 release를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
+  "agent.overview.newerVersion":
+    "최신 version {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 version {active}(으)로 시작합니다.",
+  "agent.overview.upToDate": "새 세션은 최신 version으로 시작합니다.",
   "diff.caption": "{before} → {after}",
   "diff.added": "추가: ",
   "diff.removed": "삭제: ",
@@ -262,7 +275,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releaseLabel": "version {version} · {profile}",
   "agent.versionLabel": "version {version}",
   "agent.saved":
-    "Saved as version {version}. It is not in use yet — create a release and activate it.",
+    "Saved as version {version}. It is not in use yet — create a release on the Release tab and activate it.",
   "agent.savedExisting":
     "Saved. This card matches version {version}, so no new version was created.",
   "agent.savedNoChange":
@@ -342,6 +355,19 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.unbound.bodyUnnamed":
     "This release uses a credential that is not connected to the agent. Connect it under Credentials, then activate again.",
   "agent.unbound.go": "Go to Credentials",
+  "agent.tabs.label": "Agent details",
+  "agent.tabs.overview": "Overview",
+  "agent.tabs.card": "Card",
+  "agent.tabs.release": "Release",
+  "agent.tabs.admins": "Admins",
+  "agent.tabs.toRelease": "Go to the Release tab",
+  "agent.overview.active": "Active release",
+  "agent.overview.latest": "Latest version",
+  "agent.overview.notActive":
+    "Not turned on yet. Create a release on the Release tab and activate it, and new sessions will use this agent.",
+  "agent.overview.newerVersion":
+    "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
+  "agent.overview.upToDate": "New sessions start on the latest version.",
   "diff.caption": "{before} → {after}",
   "diff.added": "added: ",
   "diff.removed": "removed: ",
