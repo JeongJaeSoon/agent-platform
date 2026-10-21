@@ -20,6 +20,8 @@ export interface SessionRowMessages {
   /** The axis names a screen reader hears before each state. */
   readonly statusAxis: string;
   readonly admissionAxis: string;
+  /** Heard before the runtime; the row shows only its value. */
+  readonly runtime: string;
   readonly lastEvent: string;
   readonly created: string;
   readonly queuedTurns: (count: number) => string;
@@ -92,6 +94,7 @@ export function SessionRow({
         ) : null}
       </span>
       <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere] sm:flex-1">
+        <span className="sr-only">{messages.runtime}: </span>
         {runtime
           ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
           : messages.none}

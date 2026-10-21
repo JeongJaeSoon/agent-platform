@@ -211,6 +211,7 @@ const ROW_MESSAGES: SessionRowMessages = {
   admission: (state) => `admission:${state}`,
   statusAxis: "work",
   admissionAxis: "session",
+  runtime: "runtime",
   lastEvent: "last",
   created: "created",
   queuedTurns: (count) => `queued:${count}`,
@@ -252,7 +253,7 @@ describe("SessionRow", () => {
       "work: status:running",
       "session: admission:active",
       "queued:2",
-      "claude-default · claude_agent_sdk 1.2.3",
+      "runtime: claude-default · claude_agent_sdk 1.2.3",
       "last none",
     ]) {
       expect(text).toContain(part);

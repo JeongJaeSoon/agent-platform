@@ -35,6 +35,7 @@ export function SessionList({ loading, renderError }: SessionListProps) {
     admission: (state) => t(`sessions.admission.${state}`),
     statusAxis: t("sessions.column.status"),
     admissionAxis: t("sessions.column.admission"),
+    runtime: t("sessions.column.runtime"),
     lastEvent: t("sessions.column.lastEvent"),
     created: t("sessions.column.created"),
     queuedTurns: (count) => `${t("session.queuedTurns")} ${count}`,

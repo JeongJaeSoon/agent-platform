@@ -203,6 +203,7 @@ export const SESSION_ROW_MESSAGES = {
     })[state],
   statusAxis: "Status",
   admissionAxis: "State",
+  runtime: "Runtime",
   lastEvent: "Last event",
   created: "Created",
   queuedTurns: (count: number) => `${count} queued`,

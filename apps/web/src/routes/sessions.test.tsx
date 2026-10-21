@@ -500,10 +500,18 @@ describe("session detail", () => {
         type: "assistant",
         message: { content: [] },
       });
+      // The next turn's tick starts its own line.
+      stream.emit(
+        "ev_t4",
+        "system",
+        { type: "system", subtype: "thinking_tokens" },
+        "2",
+      );
     });
     expect(await screen.findByText("생각 중 (3)")).toBeTruthy();
+    expect(screen.getByText("생각 중 (1)")).toBeTruthy();
     const list = screen.getByRole("list", { name: "이벤트" });
-    expect(list.querySelectorAll("li")).toHaveLength(1);
+    expect(list.querySelectorAll("li")).toHaveLength(2);
   });
 
   test("leaving the screen closes the stream", async () => {
