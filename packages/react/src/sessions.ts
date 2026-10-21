@@ -21,6 +21,7 @@ import {
   sessionQuery,
   sessionsQuery,
   sessionUsageQuery,
+  waitingSessionsQuery,
 } from "@agent-platform/core";
 import {
   type MutationFunctionContext,
@@ -114,6 +115,10 @@ function refreshSession(
       case "list":
         void queryClient.invalidateQueries({
           ...sessionsQuery(client),
+          exact: true,
+        });
+        void queryClient.invalidateQueries({
+          ...waitingSessionsQuery(client),
           exact: true,
         });
         break;

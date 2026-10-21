@@ -70,6 +70,12 @@ exports[`query keys 1`] = `
     "me",
     "optional",
   ],
+  "waitingSessions": [
+    "sessions",
+    {
+      "status": "needs_input",
+    },
+  ],
 }
 `;
 
@@ -385,6 +391,30 @@ exports[`query options and the request each query makes 1`] = `
         "me",
         "optional",
       ],
+      "retry": false,
+    },
+  },
+  "waitingSessionsQuery": {
+    "calls": [
+      [
+        "/v1/sessions",
+        {
+          "params": {
+            "query": {
+              "status": "needs_input",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "sessions",
+        {
+          "status": "needs_input",
+        },
+      ],
+      "refetchInterval": 30000,
       "retry": false,
     },
   },

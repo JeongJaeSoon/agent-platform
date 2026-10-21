@@ -94,6 +94,8 @@ export const queryKeys = {
   profiles: ["profiles"] as const,
   team: (id: string) => ["teams", id] as const,
   sessions: ["sessions"] as const,
+  // An object segment, so it never reads as a session id.
+  waitingSessions: ["sessions", { status: "needs_input" }] as const,
   session: (id: string) => ["sessions", id] as const,
   sessionUsage: (id: string) => ["sessions", id, "usage"] as const,
   pendingRequests: (id: string) =>
@@ -277,6 +279,21 @@ export function sessionsQuery(client: ApiClient) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     retry: false,
+  });
+}
+
+/** The first page of sessions waiting on an answer, for the sidebar's badge. */
+export function waitingSessionsQuery(client: ApiClient) {
+  return queryOptions({
+    queryKey: queryKeys.waitingSessions,
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions", {
+          params: { query: { status: "needs_input" } },
+        }),
+      ) as Promise<ListSessionsResponse>,
+    retry: false,
+    refetchInterval: 30_000,
   });
 }
 

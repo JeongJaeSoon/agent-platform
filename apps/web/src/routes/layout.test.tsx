@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { queryKeys } from "@agent-platform/core";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { THEME_STORAGE_KEY } from "../components/theme.ts";
 import { json, me, memberMe } from "../test-support/fake-api.ts";
@@ -99,6 +100,27 @@ describe("app shell", () => {
     ).toBe(true);
   });
 
+  test("the badge reads again when the core's waiting key goes stale", async () => {
+    let answered = 0;
+    const { services } = renderAt("/", {
+      ...signedIn,
+      [WAITING_SESSIONS]: () =>
+        json(200, {
+          items: answered++ === 0 ? [waiting(FIRST)] : [],
+          next_cursor: null,
+        }),
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1건" });
+    // What a session's status event invalidates.
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.waitingSessions,
+      exact: true,
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "세션" })).toBeDefined(),
+    );
+  });
+
   test("a first page with more behind it reads as at least that many", async () => {
     renderAt("/", {
       ...signedIn,
@@ -109,6 +131,22 @@ describe("app shell", () => {
       name: "세션 답변 대기 1건 이상",
     });
     expect(link.textContent).toContain("1+");
+  });
+
+  test("retry on the shell's error screen asks who is signed in again", async () => {
+    let failures = 1;
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () =>
+        failures-- > 0
+          ? json(500, { error: { code: "INTERNAL" } })
+          : json(200, me()),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    expect(await screen.findByRole("heading", { name: "Acme" })).toBeDefined();
+    expect(
+      api.calls.filter((call) => call.path === "/v1/auth/me"),
+    ).toHaveLength(2);
   });
 
   test("nothing waiting, or a list that failed, shows no badge", async () => {
