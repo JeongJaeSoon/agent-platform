@@ -63,6 +63,7 @@ describe("session contracts", () => {
       "stopping",
       "stopped",
       "recovery_required",
+      "closing",
       "closed",
     ]);
     expect(TURN_STATUS_VALUES).toContain("outcome_unknown");
