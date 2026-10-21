@@ -4,8 +4,10 @@
     "jsx": "react-jsx",
     // No DOM lib: the modules leave the page to the host app. biome.json's
     // override for this package rejects the browser globals Bun's types
-    // still declare.
+    // still declare. The blocks draw packages/ui and are checked by
+    // tsconfig.blocks.json.
     "lib": ["ES2022"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/blocks/**"]
 }
