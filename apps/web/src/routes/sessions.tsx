@@ -1,4 +1,5 @@
 import type { SessionDetail } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
@@ -15,7 +16,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 import {
   useChangeSessionProfile,
   usePendingRequests,
@@ -167,7 +167,7 @@ export function SessionDetailScreen() {
  */
 function SessionProfile({ session }: { readonly session: SessionDetail }) {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const role = useRole();
   const titleId = useId();
   const profiles = useQuery(profilesQuery(client));
