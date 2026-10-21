@@ -105,6 +105,13 @@ export {
 } from "./session/composer.tsx";
 export { Message, type MessageProps } from "./session/message.tsx";
 export {
+  type QuestionAnswer,
+  QuestionCard,
+  type QuestionCardMessages,
+  type QuestionCardProps,
+  type QuestionRequest,
+} from "./session/question-card.tsx";
+export {
   SessionRow,
   type SessionRowLink,
   type SessionRowMessages,
