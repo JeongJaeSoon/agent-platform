@@ -31,6 +31,14 @@ export const Danger: Story = {
   },
 };
 
+/** Interrupts a running flow, so screen readers announce it as an alert. */
+export const AlertDialog: Story = {
+  args: {
+    ...Danger.args,
+    role: "alertdialog",
+  },
+};
+
 export const DefaultDark: Story = {
   name: "Default (dark)",
   globals: { theme: "dark" },

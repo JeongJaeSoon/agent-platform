@@ -53,12 +53,10 @@ export const agentsKo = {
   "agentCard.role": "역할",
   "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
   "agentCard.instructions": "지시 사항",
-  "agentCard.tone": "말투",
-  "agentCard.optional": "선택",
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "release할 프로필의 모델과 정확히 같아야 합니다. 옆에 적힌 것은 그 모델을 쓰는 프로필입니다",
+    "release할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
   "agentCard.tools": "쓸 수 있는 도구",
   "agentCard.toolsAll": "프로필이 허용하는 도구 전부",
   "agentCard.toolsList": "고른 도구만",
@@ -108,6 +106,8 @@ export const agentsKo = {
   "agent.releases.profileHint":
     "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
   "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profileUnlisted":
+    "프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
   "agent.releases.profilesLoading": "프로필 목록을 불러오는 중…",
   "agent.releases.profilesFailed":
     "프로필 목록을 불러오지 못했습니다: {reason}",
@@ -213,12 +213,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.role": "Role",
   "agentCard.roleHint": "One line on what this agent does",
   "agentCard.instructions": "Instructions",
-  "agentCard.tone": "Tone",
-  "agentCard.optional": "Optional",
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
-    "It must be exactly the model of the profile you release to. Next to it are the profiles that run it",
+    "It must be exactly the model of the profile you pick when releasing",
   "agentCard.tools": "Tools it may use",
   "agentCard.toolsAll": "Every tool the profile allows",
   "agentCard.toolsList": "Only the tools I choose",
@@ -266,6 +264,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.profileHint":
     "Each profile and the model it runs. Only a profile running the card's model can be released to",
   "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profileUnlisted":
+    "A profile's permission mode is not shown on this screen yet.",
   "agent.releases.profilesLoading": "Loading profiles…",
   "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
   "agent.releases.create": "Create release",

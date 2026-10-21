@@ -33,6 +33,7 @@ export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
 export interface CardDraft {
   readonly role: string;
   readonly instructions: string;
+  /** No input: carried so the card step parses; a save keeps the base's. */
   readonly tone: string;
   readonly language: AgentCard["language"];
   readonly model: string;
@@ -90,16 +91,14 @@ export function draftFromCard(card: AgentCard): CardDraft {
 
 /**
  * The card to send. An edit starts from `base` and overwrites only what the
- * form has a field for, so fields without an editor yet (rules, tool_policy,
- * credential_refs) survive the save.
+ * form has a field for, so fields without an editor (tone, rules,
+ * tool_policy, credential_refs) survive the save.
  */
 export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
-  const { tone: _baseTone, ...kept } = base ?? { rules: [] };
   const card = {
-    ...kept,
+    ...(base ?? { rules: [] }),
     role: draft.role.trim(),
     instructions: draft.instructions,
-    ...(draft.tone.trim() ? { tone: draft.tone.trim() } : {}),
     language: draft.language,
     model: draft.model.trim(),
     capabilities: {
@@ -145,7 +144,6 @@ export function modelOptions(
 export const CARD_ERROR_FIELDS = [
   "role",
   "instructions",
-  "tone",
   "model",
   "tools",
   "forbidden",
@@ -194,16 +192,6 @@ export function AgentCardFields({
           onChange={(event) => set("instructions", event.target.value)}
         />
         <FieldError>{errors.instructions}</FieldError>
-      </Field>
-      <Field>
-        <FieldLabel>{t("agentCard.tone")}</FieldLabel>
-        <Input
-          maxLength={200}
-          value={draft.tone}
-          onChange={(event) => set("tone", event.target.value)}
-        />
-        <FieldDescription>{t("agentCard.optional")}</FieldDescription>
-        <FieldError>{errors.tone}</FieldError>
       </Field>
       <Field>
         <FieldLabel>{t("agentCard.language")}</FieldLabel>
@@ -317,10 +305,7 @@ function ModelSelect({
           <NativeSelectOption key={option.model} value={option.model}>
             {option.profileIds.length === 0
               ? t("agentCard.modelUncataloged", { model: option.model })
-              : t("agentCard.modelOption", {
-                  model: option.model,
-                  profiles: option.profileIds.join(", "),
-                })}
+              : option.model}
           </NativeSelectOption>
         ))}
       </NativeSelect>

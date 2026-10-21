@@ -163,7 +163,7 @@ describe("카드 폼 변환", () => {
     expect<unknown>(card).toEqual({
       role: "새 역할",
       instructions: "새 지시",
-      tone: "짧게",
+      tone: base.tone,
       language: "en",
       model: "claude-haiku-5",
       capabilities: {
@@ -177,13 +177,16 @@ describe("카드 폼 변환", () => {
     });
   });
 
-  test("편집기가 비운 칸은 원래 카드의 값을 되살리지 않는다", () => {
+  test("말투는 입력칸이 없어 원래 카드의 값을 그대로 둔다", () => {
     const card = cardFromDraft(
-      { ...draftFromCard(CARD), tone: " ", toolsMode: "all" },
+      { ...draftFromCard(CARD), tone: "", toolsMode: "all" },
       CARD,
     );
-    expect("tone" in card).toBe(false);
+    expect(card.tone).toBe("공손하게");
     expect(card.capabilities.tools).toBeNull();
+    expect("tone" in cardFromDraft({ ...EMPTY_DRAFT, tone: "짧게" })).toBe(
+      false,
+    );
   });
 
   test("새 카드(base 없음)는 편집기 칸과 기본값만 싣는다", () => {

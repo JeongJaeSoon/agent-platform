@@ -74,7 +74,7 @@ export const sessionsKo = {
   "session.usage.noLimit": "없음",
   "session.usage.budgetExceeded": "한도에 도달해 새 turn을 시작하지 않습니다.",
 
-  "session.pending": "대기 중인 요청",
+  "session.pending": "답변 대기 요청",
   "session.pending.empty": "답을 기다리는 요청이 없습니다.",
   "session.pending.permission": "권한 요청: {tool}",
   "session.pending.question": "질문",
@@ -89,7 +89,7 @@ export const sessionsKo = {
   "session.answer.freeText": "직접 적기",
   "session.answer.unanswered": "하나를 고르거나 답을 적어 주세요.",
   "session.answer.submit": "답 보내기",
-  "session.answer.sent": "답을 보냈습니다. 세션이 이어서 진행합니다.",
+  "session.answer.sent": "답을 보냈습니다.",
 
   "session.control": "세션 제어",
   "session.control.interrupt": "지금 turn 멈추기",
@@ -103,7 +103,7 @@ export const sessionsKo = {
   "session.control.cancel": "취소",
   "session.control.none": "지금 할 수 있는 제어가 없습니다.",
   "session.control.sent":
-    "요청을 보냈습니다. 바뀐 상태는 위 개요에 반영됩니다.",
+    "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
 
   "session.composer.label": "메시지",
   "session.composer.send": "보내기",
@@ -131,7 +131,7 @@ export const sessionsKo = {
   "session.refused.RECOVERY_REQUIRED":
     "복구 결정이 필요한 세션이라 지금은 할 수 없습니다.",
 
-  "inbox.title": "승인 대기",
+  "inbox.title": "답변 대기",
   "inbox.count": "답을 기다리는 세션 {count}개",
   "inbox.countMore": "답을 기다리는 세션 {count}개 이상",
   "inbox.empty": "답을 기다리는 세션이 없습니다.",
@@ -244,7 +244,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.usage.noLimit": "None",
   "session.usage.budgetExceeded": "A limit was reached, so no new turn starts.",
 
-  "session.pending": "Pending requests",
+  "session.pending": "Requests waiting for an answer",
   "session.pending.empty": "Nothing is waiting for an answer.",
   "session.pending.permission": "Permission request: {tool}",
   "session.pending.question": "Question",
@@ -259,7 +259,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.answer.freeText": "Write your own",
   "session.answer.unanswered": "Pick an option or write an answer.",
   "session.answer.submit": "Send answer",
-  "session.answer.sent": "Answer sent. The session carries on.",
+  "session.answer.sent": "Answer sent.",
 
   "session.control": "Session control",
   "session.control.interrupt": "Stop this turn",
@@ -273,7 +273,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.control.cancel": "Cancel",
   "session.control.none": "Nothing to control right now.",
   "session.control.sent":
-    "Request sent. The overview above shows the new state.",
+    "Request sent. The new state shows under Status above.",
 
   "session.composer.label": "Message",
   "session.composer.send": "Send",
@@ -301,7 +301,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.refused.RECOVERY_REQUIRED":
     "The session needs a recovery decision first.",
 
-  "inbox.title": "Waiting for you",
+  "inbox.title": "Waiting for an answer",
   "inbox.count": "{count} sessions waiting for an answer",
   "inbox.countMore": "{count}+ sessions waiting for an answer",
   "inbox.empty": "No session is waiting for an answer.",
