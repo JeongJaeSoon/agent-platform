@@ -179,7 +179,7 @@ export function TeamsScreen() {
                 >
                   {team.name}
                 </Link>
-                <span className={SECONDARY}>
+                <span className={`${SECONDARY} ml-auto`}>
                   {t("teams.memberCount", { count: team.member_count })}
                 </span>
               </li>
