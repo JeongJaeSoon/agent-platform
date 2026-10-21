@@ -93,6 +93,33 @@ describe("에이전트 상세 탭", () => {
     ).toBe("아직 저장하지 않은 지시.");
   });
 
+  test("다른 탭으로 옮긴 뒤 끝난 저장은 카드 탭을 다시 열고 결과로 포커스를 옮긴다", async () => {
+    const server = agentServer();
+    const patch = server.routes[`PATCH /v1/agents/${AGENT_ID}`];
+    let respond: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      respond = resolve;
+    });
+    const { history } = renderAt(`${DETAIL}?tab=card`, {
+      ...meOk,
+      ...server.routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: async (request: Request) => {
+        await gate;
+        return patch ? patch(request) : json(500, {});
+      },
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await user.click(screen.getByRole("tab", { name: "개요" }));
+    await waitFor(() => expect(selected()).toBe("개요"));
+    respond();
+    const saved = await screen.findByText(/저장했습니다/);
+    await waitFor(() => expect(selected()).toBe("카드"));
+    expect(visiblePanel().contains(saved)).toBe(true);
+    await waitFor(() => expect(tabIn(history)).toBe("card"));
+    expect(document.activeElement?.contains(saved)).toBe(true);
+  });
+
   test("개요는 아직 켜지지 않았다고 하고 배포 탭으로 잇는다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const user = await setupUser();

@@ -136,6 +136,15 @@ function AgentNotFound() {
   );
 }
 
+/** The tab holding each section a result is placed in. */
+const PLACE_TAB = {
+  page: undefined,
+  card: "card",
+  credentials: "release",
+  releases: "release",
+  admins: "admins",
+} as const satisfies Record<Place, AgentTab | undefined>;
+
 function AgentView({
   detail,
   placed,
@@ -150,19 +159,33 @@ function AgentView({
   const { t } = useI18n();
   // Validated again: the root route passes the raw query through, so an
   // unknown `tab` still reaches this route's search.
-  const tab: AgentTab =
+  const urlTab: AgentTab =
     agentSearch(useSearch({ from: "/authed/agents/$id" })).tab ?? "overview";
+  // Held here as well, because the URL settles a render later: a result
+  // opening its tab must be visible in the same render that focuses it.
+  const [tab, setTab] = useState(urlTab);
+  const [seenUrlTab, setSeenUrlTab] = useState(urlTab);
+  if (urlTab !== seenUrlTab) {
+    setSeenUrlTab(urlTab);
+    setTab(urlTab);
+  }
   const navigate = useNavigate({ from: "/agents/$id" });
   // Replace, not push: arrowing across the tabs would otherwise fill the
   // back button with tab entries.
-  const openTab = (next: AgentTab) =>
+  const openTab = (next: AgentTab) => {
+    setTab(next);
     void navigate({
       search: ({ tab: _, ...rest }) =>
         next === "overview" ? rest : { ...rest, tab: next },
       replace: true,
     });
-  const outcomeAt = (at: Place) => (outcome: Outcome | null) =>
+  };
+  const outcomeAt = (at: Place) => (outcome: Outcome | null) => {
     onPlaced(outcome ? { at, outcome } : null);
+    // A request can finish after the person moved to another tab.
+    const home = PLACE_TAB[at];
+    if (outcome && home) openTab(home);
+  };
   const onOutcome = outcomeAt("releases");
   // Until a version is picked or saved the release form offers the latest.
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
@@ -224,11 +247,13 @@ function AgentView({
           seenRevision: expected,
           seenActiveReleaseId: seenActive,
         });
+        openTab("release");
         return;
       }
       const missing = unboundRefs(error, detail);
       if (missing) {
         setUnbound(missing);
+        openTab("release");
         return;
       }
       onOutcome({ kind: "error", text: agentRefusal(t, error, role) });
