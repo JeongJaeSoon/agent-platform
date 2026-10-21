@@ -26,6 +26,7 @@ import {
   bootstrapRequestSchema,
   bootstrapResponseSchema,
   changeSessionProfileRequestSchema,
+  closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
   createAgentReleaseRequestSchema,
@@ -163,6 +164,7 @@ const requestComponents = {
   InterruptSessionRequest: interruptSessionRequestSchema,
   PauseSessionRequest: pauseSessionRequestSchema,
   TerminateSessionRequest: terminateSessionRequestSchema,
+  CloseSessionRequest: closeSessionRequestSchema,
   ResumeSessionRequest: resumeSessionRequestSchema,
   ChangeSessionProfileRequest: changeSessionProfileRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
@@ -305,7 +307,8 @@ export const OPENAPI_TAGS = [
   },
   {
     name: "Session control",
-    description: "Stop, pause, resume or interrupt a session's execution.",
+    description:
+      "Stop, pause, resume, close or interrupt a session's execution.",
   },
   {
     name: "Recovery",
@@ -906,7 +909,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Session detail with projection, execution and durability",
     description:
-      "Reads one session: its `admission_state` (whether it takes input and controls: `active`, `pausing`, `paused`, `resuming`, `stopping`, `stopped`, `recovery_required`, `closed`), its `status`, the current `revision`, the execution as last observed, the number of pending requests, `attention` (why the session is held or slowed, if it is) and checkpoint `durability`. Read `revision` here and send it as `expected_revision` to pause, resume, terminate or decide recovery. `status: needs_input` and `attention` are computed on each read; reading changes nothing.",
+      "Reads one session: its `admission_state` (whether it takes input and controls: `active`, `pausing`, `paused`, `resuming`, `stopping`, `stopped`, `recovery_required`, `closing`, `closed`), its `status`, the current `revision`, the execution as last observed, the number of pending requests, `attention` (why the session is held or slowed, if it is) and checkpoint `durability`. Read `revision` here and send it as `expected_revision` to pause, resume, close, terminate or decide recovery. `status: needs_input` and `attention` are computed on each read; reading changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -1105,6 +1108,7 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_RESUMING",
         "SESSION_STOPPED",
         "RECOVERY_REQUIRED",
+        "SESSION_CLOSING",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
         "TAKEOVER_REQUIRED",
@@ -1554,6 +1558,7 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_RESUMING",
         "SESSION_STOPPED",
         "RECOVERY_REQUIRED",
+        "SESSION_CLOSING",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
       ],
@@ -1568,12 +1573,58 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/sessions/{id}/close",
+    operationId: "closeSession",
+    tag: "Session control",
+    summary: "Finish the session: drain, checkpoint, close for good",
+    description:
+      "Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. `docs/api-guide.md` compares the three.\n\n- **`active` with a live worker:** the worker drains as for a pause and the session goes `closing`. The receipt stays `accepted` until the execution is observed gone with a checkpoint covering every turn that ran; then the session is `closed` and the receipt `succeeded`. A drain over 60 seconds shows `attention.code: CLOSE_BLOCKED` with the reason; nothing is killed for it. An open question or approval holds the close until it is answered or the turn interrupted. If the drain cannot commit, the receipt fails and the session goes back to `active` (or `recovery_required` for a turn whose outcome is unknown), with its queued input intact; a terminate overtakes it (`CONTROL_SUPERSEDED`).\n- **`active` with no live worker, `paused`, or a `stopped` session that can be resumed:** closed in this request. With an execution still bound the receipt is `accepted` until it is observed gone; otherwise `succeeded` in the response.\n\nQueued input is cancelled in the transaction that closes the session (each input's receipt fails with `SESSION_CLOSED`). Push requests are left alone; request a push of the result after the close has succeeded, since a push requested inside the last turn is refused `CHECKPOINT_MOVED` once the close commits that turn's checkpoint. The receipt result is `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`. The stream carries a `status` event for `closing` and for `closed`, and a `system` event `{subtype: session_closed, closed_by: close, close_receipt_id, checkpoint_revision, cancelled_turn_count}`. A caller closing its own session from inside a turn must not wait on the receipt: the drain waits for that turn to end. After the close, messages and controls answer `409 SESSION_CLOSED`.",
+    scope: "control",
+    body: "CloseSessionRequest",
+    requestExample: { expected_revision: 7, reason: "Work is done" },
+    success: {
+      status: 202,
+      schema: "ReceiptAcceptedResponse",
+      description:
+        "The close is stored (`accepted`), or the session had nothing to wait on and is `closed` already (`succeeded`).",
+      example: ACCEPTED_RECEIPT,
+    },
+    // 422: a legacy pod binding, as for terminate.
+    errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "SESSION_CLOSING",
+        "SESSION_CLOSED",
+        "RECOVERY_REQUIRED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Checked before the admission state, but after `closed`: a closed session answers `SESSION_CLOSED` whatever the revision.",
+      SESSION_PAUSED: "The session is pausing; close it once it is paused.",
+      SESSION_STOPPED:
+        "The session is stopping; close it once the terminate receipt has settled.",
+      RECOVERY_REQUIRED:
+        "The session is `recovery_required`, or `stopped` and cannot be resumed; end it with a recovery close instead.",
+      CHECKPOINT_UNAVAILABLE:
+        "No live worker can drain and no trusted checkpoint covers the last turn that ran; terminate, then use a recovery close.",
+      UNSUPPORTED_CAPABILITY: "The session runs on a legacy pod binding.",
+    },
+  },
+  {
+    method: "post",
     path: "/v1/sessions/{id}/terminate",
     operationId: "terminateSession",
     tag: "Session control",
     summary: "Block dispatch and force the execution down",
     description:
-      "Stops the session by force, in any admission state but `closed`: dispatch is blocked, queued input is cancelled (each input's receipt fails with `SESSION_STOPPED`), open requests close and the execution is killed. The session goes `stopping` until the kill is observed, then `stopped`; with nothing to kill it is `stopped` at once and the receipt is `succeeded` in the response. A `recovery_required` session keeps that state. A turn the kill cut short may end `outcome_unknown`, which holds the session in `recovery_required` until `POST /v1/sessions/{id}/recovery-decisions`. The kill reverts nothing the execution already did outside (commits, pushes, API calls): the response and the receipt say `external_effects_reverted: false`. The receipt result is `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`. Resume a `stopped` session from its last checkpoint with `POST /v1/sessions/{id}/resume`.",
+      "Stops the session by force, in any admission state but `closed`: dispatch is blocked, queued input is cancelled (each input's receipt fails with `SESSION_STOPPED`), open requests close and the execution is killed. The session goes `stopping` until the kill is observed, then `stopped`; with nothing to kill it is `stopped` at once and the receipt is `succeeded` in the response. A `recovery_required` session keeps that state. A turn the kill cut short may end `outcome_unknown`, which holds the session in `recovery_required` until `POST /v1/sessions/{id}/recovery-decisions`. The kill reverts nothing the execution already did outside (commits, pushes, API calls): the response and the receipt say `external_effects_reverted: false`. The receipt result is `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`. Resume a `stopped` session from its last checkpoint with `POST /v1/sessions/{id}/resume`. A pause or close still draining is overtaken: its receipt fails with `CONTROL_SUPERSEDED`. To end a session whose work is done, close it instead (`POST /v1/sessions/{id}/close`).",
     scope: "control",
     body: "TerminateSessionRequest",
     requestExample: { expected_revision: 7, reason: "Runaway tool loop" },
@@ -1632,6 +1683,7 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_PAUSED",
         "SESSION_RESUMING",
         "SESSION_STOPPED",
+        "SESSION_CLOSING",
         "SESSION_CLOSED",
         "RECOVERY_REQUIRED",
         "RELEASE_PROFILE_MISMATCH",
@@ -1676,6 +1728,7 @@ export const API_ROUTE_DECLARATIONS = [
         "REVISION_CONFLICT",
         "REQUEST_STALE",
         "SESSION_RESUMING",
+        "SESSION_CLOSING",
         "SESSION_CLOSED",
         "RECOVERY_REQUIRED",
         "CHECKPOINT_UNAVAILABLE",
@@ -2428,7 +2481,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

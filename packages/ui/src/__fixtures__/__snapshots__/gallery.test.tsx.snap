@@ -68,6 +68,16 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
       </span>
+      <span class="ap-status" data-axis="admission" data-state="closing" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관 중</span>
+      </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
         <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
           <rect x="2" y="2" width="10" height="10" rx="3">
@@ -519,6 +529,16 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
       </span>
+      <span class="ap-status" data-axis="admission" data-state="closing" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관 중</span>
+      </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
         <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
           <rect x="2" y="2" width="10" height="10" rx="3">
@@ -969,6 +989,16 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         </svg>
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
+      </span>
+      <span class="ap-status" data-axis="admission" data-state="closing" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
         <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
