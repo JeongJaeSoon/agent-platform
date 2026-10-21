@@ -11,7 +11,7 @@ flowchart LR
   engine["엔진<br/>Claude Agent SDK"] --> worker["worker"]
   worker -->|"① 이벤트"| gateway["API Worker Gateway"]
   gateway --> events[("PostgreSQL events 표<br/>정본")]
-  events --> uses["SSE와 Last-Event-ID 재연결<br/>세션 화면<br/>turn 종료 판정<br/>대기 요청 알림"]
+  events --> uses["SSE와 Last-Event-ID 재연결<br/>공개 API 클라이언트<br/>turn 종료 판정<br/>대기 요청 알림"]
   worker -.->|"② span (계획)"| ingest["telemetry ingest<br/>(계획)"]
   ingest -.->|"OTLP"| collector[("운영자가 고른 수집기<br/>Tempo, Langfuse 등<br/>사본")]
   collector -.-> operator["운영자 관측 화면"]
@@ -27,9 +27,9 @@ flowchart LR
 | 지위 | 정본 | 계획. 사본 |
 | 지금 상태 | 동작한다 | 코드가 없다. 구현 뒤에도 기본값은 꺼짐이다(계획) |
 | 담는 것 | `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트 | 계획. turn, 모델 응답, 도구 실행, 권한 대기, 질문 대기, checkpoint의 시작·끝 시각, 토큰 수, 결과, 그리고 내용(아래 절) |
-| 쓰는 곳 | 세션 화면, 공개 API 클라이언트, turn 종료 판정, 대기 요청 알림 | 계획. 운영자의 관측. 2단계에 세션 화면의 트레이스 탭 |
+| 쓰는 곳 | 공개 API의 SSE 클라이언트, turn 종료 판정, 대기 요청 알림. 계획 중인 웹 콘솔의 세션 화면도 이 표를 읽는다 | 계획. 운영자의 관측. 2단계에 웹 콘솔 세션 화면의 트레이스 탭 |
 | 전달 | 같은 attempt 안에서 순서대로, 빈틈없이 저장해야 turn이 끝난다 | 계획. best effort. 큐가 넘치면 버리고 버린 수를 센다 |
-| 끊기면 | 기능이 깨진다. SSE가 멈추고, turn을 finalize하지 못한다 | 계획. 관측만 빈다. 세션 실행과 화면은 그대로다 |
+| 끊기면 | 기능이 깨진다. SSE가 멈추고, turn을 finalize하지 못한다 | 계획. 관측만 빈다. 세션 실행과 SSE는 그대로다 |
 | 내용 길이 | worker가 따로 자르지 않는다 | 계획. 속성 하나 32KiB, turn 트레이스 하나 20MiB에서 자른다 |
 | 받는 곳 | 우리 PostgreSQL | 계획. 운영자가 정한 OTLP 수집기 |
 
@@ -61,7 +61,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 ### 수집기는 운영자가 고른다 (계획)
 
-계획. API는 표준 OTLP로 내보낸다. OTLP를 받는 수집기면 어느 것이든 된다. Grafana Tempo, Langfuse, OpenTelemetry Collector, OTLP를 받는 상용 백엔드가 그 예다. 특정 벤더는 필요 없다. 운영자가 endpoint를 설정하기 전에는 export가 꺼져 있고, 꺼져 있어도 ① 경로와 세션 화면은 그대로 동작한다. 수집기 설정 키와 Tempo·Langfuse 설정 예시는 [94S-733](https://linear.app/94soon/issue/94S-733)과 [94S-737](https://linear.app/94soon/issue/94S-737)이 운영 문서에 더한다.
+계획. API는 표준 OTLP로 내보낸다. OTLP를 받는 수집기면 어느 것이든 된다. Grafana Tempo, Langfuse, OpenTelemetry Collector, OTLP를 받는 상용 백엔드가 그 예다. 특정 벤더는 필요 없다. 운영자가 endpoint를 설정하기 전에는 export가 꺼져 있고, 꺼져 있어도 ① 경로는 그대로 동작한다. 수집기 설정 키와 Tempo·Langfuse 설정 예시는 [94S-733](https://linear.app/94soon/issue/94S-733)과 [94S-737](https://linear.app/94soon/issue/94S-737)이 운영 문서에 더한다.
 
 ## 내용 수집과 비밀값 마스킹
 
@@ -106,15 +106,15 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 | 티켓 | 하는 일 |
 |---|---|
-| [94S-729](https://linear.app/94soon/issue/94S-729) (T1) | OTel tracer 부트스트랩과 로그의 `trace_id` |
-| [94S-731](https://linear.app/94soon/issue/94S-731) (T2) | API HTTP span과 turn의 trace context |
-| [94S-734](https://linear.app/94soon/issue/94S-734) (T3) | worker span emitter |
-| [94S-732](https://linear.app/94soon/issue/94S-732) (T4) | telemetry ingest listener |
-| [94S-733](https://linear.app/94soon/issue/94S-733) (T5) | 운영자 설정 키와 claim telemetry 계약 |
-| [94S-730](https://linear.app/94soon/issue/94S-730) (T6) | 비밀값 마스킹 규칙 재작성과 통합 |
-| [94S-735](https://linear.app/94soon/issue/94S-735) (T7) | 에이전트 admin·admin 팀의 세션 열람 권한 |
-| [94S-736](https://linear.app/94soon/issue/94S-736) (T8) | 복구 화면의 "덮이지 않은 활동" |
-| [94S-737](https://linear.app/94soon/issue/94S-737) (T9) | 운영 문서와 수집기 예시 |
-| [94S-738](https://linear.app/94soon/issue/94S-738) (T10, 2단계) | 트레이스 상세 탭 |
-| [94S-739](https://linear.app/94soon/issue/94S-739) (T11, 2단계, 선택) | 엔진 CLI telemetry 추가 |
-| [94S-740](https://linear.app/94soon/issue/94S-740) (T12) | 부수효과 도구의 `tool_use` durable 대기(결정 대기) |
+| [94S-729](https://linear.app/94soon/issue/94S-729) (T1) | 계획. OTel tracer 부트스트랩과 로그의 `trace_id` |
+| [94S-731](https://linear.app/94soon/issue/94S-731) (T2) | 계획. API HTTP span과 turn의 trace context |
+| [94S-734](https://linear.app/94soon/issue/94S-734) (T3) | 계획. worker span emitter |
+| [94S-732](https://linear.app/94soon/issue/94S-732) (T4) | 계획. telemetry ingest listener |
+| [94S-733](https://linear.app/94soon/issue/94S-733) (T5) | 계획. 운영자 설정 키와 claim telemetry 계약 |
+| [94S-730](https://linear.app/94soon/issue/94S-730) (T6) | 계획. 비밀값 마스킹 규칙 재작성과 통합 |
+| [94S-735](https://linear.app/94soon/issue/94S-735) (T7) | 계획. 에이전트 admin·admin 팀의 세션 열람 권한 |
+| [94S-736](https://linear.app/94soon/issue/94S-736) (T8) | 계획. 복구 화면의 "덮이지 않은 활동" |
+| [94S-737](https://linear.app/94soon/issue/94S-737) (T9) | 계획. 운영 문서와 수집기 예시 |
+| [94S-738](https://linear.app/94soon/issue/94S-738) (T10, 2단계) | 계획. 트레이스 상세 탭 |
+| [94S-739](https://linear.app/94soon/issue/94S-739) (T11, 2단계, 선택) | 계획. 엔진 CLI telemetry 추가 |
+| [94S-740](https://linear.app/94soon/issue/94S-740) (T12) | 계획. 부수효과 도구의 `tool_use` durable 대기(결정 대기) |
