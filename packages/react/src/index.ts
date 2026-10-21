@@ -52,10 +52,14 @@ export {
 } from "./provider.tsx";
 export {
   type EventStreamState,
+  type SessionControl,
   type SessionEventFrame,
+  useAnswer,
   useChangeSessionProfile,
   usePendingRequests,
+  useSendMessage,
   useSession,
+  useSessionControl,
   useSessionEvents,
   useSessions,
   useSessionUsage,
