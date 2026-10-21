@@ -8,7 +8,7 @@
 |---|---|---|
 | transcript 합계 상한 `MAX_TRANSCRIPT_BYTES` | 512MiB | `packages/runtime-core/src/checkpoint-manifest.ts` |
 | transcript part 상한 `MAX_TRANSCRIPT_PART_BYTES` | 16MiB | 같은 파일 |
-| 경고 문턱 (예정) | 상한의 80%, 409.6MiB | 아직 없다. 아래 "80% 경고와 상한 초과 차단 (예정)" |
+| 경고 문턱 `transcriptWarnBytes` | 상한의 80%, 409.6MiB | 같은 파일. 아래 "80% 경고" |
 | worker 메모리 `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608MiB | `apps/control-host/src/scheduler/config.ts`, `deploy/helm/agent-platform/values.yaml`, `infra/compose.core.yml` |
 | workspace 상한 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096MiB (최솟값 1024) | `packages/adapters/execution/kubernetes/src/config.ts`, `packages/adapters/execution/local-docker/src/config.ts`, `deploy/helm/agent-platform/values.yaml` |
 
@@ -82,8 +82,8 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 | 600MiB | 2178MiB (실측) | 4608MiB | 6 | 12/12 | 480MiB |
 | 800MiB | 2785MiB (실측) | 5632MiB | 5 | 12/12 | 640MiB |
 
-- 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나다. 경고(예정)가 들어오면 이런 세션은 409.6MiB에서 경고를 받고 새 세션으로 옮긴다.
-- 400MiB면 400.1MiB 세션의 checkpoint가 바로 거절된다. 256MiB면 217MiB 세션도 (예정된) 경고 구간에 들어간다.
+- 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나다. 이런 세션은 409.6MiB에서 경고를 받고 새 세션으로 옮긴다.
+- 400MiB면 400.1MiB 세션의 checkpoint가 바로 거절된다. 256MiB면 217MiB 세션도 경고 구간에 들어간다.
 - 공개된 다른 시스템도 활성 기록은 작게 묶는다. Temporal은 event history가 50MB에 닿으면 실행을 끝낸다([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). Inngest는 run state를 32MiB로 묶는다([usage limits](https://www.inngest.com/docs/usage-limits/inngest)). Claude Code의 선택형 `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`는 compaction 뒤 파일이 5MB를 넘으면 그 이전을 지운다([env vars](https://code.claude.com/docs/en/env-vars)). 수백 MiB를 통째로 복원하는 사례는 찾지 못했다(2026-10-21 조사).
 - 메모리는 4096MiB가 아니라 4608MiB다. 512MiB의 실측 peak 1970MiB는 4096MiB의 절반(2048)에 78MiB밖에 남지 않는다. 4608MiB면 여유가 334MiB다.
 
