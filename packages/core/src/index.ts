@@ -19,4 +19,5 @@ export {
   teamQuery,
   teamsQuery,
   viewerQuery,
+  waitingSessionsQuery,
 } from "./queries.ts";

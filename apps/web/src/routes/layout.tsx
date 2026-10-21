@@ -13,6 +13,7 @@ import {
   type ErrorComponentProps,
   Outlet,
   useNavigate,
+  useRouter,
   useRouterState,
 } from "@tanstack/react-router";
 import { type ReactNode, useId, useLayoutEffect, useState } from "react";
@@ -190,7 +191,8 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
   );
 }
 
-export function AuthedError({ error, reset }: ErrorComponentProps) {
+export function AuthedError({ error }: ErrorComponentProps) {
+  const router = useRouter();
   if (isApiError(error, "FORBIDDEN")) {
     return (
       <Main className="mx-auto w-full max-w-md px-4 py-10">
@@ -205,7 +207,9 @@ export function AuthedError({ error, reset }: ErrorComponentProps) {
         detail={
           error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN"
         }
-        onRetry={reset}
+        // reset() only clears the boundary; the failure is in beforeLoad,
+        // which runs again only when the router reloads.
+        onRetry={() => void router.invalidate()}
       />
     </Main>
   );

@@ -66,8 +66,51 @@ describe("에이전트 목록", () => {
     renderAt("/agents", { ...meOk, ...server.routes });
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
-    expect(screen.getByText("아직 쓸 수 없음")).toBeDefined();
+    expect(screen.getByText("초안")).toBeDefined();
     expect(screen.getByText(/^식별자 billing · /)).toBeDefined();
+  });
+
+  test("배지는 초안·활성·일시정지·보관됨을 서로 다르게 보인다", async () => {
+    const base = agentServer().detail().agent;
+    const agent = (
+      name: string,
+      status: "active" | "paused" | "archived",
+      released: boolean,
+    ) => ({
+      ...base,
+      id: crypto.randomUUID(),
+      slug: name,
+      name,
+      status,
+      active_release_id: released ? crypto.randomUUID() : null,
+      activation_revision: released ? 0 : -1,
+    });
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () =>
+        json(200, {
+          items: [
+            agent("draft", "active", false),
+            agent("live", "active", true),
+            agent("held", "paused", true),
+            agent("old", "archived", false),
+          ],
+        }),
+    });
+    await screen.findByRole("link", { name: "draft" });
+    const badges = ["draft", "live", "held", "old"].map((name) => {
+      const badge = screen
+        .getByRole("link", { name })
+        .closest("li")
+        ?.querySelector("[data-slot=badge]");
+      return [badge?.textContent, badge?.getAttribute("data-state")];
+    });
+    expect(badges).toEqual([
+      ["초안", "draft"],
+      ["활성", "active"],
+      ["일시정지", "paused"],
+      ["보관됨", "archived"],
+    ]);
   });
 
   test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {
@@ -728,6 +771,7 @@ describe("편집 중 다른 곳의 저장", () => {
     });
     const user = await setupUser();
     const model = (await screen.findByLabelText("모델")) as HTMLSelectElement;
+    expect(model.getAttribute("data-slot")).toBe("native-select");
     expect(model.value).toBe("claude-legacy-4");
     expect(model.selectedOptions[0]?.textContent).toBe(
       "claude-legacy-4 · 카탈로그에 없음",

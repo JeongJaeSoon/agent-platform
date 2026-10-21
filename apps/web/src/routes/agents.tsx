@@ -1,7 +1,7 @@
 import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
-import type { AgentDetail } from "@agent-platform/contracts";
+import type { Agent, AgentDetail } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
-import { formatTimestamp } from "@agent-platform/ui";
+import { Badge, type BadgeProps, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
@@ -116,11 +116,7 @@ export function AgentsScreen() {
                   })}
                 </span>
               </span>
-              <span className="web-badge" data-tone={agentTone(agent)}>
-                {agent.active_release_id === null
-                  ? t("agents.state.notReleased")
-                  : t(`agents.status.${agent.status}`)}
-              </span>
+              <AgentStateBadge agent={agent} />
             </li>
           ))}
         </ul>
@@ -129,12 +125,36 @@ export function AgentsScreen() {
   );
 }
 
-function agentTone(agent: {
-  status: string;
-  active_release_id: string | null;
-}): string {
-  if (agent.active_release_id === null) return "pending";
-  return agent.status === "active" ? "ok" : "muted";
+type AgentState = "draft" | Agent["status"];
+type AgentSummary = Pick<Agent, "status" | "active_release_id">;
+
+/** An agent never released is a draft, whatever its status; archived wins. */
+function agentState(agent: AgentSummary): AgentState {
+  if (agent.status === "archived") return "archived";
+  return agent.active_release_id === null ? "draft" : agent.status;
+}
+
+const STATE_VARIANT = {
+  draft: "outline",
+  active: "default",
+  paused: "secondary",
+  archived: "outline",
+} as const satisfies Record<AgentState, BadgeProps["variant"]>;
+
+function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
+  const { t } = useI18n();
+  const state = agentState(agent);
+  return (
+    <Badge
+      variant={STATE_VARIANT[state]}
+      data-state={state}
+      className={state === "archived" ? "text-muted-foreground" : undefined}
+    >
+      {state === "draft"
+        ? t("agents.state.draft")
+        : t(`agents.status.${state}`)}
+    </Badge>
+  );
 }
 
 const SLUG_MAX = 64;
