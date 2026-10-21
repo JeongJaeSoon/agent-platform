@@ -8,7 +8,7 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 - `api-404` `/v1/nope`는 fallback되지 않는다: 인증 없으면 JSON 401, 인증하면 JSON 404.
 - `login-required` 로그인 없이 `/`를 열면 `/login?redirect=%2F`로 가고 "다시 로그인하세요"가 보인다.
 - `bootstrap` `/bootstrap`은 제목 "첫 소유자 만들기"로 열리고, 제출하면 `/login?notice=created`.
-- `bootstrap-done` 소유자가 이미 있으면 제출 결과가 409라 `/login?notice=bootstrap_done`.
+- `bootstrap-done` 소유자가 이미 있으면 제출 결과가 409라 `/bootstrap`에 머문 채 폼 아래 오류 줄에 "이미 소유자가 있습니다. 로그인해 주세요. 로그인하기"(마지막 말이 `/login` 링크)가 보인다(94S-756). `/login?notice=bootstrap_done` 안내는 그 주소로 직접 열 때만 나온다.
 - `login` 로그인하면 `/`에 workspace 이름, "<이름>(<이메일>) 계정으로 로그인했습니다", checklist 넷(첫째만 완료).
 - `logout` 로그아웃하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
 - `session-ended` 로그인한 채 다른 곳에서 세션이 끝나면(다른 탭 로그아웃), 다음 `me` 재조회가 401을 받아 `/login?redirect=…`로 간다.
@@ -46,12 +46,15 @@ W=390 THEME=dark node $B <run id> shot home-390-dark       # 390px, 다크. scro
 node $B <run id> blockshot /sessions '*/v1/sessions*' sessions-error   # 그 요청을 실패시킨 오류 화면과 main 텍스트
 node $B <run id> slowshot /sessions sessions-loading 3000              # 2.5초 지연 중 로딩 화면
 node $B <run id> key Tab 3               # 포커스가 간 요소와 outline
+node $B <run id> press "연결 해제"        # 그 버튼에 포커스를 두고 Enter → 경로와 그 뒤 포커스가 간 요소
 node $B <run id> stop                    # stopped pid N; profile removed
 ```
 
 - 폭(`W`, 기본 1280)·높이(`H`, 900)·테마(`THEME`, `light`|`dark`)는 명령마다 `Emulation.setDeviceMetricsOverride`·`setEmulatedMedia`로 다시 건다. 600px 미만은 mobile로 그린다.
-- 다른 명령: `click <버튼 글자|css>`, `type <css|@N> <text>`, `select <css|@N> <value>`, `eval <expr>`, `shot <name> full`(페이지 전체). `@N`은 main 안 N번째 입력 칸(0부터)이다.
-- bootstrap 화면을 손으로 몰 때는 token과 비밀번호를 명령에 쓰지 않는다. bootstrap 자체는 `web-user.mjs bootstrap owner`([web-login.md](./web-login.md))로 하고, 화면에서는 `/bootstrap`이 열리는지와 두 번째 제출의 `bootstrap_done`만 본다.
+- 다른 명령: `click <버튼 글자|css>`, `press <버튼 글자|css> [Key]`, `type <css|@N> <text>`, `select <css|@N> <value>`, `eval <expr>`, `shot <name> full`(페이지 전체). `@N`은 main 안 N번째 입력 칸(0부터)이다.
+- bootstrap 화면은 `node $B <run id> bootstrap <who>`로 몬다. `state.env`의 bootstrap token과 `users/<who>`(없으면 `web-user.mjs`와 같은 모양으로 만든다)로 폼 여섯 칸을 채워 제출하고, 값은 출력하지 않는다. 첫 제출은 `bootstrap owner -> /login?notice=created |`, 소유자가 이미 있으면(`web-user.mjs bootstrap owner` 뒤 등) `bootstrap owner -> /bootstrap | <오류 줄 글자>`다. token과 비밀번호를 `type`으로 명령에 쓰지 않는다.
+- 포커스 회복(대화상자를 닫은 뒤, 보내기·삭제 뒤 포커스가 어디로 가는지)은 `press <버튼 글자|css> [Key]`로 본다. `click`은 `el.click()`이라 버튼에 포커스를 주지 않아, 키보드 사용자가 겪는 포커스 이동을 재현하지 못한다. `press`는 그 요소에 `focus()`를 한 뒤 CDP로 실제 키(기본 `Enter`)를 보내고, 끝난 뒤 `document.activeElement`(태그·이름·outline)를 출력한다. 찾지 못하면 `not found`만 출력하고 키를 보내지 않는다.
+- 2026-10-22 run `20261022-073051-53892`에서 `bootstrap owner` 두 번으로 `/login?notice=created`와 `/bootstrap`의 409 오류 줄을 봤고, 그 `users/owner`로 `web-user.mjs login owner`가 `200`이었다. 연결 계정 한 줄을 둔 `/settings/linked-accounts`에서 `click "연결 해제"` 뒤 포커스는 `BODY`였고, 다시 연결한 뒤 `press "연결 해제"`는 `focus {"tag":"H2","name":"Slack","outline":"solid 2px"}`였다(해제 뒤 목록 제목, 94S-753).
 - 2026-10-21 run `20261021-031642-23898`에서 member로 로그인해 `/sessions`를 1280·390 × light·dark로 찍었고(`scrollWidth/innerWidth` 1280/1280, 390/390), `blockshot`으로 "서버에 연결하지 못했습니다" 오류 화면, `slowshot`으로 로딩 화면을 찍었다.
 
 Orca 브라우저(`orca tab`·`orca snapshot`)도 쓸 수 있다. 다른 스택이 같은 host에 로그인해 있으면 isolated profile(`orca tab profile create --scope isolated`)로 연다. 다만 Orca 탭이 hidden이면 `orca screenshot`이 "page did not draw a frame"으로 실패하고, 창 폭·color scheme·네트워크 실패를 바꾸지 못한다. 스크린샷·폭·상태 확인은 `browser.mjs`로 한다.
