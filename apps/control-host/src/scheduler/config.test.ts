@@ -86,7 +86,7 @@ describe("schedulerConfigFromEnv", () => {
       image: "agent-platform-worker:dev",
       resources: {
         cpus: 1,
-        memoryBytes: 2048 * 1024 * 1024,
+        memoryBytes: 4608 * 1024 * 1024,
         pidsLimit: 512,
       },
       slotLimit: 10,
