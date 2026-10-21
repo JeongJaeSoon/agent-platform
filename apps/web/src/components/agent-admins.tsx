@@ -2,8 +2,9 @@ import type {
   AgentAdminChangeResponse,
   AgentAdminKind,
 } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { ConfirmDialog } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
@@ -24,7 +25,6 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { StatusScreen } from "./status-screen.tsx";
@@ -46,7 +46,7 @@ export function AgentAdmins({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const role = useRole();
   const everywhere = useHasPermission("agent.admin.manage");
   const administered = useQuery({
@@ -93,7 +93,8 @@ function AdminList({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const admins = useQuery(agentAdminsQuery(client, agentId));
   const reason = usePermissionReason("agent.admin.manage", admins);
@@ -351,7 +352,7 @@ export function AdministeredAgents({
   readonly showEmpty: boolean;
 }) {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const everywhere = useHasPermission("agent.admin.manage");
   const administered = useQuery({
     ...administeredAgentsQuery(client),

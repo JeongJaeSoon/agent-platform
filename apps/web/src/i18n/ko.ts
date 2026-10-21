@@ -1,3 +1,4 @@
+import { sessionsKo } from "@agent-platform/react";
 import { agentsKo } from "./agents.ts";
 import { apiKeysKo } from "./api-keys.ts";
 import { authKo } from "./auth.ts";
@@ -7,7 +8,6 @@ import { homeKo } from "./home.ts";
 import { linkedKo } from "./linked.ts";
 import { membersKo } from "./members.ts";
 import { modelsKo } from "./models.ts";
-import { sessionsKo } from "./sessions.ts";
 import { shellKo } from "./shell.ts";
 import { teamsKo } from "./teams.ts";
 import { workspaceKo } from "./workspace.ts";

@@ -1,3 +1,4 @@
+import { useAgentPlatform } from "@agent-platform/react";
 import {
   Button,
   cn,
@@ -6,7 +7,7 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@agent-platform/ui";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
   Outlet,
@@ -26,7 +27,6 @@ import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { applyTheme, storedTheme } from "../components/theme.ts";
 import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 export function RootLayout() {
   const { t } = useI18n();
@@ -90,7 +90,8 @@ export function AuthedLayout() {
   const { t } = useI18n();
   const me = useMe();
   const groups = useNavGroups();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const sidebarId = useId();
   const [menuOpen, setMenuOpen] = useState(false);

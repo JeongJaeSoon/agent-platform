@@ -11,10 +11,16 @@ import type {
   SessionEventPayload,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
-import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { useAgentPlatform } from "@agent-platform/react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { type ApiError, isApiError, unwrap } from "../api/client.ts";
-import { useServices } from "../services.tsx";
+import { useAppServices } from "../services.tsx";
 
 /*
  * The session screens' data: what to fetch and when, and nothing about how it
@@ -36,7 +42,7 @@ const LIVE_REFETCH_MS = 5_000;
 export const EVENT_WINDOW = 200;
 
 export function useSessions() {
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   return useInfiniteQuery({
     queryKey: sessionKeys.list,
     queryFn: ({ pageParam }) =>
@@ -52,7 +58,7 @@ export function useSessions() {
 }
 
 export function useSession(id: string) {
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   return useQuery({
     queryKey: sessionKeys.detail(id),
     queryFn: () =>
@@ -65,7 +71,7 @@ export function useSession(id: string) {
 }
 
 export function useSessionUsage(id: string, enabled: boolean) {
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   return useQuery({
     queryKey: sessionKeys.usage(id),
     queryFn: () =>
@@ -79,7 +85,7 @@ export function useSessionUsage(id: string, enabled: boolean) {
 }
 
 export function usePendingRequests(id: string, enabled: boolean) {
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   return useQuery({
     queryKey: sessionKeys.pending(id),
     queryFn: () =>
@@ -96,7 +102,8 @@ export function usePendingRequests(id: string, enabled: boolean) {
 
 /** Moves the session onto another profile from its next turn on. */
 export function useChangeSessionProfile(id: string) {
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   return useMutation<unknown, ApiError, ChangeSessionProfileRequest>({
     mutationFn: (body) =>
       unwrap(
@@ -146,7 +153,8 @@ function toolCalls(payload: SessionEventPayload) {
  * screen says so.
  */
 export function useSessionEvents(id: string, enabled: boolean) {
-  const services = useServices();
+  const { client } = useAgentPlatform();
+  const services = useAppServices();
   const [events, setEvents] = useState<readonly SessionEventFrame[]>([]);
   const [state, setState] = useState<EventStreamState>("connecting");
 
@@ -156,7 +164,7 @@ export function useSessionEvents(id: string, enabled: boolean) {
     setState("connecting");
     const stop = new AbortController();
     const callNames = new Map<string, string>();
-    void subscribeSessionEvents(services.client, id, {
+    void subscribeSessionEvents(client, id, {
       signal: stop.signal,
       onEvent: (frame) => {
         const { payload } = frame;
@@ -187,7 +195,7 @@ export function useSessionEvents(id: string, enabled: boolean) {
       ...(services.eventRetry ? { retry: services.eventRetry } : {}),
     });
     return () => stop.abort();
-  }, [services, id, enabled]);
+  }, [client, services, id, enabled]);
 
   return { events, state };
 }

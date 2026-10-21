@@ -4,17 +4,15 @@ import type {
   SessionScope,
   WorkspaceRole,
 } from "@agent-platform/contracts";
-import { useQuery } from "@tanstack/react-query";
+import { useMe as useMeQuery } from "@agent-platform/react";
 import { type ButtonHTMLAttributes, useId } from "react";
 import { type ApiError, isApiError } from "../api/client.ts";
-import { meQuery } from "../api/queries.ts";
 import {
   errorKey,
   isMessageKey,
   type Translate,
   useI18n,
 } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 /** The roles a member can be given; client.test.ts pins it to the contract. */
 export const WORKSPACE_ROLE_VALUES: readonly WorkspaceRole[] = [
@@ -25,8 +23,7 @@ export const WORKSPACE_ROLE_VALUES: readonly WorkspaceRole[] = [
 
 /** The signed-in principal; screens under the authenticated layout only. */
 export function useMe(): AuthMeResponse | undefined {
-  const { client } = useServices();
-  return useQuery(meQuery(client)).data;
+  return useMeQuery().data;
 }
 
 /**

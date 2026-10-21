@@ -1,4 +1,5 @@
 import type { ListSessionsResponse } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import {
   Badge,
   Button,
@@ -19,7 +20,6 @@ import {
   type MessageKey,
   useI18n,
 } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 import { chooseTheme, storedTheme, THEMES, type Theme } from "./theme.ts";
 
 type NavPath =
@@ -103,7 +103,7 @@ const WAITING_REFETCH_MS = 30_000;
 
 /** The viewer's sessions waiting on an answer, counted from the first page. */
 function useWaitingSessions() {
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const canRead = useCan("sessions:read");
   return useQuery({
     queryKey: ["sessions", "waiting"],

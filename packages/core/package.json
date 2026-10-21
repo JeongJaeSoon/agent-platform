@@ -1,11 +1,12 @@
 {
   "name": "@agent-platform/core",
-  "description": "Framework-free state logic over @agent-platform/client: query keys and query option factories on @tanstack/query-core",
+  "description": "Framework-free state logic over @agent-platform/client: query keys and query option factories on @tanstack/query-core; the schemas entry checks responses against @agent-platform/contracts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
@@ -13,6 +14,7 @@
   "devDependencies": {
     "@agent-platform/client": "workspace:*",
     "@agent-platform/contracts": "workspace:*",
-    "@tanstack/query-core": "5.103.2"
+    "@tanstack/query-core": "5.103.2",
+    "zod": "4.6.5"
   }
 }
