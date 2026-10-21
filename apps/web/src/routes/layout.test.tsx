@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { queryKeys } from "@agent-platform/core";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { THEME_STORAGE_KEY } from "../components/theme.ts";
 import { json, me, memberMe } from "../test-support/fake-api.ts";
@@ -97,6 +98,27 @@ describe("app shell", () => {
           call.path === "/v1/sessions" && call.search === "?status=needs_input",
       ),
     ).toBe(true);
+  });
+
+  test("the badge reads again when the core's waiting key goes stale", async () => {
+    let answered = 0;
+    const { services } = renderAt("/", {
+      ...signedIn,
+      [WAITING_SESSIONS]: () =>
+        json(200, {
+          items: answered++ === 0 ? [waiting(FIRST)] : [],
+          next_cursor: null,
+        }),
+    });
+    await screen.findByRole("link", { name: "세션 답변 대기 1건" });
+    // What a session's status event invalidates.
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.waitingSessions,
+      exact: true,
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "세션" })).toBeDefined(),
+    );
   });
 
   test("a first page with more behind it reads as at least that many", async () => {
