@@ -35,6 +35,22 @@ body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"
 - **제어.** pause·resume·terminate·recovery는 `docs/quickstart.md` 3장 ⑥–⑨의 명령을 `get`/`post` 대신 `ap_get`/`ap_post`로 바꿔 그대로 쓴다(응답 마지막 줄의 상태 코드를 jq에 넘기지 않도록 `| head -1`).
 - **증거.** `| tee "$EVIDENCE/sessions.txt"`.
 
+웹 사용자의 세션. 웹 `/sessions`는 로그인한 사람이 볼 수 있는 세션을 보여 준다. 운영자 key(`ap_key`)로 만든 세션은 웹 사용자의 것이 아니다. 웹 사용자가 만든 세션이 필요하면 그 사람의 개인 key로 만든다. 웹 `/settings/api-keys`의 "개인 key 발급"이 보내는 것과 같은 `POST /v1/api-keys`를 `web-user.mjs key`가 그 사람의 cookie로 보내고, secret은 run 디렉터리의 `keys/<who>`(0600)에만 둔다.
+
+```sh
+. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
+U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
+node $U <run id> invite owner member member && node $U <run id> accept member   # owner는 web-login.md로 login했다
+node $U <run id> key member personal sessions:read,sessions:write   # 201, secret: (saved, N chars)
+ap_as member                                  # acting as member (cookie, key of N chars). KEY와 cookie가 member 것
+created=$(ap_post /v1/sessions "$(body 'GATE-SPEC {"id":"v1","steps":[],"final":"hello from member"}')"); SID=$(echo "$created" | head -1 | jq -r .session_id)
+ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member cookie로 SID가 보인다
+```
+
+- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-agent-platform/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 표에 SID 한 줄(상태 "쉬는 중", 런타임 `claude-coding-local · …`).
+- 개인 key의 scope는 그 사람의 지금 scope 안에서만 된다(member는 `recover` 없음, 넘으면 `403 SCOPE_NOT_GRANTABLE`).
+- 2026-10-21 run `20261021-031642-23898`에서 이 순서로 member 세션을 만들었고(turn 1 `completed`), member cookie의 `GET /v1/sessions`와 브라우저 `/sessions`에 그 세션이 보였다. 같은 workspace의 owner cookie 목록에도 보였다.
+
 ## Gotchas
 
 - 응답 마지막 줄이 상태 코드다. jq에 넘길 때는 `| head -1`.

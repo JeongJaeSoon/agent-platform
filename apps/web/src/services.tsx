@@ -1,15 +1,23 @@
-import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext } from "react";
 import {
   type ApiClient,
   type ApiClientOptions,
-  createApiClient,
   isApiError,
-} from "./api/client.ts";
+  type RetryTiming,
+} from "@agent-platform/client";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import { rootRouteId, useRouteContext } from "@tanstack/react-router";
+import { createApiClient } from "./api/client.ts";
 
+/**
+ * What the app builds once at start. The client and the cache reach screens
+ * through AgentPlatformProvider and QueryClientProvider; the rest is the
+ * app's own and rides on the router's context.
+ */
 export interface Services {
   readonly client: ApiClient;
   readonly queryClient: QueryClient;
+  /** Reconnect timing of session event streams; tests shorten it. */
+  readonly eventRetry?: RetryTiming;
   /** Set by the app once its router exists; a 401 anywhere calls it. */
   onUnauthorized: () => void;
   /** Leaves the app for another site (an identity provider's consent page). */
@@ -22,10 +30,19 @@ export interface Services {
  * is gone: cached data would keep showing the old identity otherwise.
  */
 export function createServices(
-  options: ApiClientOptions & { readonly leave?: (url: string) => void } = {},
+  options: ApiClientOptions & {
+    readonly leave?: (url: string) => void;
+    readonly eventRetry?: RetryTiming;
+  } = {},
 ): Services {
   const services: Services = {
-    client: createApiClient(options),
+    // A production answer outside the contract is logged, not thrown: the
+    // screen keeps the value as it came.
+    client: createApiClient({
+      validate: import.meta.env.DEV ? "strict" : "warn",
+      ...options,
+    }),
+    ...(options.eventRetry ? { eventRetry: options.eventRetry } : {}),
     queryClient: new QueryClient({
       queryCache: new QueryCache({
         onError: (error) => {
@@ -48,20 +65,6 @@ export function createServices(
   return services;
 }
 
-const ServicesContext = createContext<Services | null>(null);
-
-export function ServicesProvider({
-  services,
-  children,
-}: {
-  readonly services: Services;
-  readonly children: ReactNode;
-}) {
-  return <ServicesContext value={services}>{children}</ServicesContext>;
-}
-
-export function useServices(): Services {
-  const services = useContext(ServicesContext);
-  if (!services) throw new Error("useServices outside ServicesProvider");
-  return services;
+export function useAppServices(): Services {
+  return useRouteContext({ from: rootRouteId });
 }

@@ -40,11 +40,13 @@ export interface ShutdownOptions {
 export interface Shutdown {
   /** Answers not-ready from the moment shutdown starts, ahead of `probe`. */
   readiness(probe: ReadinessProbe): ReadinessProbe;
+  /** Aborted once the listeners stop accepting; long polls answer on it. */
+  readonly stopWaiting: AbortSignal;
   /**
-   * readiness withdrawn → listeners stop accepting → in-flight requests
-   * drain (bounded) → `resources` close in the order given (bounded) →
-   * exit, non-zero when a close failed or ran out of time. A second
-   * call exits at once: an operator asking twice means now.
+   * readiness withdrawn → listeners stop accepting → long polls answer →
+   * in-flight requests drain (bounded) → `resources` close in the order
+   * given (bounded) → exit, non-zero when a close failed or ran out of
+   * time. A second call exits at once: an operator asking twice means now.
    */
   run(
     signal: string,
@@ -73,8 +75,11 @@ export function createShutdown(options: ShutdownOptions): Shutdown {
   const closeMs = options.closeMs ?? SHUTDOWN_CLOSE_MS;
   const exit = options.exit ?? ((code: number) => process.exit(code));
   let started = false;
+  const longPolls = new AbortController();
 
   return {
+    stopWaiting: longPolls.signal,
+
     readiness(probe) {
       return async () =>
         started
@@ -98,6 +103,7 @@ export function createShutdown(options: ShutdownOptions): Shutdown {
       logger.info("Shutdown started; readiness withdrawn", { signal });
 
       const drained = listeners.map((listener) => listener.stop());
+      longPolls.abort();
       logger.info("Stopped accepting connections", {
         in_flight: listeners.reduce((sum, l) => sum + l.pendingRequests, 0),
       });

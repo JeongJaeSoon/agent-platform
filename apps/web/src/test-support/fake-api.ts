@@ -3,16 +3,14 @@ import type { AuthMeResponse, WorkspaceRole } from "@agent-platform/contracts";
 export interface Recorded {
   readonly method: string;
   readonly path: string;
+  readonly search: string;
   readonly headers: Headers;
   readonly body: unknown;
 }
 
 type Handler = (request: Request) => Response | Promise<Response>;
 
-/**
- * A fetch that answers by "METHOD /path" and records what it was sent, so a
- * screen test can assert on the request as well as on what it drew.
- */
+/** Answers by "METHOD /path?query" when that route exists, else by "METHOD /path", and records each request. */
 export function fakeApi(routes: Record<string, Handler>) {
   const calls: Recorded[] = [];
   const fetch = async (input: Request): Promise<Response> => {
@@ -22,10 +20,11 @@ export function fakeApi(routes: Record<string, Handler>) {
     calls.push({
       method: input.method,
       path: url.pathname,
+      search: url.search,
       headers: input.headers,
       body: text ? JSON.parse(text) : null,
     });
-    const handler = routes[key];
+    const handler = routes[`${key}${url.search}`] ?? routes[key];
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
     // The body was read for the record; a handler gets one it can read again.
     return handler(
@@ -48,12 +47,17 @@ export function json(status: number, body: unknown): Response {
   });
 }
 
-export function apiError(status: number, code: string, message: string) {
+export function apiError(
+  status: number,
+  code: string,
+  message: string,
+  retryable = false,
+) {
   return json(status, {
     error: {
       code,
       message,
-      retryable: false,
+      retryable,
       request_id: "req-1",
       details: null,
     },
@@ -62,6 +66,7 @@ export function apiError(status: number, code: string, message: string) {
 
 export const WORKSPACE_ID = "6d4c1f5e-4c39-4d7a-9a51-0f4f3c7a2b10";
 export const USER_ID = "0b1d0c7e-1f27-4a3e-8a8e-9c1b2d3e4f50";
+export const RECEIPT_ID = "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c";
 
 const OWNER_SCOPES: AuthMeResponse["scopes"] = [
   "sessions:read",
@@ -95,10 +100,15 @@ export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
     owner: [...ADMIN_PERMISSIONS, "audit_retention.manage", "agent.restore"],
   };
 
+/** Only an owner may hold sessions:recover; the contract rejects it on others. */
 export function me(
-  scopes: AuthMeResponse["scopes"] = OWNER_SCOPES,
+  scopes?: AuthMeResponse["scopes"],
   role: WorkspaceRole = "owner",
 ): AuthMeResponse {
+  scopes ??=
+    role === "owner"
+      ? OWNER_SCOPES
+      : OWNER_SCOPES.filter((scope) => scope !== "sessions:recover");
   return {
     principal: {
       kind: "user",
@@ -129,8 +139,5 @@ export function me(
 
 /** A signed-in member without management powers. */
 export function memberMe(): AuthMeResponse {
-  return me(
-    OWNER_SCOPES.filter((scope) => scope !== "sessions:recover"),
-    "member",
-  );
+  return me(undefined, "member");
 }

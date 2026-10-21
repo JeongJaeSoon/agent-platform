@@ -5,7 +5,23 @@
  */
 @import "tailwindcss";
 @import "@agent-platform/ui/styles.css";
+@import "@agent-platform/ui/theme.css";
 
+/*
+ * Tailwind's automatic detection stays inside this app and skips
+ * node_modules, where the packages/ui and packages/react symlinks live, so
+ * they are named here.
+ */
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/ui/src";
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/react/src";
+
+/*
+ * Tokens with no shadcn name. Colours shadcn names (`border`, `foreground`,
+ * `accent`…) come from theme.css, where `accent` is a quiet hover surface and
+ * the brand colour is `primary`.
+ */
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @theme inline {
   --color-canvas: var(--ap-color-canvas);
@@ -13,13 +29,8 @@
   --color-surface-sunken: var(--ap-color-surface-sunken);
   --color-rail: var(--ap-color-rail);
   --color-rail-foreground: var(--ap-color-rail-foreground);
-  --color-border: var(--ap-color-border);
+  --color-rail-muted-foreground: var(--ap-color-rail-muted-foreground);
   --color-border-strong: var(--ap-color-border-strong);
-  --color-foreground: var(--ap-color-foreground);
-  --color-muted-foreground: var(--ap-color-muted-foreground);
-  --color-accent: var(--ap-color-accent);
-  --color-accent-hover: var(--ap-color-accent-hover);
-  --color-accent-foreground: var(--ap-color-accent-foreground);
   --color-focus-ring: var(--ap-color-focus-ring);
   --font-sans: var(--ap-font-sans);
   --font-mono: var(--ap-font-mono);
@@ -37,6 +48,9 @@ body {
   color: var(--ap-color-foreground);
   font-family: var(--ap-font-sans);
   line-height: var(--ap-leading-normal);
+  /* Korean breaks between words, not syllables; a word too long still wraps. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 *,
@@ -45,28 +59,9 @@ body {
   box-sizing: border-box;
 }
 
-.web-root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.web-skip {
-  position: absolute;
-  left: var(--ap-space-2);
-  top: var(--ap-space-2);
-  padding: var(--ap-space-2) var(--ap-space-3);
-  background: var(--ap-color-surface);
-  border-radius: var(--ap-radius-sm);
-  transform: translateY(-200%);
-}
-.web-skip:focus {
-  transform: none;
-}
-
 /* Tailwind's preflight strips link styling; a link must still look like one. */
-.web-auth a,
-.web-shell__main a:not(.ap-button) {
+.web-auth a:not([data-slot="button"]):not(.ap-button),
+.web-shell__main a:not([data-slot="button"]):not(.ap-button) {
   color: var(--ap-color-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -80,6 +75,10 @@ select:focus-visible,
   outline: 2px solid var(--ap-color-focus-ring);
   outline-offset: 2px;
 }
+/* The light ring is too dark to see against the dark rail (WCAG 1.4.11). */
+[data-slot="app-sidebar"] :focus-visible {
+  outline-color: var(--ap-color-rail-foreground);
+}
 
 .web-auth {
   width: 100%;
@@ -89,27 +88,6 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   gap: var(--ap-space-4);
-}
-.web-auth__title {
-  font-size: var(--ap-text-xl);
-  margin: 0;
-}
-.web-auth__intro,
-.web-auth__aside {
-  color: var(--ap-color-muted-foreground);
-  font-size: var(--ap-text-sm);
-  margin: 0;
-}
-.web-auth__alt {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ap-space-3);
-}
-.web-auth__divider {
-  color: var(--ap-color-muted-foreground);
-  font-size: var(--ap-text-sm);
-  text-align: center;
-  margin: 0;
 }
 
 .web-form {
@@ -170,30 +148,8 @@ select:focus-visible,
   align-items: center;
   gap: var(--ap-space-2);
 }
-.web-status__body,
-.web-status__detail {
+.web-status__body {
   margin: 0;
-}
-.web-status__detail {
-  color: var(--ap-color-muted-foreground);
-  font-family: var(--ap-font-mono);
-  font-size: var(--ap-text-sm);
-  overflow-wrap: anywhere;
-}
-
-.web-spinner {
-  width: 1em;
-  height: 1em;
-  border: 2px solid var(--ap-color-border-strong);
-  border-top-color: var(--ap-color-accent);
-  border-radius: var(--ap-radius-pill);
-  animation: web-spin var(--ap-motion-normal) linear infinite;
-  animation-duration: 900ms;
-}
-@keyframes web-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .web-guarded {
@@ -206,94 +162,6 @@ select:focus-visible,
   font-size: var(--ap-text-xs);
 }
 
-.web-shell {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.web-shell__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ap-space-2) var(--ap-space-3);
-  padding: var(--ap-space-3) var(--ap-space-4);
-  background: var(--ap-color-rail);
-  color: var(--ap-color-rail-foreground);
-}
-.web-shell__brand {
-  font-weight: var(--ap-weight-bold);
-}
-.web-shell__workspace,
-.web-shell__user {
-  color: var(--ap-color-rail-muted-foreground);
-  font-size: var(--ap-text-sm);
-}
-.web-shell__spacer {
-  flex: 1;
-}
-.web-shell__bar .ap-button {
-  border-color: var(--ap-color-rail-muted-foreground);
-  background: transparent;
-  color: var(--ap-color-rail-foreground);
-}
-.web-shell__main {
-  padding: var(--ap-space-4);
-  width: 100%;
-  max-width: min(100%, var(--ap-layout-reading-width));
-}
-
-.web-home__title {
-  margin: 0 0 var(--ap-space-2);
-  font-size: var(--ap-text-xl);
-}
-.web-home__who {
-  margin: 0 0 var(--ap-space-6);
-  color: var(--ap-color-muted-foreground);
-  overflow-wrap: anywhere;
-}
-.web-checklist h2 {
-  margin: 0 0 var(--ap-space-3);
-  font-size: var(--ap-text-lg);
-}
-.web-checklist ol {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ap-space-2);
-}
-.web-checklist__step {
-  display: flex;
-  align-items: center;
-  gap: var(--ap-space-3);
-  padding: var(--ap-space-3);
-  border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
-  background: var(--ap-color-surface);
-}
-.web-checklist__step[data-done="false"] {
-  color: var(--ap-color-muted-foreground);
-}
-.web-checklist__state {
-  margin-left: auto;
-  font-size: var(--ap-text-xs);
-}
-
-.web-shell__nav {
-  display: flex;
-  gap: var(--ap-space-3);
-  font-size: var(--ap-text-sm);
-}
-.web-shell__nav a {
-  color: var(--ap-color-rail-muted-foreground);
-  text-decoration: none;
-}
-.web-shell__nav a[data-status="active"] {
-  color: var(--ap-color-rail-foreground);
-  font-weight: var(--ap-weight-bold);
-}
-
 .web-page {
   display: flex;
   flex-direction: column;
@@ -304,8 +172,7 @@ select:focus-visible,
   font-size: var(--ap-text-xl);
 }
 .web-page__empty,
-.web-page__intro,
-.web-page__back {
+.web-page__intro {
   margin: 0;
   color: var(--ap-color-muted-foreground);
 }
@@ -318,23 +185,8 @@ select:focus-visible,
   margin: 0;
   font-size: var(--ap-text-lg);
 }
-.web-home > .web-section {
-  margin-top: var(--ap-space-6);
-}
 .web-form--inline {
   max-width: none;
-}
-.web-invite-link {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ap-space-2);
-  padding: var(--ap-space-3);
-  border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
-  background: var(--ap-color-surface);
-}
-.web-invite-link .ap-input {
-  font-family: var(--ap-font-mono);
 }
 
 .web-table-wrap {
@@ -351,6 +203,11 @@ select:focus-visible,
   border-bottom: 1px solid var(--ap-color-border);
   text-align: left;
   vertical-align: top;
+}
+/* Cells keep one line; the wrap scrolls sideways instead of growing tall. */
+.web-table--nowrap th,
+.web-table--nowrap td {
+  white-space: nowrap;
 }
 .web-table__primary {
   display: block;
@@ -405,13 +262,6 @@ select:focus-visible,
   min-height: 8rem;
   resize: vertical;
 }
-.web-check {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--ap-space-2);
-}
-
 .web-fieldset {
   margin: 0;
   padding: var(--ap-space-3);
@@ -419,11 +269,6 @@ select:focus-visible,
   border-radius: var(--ap-radius-md);
   display: flex;
   flex-direction: column;
-  gap: var(--ap-space-2);
-}
-.web-choice {
-  display: inline-flex;
-  align-items: center;
   gap: var(--ap-space-2);
 }
 .web-badge {
@@ -483,41 +328,8 @@ select:focus-visible,
   white-space: nowrap;
 }
 
-.web-footer {
-  margin-top: auto;
-  padding: var(--ap-space-4);
-  display: flex;
-  justify-content: flex-end;
-}
-.web-locale {
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ap-space-2);
-  font-size: var(--ap-text-sm);
-}
-
 @media (min-width: 48rem) {
   .web-auth {
     padding: var(--ap-space-10) var(--ap-space-6);
-  }
-  .web-shell__bar {
-    padding: var(--ap-space-3) var(--ap-space-6);
-  }
-  .web-shell__main {
-    padding: var(--ap-space-8) var(--ap-space-6);
-  }
-}
-
-@media (min-width: 90rem) {
-  .web-shell__main {
-    margin: 0 auto;
-    padding: var(--ap-space-10) var(--ap-space-8);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .web-spinner {
-    animation: none;
   }
 }

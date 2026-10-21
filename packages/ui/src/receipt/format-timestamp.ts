@@ -8,26 +8,46 @@
  * caught it. Only the field values come from Intl, so the zone conversion is
  * still the library's job.
  */
-const PARTS = new Intl.DateTimeFormat("ko-KR", {
+const OPTIONS = {
   timeZone: "Asia/Seoul",
   year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
   hour: "2-digit",
   minute: "2-digit",
   // h23, not `hour12: false`: some ICU builds render midnight as 24 otherwise.
   hourCycle: "h23",
-});
+} as const satisfies Intl.DateTimeFormatOptions;
 
-export function formatTimestamp(iso: string): string {
+export type TimestampLocale = "ko" | "en";
+
+const PARTS: Record<TimestampLocale, Intl.DateTimeFormat> = {
+  ko: new Intl.DateTimeFormat("ko-KR", {
+    ...OPTIONS,
+    month: "2-digit",
+    day: "2-digit",
+  }),
+  en: new Intl.DateTimeFormat("en-US", {
+    ...OPTIONS,
+    month: "short",
+    day: "numeric",
+  }),
+};
+
+export function formatTimestamp(
+  iso: string,
+  locale: TimestampLocale = "ko",
+): string {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) return iso;
 
   const parts = new Map(
-    PARTS.formatToParts(parsed).map((part) => [part.type, part.value] as const),
+    PARTS[locale]
+      .formatToParts(parsed)
+      .map((part) => [part.type, part.value] as const),
   );
   const at = (type: Intl.DateTimeFormatPartTypes): string =>
     parts.get(type) ?? "";
 
-  return `${at("year")}. ${at("month")}. ${at("day")}. ${at("hour")}:${at("minute")}`;
+  return locale === "en"
+    ? `${at("month")} ${at("day")}, ${at("year")}, ${at("hour")}:${at("minute")}`
+    : `${at("year")}. ${at("month")}. ${at("day")}. ${at("hour")}:${at("minute")}`;
 }

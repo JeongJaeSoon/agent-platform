@@ -17,6 +17,7 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { forgetLostCheckpoints } from "./checkpoint-store.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
 import {
   createPostgresSessionReader,
@@ -382,6 +383,49 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     expect(row.executionId).toBeNull();
     return { session, launch: l, claimed, behind, row };
   }
+
+  test("a checkpoint forgetLostCheckpoints gave up restores nothing: abandon then resume refuses, start_fresh goes on", async () => {
+    const { session } = await unknownSession("lost-checkpoint", {
+      checkpointRevision: 2,
+      checkpointCoversTurn1: true,
+    });
+    expect(await forgetLostCheckpoints(db, clock)).toEqual({
+      held: [session.session_id],
+      unchanged: [],
+    });
+    const held = await sessionRow(session.session_id);
+    expect(held).toMatchObject({
+      admissionState: "recovery_required",
+      checkpointRevision: 2,
+      contextResetCheckpointRevision: 2,
+      contextResetTurnSequence: null,
+    });
+
+    const abandoned = await decide(session, {
+      decision: "abandon",
+      expected_revision: held.revision,
+      target_turn_id: "1",
+      reason: "lost with its checkpoint",
+    });
+    if (abandoned.outcome !== "accepted") throw new Error(abandoned.outcome);
+    const stopped = await sessionRow(session.session_id);
+    expect(stopped.admissionState).toBe("stopped");
+    // Covered by the lost checkpoint, so before it was retired this resume
+    // was accepted and its worker restored objects that are gone.
+    expect(await resume(session, stopped.revision)).toEqual({
+      outcome: "checkpoint_unavailable",
+    });
+    const fresh = await decide(session, {
+      decision: "start_fresh",
+      expected_revision: stopped.revision,
+      reason: "go on without the lost context",
+    });
+    if (fresh.outcome !== "accepted") throw new Error(fresh.outcome);
+    expect(await sessionRow(session.session_id)).toMatchObject({
+      admissionState: "active",
+      contextResetCheckpointRevision: 2,
+    });
+  });
 
   test("abandon: turn cancelled(operator_abandoned), queue head released, stopped, audit; queued input kept, nothing dispatched", async () => {
     const { session, behind, row } = await unknownSession("abandon", {
