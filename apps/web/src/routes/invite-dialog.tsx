@@ -11,6 +11,7 @@ import {
 import {
   Button,
   buttonVariants,
+  ConfirmDialog,
   Dialog,
   DialogClose,
   DialogContent,
@@ -69,8 +70,21 @@ export function InviteDialog({
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  // A link on screen that was never copied: leaving loses it for good.
+  const [uncopied, setUncopied] = useState(false);
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
+  const confirmLeave = (leave: () => void) => {
+    if (uncopied) setLeaving(() => leave);
+    else leave();
+  };
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setOpen(true);
+        else confirmLeave(() => setOpen(false));
+      }}
+    >
       {/* As the trigger, the button gets the focus back when the dialog closes. */}
       <DialogTrigger asChild>
         <ReasonButton
@@ -82,7 +96,28 @@ export function InviteDialog({
         </ReasonButton>
       </DialogTrigger>
       <DialogContent>
-        <InviteFlow members={members} refusal={refusal} />
+        <InviteFlow
+          members={members}
+          refusal={refusal}
+          onUncopied={setUncopied}
+          confirmLeave={confirmLeave}
+        />
+        {/* Inside the content, so Radix stacks it over the invite dialog:
+            Escape and outside clicks close this one alone. */}
+        <ConfirmDialog
+          open={leaving !== null}
+          onOpenChange={(next) => {
+            if (!next) setLeaving(null);
+          }}
+          title={t("members.invite.leave.title")}
+          consequence={t("members.invite.leave.consequence")}
+          confirmLabel={t("members.invite.leave.confirm")}
+          cancelLabel={t("members.invite.leave.cancel")}
+          onConfirm={() => {
+            leaving?.();
+            setLeaving(null);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -100,8 +135,13 @@ type Outcome =
 function InviteFlow({
   members,
   refusal,
+  onUncopied,
+  confirmLeave,
 }: {
   readonly members: readonly MemberView[];
+  readonly onUncopied: (uncopied: boolean) => void;
+  /** Runs `leave` now, or once the inviter agrees to lose the link. */
+  readonly confirmLeave: (leave: () => void) => void;
   readonly refusal: (error: ApiError, role: string | undefined) => string;
 }) {
   const { t, locale } = useI18n();
@@ -110,6 +150,9 @@ function InviteFlow({
   const role = useRole();
   const [url, setUrl] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // Every link the clipboard took, so copies that finish out of order after
+  // browser Back still count for their own link only.
+  const [copiedUrls, setCopiedUrls] = useState<ReadonlySet<string>>(new Set());
   const linkRef = useRef<HTMLInputElement>(null);
   // A request still out when the dialog closes must not move the next opening.
   const mounted = useRef(false);
@@ -134,6 +177,13 @@ function InviteFlow({
     ],
     currentStepId: funnel.step,
   });
+  // Only the link step asks: after browser Back the link is already off screen.
+  const uncopied =
+    funnel.step === "link" && url !== null && !copiedUrls.has(url);
+  useEffect(() => {
+    onUncopied(uncopied);
+    return () => onUncopied(false);
+  }, [uncopied, onUncopied]);
 
   const invite = useMutation<
     { invite_token: string; expires_at: string },
@@ -141,8 +191,12 @@ function InviteFlow({
     { email: string; role: WorkspaceRole }
   >({
     mutationFn: (body) => unwrap(client.POST("/v1/invites", { body })),
+    // The response carries the token; keep it nowhere but the screen.
+    gcTime: 0,
     onSuccess: async (created) => {
       if (mounted.current) {
+        // A new link after browser Back: the last one's copy notice is not about it.
+        setOutcome(null);
         setUrl(
           `${window.location.origin}/invite/${encodeURIComponent(created.invite_token)}`,
         );
@@ -201,11 +255,15 @@ function InviteFlow({
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => {
-                    setUrl(null);
-                    setOutcome(null);
-                    void history.replace("details", {});
-                  }}
+                  onClick={() =>
+                    confirmLeave(() => {
+                      setUrl(null);
+                      setOutcome(null);
+                      // Detach the observer so gcTime 0 drops the response too.
+                      invite.reset();
+                      void history.replace("details", {});
+                    })
+                  }
                 >
                   {t("members.invite.again")}
                 </Button>
@@ -213,16 +271,18 @@ function InviteFlow({
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    void copyText(url, linkRef).then((copied) =>
+                    void copyText(url, linkRef).then((worked) => {
+                      if (worked)
+                        setCopiedUrls((copied) => new Set(copied).add(url));
                       setOutcome(
-                        copied
+                        worked
                           ? { kind: "notice", text: t("members.invite.copied") }
                           : {
                               kind: "error",
                               text: t("members.invite.copyFailed"),
                             },
-                      ),
-                    );
+                      );
+                    });
                   }}
                 >
                   {t("members.invite.copy")}
@@ -277,6 +337,10 @@ function DetailsStep({
   });
   const { errors } = form.formState;
   const email = form.watch("email");
+  // On opening Radix does this; back from the link step the button that was
+  // focused is gone and the keyboard would land on <body>.
+  const { setFocus } = form;
+  useEffect(() => setFocus("email"), [setFocus]);
 
   // Re-inviting someone whose membership is off leads nowhere when their
   // account has no password (Google sign-in only): the invite asks for one.
