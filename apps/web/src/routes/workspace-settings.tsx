@@ -4,6 +4,13 @@ import type {
   SlackGuestRequest,
 } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
+import {
+  buttonVariants,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  Input,
+} from "@agent-platform/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
@@ -15,12 +22,21 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { FormError, NOTICE } from "../components/auth-page.tsx";
+import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 // The server's ceiling; the web takes contracts as types only, so a test
 // keeps this equal to the contract's value.
 export const AUDIT_RETENTION_MAX_DAYS = 3650;
+
+const PAGE = "flex flex-col gap-6";
+const TITLE = "m-0 font-semibold text-xl";
+const SECTION = "flex flex-col gap-3";
+const SECTION_TITLE = "m-0 font-semibold text-lg";
+const MUTED = "m-0 text-muted-foreground";
+const HINT = "m-0 text-muted-foreground text-sm";
+const FORM = "flex max-w-xl flex-col items-start gap-4";
 
 /** Workspace-wide settings an owner or admin opens from the menu. */
 export function WorkspaceSettingsScreen() {
@@ -30,9 +46,15 @@ export function WorkspaceSettingsScreen() {
   const retentionManage = useHasPermission("audit_retention.manage");
   if (!workspaceManage && !retentionManage) return <ReadOnlySettings />;
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("workspace.title")}</h1>
-      <OutcomeLine outcome={outcome} />
+    <div className={PAGE}>
+      <h1 className={TITLE}>{t("workspace.title")}</h1>
+      {outcome ? (
+        outcome.kind === "error" ? (
+          <FormError>{outcome.text}</FormError>
+        ) : (
+          <output className={NOTICE}>{outcome.text}</output>
+        )
+      ) : null}
       <AuditRetention onOutcome={setOutcome} />
       <SlackGuest onOutcome={setOutcome} />
     </div>
@@ -44,12 +66,12 @@ function ReadOnlySettings() {
   const { t } = useI18n();
   const settings = useMe()?.workspace?.settings;
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("workspace.title")}</h1>
-      <p className="web-page__intro">{t("workspace.readOnly")}</p>
-      <section className="web-section">
-        <h2>{t("workspace.retention")}</h2>
-        <p>
+    <div className={PAGE}>
+      <h1 className={TITLE}>{t("workspace.title")}</h1>
+      <p className={MUTED}>{t("workspace.readOnly")}</p>
+      <section className={SECTION}>
+        <h2 className={SECTION_TITLE}>{t("workspace.retention")}</h2>
+        <p className="m-0">
           {settings
             ? t("workspace.retentionValue", {
                 days: settings.audit_retention_days,
@@ -57,9 +79,9 @@ function ReadOnlySettings() {
             : "—"}
         </p>
       </section>
-      <section className="web-section">
-        <h2>{t("workspace.guest")}</h2>
-        <p>
+      <section className={SECTION}>
+        <h2 className={SECTION_TITLE}>{t("workspace.guest")}</h2>
+        <p className="m-0">
           {t(
             settings?.slack_guest_enabled
               ? "workspace.guestValueOn"
@@ -92,7 +114,6 @@ function AuditRetention({
   const [draft, setDraft] = useState<string | null>(null);
   const days = draft ?? (current === undefined ? "" : `${current}`);
   const titleId = useId();
-  const hintId = useId();
   const reason = useHasPermission("audit_retention.manage")
     ? undefined
     : permissionReason(t, "audit_retention.manage", role);
@@ -137,29 +158,28 @@ function AuditRetention({
   };
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("workspace.retention")}</h2>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("workspace.retention")}
+      </h2>
       {/* noValidate: the server owns the floor and says why it refused. */}
-      <form className="web-form" onSubmit={submit} noValidate>
-        <label className="web-field">
-          <span>{t("workspace.retentionDays")}</span>
-          <input
-            className="ap-input"
+      <form className={FORM} onSubmit={submit} noValidate>
+        <Field>
+          <FieldLabel>{t("workspace.retentionDays")}</FieldLabel>
+          <Input
+            className="max-w-40"
             type="number"
             inputMode="numeric"
             step={1}
             value={days}
             disabled={reason !== undefined}
-            aria-describedby={hintId}
             onChange={(event) => setDraft(event.target.value)}
           />
-        </label>
-        <p id={hintId} className="web-field__hint">
-          {t("workspace.retentionHint")}
-        </p>
+          <FieldDescription>{t("workspace.retentionHint")}</FieldDescription>
+        </Field>
         <ReasonButton
           type="submit"
-          className="ap-button ap-button--primary"
+          className={buttonVariants({ className: "self-start" })}
           reason={reason}
           disabled={save.isPending || days.trim() === ""}
         >
@@ -222,11 +242,17 @@ function SlackGuest({
   });
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("workspace.guest")}</h2>
-      <div className="web-check">
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("workspace.guest")}
+      </h2>
+      <div className="flex flex-wrap items-baseline gap-2">
         <span id={labelId}>{t("workspace.guestLabel")}</span>
         <ReasonButton
+          className={buttonVariants({
+            variant: enabled ? "default" : "outline",
+            size: "sm",
+          })}
           role="switch"
           aria-checked={enabled}
           aria-labelledby={labelId}
@@ -238,7 +264,7 @@ function SlackGuest({
           {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
         </ReasonButton>
       </div>
-      <p id={hintId} className="web-field__hint">
+      <p id={hintId} className={HINT}>
         {t("workspace.guestHint")}
       </p>
     </section>
