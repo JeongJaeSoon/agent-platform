@@ -296,7 +296,7 @@ describe("bootstrap", () => {
   test("이미 소유자가 있으면(409) 그 자리에서 로그인 링크를 보인다", async () => {
     const { history } = renderAt("/bootstrap", {
       "POST /v1/auth/bootstrap": () =>
-        apiError(409, "BOOTSTRAP_DONE", "Bootstrap already done"),
+        apiError(409, "BOOTSTRAP_DONE", "owner@example.com tttttttt"),
     });
     await fill();
     const alert = await screen.findByRole("alert");
@@ -304,6 +304,7 @@ describe("bootstrap", () => {
       "이미 소유자가 있습니다. 로그인해 주세요.",
     );
     expect(alert.textContent).not.toContain("owner@example.com");
+    expect(alert.textContent).not.toContain("tttttttt");
     expect(
       within(alert)
         .getByRole("link", { name: "로그인하기" })
@@ -320,6 +321,17 @@ describe("bootstrap", () => {
     await fill();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Bootstrap 토큰이 맞지 않습니다");
+    expect(within(alert).queryByRole("link")).toBeNull();
+  });
+
+  test("입력이 틀리면(400) 입력 문구이고 로그인 안내가 없다", async () => {
+    renderAt("/bootstrap", {
+      "POST /v1/auth/bootstrap": () =>
+        apiError(400, "BAD_REQUEST", "Request body is invalid"),
+    });
+    await fill();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("입력을 확인하고 다시 보내세요.");
     expect(within(alert).queryByRole("link")).toBeNull();
   });
 });
