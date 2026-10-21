@@ -1,0 +1,70 @@
+# EKS example, laid over values.yaml: ALB Ingress, IRSA, ECR and External
+# Secrets. Every account id, ARN, host and digest below is a placeholder.
+installationId: prod
+
+images:
+  registry: 123456789012.dkr.ecr.ap-northeast-1.amazonaws.com
+  controlHost:
+    repository: agent-platform-control-host
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  egressProxy:
+    repository: agent-platform-egress-proxy
+    digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  worker:
+    repository: agent-platform-worker
+    digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+secrets:
+  # The api's role below signs the object store; no static AWS keys.
+  objectStoreKeys: false
+  externalSecret:
+    enabled: true
+    secretStoreRef:
+      kind: ClusterSecretStore
+      name: aws-secrets-manager
+    # Holds every key values.yaml lists under `secrets` but the two AWS keys.
+    remoteKey: agent-platform/prod/control-plane
+
+# IRSA: the api and the checkpoint GC reach the checkpoint bucket and Secrets
+# Manager as this role. The scheduler and the workers get no S3 rights.
+serviceAccounts:
+  api:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/agent-platform-api
+
+config:
+  checkpoints:
+    bucket: agent-platform-prod-checkpoints
+  egress:
+    # Workers' checkpoint uploads and restores go through the credential
+    # route to the bucket's virtual-hosted endpoint (path-style
+    # s3.<region>.amazonaws.com when the bucket name has a dot).
+    credentialAllowlist: "api.anthropic.com:443,agent-platform-prod-checkpoints.s3.ap-northeast-1.amazonaws.com:443"
+
+worker:
+  storageClass: gp3
+  nodeSelector:
+    agent-platform/node-group: workers
+  tolerations:
+    - key: agent-platform/workers
+      operator: Exists
+      effect: NoSchedule
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    # In-house only: render-check refuses internet-facing.
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-northeast-1:123456789012:certificate/00000000-0000-0000-0000-000000000000
+    alb.ingress.kubernetes.io/healthcheck-path: /readyz
+    # Longer than an SSE stream's idle gap.
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
+  hosts:
+    - host: agent-platform.example.com
+
+networkPolicy:
+  # The VPC CNI's network policy agent must be on for these to hold.
+  enabled: true

@@ -30,6 +30,7 @@ import {
   describeBucketEncryption,
   describeBucketProtection,
   type S3ClientLike,
+  type StorageS3Settings,
 } from "@agent-platform/storage";
 import {
   type BucketLocationConstraint,
@@ -47,20 +48,15 @@ export const EXIT_TARGET_REFUSED = 4;
 
 export class TargetRefusedError extends Error {}
 
-export type S3Settings = {
-  readonly accessKeyId: string;
-  readonly endpoint?: string;
-  readonly region: string;
-  readonly secretAccessKey: string;
-};
-
-export function s3SettingsFromEnv(): S3Settings {
+export function s3SettingsFromEnv(): StorageS3Settings {
   const endpoint = process.env.AWS_ENDPOINT_URL?.trim();
   return {
-    accessKeyId: required("AWS_ACCESS_KEY_ID"),
+    credentials: {
+      accessKeyId: required("AWS_ACCESS_KEY_ID"),
+      secretAccessKey: required("AWS_SECRET_ACCESS_KEY"),
+    },
     ...(endpoint ? { endpoint } : {}),
     region: required("AWS_REGION"),
-    secretAccessKey: required("AWS_SECRET_ACCESS_KEY"),
   };
 }
 

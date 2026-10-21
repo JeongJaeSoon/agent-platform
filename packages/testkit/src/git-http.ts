@@ -25,12 +25,14 @@ export type GitHttpServerOptions = {
    * 401 with a Basic challenge. Absent, every request is served.
    */
   authorization?: string;
+  /** Takes pushes too, as an authenticated http-backend user may. */
+  push?: boolean;
 };
 
 /**
  * git's smart HTTP, served by `git http-backend` as a CGI behind Bun.serve,
- * for tests that clone over http the way a worker does. Read-only
- * receive-pack is off, as http-backend leaves it for unauthenticated users.
+ * for tests that clone over http the way a worker does. receive-pack is off,
+ * as http-backend leaves it for unauthenticated users, unless `push` is set.
  */
 export async function startGitHttpServer(
   options: GitHttpServerOptions = {},
@@ -57,7 +59,12 @@ export async function startGitHttpServer(
           headers: { "www-authenticate": 'Basic realm="git"' },
         });
       }
-      return await cgi(root, request, url);
+      return await serveGitHttp(
+        root,
+        request,
+        url,
+        options.push === true ? { remoteUser: "testkit" } : {},
+      );
     },
   });
   return {
@@ -81,12 +88,12 @@ export async function createServedRepository(
 ): Promise<string> {
   const work = await mkdtemp(join(tmpdir(), "testkit-git-work-"));
   try {
-    await git(["init", "--quiet", "--initial-branch", branch], work);
+    await runTestGit(["init", "--quiet", "--initial-branch", branch], work);
     for (const [path, contents] of Object.entries(files)) {
       await Bun.write(join(work, path), contents);
     }
-    await git(["add", "--all"], work);
-    await git(
+    await runTestGit(["add", "--all"], work);
+    await runTestGit(
       [
         "-c",
         "user.name=testkit",
@@ -100,17 +107,23 @@ export async function createServedRepository(
       work,
     );
     const bare = join(server.root, `${name}.git`);
-    await git(["clone", "--quiet", "--bare", work, bare], server.root);
+    await runTestGit(["clone", "--quiet", "--bare", work, bare], server.root);
     return bare;
   } finally {
     await rm(work, { force: true, recursive: true });
   }
 }
 
-async function cgi(
+/**
+ * One smart-HTTP request answered by `git http-backend` over `root`. With
+ * `remoteUser`, the request counts as authenticated, which is what lets
+ * http-backend take a push.
+ */
+export async function serveGitHttp(
   root: string,
   request: Request,
   url: URL,
+  options: { remoteUser?: string } = {},
 ): Promise<Response> {
   const body = new Uint8Array(await request.arrayBuffer());
   const child = Bun.spawn(["git", "http-backend"], {
@@ -128,6 +141,9 @@ async function cgi(
       HTTP_CONTENT_ENCODING: request.headers.get("content-encoding") ?? "",
       HTTP_GIT_PROTOCOL: request.headers.get("git-protocol") ?? "",
       REMOTE_ADDR: "127.0.0.1",
+      ...(options.remoteUser === undefined
+        ? {}
+        : { REMOTE_USER: options.remoteUser }),
     },
     stdin: body,
     stdout: "pipe",
@@ -177,7 +193,7 @@ function indexOfBlankLine(bytes: Uint8Array): { at: number; length: number } {
   return { at: bytes.length, length: 0 };
 }
 
-async function git(args: string[], cwd: string): Promise<void> {
+export async function runTestGit(args: string[], cwd: string): Promise<string> {
   const child = Bun.spawn(["git", ...args], {
     cwd,
     env: {
@@ -187,11 +203,13 @@ async function git(args: string[], cwd: string): Promise<void> {
       GIT_CONFIG_GLOBAL: "/dev/null",
     },
     stderr: "pipe",
-    stdout: "ignore",
+    stdout: "pipe",
   });
+  const stdout = await new Response(child.stdout).text();
   if ((await child.exited) !== 0) {
     throw new Error(
       `git ${args.join(" ")} failed: ${await new Response(child.stderr).text()}`,
     );
   }
+  return stdout;
 }

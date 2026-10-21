@@ -1,0 +1,16 @@
+# Laid over values.yaml for KIND_MODEL=fake (smoke.sh): the fake model and
+# sample repository of deps-fake-model.yaml and deps-session.yaml. up.sh adds
+# the catalog itself, read from config/fake-model.
+config:
+  aws:
+    secretsManagerEndpointUrl: http://secrets:4566
+  egress:
+    credentialPrivateAllowlist: "gitea:3000,fake-messages:4010,localstack:4566"
+worker:
+  workspace:
+    gcMinAgeSec: 0
+scheduler:
+  extraEnv:
+    # A stopped session's workspace goes on the next pass, so the smoke sees
+    # the PVC reclaimed after terminate.
+    EXECUTION_WORKSPACE_STOPPED_TTL_SEC: "0"

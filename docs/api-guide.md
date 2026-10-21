@@ -69,7 +69,7 @@ OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
 
 **목적.** 실행 profile과 repository를 명시해 세션과 첫 turn을 내구적으로 접수한다.
 
-**순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다.
+**순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다. 선택 필드 `model`로 profile이 허용한 모델(카탈로그의 `model`이나 `models`) 중 하나를 고를 수 있다. 생략하면 profile의 기본 `model`로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다. 세션의 profile을 바꾸면(`POST /v1/sessions/{id}/profile`) 그 뒤로는 새 profile의 기본 `model`로 돈다.
 
 ```bash
 CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide > api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
@@ -326,7 +326,60 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 **흔한 오류.** 같은 key에 다른 body를 보내면 409 `IDEMPOTENCY_CONFLICT`다. timeout 뒤 결과가 불분명하다고 새 key로 다시 보내면 중복 실행될 수 있으므로 먼저 같은 key로 재시도한다.
 
-## 10. 로컬 예시 정리
+## 10. 세션 결과의 push 요청과 승인·거부
+
+OpenAPI: [`createPushRequest`](api/index.html), [`listPushRequests`](api/index.html), [`getPushRequest`](api/index.html), [`decidePushRequest`](api/index.html), [`getReceipt`](api/index.html)
+
+**목적.** 세션이 만든 commit을 저장소의 `agent/<session-id>` 브랜치로 내보내도록 요청하고, `sessions:approve`를 가진 사람이 그 commit을 승인하거나 거부한다. push는 worker가 아니라 플랫폼(API)이 승인 뒤 몇 초 안에 한다.
+
+**순서.** 요청은 body 없이(`{}`) 보낸다. 플랫폼이 세션의 최신 checkpoint revision과 그 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 결정할 사람은 고정된 `git_commit`을 확인하고, 결정 body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
+
+```bash
+push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+echo "$push_request" | jq -e --arg branch "agent/$SID" \
+  '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
+PUSH_ID=$(echo "$push_request" | jq -r .id)
+PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
+
+rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{decision:"reject", git_commit:$commit, reason:"not yet"}')")
+echo "$rejected" | jq -e '.state == "rejected" and .decided_by != null'
+curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .decision_receipt_id)" "${AUTH[@]}" \
+  | jq -e '.operation == "decide_push" and .result.verdict == "allow" and .result.decision == "reject"'
+
+again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{decision:"approve", git_commit:$commit}')")
+test "$(echo "$again" | tail -n1)" = 409
+echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_DECIDED"'
+curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${AUTH[@]}" \
+  | jq -e '.status == "failed" and .result.refusal == "already_decided"'
+
+push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+PUSH_ID=$(echo "$push_request" | jq -r .id)
+approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{decision:"approve", git_commit:$commit}')")
+echo "$approved" | jq -e '.state == "approved"'
+curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
+
+for _ in $(seq 1 30); do
+  pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" "${AUTH[@]}")
+  echo "$pushed" | jq -e '.state == "pushed" or .state == "failed"' >/dev/null && break
+  sleep 1
+done
+curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@]}" \
+  | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
+```
+
+**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `decided_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`decide_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [operations 문서](operations.md#승인된-요청의-push-94s-629)에 있다.
+
+**흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_DECIDED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다시 checkpoint를 남겼다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
+
+## 11. 로컬 예시 정리
 
 **목적.** 이 문서가 만든 로컬 데이터와 worker 자원을 제거한다.
 

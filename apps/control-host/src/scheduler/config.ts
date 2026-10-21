@@ -3,6 +3,10 @@ import {
   positiveNumberSetting,
 } from "@agent-platform/contracts/settings";
 import {
+  type KubernetesBackendConfig,
+  kubernetesConfigFromEnv,
+} from "@agent-platform/execution-kubernetes";
+import {
   type LocalDockerBackendConfig,
   type LocalDockerBackendEnvironment,
   localDockerConfigFromEnv,
@@ -19,6 +23,7 @@ import {
 export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
     DATABASE_URL?: string | undefined;
+    EXECUTION_BACKEND?: string | undefined;
     EXECUTION_WORKSPACE_STOPPED_TTL_SEC?: string | undefined;
     LOG_LEVEL?: string | undefined;
     QUEUE_DATABASE_URL?: string | undefined;
@@ -28,10 +33,17 @@ export type SchedulerEnvironment = LocalDockerBackendEnvironment &
     WORKER_PIDS_LIMIT?: string | undefined;
   };
 
+export const SCHEDULER_BACKENDS = ["local_docker", "kubernetes"] as const;
+
+/** Only the chosen backend's settings are read, so neither needs the other's. */
+export type SchedulerExecution =
+  | { backend: "local_docker"; docker: LocalDockerBackendConfig }
+  | { backend: "kubernetes"; kubernetes: KubernetesBackendConfig };
+
 export type SchedulerConfig = {
   databaseUrl: string;
-  docker: LocalDockerBackendConfig;
   drainDeadlineMs: number;
+  execution: SchedulerExecution;
   image: string;
   limits: InstallationLimits;
   logLevel: LogLevel;
@@ -65,14 +77,13 @@ export function schedulerConfigFromEnv(
     // before it is replaced. No turn outlasts MAX_TURN_SECONDS
     // the grace covers the finalize and checkpoint that end it.
     drainDeadlineMs: limits.maxTurnSeconds * 1_000 + DRAIN_FINALIZE_GRACE_MS,
-    docker: {
-      ...localDockerConfigFromEnv(environment),
+    execution: executionFromEnv(environment, {
       workerLimits: {
         maxTurnSeconds: limits.maxTurnSeconds,
         providerMaxRetries: limits.providerMaxRetries,
       },
       logLevel,
-    },
+    }),
     image,
     limits,
     logLevel,
@@ -101,6 +112,32 @@ export function schedulerConfigFromEnv(
   };
 }
 
+function executionFromEnv(
+  environment: SchedulerEnvironment,
+  worker: {
+    workerLimits: { maxTurnSeconds: number; providerMaxRetries: number };
+    logLevel: LogLevel;
+  },
+): SchedulerExecution {
+  const backend = environment.EXECUTION_BACKEND || "local_docker";
+  switch (backend) {
+    case "local_docker":
+      return {
+        backend,
+        docker: { ...localDockerConfigFromEnv(environment), ...worker },
+      };
+    case "kubernetes":
+      return {
+        backend,
+        kubernetes: { ...kubernetesConfigFromEnv(environment), ...worker },
+      };
+    default:
+      throw new Error(
+        `EXECUTION_BACKEND must be one of ${SCHEDULER_BACKENDS.join("|")} (got ${backend})`,
+      );
+  }
+}
+
 /**
  * A kill does not wait for a busy worker to drain, but a pass can
  * still wait out one whole stop: ensure removes a container it cannot adopt,
@@ -109,17 +146,20 @@ export function schedulerConfigFromEnv(
  */
 export function assertPassOutlastsStop(
   passTimeoutMs: number,
-  docker: Pick<
-    LocalDockerBackendConfig,
-    "requestTimeoutMs" | "stopTimeoutSeconds"
-  >,
+  execution: SchedulerExecution,
 ): void {
-  if (
-    passTimeoutMs <=
-    docker.stopTimeoutSeconds * 1_000 + docker.requestTimeoutMs
-  ) {
+  const { requestTimeoutMs, stopTimeoutSeconds } =
+    execution.backend === "local_docker"
+      ? execution.docker
+      : execution.kubernetes;
+  if (passTimeoutMs <= stopTimeoutSeconds * 1_000 + requestTimeoutMs) {
+    // Only the Docker backend lets either timeout be set.
+    const stop =
+      execution.backend === "local_docker"
+        ? "EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC"
+        : `the kubernetes backend's stop and request timeouts (${stopTimeoutSeconds + requestTimeoutMs / 1_000}s)`;
     throw new Error(
-      "SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC: a pass that waits out a worker's stop would be killed and counted as failed",
+      `SCHEDULER_PASS_TIMEOUT_SEC must be greater than ${stop}: a pass that waits out a worker's stop would be killed and counted as failed`,
     );
   }
 }

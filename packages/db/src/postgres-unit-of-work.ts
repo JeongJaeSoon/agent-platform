@@ -595,6 +595,7 @@ export function createPostgresSessionReader(
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
         profile_id: row.profileId,
+        profile_fingerprint: row.profileFingerprint,
         repository_id: row.repositoryId,
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")

@@ -274,6 +274,29 @@ integration("session reader on PostgreSQL", () => {
     expect(receipt?.target_ref).toEqual(target);
   });
 
+  test("a receipt reads back with the actor that made it", async () => {
+    const id = crypto.randomUUID();
+    const actor = {
+      principal: { kind: "api_key" as const, id: "key-1" },
+      actor_user_id: null,
+      agent_id: null,
+    };
+    await db.insert(receipts).values({
+      id,
+      ownerId: OWNER,
+      operation: "request_push",
+      targetRef: {
+        session_id: crypto.randomUUID(),
+        turn_id: null,
+        request_id: null,
+      },
+      actor,
+      status: "succeeded",
+    });
+    const reader = createPostgresSessionReader(db);
+    expect((await reader.getReceipt(OWNER, id))?.actor).toEqual(actor);
+  });
+
   test("every detail field comes from one snapshot", async () => {
     const { sessionId, turnId } = await queuedSession();
     const reader = createPostgresSessionReader(db);

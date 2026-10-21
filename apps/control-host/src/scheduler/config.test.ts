@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { assertPassOutlastsStop, schedulerConfigFromEnv } from "./config.ts";
+import {
+  assertPassOutlastsStop,
+  type SchedulerConfig,
+  schedulerConfigFromEnv,
+} from "./config.ts";
 
 const base = {
   AWS_ACCESS_KEY_ID: "test",
@@ -20,29 +24,57 @@ const base = {
   WORKER_IMAGE: "agent-platform-worker:dev",
 };
 
+// What a cluster scheduler is given: no Docker setting at all.
+const kubernetes = {
+  ...base,
+  EXECUTION_BACKEND: "kubernetes",
+  EXECUTION_INSTALLATION_ID: "dev-a",
+  EXECUTION_K8S_NAMESPACE: "agent-platform",
+  WORKER_GATEWAY_URL: "http://api:3000",
+  WORKER_IMAGE: `registry.local/worker@sha256:${"a".repeat(64)}`,
+};
+
+function dockerOf(config: SchedulerConfig) {
+  if (config.execution.backend !== "local_docker") {
+    throw new Error(`expected local_docker, got ${config.execution.backend}`);
+  }
+  return config.execution.docker;
+}
+
 describe("assertPassOutlastsStop", () => {
   const message =
     "SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC";
 
   test("the defaults leave a pass room for one whole worker stop", () => {
-    const { docker } = schedulerConfigFromEnv(base);
+    const config = schedulerConfigFromEnv(base);
+    const docker = dockerOf(config);
     expect(docker.stopTimeoutSeconds * 1_000 + docker.requestTimeoutMs).toBe(
       150_000,
     );
-    expect(() => assertPassOutlastsStop(180_000, docker)).not.toThrow();
+    expect(() =>
+      assertPassOutlastsStop(180_000, config.execution),
+    ).not.toThrow();
   });
 
   test("refuses a pass timeout a worker stop can outlast", () => {
-    const { docker } = schedulerConfigFromEnv(base);
-    expect(() => assertPassOutlastsStop(120_000, docker)).toThrow(message);
-    expect(() => assertPassOutlastsStop(150_000, docker)).toThrow(message);
+    const { execution } = schedulerConfigFromEnv(base);
+    expect(() => assertPassOutlastsStop(120_000, execution)).toThrow(message);
+    expect(() => assertPassOutlastsStop(150_000, execution)).toThrow(message);
     const longer = schedulerConfigFromEnv({
       ...base,
       EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC: "60",
       EXECUTION_DOCKER_STOP_TIMEOUT_SEC: "300",
-    }).docker;
+    }).execution;
     expect(() => assertPassOutlastsStop(180_000, longer)).toThrow(message);
     expect(() => assertPassOutlastsStop(361_000, longer)).not.toThrow();
+  });
+
+  test("holds the kubernetes backend to its own fixed timeouts", () => {
+    const { execution } = schedulerConfigFromEnv(kubernetes);
+    expect(() => assertPassOutlastsStop(180_000, execution)).not.toThrow();
+    expect(() => assertPassOutlastsStop(150_000, execution)).toThrow(
+      "the kubernetes backend's stop and request timeouts (150s)",
+    );
   });
 });
 
@@ -68,12 +100,13 @@ describe("schedulerConfigFromEnv", () => {
       sessionTokenLimit: null,
       storageLimitBytes: 1073741824,
     });
-    expect(config.docker.workerLimits).toEqual({
+    const docker = dockerOf(config);
+    expect(docker.workerLimits).toEqual({
       maxTurnSeconds: 3600,
       providerMaxRetries: 2,
     });
-    expect(config.docker.gatewayUrl).toBe(base.WORKER_GATEWAY_URL);
-    expect(config.docker.egressProxyUrl).toBe(base.EXECUTION_EGRESS_PROXY_URL);
+    expect(docker.gatewayUrl).toBe(base.WORKER_GATEWAY_URL);
+    expect(docker.egressProxyUrl).toBe(base.EXECUTION_EGRESS_PROXY_URL);
   });
 
   test("falls back to QUEUE_DATABASE_URL and honours explicit limits", () => {
@@ -111,7 +144,7 @@ describe("schedulerConfigFromEnv", () => {
     expect(schedulerConfigFromEnv(base).logLevel).toBe("info");
     const quiet = schedulerConfigFromEnv({ ...base, LOG_LEVEL: "warn" });
     expect(quiet.logLevel).toBe("warn");
-    expect(quiet.docker.logLevel).toBe("warn");
+    expect(dockerOf(quiet).logLevel).toBe("warn");
     expect(() =>
       schedulerConfigFromEnv({ ...base, LOG_LEVEL: "verbose" }),
     ).toThrow("LOG_LEVEL must be one of debug|info|warn|error");
@@ -154,6 +187,48 @@ describe("schedulerConfigFromEnv", () => {
     expect(() =>
       schedulerConfigFromEnv({ ...base, WORKER_GATEWAY_URL: undefined }),
     ).toThrow("WORKER_GATEWAY_URL");
+  });
+
+  test("runs the Docker backend unless EXECUTION_BACKEND says otherwise", () => {
+    expect(schedulerConfigFromEnv(base).execution.backend).toBe("local_docker");
+    expect(
+      schedulerConfigFromEnv({ ...base, EXECUTION_BACKEND: "" }).execution
+        .backend,
+    ).toBe("local_docker");
+    expect(
+      schedulerConfigFromEnv({ ...base, EXECUTION_BACKEND: "local_docker" })
+        .execution.backend,
+    ).toBe("local_docker");
+  });
+
+  test("EXECUTION_BACKEND=kubernetes reads the cluster settings and no Docker ones", () => {
+    const config = schedulerConfigFromEnv({
+      ...kubernetes,
+      // Would fail the Docker parser; the kubernetes backend never reads it.
+      EXECUTION_DOCKER_STOP_TIMEOUT_SEC: "not a number",
+      LOG_LEVEL: "warn",
+    });
+    if (config.execution.backend !== "kubernetes") {
+      throw new Error(`expected kubernetes, got ${config.execution.backend}`);
+    }
+    expect(config.execution.kubernetes).toMatchObject({
+      egressProxyUrl: base.EXECUTION_EGRESS_PROXY_URL,
+      gatewayUrl: "http://api:3000",
+      installationId: "dev-a",
+      logLevel: "warn",
+      namespace: "agent-platform",
+      workerLimits: { maxTurnSeconds: 3600, providerMaxRetries: 2 },
+    });
+  });
+
+  test("an EXECUTION_BACKEND it does not know stops the scheduler, naming the value", () => {
+    for (const value of ["eks_job", "docker", "Kubernetes"]) {
+      expect(() =>
+        schedulerConfigFromEnv({ ...base, EXECUTION_BACKEND: value }),
+      ).toThrow(
+        `EXECUTION_BACKEND must be one of local_docker|kubernetes (got ${value})`,
+      );
+    }
   });
 
   test("a zero slot limit is allowed and stops all launches", () => {

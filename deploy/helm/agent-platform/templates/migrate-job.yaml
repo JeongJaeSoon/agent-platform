@@ -1,0 +1,43 @@
+# Runs before any resource of an install or upgrade is applied, so every new
+# api, scheduler and reconciler pod starts on the migrated schema. As a hook
+# it cannot use the chart's ServiceAccounts, which do not exist yet on a first
+# install; it needs no API token, so the namespace default is enough.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ap.fullname" . }}-migrate
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "migrate") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    # Kept after success so `kubectl get job` shows the last run.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: migrate
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}

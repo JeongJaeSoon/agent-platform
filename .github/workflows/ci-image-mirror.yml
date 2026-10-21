@@ -94,6 +94,19 @@ jobs:
             source: docker.io/gitea/gitea
             tag: "1.22"
             digest: sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+          # The kind cluster `k8s-smoke` starts (94S-525): the node image
+          # kind v0.33.0 defaults to, and the registry deploy/kind/up.sh
+          # pushes the app images to.
+          - name: kind-node
+            source: docker.io/kindest/node
+            tag: "v1.37.0"
+            digest: sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          # registry:2 when pinned; the full tag, since images.yml's
+          # comments name `registry:2` (tests/ci-images.test.ts).
+          - name: registry
+            source: docker.io/library/registry
+            tag: "2.8.3"
+            digest: sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
     steps:
       - name: Copy by digest
         env:

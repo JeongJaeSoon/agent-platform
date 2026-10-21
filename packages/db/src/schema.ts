@@ -3,6 +3,8 @@ import {
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
+  OPEN_PUSH_REQUEST_STATES,
+  PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
 } from "@agent-platform/contracts";
@@ -796,13 +798,26 @@ export const turns = pgTable(
   ],
 );
 
+// Rows from 94S-630 on carry the push request they were opened from; the
+// alpha columns stay as they were.
 export const pullRequests = pgTable(
   "pull_requests",
   {
     sessionId: uuid("session_id").references(() => sessions.id),
     url: text().notNull(),
+    pushRequestId: uuid("push_request_id").references(() => pushRequests.id),
+    ownerId: text("owner_id"),
+    repositoryId: text("repository_id"),
+    number: integer(),
+    head: text(),
+    base: text(),
+    receiptId: uuid("receipt_id").references(() => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.sessionId, table.url] })],
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.url] }),
+    uniqueIndex("pull_requests_push_request_idx").on(table.pushRequestId),
+  ],
 );
 
 export const events = pgTable(
@@ -1032,6 +1047,82 @@ export const pendingRequests = pgTable(
       "pending_requests_approval_check",
       sql`(${table.answerSurface} IS NULL) = (${table.answerDecisionId} IS NULL) AND (${table.answerSurface} IS NULL OR ${table.answeredAt} IS NOT NULL) AND (${table.answeredBy} IS NULL OR ${table.answerSurface} IS NOT NULL)`,
     ),
+  ],
+);
+
+// A session result the platform may push to `agent/<session-id>` once a human
+// approves it. The commit is pinned when the request is made, so what is
+// approved is what is pushed, however far the session moves on.
+export const pushRequests = pgTable(
+  "push_requests",
+  {
+    id: uuid().primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    repositoryId: text("repository_id").notNull(),
+    checkpointRevision: integer("checkpoint_revision").notNull(),
+    gitCommit: text("git_commit").notNull(),
+    targetBranch: text("target_branch").notNull(),
+    state: text().notNull().default("requested"),
+    requestedBy: jsonb("requested_by").notNull(),
+    requestReceiptId: uuid("request_receipt_id")
+      .notNull()
+      .references(() => receipts.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    decidedBy: jsonb("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionReason: text("decision_reason"),
+    decisionReceiptId: uuid("decision_receipt_id").references(
+      () => receipts.id,
+    ),
+    pushStartedAt: timestamp("push_started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    pushError: jsonb("push_error"),
+    pushReceiptId: uuid("push_receipt_id").references(() => receipts.id),
+    repositoryBinding: text("repository_binding"),
+    pushAttempts: integer("push_attempts").notNull().default(0),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "push_requests_state_check",
+      sql`${table.state} IN (${sql.raw(sqlList(PUSH_REQUEST_STATE_VALUES))})`,
+    ),
+    check(
+      "push_requests_git_commit_check",
+      sql`${table.gitCommit} ~ '^[0-9a-f]{40}$'`,
+    ),
+    check(
+      "push_requests_checkpoint_revision_check",
+      sql`${table.checkpointRevision} >= 0`,
+    ),
+    check(
+      "push_requests_target_branch_check",
+      sql`${table.targetBranch} = 'agent/' || ${table.sessionId}::text`,
+    ),
+    check(
+      "push_requests_decision_check",
+      sql`(${table.state} = 'requested') = (${table.decidedAt} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decidedBy} IS NULL) AND (${table.decidedAt} IS NULL) = (${table.decisionReceiptId} IS NULL)`,
+    ),
+    uniqueIndex("push_requests_open_session_idx")
+      .on(table.sessionId)
+      .where(
+        sql`${table.state} IN (${sql.raw(sqlList(OPEN_PUSH_REQUEST_STATES))})`,
+      ),
+    index("push_requests_session_created_idx").on(
+      table.sessionId,
+      table.createdAt,
+    ),
+    index("push_requests_approved_idx")
+      .on(table.createdAt)
+      .where(sql`${table.state} = 'approved'`),
+    index("push_requests_pushing_lease_idx")
+      .on(table.leaseExpiresAt)
+      .where(sql`${table.state} = 'pushing'`),
   ],
 );
 

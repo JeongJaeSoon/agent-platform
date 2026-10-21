@@ -8,6 +8,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
+import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import { attempts, checkpoints, sessions } from "./schema.ts";
 
@@ -92,6 +93,55 @@ integration("checkpoint collection store on PostgreSQL", () => {
     // A lapsed lease is the reconciler's to judge; until then it may renew.
     expect(fences?.fencedAttemptIds.has(expired)).toBe(false);
     expect(await store.readCollectionFences(crypto.randomUUID())).toBeNull();
+  });
+
+  test("readPushPinnedRevisions names the revisions open push requests pinned", async () => {
+    const sessionId = await session({
+      checkpointRevision: 2,
+      repositoryId: "sample-app",
+    });
+    const push = createPostgresPushRequests(db);
+    const actor = {
+      principal: { kind: "api_key" as const, id: "key-gc" },
+      actor_user_id: null,
+      agent_id: null,
+    };
+    const pin = (key: string, revision: number) =>
+      push.create({
+        ownerId: "owner-gc",
+        sessionId,
+        actor,
+        idempotencyKey: key,
+        payloadHash: "h",
+        repositoryId: "sample-app",
+        repositoryBinding: "sha256:binding",
+        checkpointRevision: revision,
+        gitCommit: "a".repeat(40),
+      });
+    const first = await pin("k-1", 2);
+    if (first.outcome !== "written") throw new Error("not written");
+    await push.decide({
+      ownerId: "owner-gc",
+      sessionId,
+      pushRequestId: first.request.id,
+      actor,
+      decision: "reject",
+      gitCommit: "a".repeat(40),
+      reason: null,
+      idempotencyKey: "k-2",
+      payloadHash: "h",
+    });
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: 3 })
+      .where(eq(sessions.id, sessionId));
+    expect((await pin("k-3", 3)).outcome).toBe("written");
+    const store = createPostgresCheckpointStore(db);
+
+    expect(await store.readPushPinnedRevisions(sessionId)).toEqual([3]);
+    expect(await store.readPushPinnedRevisions(crypto.randomUUID())).toEqual(
+      [],
+    );
   });
 
   test("markCollected retires the rows up to the pointer that are not kept, once", async () => {

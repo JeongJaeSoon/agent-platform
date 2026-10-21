@@ -77,6 +77,17 @@ export const API_ERROR_CODE_VALUES = [
   "CURSOR_EXPIRED",
   "LEASE_EXPIRED",
   "STALE_EPOCH",
+  // Push requests: the session has no repository or checkpoint to push,
+  // another request is still open, the request was already decided, or the
+  // session checkpointed again after the request pinned its commit.
+  "PUSH_SOURCE_MISSING",
+  "PUSH_REQUEST_OPEN",
+  "PUSH_REQUEST_DECIDED",
+  "CHECKPOINT_MOVED",
+  // Pull requests: the push request has not reached `pushed`, or no pull
+  // request was opened from it yet.
+  "PUSH_NOT_PUSHED",
+  "PULL_REQUEST_MISSING",
 ] as const;
 
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODE_VALUES);

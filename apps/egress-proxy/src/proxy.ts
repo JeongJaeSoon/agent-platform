@@ -417,13 +417,15 @@ export async function startEgressProxy(
     }
     if (closed()) return;
     if (!decision.allowed) {
-      logger.warn("Egress denied", {
+      const unresolved = decision.failure === "unresolved";
+      logger.warn(unresolved ? "Egress lookup failed" : "Egress denied", {
         host: request.host,
         method: request.kind,
         port: request.port,
         reason: decision.reason,
       });
-      reply(socket, 403, `egress denied: ${decision.reason}`);
+      if (unresolved) reply(socket, 502, decision.reason);
+      else reply(socket, 403, `egress denied: ${decision.reason}`);
       return;
     }
     // Every address in the decision passed the same policy, so a dead first

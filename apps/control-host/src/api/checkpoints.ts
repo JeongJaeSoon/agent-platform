@@ -1,4 +1,4 @@
-import type { Database } from "@agent-platform/db";
+import type { Database, LostCheckpoints } from "@agent-platform/db";
 import { createPostgresCheckpointStore } from "@agent-platform/db";
 import {
   type CheckpointProtocol,
@@ -6,6 +6,8 @@ import {
   type CheckpointVerifier,
   createCheckpointService,
   type ObjectProtection,
+  type PushBundleSource,
+  type PushSource,
   rejectUnverifiedCheckpoints,
   serviceCheckpointVerifier,
 } from "@agent-platform/platform";
@@ -25,6 +27,8 @@ import {
   type GitCommandRunner,
   type ObjectRouteSigner,
   type S3ClientLike,
+  type StorageS3Settings,
+  storageS3Credentials,
 } from "@agent-platform/storage";
 
 export type ApiCheckpointServiceDependencies = Pick<
@@ -109,7 +113,8 @@ export const API_CHECKPOINT_CODECS: CheckpointServiceDependencies["codecs"] = {
 };
 
 /**
- * Read: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+ * Read: `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and
+ * `AWS_SECRET_ACCESS_KEY` (optional together; see `storageS3Credentials`),
  * `AWS_ENDPOINT_URL` (optional), `CHECKPOINT_OBJECT_STORE` and
  * `CHECKPOINT_OBJECT_PROTECTION`. `CHECKPOINT_OBJECT_STORE=disabled` runs the
  * API with no object store: every checkpoint is refused and the worker
@@ -129,15 +134,11 @@ export type CheckpointStorageEnvironment = Readonly<
   Record<string, string | undefined>
 >;
 
-export type CheckpointStorageConfig = {
-  accessKeyId: string;
+export type CheckpointStorageConfig = StorageS3Settings & {
   bucket: string;
-  endpoint?: string;
   /** Absent means `enforce`. */
   encryptionCheck?: "warn";
   protection: ObjectProtection;
-  region: string;
-  secretAccessKey: string;
 };
 
 export function checkpointStorageConfigFromEnv(
@@ -195,17 +196,29 @@ export function checkpointStorageConfigFromEnv(
       `CHECKPOINT_OBJECT_ENCRYPTION_CHECK must be "enforce" (default) or "warn", not ${encryptionCheck}`,
     );
   }
+  const region = required(environment.AWS_REGION, "AWS_REGION");
+  // Both keys or neither: without them the SDK's default chain (IRSA on
+  // EKS) signs. One alone is a half-written Secret, not a choice.
+  const accessKeyId = optional(environment.AWS_ACCESS_KEY_ID);
+  const secretAccessKey = optional(environment.AWS_SECRET_ACCESS_KEY);
+  if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
+    const [missing, set] =
+      accessKeyId === undefined
+        ? ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+        : ["AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID"];
+    throw new Error(
+      `${missing} is required with ${set}; set both, or neither to use the default AWS credential chain`,
+    );
+  }
   return {
-    accessKeyId: required(environment.AWS_ACCESS_KEY_ID, "AWS_ACCESS_KEY_ID"),
     bucket,
+    ...(accessKeyId !== undefined && secretAccessKey !== undefined
+      ? { credentials: { accessKeyId, secretAccessKey } }
+      : {}),
     ...(endpoint ? { endpoint } : {}),
     ...(encryptionCheck === "warn" ? { encryptionCheck } : {}),
     protection: protection === "unversioned" ? "unversioned" : "locked",
-    region: required(environment.AWS_REGION, "AWS_REGION"),
-    secretAccessKey: required(
-      environment.AWS_SECRET_ACCESS_KEY,
-      "AWS_SECRET_ACCESS_KEY",
-    ),
+    region,
   };
 }
 
@@ -218,9 +231,14 @@ function required(value: string | undefined, name: string): string {
   return value;
 }
 
+function optional(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === "" ? undefined : value;
+}
+
 export type ApiCheckpoints = {
   verifier: CheckpointVerifier;
   protocol: CheckpointProtocol | undefined;
+  pushSource: PushSource & PushBundleSource;
 };
 
 /**
@@ -234,7 +252,20 @@ export function createApiCheckpoints(
   maxGitMemoryBytes?: number,
 ): ApiCheckpoints {
   if (config === "disabled") {
-    return { verifier: rejectUnverifiedCheckpoints, protocol: undefined };
+    return {
+      verifier: rejectUnverifiedCheckpoints,
+      protocol: undefined,
+      pushSource: {
+        readPushSource: async () => ({
+          status: "unavailable",
+          reason: "the checkpoint object store is disabled",
+        }),
+        spoolPushBundles: async () => ({
+          status: "unavailable",
+          reason: "the checkpoint object store is disabled",
+        }),
+      },
+    };
   }
   const service = createApiCheckpointService({
     codecs: API_CHECKPOINT_CODECS,
@@ -246,33 +277,27 @@ export function createApiCheckpoints(
     store: createPostgresCheckpointStore(db),
     ...(maxGitMemoryBytes === undefined ? {} : { maxGitMemoryBytes }),
   });
-  return { verifier: serviceCheckpointVerifier(service), protocol: service };
+  return {
+    verifier: serviceCheckpointVerifier(service),
+    protocol: service,
+    pushSource: service,
+  };
 }
 
 function checkpointS3Client(config: CheckpointStorageConfig) {
-  return createStorageS3Client({
-    s3: {
-      accessKeyId: config.accessKeyId,
-      ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
-      region: config.region,
-      secretAccessKey: config.secretAccessKey,
-    },
-  });
+  return createStorageS3Client({ s3: config });
 }
 
 /**
  * What signs the workers' object store requests: the same bucket
- * and key the API itself uses, which is why the key stays in this process.
+ * and credentials the API itself uses, which is why they stay in this process.
  */
 export function checkpointObjectRouteSigner(
   config: CheckpointStorageConfig,
 ): ObjectRouteSigner {
   return createObjectRouteSigner({
     bucket: config.bucket,
-    credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
-    },
+    credentials: storageS3Credentials(config),
     ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
     region: config.region,
   });
@@ -368,13 +393,50 @@ export async function assertCheckpointObjectsPresent(
   const check = async (client: S3ClientLike) => {
     if (await bucketHoldsObjectVersion(client, config.bucket)) return;
     throw new Error(
-      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
+      `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. A local LocalStack keeps S3 in memory, so \`docker compose down\` or a Docker restart empties it. Keep accounts, keys and sessions and give up only the lost checkpoints with \`scripts/local.sh forget-lost-checkpoints\` (their sessions wait for a recovery decision), or start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
     );
   };
   if (options.client !== undefined) return check(options.client);
   const client = checkpointS3Client(config);
   try {
     await check(client);
+  } finally {
+    client.destroy();
+  }
+}
+
+/**
+ * The operator's way past assertCheckpointObjectsPresent short of a reset:
+ * runs `forget` only in the state that guard refuses, a bucket holding no
+ * object version while the database still has uncollected checkpoints.
+ * A bucket with any version left did not lose everything, so nothing is
+ * given up there; a missing object or two is the backup's per-version
+ * check to find.
+ */
+export async function forgetLostCheckpointObjects(
+  config: CheckpointStorageConfig,
+  options: {
+    readonly hasUncollectedCheckpoint: () => Promise<boolean>;
+    readonly forget: () => Promise<LostCheckpoints>;
+    /** Tests substitute a fake; the product path never passes this. */
+    readonly client?: S3ClientLike;
+  },
+): Promise<LostCheckpoints> {
+  if (!(await options.hasUncollectedCheckpoint())) {
+    return { held: [], unchanged: [] };
+  }
+  const check = async (client: S3ClientLike) => {
+    if (await bucketHoldsObjectVersion(client, config.bucket)) {
+      throw new Error(
+        `Checkpoint bucket ${config.bucket} still holds object versions, so it did not lose its checkpoints; nothing was changed`,
+      );
+    }
+    return options.forget();
+  };
+  if (options.client !== undefined) return check(options.client);
+  const client = checkpointS3Client(config);
+  try {
+    return await check(client);
   } finally {
     client.destroy();
   }

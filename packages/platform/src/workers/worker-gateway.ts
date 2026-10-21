@@ -49,6 +49,11 @@ import {
 } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
 import type { CheckpointVerifier } from "../ports/checkpoint-verifier.ts";
+import {
+  type ForgeResolver,
+  type GitCredential,
+  repoRefOf,
+} from "../ports/forge.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ConfirmExecutionGoneResult,
@@ -66,11 +71,14 @@ import {
   catalogRevision,
   type EgressUpstream,
   profileFingerprint,
+  profileModels,
+  profileWithModel,
   providerUpstreamOf,
   repositoryBinding,
   repositoryUpstreamOf,
   runtimeConfigOf,
   type SessionCatalog,
+  sessionProfile,
 } from "../sessions/catalog.ts";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
@@ -143,6 +151,8 @@ export type WorkerGatewayOptions = {
   pendingTtlMs?: number;
   /** Upper bound on nextInput long-polling. */
   maxWaitMs?: number;
+  /** Once aborted, nextInput answers with what it has instead of waiting. */
+  stopWaiting?: AbortSignal;
   pollIntervalMs?: number;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
@@ -400,6 +410,9 @@ export function createWorkerGateway(deps: {
   // Absent, the pending routes answer 404 and the worker denies what it
   // cannot put to anyone; heartbeat then never reports an answer waiting.
   pending?: WorkerPendingStore;
+  // The forge behind each catalog repository that has one. Absent, a
+  // repository whose credential a forge issues (`github_app`) is refused.
+  forges?: ForgeResolver;
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending } = deps;
@@ -438,16 +451,23 @@ export function createWorkerGateway(deps: {
     ([repositoryId, repository]) =>
       repository.profiles.flatMap((profileId) => {
         const profile = own(catalog.profiles, profileId);
+        // One pair per model the profile offers, its default first: a row
+        // from before the pin binds to the first pair that matches it.
         return profile
-          ? [
-              {
-                profileId,
-                profileFingerprint: profileFingerprint(profile),
-                repositoryId,
-                url: repository.url,
-                branch: repository.branch,
-              },
-            ]
+          ? profileModels(profile).flatMap((model) => {
+              const runs = profileWithModel(profile, model);
+              return runs
+                ? [
+                    {
+                      profileId,
+                      profileFingerprint: profileFingerprint(runs),
+                      repositoryId,
+                      url: repository.url,
+                      branch: repository.branch,
+                    },
+                  ]
+                : [];
+            })
           : [];
       }),
   );
@@ -465,13 +485,15 @@ export function createWorkerGateway(deps: {
   // repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(
     profileId: string | null,
+    fingerprint: string | null,
     providerToken: string,
   ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
     runtime_config: RuntimeConfig;
   } {
-    const profile = profileId ? own(catalog.profiles, profileId) : undefined;
+    const listed = profileId ? own(catalog.profiles, profileId) : undefined;
+    const profile = listed ? sessionProfile(listed, fingerprint) : null;
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
         503,
@@ -508,10 +530,11 @@ export function createWorkerGateway(deps: {
       ) {
         return [];
       }
-      const profile = own(catalog.profiles, made.profileId);
-      return profile && profileFingerprint(profile) === made.profileFingerprint
-        ? [runtimeConfigOf(profile, providerToken)]
-        : [];
+      const listed = own(catalog.profiles, made.profileId);
+      const profile = listed
+        ? sessionProfile(listed, made.profileFingerprint)
+        : null;
+      return profile ? [runtimeConfigOf(profile, providerToken)] : [];
     });
     return configs.length === 0
       ? {}
@@ -524,11 +547,15 @@ export function createWorkerGateway(deps: {
   function egressBindingsOf(session: {
     id: string;
     profileId: string | null;
+    profileFingerprint: string | null;
     repositoryId: string | null;
   }): Record<EgressPurpose, string> {
-    const profile = session.profileId
+    const listed = session.profileId
       ? own(catalog.profiles, session.profileId)
       : undefined;
+    const profile = listed
+      ? sessionProfile(listed, session.profileFingerprint)
+      : null;
     const repository = session.repositoryId
       ? own(catalog.repositories, session.repositoryId)
       : undefined;
@@ -552,6 +579,14 @@ export function createWorkerGateway(deps: {
       409,
       "CATALOG_MISMATCH",
       `The ${what} changed in the catalog since this attempt was claimed`,
+    );
+  }
+  function forgeUnavailable(): never {
+    throw new WorkerGatewayError(
+      503,
+      "BACKEND_UNAVAILABLE",
+      "The repository's forge credential could not be issued",
+      true,
     );
   }
 
@@ -783,7 +818,11 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
-          const resolved = resolveProfile(binding.profileId, providerToken);
+          const resolved = resolveProfile(
+            binding.profileId,
+            binding.profileFingerprint,
+            providerToken,
+          );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -882,10 +921,11 @@ export function createWorkerGateway(deps: {
             "The session has reached its cost or token limit",
           );
         }
-        const profile = result.profileId
+        const listed = result.profileId
           ? own(catalog.profiles, result.profileId)
           : undefined;
-        if (!profile || profileFingerprint(profile) !== result.binding) {
+        const profile = listed ? sessionProfile(listed, result.binding) : null;
+        if (!profile) {
           moved("session's profile");
         }
         return grant(providerUpstreamOf(profile));
@@ -904,7 +944,21 @@ export function createWorkerGateway(deps: {
       ) {
         moved("session's repository");
       }
-      return grant(repositoryUpstreamOf(pair.repository));
+      const forge = deps.forges?.(id) ?? null;
+      if (forge === null) {
+        if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
+        return grant(repositoryUpstreamOf(pair.repository));
+      }
+      const repo = repoRefOf(url);
+      if (repo === null) forgeUnavailable();
+      let issued: GitCredential;
+      try {
+        issued = await forge.gitCredential(repo, "read");
+      } catch {
+        // The adapter logs why; nothing of its error reaches the proxy.
+        forgeUnavailable();
+      }
+      return grant(repositoryUpstreamOf(pair.repository, issued));
     },
 
     // What one Messages call through the provider route used, as the proxy
@@ -965,6 +1019,7 @@ export function createWorkerGateway(deps: {
           result.input ||
           result.draining === true ||
           result.blocked !== undefined ||
+          deps.options.stopWaiting?.aborted === true ||
           now().getTime() >= deadline
         ) {
           return {

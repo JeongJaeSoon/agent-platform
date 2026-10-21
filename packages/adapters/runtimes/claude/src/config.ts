@@ -17,7 +17,13 @@ export const CLAUDE_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
   resume: true,
 };
 
-export type PermissionMode = "default" | "acceptEdits" | "dontAsk" | "plan";
+export type PermissionMode =
+  | "default"
+  | "acceptEdits"
+  | "dontAsk"
+  | "plan"
+  | "bypassPermissions"
+  | "auto";
 
 export type ClaudeNativeEnvelope = NativeEnvelope & {
   sdk_version: typeof CLAUDE_AGENT_SDK_VERSION;

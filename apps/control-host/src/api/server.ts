@@ -13,6 +13,8 @@ import {
   createPostgresLinkedAccountStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresPullRequests,
+  createPostgresPushRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
@@ -26,7 +28,7 @@ import {
   createPostgresWorkspaceKeyStore,
   hasUncollectedCheckpoint,
 } from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
+import { createLogger, sanitizeText } from "@agent-platform/observability";
 import {
   catalogRevision,
   createAgentAdminService,
@@ -40,20 +42,23 @@ import {
   createLinkedAccountService,
   createMemberService,
   createPendingRequestService,
+  createPullRequestService,
+  createPushExecutor,
+  createPushRequestService,
   createSessionService,
   createSessionShareService,
   createTeamService,
   createUsageService,
   createWorkerGateway,
   InstallationConfigError,
-  installationLimitProblems,
   installationLimitsFromEnv,
 } from "@agent-platform/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
+  apiReadinessConfigProblems,
   apiSettingsFromEnv,
-  apiSettingsProblems,
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
 import {
@@ -66,6 +71,7 @@ import {
   DEFAULT_CONFIG_DIR,
   loadSessionCatalog,
   secretsManagerReader,
+  unattendedProfiles,
 } from "./catalog-config.ts";
 import {
   assertCheckpointBucketEncryption,
@@ -80,6 +86,8 @@ import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
+import { forgesOf } from "./forge-github.ts";
+import { createGitPusher } from "./git-push.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
@@ -100,6 +108,8 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
 import { registerProfileRoutes } from "./routes/profiles.ts";
+import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
+import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
@@ -157,6 +167,12 @@ logger.info("Session catalog loaded", {
   profiles: Object.keys(catalog.profiles).length,
   repositories: Object.keys(catalog.repositories).length,
 });
+const unattended = unattendedProfiles(catalog);
+if (unattended.length > 0) {
+  logger.warn("Profiles run tools without asking for approval", {
+    profiles: unattended,
+  });
+}
 
 // Checked before the pool exists: a bucket that is missing is a startup
 // error, not a warning, unless the operator said there is none.
@@ -281,10 +297,36 @@ const agentAdmins = createAgentAdminService({
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
+// One adapter per repository, shared by clone (the gateway), push and pull
+// requests, so all draw on one token cache.
+const forges = forgesOf(catalog, { logger });
+const pushStore = createPostgresPushRequests(db);
+const pushRequests = createPushRequestService({
+  authorization,
+  store: pushStore,
+  source: checkpoints.pushSource,
+  catalog,
+});
+const pullRequests = createPullRequestService({
+  authorization,
+  store: createPostgresPullRequests(db),
+  catalog,
+  forges,
+  redact: sanitizeText,
+});
+const pushExecutor = createPushExecutor({
+  store: pushStore,
+  catalog,
+  forges,
+  bundles: checkpoints.pushSource,
+  pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
+  logger,
+}).start();
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
 });
+const shutdown = createShutdown({ logger });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
@@ -296,6 +338,7 @@ const workers = createWorkerGateway({
     ? {}
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
+  forges,
   options: {
     sessionCostLimitUsd: limits.sessionCostLimitUsd,
     sessionTokenLimit: limits.sessionTokenLimit,
@@ -303,6 +346,7 @@ const workers = createWorkerGateway({
     // How long a permission or question takes answers. The worker waits
     // exactly this long once the request is registered.
     pendingTtlMs: settings.pendingTtlMs,
+    stopWaiting: shutdown.stopWaiting,
   },
 });
 // The egress proxy's authorizer, on a port of its own that no
@@ -365,7 +409,6 @@ const auth = {
   logger,
 };
 const probePool = createProbePool(databaseUrl, logger);
-const shutdown = createShutdown({ logger });
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
@@ -397,6 +440,8 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, catalog);
     registerPendingRoutes(router, pendingRequests);
+    registerPushRequestRoutes(router, pushRequests);
+    registerPullRequestRoutes(router, pullRequests);
     registerInterruptRoutes(router, interrupts);
     registerLinkedAccountRoutes(router, {
       service: linkedAccounts,
@@ -425,21 +470,8 @@ const app = createApiApp({
   readiness: shutdown.readiness(
     createReadinessProbe({
       db: probePool,
-      // AUTH_MODE unset still fails closed (every /v1 call is 401), which is
-      // a misconfiguration, not a serving instance.
-      // app.ts treats anything but "none" as api-key mode, so a typo would
-      // silently run authenticated; only the two spellings we document count.
-      requiredEnv: [
-        "DATABASE_URL",
-        { name: "AUTH_MODE", allowed: ["none", "api-key"] },
-      ],
-      // The same parser the process started with: an env that changed under
-      // a running instance shows up here rather than at the next restart.
-      configProblems: (environment) => [
-        ...installationLimitProblems(environment),
-        ...apiSettingsProblems(environment),
-        ...googleLoginConfigFromEnv(environment).problems,
-      ],
+      requiredEnv: API_READINESS_REQUIRED_ENV,
+      configProblems: apiReadinessConfigProblems,
     }),
   ),
 });
@@ -482,6 +514,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         ? [server]
         : [server, authorizerListener],
       [
+        { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },

@@ -80,6 +80,16 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CURSOR_EXPIRED: "이어보기 위치가 만료됐습니다 — 처음부터 다시 불러오세요.",
   LEASE_EXPIRED: "실행 점유가 만료됐습니다 — 현재 상태를 확인하세요.",
   STALE_EPOCH: "오래된 실행에서 온 응답입니다 — 현재 상태를 확인하세요.",
+  PUSH_SOURCE_MISSING:
+    "push할 저장소나 저장 지점이 없습니다 — 세션이 한 번 이상 저장된 뒤 다시 요청하세요.",
+  PUSH_REQUEST_OPEN:
+    "이미 열린 push 요청이 있습니다 — 그 요청을 먼저 결정하세요.",
+  PUSH_REQUEST_DECIDED: "이미 결정된 push 요청입니다 — 목록을 새로 고치세요.",
+  CHECKPOINT_MOVED:
+    "요청 뒤에 세션이 다시 저장됐습니다 — 요청을 거부하고 새로 요청하세요.",
+  PUSH_NOT_PUSHED:
+    "아직 push되지 않은 요청입니다 — push가 끝난 뒤 PR을 여세요.",
+  PULL_REQUEST_MISSING: "이 요청으로 연 PR이 없습니다 — PR을 먼저 여세요.",
 };
 
 /** Unknown codes fall back to a neutral instruction rather than raw English. */

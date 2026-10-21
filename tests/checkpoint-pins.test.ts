@@ -10,6 +10,7 @@ import {
   createCheckpointService,
   manifestRefFor,
   profileFingerprint,
+  profileWithModel,
   resolveSessionCatalog,
 } from "@agent-platform/platform";
 import {
@@ -889,6 +890,34 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         switched,
       ),
     ).toEqual([]);
+
+    // A checkpoint made on another of the profile's models is offered with
+    // that model.
+    const offering = {
+      ...switched,
+      profiles: {
+        ...switched.profiles,
+        [PROFILE_ID]: { ...base, models: ["model-long"] },
+      },
+    };
+    const onLong = profileWithModel(
+      offering.profiles[PROFILE_ID] as CatalogProfile,
+      "model-long",
+    );
+    if (!onLong) throw new Error("the profile offers model-long");
+    const longClaims = earlierProfileClaims(
+      session,
+      [
+        {
+          profileId: PROFILE_ID,
+          profileFingerprint: profileFingerprint(onLong),
+        },
+      ],
+      offering,
+    );
+    expect(longClaims.map(([, claim]) => claim.runtime_config.model)).toEqual([
+      "model-long",
+    ]);
 
     const many = earlierProfileClaims(session, extra.map(made), switched);
     expect(many.map(([key]) => key)).toEqual(

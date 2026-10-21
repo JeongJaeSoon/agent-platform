@@ -49,6 +49,13 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   UNSUPPORTED_CAPABILITY: 422,
   RATE_LIMITED: 429,
   BACKEND_UNAVAILABLE: 503,
+  PUSH_SOURCE_MISSING: 409,
+  PUSH_REQUEST_OPEN: 409,
+  PUSH_REQUEST_DECIDED: 409,
+  CHECKPOINT_MOVED: 409,
+  PUSH_NOT_PUSHED: 409,
+  CATALOG_MISMATCH: 409,
+  PULL_REQUEST_MISSING: 409,
 };
 
 // Storage outages need nothing here: the app's error hook answers them.

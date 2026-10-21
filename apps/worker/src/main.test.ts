@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -29,9 +29,35 @@ describe("verifyWorkspace", () => {
     }
   });
 
+  test("makes the checkout directory in the mount above it", async () => {
+    const mount = await mkdtemp(join(tmpdir(), "94s-634-"));
+    try {
+      await expect(
+        verifyWorkspace(join(mount, "repo")),
+      ).resolves.toBeUndefined();
+      expect((await stat(join(mount, "repo"))).isDirectory()).toBe(true);
+    } finally {
+      await rm(mount, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a link where the checkout directory goes", async () => {
+    // A link the last engine left on the volume would move the checkout off it.
+    const mount = await mkdtemp(join(tmpdir(), "94s-634-"));
+    try {
+      await mkdir(join(mount, "elsewhere"));
+      await symlink(join(mount, "elsewhere"), join(mount, "repo"));
+      await expect(verifyWorkspace(join(mount, "repo"))).rejects.toThrow(
+        "WORKER_WORKSPACE_DIR",
+      );
+    } finally {
+      await rm(mount, { recursive: true, force: true });
+    }
+  });
+
   test("refuses to claim a session it has nowhere to run", async () => {
     await expect(
-      verifyWorkspace(join(tmpdir(), "94s-122-does-not-exist")),
+      verifyWorkspace(join(tmpdir(), "94s-122-does-not-exist", "repo")),
     ).rejects.toThrow("WORKER_WORKSPACE_DIR");
   });
 

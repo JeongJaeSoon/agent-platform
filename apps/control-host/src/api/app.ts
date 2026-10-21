@@ -53,6 +53,7 @@ interface ApiVariables {
   principal: Principal;
   // What every session service is called as.
   caller: Caller;
+  verified: boolean;
   // Present on the cookie path only.
   webSession?: ResolvedWebSession;
   requestId: string;
@@ -587,6 +588,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     context.set("principal", authenticated.principal);
     context.set("ownerId", ownerScopeOf(authenticated.principal));
     context.set("caller", caller);
+    context.set("verified", authenticated.verified);
     context.set("reauthenticate", authenticated.reauthenticate);
     if (authenticated.webSession) {
       context.set("webSession", authenticated.webSession);

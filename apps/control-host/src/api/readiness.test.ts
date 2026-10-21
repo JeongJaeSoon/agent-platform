@@ -4,6 +4,11 @@ import { installationLimitProblems } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
+import {
+  API_READINESS_REQUIRED_ENV,
+  apiReadinessConfigProblems,
+} from "./api-settings.ts";
+import { checkpointStorageConfigFromEnv } from "./checkpoints.ts";
 import { createReadinessProbe, type QueryRunner } from "./readiness.ts";
 
 const migrationsFolder = `${import.meta.dir}/../../../../packages/db/migrations`;
@@ -27,7 +32,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0144_attempt_checkpoint_profile");
+    expect(expectedMigrationHead().tag).toBe("0147_pull_request_push_request");
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -90,7 +95,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0144_attempt_checkpoint_profile",
+      "0147_pull_request_push_request",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.
@@ -150,6 +155,35 @@ describe("readiness probe", () => {
         "configuration: MAX_TURN_SECONDS must be an integer from 1 to 604800, SESSION_COST_LIMIT_USD is required",
     });
   });
+
+  test("the api's own checks take an object store with no static keys (IRSA) as configured", async () => {
+    const irsa = {
+      ...environment,
+      EXECUTION_SLOT_LIMIT: "10",
+      MAX_TURN_SECONDS: "3600",
+      PROVIDER_MAX_RETRIES: "2",
+      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+      SESSION_COST_LIMIT_USD: "25",
+      STORAGE_LIMIT_BYTES: "1073741824",
+      AWS_REGION: "ap-northeast-1",
+      S3_BUCKET: "claude-sessions",
+      AWS_ROLE_ARN: "arn:aws:iam::123456789012:role/agent-platform-api",
+      AWS_WEB_IDENTITY_TOKEN_FILE:
+        "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+    };
+    // Startup parses the same environment first; it must not refuse it.
+    expect(checkpointStorageConfigFromEnv(irsa)).not.toHaveProperty(
+      "credentials",
+    );
+    expect(
+      await createReadinessProbe({
+        db: await database(true),
+        requiredEnv: API_READINESS_REQUIRED_ENV,
+        configProblems: apiReadinessConfigProblems,
+        environment: irsa,
+      })(),
+    ).toEqual({ ready: true });
+  }, 30_000);
 
   test("fails the config check when a required variable is missing or blank", async () => {
     const db = await database(true);

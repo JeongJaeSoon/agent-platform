@@ -81,6 +81,13 @@ export const RECEIPT_OPERATION_VALUES = [
   "revoke_agent_identity",
   // Changing who sees a session (94S-584).
   "share_session",
+  // A push request, a human's decision on one (or a refused attempt at
+  // either), and the platform's push of an approved one.
+  "request_push",
+  "decide_push",
+  "push",
+  "open_pull_request",
+  "comment_pull_request",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

@@ -87,6 +87,24 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @hono/zod-openapi | 1.6.3 | MIT | control-host, worker |
 | @hono/zod-validator | 0.9.1 | MIT | control-host, worker |
 | @modelcontextprotocol/sdk | 1.32.1 | MIT | worker |
+| @octokit/auth-app | 8.3.1 | MIT | control-host, worker |
+| @octokit/auth-oauth-app | 9.0.5 | MIT | control-host, worker |
+| @octokit/auth-oauth-device | 8.0.5 | MIT | control-host, worker |
+| @octokit/auth-oauth-user | 6.0.4 | MIT | control-host, worker |
+| @octokit/auth-token | 6.0.0 | MIT | control-host, worker |
+| @octokit/core | 7.0.8 | MIT | control-host, worker |
+| @octokit/endpoint | 11.0.5 | MIT | control-host, worker |
+| @octokit/graphql | 9.0.5 | MIT | control-host, worker |
+| @octokit/oauth-authorization-url | 8.0.0 | MIT | control-host, worker |
+| @octokit/oauth-methods | 6.0.5 | MIT | control-host, worker |
+| @octokit/openapi-types | 28.0.0 | MIT | control-host, worker |
+| @octokit/openapi-types | 29.0.1 | MIT | control-host, worker |
+| @octokit/plugin-retry | 8.1.1 | MIT | control-host, worker |
+| @octokit/plugin-throttling | 11.0.5 | MIT | control-host, worker |
+| @octokit/request | 10.0.16 | MIT | control-host, worker |
+| @octokit/request-error | 7.1.2 | MIT | control-host, worker |
+| @octokit/types | 17.0.0 | MIT | control-host, worker |
+| @octokit/types | 18.0.0 | MIT | control-host, worker |
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
 | @radix-ui/react-checkbox | 1.3.11 | MIT | worker |
@@ -129,7 +147,9 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | ajv | 8.20.0 | MIT | worker |
 | ajv-formats | 3.0.1 | MIT | worker |
 | aria-hidden | 1.2.6 | MIT | worker |
+| before-after-hook | 4.0.0 | Apache-2.0 | control-host, worker |
 | body-parser | 2.3.0 | MIT | worker |
+| bottleneck | 2.19.5 | MIT | control-host, worker |
 | bowser | 2.14.1 | MIT | control-host, worker |
 | bun-types | 1.3.14 | MIT | control-host, worker |
 | bytes | 3.1.2 | MIT | worker |
@@ -140,6 +160,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | content-disposition | 1.1.0 | MIT | worker |
 | content-type | 1.0.5 | MIT | worker |
 | content-type | 2.1.0 | MIT | worker |
+| content-type | 3.1.1 | MIT | control-host, worker |
 | cookie | 0.7.2 | MIT | worker |
 | cookie-signature | 1.2.2 | MIT | worker |
 | cors | 2.8.6 | MIT | worker |
@@ -186,6 +207,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | json-schema-to-ts | 3.1.1 | MIT | worker |
 | json-schema-traverse | 1.0.0 | MIT | worker |
 | json-schema-typed | 8.0.2 | BSD-2-Clause | worker |
+| json-with-bigint | 3.5.12 | MIT | control-host, worker |
 | math-intrinsics | 1.1.0 | MIT | worker |
 | media-typer | 1.1.1 | MIT | worker |
 | merge-descriptors | 2.0.0 | MIT | worker |
@@ -242,11 +264,14 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | standardwebhooks | 1.1.1 | MIT | worker |
 | statuses | 2.0.2 | MIT | worker |
 | tailwind-merge | 3.5.0 | MIT | worker |
+| toad-cache | 3.7.4 | MIT | control-host, worker |
 | toidentifier | 1.0.1 | MIT | worker |
 | ts-algebra | 2.0.0 | MIT | worker |
 | tslib | 2.8.1 | 0BSD | control-host, worker |
 | type-is | 2.1.0 | MIT | worker |
 | undici-types | 8.9.0 | MIT | control-host, worker |
+| universal-github-app-jwt | 2.2.2 | MIT | control-host, worker |
+| universal-user-agent | 7.0.3 | ISC | control-host, worker |
 | unpipe | 1.0.0 | MIT | worker |
 | use-callback-ref | 1.3.3 | MIT | worker |
 | use-sidecar | 1.1.3 | MIT | worker |

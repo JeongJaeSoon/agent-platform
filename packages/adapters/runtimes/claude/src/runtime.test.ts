@@ -308,14 +308,90 @@ describe("Claude SDK adapter options", () => {
     });
   });
 
-  test("rejects bypass permission mode before starting a query", () => {
+  test("bypassPermissions opts into the SDK's skip and keeps the tool allowlist in the PreToolUse hook", async () => {
+    const ledger = new TurnLedger("s1");
+    const options = buildSdkOptions(
+      { ...config, permissionMode: "bypassPermissions" },
+      { onPermission: async () => ({ behavior: "allow" }) },
+      ledger,
+    );
+    expect(options.permissionMode).toBe("bypassPermissions");
+    expect(options.allowDangerouslySkipPermissions).toBe(true);
+    const pre = options.hooks?.PreToolUse?.[0]?.hooks[0];
+    if (pre === undefined) throw new Error("PreToolUse hook is required");
+    const call = (tool: string, toolUseId: string) =>
+      pre(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: tool,
+          tool_input: {},
+          tool_use_id: toolUseId,
+        } as never,
+        toolUseId,
+        { signal: new AbortController().signal },
+      );
+
+    expect(await call("Bash", "toolu_1")).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: "Tool is outside the server allowlist",
+      },
+    });
+    // Refused before the ledger admitted it, so nothing is left in flight.
+    expect(ledger.prepareCheckpoint().status).toBe("ready");
+    expect(await call("Read", "toolu_2")).toEqual({});
+  });
+
+  test("auto keeps the allowlist in the hook without the SDK's skip", async () => {
+    const options = buildSdkOptions(
+      { ...config, permissionMode: "auto" },
+      { onPermission: async () => ({ behavior: "allow" }) },
+    );
+    expect(options.permissionMode).toBe("auto");
+    expect(options).not.toHaveProperty("allowDangerouslySkipPermissions");
+    const pre = options.hooks?.PreToolUse?.[0]?.hooks[0];
+    if (pre === undefined) throw new Error("PreToolUse hook is required");
+    expect(
+      await pre(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: {},
+          tool_use_id: "toolu_1",
+        } as never,
+        "toolu_1",
+        { signal: new AbortController().signal },
+      ),
+    ).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+  });
+
+  test("other modes leave the skip off", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    for (const permissionMode of [
+      "default",
+      "acceptEdits",
+      "dontAsk",
+      "plan",
+    ] as const) {
+      expect(
+        buildSdkOptions({ ...config, permissionMode }, allow),
+      ).not.toHaveProperty("allowDangerouslySkipPermissions");
+    }
+  });
+
+  test("rejects an unknown permission mode before starting a query", () => {
     const runtime = new ClaudeSdkRuntime({
       endpoints: ["https://api.anthropic.com"],
       models: ["primary"],
     });
     expect(() =>
       runtime.start(
-        { ...config, permissionMode: "bypassPermissions" as never },
+        { ...config, permissionMode: "yolo" as never },
         { onPermission: async () => ({ behavior: "allow" }) },
       ),
     ).toThrow("Unsupported permission mode");

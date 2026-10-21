@@ -5,6 +5,8 @@ export * from "./health.ts";
 export * from "./pending.ts";
 export * from "./present-turn-event.ts";
 export * from "./profiles.ts";
+export * from "./pull-request.ts";
+export * from "./push-request.ts";
 export * from "./receipt.ts";
 export * from "./session.ts";
 export * from "./turn.ts";
