@@ -171,7 +171,7 @@ function AuditRetention({
         </Field>
         <ReasonButton
           type="submit"
-          className={buttonVariants()}
+          className={buttonVariants({ className: "self-start" })}
           reason={reason}
           disabled={save.isPending || days.trim() === ""}
         >
