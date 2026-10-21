@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { sessionsEn, sessionsKo } from "@agent-platform/react";
+import { flowEn, flowKo, sessionsEn, sessionsKo } from "@agent-platform/react";
 import { agentsEn, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysKo } from "./api-keys.ts";
 import { authEn, authKo } from "./auth.ts";
@@ -17,6 +17,7 @@ import { ko } from "./ko.ts";
 import { linkedEn, linkedKo } from "./linked.ts";
 import { membersEn, membersKo } from "./members.ts";
 import { modelsEn, modelsKo } from "./models.ts";
+import { shellEn, shellKo } from "./shell.ts";
 import { teamsEn, teamsKo } from "./teams.ts";
 import { workspaceEn, workspaceKo } from "./workspace.ts";
 
@@ -32,6 +33,7 @@ describe("i18n", () => {
     expect(
       count([
         commonKo,
+        shellKo,
         authKo,
         homeKo,
         membersKo,
@@ -39,6 +41,7 @@ describe("i18n", () => {
         agentsKo,
         modelsKo,
         sessionsKo,
+        flowKo,
         linkedKo,
         apiKeysKo,
         workspaceKo,
@@ -48,6 +51,7 @@ describe("i18n", () => {
     expect(
       count([
         commonEn,
+        shellEn,
         authEn,
         homeEn,
         membersEn,
@@ -55,6 +59,7 @@ describe("i18n", () => {
         agentsEn,
         modelsEn,
         sessionsEn,
+        flowEn,
         linkedEn,
         apiKeysEn,
         workspaceEn,

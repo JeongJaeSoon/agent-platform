@@ -11,6 +11,7 @@ import {
 
 const meta = {
   title: "Patterns/Session/Timeline",
+  globals: { locale: "en" },
   component: Timeline,
   args: {
     entries: timelineEntries(TURN_EVENTS),

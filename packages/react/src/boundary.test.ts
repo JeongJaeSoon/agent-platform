@@ -37,6 +37,18 @@ test("the package imports no router, not even as types", async () => {
   expect(found).toEqual([]);
 });
 
+test("the 0.x funnel library is pinned to one exact version", async () => {
+  // A caret on a 0.x version still takes minor releases, which may break.
+  const versions = await Promise.all(
+    ["../package.json", "../../../apps/web/package.json"].map(
+      async (path) =>
+        JSON.parse(await read(path)).devDependencies["@use-funnel/core"],
+    ),
+  );
+  for (const version of versions) expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+  expect(new Set(versions).size).toBe(1);
+});
+
 test("query keys come from the core's factories, never written here", async () => {
   const found: string[] = [];
   for (const name of await sourceFiles()) {
