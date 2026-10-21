@@ -99,7 +99,10 @@ function eventStream() {
   return { response, push };
 }
 
-function harness(answer: (sent: Sent) => Response) {
+function harness(
+  answer: (sent: Sent) => Response,
+  queryClient = new QueryClient(),
+) {
   const sent: Sent[] = [];
   const stream = eventStream();
   const fakeFetch = async (request: Request) => {
@@ -119,7 +122,6 @@ function harness(answer: (sent: Sent) => Response) {
     baseUrl: "https://console.test",
     fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
   });
-  const queryClient = new QueryClient();
   const seeded = { id: SESSION_ID, status: "running" };
   queryClient.setQueryData(
     sessionQuery(client, SESSION_ID).queryKey,
@@ -246,6 +248,31 @@ describe("useSessionControl", () => {
       [h.keys.detail, true],
       [h.keys.pending, false],
     ]);
+  });
+});
+
+describe("a retried command", () => {
+  test("keeps its idempotency key, so the server answers the retry from its receipt", async () => {
+    let calls = 0;
+    const h = harness(
+      () => (++calls === 1 ? serverError() : receipt()),
+      new QueryClient({
+        defaultOptions: { mutations: { retry: 1, retryDelay: 0 } },
+      }),
+    );
+    const { result } = renderHook(() => useSessionControl(SESSION_ID), {
+      wrapper: h.wrapper,
+    });
+    const interrupt = {
+      action: "interrupt",
+      body: { target_turn_id: "1" },
+    } as const;
+    await act(() => result.current.mutateAsync(interrupt));
+    await act(() => result.current.mutateAsync(interrupt));
+    const [first, retry, next] = h.sent.map((s) => s.idempotencyKey);
+    expect(h.sent).toHaveLength(3);
+    expect(retry).toBe(first as string);
+    expect(next).not.toBe(first as string);
   });
 });
 

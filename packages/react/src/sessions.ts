@@ -61,18 +61,32 @@ export function usePendingRequests(id: string, enabled: boolean) {
   return useQuery({ ...pendingRequestsQuery(client, id), enabled });
 }
 
+// One key per mutate call, set before its first attempt. A retry runs
+// mutationFn again with the same variables; under a new key the server would
+// run a command it already took a second time.
+const idempotencyKeys = new WeakMap<object, string>();
+
+const newCommand = (variables: object) => {
+  idempotencyKeys.set(variables, crypto.randomUUID());
+};
+
+const commandParams = (id: string, variables: object) => ({
+  path: { id },
+  header: {
+    "Idempotency-Key": idempotencyKeys.get(variables) ?? crypto.randomUUID(),
+  },
+});
+
 /** Moves the session onto another profile from its next turn on. */
 export function useChangeSessionProfile(id: string) {
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   return useMutation<unknown, ApiError, ChangeSessionProfileRequest>({
+    onMutate: newCommand,
     mutationFn: (body) =>
       unwrap(
         client.POST("/v1/sessions/{id}/profile", {
-          params: {
-            path: { id },
-            header: { "Idempotency-Key": crypto.randomUUID() },
-          },
+          params: commandParams(id, body),
           body,
         }),
       ),
@@ -120,11 +134,6 @@ function refreshSession(
 // an explicit undefined the client's types refuse.
 type Body = components["schemas"];
 
-const commandParams = (id: string) => ({
-  path: { id },
-  header: { "Idempotency-Key": crypto.randomUUID() },
-});
-
 // Each mutation refreshes the cache only once the server took the command; a
 // refused one leaves every query as it was and hands the caller the error.
 
@@ -137,10 +146,11 @@ export function useAnswer(id: string) {
     ApiError,
     Body["PostSessionAnswerRequest"]
   >({
+    onMutate: newCommand,
     mutationFn: (body) =>
       unwrap(
         client.POST("/v1/sessions/{id}/answers", {
-          params: commandParams(id),
+          params: commandParams(id, body),
           body,
         }),
       ) as Promise<PostSessionAnswerResponse>,
@@ -158,10 +168,11 @@ export function useSendMessage(id: string) {
     ApiError,
     Omit<Body["PostSessionMessageRequest"], "mode">
   >({
+    onMutate: newCommand,
     mutationFn: (body) =>
       unwrap(
         client.POST("/v1/sessions/{id}/messages", {
-          params: commandParams(id),
+          params: commandParams(id, body),
           body: { ...body, mode: "enqueue" },
         }),
       ) as Promise<PostSessionMessageResponse>,
@@ -191,8 +202,9 @@ export function useSessionControl(id: string) {
     ApiError,
     SessionControl
   >({
+    onMutate: newCommand,
     mutationFn: (command) => {
-      const params = commandParams(id);
+      const params = commandParams(id, command);
       switch (command.action) {
         case "interrupt":
           return unwrap(
