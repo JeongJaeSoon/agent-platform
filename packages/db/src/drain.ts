@@ -2,7 +2,7 @@ import type {
   AdmissionState,
   CloseBlockedReason,
   SessionAttention,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { fromDbNow } from "./db-clock.ts";
 import {

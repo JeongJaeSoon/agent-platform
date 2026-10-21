@@ -1,14 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type ApiErrorCode,
-  apiErrorResponseSchema,
-} from "@agent-platform/contracts";
+import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
 import {
   type CloseSessionResult,
   createAuthorizationPolicy,
   createSessionService,
   type SessionControl,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerCloseRoutes } from "./close.ts";
 

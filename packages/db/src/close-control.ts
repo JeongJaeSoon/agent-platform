@@ -2,11 +2,8 @@ import { randomUUID } from "node:crypto";
 import type {
   CloseReceiptResult,
   ControlAcceptedResponse,
-} from "@agent-platform/contracts";
-import type {
-  CloseSessionInput,
-  CloseSessionResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { CloseSessionInput, CloseSessionResult } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
