@@ -102,6 +102,20 @@ describe("events.stream", () => {
     expect(stream.lastEventId).toBe(ids.at(-1) ?? "");
   });
 
+  test("close() stops delivery at once, buffered events included", async () => {
+    let text = "";
+    for (let i = 1; i <= 5; i++) text += frame(`e${i}`, "status", {});
+    const api = fakeApi(({ signal }) => sse(text, signal));
+    const stream = werft(api.fetch).sessions.events.stream("s1");
+    const seen: string[] = [];
+    for await (const event of stream) {
+      seen.push(event.id);
+      stream.close();
+    }
+    expect(seen).toEqual(["e1"]);
+    expect(stream.lastEventId).toBe("e1");
+  });
+
   test("ends quietly on the caller's signal", async () => {
     const controller = new AbortController();
     const api = fakeApi(({ signal }) => sse(frame("e1", "status", {}), signal));

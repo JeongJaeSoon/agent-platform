@@ -63,6 +63,7 @@ export function openEventStream(
   const queue: SessionEvent[] = [];
   let failure: unknown;
   let ended = false;
+  let closed = false;
   let wake: (() => void) | undefined;
   const notify = () => {
     wake?.();
@@ -116,6 +117,7 @@ export function openEventStream(
       return lastEventId;
     },
     close() {
+      closed = true;
       stop.abort();
     },
     async *[Symbol.asyncIterator]() {
@@ -123,6 +125,9 @@ export function openEventStream(
       start();
       try {
         for (;;) {
+          // The caller's stop wins over buffered events; an overflow
+          // delivers them first, so lastEventId resumes without a gap.
+          if (closed || options.signal?.aborted) return;
           const event = queue.shift();
           if (event) {
             lastEventId = event.id;
