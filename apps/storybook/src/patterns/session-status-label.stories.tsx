@@ -15,7 +15,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Every session status, so the turn axis's tones are seen side by side. */
 export const AllStatuses: Story = {
   render: () => (
     <div className="story-row">

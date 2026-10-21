@@ -3,11 +3,8 @@ import type { JSX } from "react";
 
 import { StatusLabel } from "../status/status-label.tsx";
 
-/*
- * A session's status is the state of its work, so it takes the turn axis's
- * tone and icon; the two states a turn does not have read as the turn that
- * left the session there.
- */
+// idle and stopped have no turn state: they read as the turn that left the
+// session there.
 const TURN_OF_SESSION: Record<SessionStatus, TurnStatus> = {
   queued: "queued",
   running: "running",

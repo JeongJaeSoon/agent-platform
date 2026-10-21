@@ -7,7 +7,6 @@ export type BlockText = (
   vars?: Readonly<Record<string, string | number>>,
 ) => string;
 
-/** The provider's messages as a translate function, `{name}` filled in. */
 export function useBlockText() {
   const { messages, locale } = useAgentPlatform();
   const t: BlockText = (key, vars = {}) =>

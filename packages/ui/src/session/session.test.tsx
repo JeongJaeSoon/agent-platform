@@ -273,7 +273,6 @@ describe("SessionRow", () => {
         label.getAttribute("data-tone"),
       ],
     );
-    // An idle session's last turn finished; it is not an unknown state.
     expect(labels).toEqual([
       ["turn", "positive"],
       ["admission", "caution"],

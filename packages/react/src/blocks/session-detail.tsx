@@ -45,10 +45,6 @@ export function SessionDetail({
 }: SessionDetailProps) {
   const { t } = useBlockText();
   const session = useSession(id);
-  // The rest waits for the detail, so a session the caller may not read is
-  // not asked about four times over. A refetch that failed on the network
-  // keeps the last detail and the stream; one that says the caller may no
-  // longer see the session (a share taken back) drops both.
   const lostAccess =
     isApiError(session.error, "NOT_FOUND") ||
     isApiError(session.error, "FORBIDDEN");
@@ -290,8 +286,6 @@ function Events({
     .at(-1);
   return (
     <Section title={t("session.events")}>
-      {/* Only status changes are announced; each event read aloud as it
-          arrives would drown them. */}
       <output className="sr-only">
         {latestStatus
           ? turnSummaryText(latestStatus.presentation.summary, formatMessage)

@@ -13,11 +13,6 @@ import {
 } from "../../.storybook/fake-client.ts";
 import { SESSION, TURN_EVENTS } from "../patterns/session-fixtures.ts";
 
-/*
- * The session blocks against the fake client: every request a block makes is
- * answered by the story's `parameters.api`, the event stream included.
- */
-
 const loading = <Skeleton lines={3} label="Loading" />;
 const renderError = (_error: unknown, retry: () => void) => (
   <ErrorState message="The read failed." retry={retry} retryLabel="Retry" />
@@ -123,7 +118,6 @@ const USAGE: SessionUsageResponse = {
   queued_input_limit: 10,
 };
 
-/** The stream sends the fixture turn and stays open, as a live one does. */
 function eventStream(): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
