@@ -1,8 +1,8 @@
+import { isApiError } from "@agent-platform/client";
 import { useAgentPlatform } from "@agent-platform/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
-import { isApiError } from "../api/client.ts";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { useI18n } from "../i18n/i18n.tsx";

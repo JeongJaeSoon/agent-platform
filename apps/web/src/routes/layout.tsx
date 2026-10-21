@@ -1,3 +1,4 @@
+import { ApiError, isApiError, unwrap } from "@agent-platform/client";
 import { useAgentPlatform } from "@agent-platform/react";
 import {
   Button,
@@ -15,7 +16,6 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { type ReactNode, useId, useLayoutEffect, useState } from "react";
-import { ApiError, isApiError, unwrap } from "../api/client.ts";
 import { useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,

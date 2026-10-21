@@ -1,3 +1,4 @@
+import { unwrap } from "@agent-platform/client";
 import type { ListSessionsResponse } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
 import {
@@ -12,7 +13,6 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
-import { unwrap } from "../api/client.ts";
 import { useCan, useHasPermission, useMe } from "../auth/guard.tsx";
 import {
   LOCALES,

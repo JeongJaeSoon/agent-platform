@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEventPayload } from "@agent-platform/contracts";
+import type { SessionEventFrame } from "@agent-platform/react";
 import { type Translate, translate } from "../i18n/i18n.tsx";
-import type { SessionEventFrame } from "./hooks.ts";
 import { type TimelineItem, timelineItems } from "./timeline.ts";
 
 const t: Translate = (key, vars) => translate("ko", key, vars);

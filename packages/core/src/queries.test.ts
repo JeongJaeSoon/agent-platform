@@ -22,6 +22,9 @@ test("query keys", () => {
     agent: queries.queryKeys.agent("id-1"),
     agentAdmins: queries.queryKeys.agentAdmins("id-1"),
     team: queries.queryKeys.team("id-1"),
+    session: queries.queryKeys.session("id-1"),
+    sessionUsage: queries.queryKeys.sessionUsage("id-1"),
+    pendingRequests: queries.queryKeys.pendingRequests("id-1"),
   }).toMatchSnapshot();
 });
 
@@ -30,17 +33,29 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(15);
+  expect(factories.length).toBe(19);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
     const { client, calls } = recordingClient();
     const { queryFn, ...options } = factory(client, "id-1") as {
-      queryFn: () => Promise<unknown>;
+      queryFn: (context: { pageParam: null }) => Promise<unknown>;
     };
-    await queryFn();
+    // The first page of a paged list; other queries take no page.
+    await queryFn({ pageParam: null });
     out[name] = { options, calls };
   }
   expect(out).toMatchSnapshot();
+});
+
+test("the session list asks for the next page by the last page's cursor", async () => {
+  const { client, calls } = recordingClient();
+  const { queryFn, getNextPageParam } = queries.sessionsQuery(client);
+  await queryFn({ pageParam: "cursor-2" } as Parameters<typeof queryFn>[0]);
+  expect(calls).toEqual([
+    ["/v1/sessions", { params: { query: { cursor: "cursor-2" } } }],
+  ]);
+  const page = { items: [], next_cursor: "cursor-3" };
+  expect(getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
 });

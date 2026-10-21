@@ -6,12 +6,15 @@ import type {
   SessionSummary,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
+import type {
+  EventStreamState,
+  SessionEventFrame,
+} from "@agent-platform/react";
 import { formatTimestamp } from "@agent-platform/ui";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { TableScroll } from "../components/table-scroll.tsx";
 import { type Locale, type Translate, useI18n } from "../i18n/i18n.tsx";
-import type { EventStreamState, SessionEventFrame } from "./hooks.ts";
 import { phaseText, type TimelineItem, timelineItems } from "./timeline.ts";
 
 /*

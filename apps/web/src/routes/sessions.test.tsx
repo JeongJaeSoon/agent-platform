@@ -554,6 +554,15 @@ describe("session detail", () => {
     expect(stream.closed).toBe(true);
   });
 
+  test("a stream refused for a lost login sends the reader to log in", async () => {
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [EVENTS_ROUTE]: () =>
+        apiError(401, "UNAUTHORIZED", "Authentication required"),
+    });
+    await waitFor(() => expect(history.location.pathname).toBe("/login"));
+  });
+
   test("a turn that ended without a cost report is not called running", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
