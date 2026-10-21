@@ -377,6 +377,45 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     }
   });
 
+  test("새 링크의 복사가 먼저 끝나고 앞 링크의 복사가 늦게 끝나도 새 링크는 복사한 것이다", async () => {
+    const pending: (() => void)[] = [];
+    const { history } = renderMembers(createdEach());
+    const { user, dialog } = await toLink();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () =>
+          new Promise<void>((resolve) => {
+            pending.push(resolve);
+          }),
+      },
+    });
+    try {
+      const copyButton = () =>
+        within(dialog).getByRole("button", { name: "링크 복사" });
+      await user.click(copyButton());
+      history.back();
+      const email = await within(dialog).findByLabelText("이메일");
+      await user.type(email, "other@example.com");
+      await user.click(
+        within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+      );
+      await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+      await user.click(copyButton());
+      const [first, second] = pending;
+      second?.();
+      await within(dialog).findByText("초대 링크를 복사했습니다.");
+      first?.();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   test("복사한 뒤에는 묻지 않고 닫힌다", async () => {
     renderMembers();
     const { user, dialog } = await toLink();

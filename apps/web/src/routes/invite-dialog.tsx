@@ -150,8 +150,9 @@ function InviteFlow({
   const role = useRole();
   const [url, setUrl] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  // Which link the clipboard took: a late copy of an earlier one is not this one.
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  // Every link the clipboard took, so copies that finish out of order after
+  // browser Back still count for their own link only.
+  const [copiedUrls, setCopiedUrls] = useState<ReadonlySet<string>>(new Set());
   const linkRef = useRef<HTMLInputElement>(null);
   // A request still out when the dialog closes must not move the next opening.
   const mounted = useRef(false);
@@ -177,7 +178,8 @@ function InviteFlow({
     currentStepId: funnel.step,
   });
   // Only the link step asks: after browser Back the link is already off screen.
-  const uncopied = funnel.step === "link" && url !== null && copiedUrl !== url;
+  const uncopied =
+    funnel.step === "link" && url !== null && !copiedUrls.has(url);
   useEffect(() => {
     onUncopied(uncopied);
     return () => onUncopied(false);
@@ -270,7 +272,8 @@ function InviteFlow({
                   variant="outline"
                   onClick={() => {
                     void copyText(url, linkRef).then((worked) => {
-                      if (worked) setCopiedUrl(url);
+                      if (worked)
+                        setCopiedUrls((copied) => new Set(copied).add(url));
                       setOutcome(
                         worked
                           ? { kind: "notice", text: t("members.invite.copied") }
