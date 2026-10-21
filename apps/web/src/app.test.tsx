@@ -14,7 +14,8 @@ const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
 const { GuardedButton } = await import("./auth/guard.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
-const { createServices, ServicesProvider } = await import("./services.tsx");
+const { createServices } = await import("./services.tsx");
+const { AgentPlatformProvider } = await import("@agent-platform/react");
 
 type Routes = Parameters<typeof fakeApi>[0];
 
@@ -315,9 +316,13 @@ describe("권한 없는 버튼", () => {
     render(
       <I18nProvider locale="ko">
         <QueryClientProvider client={queryClient}>
-          <ServicesProvider services={services}>
+          <AgentPlatformProvider
+            client={services.client}
+            locale="ko"
+            renderLink={({ children }) => children}
+          >
             <GuardedButton scope="sessions:recover">복구</GuardedButton>
-          </ServicesProvider>
+          </AgentPlatformProvider>
         </QueryClientProvider>
       </I18nProvider>,
     );

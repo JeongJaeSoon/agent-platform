@@ -1,12 +1,13 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { type FormEvent, type ReactNode, useState } from "react";
 import {
   type ApiError,
   CSRF_HEADER_VALUE,
   isApiError,
   unwrap,
-} from "../api/client.ts";
+} from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { viewerQuery } from "../api/queries.ts";
 import {
   DISPLAY_NAME_MAX,
@@ -18,7 +19,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 /**
  * Redeeming an invite link. Whoever opens it may or may not be signed in,
@@ -30,7 +30,8 @@ import { useServices } from "../services.tsx";
 export function InviteScreen() {
   const { t } = useI18n();
   const { token } = useParams({ from: "/invite/$token" });
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const viewer = useQuery(viewerQuery(client));
 
   const logout = useMutation<unknown, ApiError>({
@@ -91,7 +92,8 @@ export function InviteScreen() {
 
 function AcceptForm({ token }: { readonly token: string }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");

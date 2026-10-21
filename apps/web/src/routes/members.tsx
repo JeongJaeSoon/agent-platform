@@ -1,12 +1,13 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   Invite,
   MemberView,
   WorkspaceRole,
 } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useRef, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -24,7 +25,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { TableScroll } from "../components/table-scroll.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 // The least authority; anything more is a choice the inviter makes.
 const DEFAULT_INVITE_ROLE: WorkspaceRole = "member";
@@ -46,7 +46,7 @@ function refusal(t: Translate, error: ApiError, role: string | undefined) {
 
 export function MembersScreen() {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...membersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
@@ -115,7 +115,8 @@ function InviteForm({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] =
@@ -259,7 +260,8 @@ function MemberTable({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const [confirming, setConfirming] = useState<MemberView | null>(null);
   // A picked role waits here for the confirmation; arrowing through the
@@ -489,7 +491,8 @@ function InviteList({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const invites = useQuery(invitesQuery(client));
   const [revoking, setRevoking] = useState<Invite | null>(null);

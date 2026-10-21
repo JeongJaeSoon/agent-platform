@@ -1,12 +1,17 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import {
+  type ApiError,
+  CSRF_HEADER_VALUE,
+  unwrap,
+} from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "../api/client.ts";
 import { loginMethodsQuery } from "../api/queries.ts";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
+import { useAppServices } from "../services.tsx";
 
 const NOTICES = ["bootstrap_done", "logged_out", "created"] as const;
 type Notice = (typeof NOTICES)[number];
@@ -48,7 +53,8 @@ const NOTICE_KEY = {
 
 export function LoginScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
   const [email, setEmail] = useState("");
@@ -138,7 +144,8 @@ export function LoginScreen() {
  */
 function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
   const { t } = useI18n();
-  const { client, leave } = useServices();
+  const { client } = useAgentPlatform();
+  const { leave } = useAppServices();
   const methods = useQuery(loginMethodsQuery(client));
 
   const start = useMutation<{ authorization_url: string }, ApiError>({

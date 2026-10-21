@@ -120,6 +120,37 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/react/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "window": "The modules leave the page to the host app.",
+                  "document": "The modules leave the page to the host app.",
+                  "location": "Links go through the renderLink the host passes in.",
+                  "history": "Links go through the renderLink the host passes in.",
+                  "fetch": "Requests go through the ApiClient the host passes in."
+                }
+              }
+            },
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@tanstack/react-router": "The modules know no router; links go through renderLink.",
+                  "react-router": "The modules know no router; links go through renderLink.",
+                  "next": "The modules know no router; links go through renderLink."
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }

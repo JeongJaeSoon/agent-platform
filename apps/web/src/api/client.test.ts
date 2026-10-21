@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ApiError,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+  unwrap,
+} from "@agent-platform/client";
+import {
   authMeResponseSchema,
   DISPLAY_NAME_MAX as CONTRACT_DISPLAY_NAME_MAX,
   CSRF_HEADER_NAME as CONTRACT_HEADER_NAME,
@@ -15,13 +21,7 @@ import {
   PASSWORD_MIN_LENGTH,
 } from "../auth/limits.ts";
 import { apiError, fakeApi, json, me } from "../test-support/fake-api.ts";
-import {
-  ApiError,
-  CSRF_HEADER_NAME,
-  CSRF_HEADER_VALUE,
-  createApiClient,
-  unwrap,
-} from "./client.ts";
+import { createApiClient } from "./client.ts";
 
 describe("API client", () => {
   test("the copied constants are the contract's", () => {
@@ -95,5 +95,46 @@ describe("API client", () => {
     });
     const error = await unwrap(client.GET("/v1/auth/me")).catch((e) => e);
     expect(error).toMatchObject({ status: 0, code: "NETWORK_ERROR" });
+  });
+
+  test("in warn mode an answer with a field the contract lacks comes through as sent and warns once", async () => {
+    const body = { ...me(), added_later: true };
+    const api = fakeApi({ "GET /v1/auth/me": () => json(200, body) });
+    const client = createApiClient({
+      baseUrl: "https://console.test",
+      fetch: api.fetch,
+      validate: "warn",
+    });
+    const warnings: unknown[][] = [];
+    const original = console.warn;
+    console.warn = (...line: unknown[]) => warnings.push(line);
+    try {
+      expect(await unwrap(client.GET("/v1/auth/me"))).toEqual(body);
+      await unwrap(client.GET("/v1/auth/me"));
+    } finally {
+      console.warn = original;
+    }
+    expect(warnings).toEqual([
+      [
+        "API contract mismatch",
+        {
+          operation: "GET /v1/auth/me",
+          issues: [{ path: "*", message: "unrecognized_keys" }],
+        },
+      ],
+    ]);
+  });
+
+  test("in strict mode the same answer fails the call", async () => {
+    const api = fakeApi({
+      "GET /v1/auth/me": () => json(200, { ...me(), added_later: true }),
+    });
+    const client = createApiClient({
+      baseUrl: "https://console.test",
+      fetch: api.fetch,
+      validate: "strict",
+    });
+    const error = await unwrap(client.GET("/v1/auth/me")).catch((e) => e);
+    expect(error).toMatchObject({ code: "CLIENT_CONTRACT_MISMATCH" });
   });
 });

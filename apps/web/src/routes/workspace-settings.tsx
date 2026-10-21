@@ -1,10 +1,11 @@
+import { type ApiError, unwrap } from "@agent-platform/client";
 import type {
   AuditRetentionRequest,
   SlackGuestRequest,
 } from "@agent-platform/contracts";
-import { useMutation } from "@tanstack/react-query";
+import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
-import { type ApiError, unwrap } from "../api/client.ts";
 import { queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -16,7 +17,6 @@ import {
 } from "../auth/guard.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 /** Workspace-wide settings an owner or admin opens from the menu. */
 export function WorkspaceSettingsScreen() {
@@ -78,7 +78,8 @@ function AuditRetention({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const me = useMe();
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
@@ -172,7 +173,8 @@ function SlackGuest({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const me = useMe();
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";

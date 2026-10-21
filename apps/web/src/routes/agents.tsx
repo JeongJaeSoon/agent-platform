@@ -1,9 +1,10 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type { AgentDetail } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
 import { formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { agentsQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -22,7 +23,6 @@ import { slugInput, TextField } from "../components/field.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
 const MODEL_REFUSAL =
@@ -56,7 +56,7 @@ export function agentRefusal(
 
 export function AgentsScreen() {
   const { t, locale } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const navigate = useNavigate();
   const role = useRole();
   const agents = useQuery(agentsQuery(client));
@@ -143,7 +143,8 @@ function agentTone(agent: {
  */
 export function NewAgentScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const role = useRole();
   const [slug, setSlug] = useState("");

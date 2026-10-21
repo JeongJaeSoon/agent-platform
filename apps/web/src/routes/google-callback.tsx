@@ -1,11 +1,15 @@
-import { useMutation } from "@tanstack/react-query";
+import {
+  type ApiError,
+  CSRF_HEADER_VALUE,
+  unwrap,
+} from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "../api/client.ts";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 import { POST_LOGIN_PATH_KEY, safeRedirect } from "./login.tsx";
 
 export interface GoogleCallbackSearch {
@@ -48,7 +52,8 @@ function takePostLoginPath(): string {
  */
 export function GoogleCallbackScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { code, state } = useSearch({ from: "/auth/google/callback" });
   const sent = useRef(false);

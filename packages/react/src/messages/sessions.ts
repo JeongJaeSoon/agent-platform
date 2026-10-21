@@ -1,6 +1,6 @@
 /**
- * The session screens' messages, kept apart from ko.ts and en.ts so the
- * session views can move out as one module; both catalogs spread these in.
+ * The session module's default messages. The web console spreads them into
+ * its own catalogs until its session screens move into this package.
  */
 export const sessionsKo = {
   "nav.sessions": "세션",
