@@ -124,33 +124,35 @@ export function Releases({
         {t("agent.releases.title")}
       </h2>
       <p className={MUTED}>{t("agent.releases.intro")}</p>
-      <form className={FORM_INLINE} onSubmit={submit}>
-        <VersionSelect
-          label={t("agent.releases.version")}
-          versions={[...detail.versions].sort(
-            (a, b) => b.version_no - a.version_no,
-          )}
-          value={versionId}
-          onChange={onPick}
-        />
-        {profiles.isPending ? (
-          <p className={MUTED}>{t("agent.releases.profilesLoading")}</p>
-        ) : profiles.error ? (
-          <p className="m-0 text-destructive text-sm" role="alert">
-            {t("agent.releases.profilesFailed", {
-              reason: t(errorKey((profiles.error as ApiError).code)),
-            })}
-          </p>
-        ) : (
-          <ProfileSelect
-            label={t("agent.releases.profile")}
-            hint={t("agent.releases.profileHint")}
-            profiles={items}
-            cardModel={cardModel}
-            value={profile}
-            onChange={setProfile}
+      <form className="flex flex-col items-start gap-3" onSubmit={submit}>
+        <div className={FORM_INLINE}>
+          <VersionSelect
+            label={t("agent.releases.version")}
+            versions={[...detail.versions].sort(
+              (a, b) => b.version_no - a.version_no,
+            )}
+            value={versionId}
+            onChange={onPick}
           />
-        )}
+          {profiles.isPending ? (
+            <p className={MUTED}>{t("agent.releases.profilesLoading")}</p>
+          ) : profiles.error ? (
+            <p className="m-0 text-destructive text-sm" role="alert">
+              {t("agent.releases.profilesFailed", {
+                reason: t(errorKey((profiles.error as ApiError).code)),
+              })}
+            </p>
+          ) : (
+            <ProfileSelect
+              label={t("agent.releases.profile")}
+              hint={t("agent.releases.profileHint")}
+              profiles={items}
+              cardModel={cardModel}
+              value={profile}
+              onChange={setProfile}
+            />
+          )}
+        </div>
         {mismatch ? (
           <output className={NOTICE}>
             {t("agent.releases.modelMismatch", {

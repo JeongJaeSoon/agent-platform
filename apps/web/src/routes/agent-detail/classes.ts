@@ -14,4 +14,4 @@ export const SECONDARY =
 export const ALERT =
   "flex flex-col items-start gap-2 rounded-md border border-[var(--ap-tone-attention-border)] bg-card p-4 text-card-foreground";
 export const ALERT_TITLE = "m-0 font-semibold text-base";
-export const FORM_INLINE = "flex flex-wrap items-end gap-3";
+export const FORM_INLINE = "flex flex-wrap items-start gap-3";

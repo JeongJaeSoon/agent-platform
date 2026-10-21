@@ -308,15 +308,13 @@ function AgentView({
       </p>
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <Tabs value={tab} onValueChange={(next) => openTab(next as AgentTab)}>
-        <div className="max-w-full overflow-x-auto">
-          <TabsList variant="line" aria-label={t("agent.tabs.label")}>
-            {AGENT_TABS.map((name) => (
-              <TabsTrigger key={name} value={name}>
-                {tabLabel(name)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
+        <TabsList variant="line" aria-label={t("agent.tabs.label")}>
+          {AGENT_TABS.map((name) => (
+            <TabsTrigger key={name} value={name}>
+              {tabLabel(name)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
         <TabsContent {...panel("overview")}>
           <Overview detail={detail} releaseLabel={releaseLabel}>
             {toRelease}
