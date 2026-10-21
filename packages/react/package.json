@@ -5,15 +5,17 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./blocks": "./src/blocks/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.blocks.json"
   },
   "devDependencies": {
     "@agent-platform/client": "workspace:*",
     "@agent-platform/contracts": "workspace:*",
     "@agent-platform/core": "workspace:*",
+    "@agent-platform/ui": "workspace:*",
     "@tanstack/react-query": "5.103.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
