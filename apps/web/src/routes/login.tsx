@@ -4,11 +4,18 @@ import {
   unwrap,
 } from "@agent-platform/client";
 import { useAgentPlatform } from "@agent-platform/react";
+import { Button, Field, FieldLabel, Input } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { loginMethodsQuery } from "../api/queries.ts";
-import { Main } from "../components/main.tsx";
+import {
+  ASIDE,
+  AuthPage,
+  FormError,
+  LINK,
+  NOTICE,
+} from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
@@ -83,19 +90,17 @@ export function LoginScreen() {
   };
 
   return (
-    <Main className="web-auth">
-      <h1 className="web-auth__title">{t("login.title")}</h1>
+    <AuthPage title={t("login.title")}>
       {search.redirect ? (
         <StatusScreen kind="login-required" action={false} />
       ) : null}
       {search.notice ? (
-        <output className="web-notice">{t(NOTICE_KEY[search.notice])}</output>
+        <output className={NOTICE}>{t(NOTICE_KEY[search.notice])}</output>
       ) : null}
-      <form className="web-form" onSubmit={submit}>
-        <label className="web-field">
-          <span>{t("login.email")}</span>
-          <input
-            className="ap-input"
+      <form className="flex flex-col gap-4" onSubmit={submit}>
+        <Field>
+          <FieldLabel>{t("login.email")}</FieldLabel>
+          <Input
             type="email"
             name="email"
             autoComplete="username"
@@ -103,11 +108,10 @@ export function LoginScreen() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
-        </label>
-        <label className="web-field">
-          <span>{t("login.password")}</span>
-          <input
-            className="ap-input"
+        </Field>
+        <Field>
+          <FieldLabel>{t("login.password")}</FieldLabel>
+          <Input
             type="password"
             name="password"
             autoComplete="current-password"
@@ -115,26 +119,22 @@ export function LoginScreen() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
-        </label>
+        </Field>
         {login.error ? (
-          <p className="web-form__error" role="alert">
-            {t(errorKey(login.error.code))}
-          </p>
+          <FormError>{t(errorKey(login.error.code))}</FormError>
         ) : null}
-        <button
-          type="submit"
-          className="ap-button ap-button--primary"
-          disabled={login.isPending}
-        >
+        <Button type="submit" disabled={login.isPending}>
           {login.isPending ? t("login.submitting") : t("login.submit")}
-        </button>
+        </Button>
       </form>
       <GoogleChoice redirect={search.redirect} />
-      <p className="web-auth__aside">
+      <p className={ASIDE}>
         {t("login.bootstrapPrompt")}{" "}
-        <Link to="/bootstrap">{t("login.bootstrapLink")}</Link>
+        <Link className={LINK} to="/bootstrap">
+          {t("login.bootstrapLink")}
+        </Link>
       </p>
-    </Main>
+    </AuthPage>
   );
 }
 
@@ -169,16 +169,17 @@ function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
 
   if (!methods.data?.methods.includes("google")) return null;
   return (
-    <section className="web-auth__alt" aria-label={t("login.alternatives")}>
-      <p className="web-auth__divider">{t("login.or")}</p>
+    <section
+      className="flex flex-col gap-3"
+      aria-label={t("login.alternatives")}
+    >
+      <p className={`${ASIDE} text-center`}>{t("login.or")}</p>
       {start.error ? (
-        <p className="web-form__error" role="alert">
-          {t(errorKey(start.error.code))}
-        </p>
+        <FormError>{t(errorKey(start.error.code))}</FormError>
       ) : null}
-      <button
+      <Button
         type="button"
-        className="ap-button"
+        variant="outline"
         // Not held after success: back from Google (bfcache) must be able
         // to start again.
         disabled={start.isPending}
@@ -187,7 +188,7 @@ function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
         {start.isPending
           ? t("login.google.starting")
           : t("login.google.submit")}
-      </button>
+      </Button>
     </section>
   );
 }

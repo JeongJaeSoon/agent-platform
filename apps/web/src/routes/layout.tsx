@@ -191,27 +191,22 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
 }
 
 export function AuthedError({ error, reset }: ErrorComponentProps) {
-  const { t } = useI18n();
   if (isApiError(error, "FORBIDDEN")) {
     return (
-      <Main className="web-auth">
+      <Main className="mx-auto w-full max-w-md px-4 py-10">
         <StatusScreen kind="forbidden" />
       </Main>
     );
   }
   return (
-    <Main className="web-auth">
-      <section className="web-status" data-status="error" role="alert">
-        <h2 className="web-status__title">{t("status.error.title")}</h2>
-        <p className="web-status__body">
-          {t(
-            error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN",
-          )}
-        </p>
-        <button type="button" className="ap-button" onClick={reset}>
-          {t("common.retry")}
-        </button>
-      </section>
+    <Main className="mx-auto w-full max-w-md px-4 py-10">
+      <StatusScreen
+        kind="error"
+        detail={
+          error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN"
+        }
+        onRetry={reset}
+      />
     </Main>
   );
 }

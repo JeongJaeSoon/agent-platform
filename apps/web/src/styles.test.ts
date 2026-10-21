@@ -65,8 +65,7 @@ describe("styles.css", () => {
     expect(rule).toContain("var(--ap-color-rail-foreground)");
   });
 
-  test("stops animation under prefers-reduced-motion", () => {
-    const block = css.split("@media (prefers-reduced-motion: reduce)")[1] ?? "";
-    expect(block).toContain("animation: none");
+  test("declares no animation of its own; motion comes from utilities", () => {
+    expect(css).not.toContain("@keyframes");
   });
 });
