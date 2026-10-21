@@ -20,6 +20,7 @@ import {
 } from "@agent-platform/react";
 import {
   Button,
+  ConfirmDialog,
   Field,
   FieldDescription,
   FieldError,
@@ -35,7 +36,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useBlocker, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
@@ -43,6 +44,7 @@ import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
+  AGENT_CARD_LANGUAGE_VALUES,
   AgentCardFields,
   type ApiCard,
   CARD_ERROR_FIELDS,
@@ -52,10 +54,13 @@ import {
 } from "./agent-card-form.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
-/** `flow` names one run of the flow; every step's input carries it. */
+/**
+ * `flow` names one run of the flow; every step's input carries it. `card` is
+ * the job step's input as typed, kept so a reload does not lose it.
+ */
 type Steps = {
   name: { flow: string; name?: string; slug?: string };
-  job: { flow: string; name: string; slug: string };
+  job: { flow: string; name: string; slug: string; card?: unknown };
   release: {
     flow: string;
     name: string;
@@ -90,6 +95,19 @@ const STEP_LABEL = {
 
 const NEW_CARD_STEP = agentCardStep();
 const CARD_FIELDS = Object.keys(EMPTY_DRAFT) as (keyof CardDraft)[];
+const KEEP_INPUT_DELAY_MS = 300;
+
+/** Input kept in history.state from before a deploy may not fit the form. */
+const isCardDraft = (value: unknown): value is CardDraft =>
+  typeof value === "object" &&
+  value !== null &&
+  CARD_FIELDS.every(
+    (key) =>
+      typeof (value as Record<string, unknown>)[key] ===
+      typeof EMPTY_DRAFT[key],
+  ) &&
+  AGENT_CARD_LANGUAGE_VALUES.includes((value as CardDraft).language) &&
+  ["all", "list"].includes((value as CardDraft).toolsMode);
 
 /**
  * The slug a name suggests: what is left of it in lowercase kebab-case. A
@@ -223,7 +241,42 @@ export function NewAgentFlow({
       void funnel.history.replace(funnel.step, funnel.context);
   }, []);
   const card = useStepForm(NEW_CARD_STEP, {
-    defaultValues: saved?.card ?? EMPTY_DRAFT,
+    defaultValues: isCardDraft(restored.card)
+      ? restored.card
+      : (saved?.card ?? EMPTY_DRAFT),
+  });
+  const cardInput = useWatch({ control: card.control }) as CardDraft;
+  const identityInput = useWatch({ control: identity.control });
+  const router = useRouter();
+  const keepTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the funnel object is new each render
+  useEffect(() => {
+    if (funnel.step !== "job") return;
+    const kept = (funnel.context as Steps["job"]).card;
+    if (canonical(kept ?? EMPTY_DRAFT) === canonical(cardInput)) return;
+    keepTimer.current = setTimeout(() => {
+      // A back or forward lands before this component hears of it; writing
+      // then would put the job step over the entry just reached.
+      const at = new URLSearchParams(router.history.location.search);
+      if (at.get("new-agent.step") === "job")
+        void funnel.history.replace("job", { card: cardInput });
+    }, KEEP_INPUT_DELAY_MS);
+    return () => clearTimeout(keepTimer.current);
+  }, [cardInput, funnel.step]);
+
+  // Moving between steps keeps the input; leaving the flow drops what the
+  // draft does not hold.
+  const kept = saved ?? { name: "", slug: "", card: EMPTY_DRAFT };
+  const unsaved = useRef(false);
+  unsaved.current =
+    identityInput.name !== kept.name ||
+    identityInput.slug !== kept.slug ||
+    canonical(cardInput) !== canonical(kept.card);
+  const leaving = useBlocker({
+    shouldBlockFn: ({ current, next }) =>
+      unsaved.current && current.pathname !== next.pathname,
+    enableBeforeUnload: () => unsaved.current,
+    withResolver: true,
   });
   const catalog = useQuery(profilesQuery(client));
   const savedPastJob = funnel.step === "release" || funnel.step === "activate";
@@ -283,6 +336,8 @@ export function NewAgentFlow({
     };
     setSaved(draft);
     writeDraft(flow, draft);
+    // The fields show what was saved, trimmed as the server keeps it.
+    identity.reset({ name: draft.name, slug: draft.slug });
     queryClient.setQueryData(queryKeys.agent(detail.agent.id), detail);
     await queryClient.invalidateQueries({
       queryKey: queryKeys.agents,
@@ -291,6 +346,9 @@ export function NewAgentFlow({
     return {
       agentId: detail.agent.id,
       versionId: savedVersionId(detail, sent),
+      // The job context may hold input from before the last edit; the steps
+      // after it carry what was saved.
+      card: input,
     };
   };
 
@@ -312,9 +370,10 @@ export function NewAgentFlow({
             form={card}
             catalog={catalog}
             focus={moved}
-            onSave={async (values) =>
-              history.push("release", await saveDraft(values, context))
-            }
+            onSave={async (values) => {
+              clearTimeout(keepTimer.current);
+              await history.push("release", await saveDraft(values, context));
+            }}
             refuse={refuse}
           />
         )}
@@ -335,6 +394,18 @@ export function NewAgentFlow({
             refuse={refuse}
           />
         )}
+      />
+      <ConfirmDialog
+        open={leaving.status === "blocked"}
+        onOpenChange={(open) => {
+          if (!open) leaving.reset?.();
+        }}
+        title={t("agents.flow.leaveTitle")}
+        consequence={t("agents.flow.leaveConsequence")}
+        confirmLabel={t("agents.flow.leave")}
+        cancelLabel={t("agents.flow.stay")}
+        tone="danger"
+        onConfirm={() => leaving.proceed?.()}
       />
     </div>
   );
