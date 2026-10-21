@@ -104,16 +104,19 @@ export type CheckpointTranscripts = {
 
 /**
  * The most transcript one checkpoint may carry, per part and in total across
- * the root and every subagent. The engine reads the whole
- * transcript when it resumes, and the worker verifies and holds it before
- * that, so this is a session-lifetime ceiling sized against the worker's
- * memory (`WORKER_MEMORY_MB`, 2048 by default), not a storage policy. The
- * worker checks it before publishing, finalize before reading any part, and
- * a restore before fetching any part — all against these same values. A
- * session past it keeps running on its last checkpoint.
+ * the root and every subagent. A restore streams the transcript to the
+ * workspace volume one part at a time, so what the total is sized against is
+ * the engine: resuming a transcript with no compaction in it, the engine
+ * holds about twice its size, and the worker's memory
+ * (`WORKER_MEMORY_MB`) is sized so that stays under half the limit. A part
+ * is what the worker holds at once. The worker checks these before
+ * publishing, finalize before reading any part, and a restore before
+ * fetching any part — all against these same values. A session past it keeps
+ * running on its last checkpoint.
+ * Measurements, sessions per node and how to change both: docs/capacity.md.
  */
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
-export const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 512 * 1024 * 1024;
 
 /** Every part of the root transcript and of each subagent's. */
 export function transcriptParts(
@@ -350,6 +353,12 @@ export interface TranscriptMirror {
     sessionId: string;
   }): Promise<string[]>;
   load(key: TranscriptKey): Promise<TranscriptEntry[] | null>;
+  /**
+   * For a mirror that wrote the resumed transcript to the engine's own disk
+   * and so answers the engine's `load` with null: the root transcript's entry
+   * uuids, which that `load` would otherwise have returned.
+   */
+  resumedEntryIds?(): ReadonlySet<string> | undefined;
 }
 
 /**
