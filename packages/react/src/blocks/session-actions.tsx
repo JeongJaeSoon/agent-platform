@@ -314,7 +314,8 @@ export function SessionControls({
 
   // A command's button is turned off while it runs and may leave with the
   // new state, taking focus with it each time: hand the keyboard to what the
-  // session takes now, until the state the command made has arrived.
+  // session takes now, until the state the command made has arrived or the
+  // command was refused. Each accepted command changes what the session takes.
   useLayoutEffect(() => {
     if (ranOn.current === null) return;
     if (focusLost(outcomeRef.current)) {
@@ -323,10 +324,10 @@ export function SessionControls({
       );
       (next ?? outcomeRef.current)?.focus();
     }
-    if (!control.isPending && actionSet !== ranOn.current) {
+    if (control.isError || (control.isSuccess && actionSet !== ranOn.current)) {
       ranOn.current = null;
     }
-  }, [actionSet, control.isPending]);
+  }, [actionSet, control.isError, control.isSuccess]);
 
   // The confirm dialog gives focus back to what was focused last outside it,
   // and the terminate button that opened it may be gone by now; the outcome

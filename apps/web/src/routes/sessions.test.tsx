@@ -997,6 +997,32 @@ describe("session profile", () => {
     );
   });
 
+  test("a refused command does not take the keyboard back on a later change", async () => {
+    const user = await setupUser();
+    let state = { ...detail };
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`POST /v1/sessions/${SESSION_ID}/pause`]: () =>
+        apiError(409, "PAUSE_COMMITTING", "pause committing"),
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    const pause = await screen.findByRole("button", { name: "일시 정지" });
+    pause.focus();
+    await user.keyboard("{Enter}");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The reader moves on; the turn ending later changes the controls.
+    (document.activeElement as HTMLElement | null)?.blur();
+    state = { ...detail, current_turn_id: null };
+    act(() => stream.emit("ev_1", "status", { phase: "idle" }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(
+      screen.queryByRole("button", { name: "지금 turn 멈추기" }),
+    ).toBeNull();
+    expect(document.activeElement?.tagName).toBe("BODY");
+  });
+
   test("terminating asks first and sends the session's revision", async () => {
     const user = await setupUser();
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
