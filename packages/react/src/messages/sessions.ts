@@ -127,6 +127,12 @@ export const sessionsKo = {
   "session.refused.RECOVERY_REQUIRED":
     "복구 결정이 필요한 세션이라 지금은 할 수 없습니다.",
 
+  "inbox.title": "승인 대기",
+  "inbox.count": "답을 기다리는 세션 {count}개",
+  "inbox.countMore": "답을 기다리는 세션 {count}개 이상",
+  "inbox.empty": "답을 기다리는 세션이 없습니다.",
+  "inbox.open": "세션 열기",
+
   "session.events": "이벤트",
   "session.events.empty": "아직 이벤트가 없습니다.",
   "session.events.connecting": "이벤트에 연결하는 중…",
@@ -286,6 +292,12 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.refused.SESSION_CLOSED": "The session is closed.",
   "session.refused.RECOVERY_REQUIRED":
     "The session needs a recovery decision first.",
+
+  "inbox.title": "Waiting for you",
+  "inbox.count": "{count} sessions waiting for an answer",
+  "inbox.countMore": "{count}+ sessions waiting for an answer",
+  "inbox.empty": "No session is waiting for an answer.",
+  "inbox.open": "Open session",
 
   "session.events": "Events",
   "session.events.empty": "No events yet.",

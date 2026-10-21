@@ -100,9 +100,11 @@ export function PendingAnswers({
   items,
   unavailable,
   refusal,
+  onAnswered,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
+  readonly onAnswered?: () => void;
 }) {
   const { t, locale } = useBlockText();
   const answer = useAnswer(sessionId);
@@ -142,12 +144,14 @@ export function PendingAnswers({
     // the answer's receipt comes back.
     answered.current = body.request_id;
     answer.mutate(body, {
-      onSuccess: () =>
+      onSuccess: () => {
         setOutcome({
           kind: "notice",
           requestId: body.request_id,
           text: t("session.answer.sent"),
-        }),
+        });
+        onAnswered?.();
+      },
       onError: (error) => {
         answered.current = null;
         setOutcome({

@@ -2,7 +2,11 @@ import type {
   SessionDetail as SessionDetailData,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
-import { SessionDetail, SessionList } from "@agent-platform/react/blocks";
+import {
+  ApprovalInbox,
+  SessionDetail,
+  SessionList,
+} from "@agent-platform/react/blocks";
 import { ErrorState, Skeleton } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -225,6 +229,48 @@ export const DetailReadOnly: Story = {
       }}
     />
   ),
+};
+
+const renderInbox = () => (
+  <ApprovalInbox loading={loading} renderError={renderError} />
+);
+
+export const Inbox: Story = {
+  parameters: {
+    api: {
+      "GET /v1/sessions": () =>
+        page([
+          { ...SESSION, status: "needs_input" },
+          {
+            ...SESSION,
+            id: "0192f0c4-7d3a-7b4e-9f00-0000000000a2",
+            status: "needs_input",
+          },
+        ]),
+      [`GET ${base}/pending-requests`]: () => json(200, PENDING),
+      "GET /v1/sessions/0192f0c4-7d3a-7b4e-9f00-0000000000a2/pending-requests":
+        () => json(200, { items: [] }),
+      [`POST ${base}/answers`]: accepted,
+    } satisfies FakeRoutes,
+  },
+  render: renderInbox,
+};
+
+export const InboxEmpty: Story = {
+  parameters: { api: { "GET /v1/sessions": () => page([]) } },
+  render: renderInbox,
+};
+
+export const InboxDark: Story = {
+  ...Inbox,
+  name: "Inbox (dark)",
+  globals: { theme: "dark" },
+};
+
+export const InboxMobile: Story = {
+  ...Inbox,
+  name: "Inbox (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
 };
 
 export const DetailNotFound: Story = {
