@@ -1,17 +1,21 @@
 import {
+  type ApiError,
   type SessionEventFrame as ClientEventFrame,
+  isApiError,
   type StreamState,
   subscribeSessionEvents,
+  unwrap,
 } from "@agent-platform/client";
 import type {
   ChangeSessionProfileRequest,
-  ListPendingRequestsResponse,
-  ListSessionsResponse,
-  SessionDetail,
   SessionEventPayload,
-  SessionUsageResponse,
 } from "@agent-platform/contracts";
-import { useAgentPlatform } from "@agent-platform/react";
+import {
+  pendingRequestsQuery,
+  sessionQuery,
+  sessionsQuery,
+  sessionUsageQuery,
+} from "@agent-platform/core";
 import {
   useInfiniteQuery,
   useMutation,
@@ -19,85 +23,35 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
-import { useAppServices } from "../services.tsx";
+import { useAgentPlatform } from "./provider.tsx";
 
 /*
  * The session screens' data: what to fetch and when, and nothing about how it
- * looks. views.tsx draws what these return.
+ * looks.
  */
 
-export const sessionKeys = {
-  list: ["sessions"] as const,
-  detail: (id: string) => ["sessions", id] as const,
-  usage: (id: string) => ["sessions", id, "usage"] as const,
-  pending: (id: string) => ["sessions", id, "pending-requests"] as const,
-};
-
-// Detail, cost and pending requests change while a turn runs; the event
-// stream is live, the rest is read again on this beat.
-const LIVE_REFETCH_MS = 5_000;
 // Events kept on screen; older ones drop off so a long session does not
 // grow the page without bound.
-export const EVENT_WINDOW = 200;
+const EVENT_WINDOW = 200;
 
 export function useSessions() {
   const { client } = useAgentPlatform();
-  return useInfiniteQuery({
-    queryKey: sessionKeys.list,
-    queryFn: ({ pageParam }) =>
-      unwrap(
-        client.GET("/v1/sessions", {
-          params: { query: pageParam ? { cursor: pageParam } : {} },
-        }),
-      ) as Promise<ListSessionsResponse>,
-    initialPageParam: null as string | null,
-    getNextPageParam: (page) => page.next_cursor,
-    retry: false,
-  });
+  return useInfiniteQuery(sessionsQuery(client));
 }
 
 export function useSession(id: string) {
   const { client } = useAgentPlatform();
-  return useQuery({
-    queryKey: sessionKeys.detail(id),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/sessions/{id}", { params: { path: { id } } }),
-      ) as Promise<SessionDetail>,
-    retry: false,
-    refetchInterval: LIVE_REFETCH_MS,
-  });
+  return useQuery(sessionQuery(client, id));
 }
 
 export function useSessionUsage(id: string, enabled: boolean) {
   const { client } = useAgentPlatform();
-  return useQuery({
-    queryKey: sessionKeys.usage(id),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/sessions/{id}/usage", { params: { path: { id } } }),
-      ) as Promise<SessionUsageResponse>,
-    enabled,
-    retry: false,
-    refetchInterval: LIVE_REFETCH_MS,
-  });
+  return useQuery({ ...sessionUsageQuery(client, id), enabled });
 }
 
 export function usePendingRequests(id: string, enabled: boolean) {
   const { client } = useAgentPlatform();
-  return useQuery({
-    queryKey: sessionKeys.pending(id),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/sessions/{id}/pending-requests", {
-          params: { path: { id } },
-        }),
-      ) as Promise<ListPendingRequestsResponse>,
-    enabled,
-    retry: false,
-    refetchInterval: LIVE_REFETCH_MS,
-  });
+  return useQuery({ ...pendingRequestsQuery(client, id), enabled });
 }
 
 /** Moves the session onto another profile from its next turn on. */
@@ -115,8 +69,8 @@ export function useChangeSessionProfile(id: string) {
           body,
         }),
       ),
-    onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: sessionKeys.detail(id) }),
+    // The detail query's own key is the filter.
+    onSettled: () => queryClient.invalidateQueries(sessionQuery(client, id)),
   });
 }
 
@@ -153,8 +107,7 @@ function toolCalls(payload: SessionEventPayload) {
  * screen says so.
  */
 export function useSessionEvents(id: string, enabled: boolean) {
-  const { client } = useAgentPlatform();
-  const services = useAppServices();
+  const { client, onUnauthorized, eventRetry } = useAgentPlatform();
   const [events, setEvents] = useState<readonly SessionEventFrame[]>([]);
   const [state, setState] = useState<EventStreamState>("connecting");
 
@@ -190,12 +143,12 @@ export function useSessionEvents(id: string, enabled: boolean) {
         if (!stop.signal.aborted) setState(next);
       },
       onError: (error) => {
-        if (isApiError(error, "UNAUTHORIZED")) services.onUnauthorized();
+        if (isApiError(error, "UNAUTHORIZED")) onUnauthorized?.();
       },
-      ...(services.eventRetry ? { retry: services.eventRetry } : {}),
+      ...(eventRetry ? { retry: eventRetry } : {}),
     });
     return () => stop.abort();
-  }, [client, services, id, enabled]);
+  }, [client, onUnauthorized, eventRetry, id, enabled]);
 
   return { events, state };
 }
