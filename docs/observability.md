@@ -61,7 +61,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 ### 수집기는 운영자가 고른다 (계획)
 
-계획. API는 표준 OTLP로 내보낸다. OTLP를 받는 수집기면 어느 것이든 된다. Grafana Tempo, Langfuse, OpenTelemetry Collector, OTLP를 받는 상용 백엔드가 그 예다. 특정 벤더는 필요 없다. 운영자가 endpoint를 설정하기 전에는 export가 꺼져 있고, 꺼져 있어도 ① 경로는 그대로 동작한다. 수집기 설정 키와 Tempo·Langfuse 설정 예시는 [94S-733](https://linear.app/94soon/issue/94S-733)과 [94S-737](https://linear.app/94soon/issue/94S-737)이 운영 문서에 더한다.
+계획. API는 표준 OTLP로 내보낸다. OTLP를 받는 수집기면 어느 것이든 된다. Grafana Tempo, Langfuse, OpenTelemetry Collector, OTLP를 받는 상용 백엔드가 그 예다. 특정 벤더는 필요 없다. 운영자가 endpoint를 설정하기 전에는 export가 꺼져 있고, 꺼져 있어도 ① 경로는 그대로 동작한다. 수집기 설정 키는 [94S-733](https://linear.app/94soon/issue/94S-733)이 만들고 [94S-737](https://linear.app/94soon/issue/94S-737)이 운영 문서에 적는다. 확인용 Langfuse·Grafana 예제는 [예제 수집기 띄우기](#예제-수집기-띄우기)에 있다.
 
 ### 이름 규칙 (계획)
 
@@ -118,7 +118,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 - **지금.** 세션 이벤트는 그 세션을 만든 주체(principal의 `ownerId`)만 `sessions:read` scope로 읽는다. 다른 주체의 세션은 404다(`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). scope는 HTTP 경계에서 `apps/control-host/src/api/scope-policy.ts`가 검사한다.
 - **계획: 에이전트 오너와 관리 팀.** 에이전트 admin과 admin 팀 구성원이 그 에이전트의 세션 내용을 보게 하고, 열람마다 기록을 남긴다([94S-735](https://linear.app/94soon/issue/94S-735)). 팀과 권한 모델을 main에 반영하는 [JeongJaeSoon/agent-platform#427](https://github.com/JeongJaeSoon/agent-platform/pull/427) 위에 올린다. 권한은 열람할 때마다 다시 읽으므로, 팀에서 빠진 사람은 다음 요청부터 못 본다.
 - **계획: 트레이스 상세 탭(2단계).** 우리 API가 위 권한을 검사한 뒤, 그 워크스페이스의 테넌트 안에서 세션 id와 turn의 trace id로 수집기를 조회해 보여 준다([94S-738](https://linear.app/94soon/issue/94S-738)). trace id만으로는 조회하지 않는다.
-- **계획: 수집기 화면.** 수집기 UI에 직접 들어가는 사람은 운영자뿐이다. 수집기의 권한 단위(Langfuse의 프로젝트, Tempo의 테넌트)는 세션·에이전트 단위의 우리 규칙을 표현하지 못한다. 그래서 고객에게 수집기 계정을 주지 않는다. 워크스페이스는 테넌트 헤더나 워크스페이스별 키로 나눈다(속성 필터는 분리 수단이 아니다, [94S-732](https://linear.app/94soon/issue/94S-732)). 수집기 화면에서 내용이 어느 칸에 보이는지는 수집기의 매핑에 달려 있다. Werft는 `gen_ai.*` 속성만 내고 수집기별 매핑은 하지 않는다. Langfuse가 이 속성을 Input·Output 칸으로 읽는지는 1단계 구현 때 확인한다.
+- **계획: 수집기 화면.** 수집기 UI에 직접 들어가는 사람은 운영자뿐이다. 수집기의 권한 단위(Langfuse의 프로젝트, Tempo의 테넌트)는 세션·에이전트 단위의 우리 규칙을 표현하지 못한다. 그래서 고객에게 수집기 계정을 주지 않는다. 워크스페이스는 테넌트 헤더나 워크스페이스별 키로 나눈다(속성 필터는 분리 수단이 아니다, [94S-732](https://linear.app/94soon/issue/94S-732)). 수집기 화면에서 내용이 어느 칸에 보이는지는 수집기의 매핑에 달려 있다. Werft는 `gen_ai.*` 속성만 내고 수집기별 매핑은 하지 않는다. 예제 수집기에 테스트 span을 보내 보면 Langfuse는 `gen_ai.input.messages`를 Input 칸, `gen_ai.output.messages`를 Output 칸으로 읽는다([화면에서 찾기](#화면에서-찾기)). 1단계 구현의 실제 span으로 다시 확인한다.
 
 ## 보존 기간으로 중복 저장 줄이기
 
@@ -127,6 +127,89 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 - **① `events` 표.** 지금은 trim하지 않는다([api-guide.md](api-guide.md)의 410 `CURSOR_EXPIRED` 설명). 보존 기간 정책은 아직 정하지 않았고 맡은 티켓도 없다.
 - **② 수집기(계획).** 내용이 든 데이터는 짧게, 메타데이터는 길게 두는 것을 권장값으로 둔다. 보존 기간은 수집기에서 운영자가 정한다. 설정 방법은 수집기마다 다르고, 판(edition)에 따라 없는 것도 있다. 수집기별 예시는 [94S-737](https://linear.app/94soon/issue/94S-737)이 더한다.
 - **샘플링하지 않는다(계획).** worker 트레이스를 샘플링하면 내용과 유실 구간 대조가 빈다. 양은 속성 상한, 트레이스 상한, ingest의 분당 상한, 보존 기간으로 줄인다.
+
+## 예제 수집기 띄우기
+
+`infra/observability/`에 수집기 예제가 두 개 있다. 둘 다 Werft 스택과 따로 뜨는 compose project이고, 앞에 OpenTelemetry Collector를 하나씩 두어 표준 OTLP/HTTP를 받는다. 한 컴퓨터에서 OTLP 내보내기를 확인하는 용도이고, 운영 권장 구성이 아니다. 어느 수집기를 쓰고 어떻게 운영할지는 운영자가 정한다.
+
+| 예제 | 디렉터리 | OTLP/HTTP 받는 곳 | 화면 | 받는 신호 |
+|---|---|---|---|---|
+| Langfuse | `infra/observability/langfuse/` | `http://127.0.0.1:25318` | `http://localhost:25000` | 트레이스 |
+| Grafana LGTM | `infra/observability/lgtm/` | `http://127.0.0.1:26318` | `http://localhost:26000` | 트레이스, 로그, 메트릭 |
+
+포트는 모두 loopback에만 열리고 기본 스택(3000, 3001, 5432)과 겹치지 않는다. 데이터 흐름은 `보내는 쪽 → collector(collector.yaml) → Langfuse 또는 grafana/otel-lgtm`이다. 수집기 credential은 collector만 갖는다. Langfuse compose 안의 비밀값 기본값(`local-…`로 시작하는 값과 예시 키 쌍)은 로컬 확인용 자리표시자다. 이 컴퓨터 밖에서 쓰려면 다음 변수를 모두 새 값으로 넘긴다. `LANGFUSE_POSTGRES_PASSWORD`, `LANGFUSE_CLICKHOUSE_PASSWORD`, `LANGFUSE_REDIS_PASSWORD`, `LANGFUSE_MINIO_PASSWORD`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`(`openssl rand -hex 32`로 만든 64자), `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_INIT_USER_EMAIL`, `LANGFUSE_INIT_USER_PASSWORD`. 비밀번호와 계정은 볼륨을 처음 만들 때 정해지므로, 이미 띄운 뒤라면 `down -v`로 지우고 다시 띄운다. collector의 키 쌍은 아래 절처럼 따로 바꾼다.
+
+### 띄우고 내리기
+
+저장소 루트에서 실행한다. Langfuse는 처음 뜰 때 DB migration 때문에 1~2분 걸린다.
+
+```sh
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml up -d --wait
+docker compose -p werft-obs-langfuse -f infra/observability/langfuse/compose.yml up -d --wait
+```
+
+내릴 때는 아래를 실행한다. `-v`는 저장한 트레이스까지 지운다.
+
+```sh
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml down -v
+docker compose -p werft-obs-langfuse -f infra/observability/langfuse/compose.yml down -v
+```
+
+### 테스트 span 보내기
+
+Werft의 OTLP 내보내기는 아직 계획이다. 지금은 `infra/observability/send-test-span.sh`로 [이름 규칙](#이름-규칙-계획)의 span 모양을 흉내 낸 트레이스를 하나 보낸다. `werft.turn` 밑에 `werft.llm_request`와 `werft.tool`이 있고, turn span에는 사용자 입력을, 모델 응답 span에는 답변 텍스트를 `gen_ai.*` 속성으로 싣는다. `--with-log`를 붙이면 같은 trace에 묶인 로그 한 줄도 보낸다. Langfuse 예제의 collector는 로그를 받지 않으므로 Langfuse에는 붙이지 않는다.
+
+```sh
+infra/observability/send-test-span.sh http://127.0.0.1:26318 --with-log
+infra/observability/send-test-span.sh http://127.0.0.1:25318
+```
+
+출력의 `trace_id`와 `session_id`로 아래 화면에서 찾는다.
+
+### Werft 쪽 설정 (계획)
+
+계획. 내보내기가 구현되면([94S-729](https://linear.app/94soon/issue/94S-729) 등) Werft는 표준 OTLP 환경 변수로 위 collector를 가리킨다. 키 목록과 기본값은 [94S-733](https://linear.app/94soon/issue/94S-733)이 정하고 [94S-737](https://linear.app/94soon/issue/94S-737)이 운영 문서에 적는다. 아래는 표준 키로 쓴 예다.
+
+```sh
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:26318  # Langfuse 예제는 25318
+```
+
+Werft를 컨테이너로 띄웠다면 `127.0.0.1` 대신 컨테이너에서 호스트로 닿는 주소를 쓴다. Docker Desktop에서는 `host.docker.internal`이다. Langfuse 키는 collector에만 두고 Werft에는 넘기지 않는다.
+
+### Langfuse 프로젝트 키 만들기
+
+Langfuse 예제는 처음 뜰 때 `LANGFUSE_INIT_*` 설정으로 조직 `Werft local`, 프로젝트 `werft-local`, 예시 키 쌍, 로그인 계정을 만든다. 로그인 계정의 기본값은 이메일 `admin@example.com`과 비밀번호 `local-password`이다. collector는 같은 예시 키 쌍으로 Langfuse에 보낸다.
+
+다른 키를 쓰려면 다음과 같이 한다.
+
+1. `http://localhost:25000`에 로그인하고 Settings → API Keys → Create new API keys로 키 쌍을 만든다.
+2. 두 값을 환경 변수로 넘겨 collector만 다시 만든다. 값을 파일에 적지 않는다.
+
+```sh
+LANGFUSE_PUBLIC_KEY=<public key> LANGFUSE_SECRET_KEY=<secret key> \
+  docker compose -p werft-obs-langfuse -f infra/observability/langfuse/compose.yml up -d --no-deps otel-collector
+```
+
+### 화면에서 찾기
+
+**Langfuse.** `http://localhost:25000` → Tracing에서 trace id로 찾는다. 세션 단위로 보려면 Sessions에서 `session_id`를 찾는다. 예제의 테스트 span으로 Langfuse 4.66.0에서 확인한 매핑은 다음과 같다.
+
+| span 속성 | Langfuse 화면 |
+|---|---|
+| `gen_ai.input.messages` | Input |
+| `gen_ai.output.messages` | Output |
+| `session.id` | Sessions |
+| `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | Generation 종류의 관측. 모델 이름과 토큰 수가 붙는다 |
+| `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name` | Tool 종류의 관측. 이름은 도구 이름이다 |
+| 그 밖의 속성(`werft.*`, resource 속성) | Metadata |
+
+**Grafana.** `http://localhost:26000`은 로그인 없이 열린다. 트레이스는 Explore → Tempo → TraceQL에 trace id를 넣어 찾는다. 한 세션의 turn을 모두 보려면 `{ span.werft.session_id = "<session_id>" }`로 검색한다. 로그는 Explore → Loki에서 `{service_name="werft-api"}`로 찾는다.
+
+### 프롬프트와 응답이 보이는 조건
+
+Werft span(계획)에는 [무엇을 담나](#무엇을-담나)의 두 스위치가 모두 켜져야 프롬프트와 응답이 실린다. 설치가 `OTEL_TRACES_EXPORTER=otlp`로 내보내기를 켜고, 내용 모드가 `full`(`TRACE_CONTENT_MODE`, 기본 `full`)이어야 한다. 워크스페이스가 메타데이터만 보내도록 낮추면 위 표의 Input·Output 칸은 비고, 시각·토큰 수·도구 이름만 보인다. 테스트 스크립트는 이 스위치와 상관없이 내용 속성을 늘 싣는다.
 
 ## 계획 티켓
 
