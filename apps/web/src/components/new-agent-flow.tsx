@@ -310,10 +310,13 @@ export function NewAgentFlow({
           await queryClient.fetchQuery(agentQuery(client, saved.agentId)),
         )
       : undefined;
-    // The form has no tone input, so the step gets the base's tone back.
-    const sent = base
-      ? agentCardStep(base).parse({ ...input, tone: base.tone ?? "" })
+    // The form has no tone input; the step would trim or drop the base's,
+    // so it goes back exactly as stored.
+    const edited = base
+      ? agentCardStep(base).parse({ ...input, tone: "" })
       : values;
+    const sent =
+      base?.tone === undefined ? edited : { ...edited, tone: base.tone };
     const detail = (await unwrap(
       saved
         ? client.PATCH("/v1/agents/{id}", {
