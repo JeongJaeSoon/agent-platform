@@ -37,7 +37,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 
 - 넘긴 그 turn은 checkpoint 없이 `completed`로 끝난다. worker는 workspace를 올리지 않고, finalize는 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)를 세션에 기록한다.
 - 그 뒤로 새 메시지는 409로 거절되고, queue에 있던 turn도 실행되지 않는다. 세션 상세 `attention`의 reason은 `transcript_too_large`다.
-- 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다(`restorable: true`). 기록은 잃지 않는다.
+- 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다(`restorable: true`). 보존되는 것은 그 checkpoint까지다. 상한을 넘긴 turn은 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
 - 이어 가려면 새 세션을 만든다. 세션이 recovery 경로(`recovery_required`)에 있으면 `start_fresh`로 새 transcript에서 이어 갈 수도 있다. 막힌 active 세션에서 바로 `start_fresh`를 부르는 길은 아직 없다.
 
 ## worker 메모리와 transcript 크기 (실측)
@@ -76,7 +76,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 
 ## 512MiB / 4608MiB를 고른 이유
 
-후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 분포는 실제 사용자 transcript 12개(한 PC의 상위 10개 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4, 68.5MiB와, 다른 PC의 591.8, 150MiB)다.
+후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 분포는 사용자가 2026-10-21에 자기 PC 두 대에서 잰 실제 transcript 12개다. 한 PC의 상위 10개는 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4, 68.5MiB이고, 다른 PC의 상위 2개는 591.8, 150MiB다. 이 값과 산정 과정은 [94S-667 코멘트](https://linear.app/94soon/issue/94S-667#comment-c7ea3c9d)에 있다. 상위 값만 모은 표본이라 전체 분포를 대표하지는 않는다.
 
 | 상한 | compaction 없는 peak | 절반 기준 메모리 | 노드당 세션 | 분포 중 상한 안 | 80% 경고 |
 |---|---|---|---|---|---|
@@ -88,7 +88,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 
 - 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나이고, 이런 세션은 409.6MiB에서 경고를 받은 뒤 새 세션으로 옮긴다.
 - 400MiB는 400.1MiB 세션을 바로 끊는다. 256MiB는 217MiB 세션도 경고 구간에 넣는다.
-- 공개된 다른 시스템도 활성 기록은 작게 묶는다(Temporal history 오류 한도 50MB, Inngest run state 32MiB, Claude Code의 선택형 transcript GC 5MB). 수백 MiB를 통째로 복원하는 사례는 찾지 못했다.
+- 공개된 다른 시스템도 활성 기록은 작게 묶는다. Temporal은 event history가 50MB에 닿으면 실행을 끝낸다([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). Inngest는 run state를 32MiB로 묶는다([usage limits](https://www.inngest.com/docs/usage-limits/inngest)). Claude Code의 선택형 `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`는 compaction 뒤 파일이 5MB를 넘으면 그 이전을 지운다([env vars](https://code.claude.com/docs/en/env-vars)). 수백 MiB를 통째로 복원하는 사례는 찾지 못했다(2026-10-21 조사).
 - 메모리는 4096MiB가 아니라 4608MiB다. 512MiB의 실측 peak 1970MiB는 4096MiB의 절반(2048)에 78MiB밖에 남지 않는다. 4608MiB면 여유가 334MiB다.
 
 ## 노드당 동시 세션 수
@@ -126,8 +126,8 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 이 값들을 바꾸는 변경은 control-host와 worker 이미지를 **같은 릴리스로** 올린다. 상한은 worker(capture, restore)와 API(finalize)가 따로 검사한다. 그래서 한쪽만 새 값이면 다음과 같이 된다.
 
-- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절한다. 세션은 마지막 checkpoint로 계속 돈다.
-- worker만 옛 값: 큰 checkpoint의 restore를 거절한다.
+- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절하고, 그 세션에 `transcript_too_large`를 기록한다. 그 뒤 새 입력과 queue의 turn이 막힌다. worker 기준으로는 상한 안인 세션도 이렇게 막힐 수 있다.
+- worker만 옛 값(작은 상한): 큰 checkpoint의 restore를 거절한다. 작은 상한으로 capture도 거절하므로 같은 reason이 기록된다.
 
 상한을 처음 넘은 세션을 막는 reason(`transcript_too_large`, `transcript_part_too_large`, `transcript_near_limit`)을 더할 때는 다음 순서를 지킨다.
 
