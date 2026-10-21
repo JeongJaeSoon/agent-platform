@@ -178,6 +178,8 @@ export const SESSION: SessionSummary = {
     profile_id: "claude-default",
     kind: "claude_agent_sdk",
     version: "0.2.1",
+    model: "claude-sonnet-4-5",
+    permission_mode: "default",
   },
   repository_id: "agent-platform",
   current_turn_id: "turn_01",

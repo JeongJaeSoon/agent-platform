@@ -227,6 +227,8 @@ const SESSION: SessionSummary = {
     profile_id: "claude-default",
     kind: "claude_agent_sdk",
     version: "1.2.3",
+    model: "model-claude-default",
+    permission_mode: "default",
   },
   repository_id: null,
   current_turn_id: null,
