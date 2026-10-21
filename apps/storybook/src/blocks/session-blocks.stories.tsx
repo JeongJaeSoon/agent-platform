@@ -2,7 +2,11 @@ import type {
   SessionDetail as SessionDetailData,
   SessionUsageResponse,
 } from "@agent-platform/contracts";
-import { SessionDetail, SessionList } from "@agent-platform/react/blocks";
+import {
+  ApprovalInbox,
+  SessionDetail,
+  SessionList,
+} from "@agent-platform/react/blocks";
 import { ErrorState, Skeleton } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -145,31 +149,128 @@ function eventStream(): Response {
 }
 
 const base = `/v1/sessions/${SESSION.id}`;
+// Far enough ahead that the requests still take answers.
+const OPEN_UNTIL = "2099-01-01T00:00:00.000Z";
+const accepted = () =>
+  json(202, {
+    receipt_id: "0192f0c4-7d3a-7b4e-9f00-0000000000f1",
+    receipt_status: "accepted",
+  });
+
+const PENDING = {
+  items: [
+    {
+      kind: "permission",
+      request_id: "req_1",
+      turn_id: "turn_1",
+      attempt_id: "att_1",
+      created_at: SESSION.updated_at,
+      expires_at: OPEN_UNTIL,
+      tool: "Bash",
+      input: { command: "bun test" },
+    },
+    {
+      kind: "question",
+      request_id: "req_2",
+      turn_id: "turn_1",
+      attempt_id: "att_1",
+      created_at: SESSION.updated_at,
+      expires_at: OPEN_UNTIL,
+      questions: [
+        {
+          question_id: "q_1",
+          prompt: "Which branch should the fix go on?",
+          options: [
+            { option_id: "main", label: "main" },
+            { option_id: "release", label: "release/1.4" },
+          ],
+          multi_select: false,
+          allow_free_text: true,
+        },
+      ],
+    },
+  ],
+};
 
 export const Detail: Story = {
   parameters: {
     api: {
       [`GET ${base}`]: () => json(200, DETAIL),
       [`GET ${base}/usage`]: () => json(200, USAGE),
-      [`GET ${base}/pending-requests`]: () =>
-        json(200, {
-          items: [
-            {
-              kind: "permission",
-              request_id: "req_1",
-              turn_id: "turn_1",
-              attempt_id: "att_1",
-              created_at: SESSION.updated_at,
-              expires_at: SESSION.updated_at,
-              tool: "Bash",
-              input: { command: "bun test" },
-            },
-          ],
-        }),
+      [`GET ${base}/pending-requests`]: () => json(200, PENDING),
       [`GET ${base}/events`]: eventStream,
+      [`POST ${base}/answers`]: accepted,
+      [`POST ${base}/interrupt`]: accepted,
+      [`POST ${base}/pause`]: accepted,
+      [`POST ${base}/terminate`]: accepted,
+      [`POST ${base}/messages`]: () =>
+        json(202, {
+          turn_id: "turn_2",
+          receipt_id: "0192f0c4-7d3a-7b4e-9f00-0000000000f2",
+          receipt_status: "accepted",
+        }),
     } satisfies FakeRoutes,
   },
   render: renderDetail,
+};
+
+/** A key that holds sessions:read only: every action says why it is off. */
+export const DetailReadOnly: Story = {
+  ...Detail,
+  render: () => (
+    <SessionDetail
+      id={SESSION.id}
+      loading={loading}
+      renderError={renderError}
+      unavailable={{
+        answer: "You need the sessions:approve permission for this.",
+        control: "You need the sessions:control permission for this.",
+        send: "You need the sessions:write permission for this.",
+      }}
+    />
+  ),
+};
+
+const renderInbox = () => (
+  <ApprovalInbox loading={loading} renderError={renderError} />
+);
+
+export const Inbox: Story = {
+  parameters: {
+    api: {
+      "GET /v1/sessions": () =>
+        page([
+          { ...SESSION, status: "needs_input" },
+          {
+            ...SESSION,
+            id: "0192f0c4-7d3a-7b4e-9f00-0000000000a2",
+            status: "needs_input",
+          },
+        ]),
+      [`GET ${base}/pending-requests`]: () => json(200, PENDING),
+      "GET /v1/sessions/0192f0c4-7d3a-7b4e-9f00-0000000000a2/pending-requests":
+        () => json(200, { items: [] }),
+      [`POST ${base}/answers`]: accepted,
+    } satisfies FakeRoutes,
+  },
+  render: renderInbox,
+};
+
+export const InboxEmpty: Story = {
+  parameters: { api: { "GET /v1/sessions": () => page([]) } },
+  render: renderInbox,
+};
+
+export const InboxDark: Story = {
+  ...Inbox,
+  name: "Inbox (dark)",
+  globals: { theme: "dark" },
+};
+
+export const InboxMobile: Story = {
+  ...Inbox,
+  name: "Inbox (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
 };
 
 export const DetailNotFound: Story = {
