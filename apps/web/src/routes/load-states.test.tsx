@@ -196,12 +196,14 @@ describe("화면별 오류 문구", () => {
     );
   });
 
-  test("형식이 틀린 초대 token은 비밀번호를 받지 않고 쓸 수 없는 초대라고 한다", async () => {
+  test("형식이 틀린 초대 token은 비밀번호를 받지 않고 링크가 올바르지 않다고 한다", async () => {
     renderAt("/invite/bogus", {
       "GET /v1/auth/me": () =>
         apiError(401, "UNAUTHORIZED", "Authentication required"),
     });
-    expect(await screen.findByText("쓸 수 없는 초대입니다")).toBeTruthy();
+    expect(
+      await screen.findByText("초대 링크가 올바르지 않습니다"),
+    ).toBeTruthy();
     expect(screen.queryByLabelText("비밀번호")).toBeNull();
   });
 
@@ -213,6 +215,9 @@ describe("화면별 오류 문구", () => {
         apiError(400, "BAD_REQUEST", "Request body is invalid"),
     });
     const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "네, 계정이 있습니다" }),
+    );
     await user.type(
       await screen.findByLabelText("비밀번호"),
       "correct-horse-battery",

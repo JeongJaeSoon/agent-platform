@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentCard,
+  acceptInviteRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
 } from "@agent-platform/contracts";
 import {
   type AgentCardDraft,
+  acceptInviteStep,
   agentCardStep,
   agentIdentityStep,
   inviteStep,
@@ -124,4 +126,42 @@ test("the steps join into requests the contract accepts", () => {
   ).toBe(true);
   const invite = inviteStep.parse({ email: "a@example.com ", role: "admin" });
   expect(createInviteRequestSchema.safeParse(invite).success).toBe(true);
+  const accept = acceptInviteStep.parse({
+    password: " correct horse ",
+    display_name: " Ada ",
+  });
+  expect(
+    acceptInviteRequestSchema.safeParse({ token: "t".repeat(43), ...accept })
+      .success,
+  ).toBe(true);
+});
+
+describe("accepting an invite", () => {
+  test("the password keeps its spaces; the name is trimmed", () => {
+    expect(
+      acceptInviteStep.parse({
+        password: " correct horse ",
+        display_name: " Ada ",
+      }),
+    ).toEqual({ password: " correct horse ", display_name: "Ada" });
+  });
+
+  test("an empty name is left out instead of failing", () => {
+    const accept = acceptInviteStep.parse({
+      password: "correct horse battery",
+      display_name: "   ",
+    });
+    expect(accept.display_name).toBeUndefined();
+  });
+
+  test("a short password and a long name fail on their own paths", () => {
+    expect(
+      paths(
+        acceptInviteStep.safeParse({
+          password: "short",
+          display_name: "a".repeat(65),
+        }),
+      ),
+    ).toEqual(["password", "display_name"]);
+  });
 });
