@@ -49,7 +49,7 @@ const SECTION_TITLE = "m-0 font-semibold text-lg";
 const MUTED = "m-0 text-muted-foreground";
 const CELL = "border-b p-2 text-left align-top";
 const PRIMARY =
-  "block font-semibold [overflow-wrap:anywhere] group-data-[disabled=true]:text-muted-foreground";
+  "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
@@ -423,7 +423,7 @@ function MemberTable({
                   <td className={CELL}>
                     <NativeSelect
                       size="sm"
-                      className="min-w-fit"
+                      className="w-auto"
                       aria-label={t("members.roleFor", {
                         name: member.display_name,
                       })}
