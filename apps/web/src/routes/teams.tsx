@@ -1,3 +1,4 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   MemberView,
   TeamChangeResponse,
@@ -8,7 +9,6 @@ import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import {
   membersQuery,
   queryKeys,

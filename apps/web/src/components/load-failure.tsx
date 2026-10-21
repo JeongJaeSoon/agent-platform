@@ -1,5 +1,5 @@
+import { ApiError } from "@agent-platform/client";
 import { ErrorState } from "@agent-platform/ui";
-import { ApiError } from "../api/client.ts";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 /**
