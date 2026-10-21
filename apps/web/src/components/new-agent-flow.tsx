@@ -310,7 +310,10 @@ export function NewAgentFlow({
           await queryClient.fetchQuery(agentQuery(client, saved.agentId)),
         )
       : undefined;
-    const sent = base ? agentCardStep(base).parse(input) : values;
+    // The form has no tone input, so the step gets the base's tone back.
+    const sent = base
+      ? agentCardStep(base).parse({ ...input, tone: base.tone ?? "" })
+      : values;
     const detail = (await unwrap(
       saved
         ? client.PATCH("/v1/agents/{id}", {
@@ -654,6 +657,9 @@ function ReleaseForm({
           ))}
         </NativeSelect>
         <FieldDescription>{t("agent.releases.profileHint")}</FieldDescription>
+        <FieldDescription>
+          {t("agent.releases.profileUnlisted")}
+        </FieldDescription>
         {cardModel !== undefined &&
         profileModel !== undefined &&
         cardModel !== profileModel ? (

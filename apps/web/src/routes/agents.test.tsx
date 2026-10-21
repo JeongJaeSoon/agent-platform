@@ -1029,7 +1029,7 @@ describe("편집 중 다른 곳의 저장", () => {
       "release할 프로필의 모델과 정확히 같아야 합니다",
     );
     expect(await described("프로필")).toBe(
-      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
+      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다 프로필의 권한 모드와 고를 수 있는 모델은 아직 이 화면에 나오지 않습니다.",
     );
     expect(document.body.textContent).not.toContain("profiles.yaml");
   });

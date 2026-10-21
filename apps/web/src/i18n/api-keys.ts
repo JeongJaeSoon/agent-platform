@@ -1,14 +1,34 @@
 export const apiKeysKo = {
   "apiKeys.title": "API key",
+  "apiKeys.guideTitle": "key 종류",
+  "apiKeys.guide.personal.actsAs":
+    "발급한 사람으로 동작합니다. 이 key로 시작한 세션은 그 사람의 세션입니다.",
+  "apiKeys.guide.personal.issuerLeaves":
+    "발급한 사람이 워크스페이스를 떠나거나 계정이 정지되면 바로 멈춥니다. 권한도 그 사람의 지금 역할을 넘지 않습니다.",
+  "apiKeys.guide.personal.sessions":
+    "발급한 사람이 볼 수 있는 세션에 닿습니다.",
+  "apiKeys.guide.personal.approve":
+    "'요청에 답하기'(sessions:approve) 권한을 넣을 수 있습니다.",
+  "apiKeys.guide.service.actsAs":
+    "사람이 아니라 key 자체로 동작합니다. 이 key로 시작한 세션은 key의 세션입니다.",
+  "apiKeys.guide.service.issuerLeaves":
+    "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
+  "apiKeys.guide.service.sessions":
+    "워크스페이스 전체에 공유된 세션과 이 key로 시작한 세션에 닿습니다. 에이전트를 가리지 않습니다.",
+  "apiKeys.guide.service.approve":
+    "'요청에 답하기'(sessions:approve) 권한을 넣을 수 있습니다.",
+  "apiKeys.guide.agent.actsAs": "서비스 key처럼 key 자체로 동작합니다.",
+  "apiKeys.guide.agent.issuerLeaves":
+    "발급한 사람이 떠나도 계속 유효합니다. 필요 없어지면 직접 폐기하세요.",
+  "apiKeys.guide.agent.sessions":
+    "서비스 key가 닿는 세션 가운데 고른 에이전트의 세션에만 닿습니다.",
+  "apiKeys.guide.agent.approve":
+    "'요청에 답하기'(sessions:approve) 권한은 넣을 수 없습니다. 에이전트가 사람 대신 승인하지 않습니다.",
   "apiKeys.personal": "개인 key",
-  "apiKeys.personalHint":
-    "내 이름으로 동작하고, 내가 워크스페이스를 떠나면 함께 멈춥니다.",
   "apiKeys.issuePersonal": "개인 key 발급",
   "apiKeys.service": "서비스 key",
-  "apiKeys.survivesIssuer":
-    "서비스 key는 워크스페이스의 것입니다. 발급자가 떠나도 유효합니다. 필요 없어지면 직접 폐기하세요.",
   "apiKeys.survivesIssuerShort": "발급자가 떠나도 유효",
-  "apiKeys.issueWorkspace": "워크스페이스 서비스 key 발급",
+  "apiKeys.issueWorkspace": "서비스 key 발급",
   "apiKeys.agent": "에이전트",
   "apiKeys.pickAgent": "에이전트를 고르세요",
   "apiKeys.agentHint":
@@ -33,7 +53,7 @@ export const apiKeysKo = {
     "세션을 멈추고, 다시 잇고, 중단하고, 끝내고, 실행 프로필을 바꿉니다.",
   "apiKeys.scopeHint.recover":
     "복구가 필요한 세션을 어떻게 이을지 정합니다: 턴 버리기·완료 확정·닫기·새로 시작·복원 재시도.",
-  "apiKeys.expires": "만료일(선택)",
+  "apiKeys.expires": "만료일(필수 아님)",
   "apiKeys.expiresHint": "비워 두면 폐기할 때까지 유효합니다.",
   "apiKeys.secretTitle": "새 key",
   "apiKeys.secretOnce":
@@ -47,8 +67,8 @@ export const apiKeysKo = {
   "apiKeys.listTitle": "발급된 key",
   "apiKeys.empty": "발급된 key가 없습니다.",
   "apiKeys.kind.personal": "개인 key",
-  "apiKeys.kind.workspace": "워크스페이스 서비스 key",
-  "apiKeys.kind.agent": "에이전트 전용 key · {agent}",
+  "apiKeys.kind.service": "서비스 key",
+  "apiKeys.kind.agent": "에이전트 전용 key",
   "apiKeys.createdAt": "발급 {at}",
   "apiKeys.expiresAt": "만료 {at}",
   "apiKeys.revokedAt": "폐기됨 {at}",
@@ -56,6 +76,10 @@ export const apiKeysKo = {
   "apiKeys.revokeFor": "{key} 폐기",
   "apiKeys.revokeTitle": "ID {id} key를 폐기할까요?",
   "apiKeys.keyId": "ID {id}",
+  "apiKeys.idLabel": "ID",
+  "apiKeys.copyId": "ID 복사",
+  "apiKeys.copyIdFor": "ID {id} 복사",
+  "apiKeys.copyIdFailed": "복사하지 못했습니다. ID를 직접 선택해 복사하세요.",
   "apiKeys.revokeConsequence":
     "이 key를 쓰는 곳은 바로 동작을 멈춥니다. 되돌릴 수 없습니다.",
   "apiKeys.revoked": "key를 폐기했습니다.",
@@ -63,15 +87,35 @@ export const apiKeysKo = {
 
 export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.title": "API keys",
+  "apiKeys.guideTitle": "Key types",
+  "apiKeys.guide.personal.actsAs":
+    "Acts as the person who issued it. Sessions it starts are that person's.",
+  "apiKeys.guide.personal.issuerLeaves":
+    "Stops at once when that person leaves the workspace or their account is suspended, and never does more than their current role allows.",
+  "apiKeys.guide.personal.sessions":
+    "Reaches the sessions that person can see.",
+  "apiKeys.guide.personal.approve":
+    "Can include Answer requests (sessions:approve).",
+  "apiKeys.guide.service.actsAs":
+    "Acts as the key itself, not as a person. Sessions it starts belong to the key.",
+  "apiKeys.guide.service.issuerLeaves":
+    "Stays valid after its issuer leaves; revoke it yourself when it is no longer needed.",
+  "apiKeys.guide.service.sessions":
+    "Reaches sessions shared with the whole workspace and the sessions it started, for any agent.",
+  "apiKeys.guide.service.approve":
+    "Can include Answer requests (sessions:approve).",
+  "apiKeys.guide.agent.actsAs": "Acts as the key itself, like a service key.",
+  "apiKeys.guide.agent.issuerLeaves":
+    "Stays valid after its issuer leaves; revoke it yourself when it is no longer needed.",
+  "apiKeys.guide.agent.sessions":
+    "Reaches only the chosen agent's sessions among those a service key reaches.",
+  "apiKeys.guide.agent.approve":
+    "Cannot include Answer requests (sessions:approve): an agent never approves on a person's behalf.",
   "apiKeys.personal": "Personal key",
-  "apiKeys.personalHint":
-    "Acts as you, and stops working when you leave the workspace.",
   "apiKeys.issuePersonal": "Issue personal key",
   "apiKeys.service": "Service keys",
-  "apiKeys.survivesIssuer":
-    "A service key belongs to the workspace. It stays valid after its issuer leaves; revoke it yourself when it is no longer needed.",
   "apiKeys.survivesIssuerShort": "Stays valid after the issuer leaves",
-  "apiKeys.issueWorkspace": "Issue workspace service key",
+  "apiKeys.issueWorkspace": "Issue service key",
   "apiKeys.agent": "Agent",
   "apiKeys.pickAgent": "Choose an agent",
   "apiKeys.agentHint": "An agent key works only with that agent's sessions.",
@@ -96,7 +140,7 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Pause, resume, interrupt or end sessions, and change their profile.",
   "apiKeys.scopeHint.recover":
     "Decide how a session that needs recovery goes on: abandon a turn, confirm it completed, close, start fresh or retry the restore.",
-  "apiKeys.expires": "Expires on (optional)",
+  "apiKeys.expires": "Expires on (not required)",
   "apiKeys.expiresHint": "Leave empty to keep the key until you revoke it.",
   "apiKeys.secretTitle": "New key",
   "apiKeys.secretOnce": "This value is shown only now. Copy it somewhere safe.",
@@ -109,8 +153,8 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.listTitle": "Issued keys",
   "apiKeys.empty": "No keys issued.",
   "apiKeys.kind.personal": "Personal key",
-  "apiKeys.kind.workspace": "Workspace service key",
-  "apiKeys.kind.agent": "Agent key · {agent}",
+  "apiKeys.kind.service": "Service key",
+  "apiKeys.kind.agent": "Agent key",
   "apiKeys.createdAt": "Issued {at}",
   "apiKeys.expiresAt": "Expires {at}",
   "apiKeys.revokedAt": "Revoked {at}",
@@ -118,6 +162,10 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.revokeFor": "Revoke {key}",
   "apiKeys.revokeTitle": "Revoke key ID {id}?",
   "apiKeys.keyId": "ID {id}",
+  "apiKeys.idLabel": "ID",
+  "apiKeys.copyId": "Copy ID",
+  "apiKeys.copyIdFor": "Copy ID {id}",
+  "apiKeys.copyIdFailed": "Couldn't copy. Select the ID and copy it yourself.",
   "apiKeys.revokeConsequence":
     "Anything that uses this key stops working right away. You cannot undo this.",
   "apiKeys.revoked": "Key revoked.",

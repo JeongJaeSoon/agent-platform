@@ -53,8 +53,6 @@ export const agentsKo = {
   "agentCard.role": "역할",
   "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
   "agentCard.instructions": "지시 사항",
-  "agentCard.tone": "말투",
-  "agentCard.optional": "선택",
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
@@ -108,6 +106,8 @@ export const agentsKo = {
   "agent.releases.profileHint":
     "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
   "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profileUnlisted":
+    "프로필의 권한 모드와 고를 수 있는 모델은 아직 이 화면에 나오지 않습니다.",
   "agent.releases.profilesLoading": "프로필 목록을 불러오는 중…",
   "agent.releases.profilesFailed":
     "프로필 목록을 불러오지 못했습니다: {reason}",
@@ -213,8 +213,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.role": "Role",
   "agentCard.roleHint": "One line on what this agent does",
   "agentCard.instructions": "Instructions",
-  "agentCard.tone": "Tone",
-  "agentCard.optional": "Optional",
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
@@ -266,6 +264,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.profileHint":
     "Each profile and the model it runs. Only a profile running the card's model can be released to",
   "agent.releases.profileOption": "{profile} · {model}",
+  "agent.releases.profileUnlisted":
+    "A profile's permission mode and the models it lets you pick are not shown on this screen yet.",
   "agent.releases.profilesLoading": "Loading profiles…",
   "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
   "agent.releases.create": "Create release",
