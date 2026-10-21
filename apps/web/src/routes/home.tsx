@@ -1,4 +1,4 @@
-import { useAgentPlatform } from "@agent-platform/react";
+import { useAgentPlatform, useSessions } from "@agent-platform/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
@@ -7,7 +7,6 @@ import { useMe } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
-import { useSessions } from "../sessions/hooks.ts";
 
 /** Done, not yet, or not knowable here (the list refused this viewer, or failed). */
 type StepState = "done" | "pending" | "unknown";

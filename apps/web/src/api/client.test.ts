@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ApiError,
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+  unwrap,
+} from "@agent-platform/client";
+import {
   authMeResponseSchema,
   DISPLAY_NAME_MAX as CONTRACT_DISPLAY_NAME_MAX,
   CSRF_HEADER_NAME as CONTRACT_HEADER_NAME,
@@ -15,13 +21,7 @@ import {
   PASSWORD_MIN_LENGTH,
 } from "../auth/limits.ts";
 import { apiError, fakeApi, json, me } from "../test-support/fake-api.ts";
-import {
-  ApiError,
-  CSRF_HEADER_NAME,
-  CSRF_HEADER_VALUE,
-  createApiClient,
-  unwrap,
-} from "./client.ts";
+import { createApiClient } from "./client.ts";
 
 describe("API client", () => {
   test("the copied constants are the contract's", () => {

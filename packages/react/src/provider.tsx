@@ -1,4 +1,4 @@
-import type { ApiClient } from "@agent-platform/client";
+import type { ApiClient, RetryTiming } from "@agent-platform/client";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import {
   defaultMessages,
@@ -21,6 +21,13 @@ export interface AgentPlatformProviderProps {
   /** Replaces the default wording key by key. */
   readonly messages?: Partial<Record<ModuleMessageKey, string>>;
   readonly renderLink: RenderLink;
+  /**
+   * Called when a session event stream is refused for a missing login. Keep
+   * it stable: a new function reopens every open stream.
+   */
+  readonly onUnauthorized?: () => void;
+  /** Reconnect timing of session event streams; tests shorten it. */
+  readonly eventRetry?: RetryTiming;
   readonly children: ReactNode;
 }
 
@@ -30,6 +37,8 @@ export interface AgentPlatform {
   /** The locale's default messages with the host's replacements applied. */
   readonly messages: ModuleMessages;
   readonly renderLink: RenderLink;
+  readonly onUnauthorized?: () => void;
+  readonly eventRetry?: RetryTiming;
 }
 
 const AgentPlatformContext = createContext<AgentPlatform | null>(null);
@@ -43,6 +52,8 @@ export function AgentPlatformProvider({
   locale,
   messages,
   renderLink,
+  onUnauthorized,
+  eventRetry,
   children,
 }: AgentPlatformProviderProps) {
   const value = useMemo<AgentPlatform>(
@@ -51,8 +62,10 @@ export function AgentPlatformProvider({
       locale,
       messages: { ...defaultMessages[locale], ...messages },
       renderLink,
+      ...(onUnauthorized ? { onUnauthorized } : {}),
+      ...(eventRetry ? { eventRetry } : {}),
     }),
-    [client, locale, messages, renderLink],
+    [client, locale, messages, renderLink, onUnauthorized, eventRetry],
   );
   return <AgentPlatformContext value={value}>{children}</AgentPlatformContext>;
 }

@@ -1,3 +1,4 @@
+import { type ApiError, unwrap } from "@agent-platform/client";
 import type {
   AuditRetentionRequest,
   SlackGuestRequest,
@@ -5,7 +6,6 @@ import type {
 import { useAgentPlatform } from "@agent-platform/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
-import { type ApiError, unwrap } from "../api/client.ts";
 import { queryKeys } from "../api/queries.ts";
 import {
   permissionReason,

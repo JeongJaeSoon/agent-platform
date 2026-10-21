@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@agent-platform/client": "workspace:*",
+    "@agent-platform/contracts": "workspace:*",
     "@agent-platform/core": "workspace:*",
     "@tanstack/react-query": "5.103.2",
     "@types/react": "^19.3.0",

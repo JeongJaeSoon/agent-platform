@@ -1,3 +1,4 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   Agent,
   ApiKeyView,
@@ -10,7 +11,6 @@ import { useAgentPlatform } from "@agent-platform/react";
 import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import {
   administeredAgentsQuery,
   agentsQuery,

@@ -1,10 +1,10 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type { AgentDetail } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
 import { formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { agentsQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,

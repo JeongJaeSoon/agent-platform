@@ -5,7 +5,7 @@ import {
   type RouterHistory,
   RouterProvider,
 } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { I18nProvider, type Locale, useI18n } from "./i18n/i18n.tsx";
 import { createAppRouter } from "./router.tsx";
 import { createServices, type Services } from "./services.tsx";
@@ -30,11 +30,18 @@ function Platform({
   readonly children: ReactNode;
 }) {
   const { locale } = useI18n();
+  // Read at call time: App sets services.onUnauthorized once its router exists.
+  const onUnauthorized = useCallback(
+    () => services.onUnauthorized(),
+    [services],
+  );
   return (
     <AgentPlatformProvider
       client={services.client}
       locale={locale}
       renderLink={renderLink}
+      onUnauthorized={onUnauthorized}
+      {...(services.eventRetry ? { eventRetry: services.eventRetry } : {})}
     >
       {children}
     </AgentPlatformProvider>

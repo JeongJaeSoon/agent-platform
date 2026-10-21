@@ -3,8 +3,8 @@ import type {
   SessionStatus,
   StatusEventPhase,
 } from "@agent-platform/contracts";
+import type { SessionEventFrame } from "@agent-platform/react";
 import type { Translate } from "../i18n/i18n.tsx";
-import type { SessionEventFrame } from "./hooks.ts";
 
 /*
  * Turns the raw event stream into the lines the timeline draws: every line

@@ -1,4 +1,12 @@
+import {
+  AgentPlatformProvider,
+  type Locale,
+  type RenderLink,
+} from "@agent-platform/react";
 import type { Decorator, Preview } from "@storybook/react-vite";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type ReactNode, useMemo, useState } from "react";
+import { type FakeRoutes, fakeClient } from "./fake-client.ts";
 
 import "./preview.css";
 
@@ -10,9 +18,63 @@ const withTheme: Decorator = (Story, { globals }) => {
   return <Story />;
 };
 
+const renderLink: RenderLink = ({ to, id, children }) => (
+  <a href={`#${to}/${id}`}>{children}</a>
+);
+
+function Platform({
+  locale,
+  routes,
+  children,
+}: {
+  readonly locale: Locale;
+  readonly routes: FakeRoutes | undefined;
+  readonly children: ReactNode;
+}) {
+  // One cache per story, so one story's answers never show in the next.
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  );
+  const client = useMemo(() => fakeClient(routes), [routes]);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AgentPlatformProvider
+        client={client}
+        locale={locale}
+        renderLink={renderLink}
+      >
+        {children}
+      </AgentPlatformProvider>
+    </QueryClientProvider>
+  );
+}
+
+/** A story names its requests in `parameters.api`; see fake-client.ts. */
+const withPlatform: Decorator = (Story, { globals, parameters }) => {
+  const locale: Locale = globals.locale === "en" ? "en" : "ko";
+  document.documentElement.lang = locale;
+  return (
+    <Platform locale={locale} routes={parameters.api as FakeRoutes | undefined}>
+      <Story />
+    </Platform>
+  );
+};
+
 const preview: Preview = {
-  decorators: [withTheme],
+  decorators: [withTheme, withPlatform],
   globalTypes: {
+    locale: {
+      description: "Language",
+      toolbar: {
+        title: "Language",
+        icon: "globe",
+        items: [
+          { value: "ko", title: "한국어" },
+          { value: "en", title: "English" },
+        ],
+        dynamicTitle: true,
+      },
+    },
     theme: {
       description: "Colour theme",
       toolbar: {
@@ -26,7 +88,7 @@ const preview: Preview = {
       },
     },
   },
-  initialGlobals: { theme: "light" },
+  initialGlobals: { theme: "light", locale: "ko" },
   parameters: {
     layout: "padded",
     // `error` fails the story's test on any axe violation, so CI's a11y

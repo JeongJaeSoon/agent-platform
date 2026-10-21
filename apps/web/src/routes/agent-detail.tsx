@@ -1,3 +1,4 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   ActivateAgentResponse,
   AgentCard,
@@ -19,7 +20,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";

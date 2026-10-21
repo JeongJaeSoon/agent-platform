@@ -1,3 +1,4 @@
+import type { ApiError } from "@agent-platform/client";
 import type {
   AgentCard,
   ListProfilesResponse,
@@ -5,7 +6,6 @@ import type {
 } from "@agent-platform/contracts";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useId } from "react";
-import type { ApiError } from "../api/client.ts";
 import type { components } from "../api/schema.gen.ts";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { TextAreaField, TextField } from "./field.tsx";
