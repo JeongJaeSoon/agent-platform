@@ -11,6 +11,7 @@ import {
   sessionQuery,
   sessionsQuery,
   sessionUsageQuery,
+  waitingSessionsQuery,
 } from "@agent-platform/core";
 import { setupDom } from "@agent-platform/ui/test-support/dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -142,6 +143,7 @@ function harness(
   );
   const keys = {
     list: sessionsQuery(client).queryKey,
+    waiting: waitingSessionsQuery(client).queryKey,
     detail: sessionQuery(client, SESSION_ID).queryKey,
     pending: pendingRequestsQuery(client, SESSION_ID).queryKey,
     usage: sessionUsageQuery(client, SESSION_ID).queryKey,
@@ -218,6 +220,7 @@ describe("useSendMessage", () => {
     ]);
     expect(h.invalidated()).toEqual([
       [h.keys.list, true],
+      [h.keys.waiting, true],
       [h.keys.detail, true],
     ]);
   });
@@ -243,8 +246,9 @@ describe("useSessionControl", () => {
       commands.map(({ action, body }) => ["POST", `${BASE}/${action}`, body]),
     );
     expect(new Set(h.sent.map((s) => s.idempotencyKey)).size).toBe(4);
-    expect(h.invalidated().slice(0, 3)).toEqual([
+    expect(h.invalidated().slice(0, 4)).toEqual([
       [h.keys.list, true],
+      [h.keys.waiting, true],
       [h.keys.detail, true],
       [h.keys.pending, false],
     ]);
@@ -425,13 +429,31 @@ describe("useSessionEvents", () => {
       h.stream.push(status, assistant, question, status, result, error);
     });
     await waitFor(() => expect(hook.result.current.events).toHaveLength(6));
-    await waitFor(() => expect(h.invalidated()).toHaveLength(4));
+    await waitFor(() => expect(h.invalidated()).toHaveLength(5));
     expect(h.invalidated()).toEqual([
       [h.keys.list, true],
+      [h.keys.waiting, true],
       [h.keys.detail, true],
       [h.keys.pending, false],
       [h.keys.usage, false],
     ]);
+  });
+
+  test("a status event marks the sidebar's waiting count stale at once", async () => {
+    const { h, hook } = open();
+    h.queryClient.setQueryData(h.keys.waiting, {
+      items: [],
+      next_cursor: null,
+    });
+    await waitFor(() => expect(hook.result.current.state).toBe("open"));
+    act(() => {
+      h.stream.push(status);
+    });
+    await waitFor(() =>
+      expect(h.queryClient.getQueryState(h.keys.waiting)?.isInvalidated).toBe(
+        true,
+      ),
+    );
   });
 
   test("each event kind refreshes what it can change", async () => {
