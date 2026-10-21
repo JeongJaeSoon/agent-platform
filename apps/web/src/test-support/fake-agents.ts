@@ -80,6 +80,12 @@ export function agentServer() {
           profile("claude-coding-local", "claude-sonnet-5"),
         ],
       }),
+    // Creating the agent makes its first version from the card sent.
+    "POST /v1/agents": async (request: Request) => {
+      const body = (await request.json()) as { card: AgentCard };
+      versions.splice(0, versions.length, version(1, body.card));
+      return json(201, detail());
+    },
     [`GET ${path}`]: () => json(200, detail()),
     [`GET ${path}/admins`]: () => json(200, { users: [], teams: [] }),
     [`PATCH ${path}`]: async (request: Request) => {

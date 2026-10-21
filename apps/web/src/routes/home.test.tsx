@@ -20,6 +20,28 @@ const owner = {
   created_at: "2026-10-01T00:00:00.000Z",
 };
 
+const noSessions = {
+  "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+};
+
+const oneSession = {
+  id: "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+  revision: 1,
+  admission_state: "active",
+  status: "idle",
+  runtime: {
+    kind: "claude_agent_sdk",
+    version: "1.0.0",
+    profile_id: "default",
+  },
+  repository_id: "demo",
+  current_turn_id: null,
+  queued_turn_count: 0,
+  last_event_at: null,
+  created_at: "2026-10-01T00:00:00.000Z",
+  updated_at: "2026-10-01T00:00:00.000Z",
+};
+
 async function states() {
   await screen.findByRole("heading", { name: "Acme" });
   return () =>
@@ -29,18 +51,27 @@ async function states() {
 }
 
 describe("bootstrap checklist", () => {
-  test("처음에는 소유자만 완료이고, 초대·에이전트 단계는 각 화면으로 잇는다", async () => {
+  test("처음에는 소유자만 완료이고, 초대·에이전트·세션 단계는 각 화면으로 잇는다", async () => {
     const server = agentServer();
-    renderAt("/", {
+    const { api } = renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
+      ...noSessions,
     });
     const read = await states();
     await waitFor(() =>
+      expect(api.calls.some((c) => c.path === "/v1/sessions")).toBe(true),
+    );
+    await waitFor(() =>
       expect(read()).toEqual(["done", "pending", "pending", "pending"]),
     );
+    expect(
+      screen
+        .getByRole("link", { name: "첫 세션 확인하기" })
+        .getAttribute("href"),
+    ).toBe("/sessions");
     expect(
       screen
         .getByRole("link", { name: "구성원 초대하기" })
@@ -77,6 +108,7 @@ describe("bootstrap checklist", () => {
           ],
         }),
       "GET /v1/agents": () => json(200, { items: [agent] }),
+      ...noSessions,
     });
     const read = await states();
     await waitFor(() =>
@@ -93,6 +125,7 @@ describe("bootstrap checklist", () => {
         json(200, { items: [owner, { ...owner, user_id: AGENT_ID }] }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
+      ...noSessions,
     });
     const read = await states();
     await waitFor(() =>
@@ -106,6 +139,7 @@ describe("bootstrap checklist", () => {
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
       "GET /v1/agents": () => json(200, { items: [] }),
+      ...noSessions,
     });
     const read = await states();
     await waitFor(() =>
@@ -121,12 +155,43 @@ describe("bootstrap checklist", () => {
       "GET /v1/invites": forbidden,
       "GET /v1/agents": forbidden,
       "GET /v1/administered-agents": () => json(200, { items: [] }),
+      ...noSessions,
     });
     const read = await states();
     await waitFor(() =>
       expect(read()).toEqual(["done", "unknown", "unknown", "pending"]),
     );
     expect(screen.getAllByText("확인할 수 없음")).toHaveLength(2);
+  });
+
+  test("내 세션이 하나라도 있으면 세션 단계는 완료다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/members": () => apiError(403, "FORBIDDEN", "not allowed"),
+      "GET /v1/invites": () => apiError(403, "FORBIDDEN", "not allowed"),
+      "GET /v1/agents": () => apiError(403, "FORBIDDEN", "not allowed"),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions": () =>
+        json(200, { items: [oneSession], next_cursor: null }),
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual(["done", "unknown", "unknown", "done"]),
+    );
+  });
+
+  test("세션 목록을 읽지 못하면 세션 단계는 모른다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [] }),
+      "GET /v1/sessions": () => apiError(500, "INTERNAL", "boom"),
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual(["done", "pending", "pending", "unknown"]),
+    );
   });
 });
 
@@ -223,6 +288,7 @@ describe("내가 관리하는 에이전트", () => {
       "GET /v1/members": () => json(200, { items: [owner] }),
       "GET /v1/invites": () => json(200, { items: [] }),
       "GET /v1/agents": server.routes["GET /v1/agents"],
+      ...noSessions,
     });
     const read = await states();
     await waitFor(() =>

@@ -14,7 +14,8 @@ const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
 const { GuardedButton } = await import("./auth/guard.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
-const { createServices, ServicesProvider } = await import("./services.tsx");
+const { createServices } = await import("./services.tsx");
+const { AgentPlatformProvider } = await import("@agent-platform/react");
 
 type Routes = Parameters<typeof fakeApi>[0];
 
@@ -57,7 +58,7 @@ describe("상태 화면", () => {
     expect(history.location.search).toContain("redirect=%2F");
   });
 
-  test("403이면 권한 없음 화면에 서버 문구를 그대로 보인다", async () => {
+  test("403이면 권한 없음 화면만 보이고 서버의 영어 문구는 보이지 않는다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () =>
         apiError(
@@ -68,9 +69,8 @@ describe("상태 화면", () => {
     });
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("이 화면을 볼 권한이 없습니다");
-    expect(alert.textContent).toContain(
-      "This credential does not hold sessions:read",
-    );
+    expect(document.body.textContent).not.toContain("does not hold");
+    expect(document.body.textContent).not.toContain("sessions:read");
     expect(screen.queryByText("다시 로그인하세요")).toBeNull();
   });
 
@@ -316,9 +316,13 @@ describe("권한 없는 버튼", () => {
     render(
       <I18nProvider locale="ko">
         <QueryClientProvider client={queryClient}>
-          <ServicesProvider services={services}>
+          <AgentPlatformProvider
+            client={services.client}
+            locale="ko"
+            renderLink={({ children }) => children}
+          >
             <GuardedButton scope="sessions:recover">복구</GuardedButton>
-          </ServicesProvider>
+          </AgentPlatformProvider>
         </QueryClientProvider>
       </I18nProvider>,
     );

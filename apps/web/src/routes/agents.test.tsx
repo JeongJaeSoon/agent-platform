@@ -1,12 +1,41 @@
 import { describe, expect, test } from "bun:test";
+import type { ApiError } from "@agent-platform/client";
 import { agentDetailSchema } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
 import { queryKeys } from "../api/queries.ts";
+import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
+import { agentRefusal } from "./agents.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
+type User = Awaited<ReturnType<typeof setupUser>>;
+type Api = ReturnType<typeof renderAt>["api"];
+
+const currentStep = () =>
+  screen
+    .getByRole("navigation", { name: "에이전트 만들기 단계" })
+    .querySelector('[aria-current="step"]')?.textContent;
+const STEP_NO = { 이름: 1, "하는 일": 2, "배포 판": 3, 켜기: 4 } as const;
+const atStep = (label: keyof typeof STEP_NO) =>
+  waitFor(() => expect(currentStep()).toBe(`${STEP_NO[label]}${label}`));
+const posted = (api: Api, path: string) =>
+  api.calls.find((c) => c.method === "POST" && c.path === path)?.body;
+
+async function toJobStep(user: User) {
+  await user.type(await screen.findByLabelText("이름"), "결제 담당");
+  await user.type(screen.getByLabelText("식별자"), "billing");
+  await user.click(screen.getByRole("button", { name: "다음" }));
+  await atStep("하는 일");
+}
+
+async function fillJob(user: User) {
+  await user.type(screen.getByLabelText("역할"), CARD.role);
+  await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
+  await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
+  await user.click(screen.getByRole("button", { name: "초안 저장하고 다음" }));
+}
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
@@ -26,31 +55,145 @@ async function seedRelease(server: ReturnType<typeof agentServer>) {
   );
 }
 
+describe("agentRefusal", () => {
+  const refusal = (locale: Locale, code: string, message: string) =>
+    agentRefusal(
+      (key, vars) => translate(locale, key, vars),
+      { code, message, status: 422 } as ApiError,
+      "owner",
+    );
+
+  test("모델 불일치는 공백이 든 모델 이름도 원문 없이 옮긴다", () => {
+    const message =
+      "card.model: model custom model is not the model of runtime profile claude-coding-local";
+    expect(refusal("ko", "UNSUPPORTED_CAPABILITY", message)).toBe(
+      "카드 모델 custom model이(가) runtime profile claude-coding-local의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+    );
+    expect(refusal("en", "UNSUPPORTED_CAPABILITY", message)).toBe(
+      "The card's model custom model is not the model of runtime profile claude-coding-local, so no release was created. Choose a profile that runs the card's model.",
+    );
+  });
+
+  test("다른 거부는 지금처럼 이유 뒤에 서버 설명을 붙인다", () => {
+    const tools =
+      "card.capabilities.tools: runtime profile claude-coding-local does not allow WebFetch";
+    expect(refusal("ko", "UNSUPPORTED_CAPABILITY", tools)).toBe(
+      `${translate("ko", "error.UNSUPPORTED_CAPABILITY")} ${tools}`,
+    );
+    expect(refusal("ko", "BAD_REQUEST", "card.model: required")).toBe(
+      `${translate("ko", "error.BAD_REQUEST")} card.model: required`,
+    );
+  });
+});
+
 describe("에이전트 목록", () => {
   test("목록과 상태를 보이고 상세로 잇는다", async () => {
     const server = agentServer();
     renderAt("/agents", { ...meOk, ...server.routes });
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
-    expect(screen.getByText("활성 release 없음")).toBeDefined();
+    expect(screen.getByText("초안")).toBeDefined();
   });
 
-  test("agent.manage가 없으면 새 에이전트 버튼을 끈 채 이유를 적는다", async () => {
+  test("배지는 초안·활성·일시정지·보관됨을 서로 다르게 보인다", async () => {
+    const base = agentServer().detail().agent;
+    const agent = (
+      name: string,
+      status: "active" | "paused" | "archived",
+      released: boolean,
+    ) => ({
+      ...base,
+      id: crypto.randomUUID(),
+      slug: name,
+      name,
+      status,
+      active_release_id: released ? crypto.randomUUID() : null,
+      activation_revision: released ? 0 : -1,
+    });
     renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () =>
+        json(200, {
+          items: [
+            agent("draft", "active", false),
+            agent("live", "active", true),
+            agent("held", "paused", true),
+            agent("old", "archived", false),
+          ],
+        }),
+    });
+    await screen.findByRole("link", { name: "draft" });
+    const badges = ["draft", "live", "held", "old"].map((name) => {
+      const badge = screen
+        .getByRole("link", { name })
+        .closest("li")
+        ?.querySelector("[data-slot=badge]");
+      return [badge?.textContent, badge?.getAttribute("data-state")];
+    });
+    expect(badges).toEqual([
+      ["초안", "draft"],
+      ["활성", "active"],
+      ["일시정지", "paused"],
+      ["보관됨", "archived"],
+    ]);
+  });
+
+  test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {
+    const { history } = renderAt("/agents", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/agents": () =>
         apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "does not hold agent.manage",
-    );
+    expect(
+      await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+    ).toBeDefined();
     const button = screen.getByRole("button", { name: "새 에이전트" });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain("agent.manage");
+    expect(document.body.textContent).not.toContain("does not hold");
+    const user = await setupUser();
+    await user.click(button);
+    await waitFor(() => expect(history.location.pathname).toBe("/agents/new"));
+  });
+
+  test("agent.create가 없으면 새 에이전트 버튼을 끈 채 말로 된 이유를 적는다", async () => {
+    const none = { ...memberMe(), permissions: [] };
+    renderAt("/agents", {
+      "GET /v1/auth/me": () => json(200, none),
+      "GET /v1/agents": () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+    });
+    const button = await screen.findByRole("button", { name: "새 에이전트" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("agent.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    ).toBe("에이전트 만들기 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+  });
+
+  test("영어 화면도 권한 식별자와 서버 문구 없이 안내한다", async () => {
+    renderAt(
+      "/agents",
+      {
+        "GET /v1/auth/me": () => json(200, memberMe()),
+        "GET /v1/agents": () =>
+          apiError(
+            403,
+            "FORBIDDEN",
+            "This principal does not hold agent.manage",
+          ),
+        "GET /v1/administered-agents": () => json(200, { items: [] }),
+      },
+      "en",
+    );
+    expect(
+      await screen.findByText(/Only owners and admins see every agent/),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("agent.manage");
+    expect(document.body.textContent).not.toContain("does not hold");
   });
 });
 
@@ -61,7 +204,7 @@ describe("목록을 볼 수 없는 구성원", () => {
       apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
   };
 
-  test("관리자로 지정된 에이전트는 권한 안내 아래에서 상세로 잇는다", async () => {
+  test("관리자로 지정된 에이전트는 목록 안내 아래에서 상세로 잇는다", async () => {
     const agent = agentServer().detail().agent;
     renderAt("/agents", {
       ...member,
@@ -75,9 +218,9 @@ describe("목록을 볼 수 없는 구성원", () => {
         .getByRole("link", { name: "결제 담당" })
         .getAttribute("href"),
     ).toBe(DETAIL);
-    expect(screen.getByRole("alert").textContent).toContain(
-      "does not hold agent.manage",
-    );
+    expect(
+      screen.getByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+    ).toBeDefined();
   });
 
   test("관리하는 에이전트가 없으면 없다고 적는다", async () => {
@@ -91,34 +234,75 @@ describe("목록을 볼 수 없는 구성원", () => {
   });
 });
 
+describe("찾을 수 없는 에이전트", () => {
+  test.each([
+    ["없는 id(404)", me(), 404, "NOT_FOUND", "Agent not found"],
+    [
+      "볼 수 없는 구성원(403)",
+      memberMe(),
+      403,
+      "FORBIDDEN",
+      "This principal does not hold agent.manage",
+    ],
+  ] as const)(
+    "%s는 제목과 목록 링크가 있는 찾을 수 없음 화면이다",
+    async (_label, who, status, code, message) => {
+      renderAt("/agents/missing", {
+        "GET /v1/auth/me": () => json(200, who),
+        "GET /v1/agents/missing": () => apiError(status, code, message),
+      });
+      expect(
+        await screen.findByRole("heading", {
+          name: "에이전트를 찾을 수 없습니다",
+        }),
+      ).toBeDefined();
+      expect(
+        screen
+          .getByRole("link", { name: "에이전트 목록으로" })
+          .getAttribute("href"),
+      ).toBe("/agents");
+      expect(document.body.textContent).not.toContain(message);
+      expect(screen.queryByText("이 화면을 볼 권한이 없습니다")).toBeNull();
+    },
+  );
+});
+
 describe("새 에이전트", () => {
-  test("빈 카드 폼으로 시작하고, 만들면 상세로 가서 아직 활성이 아니라고 말한다", async () => {
+  test("이름 → 하는 일 → 배포 판 → 켜기로 만들고, Stepper가 지금 단계를 가리킨다", async () => {
     const server = agentServer();
-    const { api, history } = renderAt("/agents/new", {
+    const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
-      "POST /v1/agents": () => json(201, server.detail()),
     });
     const user = await setupUser();
-    expect(
-      ((await screen.findByLabelText("역할")) as HTMLInputElement).value,
-    ).toBe("");
-    expect(screen.queryByRole("button", { name: /초안/ })).toBeNull();
+    await atStep("이름");
     await user.type(screen.getByLabelText("이름"), "결제 담당");
-    await user.type(screen.getByLabelText("주소 이름"), "billing");
+    await user.type(screen.getByLabelText("식별자"), "billing");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+
+    await atStep("하는 일");
+    expect(
+      screen.getByRole("button", { name: /^이름\s*, 완료$/ }),
+    ).toBeDefined();
+    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe("");
     await user.type(screen.getByLabelText("역할"), CARD.role);
     await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
-    await user.type(screen.getByLabelText("모델"), CARD.model);
+    const model = screen.getByLabelText("모델") as HTMLSelectElement;
+    expect(model.getAttribute("data-slot")).toBe("native-select");
+    expect(model.value).toBe("");
+    expect([...model.options].map((option) => option.textContent)).toEqual([
+      "모델을 고르세요",
+      "claude-haiku-5 · claude-coding-fast",
+      "claude-sonnet-5 · claude-coding-local",
+    ]);
+    await user.selectOptions(model, CARD.model);
     await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
-    await user.click(screen.getByRole("button", { name: "에이전트 만들기" }));
-    expect(
-      await screen.findByText(/에이전트를 만들었습니다\(version 1\)/),
-    ).toBeDefined();
-    expect(history.location.pathname).toBe(DETAIL);
-    expect(
-      api.calls.find((c) => c.path === "/v1/agents" && c.method === "POST")
-        ?.body,
-    ).toEqual({
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+
+    await atStep("배포 판");
+    expect(posted(api, "/v1/agents")).toEqual({
       slug: "billing",
       name: "결제 담당",
       card: {
@@ -126,6 +310,291 @@ describe("새 에이전트", () => {
         capabilities: { tools: null, mcp: null, forbidden: ["Bash", "Write"] },
       },
     });
+    // The profile that runs the card's model is offered first.
+    const profile = (await screen.findByLabelText(
+      "runtime profile",
+    )) as HTMLSelectElement;
+    expect(profile.value).toBe(PROFILE);
+    await user.click(screen.getByRole("button", { name: "배포 판 만들기" }));
+
+    await atStep("켜기");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
+      version_id: server.versions[0]?.id,
+      runtime_profile_id: PROFILE,
+    });
+    await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
+    expect(
+      (await screen.findByText(/결제 담당을\(를\) 켰습니다/)).tagName,
+    ).toBe("OUTPUT");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/activate`)).toEqual({
+      release_id: server.releases[0]?.id,
+      expected_revision: -1,
+    });
+    expect(
+      screen.getByRole("link", { name: "에이전트 보기" }).getAttribute("href"),
+    ).toBe(DETAIL);
+  });
+
+  test("식별자는 이름에서 채워지고, 고친 뒤에는 이름을 따라가지 않는다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    const name = (await screen.findByLabelText("이름")) as HTMLInputElement;
+    const slug = screen.getByLabelText("식별자") as HTMLInputElement;
+    await user.type(name, "Refund Desk 2");
+    expect(slug.value).toBe("refund-desk-2");
+    await user.clear(slug);
+    await user.type(slug, "refunds");
+    await user.type(name, "b");
+    expect(slug.value).toBe("refunds");
+  });
+
+  test("영문이 없는 이름은 식별자를 비워 두고, 빈 칸은 다음으로 넘기지 않는다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "결제 담당");
+    const slug = screen.getByLabelText("식별자") as HTMLInputElement;
+    expect(slug.value).toBe("");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await waitFor(() => expect(slug.getAttribute("aria-invalid")).toBe("true"));
+    expect(currentStep()).toBe("1이름");
+  });
+
+  test("하는 일 칸이 비면 칸마다 이유를 보이고 아무것도 저장하지 않는다", async () => {
+    const { api } = renderAt("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("역할").getAttribute("aria-invalid")).toBe(
+        "true",
+      ),
+    );
+    expect(
+      screen.getByLabelText("지시 사항").getAttribute("aria-invalid"),
+    ).toBe("true");
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    expect(currentStep()).toBe("2하는 일");
+  });
+
+  test("하는 일까지 마치고 나가도 에이전트는 목록에 초안으로 남는다", async () => {
+    const server = agentServer();
+    let saved = false;
+    const { history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/agents": () =>
+        json(200, { items: saved ? [server.detail().agent] : [] }),
+      "POST /v1/agents": (request: Request) => {
+        saved = true;
+        return server.routes["POST /v1/agents"](request);
+      },
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+
+    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
+    act(() => history.push("/agents"));
+    const link = await screen.findByRole("link", { name: "결제 담당" });
+    expect(
+      link.closest("li")?.querySelector("[data-slot=badge]")?.textContent,
+    ).toBe("초안");
+  });
+
+  test("초안을 저장한 뒤 뒤로 가서 고치면 새로 만들지 않고 그 초안을 고친다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+    // Past the save the stepper does not lead back.
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /^하는 일\s*, 완료$/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    act(() => history.back());
+    await atStep("하는 일");
+    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
+    ).toHaveLength(1);
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect(
+      (patch?.body as { card: { instructions: string } }).card.instructions,
+    ).toBe(`${CARD.instructions} 더.`);
+    // The release is made from the version this save produced.
+    await user.click(
+      await screen.findByRole("button", { name: "배포 판 만들기" }),
+    );
+    await atStep("켜기");
+    expect(
+      (posted(api, `/v1/agents/${AGENT_ID}/releases`) as { version_id: string })
+        .version_id,
+    ).toBe(server.versions[1]?.id ?? "missing");
+
+    act(() => history.go(-3));
+    await atStep("이름");
+    expect((screen.getByLabelText("식별자") as HTMLInputElement).readOnly).toBe(
+      true,
+    );
+  });
+
+  test("나갔다가 뒤로 돌아와도 그 초안을 이어서 고치고 새로 만들지 않는다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+
+    // Leaving unmounts the flow; coming back mounts a new one.
+    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
+    act(() => history.back());
+    await atStep("배포 판");
+    act(() => history.back());
+    await atStep("하는 일");
+    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
+      CARD.role,
+    );
+    await user.type(screen.getByLabelText("지시 사항"), " 더.");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
+    ).toHaveLength(1);
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(true);
+    // The release goes to the version that save made, not the first one.
+    await user.click(
+      await screen.findByRole("button", { name: "배포 판 만들기" }),
+    );
+    await atStep("켜기");
+    expect(
+      (posted(api, `/v1/agents/${AGENT_ID}/releases`) as { version_id: string })
+        .version_id,
+    ).toBe(server.versions[1]?.id ?? "missing");
+  });
+
+  test("첫 단계에서 나갔다 돌아와도 그 초안의 이름·식별자를 이어 간다", async () => {
+    const server = agentServer();
+    const { api, history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+
+    act(() => history.go(-2));
+    await atStep("이름");
+    act(() => history.push("/agents"));
+    await screen.findByRole("link", { name: "결제 담당" });
+    act(() => history.back());
+    await atStep("이름");
+    const slug = screen.getByLabelText("식별자") as HTMLInputElement;
+    expect(slug.value).toBe("billing");
+    expect(slug.readOnly).toBe(true);
+    expect((screen.getByLabelText("이름") as HTMLInputElement).value).toBe(
+      "결제 담당",
+    );
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
+      CARD.role,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
+    ).toHaveLength(1);
+  });
+
+  test("Stepper로 앞 단계에 돌아가면 그 단계 제목이 포커스를 받는다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    await toJobStep(user);
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("하는 일"),
+    );
+    await user.click(screen.getByRole("button", { name: /^이름\s*, 완료$/ }));
+    await atStep("이름");
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
+    expect(document.activeElement?.textContent).toBe("이름");
+  });
+
+  test("거부된 초안 저장은 서버 이유를 한 줄로 보이고 그 단계에 머문다", async () => {
+    renderAt("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+      "POST /v1/agents": () =>
+        apiError(409, "ALREADY_EXISTS", "slug billing is taken"),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이 식별자는 다른 에이전트가 이미 씁니다. '이름' 단계로 돌아가 식별자를 바꾸세요.",
+    );
+    expect(currentStep()).toBe("2하는 일");
+  });
+
+  test("모델 목록을 읽는 동안과 못 읽었을 때는 이유를 보이고 만들지 못하게 한다", async () => {
+    let fail: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      fail = resolve;
+    });
+    renderAt("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/profiles": async () => {
+        await gate;
+        return apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "The catalog cannot be read",
+        );
+      },
+    });
+    await toJobStep(await setupUser());
+    const create = () =>
+      screen.getByRole("button", {
+        name: "초안 저장하고 다음",
+      }) as HTMLButtonElement;
+    expect(await screen.findByText(/모델 목록을 불러오는 중/)).toBeDefined();
+    expect(create().disabled).toBe(true);
+    fail();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "모델 목록을 불러오지 못해 저장할 수 없습니다",
+    );
+    expect(screen.queryByLabelText("모델")).toBeNull();
+    expect(create().disabled).toBe(true);
   });
 });
 
@@ -250,7 +719,12 @@ describe("에이전트 상세", () => {
     const server = agentServer();
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const profile = await screen.findByLabelText("runtime profile");
+    const profile = (await screen.findByLabelText(
+      "runtime profile",
+    )) as HTMLSelectElement;
+    // With no release yet the form offers the profile running the card's model.
+    expect(profile.value).toBe(PROFILE);
+    await user.selectOptions(profile, "claude-coding-fast");
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Unknown runtime profile claude-coding-fast",
@@ -284,6 +758,41 @@ describe("에이전트 상세", () => {
     );
     expect(agentDetailSchema.safeParse(server.detail()).success).toBe(true);
   });
+  test("결과는 버튼을 누른 섹션에 나오고 포커스가 그리로 간다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const section = (name: string) =>
+      screen.getByRole("heading", { name }).closest("section") as HTMLElement;
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    const saved = await screen.findByText(/저장했습니다/);
+    expect(section("카드").contains(saved)).toBe(true);
+    expect(document.activeElement?.contains(saved)).toBe(true);
+
+    await screen.findByLabelText("runtime profile");
+    await user.selectOptions(
+      screen.getByLabelText("runtime profile"),
+      "claude-coding-fast",
+    );
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    const refused = await screen.findByRole("alert");
+    expect(section("release").contains(refused)).toBe(true);
+    expect(document.activeElement?.contains(refused)).toBe(true);
+    // One result at a time: the card's notice went away with the new action.
+    expect(screen.queryByText(/저장했습니다/)).toBeNull();
+
+    await user.selectOptions(screen.getByLabelText("runtime profile"), PROFILE);
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: `version 1 · ${PROFILE} 활성화`,
+      }),
+    );
+    const activated = await screen.findByText(/활성화됐습니다/);
+    expect(section("release").contains(activated)).toBe(true);
+    expect(document.activeElement?.contains(activated)).toBe(true);
+  });
+
   test("새 version을 저장하면 release 폼도 그 version을 고른다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
@@ -339,6 +848,14 @@ describe("두 탭 동시 활성화", () => {
     );
     const panel = conflict.closest("section") as HTMLElement;
     expect(panel.textContent).toContain("덮어쓰지 않고 멈췄습니다");
+    // The refusal shows by the button that caused it and takes focus.
+    expect(
+      b
+        .getByRole("heading", { name: "release" })
+        .closest("section")
+        ?.contains(panel),
+    ).toBe(true);
+    expect(document.activeElement?.contains(panel)).toBe(true);
     expect(b.queryByText(/활성화됐습니다/)).toBeNull();
     const fromB = tabB.api.calls.filter((c) => c.path.endsWith("/activate"));
     expect(fromB).toHaveLength(1);
@@ -443,10 +960,56 @@ describe("편집 중 다른 곳의 저장", () => {
       "runtime profile",
     )) as HTMLSelectElement;
     expect([...select.options].map((option) => option.textContent)).toEqual([
-      "claude-coding-fast · claude-haiku-5",
+      "claude-coding-fast · claude-haiku-5 · 카드 모델과 다름",
       "claude-coding-local · claude-sonnet-5",
     ]);
     expect(select.value).toBe(PROFILE);
+  });
+
+  test("모델과 profile 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const described = async (label: string) =>
+      (
+        (await screen.findByLabelText(label)).getAttribute(
+          "aria-describedby",
+        ) ?? ""
+      )
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(" ");
+    expect(await described("모델")).toContain(
+      "release할 runtime profile의 모델과 정확히 같아야 합니다",
+    );
+    expect(await described("runtime profile")).toBe(
+      "각 profile과 그 profile이 쓰는 모델. 카드 모델과 같은 모델의 profile만 release할 수 있습니다",
+    );
+    expect(document.body.textContent).not.toContain("profiles.yaml");
+  });
+
+  test("카드 모델과 다른 profile로 거부된 release는 영어 원문 없이 한국어로 알린다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`POST /v1/agents/${AGENT_ID}/releases`]: () =>
+        apiError(
+          422,
+          "UNSUPPORTED_CAPABILITY",
+          "card.model: model claude-sonnet-5 is not the model of runtime profile claude-coding-fast",
+        ),
+    });
+    const user = await setupUser();
+    await user.selectOptions(
+      await screen.findByLabelText("runtime profile"),
+      "claude-coding-fast",
+    );
+    await user.click(screen.getByRole("button", { name: "release 만들기" }));
+    const refusal = await screen.findByText(/release를 만들지 못했습니다/);
+    expect(refusal.textContent).toBe(
+      "카드 모델 claude-sonnet-5이(가) runtime profile claude-coding-fast의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+    );
+    expect(document.body.textContent).not.toContain("is not the model of");
   });
 
   test("profile 목록을 못 읽으면 이유를 보이고 release를 만들지 못하게 한다", async () => {
@@ -457,17 +1020,75 @@ describe("편집 중 다른 곳의 저장", () => {
       "GET /v1/profiles": () =>
         apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
     });
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "profile 목록을 불러오지 못했습니다",
+    const alerts = (await screen.findAllByRole("alert")).map(
+      (alert) => alert.textContent,
+    );
+    expect(alerts).toContainEqual(
+      expect.stringContaining("profile 목록을 불러오지 못했습니다"),
+    );
+    expect(alerts).toContainEqual(
+      expect.stringContaining("모델 목록을 불러오지 못해 저장할 수 없습니다"),
     );
     expect(screen.queryByLabelText("runtime profile")).toBeNull();
+    expect(screen.queryByLabelText("모델")).toBeNull();
+    for (const name of ["release 만들기", "저장"])
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+  });
+
+  test("카탈로그에 없는 카드 모델은 '카탈로그에 없음'으로 남고, 손대지 않으면 그대로 저장한다", async () => {
+    const server = agentServer();
+    const legacy = (body: ReturnType<typeof server.detail>) => ({
+      ...body,
+      versions: body.versions.map((v) => ({
+        ...v,
+        card: { ...v.card, model: "claude-legacy-4" },
+      })),
+    });
+    const { api } = renderAt(DETAIL, {
+      ...meOk,
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}`]: () => json(200, legacy(server.detail())),
+      [`PATCH /v1/agents/${AGENT_ID}`]: () =>
+        json(200, legacy(server.detail())),
+    });
+    const user = await setupUser();
+    const model = (await screen.findByLabelText("모델")) as HTMLSelectElement;
+    expect(model.getAttribute("data-slot")).toBe("native-select");
+    expect(model.value).toBe("claude-legacy-4");
+    expect(model.selectedOptions[0]?.textContent).toBe(
+      "claude-legacy-4 · 카탈로그에 없음",
+    );
+    const described = (model.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent)
+      .join(" ");
+    expect(described).toContain("카탈로그에 없어");
+    const instructions = screen.getByLabelText("지시 사항");
+    await user.clear(instructions);
+    await user.type(instructions, "모델은 그대로.");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다/);
+    const patch = api.calls.find((c) => c.method === "PATCH");
+    expect((patch?.body as { card: { model: string } }).card.model).toBe(
+      "claude-legacy-4",
+    );
+  });
+
+  test("카드 모델과 다른 모델의 profile을 고르면 release를 만들기 전에 알린다", async () => {
+    const server = agentServer();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const select = await screen.findByLabelText("runtime profile");
+    await user.selectOptions(select, PROFILE);
+    expect(screen.queryByText(/이대로 만들면 거부됩니다/)).toBeNull();
+    await user.selectOptions(select, "claude-coding-fast");
     expect(
-      (
-        screen.getByRole("button", {
-          name: "release 만들기",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+      (await screen.findByText(/이대로 만들면 거부됩니다/)).textContent,
+    ).toBe(
+      "카드 모델(이 version): claude-sonnet-5 · 고른 profile의 모델: claude-haiku-5. 둘이 달라 이대로 만들면 거부됩니다.",
+    );
   });
 
   test("저장 응답을 기다리는 동안 이어서 쓴 내용은 응답이 와도 남는다", async () => {
