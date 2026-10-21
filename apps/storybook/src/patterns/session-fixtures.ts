@@ -201,6 +201,8 @@ export const SESSION_ROW_MESSAGES = {
       recovery_required: "Needs recovery",
       closed: "Archived",
     })[state],
+  statusAxis: "Status",
+  admissionAxis: "State",
   lastEvent: "Last event",
   created: "Created",
   queuedTurns: (count: number) => `${count} queued`,

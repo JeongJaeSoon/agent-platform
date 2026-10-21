@@ -209,6 +209,8 @@ describe("StageIndicator", () => {
 const ROW_MESSAGES: SessionRowMessages = {
   status: (status) => `status:${status}`,
   admission: (state) => `admission:${state}`,
+  statusAxis: "work",
+  admissionAxis: "session",
   lastEvent: "last",
   created: "created",
   queuedTurns: (count) => `queued:${count}`,
@@ -238,7 +240,7 @@ describe("SessionRow", () => {
     const { getByRole, container } = render(
       <SessionRow
         session={SESSION}
-        href="/sessions/abc"
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
         messages={ROW_MESSAGES}
       />,
     );
@@ -247,13 +249,31 @@ describe("SessionRow", () => {
     expect(link.textContent).toBe("0192f0c4");
     const text = container.textContent ?? "";
     for (const part of [
-      "status:running",
-      "admission:active",
+      "work: status:running",
+      "session: admission:active",
       "queued:2",
       "claude-default · claude_agent_sdk 1.2.3",
       "last none",
     ]) {
       expect(text).toContain(part);
     }
+  });
+
+  test("상태와 admission은 서로 다른 축의 StatusLabel로 그린다", () => {
+    const { container } = render(
+      <SessionRow
+        session={{ ...SESSION, status: "idle", admission_state: "paused" }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={ROW_MESSAGES}
+      />,
+    );
+    const labels = [...container.querySelectorAll(".ap-status")].map(
+      (label) => [label.getAttribute("data-axis"), label.getAttribute("data-tone")],
+    );
+    // An idle session's last turn finished; it is not an unknown state.
+    expect(labels).toEqual([
+      ["turn", "positive"],
+      ["admission", "caution"],
+    ]);
   });
 });

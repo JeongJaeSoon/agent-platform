@@ -74,6 +74,14 @@ describe("StatusLabel", () => {
     expect(label?.getAttribute("data-tone")).toBe("caution");
   });
 
+  test("axisLabel을 주면 스크린리더가 듣는 축 이름을 바꾼다", () => {
+    const { getByText, queryByText } = render(
+      <StatusLabel axis="admission" state="paused" axisLabel="State" />,
+    );
+    expect(getByText("State:").className).toContain("ap-visually-hidden");
+    expect(queryByText("세션:")).toBeNull();
+  });
+
   test("prefers-reduced-motion이면 스피너를 돌리지 않는다", () => {
     const restore = stubPrefersReducedMotion(true);
     try {

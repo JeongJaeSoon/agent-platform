@@ -3,7 +3,7 @@ import type {
   SessionStatus,
   SessionSummary,
 } from "@agent-platform/contracts";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 
 import { cn } from "../lib/cn.ts";
 import { Badge } from "../primitives/badge.tsx";
@@ -11,10 +11,15 @@ import {
   formatTimestamp,
   type TimestampLocale,
 } from "../receipt/format-timestamp.ts";
+import { StatusLabel } from "../status/status-label.tsx";
+import { SessionStatusLabel } from "./session-status-label.tsx";
 
 export interface SessionRowMessages {
   readonly status: (status: SessionStatus) => string;
   readonly admission: (state: AdmissionState) => string;
+  /** The axis names a screen reader hears before each state. */
+  readonly statusAxis: string;
+  readonly admissionAxis: string;
   readonly lastEvent: string;
   readonly created: string;
   readonly queuedTurns: (count: number) => string;
@@ -22,10 +27,18 @@ export interface SessionRowMessages {
   readonly none: string;
 }
 
+/** What the row's link carries; the screen draws it with its router. */
+export interface SessionRowLink {
+  readonly children: ReactNode;
+  readonly className: string;
+  readonly "aria-label": string;
+  readonly title: string;
+}
+
 export interface SessionRowProps {
   readonly session: SessionSummary;
-  /** Built by the screen that owns routing; this package never builds URLs. */
-  readonly href: string;
+  /** Owned by the screen that routes; this package never builds URLs. */
+  readonly renderLink: (link: SessionRowLink) => ReactNode;
   readonly messages: SessionRowMessages;
   readonly locale?: TimestampLocale | undefined;
   readonly className?: string | undefined;
@@ -38,13 +51,12 @@ function shortId(id: string): string {
 
 export function SessionRow({
   session,
-  href,
+  renderLink,
   messages,
   locale = "ko",
   className,
 }: SessionRowProps): JSX.Element {
   const { runtime } = session;
-  const failed = session.status === "failed";
   return (
     <div
       data-slot="session-row"
@@ -54,29 +66,25 @@ export function SessionRow({
         className,
       )}
     >
-      <a
-        href={href}
-        aria-label={session.id}
-        title={session.id}
-        className="rounded-sm font-medium font-mono underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      >
-        {shortId(session.id)}
-      </a>
+      {renderLink({
+        children: shortId(session.id),
+        "aria-label": session.id,
+        title: session.id,
+        className:
+          "rounded-sm font-medium font-mono underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50",
+      })}
       <span className="flex flex-wrap gap-2">
-        <Badge
-          variant={
-            failed
-              ? "destructive"
-              : session.status === "needs_input"
-                ? "default"
-                : "secondary"
-          }
-        >
-          {messages.status(session.status)}
-        </Badge>
-        <Badge variant="outline">
-          {messages.admission(session.admission_state)}
-        </Badge>
+        <SessionStatusLabel
+          status={session.status}
+          label={messages.status(session.status)}
+          axisLabel={messages.statusAxis}
+        />
+        <StatusLabel
+          axis="admission"
+          state={session.admission_state}
+          label={messages.admission(session.admission_state)}
+          axisLabel={messages.admissionAxis}
+        />
         {session.queued_turn_count > 0 ? (
           <Badge variant="outline">
             {messages.queuedTurns(session.queued_turn_count)}
