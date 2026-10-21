@@ -96,6 +96,7 @@ import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
@@ -436,6 +437,7 @@ const app = createApiApp({
     registerSessionRoutes(router, sessions);
     registerSessionShareRoutes(router, shares, sessions);
     registerPauseRoutes(router, sessions);
+    registerCloseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, catalog);

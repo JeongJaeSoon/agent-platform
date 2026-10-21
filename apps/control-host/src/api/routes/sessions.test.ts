@@ -85,6 +85,9 @@ function app(
       pauseAtomic: async () => {
         throw new Error("not reached");
       },
+      closeAtomic: async () => {
+        throw new Error("not reached");
+      },
       decideRecoveryAtomic: async () => {
         throw new Error("not reached");
       },
@@ -857,6 +860,9 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
           throw new Error("not reached");
         },
         pauseAtomic: async () => {
+          throw new Error("not reached");
+        },
+        closeAtomic: async () => {
           throw new Error("not reached");
         },
         decideRecoveryAtomic: async () => {

@@ -107,6 +107,7 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/answers": postSessionAnswerResponseSchema,
   "POST /v1/sessions/{id}/interrupt": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/pause": receiptAcceptedResponseSchema,
+  "POST /v1/sessions/{id}/close": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/terminate": terminateSessionResponseSchema,
   "POST /v1/sessions/{id}/profile": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/resume": receiptAcceptedResponseSchema,

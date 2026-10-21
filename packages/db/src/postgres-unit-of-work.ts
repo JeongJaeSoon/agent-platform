@@ -71,9 +71,9 @@ import {
   encodeSessionCursor,
   encodeTurnCursor,
 } from "./cursors.ts";
+import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import { admitInput } from "./input-limits.ts";
-import { pauseAttention } from "./pause-control.ts";
 import {
   actionableOfSession,
   actionableOfTurn,
@@ -760,7 +760,7 @@ export function createPostgresSessionReader(
             checkpoint_revision: row.checkpointRevision,
             pending_request_count: read.pendingCount,
             attention:
-              (await pauseAttention(tx, row)) ??
+              (await drainAttention(tx, row)) ??
               (await contextGapAttention(tx, row)) ??
               startupFailedAttention(row),
             cost_usd: row.costUsd,

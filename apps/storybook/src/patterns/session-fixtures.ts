@@ -201,6 +201,7 @@ export const SESSION_ROW_MESSAGES = {
       stopping: "Ending",
       stopped: "Ended",
       recovery_required: "Needs recovery",
+      closing: "Archiving",
       closed: "Archived",
     })[state],
   statusAxis: "Status",
