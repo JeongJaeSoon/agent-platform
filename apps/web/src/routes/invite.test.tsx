@@ -174,7 +174,11 @@ describe("입력 검증(W24 규약)", () => {
     await accept();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).not.toContain("body.password");
-    expect(screen.getByLabelText("비밀번호")).toBeDefined();
+    // Above the form's fields, not under them.
+    expect(
+      alert.compareDocumentPosition(screen.getByLabelText("비밀번호")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 

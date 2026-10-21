@@ -313,6 +313,9 @@ function PasswordStep({
           : t(errorKey(isApiError(error) ? error.code : "UNKNOWN")),
       )}
     >
+      {alerts.map((alert) => (
+        <FormError key={alert}>{alert}</FormError>
+      ))}
       <Field>
         <FieldLabel>{t("invite.password")}</FieldLabel>
         <Input
@@ -340,9 +343,6 @@ function PasswordStep({
           <FieldError>{errors.display_name?.message}</FieldError>
         </Field>
       ) : null}
-      {alerts.map((alert) => (
-        <FormError key={alert}>{alert}</FormError>
-      ))}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={onBack}>
           {t("invite.back")}
