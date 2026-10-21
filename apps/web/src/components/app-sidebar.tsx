@@ -161,7 +161,7 @@ export function AppSidebar({
       id={id}
       data-slot="app-sidebar"
       data-open={open}
-      className="hidden flex-col gap-6 bg-rail px-3 py-4 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:flex md:h-dvh md:overflow-y-auto"
+      className="hidden flex-col gap-6 bg-rail px-3 py-4 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:overflow-y-auto"
     >
       <div className="hidden px-2 md:block">
         <p className="m-0 font-semibold">{t("common.appName")}</p>
@@ -221,6 +221,10 @@ function NavSection({
   );
 }
 
+// The select keeps its card surface on the rail, so it needs the card's text
+// colour back: inherited, the rail's light text vanished on a light card.
+const ON_RAIL = "text-card-foreground";
+
 function UserMenu({
   logout,
 }: {
@@ -250,6 +254,7 @@ function UserMenu({
         </FieldLabel>
         <NativeSelect
           size="sm"
+          className={ON_RAIL}
           value={locale}
           onChange={(event) => setLocale(event.target.value as Locale)}
         >
@@ -266,6 +271,7 @@ function UserMenu({
         </FieldLabel>
         <NativeSelect
           size="sm"
+          className={ON_RAIL}
           value={theme}
           onChange={(event) => {
             const next = event.target.value as Theme;

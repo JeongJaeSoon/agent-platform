@@ -110,7 +110,26 @@ export function AuthedLayout() {
   });
 
   return (
-    <div className="flex flex-1 flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)]">
+    // Header, sidebar, main in reading order: below md the open menu unfolds
+    // under its button; from md on the grid puts the sidebar on the left.
+    <div className="flex flex-1 flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
+      <header className="flex min-h-14 items-center gap-3 border-b bg-card px-4 md:col-start-2 md:row-start-1 md:px-8">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="md:hidden"
+          aria-expanded={menuOpen}
+          aria-controls={sidebarId}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
+        </Button>
+        <Whereabouts
+          groups={groups}
+          fallback={me?.workspace?.name ?? t("common.appName")}
+        />
+      </header>
       <AppSidebar
         id={sidebarId}
         open={menuOpen}
@@ -119,33 +138,14 @@ export function AuthedLayout() {
         onNavigate={() => setMenuOpen(false)}
         logout={{ pending: logout.isPending, run: () => logout.mutate() }}
       />
-      <div className="flex min-w-0 flex-col">
-        <header className="flex min-h-14 items-center gap-3 border-b bg-card px-4 md:px-8">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="md:hidden"
-            aria-expanded={menuOpen}
-            aria-controls={sidebarId}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
-          </Button>
-          <Whereabouts
-            groups={groups}
-            fallback={me?.workspace?.name ?? t("common.appName")}
-          />
-        </header>
-        <ShellMain>
-          {logout.error ? (
-            <p className="m-0 text-destructive" role="alert">
-              {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
-            </p>
-          ) : null}
-          <Outlet />
-        </ShellMain>
-      </div>
+      <ShellMain>
+        {logout.error ? (
+          <p className="m-0 text-destructive" role="alert">
+            {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
+          </p>
+        ) : null}
+        <Outlet />
+      </ShellMain>
     </div>
   );
 }
@@ -185,7 +185,7 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
   return (
     <Main
       className={cn(
-        "web-shell__main mx-auto flex w-full flex-col gap-4 px-4 py-6 md:px-8 md:py-8",
+        "web-shell__main mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-6 md:col-start-2 md:row-start-2 md:px-8 md:py-8",
         readingWidth(usePathname())
           ? "max-w-[var(--ap-layout-reading-width)]"
           : "max-w-6xl",
