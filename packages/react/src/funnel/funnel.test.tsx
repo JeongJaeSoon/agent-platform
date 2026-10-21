@@ -78,6 +78,15 @@ describe("useFunnel", () => {
     expect(renderToStaticMarkup(<Flow />)).toBe("name  reset=true");
   });
 
+  test("a stored step the flow no longer has restarts it and says so", () => {
+    // A deploy removed the step; rendering it would throw.
+    stored = [
+      { step: "name", context: {} },
+      { step: "removed", context: { name: "triage" } },
+    ];
+    expect(renderToStaticMarkup(<Flow />)).toBe("name  reset=true");
+  });
+
   test("without a stored step the flow starts at its initial step", () => {
     stored = undefined;
     expect(renderToStaticMarkup(<Flow />)).toBe("name  reset=false");

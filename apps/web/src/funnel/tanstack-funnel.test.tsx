@@ -253,6 +253,28 @@ describe("a step guard that turns the input away", () => {
     expect(screen.queryByText(RESET_TEXT)).toBeNull();
   });
 
+  test("a stored step the flow no longer has restarts it with a notice", async () => {
+    window.history.replaceState(
+      routerWritten({
+        "new-agent.histories": [
+          { step: "name", context: {} },
+          { step: "review", context: { name: "triage" } },
+        ],
+      }),
+      "",
+      "/flow?new-agent.step=review",
+    );
+    mount();
+    await at("name:{}");
+    expect(await screen.findByText(RESET_TEXT)).toBeTruthy();
+    await waitFor(() =>
+      expect((stored() as unknown[]).at(-1)).toEqual({
+        step: "name",
+        context: {},
+      }),
+    );
+  });
+
   test("a move its guard refuses lands on the first step with a notice", async () => {
     const user = await setupUser();
     mount();
