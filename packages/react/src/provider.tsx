@@ -11,7 +11,13 @@ import {
 export type LinkTarget = { readonly to: "session"; readonly id: string };
 
 export type RenderLink = (
-  link: LinkTarget & { readonly children: ReactNode },
+  link: LinkTarget & {
+    readonly children: ReactNode;
+    // Set by a module's link; the host's anchor carries them as given.
+    readonly className?: string;
+    readonly title?: string;
+    readonly "aria-label"?: string;
+  },
 ) => ReactNode;
 
 export interface AgentPlatformProviderProps {
