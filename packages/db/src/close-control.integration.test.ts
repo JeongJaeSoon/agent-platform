@@ -764,6 +764,44 @@ integration("close on PostgreSQL", () => {
     });
   });
 
+  test("a close that deadlocks with a claim's signal-then-session locks is retried and succeeds", async () => {
+    const session = await newSession("deadlock");
+    // Plays the worker claim's order: the signal first, then the session.
+    // The long timeout makes the close, which waits first, the victim.
+    const claimer = await pool.connect();
+    try {
+      await claimer.query("BEGIN");
+      await claimer.query("SET LOCAL deadlock_timeout = '30s'");
+      await claimer.query(
+        "SELECT session_id FROM unassigned_sessions WHERE session_id = $1 FOR UPDATE",
+        [session.sessionId],
+      );
+      const closing = accepted(session);
+      for (let i = 0; i < 250; i += 1) {
+        const { rows } = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> $1",
+          [(claimer as unknown as { processID: number }).processID],
+        );
+        if (rows.length > 0) break;
+        await Bun.sleep(10);
+      }
+      await claimer.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+        session.sessionId,
+      ]);
+      await claimer.query("COMMIT");
+      expect((await closing).receipt_status).toBe("succeeded");
+    } finally {
+      claimer.release();
+    }
+    expect((await sessionRow(session.sessionId)).admissionState).toBe("closed");
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, session.sessionId)),
+    ).toEqual([]);
+  });
+
   test("a bound session with no drainer closes at once with the kill intent, and its receipt succeeds on the gone observation", async () => {
     const session = await idleCovered("unclaimed");
     await append(session, "queued behind");

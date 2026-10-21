@@ -229,10 +229,23 @@ export class BindingMoved extends Error {
   }
 }
 
+// drizzle wraps the driver's error, so the code may sit on its cause.
+function isDeadlock(error: unknown): boolean {
+  for (let e = error; typeof e === "object" && e !== null; ) {
+    if ((e as { code?: unknown }).code === "40P01") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * Runs `work` in a transaction, restarting it when the session's binding
- * moved under it (see lockSessionForControl). Three attempts is plenty: a
- * binding moves once per launch, and launches are seconds apart.
+ * moved under it (see lockSessionForControl) or PostgreSQL chose it as a
+ * deadlock victim. A worker claim locks the dispatch signal before the
+ * session, and the control paths that clear the signal hold the session
+ * first; the victim's transaction is rolled back whole, so running it again
+ * is safe. Three attempts is plenty: a binding moves once per launch, and
+ * launches are seconds apart.
  */
 export async function transactionWithBindingRetry<T>(
   db: Database,
@@ -242,7 +255,8 @@ export async function transactionWithBindingRetry<T>(
     try {
       return await db.transaction((tx) => work(tx, attempt));
     } catch (error) {
-      if (!(error instanceof BindingMoved) || attempt >= 3) throw error;
+      const retryable = error instanceof BindingMoved || isDeadlock(error);
+      if (!retryable || attempt >= 3) throw error;
     }
   }
 }
