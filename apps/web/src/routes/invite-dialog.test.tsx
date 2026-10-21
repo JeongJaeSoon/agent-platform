@@ -107,6 +107,87 @@ describe("초대 보내기 대화상자", () => {
     expect(currentStep(again.dialog)).toContain("받는 사람");
   });
 
+  test("링크 단계가 열리면 링크 칸에 포커스가 가고, 닫으면 여는 버튼으로 돌아온다", async () => {
+    renderMembers();
+    const { user, dialog } = await open();
+    await user.type(within(dialog).getByLabelText("이메일"), "new@example.com");
+    await user.click(
+      within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    const link = await within(dialog).findByLabelText("초대 링크");
+    await waitFor(() => expect(document.activeElement).toBe(link));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "초대 링크 만들기" }),
+    );
+  });
+
+  test("닫은 뒤에 도착한 응답은 다시 연 흐름을 옮기지 않는다", async () => {
+    let answer: (response: Response) => void = () => {};
+    const { history } = renderMembers(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }) as unknown as Response,
+    );
+    const first = await open();
+    await first.user.type(
+      within(first.dialog).getByLabelText("이메일"),
+      "slow@example.com",
+    );
+    await first.user.click(
+      within(first.dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    await first.user.click(
+      within(first.dialog).getByRole("button", { name: "취소" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const again = await open();
+    answer(created());
+    // The pending list refetches once the late answer lands.
+    expect(await screen.findByText("대기 중인 초대가 없습니다.")).toBeDefined();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(currentStep(again.dialog)).toContain("받는 사람");
+    expect(within(again.dialog).queryByLabelText("초대 링크")).toBeNull();
+    expect(
+      (history.location.state as unknown as Record<string, unknown>)[
+        "invite.histories"
+      ],
+    ).toEqual([{ step: "details", context: {} }]);
+  });
+
+  test("다시 연 뒤 앞으로 가기로 지난 링크 단계에 닿으면 첫 단계부터 다시 한다", async () => {
+    const { history } = renderMembers();
+    const first = await open();
+    await first.user.type(
+      within(first.dialog).getByLabelText("이메일"),
+      "new@example.com",
+    );
+    await first.user.click(
+      within(first.dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    await within(first.dialog).findByLabelText("초대 링크");
+    history.back();
+    await waitFor(() =>
+      expect(currentStep(first.dialog)).toContain("받는 사람"),
+    );
+    await first.user.click(
+      within(first.dialog).getByRole("button", { name: "취소" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const again = await open();
+    await waitFor(() =>
+      expect(history.location.search).toContain("invite.step=details"),
+    );
+    history.forward();
+    await waitFor(() =>
+      expect(history.location.search).toContain("invite.step=details"),
+    );
+    expect(currentStep(again.dialog)).toContain("받는 사람");
+    expect(within(again.dialog).getByLabelText("이메일")).toBeDefined();
+  });
+
   test("다른 사람 초대는 첫 단계로 돌아가 앞 링크를 지운다", async () => {
     renderMembers();
     const { user, dialog } = await open();
@@ -182,7 +263,12 @@ describe("입력 검증(W24 규약)", () => {
     const alerts = await within(dialog).findAllByRole("alert");
     expect(alerts).toHaveLength(1);
     expect(alerts[0]?.textContent).not.toContain("body.email");
-    expect(within(dialog).getByLabelText("이메일")).toBeDefined();
+    const email = within(dialog).getByLabelText("이메일");
+    // Above the form's fields, not under them.
+    expect(
+      (alerts[0] as HTMLElement).compareDocumentPosition(email) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   test("서버가 거절한 초대(403)는 비활성 버튼과 같은 문구로 보인다", async () => {

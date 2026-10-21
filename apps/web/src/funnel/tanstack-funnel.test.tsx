@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ApiClient } from "@agent-platform/client";
 import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
+import { Fragment, StrictMode } from "react";
 
 // The DOM has to exist before the router and Testing Library load. The
 // router runs on a browser history over happy-dom's window.history, so
@@ -109,7 +110,8 @@ function Flow({
   );
 }
 
-function mount() {
+function mount({ strict = false }: { readonly strict?: boolean } = {}) {
+  const Wrap = strict ? StrictMode : Fragment;
   const root = createRootRoute();
   const flow = createRoute({
     getParentRoute: () => root,
@@ -127,15 +129,17 @@ function mount() {
     history,
   });
   const view = render(
-    <I18nProvider locale="ko">
-      <AgentPlatformProvider
-        client={{} as ApiClient}
-        locale="ko"
-        renderLink={({ children }) => children}
-      >
-        <RouterProvider router={router} />
-      </AgentPlatformProvider>
-    </I18nProvider>,
+    <Wrap>
+      <I18nProvider locale="ko">
+        <AgentPlatformProvider
+          client={{} as ApiClient}
+          locale="ko"
+          renderLink={({ children }) => children}
+        >
+          <RouterProvider router={router} />
+        </AgentPlatformProvider>
+      </I18nProvider>
+    </Wrap>,
   );
   return { history, view };
 }
@@ -256,6 +260,30 @@ describe("a flow in a dialog", () => {
     expect(window.location.search).toBe("?new-agent.step=name");
     expect(window.history.length).toBe(entries);
     expect(screen.queryByText(RESET_TEXT)).toBeNull();
+  });
+
+  test("under StrictMode the restart writes one entry and keeps the first move", async () => {
+    window.history.replaceState(
+      routerWritten({
+        "new-agent.histories": [
+          { step: "name", context: {} },
+          { step: "role", context: { name: "triage" } },
+        ],
+      }),
+      "",
+      "/dialog?new-agent.step=role",
+    );
+    const entries = window.history.length;
+    const user = await setupUser();
+    mount({ strict: true });
+    await at("name:{}");
+    await user.click(screen.getByRole("button", { name: "next" }));
+    await at('role:{"name":"triage"}');
+    expect(stored()).toEqual([
+      { step: "name", context: {} },
+      { step: "role", context: { name: "triage" } },
+    ]);
+    expect(window.history.length).toBe(entries + 1);
   });
 
   test("once started, it moves and goes back like any flow", async () => {

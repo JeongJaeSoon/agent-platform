@@ -18,6 +18,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
   Field,
   FieldDescription,
   FieldError,
@@ -29,7 +30,7 @@ import {
   Stepper,
 } from "@agent-platform/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
 import {
   ReasonButton,
@@ -70,14 +71,16 @@ export function InviteDialog({
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <ReasonButton
-        type="button"
-        className={buttonVariants()}
-        reason={reason}
-        onClick={() => setOpen(true)}
-      >
-        {t("members.invite.submit")}
-      </ReasonButton>
+      {/* As the trigger, the button gets the focus back when the dialog closes. */}
+      <DialogTrigger asChild>
+        <ReasonButton
+          type="button"
+          className={buttonVariants()}
+          reason={reason}
+        >
+          {t("members.invite.submit")}
+        </ReasonButton>
+      </DialogTrigger>
       <DialogContent>
         <InviteFlow members={members} refusal={refusal} />
       </DialogContent>
@@ -108,6 +111,14 @@ function InviteFlow({
   const [url, setUrl] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const linkRef = useRef<HTMLInputElement>(null);
+  // A request still out when the dialog closes must not move the next opening.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const funnel = useDialogFunnel<InviteSteps>({
     id: "invite",
     initial: { step: "details", context: {} },
@@ -131,10 +142,12 @@ function InviteFlow({
   >({
     mutationFn: (body) => unwrap(client.POST("/v1/invites", { body })),
     onSuccess: async (created) => {
-      setUrl(
-        `${window.location.origin}/invite/${encodeURIComponent(created.invite_token)}`,
-      );
-      await funnel.history.push("link", { expires: created.expires_at });
+      if (mounted.current) {
+        setUrl(
+          `${window.location.origin}/invite/${encodeURIComponent(created.invite_token)}`,
+        );
+        await funnel.history.push("link", { expires: created.expires_at });
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.invites });
     },
   });
@@ -156,10 +169,15 @@ function InviteFlow({
           />
         )}
         link={({ context, history }) =>
-          url === null ? null : (
+          url === null ? (
+            // Forward into a link step from an earlier opening: its link
+            // was never kept, so the flow starts over.
+            <StartOver onStart={() => void history.replace("details", {})} />
+          ) : (
             <div className="flex flex-col gap-4" data-testid="invite-link">
               <Field>
                 <FieldLabel>{t("members.invite.link")}</FieldLabel>
+                <LinkFocus target={linkRef} />
                 <Input
                   ref={linkRef}
                   className="font-mono"
@@ -221,6 +239,22 @@ function InviteFlow({
   );
 }
 
+function StartOver({ onStart }: { readonly onStart: () => void }) {
+  // Once, when the empty step shows.
+  useEffect(onStart, []);
+  return null;
+}
+
+/** Puts the focus on the new link, which selects it ready to copy. */
+function LinkFocus({
+  target,
+}: {
+  readonly target: RefObject<HTMLInputElement | null>;
+}) {
+  useEffect(() => target.current?.focus(), [target]);
+  return null;
+}
+
 const FIELDS = ["email", "role"] as const;
 
 function DetailsStep({
@@ -259,6 +293,9 @@ function DetailsStep({
       noValidate
       onSubmit={submitStep(form, send, serverMessage)}
     >
+      {formAlerts(errors, FIELDS).map((alert) => (
+        <FormError key={alert}>{alert}</FormError>
+      ))}
       <Field>
         <FieldLabel>{t("members.invite.email")}</FieldLabel>
         <Input type="email" autoComplete="off" {...form.register("email")} />
@@ -282,9 +319,6 @@ function DetailsStep({
         </NativeSelect>
         <FieldError>{errors.role?.message}</FieldError>
       </Field>
-      {formAlerts(errors, FIELDS).map((alert) => (
-        <FormError key={alert}>{alert}</FormError>
-      ))}
       <DialogFooter>
         <DialogClose asChild>
           <Button type="button" variant="outline">
