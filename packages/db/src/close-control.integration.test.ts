@@ -777,14 +777,18 @@ integration("close on PostgreSQL", () => {
         [session.sessionId],
       );
       const closing = accepted(session);
-      for (let i = 0; i < 250; i += 1) {
+      // The close must already hold the session and wait on the signal, or
+      // the claimer below takes the session first and no deadlock happens.
+      let waiting = false;
+      for (let i = 0; i < 250 && !waiting; i += 1) {
         const { rows } = await pool.query(
-          "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> $1",
-          [(claimer as unknown as { processID: number }).processID],
+          `SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+             AND wait_event_type = 'Lock' AND query ILIKE 'delete from "unassigned_sessions"%'`,
         );
-        if (rows.length > 0) break;
-        await Bun.sleep(10);
+        waiting = rows.length > 0;
+        if (!waiting) await Bun.sleep(10);
       }
+      expect(waiting).toBe(true);
       await claimer.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
         session.sessionId,
       ]);
