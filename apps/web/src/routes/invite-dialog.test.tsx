@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { MemberView } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import type { QueryClient } from "@tanstack/react-query";
+import type { UserEvent } from "@testing-library/user-event";
 import { apiError, json, me, USER_ID } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -22,6 +24,17 @@ const created = () =>
     expires_at: "2026-10-18T00:00:00.000Z",
   });
 
+// Each answer a token of its own, as the server gives.
+const createdEach = () => {
+  let n = 0;
+  return () =>
+    json(201, {
+      invite_id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+      invite_token: `${"k".repeat(42)}${n++}`,
+      expires_at: "2026-10-18T00:00:00.000Z",
+    });
+};
+
 function renderMembers(invite: () => Response = created) {
   return renderAt("/members", {
     "GET /v1/auth/me": () => json(200, me()),
@@ -42,6 +55,26 @@ async function open() {
 
 const currentStep = (dialog: HTMLElement) =>
   dialog.querySelector('[aria-current="step"]')?.textContent;
+
+async function toLink() {
+  const opened = await open();
+  await opened.user.type(
+    within(opened.dialog).getByLabelText("이메일"),
+    "new@example.com",
+  );
+  await opened.user.click(
+    within(opened.dialog).getByRole("button", { name: "초대 링크 만들기" }),
+  );
+  await within(opened.dialog).findByLabelText("초대 링크");
+  return opened;
+}
+
+async function copy(user: UserEvent, dialog: HTMLElement) {
+  await user.click(within(dialog).getByRole("button", { name: "링크 복사" }));
+  await within(dialog).findByText("초대 링크를 복사했습니다.");
+}
+
+const LEAVE = "링크를 복사하지 않고 나갈까요?";
 
 const invitePosts = (api: {
   calls: readonly { path: string; method: string; body?: unknown }[];
@@ -93,6 +126,7 @@ describe("초대 보내기 대화상자", () => {
       within(first.dialog).getByRole("button", { name: "초대 링크 만들기" }),
     );
     await within(first.dialog).findByLabelText("초대 링크");
+    await copy(first.user, first.dialog);
     await first.user.click(
       within(first.dialog).getByRole("button", { name: "닫기" }),
     );
@@ -116,6 +150,7 @@ describe("초대 보내기 대화상자", () => {
     );
     const link = await within(dialog).findByLabelText("초대 링크");
     await waitFor(() => expect(document.activeElement).toBe(link));
+    await copy(user, dialog);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(
@@ -196,6 +231,7 @@ describe("초대 보내기 대화상자", () => {
       within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
     );
     await within(dialog).findByLabelText("초대 링크");
+    await copy(user, dialog);
     await user.click(
       within(dialog).getByRole("button", { name: "다른 사람 초대" }),
     );
@@ -204,6 +240,266 @@ describe("초대 보내기 대화상자", () => {
     )) as HTMLInputElement;
     expect(email.value).toBe("");
     expect(within(dialog).queryByLabelText("초대 링크")).toBeNull();
+  });
+});
+
+describe("복사하지 않은 링크를 두고 나가기", () => {
+  test("닫기는 확인을 묻고, 돌아가면 링크가 그대로이며 나가면 여는 버튼으로 돌아온다", async () => {
+    renderMembers();
+    const { user, dialog } = await toLink();
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    const confirm = await screen.findByRole("dialog", { name: LEAVE });
+    expect(confirm.textContent).toContain("다시 볼 수 없습니다");
+    await user.click(
+      within(confirm).getByRole("button", { name: "링크로 돌아가기" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: LEAVE })).toBeNull(),
+    );
+    expect(
+      (within(dialog).getByLabelText("초대 링크") as HTMLInputElement).value,
+    ).toContain(TOKEN);
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole("button", { name: "닫기" }),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await user.click(
+      within(await screen.findByRole("dialog", { name: LEAVE })).getByRole(
+        "button",
+        { name: "복사하지 않고 나가기" },
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "초대 링크 만들기" }),
+    );
+  });
+
+  test("Escape는 확인을 묻고, 확인 위의 Escape는 확인만 닫는다", async () => {
+    renderMembers();
+    const { user, dialog } = await toLink();
+    await user.keyboard("{Escape}");
+    const confirm = await screen.findByRole("dialog", { name: LEAVE });
+    await waitFor(() =>
+      expect(confirm.contains(document.activeElement)).toBe(true),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: LEAVE })).toBeNull(),
+    );
+    expect(within(dialog).getByLabelText("초대 링크")).toBeDefined();
+    expect(screen.getByRole("dialog", { name: "초대" })).toBe(dialog);
+  });
+
+  test("바깥 클릭은 확인을 묻는다", async () => {
+    renderMembers();
+    const { user } = await toLink();
+    const overlay = document.querySelector(
+      '[data-slot="dialog-overlay"]',
+    ) as HTMLElement;
+    await user.pointer({ keys: "[MouseLeft]", target: overlay });
+    expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
+  });
+
+  test("다른 사람 초대는 확인을 묻고, 나가면 첫 단계의 빈 칸이 된다", async () => {
+    renderMembers();
+    const { user, dialog } = await toLink();
+    await user.click(
+      within(dialog).getByRole("button", { name: "다른 사람 초대" }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog", { name: LEAVE })).getByRole(
+        "button",
+        { name: "복사하지 않고 나가기" },
+      ),
+    );
+    const email = (await within(dialog).findByLabelText(
+      "이메일",
+    )) as HTMLInputElement;
+    expect(email.value).toBe("");
+    expect(within(dialog).queryByLabelText("초대 링크")).toBeNull();
+    // The button that opened the confirmation is gone; the keyboard lands on
+    // the field the next invite starts from instead of <body>.
+    await waitFor(() => expect(document.activeElement).toBe(email));
+  });
+
+  test("앞 링크를 복사한 뒤 뒤로 가서 새로 만든 링크는 다시 묻는다", async () => {
+    const { history } = renderMembers(createdEach());
+    const { user, dialog } = await toLink();
+    await copy(user, dialog);
+    history.back();
+    const email = await within(dialog).findByLabelText("이메일");
+    await user.clear(email);
+    await user.type(email, "other@example.com");
+    await user.click(
+      within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+    expect(within(dialog).queryByText("초대 링크를 복사했습니다.")).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
+  });
+
+  test("앞 링크의 복사가 새 링크를 만든 뒤에 끝나도 새 링크는 다시 묻는다", async () => {
+    let finish: () => void = () => {};
+    const { history } = renderMembers(createdEach());
+    // After setupUser, which installs a clipboard of its own.
+    const { user, dialog } = await toLink();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      },
+    });
+    try {
+      await user.click(
+        within(dialog).getByRole("button", { name: "링크 복사" }),
+      );
+      history.back();
+      const email = await within(dialog).findByLabelText("이메일");
+      await user.type(email, "other@example.com");
+      await user.click(
+        within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+      );
+      await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+      finish();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+      expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("새 링크의 복사가 먼저 끝나고 앞 링크의 복사가 늦게 끝나도 새 링크는 복사한 것이다", async () => {
+    const pending: (() => void)[] = [];
+    const { history } = renderMembers(createdEach());
+    const { user, dialog } = await toLink();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () =>
+          new Promise<void>((resolve) => {
+            pending.push(resolve);
+          }),
+      },
+    });
+    try {
+      const copyButton = () =>
+        within(dialog).getByRole("button", { name: "링크 복사" });
+      await user.click(copyButton());
+      history.back();
+      const email = await within(dialog).findByLabelText("이메일");
+      await user.type(email, "other@example.com");
+      await user.click(
+        within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+      );
+      await waitFor(() => expect(currentStep(dialog)).toContain("초대 링크"));
+      await user.click(copyButton());
+      const [first, second] = pending;
+      second?.();
+      await within(dialog).findByText("초대 링크를 복사했습니다.");
+      first?.();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("복사한 뒤에는 묻지 않고 닫힌다", async () => {
+    renderMembers();
+    const { user, dialog } = await toLink();
+    await copy(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  test("복사가 실패했으면 여전히 묻는다", async () => {
+    renderMembers();
+    const { user, dialog } = await toLink();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    });
+    try {
+      await user.click(
+        within(dialog).getByRole("button", { name: "링크 복사" }),
+      );
+      await within(dialog).findByRole("alert");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(await screen.findByRole("dialog", { name: LEAVE })).toBeDefined();
+  });
+});
+
+describe("mutation 캐시", () => {
+  const cached = (services: { queryClient: QueryClient }) =>
+    services.queryClient
+      .getMutationCache()
+      .getAll()
+      .some((m) => JSON.stringify(m.state.data ?? null).includes(TOKEN));
+
+  test("닫은 뒤에는 token이 남지 않는다", async () => {
+    const { services } = renderMembers();
+    const { user, dialog } = await toLink();
+    expect(cached(services)).toBe(true);
+    await copy(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(cached(services)).toBe(false));
+  });
+
+  test("다른 사람 초대로 첫 단계에 돌아가면 token이 남지 않는다", async () => {
+    const { services } = renderMembers();
+    const { user, dialog } = await toLink();
+    await copy(user, dialog);
+    await user.click(
+      within(dialog).getByRole("button", { name: "다른 사람 초대" }),
+    );
+    await within(dialog).findByLabelText("이메일");
+    await waitFor(() => expect(cached(services)).toBe(false));
+  });
+
+  test("닫은 뒤에 도착한 응답의 token도 남지 않는다", async () => {
+    let answer: (response: Response) => void = () => {};
+    const { services } = renderMembers(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }) as unknown as Response,
+    );
+    const { user, dialog } = await open();
+    await user.type(
+      within(dialog).getByLabelText("이메일"),
+      "slow@example.com",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    answer(created());
+    expect(await screen.findByText("대기 중인 초대가 없습니다.")).toBeDefined();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(cached(services)).toBe(false);
   });
 });
 
