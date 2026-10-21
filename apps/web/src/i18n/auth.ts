@@ -78,6 +78,8 @@ export const authKo = {
   "invite.account.question": "초대받은 이메일로 쓰는 계정이 있나요?",
   "invite.account.existing": "네, 계정이 있습니다",
   "invite.account.new": "아니요, 처음입니다",
+  "invite.passwordTitle.existing": "기존 계정으로 수락",
+  "invite.passwordTitle.new": "새 계정으로 수락",
   "invite.back": "이전",
   "invite.invalid.title": "초대 링크가 올바르지 않습니다",
   "invite.invalid.body":
@@ -164,6 +166,8 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.account.question":
     "Do you already have an account with the invited email?",
   "invite.account.existing": "Yes, I have an account",
+  "invite.passwordTitle.existing": "Accept with your account",
+  "invite.passwordTitle.new": "Accept with a new account",
   "invite.account.new": "No, I am new here",
   "invite.back": "Back",
   "invite.invalid.title": "This invite link is not valid",

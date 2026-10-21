@@ -7,9 +7,59 @@ import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
-import { agentRefusal } from "./agents.tsx";
 
-const { act, renderAt, screen, waitFor, within } = await appHarness();
+const { act, render, renderAt, screen, waitFor, within } = await appHarness();
+// After the DOM exists: Radix picks a no-op layout effect when loaded before
+// it, and its dialogs then never reach the page.
+const { agentRefusal } = await import("./agents.tsx");
+const { createBrowserHistory } = await import("@tanstack/react-router");
+const { App } = await import("../app.tsx");
+const { createServices } = await import("../services.tsx");
+const { fakeApi } = await import("../test-support/fake-api.ts");
+const { WAITING_SESSIONS } = await import("../test-support/render-app.tsx");
+
+/**
+ * The app on a browser history over the window's own history, so back is a
+ * popstate and history.state survives; a reload is a new app reading it.
+ */
+function openInBrowser(path: string, routes: Parameters<typeof fakeApi>[0]) {
+  window.history.replaceState(null, "", path);
+  const api = fakeApi({
+    [WAITING_SESSIONS]: () => json(200, { items: [], next_cursor: null }),
+    ...routes,
+  });
+  const services = createServices({
+    baseUrl: "https://console.test",
+    fetch: api.fetch,
+    validate: "strict",
+    leave: () => {},
+  });
+  const open = () => {
+    const history = createBrowserHistory();
+    const view = render(
+      <App services={services} history={history} locale="ko" />,
+    );
+    return () => {
+      view.unmount();
+      history.destroy();
+    };
+  };
+  let close = open();
+  return {
+    api,
+    reload: () => {
+      close();
+      close = open();
+    },
+  };
+}
+
+const stepsInState = () =>
+  (
+    (window.history.state as Record<string, unknown> | null)?.[
+      "new-agent.histories"
+    ] as { step: string }[] | undefined
+  )?.map(({ step }) => step);
 type User = Awaited<ReturnType<typeof setupUser>>;
 type Api = ReturnType<typeof renderAt>["api"];
 
@@ -1226,5 +1276,159 @@ describe("식별자와 상태 문구", () => {
     expect(screen.getByText("식별자 billing")).toBeDefined();
     expect(screen.queryByText(/활성 release: 없음/)).toBeNull();
     expect(screen.queryByText(/000000000001/)).toBeNull();
+  });
+});
+
+describe("새 에이전트: 브라우저 history", () => {
+  const LEAVE_TITLE = "저장하지 않고 나갈까요?";
+  const back = async () => {
+    act(() => window.history.back());
+    // happy-dom delivers popstate on a timer.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  };
+
+  test("초안 저장 뒤 뒤로 가면 하는 일 → 이름 → 목록이고, 새로고침 뒤에도 같은 길이다", async () => {
+    const server = agentServer();
+    const { api, reload } = openInBrowser("/agents", {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "새 에이전트" }),
+    );
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("배포 판");
+    expect(stepsInState()).toEqual(["name", "job", "release"]);
+
+    reload();
+    await atStep("배포 판");
+    expect(stepsInState()).toEqual(["name", "job", "release"]);
+    await back();
+    await atStep("하는 일");
+    expect(stepsInState()).toEqual(["name", "job"]);
+    await back();
+    await atStep("이름");
+    expect(stepsInState()).toEqual(["name"]);
+    await back();
+    await waitFor(() => expect(window.location.pathname).toBe("/agents"));
+    await screen.findByRole("link", { name: "결제 담당" });
+    expect(screen.queryByText(LEAVE_TITLE)).toBeNull();
+    expect(
+      api.calls.filter((c) => c.method === "POST" && c.path === "/v1/agents"),
+    ).toHaveLength(1);
+  });
+
+  test("하는 일 입력은 저장하지 않아도 새로고침 뒤에 남는다", async () => {
+    const { reload } = openInBrowser("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await user.type(screen.getByLabelText("지시 사항"), "짧게 답한다.");
+    await waitFor(() =>
+      expect(JSON.stringify(window.history.state)).toContain("짧게 답한다."),
+    );
+
+    reload();
+    await atStep("하는 일");
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe("짧게 답한다.");
+  });
+
+  test("저장하지 않은 입력이 있으면 흐름을 떠나기 전에 묻고, 단계 사이 이동은 묻지 않는다", async () => {
+    openInBrowser("/agents", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "새 에이전트" }),
+    );
+    await toJobStep(user);
+    await user.type(screen.getByLabelText("역할"), CARD.role);
+    const unload = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(unload()).toBe(true);
+
+    await back();
+    await atStep("이름");
+    expect(screen.queryByText(LEAVE_TITLE)).toBeNull();
+    await back();
+    const dialog = await screen.findByRole("dialog", { name: LEAVE_TITLE });
+    await user.click(within(dialog).getByRole("button", { name: "계속 쓰기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(window.location.pathname).toBe("/agents/new");
+    await atStep("이름");
+
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    expect((screen.getByLabelText("역할") as HTMLInputElement).value).toBe(
+      CARD.role,
+    );
+    await user.click(screen.getByRole("link", { name: "에이전트" }));
+    await user.click(
+      within(
+        await screen.findByRole("dialog", { name: LEAVE_TITLE }),
+      ).getByRole("button", { name: "나가기" }),
+    );
+    await waitFor(() => expect(window.location.pathname).toBe("/agents"));
+  });
+
+  const unloadBlocked = () => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+
+  test("저장한 뒤에는 묻지 않고 나간다: 앞뒤 공백을 다듬은 이름도 저장한 것으로 본다", async () => {
+    openInBrowser("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "  결제 담당 ");
+    await user.type(screen.getByLabelText("식별자"), "billing");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    await fillJob(user);
+    await atStep("배포 판");
+    expect(unloadBlocked()).toBe(false);
+    await user.click(screen.getByRole("link", { name: "나중에 하기" }));
+    await waitFor(() => expect(window.location.pathname).toBe(DETAIL));
+    expect(screen.queryByText(LEAVE_TITLE)).toBeNull();
+  });
+
+  test("남겨 둔 입력을 고친 직후 저장해도 새로고침 뒤에는 저장한 입력이 남는다", async () => {
+    const { api, reload } = openInBrowser("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await user.type(screen.getByLabelText("역할"), CARD.role);
+    await user.type(screen.getByLabelText("지시 사항"), "처음 쓴 것.");
+    await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
+    await waitFor(() =>
+      expect(JSON.stringify(window.history.state)).toContain(CARD.model),
+    );
+    await user.type(screen.getByLabelText("지시 사항"), " 고친 것.");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    const sent = (
+      posted(api, "/v1/agents") as { card: { instructions: string } }
+    ).card.instructions;
+    expect(sent).toBe("처음 쓴 것. 고친 것.");
+
+    reload();
+    await atStep("배포 판");
+    expect(unloadBlocked()).toBe(false);
+    await back();
+    await atStep("하는 일");
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe(sent);
   });
 });

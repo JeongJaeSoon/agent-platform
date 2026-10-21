@@ -24,7 +24,7 @@ import {
 } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { viewerQuery } from "../api/queries.ts";
 import {
   DISPLAY_NAME_MAX,
@@ -34,6 +34,7 @@ import {
 import { AuthPage, FormError } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { StepHeading, useStepMoved } from "../components/step-heading.tsx";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
@@ -188,6 +189,11 @@ function AcceptFlow({ token }: { readonly token: string }) {
     currentStepId: funnel.step,
     onStepSelect: () => void funnel.history.back(),
   });
+  const moved = useStepMoved(funnel.step);
+  // Kept apart from the mutation, which is reset so the password goes too.
+  const [ended, setEnded] = useState<
+    "INVITE_EXPIRED" | "INVITE_USED" | undefined
+  >();
 
   const accept = useMutation<
     unknown,
@@ -196,6 +202,8 @@ function AcceptFlow({ token }: { readonly token: string }) {
   >({
     // A 401 here is a wrong password, not an ended session.
     meta: { public: true },
+    // The variables hold the password; keep it nowhere once the attempt ends.
+    gcTime: 0,
     mutationFn: ({ password, display_name }) =>
       unwrap(
         client.POST("/v1/invites/accept", {
@@ -209,7 +217,19 @@ function AcceptFlow({ token }: { readonly token: string }) {
     },
   });
 
-  if (accept.error?.code === "INVITE_EXPIRED") {
+  const send = async (values: Parameters<typeof accept.mutateAsync>[0]) => {
+    try {
+      await accept.mutateAsync(values);
+    } catch (error) {
+      // Detach the observer so gcTime 0 drops the failed attempt.
+      accept.reset();
+      if (isApiError(error, "INVITE_EXPIRED")) setEnded("INVITE_EXPIRED");
+      else if (isApiError(error, "INVITE_USED")) setEnded("INVITE_USED");
+      throw error;
+    }
+  };
+
+  if (ended === "INVITE_EXPIRED") {
     return (
       <InviteStatus
         status="invite-expired"
@@ -219,7 +239,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
       />
     );
   }
-  if (accept.error?.code === "INVITE_USED") {
+  if (ended === "INVITE_USED") {
     return (
       <InviteStatus
         status="invite-used"
@@ -241,14 +261,16 @@ function AcceptFlow({ token }: { readonly token: string }) {
       <funnel.Render
         account={({ history }) => (
           <AccountStep
+            focus={moved}
             onPick={(account) => void history.push("password", { account })}
           />
         )}
         password={({ context, history }) => (
           <PasswordStep
             account={context.account}
+            focus={moved}
             pending={accept.isPending}
-            send={(values) => accept.mutateAsync(values)}
+            send={send}
             onBack={() => void history.back()}
           />
         )}
@@ -258,8 +280,10 @@ function AcceptFlow({ token }: { readonly token: string }) {
 }
 
 function AccountStep({
+  focus,
   onPick,
 }: {
+  readonly focus: boolean;
   readonly onPick: (account: Account) => void;
 }) {
   const { t } = useI18n();
@@ -267,9 +291,9 @@ function AccountStep({
   return (
     <section className="flex flex-col gap-3" aria-labelledby={questionId}>
       <p className="m-0">{t("invite.intro")}</p>
-      <h2 id={questionId} className="m-0 font-semibold text-base">
+      <StepHeading focus={focus} id={questionId}>
         {t("invite.account.question")}
-      </h2>
+      </StepHeading>
       <Button type="button" onClick={() => onPick("existing")}>
         {t("invite.account.existing")}
       </Button>
@@ -284,11 +308,13 @@ const FIELDS = ["display_name", "password"] as const;
 
 function PasswordStep({
   account,
+  focus,
   pending,
   send,
   onBack,
 }: {
   readonly account: Account;
+  readonly focus: boolean;
   readonly pending: boolean;
   readonly send: (values: {
     password: string;
@@ -313,6 +339,13 @@ function PasswordStep({
           : t(errorKey(isApiError(error) ? error.code : "UNKNOWN")),
       )}
     >
+      <StepHeading focus={focus}>
+        {t(
+          account === "existing"
+            ? "invite.passwordTitle.existing"
+            : "invite.passwordTitle.new",
+        )}
+      </StepHeading>
       {alerts.map((alert) => (
         <FormError key={alert}>{alert}</FormError>
       ))}

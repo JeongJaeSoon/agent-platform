@@ -51,6 +51,11 @@ export const membersKo = {
   "members.invite.step.link": "초대 링크",
   "members.invite.again": "다른 사람 초대",
   "members.invite.close": "닫기",
+  "members.invite.leave.title": "링크를 복사하지 않고 나갈까요?",
+  "members.invite.leave.consequence":
+    "이 초대 링크는 다시 볼 수 없습니다. 나중에 링크가 필요하면 대기 중인 초대를 회수하고 새로 만들어야 합니다.",
+  "members.invite.leave.confirm": "복사하지 않고 나가기",
+  "members.invite.leave.cancel": "링크로 돌아가기",
   "members.invites.title": "대기 중인 초대",
   "members.invites.empty": "대기 중인 초대가 없습니다.",
   "members.invites.expires": "{expires}까지",
@@ -117,6 +122,11 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invite.step.link": "Invite link",
   "members.invite.again": "Invite someone else",
   "members.invite.close": "Close",
+  "members.invite.leave.title": "Leave without copying the link?",
+  "members.invite.leave.consequence":
+    "This invite link can't be shown again. If you need it later, revoke the pending invite and create a new one.",
+  "members.invite.leave.confirm": "Leave without copying",
+  "members.invite.leave.cancel": "Back to the link",
   "members.invites.title": "Pending invites",
   "members.invites.empty": "No pending invites.",
   "members.invites.expires": "Expires {expires}",
