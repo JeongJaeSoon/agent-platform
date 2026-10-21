@@ -367,7 +367,6 @@ function ExpiryField({
     <Field>
       <FieldLabel>{t("apiKeys.expires")}</FieldLabel>
       <Input
-        className="w-auto"
         type="date"
         min={today()}
         value={value}

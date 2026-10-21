@@ -21,7 +21,7 @@ export const apiKeysKo = {
     "에이전트 전용 key에는 넣을 수 없습니다. 에이전트가 사람 대신 승인할 수는 없습니다.",
   "apiKeys.scopes": "권한",
   "apiKeys.scopeHint.read":
-    "세션과 그 턴·이벤트·영수증·사용량, 답을 기다리는 요청을 읽습니다.",
+    "세션과 그 턴·이벤트·영수증·사용량·공유 설정, 답을 기다리는 요청을 읽습니다.",
   "apiKeys.scopeHint.write": "새 세션을 시작하고 세션에 메시지를 보냅니다.",
   "apiKeys.scopeHint.approve": "세션이 기다리는 권한 요청과 질문에 답합니다.",
   "apiKeys.scopeHint.control":
@@ -78,7 +78,7 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Not available for agent keys — an agent key cannot approve on a person's behalf.",
   "apiKeys.scopes": "Permissions",
   "apiKeys.scopeHint.read":
-    "Read sessions with their turns, events, receipts and usage, and the requests waiting for an answer.",
+    "Read sessions with their turns, events, receipts, usage and sharing, and the requests waiting for an answer.",
   "apiKeys.scopeHint.write": "Start sessions and send messages to them.",
   "apiKeys.scopeHint.approve":
     "Answer the permission requests and questions a session is waiting on.",
