@@ -5,6 +5,7 @@ import {
   linkedAccountSchema,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { queryKeys } from "../api/queries.ts";
 import {
   apiError,
   json,
@@ -183,6 +184,74 @@ describe("연동 계정", () => {
         document.activeElement?.closest("li")?.textContent?.includes("U0MOCK"),
       ).toBe(true),
     );
+  });
+
+  /** Two links whose first unlink is applied at once and answered on release. */
+  function heldUnlink() {
+    const routes = twoLinks();
+    const remove = routes[`DELETE /v1/linked-accounts/${LINK_ID}`];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return {
+      release,
+      routes: {
+        ...routes,
+        [`DELETE /v1/linked-accounts/${LINK_ID}`]: async () => {
+          const response = remove();
+          await gate;
+          return response;
+        },
+      },
+    };
+  }
+
+  test("해제를 기다리는 동안 다른 곳을 누른 사람의 포커스는 옮기지 않는다", async () => {
+    const { release, routes } = heldUnlink();
+    renderAt("/settings/linked-accounts", routes);
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
+    await user.keyboard("{Enter}");
+    // A click outside <main> (which would take focus itself) leaves it on
+    // the page, just as the removed row will.
+    await user.click(document.body);
+    expect(document.activeElement === document.body).toBe(true);
+    release();
+    expect(
+      await screen.findByText("Slack 계정 연결을 해제했습니다."),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "연결 해제" }).length).toBe(
+        1,
+      ),
+    );
+    expect(document.activeElement === document.body).toBe(true);
+  });
+
+  test("응답보다 먼저 다시 읽은 목록에서 행이 빠져도 그 자리의 다음 행으로 간다", async () => {
+    const { release, routes } = heldUnlink();
+    const { services } = renderAt("/settings/linked-accounts", routes);
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
+    await user.keyboard("{Enter}");
+    await services.queryClient.invalidateQueries({
+      queryKey: queryKeys.linkedAccounts,
+    });
+    await waitFor(() =>
+      expect(
+        document.activeElement?.closest("li")?.textContent?.includes("U0OTHER"),
+      ).toBe(true),
+    );
+    release();
+    expect(
+      await screen.findByText("Slack 계정 연결을 해제했습니다."),
+    ).toBeDefined();
+    expect(
+      document.activeElement?.closest("li")?.textContent?.includes("U0OTHER"),
+    ).toBe(true);
   });
 
   test("해제가 거절되면 포커스는 누른 버튼에 남고 이유를 알린다", async () => {

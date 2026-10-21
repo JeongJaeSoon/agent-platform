@@ -64,8 +64,14 @@ export function LinkedAccountsScreen() {
   const titleId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // The account last unlinked and its place, until its row leaves the list.
-  const unlinked = useRef<{ id: string; index: number } | null>(null);
+  // The account being unlinked, its place when the request started, and
+  // whether focus is still on its row, until the row leaves the list.
+  const unlinked = useRef<{
+    id: string;
+    index: number;
+    held: boolean;
+    stop: AbortController;
+  } | null>(null);
 
   const live =
     accounts.data?.items.filter((account) => account.status !== "revoked") ??
@@ -78,7 +84,8 @@ export function LinkedAccountsScreen() {
     const gone = unlinked.current;
     if (!gone || live.some((account) => account.id === gone.id)) return;
     unlinked.current = null;
-    if (document.activeElement !== document.body) return;
+    gone.stop.abort();
+    if (!gone.held || document.activeElement !== document.body) return;
     const buttons =
       sectionRef.current?.querySelectorAll<HTMLElement>("li button") ?? [];
     (
@@ -103,19 +110,41 @@ export function LinkedAccountsScreen() {
           params: { path: { id: account.id } },
         }),
       ),
-    onMutate: () => setOutcome(null),
-    onSuccess: async (_, account) => {
-      unlinked.current = {
+    onMutate: (account) => {
+      setOutcome(null);
+      unlinked.current?.stop.abort();
+      const index = live.findIndex(({ id }) => id === account.id);
+      const row = sectionRef.current?.querySelectorAll("li")[index];
+      const gone = {
         id: account.id,
-        index: live.findIndex(({ id }) => id === account.id),
+        index,
+        held: row?.contains(document.activeElement) ?? false,
+        stop: new AbortController(),
       };
+      unlinked.current = gone;
+      // Focus moved anywhere meanwhile is left where it went.
+      const away = () => {
+        gone.held = false;
+        gone.stop.abort();
+      };
+      for (const type of ["focusin", "pointerdown"]) {
+        document.addEventListener(type, away, {
+          capture: true,
+          signal: gone.stop.signal,
+        });
+      }
+    },
+    onSuccess: async () => {
       setOutcome({ kind: "notice", text: t("linked.unlinked") });
       await queryClient.invalidateQueries({
         queryKey: queryKeys.linkedAccounts,
       });
     },
-    onError: (error) =>
-      setOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
+    onError: (error) => {
+      unlinked.current?.stop.abort();
+      unlinked.current = null;
+      setOutcome({ kind: "error", text: linkRefusal(t, error, role) });
+    },
   });
 
   const notice = outcome?.kind === "notice" ? outcome.text : null;
