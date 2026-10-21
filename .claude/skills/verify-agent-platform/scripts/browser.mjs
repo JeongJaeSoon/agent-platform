@@ -429,8 +429,11 @@ switch (cmd) {
   case "press": {
     const r = await evaluate(`(() => { const el = ${target(args[0])};
       if (!el) return 'not found';
-      el.focus(); return 'focused ' + el.tagName + ' ' + el.textContent.trim().slice(0, 40); })()`);
-    if (r === "not found") {
+      el.focus();
+      // A disabled, hidden or unfocusable match would send the key to whatever held focus.
+      if (document.activeElement !== el) return 'not focusable ' + el.tagName + ' ' + el.textContent.trim().slice(0, 40);
+      return 'focused ' + el.tagName + ' ' + el.textContent.trim().slice(0, 40); })()`);
+    if (!r.startsWith("focused")) {
       console.log(r);
       break;
     }
