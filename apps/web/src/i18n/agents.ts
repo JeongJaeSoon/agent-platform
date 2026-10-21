@@ -44,6 +44,11 @@ export const agentsKo = {
   "agents.flow.done":
     "{name}을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다.",
   "agents.flow.open": "에이전트 보기",
+  "agents.flow.leaveTitle": "저장하지 않고 나갈까요?",
+  "agents.flow.leaveConsequence":
+    "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '초안 저장하고 다음'을 누르세요.",
+  "agents.flow.leave": "나가기",
+  "agents.flow.stay": "계속 쓰기",
   "agentCard.role": "역할",
   "agentCard.roleHint": "한 줄로: 무엇을 맡는 에이전트인지",
   "agentCard.instructions": "지시 사항",
@@ -198,6 +203,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.later": "Do this later",
   "agents.flow.done": "{name} is on. New sessions now use this agent.",
   "agents.flow.open": "Open agent",
+  "agents.flow.leaveTitle": "Leave without saving?",
+  "agents.flow.leaveConsequence":
+    "What you typed here and did not save is lost. To keep it, press 'Save draft and continue'.",
+  "agents.flow.leave": "Leave",
+  "agents.flow.stay": "Keep editing",
   "agentCard.role": "Role",
   "agentCard.roleHint": "One line on what this agent does",
   "agentCard.instructions": "Instructions",
