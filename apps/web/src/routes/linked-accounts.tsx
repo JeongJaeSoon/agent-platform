@@ -64,11 +64,12 @@ export function LinkedAccountsScreen() {
   const titleId = useId();
   const sectionRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // The account being unlinked, its place when the request started, and
-  // whether focus is still on its row, until the row leaves the list.
+  // The account being unlinked, its neighbours nearest first (those below,
+  // then those above) when the request started, and whether focus is still
+  // on its row, until the row leaves the list.
   const unlinked = useRef<{
     id: string;
-    index: number;
+    neighbours: readonly string[];
     held: boolean;
     stop: AbortController;
   } | null>(null);
@@ -80,21 +81,19 @@ export function LinkedAccountsScreen() {
   useEffect(() => () => unlinked.current?.stop.abort(), []);
 
   // The pressed button leaves with its row and focus falls to the page. It
-  // goes to the row now in that place, else the one above, else the
-  // heading of the emptied list.
+  // goes to the nearest row left below, else above, else the heading of the
+  // emptied list.
   useLayoutEffect(() => {
     const gone = unlinked.current;
     if (!gone || live.some((account) => account.id === gone.id)) return;
     unlinked.current = null;
     gone.stop.abort();
     if (!gone.held || document.activeElement !== document.body) return;
+    const ids = live.map(({ id }) => id);
+    const next = gone.neighbours.find((id) => ids.includes(id));
     const buttons =
       sectionRef.current?.querySelectorAll<HTMLElement>("li button") ?? [];
-    (
-      buttons[gone.index] ??
-      buttons[gone.index - 1] ??
-      headingRef.current
-    )?.focus();
+    (next ? buttons[ids.indexOf(next)] : headingRef.current)?.focus();
   });
 
   const start = useMutation<StartSlackLinkResponse, ApiError>({
@@ -115,11 +114,15 @@ export function LinkedAccountsScreen() {
     onMutate: (account) => {
       setOutcome(null);
       unlinked.current?.stop.abort();
-      const index = live.findIndex(({ id }) => id === account.id);
+      const ids = live.map(({ id }) => id);
+      const index = ids.indexOf(account.id);
       const row = sectionRef.current?.querySelectorAll("li")[index];
       const gone = {
         id: account.id,
-        index,
+        neighbours: [
+          ...ids.slice(index + 1),
+          ...ids.slice(0, Math.max(index, 0)).reverse(),
+        ],
         held: row?.contains(document.activeElement) ?? false,
         stop: new AbortController(),
       };

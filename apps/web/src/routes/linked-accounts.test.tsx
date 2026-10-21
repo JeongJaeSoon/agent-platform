@@ -208,6 +208,53 @@ describe("연동 계정", () => {
     };
   }
 
+  test("위 행과 함께 해제한 마지막 행에서는 그 사이 남은 행으로 간다", async () => {
+    const THIRD_ID = "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d";
+    const third: LinkedAccount = {
+      ...slack,
+      id: THIRD_ID,
+      external_tenant: "T0THIRD",
+      external_user_id: "U0THIRD",
+    };
+    let items = [slack, other, third];
+    const gates: Record<string, () => void> = {};
+    const held = (id: string) => async () => {
+      items = items.map((a) =>
+        a.id === id ? { ...a, status: "revoked" as const } : a,
+      );
+      await new Promise<void>((resolve) => {
+        gates[id] = resolve;
+      });
+      return json(200, { receipt_id: RECEIPT_ID, receipt_status: "succeeded" });
+    };
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items }),
+      [`DELETE /v1/linked-accounts/${LINK_ID}`]: held(LINK_ID),
+      [`DELETE /v1/linked-accounts/${THIRD_ID}`]: held(THIRD_ID),
+    });
+    await screen.findByText("Slack 사용자 U0THIRD (워크스페이스 T0THIRD)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
+    await user.keyboard("{Enter}");
+    screen.getAllByRole("button", { name: "연결 해제" })[2]?.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(Object.keys(gates).length).toBe(2));
+    // The first answer's reread already lacks both rows.
+    gates[LINK_ID]?.();
+    gates[THIRD_ID]?.();
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "연결 해제" }).length).toBe(
+        1,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement?.closest("li")?.textContent?.includes("U0OTHER"),
+      ).toBe(true),
+    );
+  });
+
   test("해제를 기다리는 동안 같은 버튼을 다시 눌러도 다음 행으로 간다", async () => {
     const { release, routes } = heldUnlink();
     const { api } = renderAt("/settings/linked-accounts", routes);
