@@ -9,8 +9,8 @@ export const shellKo = {
   "shell.theme.system": "시스템 설정",
   "shell.theme.light": "밝게",
   "shell.theme.dark": "어둡게",
-  "shell.waiting": "답변 대기 {count}건",
-  "shell.waitingMore": "답변 대기 {count}건 이상",
+  "shell.waiting": "답변 대기 {count}개",
+  "shell.waitingMore": "답변 대기 {count}개 이상",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {

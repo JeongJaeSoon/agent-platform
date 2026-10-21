@@ -248,11 +248,11 @@ describe("approval inbox", () => {
         null,
       ),
     );
-    const inbox = await screen.findByRole("region", { name: "승인 대기" });
+    const inbox = await screen.findByRole("region", { name: "답변 대기" });
     expect(
       await within(inbox).findByText("답을 기다리는 세션 2개"),
     ).toBeTruthy();
-    expect(await screen.findByText("답변 대기 2건")).toBeTruthy();
+    expect(await screen.findByText("답변 대기 2개")).toBeTruthy();
     expect(
       within(inbox)
         .getByRole("link", { name: `세션 열기 ${SESSION_ID}` })
@@ -267,7 +267,7 @@ describe("approval inbox", () => {
       waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], "next"),
     );
     expect(await screen.findByText("답을 기다리는 세션 1개 이상")).toBeTruthy();
-    expect(await screen.findByText("답변 대기 1건 이상")).toBeTruthy();
+    expect(await screen.findByText("답변 대기 1개 이상")).toBeTruthy();
   });
 
   test("answers from the inbox and reads the waiting sessions again", async () => {
@@ -282,9 +282,7 @@ describe("approval inbox", () => {
     const allow = await screen.findByRole("button", { name: "허용" });
     const before = waitingReads();
     await user.click(allow);
-    expect(
-      await screen.findByText("답을 보냈습니다. 세션이 이어서 진행합니다."),
-    ).toBeTruthy();
+    expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
     expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
       request_id: "req_1",
       kind: "permission",
@@ -316,7 +314,7 @@ describe("approval inbox", () => {
     ).toBeTruthy();
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("heading", { name: "승인 대기" }),
+        screen.getByRole("heading", { name: "답변 대기" }),
       ),
     );
   });
@@ -527,7 +525,7 @@ describe("session detail", () => {
       "작업 중",
     );
     // The pending section says how many are waiting; the overview does not.
-    expect(screen.getAllByText("대기 중인 요청")).toHaveLength(1);
+    expect(screen.getAllByText("답변 대기 요청")).toHaveLength(1);
 
     act(() =>
       stream.emit("ev_5", "system", {
@@ -872,9 +870,7 @@ describe("session profile", () => {
     const allow = await screen.findByRole("button", { name: "허용" });
     allow.focus();
     await user.keyboard("{Enter}");
-    expect(
-      await screen.findByText("답을 보냈습니다. 세션이 이어서 진행합니다."),
-    ).toBeTruthy();
+    expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
     const post = api.calls.find((call) => call.method === "POST");
     expect(post?.path).toBe(`/v1/sessions/${SESSION_ID}/answers`);
     expect(post?.body).toEqual({
@@ -888,9 +884,7 @@ describe("session profile", () => {
     ).toBeTruthy();
     // The answered card took focus with it; the notice holds it now.
     await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe(
-        "답을 보냈습니다. 세션이 이어서 진행합니다.",
-      ),
+      expect(document.activeElement?.textContent).toBe("답을 보냈습니다."),
     );
   });
 
@@ -1089,7 +1083,7 @@ describe("session profile", () => {
     await user.keyboard("{Enter}");
     expect(
       await screen.findByText(
-        "요청을 보냈습니다. 바뀐 상태는 위 개요에 반영됩니다.",
+        "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
       ),
     ).toBeTruthy();
     const post = api.calls.find((call) => call.method === "POST");
@@ -1133,6 +1127,47 @@ describe("session profile", () => {
     );
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("다시 시작"),
+    );
+  });
+
+  test("after resume the keyboard waits out resuming on the outcome and lands on pause, never on terminate", async () => {
+    const user = await setupUser();
+    let state = {
+      ...detail,
+      admission_state: "paused",
+      status: "idle",
+      current_turn_id: null,
+    };
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`POST /v1/sessions/${SESSION_ID}/resume`]: () => {
+        state = { ...state, admission_state: "resuming" };
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    const resume = await screen.findByRole("button", { name: "다시 시작" });
+    resume.focus();
+    await user.keyboard("{Enter}");
+    // While resuming terminate is the only button; Enter there would open
+    // its dialog.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "다시 시작" })).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe(
+        "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
+      ),
+    );
+    state = { ...detail, current_turn_id: null };
+    act(() => stream.emit("ev_1", "status", { phase: "idle" }));
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("일시 정지"),
     );
   });
 
@@ -1202,7 +1237,8 @@ describe("session profile", () => {
         json(202, TERMINATE_ACCEPTED),
     });
     await user.click(await screen.findByRole("button", { name: "세션 종료" }));
-    const dialog = await screen.findByRole("dialog", {
+    // It stops a running session, so it is announced as an alert.
+    const dialog = await screen.findByRole("alertdialog", {
       name: "세션을 종료할까요?",
     });
     expect(api.calls.some((call) => call.method === "POST")).toBe(false);
@@ -1212,7 +1248,7 @@ describe("session profile", () => {
         expected_revision: 3,
       }),
     );
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
   test("a terminate whose button left before the receipt hands the keyboard to its outcome", async () => {
@@ -1236,7 +1272,7 @@ describe("session profile", () => {
     const terminate = await screen.findByRole("button", { name: "세션 종료" });
     terminate.focus();
     await user.keyboard("{Enter}");
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("alertdialog", {
       name: "세션을 종료할까요?",
     });
     within(dialog).getByRole("button", { name: "종료" }).focus();
@@ -1248,10 +1284,10 @@ describe("session profile", () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(screen.queryByRole("button", { name: "세션 종료" })).toBeNull();
     await act(async () => release(json(202, TERMINATE_ACCEPTED)));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe(
-        "요청을 보냈습니다. 바뀐 상태는 위 개요에 반영됩니다.",
+        "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
       ),
     );
   });
@@ -1279,6 +1315,48 @@ describe("session profile", () => {
       (screen.getByRole("textbox", { name: "메시지" }) as HTMLTextAreaElement)
         .value,
     ).toBe("");
+  });
+
+  test("a message sent by mouse gives the keyboard back to the field", async () => {
+    const user = await setupUser();
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/messages`]: () => held,
+    });
+    await user.click(await screen.findByRole("textbox", { name: "메시지" }));
+    await user.keyboard("next step");
+    const send = screen.getByRole("button", { name: "보내기" });
+    await user.click(send);
+    // The clock instead of waitFor while the command is held, as above.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    // Chrome drops focus from a button that turns disabled. The DOM here
+    // neither does that nor blurs a disabled button, but it does fall back
+    // to the page when the focused element is removed.
+    const stand = document.body.appendChild(document.createElement("input"));
+    stand.focus();
+    stand.remove();
+    expect(document.activeElement?.tagName).toBe("BODY");
+    await act(async () =>
+      release(
+        json(202, {
+          turn_id: "2",
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        }),
+      ),
+    );
+    expect(
+      await screen.findByText("메시지를 보냈습니다(turn 2)."),
+    ).toBeTruthy();
+    expect(
+      document.activeElement ===
+        screen.getByRole("textbox", { name: "메시지" }),
+    ).toBe(true);
   });
 
   test("a stopped session offers resume and takes no message", async () => {
