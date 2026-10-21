@@ -5,6 +5,7 @@ import { SESSION, SESSION_ROW_MESSAGES } from "./session-fixtures.ts";
 
 const meta = {
   title: "Patterns/Session/SessionRow",
+  globals: { locale: "en" },
   component: SessionRow,
   args: {
     session: SESSION,
