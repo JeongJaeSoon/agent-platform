@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta = {
   title: "Patterns/Session/Message",
+  globals: { locale: "en" },
   component: Message,
   args: {
     from: "assistant",

@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta = {
   title: "Patterns/Session/Composer",
+  globals: { locale: "en" },
   component: Composer,
   args: {
     messages: {

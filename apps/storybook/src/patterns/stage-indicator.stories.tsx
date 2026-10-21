@@ -6,6 +6,7 @@ import { formatMessage } from "./session-fixtures.ts";
 
 const meta = {
   title: "Patterns/Session/StageIndicator",
+  globals: { locale: "en" },
   component: StageIndicator,
   args: {
     presentation: presentTurnEvent({

@@ -20,6 +20,8 @@ const REQUEST: PermissionRequest = {
 
 const meta = {
   title: "Patterns/Session/ApprovalCard",
+  // The example copy is English; the page language should say so.
+  globals: { locale: "en" },
   component: ApprovalCard,
   args: {
     request: REQUEST,
