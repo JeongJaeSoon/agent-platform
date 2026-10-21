@@ -5,7 +5,20 @@ import type {
   WorkspaceRole,
 } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
-import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
+import {
+  Badge,
+  Button,
+  buttonVariants,
+  ConfirmDialog,
+  EmptyState,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  formatTimestamp,
+  Input,
+  NativeSelect,
+  NativeSelectOption,
+} from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useRef, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
@@ -19,8 +32,8 @@ import {
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
+import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { copyText } from "../components/copy.ts";
-import { TextField } from "../components/field.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { TableScroll } from "../components/table-scroll.tsx";
@@ -28,6 +41,17 @@ import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
 // The least authority; anything more is a choice the inviter makes.
 const DEFAULT_INVITE_ROLE: WorkspaceRole = "member";
+
+const PAGE = "flex flex-col gap-6";
+const TITLE = "m-0 font-semibold text-xl";
+const SECTION = "flex flex-col gap-3";
+const SECTION_TITLE = "m-0 font-semibold text-lg";
+const MUTED = "m-0 text-muted-foreground";
+const CELL = "border-b p-2 text-left align-top";
+const PRIMARY =
+  "block font-semibold [overflow-wrap:anywhere] group-data-[disabled=true]:text-muted-foreground";
+const SECONDARY =
+  "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -57,23 +81,21 @@ export function MembersScreen() {
 
   if (!manages) {
     return (
-      <div className="web-page">
-        <h1 className="web-page__title">{t("members.title")}</h1>
-        <p className="web-page__intro">{t("members.withheld")}</p>
+      <div className={PAGE}>
+        <h1 className={TITLE}>{t("members.title")}</h1>
+        <p className={MUTED}>{t("members.withheld")}</p>
       </div>
     );
   }
 
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("members.title")}</h1>
+    <div className={PAGE}>
+      <h1 className={TITLE}>{t("members.title")}</h1>
       {outcome ? (
         outcome.kind === "error" ? (
-          <p className="web-form__error" role="alert">
-            {outcome.text}
-          </p>
+          <FormError>{outcome.text}</FormError>
         ) : (
-          <output className="web-notice">{outcome.text}</output>
+          <output className={NOTICE}>{outcome.text}</output>
         )
       ) : null}
       {failed ? null : (
@@ -83,8 +105,10 @@ export function MembersScreen() {
           onOutcome={setOutcome}
         />
       )}
-      <section className="web-section" aria-labelledby={titleId}>
-        <h2 id={titleId}>{t("members.listTitle")}</h2>
+      <section className={SECTION} aria-labelledby={titleId}>
+        <h2 id={titleId} className={SECTION_TITLE}>
+          {t("members.listTitle")}
+        </h2>
         {members.isPending ? (
           <StatusScreen kind="loading" />
         ) : members.error ? (
@@ -168,43 +192,46 @@ function InviteForm({
   };
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("members.invite.title")}</h2>
-      <form className="web-form web-form--inline" onSubmit={submit}>
-        <TextField
-          label={t("members.invite.email")}
-          hint={
-            disabledMatch
-              ? t("members.invite.disabledHint", {
-                  name: disabledMatch.display_name,
-                })
-              : undefined
-          }
-          type="email"
-          name="email"
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-        <label className="web-field">
-          <span>{t("members.invite.role")}</span>
-          <select
-            className="ap-input"
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("members.invite.title")}
+      </h2>
+      <form className="flex max-w-xl flex-col gap-4" onSubmit={submit}>
+        <Field>
+          <FieldLabel>{t("members.invite.email")}</FieldLabel>
+          <Input
+            type="email"
+            name="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          {disabledMatch ? (
+            <FieldDescription>
+              {t("members.invite.disabledHint", {
+                name: disabledMatch.display_name,
+              })}
+            </FieldDescription>
+          ) : null}
+        </Field>
+        <Field>
+          <FieldLabel>{t("members.invite.role")}</FieldLabel>
+          <NativeSelect
             value={inviteRole}
             onChange={(event) =>
               setInviteRole(event.target.value as WorkspaceRole)
             }
           >
             {WORKSPACE_ROLE_VALUES.map((value) => (
-              <option key={value} value={value}>
+              <NativeSelectOption key={value} value={value}>
                 {roleLabel(t, value)}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </Field>
         <ReasonButton
           type="submit"
-          className="ap-button ap-button--primary"
+          className={buttonVariants()}
           reason={reason}
           disabled={invite.isPending}
         >
@@ -214,26 +241,29 @@ function InviteForm({
         </ReasonButton>
       </form>
       {link ? (
-        <div className="web-invite-link" data-testid="invite-link">
-          <label className="web-field">
-            <span>{t("members.invite.link")}</span>
-            <input
+        <div
+          className="flex max-w-xl flex-col items-start gap-3 rounded-md border bg-card p-3"
+          data-testid="invite-link"
+        >
+          <Field>
+            <FieldLabel>{t("members.invite.link")}</FieldLabel>
+            <Input
               ref={linkRef}
-              className="ap-input"
+              className="font-mono"
               type="text"
               readOnly
               value={link.url}
               onFocus={(event) => event.target.select()}
             />
-          </label>
-          <p className="web-field__hint">
-            {t("members.invite.linkOnce", {
-              expires: formatTimestamp(link.expires, locale),
-            })}
-          </p>
-          <button
+            <FieldDescription>
+              {t("members.invite.linkOnce", {
+                expires: formatTimestamp(link.expires, locale),
+              })}
+            </FieldDescription>
+          </Field>
+          <Button
             type="button"
-            className="ap-button"
+            variant="outline"
             onClick={() => {
               void copyText(link.url, linkRef).then((copied) =>
                 onOutcome(
@@ -245,7 +275,7 @@ function InviteForm({
             }}
           >
             {t("members.invite.copy")}
-          </button>
+          </Button>
         </div>
       ) : null}
     </section>
@@ -346,19 +376,27 @@ function MemberTable({
   });
 
   if (items.length === 0) {
-    return <p className="web-page__empty">{t("members.empty")}</p>;
+    return <EmptyState title={t("members.empty")} />;
   }
 
   return (
     <>
       <TableScroll label={t("members.tableLabel")}>
-        <table className="web-table">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              <th scope="col">{t("members.column.name")}</th>
-              <th scope="col">{t("members.column.role")}</th>
-              <th scope="col">{t("members.column.state")}</th>
-              <th scope="col">{t("members.column.actions")}</th>
+              <th scope="col" className={CELL}>
+                {t("members.column.name")}
+              </th>
+              <th scope="col" className={CELL}>
+                {t("members.column.role")}
+              </th>
+              <th scope="col" className={CELL}>
+                {t("members.column.state")}
+              </th>
+              <th scope="col" className={CELL}>
+                {t("members.column.actions")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -370,16 +408,18 @@ function MemberTable({
                 (setAccess.isPending &&
                   setAccess.variables?.member.user_id === member.user_id);
               return (
-                <tr key={member.user_id} data-disabled={disabled}>
-                  <td>
-                    <span className="web-table__primary">
-                      {member.display_name}
-                    </span>
-                    <span className="web-table__secondary">{member.email}</span>
+                <tr
+                  key={member.user_id}
+                  className="group"
+                  data-disabled={disabled}
+                >
+                  <td className={CELL}>
+                    <span className={PRIMARY}>{member.display_name}</span>
+                    <span className={SECONDARY}>{member.email}</span>
                   </td>
-                  <td>
-                    <select
-                      className="ap-input"
+                  <td className={CELL}>
+                    <NativeSelect
+                      size="sm"
                       aria-label={t("members.roleFor", {
                         name: member.display_name,
                       })}
@@ -393,38 +433,47 @@ function MemberTable({
                       }
                     >
                       {WORKSPACE_ROLE_VALUES.map((value) => (
-                        <option key={value} value={value}>
+                        <NativeSelectOption key={value} value={value}>
                           {roleLabel(t, value)}
-                        </option>
+                        </NativeSelectOption>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </td>
-                  <td>
+                  <td className={CELL}>
                     {disabled ? (
-                      <>
-                        <span>{t("members.state.disabled")}</span>
-                        <span className="web-table__secondary">
+                      <span className="flex flex-col items-start gap-1">
+                        <Badge variant="secondary">
+                          {t("members.state.disabled")}
+                        </Badge>
+                        <span className={SECONDARY}>
                           {t("members.enableHint")}
                         </span>
-                      </>
+                      </span>
                     ) : (
-                      t("members.state.active")
+                      <Badge variant="outline">
+                        {t("members.state.active")}
+                      </Badge>
                     )}
                   </td>
-                  <td>
+                  <td className={CELL}>
                     {disabled ? (
-                      <button
+                      <Button
                         type="button"
-                        className="ap-button"
+                        variant="outline"
+                        size="sm"
                         disabled={busy}
                         onClick={() =>
                           setAccess.mutate({ member, enable: true })
                         }
                       >
                         {t("members.enable")}
-                      </button>
+                      </Button>
                     ) : (
                       <ReasonButton
+                        className={buttonVariants({
+                          variant: "outline",
+                          size: "sm",
+                        })}
                         reason={keepReason(member)}
                         disabled={busy}
                         aria-label={t("members.disableFor", {
@@ -522,15 +571,15 @@ function InviteList({
     invites.data?.items.filter((invite) => invite.status === "pending") ?? [];
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("members.invites.title")}</h2>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("members.invites.title")}
+      </h2>
       {invites.isPending ? (
         <StatusScreen kind="loading" />
       ) : invites.error ? (
         isApiError(invites.error, "FORBIDDEN") ? (
-          <p className="web-form__error" role="alert">
-            {refusal(t, invites.error, role)}
-          </p>
+          <FormError>{refusal(t, invites.error, role)}</FormError>
         ) : (
           <LoadFailure
             error={invites.error}
@@ -538,21 +587,28 @@ function InviteList({
           />
         )
       ) : pending.length === 0 ? (
-        <p className="web-page__empty">{t("members.invites.empty")}</p>
+        <EmptyState title={t("members.invites.empty")} />
       ) : (
-        <ul className="web-list">
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {pending.map((invite) => (
-            <li key={invite.id} className="web-list__item">
-              <span className="web-table__primary">{invite.email}</span>
-              <span className="web-table__secondary">
-                {roleLabel(t, invite.role)} ·{" "}
-                {t("members.invites.expires", {
-                  expires: formatTimestamp(invite.expires_at, locale),
-                })}
+            <li
+              key={invite.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card p-3"
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className={PRIMARY}>{invite.email}</span>
+                <span className={SECONDARY}>
+                  {roleLabel(t, invite.role)} ·{" "}
+                  {t("members.invites.expires", {
+                    expires: formatTimestamp(invite.expires_at, locale),
+                  })}
+                </span>
               </span>
-              <button
+              <Button
                 type="button"
-                className="ap-button"
+                variant="outline"
+                size="sm"
+                className="ml-auto"
                 disabled={revoke.isPending}
                 aria-label={t("members.invites.revokeFor", {
                   email: invite.email,
@@ -560,7 +616,7 @@ function InviteList({
                 onClick={() => setRevoking(invite)}
               >
                 {t("members.invites.revoke")}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

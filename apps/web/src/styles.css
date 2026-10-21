@@ -195,18 +195,6 @@ select:focus-visible,
 .web-form--inline {
   max-width: none;
 }
-.web-invite-link {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ap-space-2);
-  padding: var(--ap-space-3);
-  border: 1px solid var(--ap-color-border);
-  border-radius: var(--ap-radius-md);
-  background: var(--ap-color-surface);
-}
-.web-invite-link .ap-input {
-  font-family: var(--ap-font-mono);
-}
 
 .web-table-wrap {
   overflow-x: auto;
