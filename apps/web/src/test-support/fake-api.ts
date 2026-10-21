@@ -3,16 +3,14 @@ import type { AuthMeResponse, WorkspaceRole } from "@agent-platform/contracts";
 export interface Recorded {
   readonly method: string;
   readonly path: string;
+  readonly search: string;
   readonly headers: Headers;
   readonly body: unknown;
 }
 
 type Handler = (request: Request) => Response | Promise<Response>;
 
-/**
- * A fetch that answers by "METHOD /path" and records what it was sent, so a
- * screen test can assert on the request as well as on what it drew.
- */
+/** Answers by "METHOD /path?query" when that route exists, else by "METHOD /path", and records each request. */
 export function fakeApi(routes: Record<string, Handler>) {
   const calls: Recorded[] = [];
   const fetch = async (input: Request): Promise<Response> => {
@@ -22,10 +20,11 @@ export function fakeApi(routes: Record<string, Handler>) {
     calls.push({
       method: input.method,
       path: url.pathname,
+      search: url.search,
       headers: input.headers,
       body: text ? JSON.parse(text) : null,
     });
-    const handler = routes[key];
+    const handler = routes[`${key}${url.search}`] ?? routes[key];
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
     // The body was read for the record; a handler gets one it can read again.
     return handler(

@@ -22,6 +22,7 @@ import { ko } from "./ko.ts";
 import { linkedEn, linkedKo } from "./linked.ts";
 import { membersEn, membersKo } from "./members.ts";
 import { modelsEn, modelsKo } from "./models.ts";
+import { shellEn, shellKo } from "./shell.ts";
 import { teamsEn, teamsKo } from "./teams.ts";
 import { workspaceEn, workspaceKo } from "./workspace.ts";
 
@@ -37,6 +38,7 @@ describe("i18n", () => {
     expect(
       count([
         commonKo,
+        shellKo,
         authKo,
         homeKo,
         membersKo,
@@ -54,6 +56,7 @@ describe("i18n", () => {
     expect(
       count([
         commonEn,
+        shellEn,
         authEn,
         homeEn,
         membersEn,

@@ -15,6 +15,9 @@
  */
 
 :root {
+  /* Native controls (a select's open list, scrollbars) follow the theme too. */
+  color-scheme: light dark;
+
   /* Surfaces — argo "linen": warm paper canvas, white cards, dark rail. */
   --ap-color-canvas: #f4f1ec;
   --ap-color-surface: #ffffff;
@@ -25,6 +28,9 @@
 
   --ap-color-border: #e0dace;
   --ap-color-border-strong: #c7bfb0;
+  /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
+     canvas, which border-strong is not. */
+  --ap-color-border-input: #8a8172;
   --ap-color-foreground: #1b1915;
   --ap-color-muted-foreground: #6a6358;
 
@@ -146,7 +152,7 @@
   --destructive: var(--ap-tone-danger-fg);
   --destructive-foreground: var(--ap-color-surface);
   --border: var(--ap-color-border);
-  --input: var(--ap-color-border-strong);
+  --input: var(--ap-color-border-input);
   --ring: var(--ap-color-focus-ring);
 }
 
@@ -161,6 +167,7 @@
 
     --ap-color-border: #2e2b26;
     --ap-color-border-strong: #453f37;
+    --ap-color-border-input: #757064;
     --ap-color-foreground: #ece7df;
     --ap-color-muted-foreground: #a49c90;
 
@@ -204,7 +211,13 @@
   }
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
+
   --ap-color-canvas: #141311;
   --ap-color-surface: #1c1a17;
   --ap-color-surface-sunken: #121110;
@@ -214,6 +227,7 @@
 
   --ap-color-border: #2e2b26;
   --ap-color-border-strong: #453f37;
+  --ap-color-border-input: #757064;
   --ap-color-foreground: #ece7df;
   --ap-color-muted-foreground: #a49c90;
 
