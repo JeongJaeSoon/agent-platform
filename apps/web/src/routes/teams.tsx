@@ -5,7 +5,17 @@ import type {
   TeamDetail,
 } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
-import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
+import {
+  Button,
+  buttonVariants,
+  ConfirmDialog,
+  Field,
+  FieldLabel,
+  formatTimestamp,
+  Input,
+  NativeSelect,
+  NativeSelectOption,
+} from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
@@ -22,12 +32,25 @@ import {
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
-import { TextField } from "../components/field.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { MyTeams } from "../components/my-teams.tsx";
+import {
+  LIST,
+  LIST_ITEM,
+  MUTED,
+  MyTeams,
+  PRIMARY_LINK,
+  SECTION,
+  SECTION_TITLE,
+} from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+
+const PAGE = "flex flex-col gap-6";
+const PAGE_TITLE = "m-0 font-semibold text-xl [overflow-wrap:anywhere]";
+const FORM = "flex flex-col items-start gap-3";
+const NAME_FIELD = "max-w-md";
+const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
 
 function ListError({
   error,
@@ -40,6 +63,28 @@ function ListError({
     <StatusScreen kind="forbidden" />
   ) : (
     <LoadFailure error={error} onRetry={onRetry} />
+  );
+}
+
+function TeamNameField({
+  value,
+  onChange,
+}: {
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Field className={NAME_FIELD}>
+      <FieldLabel>{t("teams.name")}</FieldLabel>
+      <Input
+        name="team-name"
+        required
+        maxLength={100}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </Field>
   );
 }
 
@@ -87,32 +132,25 @@ export function TeamsScreen() {
 
   if (!manages) {
     return (
-      <div className="web-page">
-        <h1 className="web-page__title">{t("teams.title")}</h1>
-        <p className="web-page__intro">{t("teams.intro")}</p>
+      <div className={PAGE}>
+        <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
+        <p className={MUTED}>{t("teams.intro")}</p>
         <MyTeams showEmpty />
       </div>
     );
   }
 
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("teams.title")}</h1>
-      <p className="web-page__intro">{t("teams.intro")}</p>
+    <div className={PAGE}>
+      <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
+      <p className={MUTED}>{t("teams.intro")}</p>
       <OutcomeLine outcome={outcome} />
       {failed ? null : (
-        <form className="web-form web-form--inline" onSubmit={submit}>
-          <TextField
-            label={t("teams.name")}
-            name="team-name"
-            required
-            maxLength={100}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
+        <form className={FORM} onSubmit={submit}>
+          <TeamNameField value={name} onChange={setName} />
           <ReasonButton
             type="submit"
-            className="ap-button ap-button--primary"
+            className={buttonVariants()}
             reason={reason}
             disabled={create.isPending}
           >
@@ -120,26 +158,28 @@ export function TeamsScreen() {
           </ReasonButton>
         </form>
       )}
-      <section className="web-section" aria-labelledby={titleId}>
-        <h2 id={titleId}>{t("teams.listTitle")}</h2>
+      <section className={SECTION} aria-labelledby={titleId}>
+        <h2 id={titleId} className={SECTION_TITLE}>
+          {t("teams.listTitle")}
+        </h2>
         {teams.isPending ? (
           <StatusScreen kind="loading" />
         ) : teams.error ? (
           <ListError error={teams.error} onRetry={() => void teams.refetch()} />
         ) : teams.data.items.length === 0 ? (
-          <p className="web-page__empty">{t("teams.empty")}</p>
+          <p className={MUTED}>{t("teams.empty")}</p>
         ) : (
-          <ul className="web-list">
+          <ul className={LIST}>
             {teams.data.items.map((team) => (
-              <li key={team.id} className="web-list__item">
+              <li key={team.id} className={LIST_ITEM}>
                 <Link
                   to="/teams/$teamId"
                   params={{ teamId: team.id }}
-                  className="web-table__primary"
+                  className={PRIMARY_LINK}
                 >
                   {team.name}
                 </Link>
-                <span className="web-table__secondary">
+                <span className={`${SECONDARY} ml-auto`}>
                   {t("teams.memberCount", { count: team.member_count })}
                 </span>
               </li>
@@ -164,17 +204,22 @@ function TeamPage({ id }: { readonly id: string }) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   return (
-    <div className="web-page">
-      <p className="web-page__back">
-        <Link to="/teams">{t("teams.back")}</Link>
+    <div className={PAGE}>
+      <p className="m-0">
+        <Link to="/teams" className={PRIMARY_LINK}>
+          {t("teams.back")}
+        </Link>
       </p>
       {team.isPending ? (
         <StatusScreen kind="loading" />
       ) : team.error ? (
-        <ListError error={team.error} onRetry={() => void team.refetch()} />
+        <>
+          <h1 className={PAGE_TITLE}>{t("teams.title")}</h1>
+          <ListError error={team.error} onRetry={() => void team.refetch()} />
+        </>
       ) : (
         <>
-          <h1 className="web-page__title">{team.data.name}</h1>
+          <h1 className={PAGE_TITLE}>{team.data.name}</h1>
           <OutcomeLine outcome={outcome} />
           <TeamSettings team={team.data} onOutcome={setOutcome} />
           <TeamMembers team={team.data} onOutcome={setOutcome} />
@@ -250,34 +295,30 @@ function TeamSettings({
   };
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("teams.settings")}</h2>
-      <form className="web-form web-form--inline" onSubmit={submit}>
-        <TextField
-          label={t("teams.name")}
-          name="team-name"
-          required
-          maxLength={100}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <button
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("teams.settings")}
+      </h2>
+      <form className={FORM} onSubmit={submit}>
+        <TeamNameField value={name} onChange={setName} />
+        <Button
           type="submit"
-          className="ap-button"
+          variant="outline"
           disabled={rename.isPending || name.trim() === team.name}
         >
           {t("teams.rename")}
-        </button>
+        </Button>
       </form>
-      <p className="web-field__hint">{t("teams.deleteHint")}</p>
-      <button
+      <p className={`${MUTED} text-sm`}>{t("teams.deleteHint")}</p>
+      <Button
         type="button"
-        className="ap-button ap-button--danger"
+        variant="destructive"
+        className="self-start"
         disabled={remove.isPending}
         onClick={() => setConfirming(true)}
       >
         {t("teams.delete")}
-      </button>
+      </Button>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
@@ -310,7 +351,6 @@ function TeamMembers({
     TeamDetail["members"][number] | null
   >(null);
   const titleId = useId();
-  const pickId = useId();
 
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
@@ -377,35 +417,38 @@ function TeamMembers({
   const chosen = candidates.find((member) => member.user_id === picked);
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("teams.members")}</h2>
-      <p className="web-field__hint">{t("teams.addHint")}</p>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("teams.members")}
+      </h2>
+      <p className={`${MUTED} text-sm`}>{t("teams.addHint")}</p>
       <form
-        className="web-form web-form--inline"
+        className={FORM}
         onSubmit={(event) => {
           event.preventDefault();
           if (chosen) add.mutate(chosen);
         }}
       >
-        <label className="web-field" htmlFor={pickId}>
-          <span>{t("teams.pickMember")}</span>
-          <select
-            id={pickId}
-            className="ap-input"
+        <Field className="max-w-full">
+          <FieldLabel>{t("teams.pickMember")}</FieldLabel>
+          <NativeSelect
             value={picked}
             disabled={candidates.length === 0}
             onChange={(event) => setPicked(event.target.value)}
           >
-            <option value="">{t("teams.pickPlaceholder")}</option>
+            <NativeSelectOption value="">
+              {t("teams.pickPlaceholder")}
+            </NativeSelectOption>
             {candidates.map((member) => (
-              <option key={member.user_id} value={member.user_id}>
+              <NativeSelectOption key={member.user_id} value={member.user_id}>
                 {member.display_name} ({member.email})
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </Field>
         <ReasonButton
           type="submit"
+          className={buttonVariants({ variant: "outline" })}
           reason={pickReason}
           disabled={!chosen || add.isPending}
         >
@@ -413,29 +456,33 @@ function TeamMembers({
         </ReasonButton>
       </form>
       {team.members.length === 0 ? (
-        <p className="web-page__empty">{t("teams.noMembers")}</p>
+        <p className={MUTED}>{t("teams.noMembers")}</p>
       ) : (
-        <ul className="web-list">
+        <ul className={LIST}>
           {team.members.map((member) => {
             const name = member.display_name ?? member.email;
             return (
-              <li key={member.user_id} className="web-list__item">
-                <span className="web-table__primary">{name}</span>
-                <span className="web-table__secondary">
+              <li key={member.user_id} className={LIST_ITEM}>
+                <span className="font-medium [overflow-wrap:anywhere]">
+                  {name}
+                </span>
+                <span className={SECONDARY}>
                   {member.email} ·{" "}
                   {t("teams.addedAt", {
                     at: formatTimestamp(member.added_at, locale),
                   })}
                 </span>
-                <button
+                <Button
                   type="button"
-                  className="ap-button"
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto"
                   disabled={remove.isPending}
                   aria-label={t("teams.removeMemberFor", { name })}
                   onClick={() => setRemoving(member)}
                 >
                   {t("teams.removeMember")}
-                </button>
+                </Button>
               </li>
             );
           })}
