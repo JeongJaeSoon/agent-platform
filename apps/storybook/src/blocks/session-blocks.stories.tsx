@@ -17,20 +17,52 @@ import {
 } from "../../.storybook/fake-client.ts";
 import { SESSION, TURN_EVENTS } from "../patterns/session-fixtures.ts";
 
-const loading = <Skeleton lines={3} label="Loading" />;
-const renderError = (_error: unknown, retry: () => void) => (
-  <ErrorState message="The read failed." retry={retry} retryLabel="Retry" />
+// The host's own words, which the blocks take as props. The toolbar's
+// Language switches them along with the blocks' catalog.
+const HOST = {
+  ko: {
+    loading: "불러오는 중",
+    failed: "불러오지 못했습니다.",
+    retry: "다시 시도",
+    unavailable: {
+      answer: "세션 승인 권한이 있어야 답할 수 있습니다.",
+      control: "세션 제어 권한이 있어야 할 수 있습니다.",
+      send: "메시지 보내기 권한이 있어야 할 수 있습니다.",
+    },
+  },
+  en: {
+    loading: "Loading",
+    failed: "The read failed.",
+    retry: "Retry",
+    unavailable: {
+      answer: "You need the sessions:approve permission for this.",
+      control: "You need the sessions:control permission for this.",
+      send: "You need the sessions:write permission for this.",
+    },
+  },
+};
+
+type Host = (typeof HOST)["ko"];
+type Globals = { readonly globals: { readonly locale?: string } };
+
+const hostFor = ({ globals }: Globals): Host =>
+  globals.locale === "en" ? HOST.en : HOST.ko;
+
+const shared = (host: Host) => ({
+  loading: <Skeleton lines={3} label={host.loading} />,
+  renderError: (_error: unknown, retry: () => void) => (
+    <ErrorState message={host.failed} retry={retry} retryLabel={host.retry} />
+  ),
+});
+const renderList = (_args: unknown, context: Globals) => (
+  <SessionList {...shared(hostFor(context))} />
 );
-const renderList = () => (
-  <SessionList loading={loading} renderError={renderError} />
-);
-const renderDetail = () => (
-  <SessionDetail id={SESSION.id} loading={loading} renderError={renderError} />
+const renderDetail = (_args: unknown, context: Globals) => (
+  <SessionDetail id={SESSION.id} {...shared(hostFor(context))} />
 );
 
 const meta = {
   title: "Blocks/Session",
-  globals: { locale: "en" },
 } satisfies Meta;
 
 export default meta;
@@ -179,10 +211,13 @@ const PENDING = {
       questions: [
         {
           question_id: "q_1",
-          prompt: "Which branch should the fix go on?",
+          // What the agent asks is in its own language, not the catalog's;
+          // long Korean here checks the card's wrapping (v2 V:467).
+          prompt:
+            "결제 실패 알림을 고친 커밋을 어느 브랜치에 올릴까요? 릴리스 브랜치에 올리면 다음 패치 배포에 함께 나가고, main에만 올리면 다음 정기 배포까지 기다립니다.",
           options: [
-            { option_id: "main", label: "main" },
-            { option_id: "release", label: "release/1.4" },
+            { option_id: "main", label: "main에만 올리기" },
+            { option_id: "release", label: "release/1.4에도 함께 올리기" },
           ],
           multi_select: false,
           allow_free_text: true,
@@ -217,22 +252,20 @@ export const Detail: Story = {
 /** A key that holds sessions:read only: every action says why it is off. */
 export const DetailReadOnly: Story = {
   ...Detail,
-  render: () => (
-    <SessionDetail
-      id={SESSION.id}
-      loading={loading}
-      renderError={renderError}
-      unavailable={{
-        answer: "You need the sessions:approve permission for this.",
-        control: "You need the sessions:control permission for this.",
-        send: "You need the sessions:write permission for this.",
-      }}
-    />
-  ),
+  render: (_args, context) => {
+    const host = hostFor(context);
+    return (
+      <SessionDetail
+        id={SESSION.id}
+        {...shared(host)}
+        unavailable={host.unavailable}
+      />
+    );
+  },
 };
 
-const renderInbox = () => (
-  <ApprovalInbox loading={loading} renderError={renderError} />
+const renderInbox = (_args: unknown, context: Globals) => (
+  <ApprovalInbox {...shared(hostFor(context))} />
 );
 
 export const Inbox: Story = {
@@ -292,4 +325,30 @@ export const DetailMobile: Story = {
   ...Detail,
   name: "Detail (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+// The stories above follow the toolbar's Language (한국어 by default); these
+// pin English so both catalogs are in the sidebar and in the a11y run.
+export const DetailEnglish: Story = {
+  ...Detail,
+  name: "Detail (English)",
+  globals: { locale: "en" },
+};
+
+export const DetailReadOnlyEnglish: Story = {
+  ...DetailReadOnly,
+  name: "Detail read-only (English)",
+  globals: { locale: "en" },
+};
+
+export const InboxEnglish: Story = {
+  ...Inbox,
+  name: "Inbox (English)",
+  globals: { locale: "en" },
+};
+
+export const ListEnglish: Story = {
+  ...List,
+  name: "List (English)",
+  globals: { locale: "en" },
 };
