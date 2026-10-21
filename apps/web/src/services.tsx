@@ -36,8 +36,8 @@ export function createServices(
   } = {},
 ): Services {
   const services: Services = {
-    // Production REST validators arrive with the shared schemas package;
-    // until then "warn" checks the event stream's envelopes.
+    // A production answer outside the contract is logged, not thrown: the
+    // screen keeps the value as it came.
     client: createApiClient({
       validate: import.meta.env.DEV ? "strict" : "warn",
       ...options,
