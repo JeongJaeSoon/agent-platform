@@ -25,7 +25,10 @@ import {
   useStepForm,
 } from "./step-form.ts";
 
-const { render, screen, waitFor } = await setupDom();
+// Queries come from each render's result, not `screen`: Testing Library is
+// cached across files and its `screen` keeps the first file's document.
+const { render, waitFor } = await setupDom();
+type View = ReturnType<typeof render>;
 const ko = defaultMessages.ko;
 
 function Wrap({ children }: { readonly children: ReactNode }) {
@@ -91,46 +94,49 @@ const identity = (send: (values: { slug: string; name: string }) => unknown) =>
     </Wrap>,
   );
 
-const fill = async (values: Record<string, string>) => {
+const fill = async (view: View, values: Record<string, string>) => {
   const user = await setupUser();
   for (const [name, value] of Object.entries(values)) {
-    const input = screen.getByLabelText(name);
+    const input = view.getByLabelText(name);
     await user.clear(input);
     if (value) await user.type(input, value);
   }
-  await user.click(screen.getByRole("button", { name: "submit" }));
+  await user.click(view.getByRole("button", { name: "submit" }));
 };
 
-const fieldError = (name: string) =>
-  screen
+const fieldError = (view: View, name: string) =>
+  view
     .getByLabelText(name)
     .closest("[data-slot=field]")
     ?.querySelector("[data-slot=field-error]")?.textContent ?? null;
 
+const alerts = (view: View) =>
+  view.queryAllByTestId("form-alert").map((line) => line.textContent);
+
 describe("a step form", () => {
   test("whitespace alone is an empty field, and nothing is sent", async () => {
     const send = mock();
-    const { unmount } = identity(send);
-    await fill({ slug: "   ", name: " " });
+    const view = identity(send);
+    await fill(view, { slug: "   ", name: " " });
     await waitFor(() =>
-      expect(fieldError("name")).toBe(ko["form.error.required"]),
+      expect(fieldError(view, "name")).toBe(ko["form.error.required"]),
     );
-    expect(fieldError("slug")).toBe(ko["form.error.required"]);
-    expect(screen.getByLabelText("slug").getAttribute("aria-invalid")).toBe(
+    expect(fieldError(view, "slug")).toBe(ko["form.error.required"]);
+    expect(view.getByLabelText("slug").getAttribute("aria-invalid")).toBe(
       "true",
     );
     expect(send).not.toHaveBeenCalled();
-    unmount();
+    view.unmount();
   });
 
   test("a contract check's own English message is replaced by ours", async () => {
-    const { unmount } = identity(mock());
-    await fill({ slug: "Not Kebab", name: "Refunds" });
+    const view = identity(mock());
+    await fill(view, { slug: "Not Kebab", name: "Refunds" });
     await waitFor(() =>
-      expect(fieldError("slug")).toBe(ko["form.error.format"]),
+      expect(fieldError(view, "slug")).toBe(ko["form.error.format"]),
     );
-    expect(screen.queryByText(/kebab-case/)).toBeNull();
-    unmount();
+    expect(view.queryByText(/kebab-case/)).toBeNull();
+    view.unmount();
   });
 
   test("every field valid goes to the request, trimmed", async () => {
@@ -148,18 +154,18 @@ describe("a step form", () => {
       tools: "",
       forbidden: "",
     });
-    const { unmount } = identity((values) =>
+    const view = identity((values) =>
       post("/v1/agents", { body: { ...values, card } }),
     );
-    await fill({ slug: "  refunds ", name: " Refunds " });
+    await fill(view, { slug: "  refunds ", name: " Refunds " });
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0]?.[1].body).toEqual({
       slug: "refunds",
       name: "Refunds",
       card,
     });
-    expect(screen.queryAllByTestId("form-alert")).toEqual([]);
-    unmount();
+    expect(alerts(view)).toEqual([]);
+    view.unmount();
   });
 
   test("a server 400 is one line above the form, no field marked", async () => {
@@ -168,18 +174,14 @@ describe("a step form", () => {
         details: null,
       });
     });
-    const { unmount } = identity(send);
-    await fill({ slug: "refunds", name: "Refunds" });
-    await waitFor(() =>
-      expect(
-        screen.getAllByTestId("form-alert").map((line) => line.textContent),
-      ).toEqual(["server:BAD_REQUEST"]),
-    );
-    const form = screen.getByRole("button", { name: "submit" }).closest("form");
+    const view = identity(send);
+    await fill(view, { slug: "refunds", name: "Refunds" });
+    await waitFor(() => expect(alerts(view)).toEqual(["server:BAD_REQUEST"]));
+    const form = view.getByRole("button", { name: "submit" }).closest("form");
     expect(form?.firstElementChild?.textContent).toBe("server:BAD_REQUEST");
-    expect(fieldError("slug")).toBeNull();
-    expect(fieldError("name")).toBeNull();
-    unmount();
+    expect(fieldError(view, "slug")).toBeNull();
+    expect(fieldError(view, "name")).toBeNull();
+    view.unmount();
   });
 
   test("an error on a path no field shows is listed above the form", async () => {
@@ -202,7 +204,7 @@ describe("a step form", () => {
       tools: "x".repeat(129),
       forbidden: "",
     };
-    const { unmount } = render(
+    const view = render(
       <Wrap>
         <StepFormView
           schema={agentCardStep(base)}
@@ -212,14 +214,14 @@ describe("a step form", () => {
         />
       </Wrap>,
     );
-    await fill({});
+    await fill(view, {});
     await waitFor(() =>
-      expect(
-        screen.getAllByTestId("form-alert").map((line) => line.textContent),
-      ).toEqual([ko["form.error.tooLong"].replace("{max}", "128")]),
+      expect(alerts(view)).toEqual([
+        ko["form.error.tooLong"].replace("{max}", "128"),
+      ]),
     );
     expect(send).not.toHaveBeenCalled();
-    unmount();
+    view.unmount();
   });
 });
 
