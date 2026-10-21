@@ -3,11 +3,12 @@ import { join } from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 
 // Minified and gzipped, as a browser downloads each entry on its own. The
-// schemas entry carries zod and every contracts module: the contracts are
-// not marked side-effect free, so a bundler keeps all of them.
+// schemas and forms entries each carry zod and every contracts module: the
+// contracts are not marked side-effect free, so a bundler keeps all of them.
 const BUDGET_BYTES: Record<string, number> = {
   ".": 4 * 1024,
   "./schemas": 128 * 1024,
+  "./forms": 128 * 1024,
 };
 
 test("every entry has a budget", () => {
