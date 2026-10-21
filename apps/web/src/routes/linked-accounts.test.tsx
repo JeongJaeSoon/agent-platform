@@ -208,6 +208,27 @@ describe("연동 계정", () => {
     };
   }
 
+  test("해제를 기다리는 동안 같은 버튼을 다시 눌러도 다음 행으로 간다", async () => {
+    const { release, routes } = heldUnlink();
+    const { api } = renderAt("/settings/linked-accounts", routes);
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    const first = screen.getAllByRole("button", { name: "연결 해제" })[0];
+    first?.focus();
+    await user.keyboard("{Enter}");
+    if (first) await user.click(first);
+    release();
+    await waitFor(() =>
+      expect(
+        document.activeElement?.closest("li")?.textContent?.includes("U0OTHER"),
+      ).toBe(true),
+    );
+    expect(
+      api.calls.filter((c) => c.path === `/v1/linked-accounts/${LINK_ID}`)
+        .length,
+    ).toBe(1);
+  });
+
   test("해제를 기다리는 동안 다른 곳을 누른 사람의 포커스는 옮기지 않는다", async () => {
     const { release, routes } = heldUnlink();
     renderAt("/settings/linked-accounts", routes);

@@ -124,8 +124,9 @@ export function LinkedAccountsScreen() {
         stop: new AbortController(),
       };
       unlinked.current = gone;
-      // Focus moved anywhere meanwhile is left where it went.
-      const away = () => {
+      // Focus moved anywhere outside the row meanwhile is left where it went.
+      const away = (event: Event) => {
+        if (event.target instanceof Node && row?.contains(event.target)) return;
         gone.held = false;
         gone.stop.abort();
       };
