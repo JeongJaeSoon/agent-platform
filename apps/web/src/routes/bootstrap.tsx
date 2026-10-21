@@ -13,7 +13,6 @@ import { type FormEvent, useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";
 import { slugInput } from "../components/field.tsx";
-import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 const FIELDS = [
@@ -83,7 +82,13 @@ export function BootstrapScreen() {
   const create = useMutation<unknown, ApiError>({
     meta: { public: true },
     mutationFn: () => unwrap(client.POST("/v1/auth/bootstrap", { body: form })),
-    onSuccess: () => navigate({ to: "/login", search: { notice: "created" } }),
+    onSuccess: () =>
+      navigate({
+        to: "/login",
+        search: { notice: "created" },
+        // History state, not the URL: the address stays free of the email.
+        state: (prev) => ({ ...prev, loginEmail: form.email }),
+      }),
     onError: async (error) => {
       if (error.code === "BOOTSTRAP_DONE") {
         await navigate({ to: "/login", search: { notice: "bootstrap_done" } });
@@ -104,7 +109,6 @@ export function BootstrapScreen() {
 
   return (
     <AuthPage title={t("bootstrap.title")}>
-      <StatusScreen kind="bootstrap-required" action={false} />
       <p className={ASIDE}>{t("bootstrap.intro")}</p>
       <form className="flex flex-col gap-4" onSubmit={submit}>
         {FIELDS.map((field) => {

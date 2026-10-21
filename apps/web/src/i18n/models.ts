@@ -14,11 +14,11 @@ export const modelsKo = {
     "모델 목록을 불러오지 못해 저장할 수 없습니다: {reason}",
 
   "agent.releases.modelMismatch":
-    "카드 모델(이 version): {card} · 고른 profile의 모델: {profile}. 둘이 달라 이대로 만들면 거부됩니다.",
+    "카드 모델(이 version): {card} · 고른 프로필의 모델: {profile}. 둘이 달라 이대로 만들면 거부됩니다.",
   "agent.releases.profileOptionMismatch":
     "{profile} · {model} · 카드 모델과 다름",
   "agent.releases.modelRefused":
-    "카드 모델 {card}이(가) runtime profile {profile}의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+    "카드 모델 {card}이(가) 프로필 {profile}의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 프로필을 고르세요.",
 };
 
 export const modelsEn: Record<keyof typeof modelsKo, string> = {
@@ -37,5 +37,5 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agent.releases.profileOptionMismatch":
     "{profile} · {model} · not the card's model",
   "agent.releases.modelRefused":
-    "The card's model {card} is not the model of runtime profile {profile}, so no release was created. Choose a profile that runs the card's model.",
+    "The card's model {card} is not the model of profile {profile}, so no release was created. Choose a profile that runs the card's model.",
 };

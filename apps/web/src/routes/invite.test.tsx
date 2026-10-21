@@ -91,6 +91,19 @@ describe("초대 수락", () => {
     });
   });
 
+  test("처음이면 이름 칸이 비밀번호 칸보다 먼저 나온다", async () => {
+    renderAt(`/invite/${TOKEN}`, { "GET /v1/auth/me": signedOut });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "아니요, 처음입니다" }),
+    );
+    const name = await screen.findByLabelText("이름");
+    const secret = screen.getByLabelText("비밀번호");
+    expect(
+      name.compareDocumentPosition(secret) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   test("단계가 URL에 남고, 이전으로 돌아가 계정 종류를 다시 고를 수 있다", async () => {
     const { history } = renderAt(`/invite/${TOKEN}`, {
       "GET /v1/auth/me": signedOut,

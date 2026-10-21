@@ -137,6 +137,32 @@ describe("워크스페이스 설정", () => {
     ).toEqual([{ audit_retention_days: 29 }]);
   });
 
+  test("화면의 최대치는 계약의 최대치와 같다", async () => {
+    const { AUDIT_RETENTION_MAX_DAYS: contract } = await import(
+      "@agent-platform/contracts"
+    );
+    const { AUDIT_RETENTION_MAX_DAYS } = await import(
+      "./workspace-settings.tsx"
+    );
+    expect(AUDIT_RETENTION_MAX_DAYS).toBe(contract);
+  });
+
+  test("최대치를 넘기면 최대치를 넘겼다고 알린다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${RETENTION}`]: () =>
+        apiError(400, "BAD_REQUEST", "Invalid request body"),
+    });
+    const input = await screen.findByLabelText("보존 기간(일)");
+    const user = await setupUser();
+    await user.clear(input);
+    await user.type(input, "99999");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "감사 기록은 최대 3650일까지 보존할 수 있습니다. 3650일 이하로 정하세요.",
+    );
+  });
+
   test("관리자는 화면을 보지만 저장은 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
     const { api } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, adminMe()),

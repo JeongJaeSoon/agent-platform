@@ -6,9 +6,14 @@ import {
 import { useAgentPlatform } from "@agent-platform/react";
 import { Button, Field, FieldLabel, Input } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearch,
+} from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { loginMethodsQuery } from "../api/queries.ts";
+import { loginMethodsQuery, viewerQuery } from "../api/queries.ts";
 import {
   ASIDE,
   AuthPage,
@@ -19,6 +24,13 @@ import {
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
+
+declare module "@tanstack/react-router" {
+  interface HistoryState {
+    /** The email bootstrap just created, to fill in on the login form. */
+    readonly loginEmail?: string;
+  }
+}
 
 const NOTICES = ["bootstrap_done", "logged_out", "created"] as const;
 type Notice = (typeof NOTICES)[number];
@@ -64,7 +76,9 @@ export function LoginScreen() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
-  const [email, setEmail] = useState("");
+  const loginEmail = useLocation({ select: (l) => l.state.loginEmail });
+  const viewer = useQuery(viewerQuery(client));
+  const [email, setEmail] = useState(loginEmail ?? "");
   const [password, setPassword] = useState("");
 
   const login = useMutation<unknown, ApiError>({
@@ -91,10 +105,19 @@ export function LoginScreen() {
 
   return (
     <AuthPage title={t("login.title")}>
+      {viewer.data?.user ? (
+        <output className={NOTICE}>
+          {t("login.signedIn", { email: viewer.data.user.email })}{" "}
+          <Link className={LINK} to="/">
+            {t("login.signedInHome")}
+          </Link>
+        </output>
+      ) : null}
       {search.redirect ? (
         <StatusScreen kind="login-required" action={false} />
       ) : null}
-      {search.notice ? (
+      {/* A failed attempt makes "the owner is ready" old news. */}
+      {search.notice && !login.error ? (
         <output className={NOTICE}>{t(NOTICE_KEY[search.notice])}</output>
       ) : null}
       <form className="flex flex-col gap-4" onSubmit={submit}>

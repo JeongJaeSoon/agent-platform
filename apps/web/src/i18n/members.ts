@@ -23,13 +23,13 @@ export const membersKo = {
     "하나뿐인 소유자는 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
   "members.disable": "비활성화",
   "members.disableFor": "{name} 비활성화",
-  "members.disableTitle": "{name}을(를) 비활성화할까요?",
+  "members.disableTitle": "{name} 계정을 비활성화할까요?",
   "members.disableConsequence":
     "이 사람의 웹 로그인과 개인 API key가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 key는 돌아오지 않습니다.",
-  "members.disabled": "{name}을(를) 비활성화했습니다.",
+  "members.disabled": "{name} 계정을 비활성화했습니다.",
   "members.enable": "다시 활성화",
   "members.enabled":
-    "{name}을(를) 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다.",
+    "{name} 계정을 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다.",
   "members.invite.title": "초대",
   "members.invite.email": "이메일",
   "members.invite.role": "역할",

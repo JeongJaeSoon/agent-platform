@@ -187,7 +187,7 @@ describe("구성원 화면", () => {
     );
     await user.click(within(dialog).getByRole("button", { name: "비활성화" }));
     expect(
-      await screen.findByText("Mate을(를) 비활성화했습니다."),
+      await screen.findByText("Mate 계정을 비활성화했습니다."),
     ).toBeDefined();
     const row = (await screen.findByText("Mate")).closest("tr") as HTMLElement;
     await waitFor(() =>
@@ -217,7 +217,7 @@ describe("구성원 화면", () => {
     );
     expect(
       await screen.findByText(
-        "Gone을(를) 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다.",
+        "Gone 계정을 다시 활성화했습니다. 이제 다시 로그인할 수 있습니다.",
       ),
     ).toBeDefined();
   });

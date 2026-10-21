@@ -117,10 +117,10 @@ describe("agentRefusal", () => {
     const message =
       "card.model: model custom model is not the model of runtime profile claude-coding-local";
     expect(refusal("ko", "UNSUPPORTED_CAPABILITY", message)).toBe(
-      "카드 모델 custom model이(가) runtime profile claude-coding-local의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+      "카드 모델 custom model이(가) 프로필 claude-coding-local의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 프로필을 고르세요.",
     );
     expect(refusal("en", "UNSUPPORTED_CAPABILITY", message)).toBe(
-      "The card's model custom model is not the model of runtime profile claude-coding-local, so no release was created. Choose a profile that runs the card's model.",
+      "The card's model custom model is not the model of profile claude-coding-local, so no release was created. Choose a profile that runs the card's model.",
     );
   });
 
@@ -143,6 +143,7 @@ describe("에이전트 목록", () => {
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
     expect(screen.getByText("초안")).toBeDefined();
+    expect(screen.getByText(/^식별자 billing · /)).toBeDefined();
   });
 
   test("배지는 초안·활성·일시정지·보관됨을 서로 다르게 보인다", async () => {
@@ -362,7 +363,7 @@ describe("새 에이전트", () => {
     });
     // The profile that runs the card's model is offered first.
     const profile = (await screen.findByLabelText(
-      "runtime profile",
+      "프로필",
     )) as HTMLSelectElement;
     expect(profile.value).toBe(PROFILE);
     await user.click(screen.getByRole("button", { name: "배포 판 만들기" }));
@@ -770,7 +771,7 @@ describe("에이전트 상세", () => {
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
     const profile = (await screen.findByLabelText(
-      "runtime profile",
+      "프로필",
     )) as HTMLSelectElement;
     // With no release yet the form offers the profile running the card's model.
     expect(profile.value).toBe(PROFILE);
@@ -819,9 +820,9 @@ describe("에이전트 상세", () => {
     expect(section("카드").contains(saved)).toBe(true);
     expect(document.activeElement?.contains(saved)).toBe(true);
 
-    await screen.findByLabelText("runtime profile");
+    await screen.findByLabelText("프로필");
     await user.selectOptions(
-      screen.getByLabelText("runtime profile"),
+      screen.getByLabelText("프로필"),
       "claude-coding-fast",
     );
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
@@ -831,7 +832,7 @@ describe("에이전트 상세", () => {
     // One result at a time: the card's notice went away with the new action.
     expect(screen.queryByText(/저장했습니다/)).toBeNull();
 
-    await user.selectOptions(screen.getByLabelText("runtime profile"), PROFILE);
+    await user.selectOptions(screen.getByLabelText("프로필"), PROFILE);
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     await user.click(
       await screen.findByRole("button", {
@@ -979,10 +980,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    await user.selectOptions(
-      await screen.findByLabelText("runtime profile"),
-      PROFILE,
-    );
+    await user.selectOptions(await screen.findByLabelText("프로필"), PROFILE);
     otherTabSaves(server);
     await services.queryClient.invalidateQueries({
       queryKey: queryKeys.agent(AGENT_ID),
@@ -997,8 +995,7 @@ describe("편집 중 다른 곳의 저장", () => {
       ).toBe("version 2"),
     );
     expect(
-      (within(release).getByLabelText("runtime profile") as HTMLSelectElement)
-        .value,
+      (within(release).getByLabelText("프로필") as HTMLSelectElement).value,
     ).toBe(PROFILE);
   });
 
@@ -1007,7 +1004,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await seedRelease(server);
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const select = (await screen.findByLabelText(
-      "runtime profile",
+      "프로필",
     )) as HTMLSelectElement;
     expect([...select.options].map((option) => option.textContent)).toEqual([
       "claude-coding-fast · claude-haiku-5 · 카드 모델과 다름",
@@ -1029,10 +1026,10 @@ describe("편집 중 다른 곳의 저장", () => {
         .map((id) => document.getElementById(id)?.textContent)
         .join(" ");
     expect(await described("모델")).toContain(
-      "release할 runtime profile의 모델과 정확히 같아야 합니다",
+      "release할 프로필의 모델과 정확히 같아야 합니다",
     );
-    expect(await described("runtime profile")).toBe(
-      "각 profile과 그 profile이 쓰는 모델. 카드 모델과 같은 모델의 profile만 release할 수 있습니다",
+    expect(await described("프로필")).toBe(
+      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다",
     );
     expect(document.body.textContent).not.toContain("profiles.yaml");
   });
@@ -1051,13 +1048,13 @@ describe("편집 중 다른 곳의 저장", () => {
     });
     const user = await setupUser();
     await user.selectOptions(
-      await screen.findByLabelText("runtime profile"),
+      await screen.findByLabelText("프로필"),
       "claude-coding-fast",
     );
     await user.click(screen.getByRole("button", { name: "release 만들기" }));
     const refusal = await screen.findByText(/release를 만들지 못했습니다/);
     expect(refusal.textContent).toBe(
-      "카드 모델 claude-sonnet-5이(가) runtime profile claude-coding-fast의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 profile을 고르세요.",
+      "카드 모델 claude-sonnet-5이(가) 프로필 claude-coding-fast의 모델과 달라 release를 만들지 못했습니다. 카드 모델과 같은 모델의 프로필을 고르세요.",
     );
     expect(document.body.textContent).not.toContain("is not the model of");
   });
@@ -1074,12 +1071,12 @@ describe("편집 중 다른 곳의 저장", () => {
       (alert) => alert.textContent,
     );
     expect(alerts).toContainEqual(
-      expect.stringContaining("profile 목록을 불러오지 못했습니다"),
+      expect.stringContaining("프로필 목록을 불러오지 못했습니다"),
     );
     expect(alerts).toContainEqual(
       expect.stringContaining("모델 목록을 불러오지 못해 저장할 수 없습니다"),
     );
-    expect(screen.queryByLabelText("runtime profile")).toBeNull();
+    expect(screen.queryByLabelText("프로필")).toBeNull();
     expect(screen.queryByLabelText("모델")).toBeNull();
     for (const name of ["release 만들기", "저장"])
       expect(
@@ -1130,14 +1127,14 @@ describe("편집 중 다른 곳의 저장", () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    const select = await screen.findByLabelText("runtime profile");
+    const select = await screen.findByLabelText("프로필");
     await user.selectOptions(select, PROFILE);
     expect(screen.queryByText(/이대로 만들면 거부됩니다/)).toBeNull();
     await user.selectOptions(select, "claude-coding-fast");
     expect(
       (await screen.findByText(/이대로 만들면 거부됩니다/)).textContent,
     ).toBe(
-      "카드 모델(이 version): claude-sonnet-5 · 고른 profile의 모델: claude-haiku-5. 둘이 달라 이대로 만들면 거부됩니다.",
+      "카드 모델(이 version): claude-sonnet-5 · 고른 프로필의 모델: claude-haiku-5. 둘이 달라 이대로 만들면 거부됩니다.",
     );
   });
 
@@ -1253,6 +1250,32 @@ describe("편집 중 다른 곳의 저장", () => {
       ).toBe("다른 탭이 고친 지시."),
     );
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
+  });
+});
+
+describe("식별자와 상태 문구", () => {
+  test("slug는 이름을 따라 채워지다가 직접 고치면 멈춘다", async () => {
+    renderAt("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    const slug = (await screen.findByLabelText("식별자")) as HTMLInputElement;
+    expect(
+      document.getElementById(slug.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toContain("다른 에이전트와 겹칠 수 없습니다");
+    await user.type(screen.getByLabelText("이름"), "Billing Bot 2");
+    expect(slug.value).toBe("billing-bot-2");
+    await user.clear(slug);
+    await user.type(slug, "pay");
+    await user.type(screen.getByLabelText("이름"), "!");
+    expect(slug.value).toBe("pay");
+  });
+
+  test("상세는 활성 release가 없을 때 배지로만 말하고 version 해시를 보이지 않는다", async () => {
+    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    expect(await screen.findByText("아직 쓸 수 없음")).toBeDefined();
+    expect(screen.getByText("식별자 billing")).toBeDefined();
+    expect(screen.queryByText(/활성 release: 없음/)).toBeNull();
+    expect(screen.queryByText(/000000000001/)).toBeNull();
   });
 });
 

@@ -347,6 +347,12 @@ describe("sessions list", () => {
     expect(link.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
     expect(screen.getByText("쉬는 중")).toBeTruthy();
     expect(screen.getByText("default · claude_agent_sdk 1.0.0")).toBeTruthy();
+    // An idle session that still takes input: "작업 상태" and "세션 상태" differ.
+    const row = link.closest("li") as HTMLElement;
+    expect(row.textContent).toContain("작업 상태: 쉬는 중");
+    expect(row.textContent).toContain("세션 상태: 열림");
+    expect(screen.getByText("열림")).toBeTruthy();
+    expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "더 보기" }));
     await screen.findByRole("link", { name: OTHER_ID });
@@ -418,7 +424,7 @@ describe("sessions list", () => {
     const link = await screen.findByRole("link", { name: SESSION_ID });
     expect(link.textContent).toBe(SESSION_ID.slice(0, 8));
     expect(screen.getByRole("list", { name: "Sessions table" })).toBeTruthy();
-    expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.getByText("Open")).toBeTruthy();
     expect(screen.queryByText(/세션/)).toBeNull();
     expect(screen.getAllByText("Oct 11, 2026, 17:14").length).toBeGreaterThan(
       0,
@@ -766,7 +772,7 @@ describe("session profile", () => {
     });
 
     const select = await screen.findByRole("combobox", {
-      name: "다음 turn부터 쓸 프로필",
+      name: "다음 작업부터 쓸 프로필",
     });
     expect(
       Array.from(select.querySelectorAll("option")).map((o) => o.value),
@@ -780,7 +786,7 @@ describe("session profile", () => {
     const before = reads();
     await user.click(screen.getByRole("button", { name: "프로필 바꾸기" }));
     expect(
-      await screen.findByText("다음 turn부터 fast 프로필로 돕니다."),
+      await screen.findByText("다음 작업부터 fast 프로필을 씁니다."),
     ).toBeTruthy();
     const [post] = api.calls.filter((call) => call.method === "POST");
     expect(post?.body).toEqual({ expected_revision: 3, profile_id: "fast" });
@@ -788,15 +794,42 @@ describe("session profile", () => {
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
-  test("shows why the server refused", async () => {
+  // changeProfile answers all of these with UNSUPPORTED_CAPABILITY, so the
+  // sentence must hold for each.
+  for (const message of [
+    "Profile fast is not in this host's catalog or not allowed with the session's repository",
+    "The session's profile default is no longer in this host's catalog as the session runs it, so the runtime its checkpoints were taken on cannot be checked",
+    "Profile fast runs claude_agent_sdk 2.0.0; the session's checkpoints were taken on claude_agent_sdk 1.0.0",
+    "Profile fast is billed differently from the session's (billing: none on one side only), so the session's cost limit would change",
+  ]) {
+    test(`shows a refusal that holds for every reason, in Korean only: ${message.slice(0, 40)}`, async () => {
+      const user = await setupUser();
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
+          apiError(422, "UNSUPPORTED_CAPABILITY", message),
+      });
+      await user.click(
+        await screen.findByRole("button", { name: "프로필 바꾸기" }),
+      );
+      expect(
+        await screen.findByText(
+          "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소·런타임·과금 방식과 맞지 않는 프로필이거나, 지금 프로필의 설정이 바뀌었습니다.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText(message)).toBeNull();
+    });
+  }
+
+  test("a session from an agent release says why it keeps its profile", async () => {
     const user = await setupUser();
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
         apiError(
-          422,
-          "UNSUPPORTED_CAPABILITY",
-          "profile fast is not allowed for repository demo",
+          409,
+          "RELEASE_PROFILE_MISMATCH",
+          "This session runs its agent release's profile",
         ),
     });
     await user.click(
@@ -804,7 +837,7 @@ describe("session profile", () => {
     );
     expect(
       await screen.findByText(
-        "이 프로필로 바꿀 수 없습니다. profile fast is not allowed for repository demo",
+        "이 프로필로 바꿀 수 없습니다. 에이전트 release로 만든 세션은 그 release의 프로필만 씁니다.",
       ),
     ).toBeTruthy();
   });
