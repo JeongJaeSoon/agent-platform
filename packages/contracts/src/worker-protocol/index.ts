@@ -295,6 +295,8 @@ export const checkpointBlockReasonSchema = z.enum([
   "no_engine_session",
   "publish_failed",
   "tool_in_flight",
+  "transcript_part_too_large",
+  "transcript_too_large",
   "turn_in_flight",
 ]);
 

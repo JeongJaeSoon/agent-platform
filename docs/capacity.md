@@ -8,7 +8,7 @@
 |---|---|---|
 | transcript 합계 상한 `MAX_TRANSCRIPT_BYTES` | 512MiB | `packages/runtime-core/src/checkpoint-manifest.ts` |
 | transcript part 상한 `MAX_TRANSCRIPT_PART_BYTES` | 16MiB | 같은 파일 |
-| 경고 문턱 (예정) | 상한의 80%, 409.6MiB | 아직 없다. 아래 "80% 경고와 상한 초과 차단 (예정)" |
+| 경고 문턱 `transcriptWarnBytes` | 상한의 80%, 409.6MiB | 같은 파일. 아래 "80% 경고" |
 | worker 메모리 `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608MiB | `apps/control-host/src/scheduler/config.ts`, `deploy/helm/agent-platform/values.yaml`, `infra/compose.core.yml` |
 | workspace 상한 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096MiB (최솟값 1024) | `packages/adapters/execution/kubernetes/src/config.ts`, `packages/adapters/execution/local-docker/src/config.ts`, `deploy/helm/agent-platform/values.yaml` |
 
@@ -24,20 +24,17 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 
 크기는 compaction 뒤에도 남는 JSONL 전체다. 엔진(Claude Code CLI)은 resume할 때 마지막 compaction 이전을 다시 읽지 않지만, 플랫폼은 파일 전체를 저장하고 복원한다. 그래서 상한은 파일 전체 크기에 건다.
 
-### 상한을 넘으면 (지금 동작)
-
-- worker의 사전검사가 checkpoint를 거절한다(checkpoint 결과 `refused`). turn은 그대로 끝나지만 그 turn의 checkpoint는 커밋되지 않는다.
-- 정상으로 끝난 turn이면 세션은 막히지 않는다. 같은 worker가 지금 context로 새 메시지를 받고 turn을 계속 돈다. 다만 transcript가 상한 아래로 줄지 않으므로 이후 checkpoint도 모두 거절된다. mirror에 쌓이는 transcript는 계속 커진다.
-- interrupt된 turn은 다르다. 그 turn의 checkpoint가 거절되면 turn은 `outcome_unknown`(`interrupt_checkpoint_unavailable`)으로 끝나고 세션은 `recovery_required`로 간다.
-- 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다. 보존되는 것은 그 checkpoint까지다. 그 뒤의 turn은 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn들의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
-- 경고도 없다. 세션이 상한에 다가가는지 API로 알 수 없다.
-
-### 80% 경고와 상한 초과 차단 (예정)
-
-[JeongJaeSoon/agent-platform#478](https://github.com/JeongJaeSoon/agent-platform/pull/478)이 다음 동작을 더한다. 그 PR은 migration 번호가 JeongJaeSoon/agent-platform#427과 겹쳐 #427 뒤로 미뤘다. land할 때 이 절을 실제 동작으로 바꾼다.
+### 80% 경고
 
 - 커밋된 checkpoint의 transcript가 처음으로 상한의 80%(409.6MiB) 이상이 되면 SSE `system` 이벤트(`transcript_near_limit`)를 한 번 보내고, 세션 상세 `attention`을 `TRANSCRIPT_LIMIT`로 둔다. 막지는 않는다.
-- 상한을 넘으면 finalize가 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)를 세션에 기록하고, 그 뒤 새 메시지와 queue의 turn을 막는다. 이어 가려면 새 세션을 만든다.
+
+### 상한을 넘으면
+
+- worker의 사전검사(workspace를 올리기 전)나 finalize(part를 읽기 전)가 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)를 세션의 `durability.checkpoint_pending_reason`에 기록한다. 처음 기록될 때 SSE `system` 이벤트(`transcript_limit_reached`)를 한 번 보낸다.
+- 상한을 넘긴 turn은 실행된 대로 `completed`로 끝나지만 그 turn의 checkpoint는 커밋되지 않는다.
+- 그 뒤 새 메시지는 409 `CHECKPOINT_UNAVAILABLE`로 거절되고, queue에 있던 turn도 실행되지 않는다. 이어 가려면 새 세션을 만들거나 recovery 경로의 `start_fresh`를 쓴다.
+- interrupt된 turn은 다르다. 그 turn의 checkpoint가 거절되면 turn은 `outcome_unknown`(`interrupt_checkpoint_unavailable`)으로 끝나고 세션은 `recovery_required`로 간다.
+- 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다. 상한을 넘긴 turn 하나는 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
 
 ## worker 메모리와 transcript 크기 (실측)
 
@@ -85,8 +82,8 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 | 600MiB | 2178MiB (실측) | 4608MiB | 6 | 12/12 | 480MiB |
 | 800MiB | 2785MiB (실측) | 5632MiB | 5 | 12/12 | 640MiB |
 
-- 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나다. 경고(예정)가 들어오면 이런 세션은 409.6MiB에서 경고를 받고 새 세션으로 옮긴다.
-- 400MiB면 400.1MiB 세션의 checkpoint가 바로 거절된다. 256MiB면 217MiB 세션도 (예정된) 경고 구간에 들어간다.
+- 512MiB는 관측한 12개 중 11개를 담는다. 둘째로 큰 400.1MiB 세션도 경고에 걸리지 않는다. 넘는 것은 591.8MiB 하나다. 이런 세션은 409.6MiB에서 경고를 받고 새 세션으로 옮긴다.
+- 400MiB면 400.1MiB 세션의 checkpoint가 바로 거절된다. 256MiB면 217MiB 세션도 경고 구간에 들어간다.
 - 공개된 다른 시스템도 활성 기록은 작게 묶는다. Temporal은 event history가 50MB에 닿으면 실행을 끝낸다([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). Inngest는 run state를 32MiB로 묶는다([usage limits](https://www.inngest.com/docs/usage-limits/inngest)). Claude Code의 선택형 `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`는 compaction 뒤 파일이 5MB를 넘으면 그 이전을 지운다([env vars](https://code.claude.com/docs/en/env-vars)). 수백 MiB를 통째로 복원하는 사례는 찾지 못했다(2026-10-21 조사).
 - 메모리는 4096MiB가 아니라 4608MiB다. 512MiB의 실측 peak 1970MiB는 4096MiB의 절반(2048)에 78MiB밖에 남지 않는다. 4608MiB면 여유가 334MiB다.
 
@@ -125,10 +122,10 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 이 값들을 바꾸는 변경은 control-host와 worker 이미지를 **같은 릴리스로** 올린다. 상한은 worker(capture, restore)와 API(finalize)가 따로 검사한다. 그래서 한쪽만 새 값이면 다음과 같이 된다.
 
-- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절한다. 정상으로 끝난 turn이면 같은 worker는 지금 context로 계속 돌고, 복원 지점만 이전 checkpoint에 머문다. interrupt된 turn이면 위와 같이 `recovery_required`가 된다. worker가 바뀌면 보존되지 않은 turn 때문에 `CONTEXT_GAP`이 된다. worker 기준으로는 상한 안인 세션도 checkpoint가 이렇게 멈출 수 있다.
+- API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절하고 `transcript_too_large`를 기록한다. 세션은 위와 같이 새 turn을 받지 않는다. worker 기준으로는 상한 안인 세션도 이렇게 멈출 수 있다.
 - worker만 옛 값(작은 상한): 큰 checkpoint의 restore를 거절하고, 작은 상한으로 capture도 거절한다.
 
-[JeongJaeSoon/agent-platform#478](https://github.com/JeongJaeSoon/agent-platform/pull/478)(예정)은 상한을 넘은 세션을 막는 reason(`transcript_too_large`, `transcript_part_too_large`, `transcript_near_limit`)과 migration 하나를 더한다. 그 PR을 배포할 때는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서를 지킨다. 옛 api는 worker가 보낸 새 reason을 거절하기 때문이다. 자세한 순서와 롤백 하한은 그 PR이 land할 때 여기에 적는다.
+상한 초과 reason(`transcript_too_large`, `transcript_part_too_large`)과 `checkpoints.transcript_bytes` 컬럼을 더하는 migration이 든 릴리스(94S-667)는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서로 배포한다. 옛 api는 worker가 보낸 새 reason을 400으로 거절하고, 새 worker는 그 보고가 실패하면 capture를 실패시킨다. 롤백은 이 reason을 아는 빌드까지만 한다. 그보다 옛 빌드는 이 reason이 남은 세션을 worker 경로에서 읽다가 예외를 낸다.
 
 `WORKER_MEMORY_MB`(`worker.memoryMb`)는 다음 launch부터 적용된다. 실행 중인 worker는 교체되지 않는다.
 

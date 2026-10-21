@@ -485,7 +485,7 @@ describe("finalize trusts what a held pointer already proved", () => {
         fence,
         turnId: "turn-1",
       }),
-    ).toEqual({ status: "verified", versionsHeld: true });
+    ).toMatchObject({ status: "verified", versionsHeld: true });
     const fresh = [
       ...added.map((ref) => ref.key),
       manifest.workspace.bundle.key,

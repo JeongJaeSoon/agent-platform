@@ -158,6 +158,12 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
 
 **흔한 오류.** 409 `SESSION_PAUSED`나 `RECOVERY_REQUIRED`면 입력을 더 보내지 말고 각각 resume 또는 복구 결정을 먼저 한다. 429면 세션별 queued input 상한을 확인한다.
 
+**긴 세션의 transcript 상한.** checkpoint 하나가 실을 수 있는 transcript는 part 하나와 합계(root와 모든 subagent)에 상한이 있다. 세션이 이 상한에 다가가면 미리 알리고, 넘으면 새 turn을 받지 않는다.
+
+- 마지막으로 커밋된 checkpoint의 transcript가 합계 상한의 80% 이상이면 세션 상세 `attention`이 `{ "code": "TRANSCRIPT_LIMIT", "reason": "transcript_near_limit", "transcript_bytes": …, "limit_bytes": … }`가 된다. 처음 넘는 checkpoint가 커밋될 때 SSE에 `system` 이벤트(`subtype: "transcript_near_limit"`, `transcript_bytes`, `warn_bytes`, `limit_bytes`, `checkpoint_revision`)가 한 번 온다. 아직 막는 것은 없다. 하던 일을 마무리하고 새 세션으로 옮길 때다.
+- 상한을 넘으면 그 turn은 실행된 대로 `completed`로 남지만 새 checkpoint는 없다. `durability.checkpoint_pending_reason`이 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)가 되어 일반 게시 실패 `publish_failed`와 구분된다. `attention.reason`도 같은 값이고 `limit_bytes`는 그 reason이 가리키는 상한이다. 처음 기록될 때 SSE에 `system` 이벤트(`subtype: "transcript_limit_reached"`, `reason`, `limit_bytes`)가 한 번 온다.
+- 이 상태의 세션은 새 메시지를 409 `CHECKPOINT_UNAVAILABLE`로 거절하고, 이미 queue에 들어 있던 입력도 실행하지 않는다. 이전 turn과 마지막 checkpoint는 그대로이고 그 checkpoint가 복원 지점이다. transcript는 같은 engine 세션 안에서 줄지 않으므로 기다려도 풀리지 않는다. 새 세션을 열거나, 세션이 `recovery_required`가 되면 `start_fresh`로 맥락 없이 이어 간다([7절](#7-outcome_unknownrecovery_required-복구-결정)).
+
 ## 5. SSE로 진행 보기와 Last-Event-ID 재연결
 
 OpenAPI: [`streamSessionEvents`](api/index.html)

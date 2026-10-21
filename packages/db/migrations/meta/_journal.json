@@ -407,6 +407,13 @@
       "when": 1792579364205,
       "tag": "0148_session_closing",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1792615179797,
+      "tag": "0149_checkpoint_transcript_bytes",
+      "breakpoints": true
     }
   ]
 }
