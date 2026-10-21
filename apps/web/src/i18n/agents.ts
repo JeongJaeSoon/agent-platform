@@ -132,14 +132,10 @@ export const agentsKo = {
   "agent.credentials.neededToActivate": "활성화에 필요 · 연결 안 됨",
   "agent.credentials.namedByCard": "카드가 씀 · 연결 안 됨",
   "agent.credentials.empty": "아직 연결된 자격이 없습니다.",
+  "agent.credentials.noneNamed":
+    "카드가 쓰는 자격이 없어 연결할 것이 없습니다.",
   "agent.credentials.running": "실행 중인 세션 {count}개",
-  "agent.credentials.name": "자격 이름",
-  "agent.credentials.nameHint":
-    "영문 소문자로 시작하는 이름(예: github/app). 토큰·비밀번호 같은 값은 넣지 마세요",
-  "agent.credentials.invalidName":
-    "이름 형식이 아닙니다. 영문 소문자·숫자와 . _ : / - 만 씁니다. 값을 넣었다면 지우고 이름을 적으세요",
   "agent.credentials.bind": "연결",
-  "agent.credentials.binding": "연결하는 중…",
   "agent.credentials.bindFor": "{name} 연결",
   "agent.credentials.bound": "{name}을(를) 연결했습니다.",
   "agent.credentials.alreadyBound": "{name}은(는) 이미 연결되어 있습니다.",
@@ -324,14 +320,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.credentials.neededToActivate": "Needed to activate · not connected",
   "agent.credentials.namedByCard": "Named by the card · not connected",
   "agent.credentials.empty": "No credentials connected yet.",
+  "agent.credentials.noneNamed":
+    "The card names no credentials, so there is nothing to connect.",
   "agent.credentials.running": "{count} running sessions",
-  "agent.credentials.name": "Credential name",
-  "agent.credentials.nameHint":
-    "A name starting with a lowercase letter or digit (for example github/app). Never a value such as a token or password",
-  "agent.credentials.invalidName":
-    "That is not a name. Use lowercase letters, digits and . _ : / - only. If you pasted a value, clear it and type the name",
   "agent.credentials.bind": "Connect",
-  "agent.credentials.binding": "Connecting…",
   "agent.credentials.bindFor": "Connect {name}",
   "agent.credentials.bound": "Connected {name}.",
   "agent.credentials.alreadyBound": "{name} was already connected.",

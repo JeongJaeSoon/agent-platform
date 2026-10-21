@@ -3,7 +3,6 @@ import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import {
   type AgentDetail,
   activationCredentialUnboundDetailsSchema,
-  CREDENTIAL_REF_PATTERN,
   type CreateCredentialBindingResponse,
   type CredentialBindingView,
   type RevokeCredentialBindingResponse,
@@ -20,16 +19,15 @@ import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { latestVersion } from "./versions.tsx";
 
-const REF = new RegExp(CREDENTIAL_REF_PATTERN);
-
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
 const bindingsKey = (agentId: string) =>
   [...queryKeys.agent(agentId), "credential-bindings"] as const;
 
 /**
- * The credential names an agent may use (design 4.4, D11). Only names pass
- * through here: the API takes no value, so none can reach the screen, the
- * query cache or a log.
+ * The credential names an agent may use (design 4.4, D11). There is no
+ * free-text field on purpose: a lowercase token pasted as a "name" would pass
+ * the name pattern and reach the cache and the screen. Only names the cards
+ * or the server already hold can be bound.
  */
 export function Credentials({
   detail,
@@ -51,10 +49,7 @@ export function Credentials({
   const queryClient = useQueryClient();
   const role = useRole();
   const titleId = useId();
-  const hintId = useId();
   const agentId = detail.agent.id;
-  const [draft, setDraft] = useState("");
-  const [invalid, setInvalid] = useState(false);
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 
   const bindings = useQuery({
@@ -82,8 +77,7 @@ export function Credentials({
         }),
       ),
     onMutate: () => onOutcome(null),
-    onSuccess: async (answer, ref) => {
-      if (ref === draft.trim()) setDraft("");
+    onSuccess: async (answer) => {
       onOutcome({
         kind: "notice",
         text: t(
@@ -110,30 +104,24 @@ export function Credentials({
         }),
       ),
     onMutate: () => onOutcome(null),
-    onSettled: () => setRevoking(null),
+    // The dialog closes first and the result comes after the refetch: the
+    // row whose button opened the dialog is gone by then, and a result
+    // focused while the dialog still held focus would be lost.
     onSuccess: async (answer) => {
+      setRevoking(null);
+      await queryClient.invalidateQueries({ queryKey: bindingsKey(agentId) });
       onOutcome({
         kind: "notice",
         text: t("agent.credentials.revoked", {
           name: answer.binding.credential_ref,
         }),
       });
-      await queryClient.invalidateQueries({ queryKey: bindingsKey(agentId) });
     },
-    onError: (error) => onOutcome({ kind: "error", text: refused(error) }),
+    onError: (error) => {
+      setRevoking(null);
+      onOutcome({ kind: "error", text: refused(error) });
+    },
   });
-
-  const submit = () => {
-    const ref = draft.trim();
-    // The pattern catches most pasted values (upper case, spaces) before
-    // they leave the page.
-    if (!REF.test(ref)) {
-      setInvalid(true);
-      return;
-    }
-    setInvalid(false);
-    bind.mutate(ref);
-  };
 
   const active = (bindings.data?.items ?? []).filter(
     (binding) => binding.revoked_at === null,
@@ -196,7 +184,13 @@ export function Credentials({
             </ul>
           ) : null}
           {active.length === 0 ? (
-            <p className="web-page__empty">{t("agent.credentials.empty")}</p>
+            <p className="web-page__empty">
+              {t(
+                unbound.length === 0
+                  ? "agent.credentials.noneNamed"
+                  : "agent.credentials.empty",
+              )}
+            </p>
           ) : (
             <ul
               className="web-list"
@@ -229,46 +223,6 @@ export function Credentials({
               ))}
             </ul>
           )}
-          <form
-            className="web-form web-form--inline"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit();
-            }}
-          >
-            <div className="web-field">
-              <label className="web-field">
-                <span>{t("agent.credentials.name")}</span>
-                <input
-                  className="ap-input"
-                  value={draft}
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-invalid={invalid}
-                  aria-describedby={hintId}
-                  onChange={(event) => {
-                    setDraft(event.target.value);
-                    setInvalid(false);
-                  }}
-                />
-              </label>
-              <span id={hintId} className="web-field__hint">
-                {invalid
-                  ? t("agent.credentials.invalidName")
-                  : t("agent.credentials.nameHint")}
-              </span>
-            </div>
-            <button
-              type="submit"
-              className="ap-button"
-              disabled={busy || draft.trim() === ""}
-            >
-              {bind.isPending
-                ? t("agent.credentials.binding")
-                : t("agent.credentials.bind")}
-            </button>
-          </form>
         </>
       )}
       {result}

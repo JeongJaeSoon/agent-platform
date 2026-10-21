@@ -72,9 +72,14 @@ describe("자격 연결 단계", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("다음 세션부터 시작하지 못합니다");
     await user.click(within(dialog).getByRole("button", { name: "연결 해제" }));
-    expect(
-      await within(section).findByText("github/app의 연결을 해제했습니다."),
-    ).toBeDefined();
+    const revoked = await within(section).findByText(
+      "github/app의 연결을 해제했습니다.",
+    );
+    // The button that opened the dialog is gone; the keyboard lands on the result.
+    await waitFor(() =>
+      expect(document.activeElement?.contains(revoked)).toBe(true),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(
       api.calls.some(
         (c) =>
@@ -90,26 +95,18 @@ describe("자격 연결 단계", () => {
     );
   });
 
-  test("이름 칸에 값처럼 보이는 것을 넣으면 보내지 않고, 이름은 보낸다", async () => {
+  test("카드가 자격을 쓰지 않으면 연결할 것이 없다고 하고, 자격을 적는 칸은 어디에도 없다", async () => {
     const server = agentServer();
-    const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
-    const user = await setupUser();
+    renderAt(DETAIL, { ...meOk, ...server.routes });
     const section = await step();
-    const name = await within(section).findByLabelText("자격 이름");
-
-    await user.type(name, "ghp_Secret Value");
-    await user.click(within(section).getByRole("button", { name: "연결" }));
-    expect(name.getAttribute("aria-invalid")).toBe("true");
-    expect(within(section).getByText(/이름 형식이 아닙니다/)).toBeDefined();
-    expect(posted(api)).toEqual([]);
-
-    await user.clear(name);
-    await user.type(name, "slack:bot");
-    await user.click(within(section).getByRole("button", { name: "연결" }));
     expect(
-      await within(section).findByText("slack:bot을(를) 연결했습니다."),
+      await within(section).findByText(
+        "카드가 쓰는 자격이 없어 연결할 것이 없습니다.",
+      ),
     ).toBeDefined();
-    expect((name as HTMLInputElement).value).toBe("");
+    // A free-text field would let a pasted value through as a "name".
+    expect(within(section).queryByRole("textbox")).toBeNull();
+    expect(within(section).queryByRole("button")).toBeNull();
   });
 
   test("목록이 거절되면 권한 사유를 보인다", async () => {
@@ -124,7 +121,66 @@ describe("자격 연결 단계", () => {
     expect((await within(section).findByText(/에이전트 관리/)).className).toBe(
       "web-guarded__reason",
     );
-    expect(within(section).queryByLabelText("자격 이름")).toBeNull();
+    expect(within(section).queryByRole("button")).toBeNull();
+  });
+
+  test("query·mutation 캐시에는 계약의 이름 필드만 있고 console에는 자격이 나오지 않는다", async () => {
+    const logged: unknown[] = [];
+    const methods = ["log", "info", "warn", "error", "debug"] as const;
+    const originals = methods.map((name) => console[name]);
+    for (const name of methods) {
+      console[name] = (...args: unknown[]) => {
+        logged.push(...args);
+      };
+    }
+    try {
+      const server = serverNaming("github/app");
+      const { services } = renderAt(DETAIL, { ...meOk, ...server.routes });
+      const user = await setupUser();
+      const section = await step();
+      await user.click(
+        await within(section).findByRole("button", { name: "github/app 연결" }),
+      );
+      await user.click(
+        await within(section).findByRole("button", {
+          name: "github/app 연결 해제",
+        }),
+      );
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "연결 해제",
+        }),
+      );
+      await within(section).findByText("github/app의 연결을 해제했습니다.");
+
+      const listed = services.queryClient.getQueryData<{
+        items: Record<string, unknown>[];
+      }>([...["agents", AGENT_ID], "credential-bindings"]);
+      expect(listed?.items).toEqual([]);
+      const variables = services.queryClient
+        .getMutationCache()
+        .getAll()
+        .map((m) => m.state.variables)
+        .filter((v) => v !== undefined);
+      // The bind sends a name from the card; the unbind, the listed binding.
+      expect(variables[0]).toBe("github/app");
+      expect(Object.keys(variables[1] as object).sort()).toEqual([
+        "agent_id",
+        "bound_at",
+        "bound_by",
+        "credential_ref",
+        "id",
+        "revoked_at",
+        "running_sessions",
+      ]);
+      expect(
+        logged.some((arg) => /github\/app|credential/i.test(String(arg))),
+      ).toBe(false);
+    } finally {
+      methods.forEach((name, index) => {
+        console[name] = originals[index] as (typeof console)[typeof name];
+      });
+    }
   });
 });
 
@@ -210,55 +266,5 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     expect(
       within(alert).getByRole("button", { name: "자격 연결로 가기" }),
     ).toBeDefined();
-  });
-
-  test("이름 칸에 넣은 값은 화면 밖 query·mutation 캐시와 console에 남지 않는다", async () => {
-    const SECRET = "ghp_SuperSecretValue0123";
-    const logged: unknown[] = [];
-    const methods = ["log", "info", "warn", "error", "debug"] as const;
-    const originals = methods.map((name) => console[name]);
-    for (const name of methods) {
-      console[name] = (...args: unknown[]) => {
-        logged.push(...args);
-      };
-    }
-    try {
-      const server = serverNaming("github/app");
-      const { api, services } = renderAt(DETAIL, {
-        ...meOk,
-        ...server.routes,
-      });
-      const user = await setupUser();
-      const section = await step();
-      await user.type(
-        await within(section).findByLabelText("자격 이름"),
-        SECRET,
-      );
-      await user.click(within(section).getByRole("button", { name: "연결" }));
-      await user.click(
-        within(section).getByRole("button", { name: "github/app 연결" }),
-      );
-      await within(section).findByText("github/app을(를) 연결했습니다.");
-
-      expect(JSON.stringify(api.calls.map((c) => c.body))).not.toContain(
-        SECRET,
-      );
-      const cached = [
-        ...services.queryClient
-          .getQueryCache()
-          .getAll()
-          .map((q) => q.state.data),
-        ...services.queryClient
-          .getMutationCache()
-          .getAll()
-          .map((m) => m.state.variables),
-      ];
-      expect(JSON.stringify(cached)).not.toContain(SECRET);
-      expect(logged.some((arg) => String(arg).includes(SECRET))).toBe(false);
-    } finally {
-      methods.forEach((name, index) => {
-        console[name] = originals[index] as (typeof console)[typeof name];
-      });
-    }
   });
 });
