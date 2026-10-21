@@ -85,6 +85,7 @@
         "@testing-library/user-event": "^14.6.7",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
+        "@use-funnel/core": "0.1.0",
         "@vitejs/plugin-react": "5.2.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -224,6 +225,7 @@
         "@testing-library/user-event": "^14.6.7",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
+        "@use-funnel/core": "0.1.0",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
         "react-hook-form": "7.90.0",
@@ -1020,6 +1022,8 @@
     "@ungap/structured-clone": ["@ungap/structured-clone@1.4.0", "", {}, "sha512-1mEZtMKPM09vDmQt5y7YvmN2+DFTP7Tg0EWXdic8/C6VRnpb33e4ghisCIE3WZjsE2N8mf+QV1Zqh7ZFYLWInQ=="],
 
     "@unhead/vue": ["@unhead/vue@2.1.17", "", { "dependencies": { "hookable": "^6.0.1", "unhead": "2.1.17" }, "peerDependencies": { "vue": ">=3.5.18" } }, "sha512-pnC8x9HLV3qQXdvWfylUEU25uhfCAy3ly9nmpQz84j9py818DRfU8jOsQ5wjdWtxyU1vX/fW2udfm4jtxUK8Bg=="],
+
+    "@use-funnel/core": ["@use-funnel/core@0.1.0", "", { "peerDependencies": { "react": ">=16.8" } }, "sha512-KEjBKTbOh5wd6CQZ1jYWhI6KuGrI9Pjn9CkmUgAYzonsyZE0lsiZ2/1RwsaWcxVO5RJBgfwCM8dRpibwm7An9w=="],
 
     "@vercel/oidc": ["@vercel/oidc@3.1.0", "", {}, "sha512-Fw28YZpRnA3cAHHDlkt7xQHiJ0fcL+NRcIqsocZQUSmbzeIKRpwttJjik5ZGanXP+vlA4SbTg+AbA3bP363l+w=="],
 

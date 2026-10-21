@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  flowEn,
+  flowKo,
   formsEn,
   formsKo,
   sessionsEn,
@@ -46,6 +48,7 @@ describe("i18n", () => {
         agentsKo,
         modelsKo,
         sessionsKo,
+        flowKo,
         linkedKo,
         apiKeysKo,
         workspaceKo,
@@ -64,6 +67,7 @@ describe("i18n", () => {
         agentsEn,
         modelsEn,
         sessionsEn,
+        flowEn,
         linkedEn,
         apiKeysEn,
         workspaceEn,

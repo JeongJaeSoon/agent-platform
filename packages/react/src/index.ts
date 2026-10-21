@@ -14,9 +14,25 @@ export {
   submitStep,
   useStepForm,
 } from "./forms/step-form.ts";
+export {
+  createFunnel,
+  type Funnel,
+  type FunnelReset,
+  type FunnelRouter,
+  type StepContextMap,
+  type UseFunnel,
+} from "./funnel/use-funnel.ts";
+export {
+  type StepInput,
+  type StepperOptions,
+  type StepperState,
+  useStepper,
+} from "./funnel/use-stepper.ts";
 export { useMe } from "./me.ts";
 export {
   defaultMessages,
+  flowEn,
+  flowKo,
   formsEn,
   formsKo,
   LOCALES,
