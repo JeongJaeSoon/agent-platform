@@ -92,14 +92,113 @@ describe("연동 계정", () => {
     expect(
       screen.getByRole("button", { name: "Slack 계정 연결" }),
     ).toBeDefined();
+    // The notice line is there, empty, before anything is announced on it.
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("");
     const user = await setupUser();
-    await user.click(screen.getByRole("button", { name: "연결 해제" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "Slack 계정 연결을 해제했습니다.",
-    );
+    screen.getByRole("button", { name: "연결 해제" }).focus();
+    await user.keyboard("{Enter}");
     expect(
       await screen.findByText("연결된 Slack 계정이 없습니다."),
     ).toBeDefined();
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status.textContent).toBe("Slack 계정 연결을 해제했습니다.");
+    // No row is left, so focus goes to the list's heading.
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("heading", { name: "Slack" }),
+      ).toBe(true),
+    );
+  });
+
+  const other: LinkedAccount = {
+    ...slack,
+    id: "5f6a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
+    external_tenant: "T0OTHER",
+    external_user_id: "U0OTHER",
+  };
+
+  function twoLinks() {
+    let items = [slack, other];
+    return {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items }),
+      [`DELETE /v1/linked-accounts/${LINK_ID}`]: () => {
+        items = items.map((a) =>
+          a.id === LINK_ID ? { ...a, status: "revoked" as const } : a,
+        );
+        return json(200, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "succeeded",
+        });
+      },
+      [`DELETE /v1/linked-accounts/${other.id}`]: () => {
+        items = items.map((a) =>
+          a.id === other.id ? { ...a, status: "revoked" as const } : a,
+        );
+        return json(200, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "succeeded",
+        });
+      },
+    };
+  }
+
+  test("해제한 행 자리에 온 다음 행의 해제 버튼으로 포커스가 간다", async () => {
+    renderAt("/settings/linked-accounts", twoLinks());
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[0]?.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "연결 해제" }).length).toBe(
+        1,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "연결 해제" }),
+      ).toBe(true),
+    );
+    expect(
+      document.activeElement?.closest("li")?.textContent?.includes("U0OTHER"),
+    ).toBe(true);
+  });
+
+  test("마지막 행을 해제하면 바로 위 행의 해제 버튼으로 포커스가 간다", async () => {
+    renderAt("/settings/linked-accounts", twoLinks());
+    await screen.findByText("Slack 사용자 U0OTHER (워크스페이스 T0OTHER)");
+    const user = await setupUser();
+    screen.getAllByRole("button", { name: "연결 해제" })[1]?.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "연결 해제" }).length).toBe(
+        1,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement?.closest("li")?.textContent?.includes("U0MOCK"),
+      ).toBe(true),
+    );
+  });
+
+  test("해제가 거절되면 포커스는 누른 버튼에 남고 이유를 알린다", async () => {
+    renderAt("/settings/linked-accounts", {
+      ...meOk,
+      "GET /v1/linked-accounts": () => json(200, { items: [slack] }),
+      [`DELETE /v1/linked-accounts/${LINK_ID}`]: () =>
+        apiError(500, "INTERNAL", "boom"),
+    });
+    const button = await screen.findByRole("button", { name: "연결 해제" });
+    const user = await setupUser();
+    button.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("alert");
+    expect(button.getAttribute("aria-disabled")).toBeNull();
+    expect(document.activeElement === button).toBe(true);
   });
 
   test("Slack이 돌려보내면 code·state를 한 번 보내고 목록으로 간다", async () => {

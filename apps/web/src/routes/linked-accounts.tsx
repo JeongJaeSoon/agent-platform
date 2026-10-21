@@ -8,7 +8,7 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import { Button, EmptyState, formatTimestamp } from "@werft-ai/ui";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
@@ -62,6 +62,31 @@ export function LinkedAccountsScreen() {
   const accounts = useQuery(linkedAccountsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // The account last unlinked and its place, until its row leaves the list.
+  const unlinked = useRef<{ id: string; index: number } | null>(null);
+
+  const live =
+    accounts.data?.items.filter((account) => account.status !== "revoked") ??
+    [];
+
+  // The pressed button leaves with its row and focus falls to the page. It
+  // goes to the row now in that place, else the one above, else the
+  // heading of the emptied list.
+  useLayoutEffect(() => {
+    const gone = unlinked.current;
+    if (!gone || live.some((account) => account.id === gone.id)) return;
+    unlinked.current = null;
+    if (document.activeElement !== document.body) return;
+    const buttons =
+      sectionRef.current?.querySelectorAll<HTMLElement>("li button") ?? [];
+    (
+      buttons[gone.index] ??
+      buttons[gone.index - 1] ??
+      headingRef.current
+    )?.focus();
+  });
 
   const start = useMutation<StartSlackLinkResponse, ApiError>({
     mutationFn: () => unwrap(client.POST("/v1/linked-accounts/slack/start")),
@@ -79,7 +104,11 @@ export function LinkedAccountsScreen() {
         }),
       ),
     onMutate: () => setOutcome(null),
-    onSuccess: async () => {
+    onSuccess: async (_, account) => {
+      unlinked.current = {
+        id: account.id,
+        index: live.findIndex(({ id }) => id === account.id),
+      };
       setOutcome({ kind: "notice", text: t("linked.unlinked") });
       await queryClient.invalidateQueries({
         queryKey: queryKeys.linkedAccounts,
@@ -89,23 +118,23 @@ export function LinkedAccountsScreen() {
       setOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
   });
 
-  const live =
-    accounts.data?.items.filter((account) => account.status !== "revoked") ??
-    [];
+  const notice = outcome?.kind === "notice" ? outcome.text : null;
 
   return (
     <div className={PAGE}>
       <h1 className={TITLE}>{t("linked.title")}</h1>
       <p className={HINT}>{t("linked.intro")}</p>
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <output className={NOTICE}>{outcome.text}</output>
-        )
-      ) : null}
-      <section className={SECTION} aria-labelledby={titleId}>
-        <h2 id={titleId} className={SECTION_TITLE}>
+      {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
+      {/* Always mounted, so a screen reader hears the notice when it
+          changes; out of the flow while empty. */}
+      <output className={notice ? NOTICE : "sr-only"}>{notice}</output>
+      <section ref={sectionRef} className={SECTION} aria-labelledby={titleId}>
+        <h2
+          ref={headingRef}
+          id={titleId}
+          tabIndex={-1}
+          className={`${SECTION_TITLE} outline-none`}
+        >
           {t("linked.slack")}
         </h2>
         {accounts.isPending ? (
@@ -184,8 +213,13 @@ function SlackAccounts({
             type="button"
             variant="outline"
             size="sm"
-            disabled={unlinking === account.id}
-            onClick={() => onUnlink(account)}
+            // Not `disabled` while it runs: Chrome takes focus off a disabled
+            // button, and a refused unlink would leave the keyboard lost.
+            aria-disabled={unlinking === account.id || undefined}
+            className="aria-disabled:opacity-50"
+            onClick={() => {
+              if (unlinking !== account.id) onUnlink(account);
+            }}
           >
             {t("linked.unlink")}
           </Button>
