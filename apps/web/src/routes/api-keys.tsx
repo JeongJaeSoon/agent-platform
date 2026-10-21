@@ -10,6 +10,7 @@ import type {
 import { useAgentPlatform } from "@agent-platform/react";
 import {
   Badge,
+  type BadgeProps,
   Button,
   buttonVariants,
   Checkbox,
@@ -59,7 +60,6 @@ const PAGE = "flex flex-col gap-6";
 const TITLE = "m-0 font-semibold text-xl";
 const SECTION = "flex flex-col gap-3";
 const SECTION_TITLE = "m-0 font-semibold text-lg";
-const HINT = "m-0 text-muted-foreground text-sm";
 const FORM = "flex max-w-xl flex-col items-start gap-4";
 const PRIMARY = "block break-words font-semibold";
 const SECONDARY =
@@ -89,6 +89,91 @@ const SCOPE_HINT: Record<SessionScope, MessageKey> = {
   "sessions:control": "apiKeys.scopeHint.control",
   "sessions:recover": "apiKeys.scopeHint.recover",
 };
+
+// The contract has two kinds; a service key bound to an agent is the third
+// the screen names.
+type KeyKind = "personal" | "service" | "agent";
+const KEY_KINDS: readonly KeyKind[] = ["personal", "service", "agent"];
+
+const kindOf = (key: Pick<ApiKeyView, "kind" | "agent_id">): KeyKind =>
+  key.kind === "personal"
+    ? "personal"
+    : key.agent_id === null
+      ? "service"
+      : "agent";
+
+const KIND_NAME: Record<KeyKind, MessageKey> = {
+  personal: "apiKeys.kind.personal",
+  service: "apiKeys.kind.service",
+  agent: "apiKeys.kind.agent",
+};
+
+const KIND_BADGE: Record<KeyKind, BadgeProps["variant"]> = {
+  personal: "default",
+  service: "secondary",
+  agent: "outline",
+};
+
+// Who it acts as, what its issuer leaving does, which sessions it reaches,
+// and whether it can approve: auth.ts apiKeyPrincipal, queries.ts
+// liveApiKey, policy.ts viewerOf and agent_ceiling, api-key-service.ts.
+const KIND_FACTS: Record<KeyKind, readonly MessageKey[]> = {
+  personal: [
+    "apiKeys.guide.personal.actsAs",
+    "apiKeys.guide.personal.issuerLeaves",
+    "apiKeys.guide.personal.sessions",
+    "apiKeys.guide.personal.approve",
+  ],
+  service: [
+    "apiKeys.guide.service.actsAs",
+    "apiKeys.guide.service.issuerLeaves",
+    "apiKeys.guide.service.sessions",
+    "apiKeys.guide.service.approve",
+  ],
+  agent: [
+    "apiKeys.guide.agent.actsAs",
+    "apiKeys.guide.agent.issuerLeaves",
+    "apiKeys.guide.agent.sessions",
+    "apiKeys.guide.agent.approve",
+  ],
+};
+
+function KindBadge({ kind }: { readonly kind: KeyKind }) {
+  const { t } = useI18n();
+  return (
+    <Badge variant={KIND_BADGE[kind]} data-kind={kind}>
+      {t(KIND_NAME[kind])}
+    </Badge>
+  );
+}
+
+function KeyKindGuide() {
+  const { t } = useI18n();
+  const titleId = useId();
+  return (
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("apiKeys.guideTitle")}
+      </h2>
+      <div className="grid gap-3 lg:grid-cols-3">
+        {KEY_KINDS.map((kind) => (
+          <div
+            key={kind}
+            className="flex flex-col items-start gap-2 rounded-md border p-3"
+            data-testid={`guide-${kind}`}
+          >
+            <KindBadge kind={kind} />
+            <ul className="m-0 flex list-disc flex-col gap-1 pl-5 text-sm">
+              {KIND_FACTS[kind].map((fact) => (
+                <li key={fact}>{t(fact)}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function keyRefusal(
   t: Translate,
@@ -157,6 +242,7 @@ export function ApiKeysScreen() {
           }}
         />
       ) : null}
+      <KeyKindGuide />
       <PersonalKeyForm issue={issue} />
       <ServiceKeyForm issue={issue} />
       {keys.isPending ? (
@@ -196,8 +282,7 @@ function IssuedSecret({
     >
       <h2 className={SECTION_TITLE}>{t("apiKeys.secretTitle")}</h2>
       <p className="m-0">
-        {t("apiKeys.secretOnce")}{" "}
-        {t("apiKeys.keyId", { id: shortId(issued.key.id) })}
+        {t("apiKeys.secretOnce")} {t("apiKeys.keyId", { id: issued.key.id })}
       </p>
       <Field>
         <FieldLabel>{t("apiKeys.secret")}</FieldLabel>
@@ -282,11 +367,6 @@ interface Issue {
   readonly blocked: boolean;
 }
 
-/** Enough of the id to tell keys apart in the list and when revoking. */
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
-
 function useIssue(
   onIssued: (result: CreateApiKeyResponse) => void,
   onOutcome: (outcome: Outcome | null) => void,
@@ -345,7 +425,6 @@ function PersonalKeyForm({ issue }: { readonly issue: Issue }) {
       <h2 id={titleId} className={SECTION_TITLE}>
         {t("apiKeys.personal")}
       </h2>
-      <p className={HINT}>{t("apiKeys.personalHint")}</p>
       <form className={FORM} onSubmit={submit}>
         <ScopePicker available={held} chosen={scopes} onChange={setScopes} />
         <ExpiryField value={expires} onChange={setExpires} />
@@ -467,9 +546,6 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
       <h2 id={titleId} className={SECTION_TITLE}>
         {t("apiKeys.service")}
       </h2>
-      <p className={NOTICE} data-testid="survives-issuer">
-        {t("apiKeys.survivesIssuer")}
-      </p>
       <form className={FORM} onSubmit={(event) => event.preventDefault()}>
         <ScopePicker
           available={held}
@@ -516,6 +592,37 @@ function ServiceKeyForm({ issue }: { readonly issue: Issue }) {
         </ReasonButton>
       </form>
     </section>
+  );
+}
+
+function KeyIdLine({ id }: { readonly id: string }) {
+  const { t } = useI18n();
+  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      <span className="text-muted-foreground">{t("apiKeys.idLabel")}</span>
+      <code className="font-mono [overflow-wrap:anywhere]">{id}</code>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-6 px-2 text-xs"
+        aria-label={t("apiKeys.copyIdFor", { id })}
+        onClick={() => {
+          // No field to fall back to: the id is plain text to select.
+          void copyText(id, { current: null }).then((copied) =>
+            setCopy(copied ? "copied" : "failed"),
+          );
+        }}
+      >
+        {copy === "copied" ? t("apiKeys.copied") : t("apiKeys.copyId")}
+      </Button>
+      {copy === "failed" ? (
+        <span className="text-destructive" role="alert">
+          {t("apiKeys.copyIdFailed")}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -574,24 +681,27 @@ function KeyList({
       ) : (
         <ul className="m-0 flex list-none flex-col p-0">
           {items.map((key) => {
+            const kind = kindOf(key);
+            const agent = agentName(key.agent_id);
             const label =
-              key.kind === "personal"
-                ? t("apiKeys.kind.personal")
-                : key.agent_id === null
-                  ? t("apiKeys.kind.workspace")
-                  : t("apiKeys.kind.agent", {
-                      agent: agentName(key.agent_id) ?? "",
-                    });
+              agent === null
+                ? t(KIND_NAME[kind])
+                : `${t(KIND_NAME[kind])} · ${agent}`;
             return (
               <li
                 key={key.id}
                 className="flex flex-col items-start gap-1 border-b py-3 sm:flex-row sm:items-center sm:gap-3"
                 data-revoked={key.revoked_at !== null}
               >
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className={PRIMARY}>{label}</span>
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <KindBadge kind={kind} />
+                    {agent === null ? null : (
+                      <span className={PRIMARY}>{agent}</span>
+                    )}
+                  </span>
+                  <KeyIdLine id={key.id} />
                   <span className={SECONDARY}>
-                    {t("apiKeys.keyId", { id: shortId(key.id) })} ·{" "}
                     {key.scopes.map((scope) => t(SCOPE_NAME[scope])).join(", ")}{" "}
                     ·{" "}
                     {t("apiKeys.createdAt", {
@@ -620,7 +730,7 @@ function KeyList({
                     size="sm"
                     disabled={revoke.isPending}
                     aria-label={t("apiKeys.revokeFor", {
-                      key: `${label} (${shortId(key.id)})`,
+                      key: `${label} (${key.id})`,
                     })}
                     onClick={() => setConfirming(key)}
                   >
@@ -637,9 +747,7 @@ function KeyList({
         onOpenChange={(open) => {
           if (!open) setConfirming(null);
         }}
-        title={t("apiKeys.revokeTitle", {
-          id: confirming ? shortId(confirming.id) : "",
-        })}
+        title={t("apiKeys.revokeTitle", { id: confirming?.id ?? "" })}
         consequence={t("apiKeys.revokeConsequence")}
         confirmLabel={t("apiKeys.revoke")}
         cancelLabel={t("common.cancel")}

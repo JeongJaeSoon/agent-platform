@@ -114,7 +114,10 @@ function WaitingBadge() {
   const { count, more } = waiting;
   return (
     <>
-      <Badge className="ml-auto" aria-hidden="true">
+      <Badge
+        className="ml-auto bg-rail-foreground text-rail"
+        aria-hidden="true"
+      >
         {more ? `${count}+` : count}
       </Badge>
       <span className="sr-only">
