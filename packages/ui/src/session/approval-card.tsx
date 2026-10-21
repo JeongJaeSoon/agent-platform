@@ -16,6 +16,7 @@ import {
   formatTimestamp,
   type TimestampLocale,
 } from "../receipt/format-timestamp.ts";
+import { useExpired, useExpiryFocus } from "./expiry.ts";
 
 export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
 
@@ -41,6 +42,8 @@ export interface ApprovalCardProps {
   readonly onDeny: (reason: string) => void;
   /** An answer was sent and its receipt has not come back. */
   readonly pending?: boolean | undefined;
+  /** The reader may not answer; the screen says why next to the card. */
+  readonly disabled?: boolean | undefined;
   /** Why the last answer was refused. */
   readonly error?: string | undefined;
   /** Epoch ms the expiry is compared against; the screen's clock. */
@@ -48,8 +51,6 @@ export interface ApprovalCardProps {
   readonly locale?: TimestampLocale | undefined;
   readonly className?: string | undefined;
 }
-
-const TIMER_MAX = 2 ** 31 - 1;
 
 function inputText(input: unknown): string {
   try {
@@ -65,6 +66,7 @@ export function ApprovalCard({
   onAllow,
   onDeny,
   pending = false,
+  disabled = false,
   error,
   now = Date.now(),
   locale = "ko",
@@ -77,28 +79,9 @@ export function ApprovalCard({
   const denyRef = useRef<HTMLButtonElement>(null);
   // Set when a cancel should hand focus back to the button that opened it.
   const returnFocus = useRef(false);
-  const expiresAt = Date.parse(request.expires_at);
-  // A card left open past its expiry must stop taking answers without
-  // waiting for the screen to render again.
-  const [lapsedId, setLapsedId] = useState<string | null>(null);
-  const requestId = request.request_id;
-  const expired = lapsedId === requestId || expiresAt <= now;
-
-  useEffect(() => {
-    if (expired) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // `now` may be the screen's clock; the wait runs on this one.
-    const deadline = Date.now() + (expiresAt - now);
-    // setTimeout fires at once past 2^31-1 ms, so a far expiry waits in
-    // steps, each measured again in case the machine slept.
-    const wait = () => {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) setLapsedId(requestId);
-      else timer = setTimeout(wait, Math.min(remaining, TIMER_MAX));
-    };
-    wait();
-    return () => clearTimeout(timer);
-  }, [expired, expiresAt, now, requestId]);
+  const expired = useExpired(request.request_id, request.expires_at, now);
+  const { noticeRef, within } = useExpiryFocus(expired);
+  const blocked = pending || disabled;
 
   useEffect(() => {
     if (denying) reasonRef.current?.focus();
@@ -126,13 +109,18 @@ export function ApprovalCard({
         "flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 text-sm",
         className,
       )}
+      {...within}
     >
       <div className="flex flex-col gap-1">
         {/* Not a heading: the level depends on the screen around the card. */}
         <p id={titleId} className="font-medium [overflow-wrap:anywhere]">
           {messages.title(request.tool)}
         </p>
-        <p className="text-muted-foreground text-xs">
+        <p
+          ref={noticeRef}
+          tabIndex={expired ? -1 : undefined}
+          className="text-muted-foreground text-xs"
+        >
           {expired
             ? messages.expired
             : messages.expires(formatTimestamp(request.expires_at, locale))}
@@ -162,7 +150,7 @@ export function ApprovalCard({
             <Button
               type="submit"
               variant="destructive"
-              disabled={pending || !reason.trim()}
+              disabled={blocked || !reason.trim()}
             >
               {messages.denySubmit}
             </Button>
@@ -181,14 +169,14 @@ export function ApprovalCard({
         </form>
       ) : (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={pending} onClick={onAllow}>
+          <Button type="button" disabled={blocked} onClick={onAllow}>
             {messages.allow}
           </Button>
           <Button
             ref={denyRef}
             type="button"
             variant="outline"
-            disabled={pending}
+            disabled={blocked}
             onClick={() => setDenying(true)}
           >
             {messages.deny}

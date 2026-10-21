@@ -1,6 +1,5 @@
 import { isApiError } from "@agent-platform/client";
 import {
-  type PendingRequest,
   presentTurnEvent,
   type SessionDetail as SessionDetailData,
   type SessionUsageResponse,
@@ -25,9 +24,15 @@ import {
   useSessionEvents,
   useSessionUsage,
 } from "../sessions.ts";
+import {
+  PendingAnswers,
+  type SessionActionProps,
+  SessionComposer,
+  SessionControls,
+} from "./session-actions.tsx";
 import { useBlockText } from "./text.ts";
 
-export interface SessionDetailProps {
+export interface SessionDetailProps extends SessionActionProps {
   readonly id: string;
   /** Shown until the session arrives. */
   readonly loading: ReactNode;
@@ -42,6 +47,8 @@ export function SessionDetail({
   loading,
   renderError,
   controls,
+  unavailable,
+  refusal,
 }: SessionDetailProps) {
   const { t } = useBlockText();
   const session = useSession(id);
@@ -68,18 +75,37 @@ export function SessionDetail({
   return (
     <div className="flex flex-col gap-6">
       <Overview session={detail} />
+      <Section title={t("session.control")}>
+        <SessionControls
+          session={detail}
+          unavailable={unavailable}
+          refusal={refusal}
+        />
+      </Section>
       {controls?.(detail)}
+      {pending.data ? (
+        <Section title={t("session.pending")}>
+          <PendingAnswers
+            sessionId={id}
+            items={pending.data.items}
+            unavailable={unavailable}
+            refusal={refusal}
+          />
+        </Section>
+      ) : pending.error ? (
+        renderError(pending.error, () => void pending.refetch())
+      ) : null}
       {usage.data ? (
         <Usage usage={usage.data} />
       ) : usage.error ? (
         renderError(usage.error, () => void usage.refetch())
       ) : null}
-      {pending.data ? (
-        <PendingRequests items={pending.data.items} />
-      ) : pending.error ? (
-        renderError(pending.error, () => void pending.refetch())
-      ) : null}
       <Events events={events.events} state={events.state} />
+      <SessionComposer
+        session={detail}
+        unavailable={unavailable}
+        refusal={refusal}
+      />
     </div>
   );
 }
@@ -215,45 +241,6 @@ function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
           {t("session.usage.budgetExceeded")}
         </output>
       ) : null}
-    </Section>
-  );
-}
-
-function PendingRequests({
-  items,
-}: {
-  readonly items: readonly PendingRequest[];
-}) {
-  const { t, locale } = useBlockText();
-  return (
-    <Section title={t("session.pending")}>
-      {items.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-sm">
-          {t("session.pending.empty")}
-        </p>
-      ) : (
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
-          {items.map((request) => (
-            <li
-              key={request.request_id}
-              className="flex flex-col gap-1 rounded-md border bg-card p-3 text-sm"
-            >
-              <span className="font-medium [overflow-wrap:anywhere]">
-                {request.kind === "permission"
-                  ? t("session.pending.permission", { tool: request.tool })
-                  : `${t("session.pending.question")}: ${request.questions
-                      .map((question) => question.prompt)
-                      .join(" / ")}`}
-              </span>
-              <span className="text-muted-foreground text-xs">
-                {t("session.pending.expires", {
-                  at: formatTimestamp(request.expires_at, locale),
-                })}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
     </Section>
   );
 }

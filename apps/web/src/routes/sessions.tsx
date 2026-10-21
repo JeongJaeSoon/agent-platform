@@ -5,7 +5,12 @@ import {
   useAgentPlatform,
   useChangeSessionProfile,
 } from "@agent-platform/react";
-import { SessionDetail, SessionList } from "@agent-platform/react/blocks";
+import {
+  ApprovalInbox,
+  type SessionActionProps,
+  SessionDetail,
+  SessionList,
+} from "@agent-platform/react/blocks";
 import {
   buttonVariants,
   Field,
@@ -27,7 +32,7 @@ import {
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { useI18n } from "../i18n/i18n.tsx";
+import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 function loadError(error: unknown, onRetry: () => void) {
   if (isApiError(error, "FORBIDDEN")) {
@@ -41,12 +46,19 @@ const TITLE = "m-0 font-semibold text-xl";
 
 export function SessionsScreen() {
   const { t } = useI18n();
+  const unavailable = useUnavailable();
   return (
     <div className={PAGE}>
       <div className="flex flex-col gap-1">
         <h1 className={TITLE}>{t("sessions.title")}</h1>
         <p className="m-0 text-muted-foreground">{t("sessions.intro")}</p>
       </div>
+      <ApprovalInbox
+        loading={<StatusScreen kind="loading" />}
+        renderError={loadError}
+        unavailable={unavailable}
+        refusal={(error) => t(errorKey(error.code))}
+      />
       <SessionList
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
@@ -55,9 +67,24 @@ export function SessionsScreen() {
   );
 }
 
+/** Why the signed-in credential may not take each session action. */
+function useUnavailable(): SessionActionProps["unavailable"] {
+  const { t } = useI18n();
+  const missing = (scope: string) => t("guard.missingScope", { scope });
+  const canAnswer = useCan("sessions:approve");
+  const canControl = useCan("sessions:control");
+  const canSend = useCan("sessions:write");
+  return {
+    ...(canAnswer ? {} : { answer: missing("sessions:approve") }),
+    ...(canControl ? {} : { control: missing("sessions:control") }),
+    ...(canSend ? {} : { send: missing("sessions:write") }),
+  };
+}
+
 export function SessionDetailScreen() {
   const { t } = useI18n();
   const { id } = useParams({ from: "/authed/sessions/$id" });
+  const unavailable = useUnavailable();
   return (
     <div className={PAGE}>
       <div className="flex flex-col gap-2">
@@ -78,6 +105,8 @@ export function SessionDetailScreen() {
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
         controls={(session) => <SessionProfile session={session} />}
+        unavailable={unavailable}
+        refusal={(error) => t(errorKey(error.code))}
       />
     </div>
   );

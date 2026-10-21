@@ -78,6 +78,63 @@ export const sessionsKo = {
   "session.pending.permission": "권한 요청: {tool}",
   "session.pending.question": "질문",
   "session.pending.expires": "{at}까지",
+  "session.pending.expired": "만료되어 더 이상 답할 수 없습니다.",
+  "session.answer.input": "요청 내용 보기",
+  "session.answer.allow": "허용",
+  "session.answer.deny": "거부",
+  "session.answer.denyReason": "거부하는 이유",
+  "session.answer.denySubmit": "거부 보내기",
+  "session.answer.cancel": "취소",
+  "session.answer.freeText": "직접 적기",
+  "session.answer.unanswered": "하나를 고르거나 답을 적어 주세요.",
+  "session.answer.submit": "답 보내기",
+  "session.answer.sent": "답을 보냈습니다. 세션이 이어서 진행합니다.",
+
+  "session.control": "세션 제어",
+  "session.control.interrupt": "지금 turn 멈추기",
+  "session.control.pause": "일시 정지",
+  "session.control.resume": "다시 시작",
+  "session.control.terminate": "세션 종료",
+  "session.control.terminate.title": "세션을 종료할까요?",
+  "session.control.terminate.consequence":
+    "기다리는 메시지와 요청이 취소되고 실행이 강제로 멈춥니다. 이미 밖에서 한 일(커밋·푸시 등)은 되돌리지 않습니다. 나중에 마지막 checkpoint에서 다시 시작할 수 있습니다.",
+  "session.control.terminate.confirm": "종료",
+  "session.control.cancel": "취소",
+  "session.control.none": "지금 할 수 있는 제어가 없습니다.",
+  "session.control.sent":
+    "요청을 보냈습니다. 바뀐 상태는 위 개요에 반영됩니다.",
+
+  "session.composer.label": "메시지",
+  "session.composer.send": "보내기",
+  "session.composer.hint":
+    "Ctrl+Enter(⌘+Enter)로도 보냅니다. 지금 turn이 끝나면 다음 turn으로 이어집니다.",
+  "session.composer.queued": "기다리는 메시지",
+  "session.composer.inactive": "진행 중인 세션만 메시지를 받습니다.",
+  "session.composer.sent": "메시지를 보냈습니다(turn {turn}).",
+
+  "session.command.refused": "요청이 거절되었습니다.",
+  "session.refused.REQUEST_EXPIRED":
+    "이미 답했거나 만료되었거나 닫힌 요청입니다.",
+  "session.refused.REQUEST_STALE":
+    "세션이 그새 다음으로 넘어가 이 요청은 더 이상 유효하지 않습니다.",
+  "session.refused.TURN_NOT_STARTED":
+    "이 turn은 아직 시작 전이라 멈출 것이 없습니다.",
+  "session.refused.REVISION_CONFLICT":
+    "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
+  "session.refused.PAUSE_COMMITTING":
+    "일시 정지를 확정하는 중이라 지금은 취소할 수 없습니다. 멈춘 뒤 다시 시작하세요.",
+  "session.refused.SESSION_PAUSED": "일시 정지된 세션입니다.",
+  "session.refused.SESSION_RESUMING": "다시 시작하는 중인 세션입니다.",
+  "session.refused.SESSION_STOPPED": "종료된 세션입니다.",
+  "session.refused.SESSION_CLOSED": "닫힌 세션입니다.",
+  "session.refused.RECOVERY_REQUIRED":
+    "복구 결정이 필요한 세션이라 지금은 할 수 없습니다.",
+
+  "inbox.title": "승인 대기",
+  "inbox.count": "답을 기다리는 세션 {count}개",
+  "inbox.countMore": "답을 기다리는 세션 {count}개 이상",
+  "inbox.empty": "답을 기다리는 세션이 없습니다.",
+  "inbox.open": "세션 열기",
 
   "session.events": "이벤트",
   "session.events.empty": "아직 이벤트가 없습니다.",
@@ -190,6 +247,63 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.pending.permission": "Permission request: {tool}",
   "session.pending.question": "Question",
   "session.pending.expires": "until {at}",
+  "session.pending.expired": "This request expired and takes no answer.",
+  "session.answer.input": "Show request",
+  "session.answer.allow": "Allow",
+  "session.answer.deny": "Deny",
+  "session.answer.denyReason": "Why deny?",
+  "session.answer.denySubmit": "Send denial",
+  "session.answer.cancel": "Cancel",
+  "session.answer.freeText": "Write your own",
+  "session.answer.unanswered": "Pick an option or write an answer.",
+  "session.answer.submit": "Send answer",
+  "session.answer.sent": "Answer sent. The session carries on.",
+
+  "session.control": "Session control",
+  "session.control.interrupt": "Stop this turn",
+  "session.control.pause": "Pause",
+  "session.control.resume": "Resume",
+  "session.control.terminate": "Terminate session",
+  "session.control.terminate.title": "Terminate this session?",
+  "session.control.terminate.consequence":
+    "Waiting messages and requests are cancelled and the execution is stopped by force. Nothing it already did outside (commits, pushes) is undone. You can resume later from the last checkpoint.",
+  "session.control.terminate.confirm": "Terminate",
+  "session.control.cancel": "Cancel",
+  "session.control.none": "Nothing to control right now.",
+  "session.control.sent":
+    "Request sent. The overview above shows the new state.",
+
+  "session.composer.label": "Message",
+  "session.composer.send": "Send",
+  "session.composer.hint":
+    "Ctrl+Enter (⌘+Enter) sends too. It runs as the next turn once this one ends.",
+  "session.composer.queued": "Waiting messages",
+  "session.composer.inactive": "Only an active session takes messages.",
+  "session.composer.sent": "Message sent (turn {turn}).",
+
+  "session.command.refused": "The request was refused.",
+  "session.refused.REQUEST_EXPIRED":
+    "This request was already answered, expired or closed.",
+  "session.refused.REQUEST_STALE":
+    "The session moved on, so this request no longer stands.",
+  "session.refused.TURN_NOT_STARTED":
+    "This turn has not started yet; there is nothing to stop.",
+  "session.refused.REVISION_CONFLICT":
+    "The session changed in the meantime. Check its state and try again.",
+  "session.refused.PAUSE_COMMITTING":
+    "The pause is being committed and cannot be cancelled now. Resume once it has stopped.",
+  "session.refused.SESSION_PAUSED": "The session is paused.",
+  "session.refused.SESSION_RESUMING": "The session is resuming.",
+  "session.refused.SESSION_STOPPED": "The session is stopped.",
+  "session.refused.SESSION_CLOSED": "The session is closed.",
+  "session.refused.RECOVERY_REQUIRED":
+    "The session needs a recovery decision first.",
+
+  "inbox.title": "Waiting for you",
+  "inbox.count": "{count} sessions waiting for an answer",
+  "inbox.countMore": "{count}+ sessions waiting for an answer",
+  "inbox.empty": "No session is waiting for an answer.",
+  "inbox.open": "Open session",
 
   "session.events": "Events",
   "session.events.empty": "No events yet.",
