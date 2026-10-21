@@ -6,6 +6,7 @@ import {
   useChangeSessionProfile,
 } from "@agent-platform/react";
 import {
+  ApprovalInbox,
   type SessionActionProps,
   SessionDetail,
   SessionList,
@@ -45,12 +46,19 @@ const TITLE = "m-0 font-semibold text-xl";
 
 export function SessionsScreen() {
   const { t } = useI18n();
+  const unavailable = useUnavailable();
   return (
     <div className={PAGE}>
       <div className="flex flex-col gap-1">
         <h1 className={TITLE}>{t("sessions.title")}</h1>
         <p className="m-0 text-muted-foreground">{t("sessions.intro")}</p>
       </div>
+      <ApprovalInbox
+        loading={<StatusScreen kind="loading" />}
+        renderError={loadError}
+        unavailable={unavailable}
+        refusal={(error) => t(errorKey(error.code))}
+      />
       <SessionList
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}

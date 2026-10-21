@@ -223,6 +223,82 @@ const detailRoutes = {
   [EVENTS_ROUTE]: (request: Request) => stream.route(request),
 };
 
+describe("approval inbox", () => {
+  const waitingRoutes = (items: unknown[], next_cursor: string | null) => ({
+    "GET /v1/auth/me": () => json(200, me()),
+    "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    "GET /v1/sessions?status=needs_input": () =>
+      json(200, { items, next_cursor }),
+    [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+      json(200, { items: [{ ...pending.items[0], expires_at: LATER }] }),
+    [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+      json(200, { items: [] }),
+  });
+
+  test("gathers the waiting sessions under the same count as the sidebar badge", async () => {
+    renderAt(
+      "/sessions",
+      waitingRoutes(
+        [
+          summary(SESSION_ID, { status: "needs_input" }),
+          summary(OTHER_ID, { status: "needs_input" }),
+        ],
+        null,
+      ),
+    );
+    const inbox = await screen.findByRole("region", { name: "승인 대기" });
+    expect(
+      await within(inbox).findByText("답을 기다리는 세션 2개"),
+    ).toBeTruthy();
+    expect(await screen.findByText("답변 대기 2건")).toBeTruthy();
+    expect(
+      within(inbox)
+        .getByRole("link", { name: `세션 열기 ${SESSION_ID}` })
+        .getAttribute("href"),
+    ).toBe(`/sessions/${SESSION_ID}`);
+    expect(await within(inbox).findByText("권한 요청: Bash")).toBeTruthy();
+  });
+
+  test("a longer first page reads as more, as the badge does", async () => {
+    renderAt(
+      "/sessions",
+      waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], "next"),
+    );
+    expect(await screen.findByText("답을 기다리는 세션 1개 이상")).toBeTruthy();
+    expect(await screen.findByText("답변 대기 1건 이상")).toBeTruthy();
+  });
+
+  test("answers from the inbox and reads the waiting sessions again", async () => {
+    const user = await setupUser();
+    const { api } = renderAt("/sessions", {
+      ...waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], null),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+    });
+    const waitingReads = () =>
+      api.calls.filter((call) => call.search === "?status=needs_input").length;
+    const allow = await screen.findByRole("button", { name: "허용" });
+    const before = waitingReads();
+    await user.click(allow);
+    expect(
+      await screen.findByText("답을 보냈습니다. 세션이 이어서 진행합니다."),
+    ).toBeTruthy();
+    expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      decision: "allow",
+    });
+    await waitFor(() => expect(waitingReads()).toBeGreaterThan(before));
+  });
+
+  test("says so when nothing is waiting", async () => {
+    renderAt("/sessions", waitingRoutes([], null));
+    expect(
+      await screen.findByText("답을 기다리는 세션이 없습니다."),
+    ).toBeTruthy();
+  });
+});
+
 describe("sessions list", () => {
   test("shows the caller's sessions and pages on with the cursor", async () => {
     const user = await setupUser();

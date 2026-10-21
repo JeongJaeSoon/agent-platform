@@ -1,3 +1,4 @@
+export { ApprovalInbox, type ApprovalInboxProps } from "./approval-inbox.tsx";
 export type {
   SessionAction,
   SessionActionProps,
