@@ -496,10 +496,6 @@ describe("session detail", () => {
           subtype: "thinking_tokens",
         });
       }
-      stream.emit("ev_empty", "assistant", {
-        type: "assistant",
-        message: { content: [] },
-      });
       // The next turn's tick starts its own line.
       stream.emit(
         "ev_t4",
@@ -507,6 +503,10 @@ describe("session detail", () => {
         { type: "system", subtype: "thinking_tokens" },
         "2",
       );
+      stream.emit("ev_empty", "assistant", {
+        type: "assistant",
+        message: { content: [] },
+      });
     });
     expect(await screen.findByText("생각 중 (3)")).toBeTruthy();
     expect(screen.getByText("생각 중 (1)")).toBeTruthy();
