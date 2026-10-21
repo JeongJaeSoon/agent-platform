@@ -9,10 +9,13 @@
 
 /*
  * Tailwind's automatic detection stays inside this app and skips
- * node_modules, where the packages/ui symlink lives, so it is named here.
+ * node_modules, where the packages/ui and packages/react symlinks live, so
+ * they are named here.
  */
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../../../packages/ui/src";
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../packages/react/src";
 
 /*
  * Tokens with no shadcn name. Colours shadcn names (`border`, `foreground`,

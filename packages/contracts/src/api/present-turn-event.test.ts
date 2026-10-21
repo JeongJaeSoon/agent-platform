@@ -9,7 +9,6 @@ import {
 } from "./event.ts";
 import {
   presentTurnEvent,
-  type TurnEventContext,
   type TurnEventPresentation,
 } from "./present-turn-event.ts";
 
@@ -240,89 +239,4 @@ describe("presentTurnEvent", () => {
       presentTurnEvent({ event: "system", data: PAYLOADS.system[4] }),
     ).toMatchObject({ fold: "debug" });
   });
-});
-
-// The web console draws these events today with apps/web's timeline.ts; the
-// labels here must read the same through its catalogs until it switches over.
-// Imported by a computed path so this package's typecheck does not pull in
-// the web app.
-const web = (path: string) =>
-  import(new URL(`../../../../apps/web/src/${path}`, import.meta.url).href);
-const { timelineItems } = await web("sessions/timeline.ts");
-const { translate } = await web("i18n/i18n.tsx");
-
-describe("presentTurnEvent against the web timeline", () => {
-  for (const locale of ["ko", "en"] as const) {
-    const t = (key: string, vars?: Record<string, string | number>) =>
-      translate(locale, key, vars);
-
-    const render = (presented: TurnEventPresentation, debug: boolean) => {
-      const summary = presented.summary
-        .map((part) => ("text" in part ? part.text : t(part.key, part.params)))
-        .join(" · ");
-      return summary && (debug || presented.fold !== "debug")
-        ? [
-            {
-              label: t(presented.label.key, presented.label.params),
-              summary,
-              ...(presented.detail === undefined
-                ? {}
-                : { detail: presented.detail }),
-              ...(presented.error === undefined
-                ? {}
-                : { error: presented.error }),
-            },
-          ]
-        : [];
-    };
-
-    const timeline = (
-      fixture: (typeof FIXTURES)[number],
-      context: TurnEventContext,
-      debug: boolean,
-    ) =>
-      (
-        timelineItems(
-          t,
-          [
-            {
-              id: fixture.id,
-              occurredAt: AT,
-              turnId: "turn_1",
-              payload: { event: fixture.event, data: fixture.data },
-              ...(context.toolName ? { toolName: context.toolName } : {}),
-            },
-          ],
-          { debug },
-        ) as {
-          label: string;
-          summary: string;
-          detail?: string;
-          error?: boolean;
-        }[]
-      ).map(({ label, summary, detail, error }) => ({
-        label,
-        summary,
-        ...(detail === undefined ? {} : { detail }),
-        ...(error === undefined ? {} : { error }),
-      }));
-
-    test(`every fixture reads the same in ${locale}`, () => {
-      for (const fixture of FIXTURES) {
-        for (const context of [{}, { toolName: "Bash" }]) {
-          for (const debug of [true, false]) {
-            expect({
-              id: fixture.id,
-              debug,
-              lines: render(presentTurnEvent(fixture, context), debug),
-            }).toEqual({
-              id: fixture.id,
-              debug,
-              lines: timeline(fixture, context, debug),
-            });
-          }
-        }
-      }
-    });
-  }
 });

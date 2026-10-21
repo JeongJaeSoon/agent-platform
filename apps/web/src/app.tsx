@@ -16,8 +16,20 @@ export interface AppProps {
   readonly locale?: Locale;
 }
 
-const renderLink: RenderLink = ({ id, children }) => (
-  <Link to="/sessions/$id" params={{ id }}>
+const renderLink: RenderLink = ({
+  id,
+  children,
+  className,
+  title,
+  "aria-label": label,
+}) => (
+  <Link
+    to="/sessions/$id"
+    params={{ id }}
+    className={className}
+    title={title}
+    aria-label={label}
+  >
     {children}
   </Link>
 );
