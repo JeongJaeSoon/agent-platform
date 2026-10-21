@@ -1,6 +1,6 @@
 {
-  "id": "6a5c57e9-069a-4b4e-9d39-c3ea77a75199",
-  "prevId": "f2c100f0-9d53-4e35-b953-12b77dd76935",
+  "id": "255f0581-6b8d-4f78-ae6c-9e85e302b40b",
+  "prevId": "d4baab11-8686-4fde-b781-8becba6d5742",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -166,285 +166,6 @@
         "agent_activation_events_revision_check": {
           "name": "agent_activation_events_revision_check",
           "value": "(\"agent_activation_events\".\"kind\" = 'activated') = (\"agent_activation_events\".\"activation_revision\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.agent_admins": {
-      "name": "agent_admins",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "agent_admins_user_idx": {
-          "name": "agent_admins_user_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "agent_admins_created_by_users_id_fk": {
-          "name": "agent_admins_created_by_users_id_fk",
-          "tableFrom": "agent_admins",
-          "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_admins_agent_fk": {
-          "name": "agent_admins_agent_fk",
-          "tableFrom": "agent_admins",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_admins_member_fk": {
-          "name": "agent_admins_member_fk",
-          "tableFrom": "agent_admins",
-          "tableTo": "memberships",
-          "columnsFrom": ["workspace_id", "user_id"],
-          "columnsTo": ["workspace_id", "user_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "agent_admins_agent_id_user_id_pk": {
-          "name": "agent_admins_agent_id_user_id_pk",
-          "columns": ["agent_id", "user_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.agent_identities": {
-      "name": "agent_identities",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "installation_id": {
-          "name": "installation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "external_principal_id": {
-          "name": "external_principal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "credential_ref": {
-          "name": "credential_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "revoked_by": {
-          "name": "revoked_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "agent_identities_installation_live_uniq": {
-          "name": "agent_identities_installation_live_uniq",
-          "columns": [
-            {
-              "expression": "installation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"agent_identities\".\"status\" = 'active'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "agent_identities_agent_idx": {
-          "name": "agent_identities_agent_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "agent_identities_created_by_users_id_fk": {
-          "name": "agent_identities_created_by_users_id_fk",
-          "tableFrom": "agent_identities",
-          "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_identities_revoked_by_users_id_fk": {
-          "name": "agent_identities_revoked_by_users_id_fk",
-          "tableFrom": "agent_identities",
-          "tableTo": "users",
-          "columnsFrom": ["revoked_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_identities_agent_fk": {
-          "name": "agent_identities_agent_fk",
-          "tableFrom": "agent_identities",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agent_identities_installation_fk": {
-          "name": "agent_identities_installation_fk",
-          "tableFrom": "agent_identities",
-          "tableTo": "slack_installations",
-          "columnsFrom": ["workspace_id", "installation_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "agent_identities_provider_check": {
-          "name": "agent_identities_provider_check",
-          "value": "\"agent_identities\".\"provider\" IN ('slack_bot')"
-        },
-        "agent_identities_status_check": {
-          "name": "agent_identities_status_check",
-          "value": "\"agent_identities\".\"status\" IN ('active','revoked')"
-        },
-        "agent_identities_revoked_check": {
-          "name": "agent_identities_revoked_check",
-          "value": "(\"agent_identities\".\"status\" = 'revoked') = (\"agent_identities\".\"revoked_at\" IS NOT NULL)"
-        },
-        "agent_identities_credential_ref_check": {
-          "name": "agent_identities_credential_ref_check",
-          "value": "\"agent_identities\".\"credential_ref\" ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'"
         }
       },
       "isRLSEnabled": false
@@ -845,13 +566,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "agents_workspace_id_key": {
-          "name": "agents_workspace_id_key",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "id"]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
         "agents_status_check": {
@@ -934,31 +649,9 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "api_keys_agent_idx": {
-          "name": "api_keys_agent_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"api_keys\".\"agent_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "api_keys_workspace_idx": {
           "name": "api_keys_workspace_idx",
           "columns": [
@@ -1010,15 +703,6 @@
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "api_keys_agent_fk": {
-          "name": "api_keys_agent_fk",
-          "tableFrom": "api_keys",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1031,10 +715,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "api_keys_agent_check": {
-          "name": "api_keys_agent_check",
-          "value": "\"api_keys\".\"agent_id\" IS NULL OR (\"api_keys\".\"kind\" = 'service' AND \"api_keys\".\"workspace_id\" IS NOT NULL)"
-        },
         "api_keys_kind_check": {
           "name": "api_keys_kind_check",
           "value": "\"api_keys\".\"kind\" IN ('personal', 'service')"
@@ -1674,147 +1354,6 @@
         "control_intents_interrupt_target_check": {
           "name": "control_intents_interrupt_target_check",
           "value": "\"control_intents\".\"kind\" <> 'interrupt' OR (\"control_intents\".\"target_turn_id\" IS NOT NULL AND \"control_intents\".\"attempt_id\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.credential_bindings": {
-      "name": "credential_bindings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "credential_ref": {
-          "name": "credential_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target": {
-          "name": "target",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_id": {
-          "name": "target_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bound_by": {
-          "name": "bound_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bound_at": {
-          "name": "bound_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "credential_bindings_live_idx": {
-          "name": "credential_bindings_live_idx",
-          "columns": [
-            {
-              "expression": "target",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "target_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "credential_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"credential_bindings\".\"revoked_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credential_bindings_ref_idx": {
-          "name": "credential_bindings_ref_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "credential_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"credential_bindings\".\"revoked_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "credential_bindings_workspace_id_workspaces_id_fk": {
-          "name": "credential_bindings_workspace_id_workspaces_id_fk",
-          "tableFrom": "credential_bindings",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "credential_bindings_bound_by_users_id_fk": {
-          "name": "credential_bindings_bound_by_users_id_fk",
-          "tableFrom": "credential_bindings",
-          "tableTo": "users",
-          "columnsFrom": ["bound_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "credential_bindings_target_check": {
-          "name": "credential_bindings_target_check",
-          "value": "\"credential_bindings\".\"target\" IN ('agent','agent_identity')"
-        },
-        "credential_bindings_ref_check": {
-          "name": "credential_bindings_ref_check",
-          "value": "\"credential_bindings\".\"credential_ref\" ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'"
         }
       },
       "isRLSEnabled": false
@@ -2471,7 +2010,7 @@
       "checkConstraints": {
         "invites_role_check": {
           "name": "invites_role_check",
-          "value": "\"invites\".\"role\" IN ('owner', 'admin', 'member')"
+          "value": "\"invites\".\"role\" IN ('owner', 'member')"
         },
         "invites_email_lower_check": {
           "name": "invites_email_lower_check",
@@ -2908,7 +2447,7 @@
       "checkConstraints": {
         "memberships_role_check": {
           "name": "memberships_role_check",
-          "value": "\"memberships\".\"role\" IN ('owner', 'admin', 'member')"
+          "value": "\"memberships\".\"role\" IN ('owner', 'member')"
         }
       },
       "isRLSEnabled": false
@@ -4362,11 +3901,6 @@
           "name": "slack_installations_app_team_uniq",
           "nullsNotDistinct": false,
           "columns": ["app_id", "team_id"]
-        },
-        "slack_installations_workspace_id_key": {
-          "name": "slack_installations_workspace_id_key",
-          "nullsNotDistinct": false,
-          "columns": ["workspace_id", "id"]
         }
       },
       "policies": {},
