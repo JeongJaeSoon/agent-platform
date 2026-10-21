@@ -1355,17 +1355,57 @@ describe("새 에이전트: 브라우저 history", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/agents"));
   });
 
-  test("저장한 뒤에는 묻지 않고 나간다", async () => {
-    openInBrowser("/agents/new", { ...meOk, ...agentServer().routes });
-    const user = await setupUser();
-    await toJobStep(user);
-    await fillJob(user);
-    await atStep("배포 판");
+  const unloadBlocked = () => {
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(false);
+    return event.defaultPrevented;
+  };
+
+  test("저장한 뒤에는 묻지 않고 나간다: 앞뒤 공백을 다듬은 이름도 저장한 것으로 본다", async () => {
+    openInBrowser("/agents/new", { ...meOk, ...agentServer().routes });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "  결제 담당 ");
+    await user.type(screen.getByLabelText("식별자"), "billing");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    await fillJob(user);
+    await atStep("배포 판");
+    expect(unloadBlocked()).toBe(false);
     await user.click(screen.getByRole("link", { name: "나중에 하기" }));
     await waitFor(() => expect(window.location.pathname).toBe(DETAIL));
     expect(screen.queryByText(LEAVE_TITLE)).toBeNull();
+  });
+
+  test("남겨 둔 입력을 고친 직후 저장해도 새로고침 뒤에는 저장한 입력이 남는다", async () => {
+    const { api, reload } = openInBrowser("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await user.type(screen.getByLabelText("역할"), CARD.role);
+    await user.type(screen.getByLabelText("지시 사항"), "처음 쓴 것.");
+    await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
+    await waitFor(() =>
+      expect(JSON.stringify(window.history.state)).toContain(CARD.model),
+    );
+    await user.type(screen.getByLabelText("지시 사항"), " 고친 것.");
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("배포 판");
+    const sent = (
+      posted(api, "/v1/agents") as { card: { instructions: string } }
+    ).card.instructions;
+    expect(sent).toBe("처음 쓴 것. 고친 것.");
+
+    reload();
+    await atStep("배포 판");
+    expect(unloadBlocked()).toBe(false);
+    await back();
+    await atStep("하는 일");
+    expect(
+      (screen.getByLabelText("지시 사항") as HTMLTextAreaElement).value,
+    ).toBe(sent);
   });
 });
