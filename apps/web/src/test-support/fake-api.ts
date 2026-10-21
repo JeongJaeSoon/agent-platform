@@ -101,10 +101,15 @@ export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
     owner: [...ADMIN_PERMISSIONS, "audit_retention.manage", "agent.restore"],
   };
 
+/** Only an owner may hold sessions:recover; the contract rejects it on others. */
 export function me(
-  scopes: AuthMeResponse["scopes"] = OWNER_SCOPES,
+  scopes?: AuthMeResponse["scopes"],
   role: WorkspaceRole = "owner",
 ): AuthMeResponse {
+  scopes ??=
+    role === "owner"
+      ? OWNER_SCOPES
+      : OWNER_SCOPES.filter((scope) => scope !== "sessions:recover");
   return {
     principal: {
       kind: "user",
@@ -135,8 +140,5 @@ export function me(
 
 /** A signed-in member without management powers. */
 export function memberMe(): AuthMeResponse {
-  return me(
-    OWNER_SCOPES.filter((scope) => scope !== "sessions:recover"),
-    "member",
-  );
+  return me(undefined, "member");
 }

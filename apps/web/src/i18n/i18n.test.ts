@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { sessionsEn, sessionsKo } from "@agent-platform/react";
 import { agentsEn, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysKo } from "./api-keys.ts";
 import { authEn, authKo } from "./auth.ts";
@@ -16,7 +17,6 @@ import { ko } from "./ko.ts";
 import { linkedEn, linkedKo } from "./linked.ts";
 import { membersEn, membersKo } from "./members.ts";
 import { modelsEn, modelsKo } from "./models.ts";
-import { sessionsEn, sessionsKo } from "./sessions.ts";
 import { teamsEn, teamsKo } from "./teams.ts";
 import { workspaceEn, workspaceKo } from "./workspace.ts";
 

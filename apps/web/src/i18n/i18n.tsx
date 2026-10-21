@@ -1,3 +1,4 @@
+import { LOCALES, type Locale } from "@agent-platform/react";
 import {
   createContext,
   type ReactNode,
@@ -10,9 +11,8 @@ import {
 import { en } from "./en.ts";
 import { ko, type MessageKey } from "./ko.ts";
 
-export type { MessageKey };
-export const LOCALES = ["ko", "en"] as const;
-export type Locale = (typeof LOCALES)[number];
+export type { Locale, MessageKey };
+export { LOCALES };
 export type Translate = (
   key: MessageKey,
   vars?: Record<string, string | number>,

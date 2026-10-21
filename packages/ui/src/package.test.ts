@@ -19,8 +19,11 @@ const FORBIDDEN_IMPORTS = [
 
 const ALLOWED_RUNTIME_DEPENDENCIES = [
   "@agent-platform/contracts",
+  "@radix-ui/react-checkbox",
   "@radix-ui/react-dialog",
+  "@radix-ui/react-radio-group",
   "@radix-ui/react-slot",
+  "@radix-ui/react-tabs",
   "class-variance-authority",
   "clsx",
   "react",

@@ -1,0 +1,287 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`query keys 1`] = `
+{
+  "administeredAgents": [
+    "administered-agents",
+  ],
+  "agent": [
+    "agents",
+    "id-1",
+  ],
+  "agentAdmins": [
+    "agents",
+    "id-1",
+    "admins",
+  ],
+  "agents": [
+    "agents",
+  ],
+  "apiKeys": [
+    "api-keys",
+  ],
+  "invites": [
+    "invites",
+  ],
+  "linkedAccounts": [
+    "linked-accounts",
+  ],
+  "loginMethods": [
+    "login-methods",
+  ],
+  "me": [
+    "me",
+  ],
+  "members": [
+    "members",
+  ],
+  "myTeams": [
+    "teams",
+    "mine",
+  ],
+  "profiles": [
+    "profiles",
+  ],
+  "team": [
+    "teams",
+    "id-1",
+  ],
+  "teams": [
+    "teams",
+  ],
+  "viewer": [
+    "me",
+    "optional",
+  ],
+}
+`;
+
+exports[`query options and the request each query makes 1`] = `
+{
+  "administeredAgentsQuery": {
+    "calls": [
+      [
+        "/v1/administered-agents",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "administered-agents",
+      ],
+      "retry": false,
+    },
+  },
+  "agentAdminsQuery": {
+    "calls": [
+      [
+        "/v1/agents/{id}/admins",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "agents",
+        "id-1",
+        "admins",
+      ],
+      "retry": false,
+    },
+  },
+  "agentQuery": {
+    "calls": [
+      [
+        "/v1/agents/{id}",
+        {
+          "params": {
+            "path": {
+              "id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "agents",
+        "id-1",
+      ],
+      "retry": false,
+    },
+  },
+  "agentsQuery": {
+    "calls": [
+      [
+        "/v1/agents",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "agents",
+      ],
+      "retry": false,
+    },
+  },
+  "apiKeysQuery": {
+    "calls": [
+      [
+        "/v1/api-keys",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "api-keys",
+      ],
+      "retry": false,
+    },
+  },
+  "invitesQuery": {
+    "calls": [
+      [
+        "/v1/invites",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "invites",
+      ],
+      "retry": false,
+    },
+  },
+  "linkedAccountsQuery": {
+    "calls": [
+      [
+        "/v1/linked-accounts",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "linked-accounts",
+      ],
+      "retry": false,
+    },
+  },
+  "loginMethodsQuery": {
+    "calls": [
+      [
+        "/v1/auth/login-methods",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "login-methods",
+      ],
+      "retry": false,
+      "staleTime": 300000,
+    },
+  },
+  "meQuery": {
+    "calls": [
+      [
+        "/v1/auth/me",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "me",
+      ],
+      "retry": false,
+      "staleTime": 30000,
+    },
+  },
+  "membersQuery": {
+    "calls": [
+      [
+        "/v1/members",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "members",
+      ],
+      "retry": false,
+    },
+  },
+  "myTeamsQuery": {
+    "calls": [
+      [
+        "/v1/my-teams",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "teams",
+        "mine",
+      ],
+      "retry": false,
+    },
+  },
+  "profilesQuery": {
+    "calls": [
+      [
+        "/v1/profiles",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "profiles",
+      ],
+      "retry": false,
+      "staleTime": 300000,
+    },
+  },
+  "teamQuery": {
+    "calls": [
+      [
+        "/v1/teams/{team_id}",
+        {
+          "params": {
+            "path": {
+              "team_id": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "teams",
+        "id-1",
+      ],
+      "retry": false,
+    },
+  },
+  "teamsQuery": {
+    "calls": [
+      [
+        "/v1/teams",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "teams",
+      ],
+      "retry": false,
+    },
+  },
+  "viewerQuery": {
+    "calls": [
+      [
+        "/v1/auth/me",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        "me",
+        "optional",
+      ],
+      "retry": false,
+    },
+  },
+}
+`;

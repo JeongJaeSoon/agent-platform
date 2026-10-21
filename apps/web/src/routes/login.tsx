@@ -1,4 +1,5 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
   useLocation,
@@ -11,7 +12,7 @@ import { loginMethodsQuery, viewerQuery } from "../api/queries.ts";
 import { Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
+import { useAppServices } from "../services.tsx";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -60,7 +61,8 @@ const NOTICE_KEY = {
 
 export function LoginScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
   const loginEmail = useLocation({ select: (l) => l.state.loginEmail });
@@ -159,7 +161,8 @@ export function LoginScreen() {
  */
 function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
   const { t } = useI18n();
-  const { client, leave } = useServices();
+  const { client } = useAgentPlatform();
+  const { leave } = useAppServices();
   const methods = useQuery(loginMethodsQuery(client));
 
   const start = useMutation<{ authorization_url: string }, ApiError>({

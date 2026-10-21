@@ -1,3 +1,4 @@
+import { useAgentPlatform } from "@agent-platform/react";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
@@ -6,7 +7,6 @@ import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { slugInput } from "../components/field.tsx";
 import { Main } from "../components/main.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 const FIELDS = [
   {
@@ -68,7 +68,7 @@ const EMPTY: Form = {
 // from the answer: 409 BOOTSTRAP_DONE sends the reader to log in.
 export function BootstrapScreen() {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const navigate = useNavigate();
   const [form, setForm] = useState<Form>(EMPTY);
   const hintId = useId();
