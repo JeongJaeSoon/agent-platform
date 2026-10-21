@@ -126,6 +126,28 @@ describe("pagination", () => {
     expect(api.seen[0]?.url).toContain("limit=2");
   });
 
+  test("nextPage keeps the first call's options; the ones it is given win", async () => {
+    const api = fakeApi((_, url) =>
+      json(200, {
+        items: [],
+        next_cursor: url.searchParams.has("cursor") ? "c3" : "c2",
+      }),
+    );
+    const controller = new AbortController();
+    const first = await werft(api.fetch).sessions.list(undefined, {
+      signal: controller.signal,
+      headers: { "x-trace": "one" },
+    });
+    const second = await first.nextPage({ headers: { "x-trace": "two" } });
+    expect(api.seen.map((r) => r.headers.get("x-trace"))).toEqual([
+      "one",
+      "two",
+    ]);
+    controller.abort();
+    await expect(second?.nextPage()).rejects.toThrow(/aborted/);
+    expect(api.seen).toHaveLength(2);
+  });
+
   test("for await walks every item of every page", async () => {
     const api = fakeApi((_, url) =>
       url.searchParams.get("cursor") === "c2"
