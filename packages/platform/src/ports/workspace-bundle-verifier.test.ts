@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import {
   createGitBundle,
   verifyBundleBytes,
-} from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/git-bundle";
 
 import {
   rejectUnverifiedWorkspaceBundles,

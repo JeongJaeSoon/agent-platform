@@ -1,4 +1,4 @@
-import type { StructuredLogger } from "@agent-platform/observability";
+import type { StructuredLogger } from "@werft-ai/observability";
 
 export type ControlResultEvent = {
   acceptedAt: Date;

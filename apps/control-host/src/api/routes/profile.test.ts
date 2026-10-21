@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type ApiErrorCode,
-  apiErrorResponseSchema,
-} from "@agent-platform/contracts";
+import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
 import {
   type ChangeProfileInput,
   type ChangeProfileResult,
@@ -13,7 +10,7 @@ import {
   type SessionCatalog,
   type SessionControl,
   type SessionDetailRecord,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 

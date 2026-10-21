@@ -4,7 +4,7 @@ import {
   type CheckpointObjectStore,
   TRANSCRIPT_MIRROR_DIRECTORY,
   transcriptGenerationOf,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type {
   CheckpointCollectionStore,

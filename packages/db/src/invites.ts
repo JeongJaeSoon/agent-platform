@@ -10,7 +10,7 @@ import type {
   MemberRecord,
   MembershipRole,
   RevokeInviteResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";

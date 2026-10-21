@@ -1,13 +1,13 @@
 import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
-} from "@agent-platform/runtime-claude-codec";
+} from "@werft-ai/runtime-claude-codec";
 import type {
   NativeEnvelope,
   RuntimeCapabilities,
   RuntimeConfig,
   TranscriptMirror,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 export { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION };
 

@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ReceiptActor } from "@agent-platform/contracts";
+import type { ReceiptActor } from "@werft-ai/contracts";
 import type {
   PullRequestStore,
   PushRequestStore,
   PushWriteResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

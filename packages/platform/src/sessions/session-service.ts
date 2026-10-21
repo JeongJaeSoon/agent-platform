@@ -27,8 +27,8 @@ import type {
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
-} from "@agent-platform/contracts";
-import { CREDENTIAL_UNBOUND_GUIDANCE } from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
+import { CREDENTIAL_UNBOUND_GUIDANCE } from "@werft-ai/contracts";
 import {
   budgetExceeded,
   type SessionSpend,

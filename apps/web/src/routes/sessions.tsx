@@ -1,16 +1,15 @@
-import { isApiError } from "@agent-platform/client";
-import type { SessionDetail as SessionDetailData } from "@agent-platform/contracts";
-import { profilesQuery } from "@agent-platform/core";
-import {
-  useAgentPlatform,
-  useChangeSessionProfile,
-} from "@agent-platform/react";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "@tanstack/react-router";
+import { isApiError } from "@werft-ai/client";
+import type { SessionDetail as SessionDetailData } from "@werft-ai/contracts";
+import { profilesQuery } from "@werft-ai/core";
+import { useAgentPlatform, useChangeSessionProfile } from "@werft-ai/react";
 import {
   ApprovalInbox,
   type SessionActionProps,
   SessionDetail,
   SessionList,
-} from "@agent-platform/react/blocks";
+} from "@werft-ai/react/blocks";
 import {
   buttonVariants,
   Field,
@@ -18,9 +17,7 @@ import {
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
-} from "@agent-platform/ui";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+} from "@werft-ai/ui";
 import { type FormEvent, useId, useState } from "react";
 import {
   permissionReason,

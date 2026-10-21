@@ -1,5 +1,5 @@
-import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
@@ -27,8 +27,8 @@ import {
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
   hasUncollectedCheckpoint,
-} from "@agent-platform/db";
-import { createLogger, sanitizeText } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
   catalogRevision,
   createAgentAdminService,
@@ -52,7 +52,7 @@ import {
   createWorkerGateway,
   InstallationConfigError,
   installationLimitsFromEnv,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   API_READINESS_REQUIRED_ENV,

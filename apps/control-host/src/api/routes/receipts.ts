@@ -1,8 +1,8 @@
 import {
   getReceiptResponseSchema,
   receiptIdParamsSchema,
-} from "@agent-platform/contracts";
-import type { SessionService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { SessionService } from "@werft-ai/platform";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 

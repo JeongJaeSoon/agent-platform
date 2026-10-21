@@ -1,4 +1,4 @@
-import type { ApiErrorCode } from "@agent-platform/contracts";
+import type { ApiErrorCode } from "@werft-ai/contracts";
 
 /**
  * 오류는 원문 대신 "할 일"을 먼저 말한다 (02 UX 설계 §9). The server message is

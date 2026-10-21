@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RECEIPT_STATUS_VALUES } from "@agent-platform/contracts";
+import { RECEIPT_STATUS_VALUES } from "@werft-ai/contracts";
 
 import { describeStatus } from "../status/vocabulary.ts";
 import { setupDom } from "../test-support/dom.ts";

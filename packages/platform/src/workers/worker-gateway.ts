@@ -28,11 +28,11 @@ import type {
   WorkerReadyRequest,
   WorkerReadyResponse,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   executionBackendSchema,
   MAX_RESTORE_PROFILES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,

@@ -4,7 +4,7 @@ import {
   resolveLogLevel,
   sanitizeFields,
   sanitizeText,
-} from "@agent-platform/observability";
+} from "@werft-ai/observability";
 
 import type { WorkerLogger } from "./worker-host.ts";
 

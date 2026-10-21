@@ -1,3 +1,4 @@
+import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
 import {
   type ApiErrorCode,
   acceptInviteRequestSchema,
@@ -132,8 +133,7 @@ import {
   updateTeamRequestSchema,
   WEB_SESSION_COOKIE_NAME,
   workspaceParamsSchema,
-} from "@agent-platform/contracts";
-import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
+} from "@werft-ai/contracts";
 import { z } from "zod";
 import {
   API_INFO_DESCRIPTION,

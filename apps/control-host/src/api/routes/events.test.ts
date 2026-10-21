@@ -3,7 +3,7 @@ import {
   apiErrorResponseSchema,
   SSE_SCHEMA_VERSION,
   type SseEvent,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createSessionService,
@@ -11,7 +11,7 @@ import {
   type ReadEventsQuery,
   type SessionControl,
   type SessionReader,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import type { SessionEventWakeup } from "../session-notifier.ts";
 import { registerEventRoutes } from "./events.ts";

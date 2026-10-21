@@ -1,5 +1,5 @@
-import { ErrorState } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ErrorState } from "@werft-ai/ui";
 import { fn } from "storybook/test";
 
 const meta = {

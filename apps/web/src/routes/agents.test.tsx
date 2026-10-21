@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { ApiError } from "@agent-platform/client";
-import { agentDetailSchema } from "@agent-platform/contracts";
-import { setupUser } from "@agent-platform/ui/test-support/dom";
+import type { ApiError } from "@werft-ai/client";
+import { agentDetailSchema } from "@werft-ai/contracts";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { queryKeys } from "../api/queries.ts";
 import { type Locale, translate } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";

@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import {
   listProfilesResponseSchema,
   type SessionScope,
-} from "@agent-platform/contracts";
-import type { SessionCatalog } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { SessionCatalog } from "@werft-ai/platform";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerProfileRoutes } from "./profiles.ts";

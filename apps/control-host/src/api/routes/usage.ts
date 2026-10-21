@@ -2,8 +2,8 @@ import {
   installationLimitsResponseSchema,
   sessionIdParamsSchema,
   sessionUsageResponseSchema,
-} from "@agent-platform/contracts";
-import type { UsageService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { UsageService } from "@werft-ai/platform";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 

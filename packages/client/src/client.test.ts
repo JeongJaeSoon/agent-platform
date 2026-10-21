@@ -4,7 +4,7 @@ import {
   CSRF_HEADER_NAME as CONTRACT_HEADER_NAME,
   CSRF_HEADER_VALUE as CONTRACT_HEADER_VALUE,
   SSE_SCHEMA_VERSION as CONTRACT_SCHEMA_VERSION,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   ApiError,
   type ContractMismatch,

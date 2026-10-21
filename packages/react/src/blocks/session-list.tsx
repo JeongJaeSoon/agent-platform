@@ -1,8 +1,4 @@
-import {
-  Button,
-  SessionRow,
-  type SessionRowMessages,
-} from "@agent-platform/ui";
+import { Button, SessionRow, type SessionRowMessages } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { useAgentPlatform } from "../provider.tsx";
 import { useSessions } from "../sessions.ts";

@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readGitBundleHeader } from "@agent-platform/runtime-core";
+import { readGitBundleHeader } from "@werft-ai/runtime-core";
 import {
   GitOutputLimitError,
   GitResourceLimitError,

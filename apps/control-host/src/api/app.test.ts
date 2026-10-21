@@ -6,8 +6,8 @@ import {
   apiErrorResponseSchema,
   healthResponseSchema,
   postSessionMessageRequestSchema,
-} from "@agent-platform/contracts";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   BODY_IDLE_TIMEOUT_SECONDS,
   jsonWithSchema,

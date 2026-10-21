@@ -7,7 +7,7 @@
  * package has to render in bare jsdom/browser too. apps/web (I0-9) re-exposes
  * them to Tailwind in one place:
  *
- *   @import "@agent-platform/ui/tokens.css";
+ *   @import "@werft-ai/ui/tokens.css";
  *   @theme inline { --color-canvas: var(--ap-color-canvas); ... }
  *
  * The `--ap-` prefix is what keeps that mapping from being circular. If Tailwind

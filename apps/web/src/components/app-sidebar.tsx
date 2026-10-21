@@ -1,5 +1,7 @@
-import { waitingSessionsQuery } from "@agent-platform/core";
-import { useAgentPlatform } from "@agent-platform/react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { waitingSessionsQuery } from "@werft-ai/core";
+import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -8,9 +10,7 @@ import {
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
-} from "@agent-platform/ui";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+} from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { useCan, useHasPermission, useMe } from "../auth/guard.tsx";
 import {

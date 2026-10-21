@@ -12,17 +12,17 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestParts } from "@agent-platform/runtime-claude-codec";
+import { digestParts } from "@werft-ai/runtime-claude-codec";
 import {
   type CheckpointTranscripts,
   MAX_TRANSCRIPT_PART_BYTES,
   type TranscriptEntry,
   type TranscriptRevision,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 import {
   ClaudeSessionStore,
   PublishRollbackFailed,

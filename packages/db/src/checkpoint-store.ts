@@ -1,4 +1,4 @@
-import { OPEN_PUSH_REQUEST_STATES } from "@agent-platform/contracts";
+import { OPEN_PUSH_REQUEST_STATES } from "@werft-ai/contracts";
 import type {
   CheckpointCollectionFences,
   CheckpointCollectionStore,
@@ -6,7 +6,7 @@ import type {
   CheckpointStore,
   CommitCheckpointInput,
   CommitCheckpointResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import type { Client } from "pg";
 import {
   PostgresSessionNotifier,

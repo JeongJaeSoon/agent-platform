@@ -4,13 +4,13 @@ import type {
   RecoveryDecisionResult as RecoveryDecisionReceiptResult,
   RecoveryDecisionRequest,
   ResumeReceiptResult,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   RecoveryDecisionInput,
   RecoveryDecisionResult,
   ResumeSessionInput,
   ResumeSessionResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { contextCoverage, contextGap } from "./context-gap.ts";
 import {

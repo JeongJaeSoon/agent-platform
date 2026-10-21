@@ -1,5 +1,5 @@
-import { ApiError } from "@agent-platform/client";
-import { ErrorState } from "@agent-platform/ui";
+import { ApiError } from "@werft-ai/client";
+import { ErrorState } from "@werft-ai/ui";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 /**

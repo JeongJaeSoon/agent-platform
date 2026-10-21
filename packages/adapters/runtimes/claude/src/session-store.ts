@@ -9,8 +9,8 @@ import {
   rm,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { canonicalJsonOfJson } from "@agent-platform/contracts";
-import { digestParts } from "@agent-platform/runtime-claude-codec";
+import { canonicalJsonOfJson } from "@werft-ai/contracts";
+import { digestParts } from "@werft-ai/runtime-claude-codec";
 import {
   type CheckpointObjectStore,
   type CheckpointTranscripts,
@@ -22,7 +22,7 @@ import {
   type TranscriptRevision,
   transcriptGenerationDirectory,
   transcriptSizeProblem,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 /** Give up rather than spin if a slot keeps being taken from under us. */
 const SLOT_ATTEMPTS = 64;

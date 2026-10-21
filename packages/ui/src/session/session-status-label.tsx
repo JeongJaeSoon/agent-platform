@@ -1,4 +1,4 @@
-import type { SessionStatus, TurnStatus } from "@agent-platform/contracts";
+import type { SessionStatus, TurnStatus } from "@werft-ai/contracts";
 import type { JSX } from "react";
 
 import { StatusLabel } from "../status/status-label.tsx";

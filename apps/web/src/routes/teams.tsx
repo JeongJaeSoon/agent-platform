@@ -1,10 +1,12 @@
-import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   MemberView,
   TeamChangeResponse,
   TeamDetail,
-} from "@agent-platform/contracts";
-import { useAgentPlatform } from "@agent-platform/react";
+} from "@werft-ai/contracts";
+import { useAgentPlatform } from "@werft-ai/react";
 import {
   Button,
   buttonVariants,
@@ -15,9 +17,7 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
-} from "@agent-platform/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+} from "@werft-ai/ui";
 import { type FormEvent, useId, useState } from "react";
 import {
   membersQuery,

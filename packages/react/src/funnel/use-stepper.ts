@@ -14,7 +14,7 @@ export interface StepperOptions {
   readonly onStepSelect?: ((id: string) => void) | undefined;
 }
 
-/** The props `@agent-platform/ui`'s Stepper takes, less its `label`. */
+/** The props `@werft-ai/ui`'s Stepper takes, less its `label`. */
 export interface StepperState {
   readonly steps: readonly (StepInput & { readonly disabled: boolean })[];
   readonly currentStepId: string;

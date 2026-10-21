@@ -1,12 +1,9 @@
 import {
   lastEventIdHeadersSchema,
   sessionIdParamsSchema,
-} from "@agent-platform/contracts";
-import {
-  createLogger,
-  type StructuredLogger,
-} from "@agent-platform/observability";
-import type { EventPage, SessionService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import { createLogger, type StructuredLogger } from "@werft-ai/observability";
+import type { EventPage, SessionService } from "@werft-ai/platform";
 import { streamSSE } from "hono/streaming";
 import { ApiHttpError, type ApiRouter, apiRoute } from "../app.ts";
 import type { SessionEventWakeup } from "../session-notifier.ts";

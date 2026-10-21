@@ -1,4 +1,4 @@
-import { postSessionAnswerRequestSchema } from "@agent-platform/contracts";
+import { postSessionAnswerRequestSchema } from "@werft-ai/contracts";
 import type {
   PendingControlInput,
   PendingControlResult,
@@ -6,7 +6,7 @@ import type {
   RegisterPendingResult,
   WorkerFence,
   WorkerPendingStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";

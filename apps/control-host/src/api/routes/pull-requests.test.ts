@@ -5,7 +5,7 @@ import {
   openPullRequestResponseSchema,
   type PullRequest,
   type SessionScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createPullRequestService,
@@ -15,7 +15,7 @@ import {
   type PullRequestSource,
   repositoryBinding,
   type SessionCatalog,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPullRequestRoutes } from "./pull-requests.ts";

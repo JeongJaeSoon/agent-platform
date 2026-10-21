@@ -2,20 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type {
-  RuntimeConfig,
-  WorkspaceDescriptor,
-} from "@agent-platform/contracts";
-import { ClaudeSdkRuntime } from "@agent-platform/runtime-claude";
+import type { RuntimeConfig, WorkspaceDescriptor } from "@werft-ai/contracts";
+import { ClaudeSdkRuntime } from "@werft-ai/runtime-claude";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
+} from "@werft-ai/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { claudeRuntimeRegistry } from "./composition.ts";

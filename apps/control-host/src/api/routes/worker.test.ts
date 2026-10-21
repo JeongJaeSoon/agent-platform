@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 import {
   apiErrorResponseSchema,
   appendEventsResponseSchema,
@@ -10,20 +11,16 @@ import {
   nextInputResponseSchema,
   releaseResponseSchema,
   restorePlanResponseSchema,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
   events,
   sessions,
   turns,
-} from "@agent-platform/db";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@agent-platform/platform";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/db";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

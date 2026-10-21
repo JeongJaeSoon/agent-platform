@@ -10,7 +10,7 @@ import type {
   SseEvent,
   TurnDetail,
   TurnSummary,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
 

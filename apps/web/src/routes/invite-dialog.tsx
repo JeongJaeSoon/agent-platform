@@ -1,13 +1,14 @@
-import { type ApiError, unwrap } from "@agent-platform/client";
-import type { MemberView, WorkspaceRole } from "@agent-platform/contracts";
-import { inviteStep } from "@agent-platform/core/forms";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type ApiError, unwrap } from "@werft-ai/client";
+import type { MemberView, WorkspaceRole } from "@werft-ai/contracts";
+import { inviteStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
   submitStep,
   useAgentPlatform,
   useStepForm,
   useStepper,
-} from "@agent-platform/react";
+} from "@werft-ai/react";
 import {
   Button,
   buttonVariants,
@@ -29,8 +30,7 @@ import {
   NativeSelect,
   NativeSelectOption,
   Stepper,
-} from "@agent-platform/ui";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+} from "@werft-ai/ui";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { queryKeys } from "../api/queries.ts";
 import {

@@ -3,8 +3,8 @@ import {
   postSessionAnswerRequestSchema,
   postSessionAnswerResponseSchema,
   sessionIdParamsSchema,
-} from "@agent-platform/contracts";
-import type { PendingRequestService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { PendingRequestService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,

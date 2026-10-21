@@ -1,14 +1,14 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import type {
   SessionDetail as SessionDetailData,
   SessionUsageResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   ApprovalInbox,
   SessionDetail,
   SessionList,
-} from "@agent-platform/react/blocks";
-import { ErrorState, Skeleton } from "@agent-platform/ui";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+} from "@werft-ai/react/blocks";
+import { ErrorState, Skeleton } from "@werft-ai/ui";
 
 import {
   apiError,

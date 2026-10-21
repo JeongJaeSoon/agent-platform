@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type MockSlackOidc,
   startMockSlackOidc,
-} from "@agent-platform/testkit/mock-slack-oidc";
+} from "@werft-ai/testkit/mock-slack-oidc";
 import {
   exchangeSlackCode,
   SlackOidcConfigError,

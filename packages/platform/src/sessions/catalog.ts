@@ -6,7 +6,7 @@ import {
   projectSettingsSchema,
   type RuntimeConfig,
   type runtimeConfigSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 

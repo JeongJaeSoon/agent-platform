@@ -7,8 +7,8 @@ import {
   TURN_BUDGET_EXCEEDED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import {
   budgetExceeded,
   CHECKPOINT_ROOT_PARENT,
@@ -53,7 +53,7 @@ import {
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,

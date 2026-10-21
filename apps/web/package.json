@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/web",
+  "name": "@werft-ai/web",
   "description": "Web console: a single-page app the control host's api role serves from WEB_DIST_DIR",
   "version": "0.0.0",
   "private": true,
@@ -10,11 +10,11 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@agent-platform/client": "workspace:*",
-    "@agent-platform/contracts": "workspace:*",
-    "@agent-platform/core": "workspace:*",
-    "@agent-platform/react": "workspace:*",
-    "@agent-platform/ui": "workspace:*",
+    "@werft-ai/client": "workspace:*",
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/core": "workspace:*",
+    "@werft-ai/react": "workspace:*",
+    "@werft-ai/ui": "workspace:*",
     "@happy-dom/global-registrator": "^20.14.5",
     "@hookform/resolvers": "5.9.1",
     "@radix-ui/react-dialog": "^1.1.23",

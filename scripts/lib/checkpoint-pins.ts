@@ -23,16 +23,13 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
-import {
-  MAX_RESTORE_PROFILES,
-  type RuntimeConfig,
-} from "@agent-platform/contracts";
+import { MAX_RESTORE_PROFILES, type RuntimeConfig } from "@werft-ai/contracts";
 import {
   allowedPair,
   runtimeConfigOf,
   type SessionCatalog,
   sessionProfile,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type {
   CheckpointCodec,
   CheckpointManifest,
@@ -41,7 +38,7 @@ import type {
   ObjectRef,
   RuntimeFingerprint,
   TranscriptRevision,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 /** One `checkpoints` row, as far as its objects are concerned. */
 export type CheckpointRow = {

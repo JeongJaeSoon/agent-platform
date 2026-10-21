@@ -1,5 +1,5 @@
-import { ConfirmDialog } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ConfirmDialog } from "@werft-ai/ui";
 import { fn } from "storybook/test";
 
 const meta = {

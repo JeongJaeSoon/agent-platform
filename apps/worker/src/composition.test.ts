@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CLAUDE_AGENT_SDK_VERSION } from "@agent-platform/runtime-claude";
+import { CLAUDE_AGENT_SDK_VERSION } from "@werft-ai/runtime-claude";
 
 import { claudeRuntimeRegistry, createWorkerHost } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";

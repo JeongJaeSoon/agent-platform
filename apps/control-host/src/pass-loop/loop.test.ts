@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { checkHealth, judgeHealth, readStatus } from "./health.ts";
 import {
   PASS_DEGRADED_EXIT,

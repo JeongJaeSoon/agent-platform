@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { WorkerEvent, WorkerScope } from "@agent-platform/contracts";
+import type { WorkerEvent, WorkerScope } from "@werft-ai/contracts";
 import {
   createWorkerGateway,
   DEFAULT_NONCE_TTL_MS,
@@ -7,12 +7,12 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

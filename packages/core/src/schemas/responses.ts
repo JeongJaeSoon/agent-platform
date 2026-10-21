@@ -1,4 +1,4 @@
-import type { OperationKey } from "@agent-platform/client";
+import type { OperationKey } from "@werft-ai/client";
 import {
   acceptInviteResponseSchema,
   activateAgentResponseSchema,
@@ -65,7 +65,7 @@ import {
   teamChangeResponseSchema,
   teamDetailSchema,
   terminateSessionResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
 import type { ZodType } from "zod";
 

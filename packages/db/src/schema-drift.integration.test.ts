@@ -12,7 +12,7 @@ import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";

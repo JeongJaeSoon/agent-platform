@@ -3,7 +3,7 @@ import type {
   ReceiptOperation,
   ReceiptStatus,
   ReceiptTarget,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { JSX, ReactNode } from "react";
 
 import { guidanceFor } from "../feedback/error-guidance.ts";

@@ -20,12 +20,12 @@ import type {
   CheckpointRequestResponse,
   RestorePlanRequest,
   RestorePlanResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import {
   type CheckpointManifest,
   type CheckpointPreparation,
@@ -36,11 +36,11 @@ import {
   readGitBundleHeader,
   type TranscriptMirror,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 
 import { stageCheckpointBundle } from "./checkpoint-restore.ts";
 import { RestoreRefused, SessionCheckpoints } from "./session-checkpoints.ts";

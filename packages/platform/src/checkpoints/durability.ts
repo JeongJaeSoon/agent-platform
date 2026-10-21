@@ -1,11 +1,11 @@
 import {
   checkpointBlockReasonSchema,
   type SessionDurability,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   CheckpointBlockReason,
   CheckpointPreparation,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 /**
  * What each refusal means for the session, once the runtime reports it.

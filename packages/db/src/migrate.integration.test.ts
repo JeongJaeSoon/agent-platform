@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createTempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { Pool } from "pg";
 import { migrateDatabase } from "./migrate.ts";
 

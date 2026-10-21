@@ -16,23 +16,14 @@ const REWRITES: [string, string][] = [
 const RESIDUAL = /@agent-platform(?!\.invalid)/;
 
 // Without `line` the whole file is skipped; with it, only lines containing that text.
-// A `manual` exception is a sentence phase 2 rewrites by hand.
 const EXCEPTIONS: {
   path: string;
   line?: string;
-  manual?: string;
   reason: string;
 }[] = [
   {
     path: "scripts/rename-scope.ts",
     reason: "the codemod has to name the old scope",
-  },
-  {
-    path: "README.md",
-    line: "`@agent-platform/*`가 이 이름을 쓰고",
-    manual: "README 이름 범위 문장",
-    reason:
-      "says the scope uses the name Agent Platform, which a plain rewrite would make false",
   },
 ];
 
@@ -40,8 +31,8 @@ const EXCEPTIONS: {
 const FIXUPS: { path: string; from: string; to: string; reason: string }[] = [
   {
     path: "packages/ui/src/package.test.ts",
-    from: '  "@werft-ai/contracts",\n  "@radix-ui/react-dialog",\n',
-    to: '  "@radix-ui/react-dialog",\n  "@werft-ai/contracts",\n',
+    from: '  "@werft-ai/contracts",\n  "@radix-ui/react-checkbox",\n  "@radix-ui/react-dialog",\n  "@radix-ui/react-radio-group",\n  "@radix-ui/react-slot",\n  "@radix-ui/react-tabs",\n',
+    to: '  "@radix-ui/react-checkbox",\n  "@radix-ui/react-dialog",\n  "@radix-ui/react-radio-group",\n  "@radix-ui/react-slot",\n  "@radix-ui/react-tabs",\n  "@werft-ai/contracts",\n',
     reason: "the allowed dependency list is compared with a sorted list",
   },
 ];
@@ -202,14 +193,6 @@ for (const kind of [
 for (const fixup of FIXUPS) {
   console.log(`  fixup ${fixup.path}: ${fixup.reason}`);
 }
-for (const e of EXCEPTIONS) {
-  if (!e.manual || !e.line) continue;
-  const lines = readText(root, e.path)?.split("\n") ?? [];
-  const at = lines.findIndex((line) => line.includes(e.line as string));
-  console.log(
-    `  manual: ${e.manual} (${at < 0 ? `not in ${e.path} of this tree` : `${e.path}:${at + 1}`})`,
-  );
-}
 
 if (!dryRun) {
   for (const [path, text] of changed) writeFileSync(join(root, path), text);
@@ -238,7 +221,8 @@ if (!dryRun) {
       continue;
     }
     const text = readText(root, path);
-    if (text?.includes(TO)) renamed.set(path, text);
+    if (text && REWRITES.some(([, to]) => text.includes(to)))
+      renamed.set(path, text);
   }
   if (renamed.size > 0 && listFiles(root).includes("biome.json")) {
     const flags = [

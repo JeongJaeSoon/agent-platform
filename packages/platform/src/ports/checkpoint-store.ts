@@ -1,4 +1,4 @@
-import type { CheckpointRef } from "@agent-platform/contracts";
+import type { CheckpointRef } from "@werft-ai/contracts";
 
 /** CheckpointPointer.parentRevision of a checkpoint that starts a history. */
 export const CHECKPOINT_ROOT_PARENT = -1;

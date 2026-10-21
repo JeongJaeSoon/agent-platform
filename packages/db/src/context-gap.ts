@@ -1,4 +1,4 @@
-import type { SessionAttention } from "@agent-platform/contracts";
+import type { SessionAttention } from "@werft-ai/contracts";
 import { and, eq, inArray, isNotNull, max } from "drizzle-orm";
 import { hasRestorePoint } from "./control-shared.ts";
 import type { Database } from "./queries.ts";

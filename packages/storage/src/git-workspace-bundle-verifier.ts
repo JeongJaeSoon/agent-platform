@@ -2,13 +2,13 @@ import { createReadStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { WorkspaceBundleVerifier } from "@agent-platform/platform";
+import type { WorkspaceBundleVerifier } from "@werft-ai/platform";
 import {
   checkpointBundleRefs,
   gitBundleOffersFrom,
   PEELED_REF_FORMAT,
   peeledCommits,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import {
   defaultGitRunner,

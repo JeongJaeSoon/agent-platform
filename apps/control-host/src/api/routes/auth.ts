@@ -23,15 +23,15 @@ import {
   type Workspace,
   type WorkspaceRole,
   workspaceSettingsSchema,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import {
   BootstrapDoneError,
   BootstrapTokenSpentError,
   type IdentityStore,
   type IdentityWorkspace,
   MANAGEMENT_ROLES,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";

@@ -2,13 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadSessionCatalog } from "@agent-platform/control-host/src/api/catalog-config.ts";
-import { egressProxyConfigFromEnv } from "@agent-platform/egress-proxy/src/config.ts";
+import { loadSessionCatalog } from "@werft-ai/control-host/src/api/catalog-config.ts";
+import { egressProxyConfigFromEnv } from "@werft-ai/egress-proxy/src/config.ts";
 import {
   installationLimitsFromEnv,
   providerUpstreamOf,
   runtimeProviderOf,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   FAKE_MODEL,
   LOCAL_LAYERS,

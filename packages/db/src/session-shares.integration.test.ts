@@ -4,13 +4,13 @@ import {
   type SessionShareScope,
   scopesForRole,
   type WorkspaceRole,
-} from "@agent-platform/contracts";
-import { type Caller, callerFor } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import { type Caller, callerFor } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";

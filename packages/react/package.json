@@ -1,6 +1,6 @@
 {
-  "name": "@agent-platform/react",
-  "description": "React adapter over @agent-platform/core: the provider that injects client, locale, messages and links, and hooks that wrap the core's query options",
+  "name": "@werft-ai/react",
+  "description": "React adapter over @werft-ai/core: the provider that injects client, locale, messages and links, and hooks that wrap the core's query options",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.blocks.json"
   },
   "devDependencies": {
-    "@agent-platform/client": "workspace:*",
-    "@agent-platform/contracts": "workspace:*",
-    "@agent-platform/core": "workspace:*",
-    "@agent-platform/ui": "workspace:*",
+    "@werft-ai/client": "workspace:*",
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/core": "workspace:*",
+    "@werft-ai/ui": "workspace:*",
     "@happy-dom/global-registrator": "^20.14.5",
     "@hookform/resolvers": "5.9.1",
     "@tanstack/react-query": "5.103.2",

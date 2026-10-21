@@ -3,7 +3,7 @@ import {
   isOwnershipLost,
   isRetryable,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import { Heartbeat } from "./heartbeat.ts";

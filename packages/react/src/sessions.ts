@@ -1,4 +1,12 @@
 import {
+  type MutationFunctionContext,
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
   type ApiClient,
   type ApiError,
   type SessionEventFrame as ClientEventFrame,
@@ -7,7 +15,7 @@ import {
   type StreamState,
   subscribeSessionEvents,
   unwrap,
-} from "@agent-platform/client";
+} from "@werft-ai/client";
 import type {
   ChangeSessionProfileRequest,
   PostSessionAnswerResponse,
@@ -15,22 +23,14 @@ import type {
   ReceiptAcceptedResponse,
   SessionEventPayload,
   TerminateSessionResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   pendingRequestsQuery,
   sessionQuery,
   sessionsQuery,
   sessionUsageQuery,
   waitingSessionsQuery,
-} from "@agent-platform/core";
-import {
-  type MutationFunctionContext,
-  type QueryClient,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+} from "@werft-ai/core";
 import { useEffect, useState } from "react";
 import { useAgentPlatform } from "./provider.tsx";
 

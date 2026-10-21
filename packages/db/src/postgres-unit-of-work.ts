@@ -20,8 +20,8 @@ import {
   type TurnDetail,
   type TurnSummary,
   turnStatusSchema,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AcceptSessionInput,
   AcceptSessionResult,
@@ -34,12 +34,12 @@ import type {
   SessionRecord,
   SessionUnitOfWork,
   SessionViewer,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   InvalidCursorError,
   projectDurability,
   storedPendingReasonHoldsWork,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,

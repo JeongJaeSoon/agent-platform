@@ -6,8 +6,8 @@ import {
   apiKeyViewSchema,
   createApiKeyResponseSchema,
   SESSION_SCOPE_VALUES,
-} from "@agent-platform/contracts";
-import { setupUser } from "@agent-platform/ui/test-support/dom";
+} from "@werft-ai/contracts";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiKeysEn, apiKeysKo } from "../i18n/api-keys.ts";
 import {
   apiError,

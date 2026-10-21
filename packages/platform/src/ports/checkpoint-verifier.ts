@@ -1,4 +1,4 @@
-import type { CheckpointRef } from "@agent-platform/contracts";
+import type { CheckpointRef } from "@werft-ai/contracts";
 import type { ManifestVerdict } from "../checkpoints/checkpoint-service.ts";
 import type { CheckpointFence } from "./checkpoint-store.ts";
 import type { WorkerFence } from "./worker-unit-of-work.ts";

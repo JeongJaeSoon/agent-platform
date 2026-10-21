@@ -1,5 +1,5 @@
-import type { BootstrapClaimResponse } from "@agent-platform/contracts";
-import type { WorkerGatewayClient } from "@agent-platform/runtime-core";
+import type { BootstrapClaimResponse } from "@werft-ai/contracts";
+import type { WorkerGatewayClient } from "@werft-ai/runtime-core";
 
 import type { WorkerLogger } from "./worker-host.ts";
 

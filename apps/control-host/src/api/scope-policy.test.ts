@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import {
-  SESSION_SCOPE_VALUES,
-  type SessionScope,
-} from "@agent-platform/contracts";
+import { SESSION_SCOPE_VALUES, type SessionScope } from "@werft-ai/contracts";
 import type {
   IdentityStore,
   InterruptService,
   PendingRequestService,
   PushRequestService,
   SessionService,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { hashApiKey } from "./keys.ts";

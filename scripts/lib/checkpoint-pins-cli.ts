@@ -13,18 +13,18 @@
  * when capture or repin refuses, 5 when a plan check fails.
  */
 
-import * as schema from "@agent-platform/db";
-import { createPostgresCheckpointStore } from "@agent-platform/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger } from "@agent-platform/observability";
-import { resolveSessionCatalog } from "@agent-platform/platform";
-import { claudeCheckpointCodec } from "@agent-platform/runtime-claude-codec";
-import type { RuntimeFingerprint } from "@agent-platform/runtime-core";
+import * as schema from "@werft-ai/db";
+import { createPostgresCheckpointStore } from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger } from "@werft-ai/observability";
+import { resolveSessionCatalog } from "@werft-ai/platform";
+import { claudeCheckpointCodec } from "@werft-ai/runtime-claude-codec";
+import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
   describeBucketProtection,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { readCatalogConfig } from "../../apps/control-host/src/api/catalog-config.ts";
 import {

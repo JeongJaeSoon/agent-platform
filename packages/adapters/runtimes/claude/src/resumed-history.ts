@@ -1,9 +1,6 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type {
-  TranscriptEntry,
-  TranscriptMirror,
-} from "@agent-platform/runtime-core";
+import type { TranscriptEntry, TranscriptMirror } from "@werft-ai/runtime-core";
 
 /**
  * The entry uuids of the transcript a resumed run continues. A send whose uuid

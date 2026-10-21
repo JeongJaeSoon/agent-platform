@@ -1,15 +1,22 @@
-import { type ApiError, unwrap } from "@agent-platform/client";
+import {
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { Link, useBlocker, useRouter } from "@tanstack/react-router";
+import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ActivateAgentResponse,
   AgentCard,
   AgentDetail,
   ProfileSummary,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   agentCardStep,
   agentIdentityStep,
   agentReleaseStep,
-} from "@agent-platform/core/forms";
+} from "@werft-ai/core/forms";
 import {
   formAlerts,
   type StepForm,
@@ -17,7 +24,7 @@ import {
   useAgentPlatform,
   useStepForm,
   useStepper,
-} from "@agent-platform/react";
+} from "@werft-ai/react";
 import {
   Button,
   ConfirmDialog,
@@ -29,14 +36,7 @@ import {
   NativeSelect,
   NativeSelectOption,
   Stepper,
-} from "@agent-platform/ui";
-import {
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { Link, useBlocker, useRouter } from "@tanstack/react-router";
+} from "@werft-ai/ui";
 import { useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";

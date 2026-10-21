@@ -1,17 +1,14 @@
 import { join } from "node:path";
-import { createEgressAuthorizer } from "@agent-platform/control-host/src/api/egress-authorizer.ts";
-import * as schema from "@agent-platform/db";
+import { PGlite } from "@electric-sql/pglite";
+import { createEgressAuthorizer } from "@werft-ai/control-host/src/api/egress-authorizer.ts";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
-} from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@agent-platform/platform";
-import { createObjectRouteSigner } from "@agent-platform/storage";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

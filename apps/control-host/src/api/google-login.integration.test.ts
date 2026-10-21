@@ -7,22 +7,22 @@ import {
   loginResponseSchema,
   startGoogleLoginResponseSchema,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   invites,
   loginMethods,
   memberships,
   users,
   webSessions,
-} from "@agent-platform/db";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/db";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import {
   type MockOidcClaims,
   type MockOidcServer,
   startMockOidcServer,
-} from "@agent-platform/testkit/mock-oidc";
+} from "@werft-ai/testkit/mock-oidc";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

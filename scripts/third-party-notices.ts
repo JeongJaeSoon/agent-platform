@@ -1057,7 +1057,7 @@ async function main(argv: string[]): Promise<number> {
     // instead of a link would still be ours.
     const installed = installedPackages(join(appDir, "node_modules"));
     const held = [...installed.keys()].filter(
-      (id) => !id.startsWith("@agent-platform/"),
+      (id) => !id.startsWith("@werft-ai/"),
     );
     const missing = held.filter(
       (id) => !listed.get(id)?.images.includes(image as Image),

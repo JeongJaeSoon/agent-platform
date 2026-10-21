@@ -4,11 +4,8 @@ import type {
   PauseBlockedReason,
   PauseReceiptResult,
   SessionAttention,
-} from "@agent-platform/contracts";
-import type {
-  PauseSessionInput,
-  PauseSessionResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { PauseSessionInput, PauseSessionResult } from "@werft-ai/platform";
 import {
   and,
   count,

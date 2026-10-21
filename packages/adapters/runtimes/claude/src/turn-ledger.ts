@@ -2,7 +2,7 @@ import type {
   CheckpointLeaseGrant,
   CheckpointPreparation,
   NativeSdkMessage,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 

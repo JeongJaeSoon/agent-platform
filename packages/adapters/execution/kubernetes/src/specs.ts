@@ -6,7 +6,7 @@ import {
   type LaunchIntent,
   launchNonceFingerprint,
   sessionObjectPrefix,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type { KubernetesBackendConfig } from "./config.ts";
 
 /**

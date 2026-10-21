@@ -85,7 +85,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     "./pass-loop/loop.ts"
   );
   const { createLogger, logLevelFromEnv } = await import(
-    "@agent-platform/observability"
+    "@werft-ai/observability"
   );
   const config = passLoopConfigFromEnv(process.env, PASS_LOOP_ROLES[role]);
   // Every pass child logs at this level; a typo stops the loop here, once.

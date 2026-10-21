@@ -1,5 +1,5 @@
-import type { SessionAttention } from "@agent-platform/contracts";
-import { launchRetryDelayMs } from "@agent-platform/platform";
+import type { SessionAttention } from "@werft-ai/contracts";
+import { launchRetryDelayMs } from "@werft-ai/platform";
 import { eq, isNull, lte, or } from "drizzle-orm";
 import { hasRestorePoint, restoreBaseRevision } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";

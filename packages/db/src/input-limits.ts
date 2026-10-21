@@ -1,4 +1,4 @@
-import type { InputLimitRefusal, InputLimits } from "@agent-platform/platform";
+import type { InputLimitRefusal, InputLimits } from "@werft-ai/platform";
 import { and, count, eq } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { storageUsage, turns } from "./schema.ts";

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
-import { ObjectIntegrityError } from "@agent-platform/runtime-core";
 import { S3Client } from "@aws-sdk/client-s3";
+import { ObjectIntegrityError } from "@werft-ai/runtime-core";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 

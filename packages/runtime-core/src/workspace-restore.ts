@@ -25,7 +25,7 @@
 
 import { constants } from "node:fs";
 import { type FileHandle, mkdir, open, stat } from "node:fs/promises";
-import type { RestorePlanResponse } from "@agent-platform/contracts";
+import type { RestorePlanResponse } from "@werft-ai/contracts";
 
 /**
  * The restore plan's own refusal. A restore that cannot be carried out safely
