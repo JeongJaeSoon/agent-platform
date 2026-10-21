@@ -59,18 +59,25 @@ export function Composer({
   className,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState("");
+  // Locks out a second send of the same text before `onSend` settles, even
+  // when the screen does not pass `pending`.
+  const [sending, setSending] = useState(false);
   const queuedId = useId();
-  const blocked = disabled || pending;
+  const blocked = disabled || pending || sending;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const message = text.trim();
     if (!message || blocked) return;
+    setSending(true);
     try {
       await onSend(message);
-      setText("");
+      // The field stays editable while sending: keep anything typed since.
+      setText((current) => (current.trim() === message ? "" : current));
     } catch {
       // The screen shows why through `error`; the text stays for a retry.
+    } finally {
+      setSending(false);
     }
   };
 
@@ -124,7 +131,7 @@ export function Composer({
           type="submit"
           className="self-end"
           disabled={blocked || !text.trim()}
-          aria-busy={pending || undefined}
+          aria-busy={pending || sending || undefined}
         >
           {messages.send}
         </Button>

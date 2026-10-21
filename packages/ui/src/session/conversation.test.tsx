@@ -104,6 +104,25 @@ describe("ApprovalCard", () => {
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
+  test("열어 둔 채 만료 시각이 지나면 다시 그리지 않아도 답할 버튼이 사라진다", async () => {
+    const now = Date.now();
+    const { container } = render(
+      <ApprovalCard
+        request={{
+          ...REQUEST,
+          expires_at: new Date(now + 50).toISOString(),
+        }}
+        messages={APPROVAL}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={now}
+      />,
+    );
+    expect(container.querySelectorAll("button").length).toBe(2);
+    await waitFor(() => expect(container.textContent).toContain("expired"));
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
   test("보내는 중에는 버튼이 막히고 거절 이유가 경고로 보인다", () => {
     const { getByRole } = render(
       <ApprovalCard
@@ -145,6 +164,33 @@ describe("Composer", () => {
     await user.keyboard("{Enter}");
     expect(onSend).toHaveBeenCalledWith("run the tests");
     await waitFor(() => expect(field.value).toBe(""));
+  });
+
+  test("응답 전에는 다시 보내지 않고, 그사이 새로 쓴 글은 지우지 않는다", async () => {
+    const user = await setupUser();
+    let accept = () => {};
+    const onSend = mock(
+      (_text: string) =>
+        new Promise<void>((resolve) => {
+          accept = resolve;
+        }),
+    );
+    const { getByLabelText } = render(
+      <Composer messages={COMPOSER} onSend={onSend} />,
+    );
+    const field = getByLabelText("Message") as HTMLTextAreaElement;
+    await user.click(field);
+    await user.keyboard("first{Control>}{Enter}{Enter}{/Control}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    await user.clear(field);
+    await user.keyboard("second");
+    accept();
+    await waitFor(() =>
+      expect(
+        (document.querySelector("button") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    expect(field.value).toBe("second");
   });
 
   test("Ctrl+Enter로 보내고, 거절되면 쓴 글을 남긴다", async () => {

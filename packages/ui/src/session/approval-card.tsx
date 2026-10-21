@@ -75,7 +75,21 @@ export function ApprovalCard({
   const denyRef = useRef<HTMLButtonElement>(null);
   // Set when a cancel should hand focus back to the button that opened it.
   const returnFocus = useRef(false);
-  const expired = Date.parse(request.expires_at) <= now;
+  const expiresAt = Date.parse(request.expires_at);
+  // A card left open past its expiry must stop taking answers without
+  // waiting for the screen to render again.
+  const [lapsedId, setLapsedId] = useState<string | null>(null);
+  const requestId = request.request_id;
+  const expired = lapsedId === requestId || expiresAt <= now;
+
+  useEffect(() => {
+    const delay = expiresAt - now;
+    // setTimeout fires at once past 2^31-1 ms; an expiry that far off is
+    // checked again on a later render.
+    if (expired || delay > 2 ** 31 - 1) return;
+    const timer = setTimeout(() => setLapsedId(requestId), delay);
+    return () => clearTimeout(timer);
+  }, [expired, expiresAt, now, requestId]);
 
   useEffect(() => {
     if (denying) reasonRef.current?.focus();
