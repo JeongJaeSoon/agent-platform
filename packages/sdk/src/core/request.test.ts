@@ -289,6 +289,30 @@ describe("errors", () => {
     expect(error.requestId).toBe("req_proxy");
   });
 
+  test("through the real client, an HTML error page keeps its status and retry rule", async () => {
+    const html = (status: number) =>
+      new Response("<html>proxy</html>", {
+        status,
+        headers: { "content-type": "text/html" },
+      });
+    const forbidden = fakeApi(() => html(403));
+    const error = await werft(forbidden.fetch)
+      .sessions.get("s1")
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(APIError);
+    expect((error as APIError).status).toBe(403);
+    expect(forbidden.seen).toHaveLength(1);
+
+    let calls = 0;
+    const gateway = fakeApi(() =>
+      ++calls === 1 ? html(502) : json(201, { url: "u", created: true }),
+    );
+    await werft(gateway.fetch, {
+      maxRetryDelayMs: 0,
+    }).sessions.pushRequests.openPullRequest("s1", "pr1");
+    expect(gateway.seen).toHaveLength(2);
+  });
+
   test("errors reach the caller through the real client too", async () => {
     const api = fakeApi(() => apiError(404, "NOT_FOUND"));
     const error = await werft(api.fetch)
