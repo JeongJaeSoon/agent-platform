@@ -20,6 +20,7 @@ import {
 } from "@agent-platform/react";
 import {
   Button,
+  ConfirmDialog,
   Field,
   FieldDescription,
   FieldError,
@@ -35,7 +36,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useBlocker } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
@@ -51,10 +52,13 @@ import {
   EMPTY_DRAFT,
 } from "./agent-card-form.tsx";
 
-/** `flow` names one run of the flow; every step's input carries it. */
+/**
+ * `flow` names one run of the flow; every step's input carries it. `card` is
+ * the job step's input as typed, kept so a reload does not lose it.
+ */
 type Steps = {
   name: { flow: string; name?: string; slug?: string };
-  job: { flow: string; name: string; slug: string };
+  job: { flow: string; name: string; slug: string; card?: unknown };
   release: {
     flow: string;
     name: string;
@@ -89,6 +93,17 @@ const STEP_LABEL = {
 
 const NEW_CARD_STEP = agentCardStep();
 const CARD_FIELDS = Object.keys(EMPTY_DRAFT) as (keyof CardDraft)[];
+const KEEP_INPUT_DELAY_MS = 300;
+
+/** Input kept in history.state from before a deploy may not fit the form. */
+const isCardDraft = (value: unknown): value is CardDraft =>
+  typeof value === "object" &&
+  value !== null &&
+  CARD_FIELDS.every(
+    (key) =>
+      typeof (value as Record<string, unknown>)[key] ===
+      typeof EMPTY_DRAFT[key],
+  );
 
 /**
  * The slug a name suggests: what is left of it in lowercase kebab-case. A
@@ -222,7 +237,37 @@ export function NewAgentFlow({
       void funnel.history.replace(funnel.step, funnel.context);
   }, []);
   const card = useStepForm(NEW_CARD_STEP, {
-    defaultValues: saved?.card ?? EMPTY_DRAFT,
+    defaultValues: isCardDraft(restored.card)
+      ? restored.card
+      : (saved?.card ?? EMPTY_DRAFT),
+  });
+  const cardInput = useWatch({ control: card.control }) as CardDraft;
+  const identityInput = useWatch({ control: identity.control });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the funnel object is new each render
+  useEffect(() => {
+    if (funnel.step !== "job") return;
+    const kept = (funnel.context as Steps["job"]).card;
+    if (canonical(kept ?? EMPTY_DRAFT) === canonical(cardInput)) return;
+    const timer = setTimeout(
+      () => void funnel.history.replace("job", { card: cardInput }),
+      KEEP_INPUT_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [cardInput, funnel.step]);
+
+  // Moving between steps keeps the input; leaving the flow drops what the
+  // draft does not hold.
+  const kept = saved ?? { name: "", slug: "", card: EMPTY_DRAFT };
+  const unsaved = useRef(false);
+  unsaved.current =
+    identityInput.name !== kept.name ||
+    identityInput.slug !== kept.slug ||
+    canonical(cardInput) !== canonical(kept.card);
+  const leaving = useBlocker({
+    shouldBlockFn: ({ current, next }) =>
+      unsaved.current && current.pathname !== next.pathname,
+    enableBeforeUnload: () => unsaved.current,
+    withResolver: true,
   });
   const catalog = useQuery(profilesQuery(client));
   const savedPastJob = funnel.step === "release" || funnel.step === "activate";
@@ -337,6 +382,18 @@ export function NewAgentFlow({
             refuse={refuse}
           />
         )}
+      />
+      <ConfirmDialog
+        open={leaving.status === "blocked"}
+        onOpenChange={(open) => {
+          if (!open) leaving.reset?.();
+        }}
+        title={t("agents.flow.leaveTitle")}
+        consequence={t("agents.flow.leaveConsequence")}
+        confirmLabel={t("agents.flow.leave")}
+        cancelLabel={t("agents.flow.stay")}
+        tone="danger"
+        onConfirm={() => leaving.proceed?.()}
       />
     </div>
   );
