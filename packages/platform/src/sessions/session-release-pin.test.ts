@@ -106,6 +106,7 @@ function setup(
     controls: {
       terminateAtomic: unreached,
       pauseAtomic: unreached,
+      closeAtomic: unreached,
       decideRecoveryAtomic: unreached,
       resumeAtomic: unreached,
       changeProfileAtomic: unreached,

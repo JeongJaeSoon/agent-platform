@@ -949,6 +949,7 @@ integration("sessions API on PostgreSQL", () => {
       stopping: [409, "SESSION_STOPPED"],
       stopped: [409, "SESSION_STOPPED"],
       recovery_required: [409, "RECOVERY_REQUIRED"],
+      closing: [409, "SESSION_CLOSING"],
       closed: [409, "SESSION_CLOSED"],
     };
     expect(Object.keys(expected).sort()).toEqual(

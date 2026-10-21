@@ -280,6 +280,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}",
         "/v1/sessions/{id}/answers",
         "/v1/sessions/{id}/audit-read",
+        "/v1/sessions/{id}/close",
         "/v1/sessions/{id}/events",
         "/v1/sessions/{id}/interrupt",
         "/v1/sessions/{id}/messages",

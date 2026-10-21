@@ -26,6 +26,9 @@ const unusedControls: SessionControl = {
   pauseAtomic: async () => {
     throw new Error("not reached");
   },
+  closeAtomic: async () => {
+    throw new Error("not reached");
+  },
   decideRecoveryAtomic: async () => {
     throw new Error("not reached");
   },

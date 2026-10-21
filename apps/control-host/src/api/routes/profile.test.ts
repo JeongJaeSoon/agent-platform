@@ -122,6 +122,7 @@ function change(
     controls: {
       terminateAtomic: notReached,
       pauseAtomic: notReached,
+      closeAtomic: notReached,
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
       changeProfileAtomic,

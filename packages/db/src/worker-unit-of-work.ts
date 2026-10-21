@@ -70,6 +70,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { finishClose } from "./close-control.ts";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
   type ControlResultEvent,
@@ -92,12 +93,9 @@ import {
 } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
+import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
-import {
-  openPauseReceipt,
-  pauseBlocker,
-  pauseReceiptResult,
-} from "./pause-control.ts";
+import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -2069,20 +2067,21 @@ export function createPostgresWorkerUnitOfWork(
             now,
           });
         }
-        if (unknownOutcome && fenced.session.admissionState === "pausing") {
-          // recovery_required takes the session out of pausing, so the pause
-          // it was draining for can no longer complete.
+        const drain = drainOf(fenced.session.admissionState);
+        if (unknownOutcome && drain !== undefined) {
+          // recovery_required takes the session out of its drain, so the
+          // pause or close it was draining for can no longer complete.
           await tx
             .update(receipts)
             .set({
               status: "failed",
               error: {
                 code: "RECOVERY_REQUIRED",
-                message: `turn ${input.turnId} ended with an unknown outcome while the pause was draining`,
+                message: `turn ${input.turnId} ended with an unknown outcome while the ${drain.operation} was draining`,
               },
               updatedAt: now,
             })
-            .where(openPauseReceipt(fence.sessionId));
+            .where(openDrainReceipt(fence.sessionId));
         }
         return {
           outcome: "finalized",
@@ -2234,18 +2233,20 @@ export function createPostgresWorkerUnitOfWork(
           if (fenced.outcome !== "ok") {
             return { released: false, refused: "lease_expired" };
           }
+          // A close drains through the same control, so the receipt it
+          // names may be either.
           const [open] =
-            fenced.session.admissionState === "pausing"
+            drainOf(fenced.session.admissionState) !== undefined
               ? await tx
                   .select({ id: receipts.id })
                   .from(receipts)
-                  .where(openPauseReceipt(fence.sessionId))
+                  .where(openDrainReceipt(fence.sessionId))
                   .limit(1)
               : [];
           if (open?.id !== pause) {
             return { released: false, refused: "pause_stale" };
           }
-          const blocker = await pauseBlocker(tx, fenced.session);
+          const blocker = await drainBlocker(tx, fenced.session);
           if (blocker !== null) {
             return {
               released: false,
@@ -2569,11 +2570,15 @@ export function createPostgresWorkerUnitOfWork(
         // the context check below hands to an operator. A blocking pending reason (a dropped mirror batch, or
         // one this build does not know) cannot be carried on from, so that
         // one goes to an operator instead, as a cancel would.
+        // A close drains and settles the same way, into closed.
+        const drain = drainOf(session.admissionState);
         const pauseBlockedBy =
-          session.admissionState === "pausing" && unresolved.length === 0
-            ? await pauseBlocker(tx, session)
+          drain !== undefined && unresolved.length === 0
+            ? await drainBlocker(tx, session)
             : undefined;
-        const paused = pauseBlockedBy === null;
+        const drained = pauseBlockedBy === null;
+        const paused = drained && drain?.settlesInto === "paused";
+        const closedNow = drained && drain?.settlesInto === "closed";
         const pauseFailed =
           pauseBlockedBy !== undefined && pauseBlockedBy !== null;
         const pauseFailedInto = storedPendingReasonHoldsWork(
@@ -2641,14 +2646,19 @@ export function createPostgresWorkerUnitOfWork(
                     }
                   : paused
                     ? { admissionState: "paused" as const }
-                    : pauseFailed
-                      ? pauseFailedInto === "active"
-                        ? { admissionState: "active" as const }
-                        : {
-                            status: "failed" as const,
-                            admissionState: "recovery_required" as const,
-                          }
-                      : {}),
+                    : closedNow
+                      ? {
+                          status: "stopped" as const,
+                          admissionState: "closed" as const,
+                        }
+                      : pauseFailed
+                        ? pauseFailedInto === "active"
+                          ? { admissionState: "active" as const }
+                          : {
+                              status: "failed" as const,
+                              admissionState: "recovery_required" as const,
+                            }
+                        : {}),
           })
           .where(eq(sessions.id, session.id));
         const startupOutcome =
@@ -2694,11 +2704,11 @@ export function createPostgresWorkerUnitOfWork(
                   pauseFailedInto === "active"
                     ? "CHECKPOINT_UNAVAILABLE"
                     : "RECOVERY_REQUIRED",
-                message: `the execution ended before the pause could commit (${pauseBlockedBy})`,
+                message: `the execution ended before the ${drain?.operation} could commit (${pauseBlockedBy})`,
               },
               updatedAt: observedAt,
             })
-            .where(openPauseReceipt(session.id));
+            .where(openDrainReceipt(session.id));
         }
         // Every admission this exit settles is a status change the event
         // stream has to carry, or a client following it stays at stopping,
@@ -2711,8 +2721,8 @@ export function createPostgresWorkerUnitOfWork(
             ? "recovery_required"
             : stopping
               ? "stopped"
-              : paused
-                ? "paused"
+              : drained
+                ? (drain?.settlesInto ?? null)
                 : pauseFailed
                   ? pauseFailedInto
                   : null;
@@ -2722,16 +2732,78 @@ export function createPostgresWorkerUnitOfWork(
             phase:
               settledInto === "recovery_required"
                 ? "failed"
-                : settledInto === "stopped"
+                : settledInto === "stopped" || settledInto === "closed"
                   ? "stopped"
                   : session.status,
             extra: {
               admission_state: settledInto,
-              ...(pauseFailed ? { pause_failed: pauseBlockedBy } : {}),
+              ...(pauseFailed
+                ? {
+                    [drain?.operation === "close"
+                      ? "close_failed"
+                      : "pause_failed"]: pauseBlockedBy,
+                  }
+                : {}),
             },
             turnRowId: null,
             now: observedAt,
           });
+        }
+        if (closedNow) {
+          const [open] = await tx
+            .select({ id: receipts.id, acceptedAt: receipts.createdAt })
+            .from(receipts)
+            .where(openDrainReceipt(session.id))
+            .limit(1);
+          if (open) {
+            await tx
+              .update(receipts)
+              .set({
+                status: "succeeded",
+                error: null,
+                result: await finishClose(tx, session, {
+                  receiptId: open.id,
+                  now: observedAt,
+                }),
+                updatedAt: observedAt,
+              })
+              .where(eq(receipts.id, open.id));
+            controlResults.push({
+              acceptedAt: open.acceptedAt,
+              controlId: open.id,
+              effectiveAt: observedAt,
+              operation: "close",
+              outcome: "succeeded",
+              reasonCode: "drained",
+              sessionId: session.id,
+            });
+          }
+        }
+        // A close with nothing to drain closed the session at once and
+        // waited only on this absence.
+        if (closed) {
+          const settledCloses = await tx
+            .update(receipts)
+            .set({ status: "succeeded", updatedAt: observedAt })
+            .where(
+              and(
+                eq(receipts.operation, CLOSE),
+                eq(receipts.status, "accepted"),
+                sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+              ),
+            )
+            .returning({ id: receipts.id, acceptedAt: receipts.createdAt });
+          for (const settled of settledCloses) {
+            controlResults.push({
+              acceptedAt: settled.acceptedAt,
+              controlId: settled.id,
+              effectiveAt: observedAt,
+              operation: "close",
+              outcome: "succeeded",
+              reasonCode: "execution_gone",
+              sessionId: session.id,
+            });
+          }
         }
         // After the pause's own outcome, so the stream ends on where the
         // session actually is.
@@ -2743,19 +2815,18 @@ export function createPostgresWorkerUnitOfWork(
             now: observedAt,
           });
         }
-        if (session.admissionState === "pausing" && unresolved.length > 0) {
+        if (drain !== undefined && unresolved.length > 0) {
           await tx
             .update(receipts)
             .set({
               status: "failed",
               error: {
                 code: "RECOVERY_REQUIRED",
-                message:
-                  "execution ended before the turn the pause was draining was finalized",
+                message: `execution ended before the turn the ${drain.operation} was draining was finalized`,
               },
               updatedAt: observedAt,
             })
-            .where(openPauseReceipt(session.id));
+            .where(openDrainReceipt(session.id));
         }
         // The terminate receipt, and an execution revocation's
         // succeeds only here, on the observed absence;

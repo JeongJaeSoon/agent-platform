@@ -40,6 +40,7 @@ function pause(
     controls: {
       terminateAtomic: notReached,
       pauseAtomic,
+      closeAtomic: notReached,
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
       changeProfileAtomic: notReached,

@@ -87,6 +87,30 @@ export type PauseSessionResult =
   // Legacy pod binding, as for terminate.
   | { outcome: "unsupported" };
 
+export type CloseSessionInput = TerminateSessionInput;
+
+export type CloseSessionResult =
+  | { outcome: "accepted" | "replayed"; response: ControlAcceptedResponse }
+  | { outcome: "conflict" | "not_found" }
+  | { outcome: "revision_conflict"; currentRevision: number }
+  // active, paused and a resumable stopped close; every other state keeps
+  // its own answer.
+  | {
+      outcome: "rejected";
+      admissionState: Exclude<
+        AdmissionState,
+        "active" | "paused" | "stopped" | "recovery_required"
+      >;
+    }
+  // recovery_required, or a stopped session that cannot be resumed: a
+  // recovery close is the way to end it.
+  | { outcome: "recovery_required" }
+  // Nothing is left to drain and no trusted checkpoint covers the last turn
+  // that ran, so the close would end the session on work it cannot show.
+  | { outcome: "checkpoint_unavailable" }
+  // Legacy pod binding, as for terminate.
+  | { outcome: "unsupported" };
+
 export type ResumeSessionInput = {
   principal: Principal;
   sessionId: string;
@@ -185,6 +209,14 @@ export interface SessionControl {
    * checkpoint covering every turn that ran.
    */
   pauseAtomic(input: PauseSessionInput): Promise<PauseSessionResult>;
+  /**
+   * The owner's ordinary close. A bound worker drains as for a pause and the
+   * session goes `closing`; it is `closed` once the execution is seen gone
+   * with a checkpoint covering every turn that ran. A session with nothing
+   * left to drain is closed in this transaction. Queued input is cancelled
+   * in the transaction that closes the session.
+   */
+  closeAtomic(input: CloseSessionInput): Promise<CloseSessionResult>;
   /**
    * api.md § 최소 운영 복구: abandon, confirm_completed or close, decided
    * under the session lock against the operator's expected_revision, with

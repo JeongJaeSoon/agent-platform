@@ -28,6 +28,7 @@ export const ADMISSION_STATE_VALUES = [
   "stopping",
   "stopped",
   "recovery_required",
+  "closing",
   "closed",
 ] as const;
 export const TURN_STATUS_VALUES = [
@@ -131,10 +132,21 @@ export const PAUSE_BLOCKED_REASON_VALUES = [
   "checkpoint_unavailable",
 ] as const;
 export const pauseBlockedReasonSchema = z.enum(PAUSE_BLOCKED_REASON_VALUES);
+// The same for a close, plus `execution_pending`: the worker has released
+// and the execution has not been seen gone yet.
+export const CLOSE_BLOCKED_REASON_VALUES = [
+  ...PAUSE_BLOCKED_REASON_VALUES,
+  "execution_pending",
+] as const;
+export const closeBlockedReasonSchema = z.enum(CLOSE_BLOCKED_REASON_VALUES);
 export const sessionAttentionSchema = z.discriminatedUnion("code", [
   z.object({
     code: z.literal("PAUSE_BLOCKED"),
     reason: pauseBlockedReasonSchema,
+  }),
+  z.object({
+    code: z.literal("CLOSE_BLOCKED"),
+    reason: closeBlockedReasonSchema,
   }),
   // The session has spent SESSION_COST_LIMIT_USD or used SESSION_TOKEN_LIMIT
   // tokens, so no further turn is
@@ -298,6 +310,7 @@ export type SessionRuntimeView = z.infer<typeof sessionRuntimeViewSchema>;
 export type ExecutionObservation = z.infer<typeof executionObservationSchema>;
 export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
+export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
 export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;

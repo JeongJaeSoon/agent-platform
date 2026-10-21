@@ -155,6 +155,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   SESSION_RESUMING: "The session is resuming; wait for the resume receipt.",
   SESSION_STOPPED: "The session is stopping or stopped; resume it first.",
   SESSION_CLOSED: "The session is closed and accepts no further commands.",
+  SESSION_CLOSING:
+    "The session is closing; wait for the close receipt. A close that cannot finish returns the session to `active`.",
   RECOVERY_REQUIRED:
     "The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).",
   CHECKPOINT_UNAVAILABLE:

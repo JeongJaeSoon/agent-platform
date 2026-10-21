@@ -10,7 +10,7 @@ import type {
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { OPEN_TURN_STATUSES, parseTurnSequence } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
-import { openPauseReceipt } from "./pause-control.ts";
+import { DRAINING_STATES, drainOf, openDrainReceipt } from "./drain.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { pendingRequests, receipts, sessions, turns } from "./schema.ts";
@@ -262,12 +262,13 @@ export function createPostgresWorkerPendingStore(
         });
         // The session row was locked with the fence, so this is the pause
         // as the attempt's lease sees it.
+        // A close drains through the same control as a pause.
         const [pause] =
-          fenced.session.admissionState === "pausing"
+          drainOf(fenced.session.admissionState) !== undefined
             ? await tx
                 .select({ id: receipts.id, createdAt: receipts.createdAt })
                 .from(receipts)
-                .where(openPauseReceipt(fence.sessionId))
+                .where(openDrainReceipt(fence.sessionId))
                 .limit(1)
             : [];
         // Judged after every read that can wait on a lock and before the
@@ -370,17 +371,17 @@ export function createPostgresWorkerPendingStore(
       ) {
         return true;
       }
-      const [pausing] = await db
+      const [draining] = await db
         .select({ one: sql<number>`1` })
         .from(sessions)
         .where(
           and(
             eq(sessions.id, fence.sessionId),
-            eq(sessions.admissionState, "pausing"),
+            inArray(sessions.admissionState, DRAINING_STATES),
           ),
         )
         .limit(1);
-      return pausing !== undefined;
+      return draining !== undefined;
     },
   };
 }

@@ -24,6 +24,8 @@ export const API_ERROR_CODE_VALUES = [
   "SESSION_PAUSED",
   "SESSION_RESUMING",
   "SESSION_CLOSED",
+  // Still draining towards closed, and could yet fall back to active.
+  "SESSION_CLOSING",
   "SESSION_STOPPED",
   "RECOVERY_REQUIRED",
   "CHECKPOINT_UNAVAILABLE",

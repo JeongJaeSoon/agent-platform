@@ -35,6 +35,7 @@ export const sessionsKo = {
   "sessions.admission.stopping": "종료 중",
   "sessions.admission.stopped": "종료됨",
   "sessions.admission.recovery_required": "복구 필요",
+  "sessions.admission.closing": "보관 중",
   "sessions.admission.closed": "보관됨",
 
   "session.back": "세션 목록",
@@ -204,6 +205,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.admission.stopping": "Ending",
   "sessions.admission.stopped": "Ended",
   "sessions.admission.recovery_required": "Needs recovery",
+  "sessions.admission.closing": "Archiving",
   "sessions.admission.closed": "Archived",
 
   "session.back": "All sessions",

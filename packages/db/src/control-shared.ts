@@ -12,11 +12,13 @@ import {
   isNull,
   lt,
   min,
+  notInArray,
   type SQL,
   sql,
 } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  attempts,
   idempotencyKeys,
   memberships,
   receipts,
@@ -243,6 +245,31 @@ export async function transactionWithBindingRetry<T>(
       if (!(error instanceof BindingMoved) || attempt >= 3) throw error;
     }
   }
+}
+
+/**
+ * The claimed attempt still holding the binding, if any: only it can drain
+ * for a pause or close. A launch reserved and not yet claimed never will be
+ * now — claims take active sessions only — and an attempt that ended is on
+ * its way out anyway.
+ */
+export async function liveDrainer(
+  tx: Database,
+  executionId: string | null,
+): Promise<{ id: string } | undefined> {
+  if (executionId === null) return undefined;
+  const [drainer] = await tx
+    .select({ id: attempts.id })
+    .from(workerLaunches)
+    .innerJoin(attempts, eq(attempts.id, workerLaunches.claimedAttemptId))
+    .where(
+      and(
+        eq(workerLaunches.executionId, executionId),
+        notInArray(attempts.state, ["exited", "lost"]),
+      ),
+    )
+    .limit(1);
+  return drainer;
 }
 
 /**

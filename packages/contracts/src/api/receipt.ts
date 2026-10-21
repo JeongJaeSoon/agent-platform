@@ -28,6 +28,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "answer",
   "interrupt",
   "pause",
+  // The owner's ordinary close, distinct from terminate and from an
+  // operator's recovery close (recovery_decision).
+  "close",
   "terminate",
   "resume",
   "recovery_decision",

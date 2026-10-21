@@ -268,6 +268,7 @@ function actionsFor(session: SessionDetailData): readonly ControlAction[] {
       return ["resume", "terminate"];
     case "resuming":
     case "recovery_required":
+    case "closing":
       return ["terminate"];
     case "stopped":
       return ["resume"];

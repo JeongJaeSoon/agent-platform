@@ -8,6 +8,7 @@ import type {
   AuthorizationDecision,
   AuthorizationResource,
   ChangeSessionProfileRequest,
+  CloseSessionRequest,
   ControlAcceptedResponse,
   CreateSessionRequest,
   CreateSessionResponse,
@@ -116,6 +117,7 @@ const ADMISSION_REJECTIONS: Record<
     code: "RECOVERY_REQUIRED",
     message: "Session requires an operator recovery decision",
   },
+  closing: { code: "SESSION_CLOSING", message: "Session is closing" },
   closed: { code: "SESSION_CLOSED", message: "Session is closed" },
 };
 
@@ -130,6 +132,7 @@ const RESUME_REJECTIONS: Record<
 > = {
   active: ["REQUEST_STALE", "Session is already active"],
   resuming: ["SESSION_RESUMING", "Session is already resuming"],
+  closing: ["SESSION_CLOSING", "Session is closing"],
   closed: ["SESSION_CLOSED", "Session is closed"],
 };
 
@@ -146,6 +149,25 @@ const PAUSE_REJECTIONS: Record<
     "RECOVERY_REQUIRED",
     "Session requires an operator recovery decision",
   ],
+  closing: ["SESSION_CLOSING", "Session is closing"],
+  closed: ["SESSION_CLOSED", "Session is closed"],
+};
+
+// The states a close does not take, each with the step that comes first.
+const CLOSE_REJECTIONS: Record<
+  Exclude<
+    AdmissionState,
+    "active" | "paused" | "stopped" | "recovery_required"
+  >,
+  [ApiErrorCode, string]
+> = {
+  pausing: ["SESSION_PAUSED", "Session is pausing; close it once it is paused"],
+  resuming: ["SESSION_RESUMING", "Session is resuming"],
+  stopping: [
+    "SESSION_STOPPED",
+    "Session is stopping; close it once the terminate receipt has settled",
+  ],
+  closing: ["SESSION_CLOSING", "Session is already closing"],
   closed: ["SESSION_CLOSED", "Session is closed"],
 };
 
@@ -675,6 +697,55 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
             "This session runs on a legacy pod binding that cannot be paused",
+          );
+        default:
+          return result.response;
+      }
+    },
+
+    async closeSession(
+      actor: Caller,
+      sessionId: string,
+      input: { idempotencyKey: string; body: CloseSessionRequest },
+    ): Promise<ControlAcceptedResponse> {
+      await requirePermitted(authorization, actor, "session.control", {
+        kind: "session",
+        id: sessionId,
+      });
+      const result = await controls.closeAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(input.body),
+        expectedRevision: input.body.expected_revision,
+        reason: input.body.reason ?? null,
+        now: now(),
+      });
+      switch (result.outcome) {
+        case "conflict":
+          return idempotencyConflict();
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "revision_conflict":
+          return revisionConflict(result.currentRevision);
+        case "rejected":
+          throw new SessionServiceError(
+            ...CLOSE_REJECTIONS[result.admissionState],
+          );
+        case "recovery_required":
+          throw new SessionServiceError(
+            "RECOVERY_REQUIRED",
+            "The session needs a recovery decision, not a close; end it with a recovery close (decision: close)",
+          );
+        case "checkpoint_unavailable":
+          throw new SessionServiceError(
+            "CHECKPOINT_UNAVAILABLE",
+            "No trusted committed checkpoint covers the last turn that ran, so the session cannot be closed on its work; terminate it and use a recovery close instead",
+          );
+        case "unsupported":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session runs on a legacy pod binding that cannot be closed",
           );
         default:
           return result.response;

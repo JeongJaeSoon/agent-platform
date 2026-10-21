@@ -64,6 +64,7 @@ const admission: Record<AdmissionState, StatusDescriptor> = {
     tone: "danger",
     inFlight: false,
   },
+  closing: { label: "보관 중", tone: "neutral", inFlight: true },
   closed: { label: "보관됨", tone: "neutral", inFlight: false },
 };
 
