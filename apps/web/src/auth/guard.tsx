@@ -1,3 +1,4 @@
+import { type ApiError, isApiError } from "@agent-platform/client";
 import type {
   AuthMeResponse,
   AuthorizationAction,
@@ -6,7 +7,6 @@ import type {
 } from "@agent-platform/contracts";
 import { useMe as useMeQuery } from "@agent-platform/react";
 import { type ButtonHTMLAttributes, useId } from "react";
-import { type ApiError, isApiError } from "../api/client.ts";
 import {
   errorKey,
   isMessageKey,

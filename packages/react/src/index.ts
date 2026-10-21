@@ -32,3 +32,13 @@ export {
   type RenderLink,
   useAgentPlatform,
 } from "./provider.tsx";
+export {
+  type EventStreamState,
+  type SessionEventFrame,
+  useChangeSessionProfile,
+  usePendingRequests,
+  useSession,
+  useSessionEvents,
+  useSessions,
+  useSessionUsage,
+} from "./sessions.ts";

@@ -54,9 +54,15 @@ test("query keys come from the core's factories, never written here", async () =
   for (const name of await sourceFiles()) {
     const source = await read(name);
     // Any spelling of the option, quoted or computed, and any hook called
-    // with an inline options object instead of a core factory's result.
+    // with an inline options object instead of a core factory's result. An
+    // object that opens by spreading a factory's result only adds what the
+    // caller decides (`enabled`), never the key.
     if (/queryKey/.test(source)) found.push(`${name}: queryKey`);
-    if (/\buse\w*Query\s*(?:<[^(]*>)?\s*\(\s*\{/.test(source))
+    if (
+      /\buse\w*Query\s*(?:<[^(]*>)?\s*\(\s*\{(?!\s*\.\.\.\w+Query\()/.test(
+        source,
+      )
+    )
       found.push(`${name}: inline query options`);
   }
   expect(found).toEqual([]);
