@@ -172,6 +172,10 @@ describe("retry policy", () => {
       { maxRetries: 6 },
     );
     expect(capped.waits).toEqual([500, 1_000, 2_000, 4_000, 8_000, 8_000]);
+    const ceiling = await outcome([new TypeError("reset")], "keyed", {
+      maxRetryDelayMs: 100,
+    });
+    expect(ceiling.waits).toEqual([100, 100]);
   });
 
   test("an attempt over timeoutMs is a TimeoutError and is retried", async () => {

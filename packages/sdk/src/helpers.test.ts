@@ -190,6 +190,23 @@ describe("waitForTurn", () => {
     });
   });
 
+  test("a turn that ended just before the session closed is returned, not reported blocked", async () => {
+    let turnReads = 0;
+    const api = fakeApi(({ path }) =>
+      path === "/v1/sessions/s1"
+        ? json(200, { admission_state: "closed", attention: null })
+        : json(
+            200,
+            ++turnReads === 1 ? turn("running") : turn("completed", true),
+          ),
+    );
+    const ended = await waitForTurn(werft(api.fetch), "s1", "t1", {
+      pollIntervalMs: 5,
+    });
+    expect(ended.status).toBe("completed");
+    expect(turnReads).toBe(2);
+  });
+
   test("keeps waiting through a state that passes on its own", async () => {
     const states = ["closing", "pausing", "active"];
     const api = session([permission("p1", "git status")], {

@@ -5,7 +5,9 @@ import {
   subscribeSessionEvents,
 } from "@werft-ai/client";
 import type { EventCursor, SessionEvent } from "../types.ts";
-import { APIError } from "./errors.ts";
+import { APIError, WerftError } from "./errors.ts";
+
+export const MAX_BUFFERED_EVENTS = 10_000;
 
 export interface StreamOptions {
   /** Resume strictly after this cursor; without it the whole session replays. */
@@ -82,6 +84,17 @@ export function openEventStream(
       signal,
       ...(lastEventId ? { lastEventId } : {}),
       onEvent(frame) {
+        if (failure !== undefined) return;
+        // The subscription cannot be paused, so a reader this far behind
+        // ends the stream instead; lastEventId resumes it with nothing lost.
+        if (queue.length >= MAX_BUFFERED_EVENTS) {
+          failure = new WerftError(
+            "STREAM_OVERFLOW",
+            `More than ${MAX_BUFFERED_EVENTS} events waited to be read; reopen the stream from lastEventId`,
+          );
+          stop.abort();
+          return;
+        }
         queue.push(toEvent(frame));
         notify();
       },

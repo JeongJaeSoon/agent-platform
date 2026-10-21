@@ -47,7 +47,7 @@ API key scope가 `sessions:*`인 operation을 모두 감싼다. 요청·응답 �
 - 재시도하는 경우: 응답 본문의 `retryable: true`, API 오류 본문이 아닌 502·504(프록시 응답), 응답을 읽지 못한 연결 실패와 시도 timeout.
   - 연결 실패·timeout은 GET과 Idempotency-Key가 있는 명령만 다시 보낸다. key가 없는 `openPullRequest`·`commentPullRequest`는 응답을 잃으면 다시 보내지 않는다.
 - 재시도하지 않는 경우: 409 전부, 500, 그 밖의 4xx.
-- 기다리는 시간: `Retry-After`가 있으면 그 값을 쓴다. 60초(`maxRetryDelayMs`)를 넘으면 기다리지 않고 바로 실패하고, 오류의 `retryAfterMs`에 그 값을 싣는다. 없으면 `min(0.5초·2^n, 8초)` 안에서 무작위로 기다린다.
+- 기다리는 시간: `Retry-After`가 있으면 그 값을 쓴다. 60초(`maxRetryDelayMs`)를 넘으면 기다리지 않고 바로 실패하고, 오류의 `retryAfterMs`에 그 값을 싣는다. 없으면 `min(0.5초·2^n, 8초, maxRetryDelayMs)` 안에서 무작위로 기다린다.
 - key가 필요한 명령은 호출마다 key를 하나 만들고, 그 호출의 모든 재시도에 같은 key를 보낸다. 같은 key로 다시 보내면 서버가 명령을 한 번만 실행한다.
 - `sessions.requests.answer`의 기본 key는 `answer:<request_id>`다. 요청 하나에는 답이 하나뿐이다.
 - 프로세스를 다시 띄운 뒤 이어서 재시도하려면 오류의 `idempotencyKey`를 저장해 두었다가 `{ idempotencyKey }`로 넘긴다.
@@ -92,6 +92,7 @@ for await (const event of stream) {
 - 끊기면 `Last-Event-ID`로 다시 연결해 그 이벤트 바로 뒤부터 받는다.
 - turn이나 세션이 끝나도 스스로 닫히지 않는다. `signal`이나 `stream.close()`로 끝낸다.
 - 400·401·403·404·410은 반복을 멈추고 `APIError`를 던진다.
+- 읽지 않은 이벤트가 10,000개를 넘으면, 받아 둔 이벤트를 모두 넘긴 뒤 `code: "STREAM_OVERFLOW"`인 `WerftError`를 던진다. 넘긴 이벤트는 빈틈없이 이어지므로 `stream.lastEventId`로 다시 열면 빠지는 이벤트가 없다.
 - `lastEventId` 없이 열면 세션 전체를 처음부터 다시 받는다. owner마다 열 수 있는 스트림 수에 한도가 있다(넘으면 429).
 
 ## 6. turn 대기와 권한 요청 응답

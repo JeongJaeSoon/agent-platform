@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { APIError, type SessionEvent } from "../index.ts";
+import { APIError, type SessionEvent, type WerftError } from "../index.ts";
 import { apiError, fakeApi, werft } from "../testing/fake-api.ts";
+import { MAX_BUFFERED_EVENTS } from "./stream.ts";
 
 function frame(id: string, event: string, data: unknown): string {
   const envelope = {
@@ -72,6 +73,33 @@ describe("events.stream", () => {
     })().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(APIError);
     expect((error as APIError).code).toBe("FORBIDDEN");
+  });
+
+  test("a reader too far behind gets every buffered event, then STREAM_OVERFLOW to resume from", async () => {
+    const total = MAX_BUFFERED_EVENTS + 5;
+    let text = "";
+    for (let i = 1; i <= total; i++) text += frame(`e${i}`, "status", {});
+    const api = fakeApi(({ signal }) => sse(text, signal));
+    const stream = werft(api.fetch).sessions.events.stream("s1");
+    const ids: string[] = [];
+    const iterator = stream[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    if (!first.done) ids.push(first.value.id);
+    // Let the rest of the body arrive while this reader does nothing.
+    await Bun.sleep(200);
+    const error = await (async () => {
+      for (;;) {
+        const next = await iterator.next();
+        if (next.done) return undefined;
+        ids.push(next.value.id);
+      }
+    })().catch((e: unknown) => e);
+    expect((error as WerftError).code).toBe("STREAM_OVERFLOW");
+    // A gap-free prefix, so resuming from lastEventId loses nothing.
+    expect(ids.length).toBeGreaterThanOrEqual(MAX_BUFFERED_EVENTS);
+    expect(ids.length).toBeLessThan(total);
+    expect(ids).toEqual(ids.map((_, i) => `e${i + 1}`));
+    expect(stream.lastEventId).toBe(ids.at(-1) ?? "");
   });
 
   test("ends quietly on the caller's signal", async () => {

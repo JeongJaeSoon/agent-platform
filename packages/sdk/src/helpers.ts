@@ -67,6 +67,9 @@ const BLOCKED_ADMISSION = new Set([
 ]);
 const OPEN_PUSH = new Set(["requested", "approved", "pushing"]);
 
+const ended = (turn: Turn) =>
+  TERMINAL_TURN.has(turn.status) || turn.ended_at !== null;
+
 const never = new AbortController().signal;
 
 function aborted(signal: AbortSignal | undefined): void {
@@ -258,8 +261,7 @@ export async function waitForTurn(
       const turn = await orNull(
         client.sessions.turns.get(sessionId, turnId, optionsOf(signal)),
       );
-      if (turn && (TERMINAL_TURN.has(turn.status) || turn.ended_at !== null))
-        return turn;
+      if (turn && ended(turn)) return turn;
 
       if (options.onRequest) {
         const requests = await orNull(
@@ -282,8 +284,15 @@ export async function waitForTurn(
       const session = await orNull(
         client.sessions.get(sessionId, optionsOf(signal)),
       );
-      if (turn && session && BLOCKED_ADMISSION.has(session.admission_state))
-        throw new TurnBlockedError(session.admission_state);
+      if (turn && session && BLOCKED_ADMISSION.has(session.admission_state)) {
+        // The turn may have ended between the two reads, and the session
+        // with it: a close or a stop ends the session right after its turn.
+        const again = await orNull(
+          client.sessions.turns.get(sessionId, turnId, optionsOf(signal)),
+        );
+        if (again && ended(again)) return again;
+        if (again) throw new TurnBlockedError(session.admission_state);
+      }
       await timer.nap(interval);
     }
   } finally {

@@ -109,7 +109,8 @@ export async function call<T>(
     }
 
     if (!retryable || retry >= maxRetries) throw failure;
-    let wait = random() * Math.min(500 * 2 ** retry, 8_000);
+    let wait =
+      random() * Math.min(500 * 2 ** retry, 8_000, policy.maxRetryDelayMs);
     if (failure instanceof APIError && failure.retryAfterMs !== undefined) {
       if (failure.retryAfterMs > policy.maxRetryDelayMs) throw failure;
       wait = failure.retryAfterMs;

@@ -5,6 +5,7 @@ export type ClientErrorCode =
   | "TIMEOUT"
   | "ABORTED"
   | "TURN_BLOCKED"
+  | "STREAM_OVERFLOW"
   | "UNKNOWN";
 
 export interface WerftErrorInit {
