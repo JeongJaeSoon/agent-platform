@@ -25,7 +25,9 @@ const { AgentPlatformProvider, useStepper } = await import(
 );
 const { Stepper } = await import("@agent-platform/ui");
 const { I18nProvider } = await import("../i18n/i18n.tsx");
-const { FunnelResetNotice, useFunnel } = await import("./tanstack-funnel.tsx");
+const { FunnelResetNotice, useDialogFunnel, useFunnel } = await import(
+  "./tanstack-funnel.tsx"
+);
 
 type Steps = {
   name: { name?: string };
@@ -46,8 +48,12 @@ const STEPS = [
   { id: "done", label: "끝" },
 ];
 
-function Flow() {
-  const funnel = useFunnel<Steps>({
+function Flow({
+  useFlow = useFunnel,
+}: {
+  readonly useFlow?: typeof useFunnel;
+}) {
+  const funnel = useFlow<Steps>({
     id: "new-agent",
     initial: { step: "name", context: {} },
     steps: {
@@ -110,9 +116,14 @@ function mount() {
     path: "/flow",
     component: Flow,
   });
+  const dialog = createRoute({
+    getParentRoute: () => root,
+    path: "/dialog",
+    component: () => <Flow useFlow={useDialogFunnel} />,
+  });
   const history = createBrowserHistory();
   const router = createRouter({
-    routeTree: root.addChildren([flow]),
+    routeTree: root.addChildren([flow, dialog]),
     history,
   });
   const view = render(
@@ -219,6 +230,42 @@ describe("the TanStack Router funnel adapter", () => {
     ).toBe(true);
 
     await user.click(finished);
+    await at("name:{}");
+  });
+});
+
+describe("a flow in a dialog", () => {
+  test("mounting again starts over in the same entry, without a notice", async () => {
+    window.history.replaceState(
+      routerWritten({
+        "new-agent.histories": [
+          { step: "name", context: {} },
+          { step: "role", context: { name: "triage" } },
+          { step: "done", context: { name: "triage", role: "support" } },
+        ],
+      }),
+      "",
+      "/dialog?new-agent.step=done",
+    );
+    const entries = window.history.length;
+    mount();
+    await at("name:{}");
+    await waitFor(() =>
+      expect(stored()).toEqual([{ step: "name", context: {} }]),
+    );
+    expect(window.location.search).toBe("?new-agent.step=name");
+    expect(window.history.length).toBe(entries);
+    expect(screen.queryByText(RESET_TEXT)).toBeNull();
+  });
+
+  test("once started, it moves and goes back like any flow", async () => {
+    window.history.replaceState(null, "", "/dialog");
+    const user = await setupUser();
+    const { history } = mount();
+    await at("name:{}");
+    await user.click(screen.getByRole("button", { name: "next" }));
+    await at('role:{"name":"triage"}');
+    act(() => history.back());
     await at("name:{}");
   });
 });

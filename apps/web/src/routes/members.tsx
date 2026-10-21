@@ -11,16 +11,12 @@ import {
   buttonVariants,
   ConfirmDialog,
   EmptyState,
-  Field,
-  FieldDescription,
-  FieldLabel,
   formatTimestamp,
-  Input,
   NativeSelect,
   NativeSelectOption,
 } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
@@ -33,14 +29,11 @@ import {
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
-import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { TableScroll } from "../components/table-scroll.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-
-// The least authority; anything more is a choice the inviter makes.
-const DEFAULT_INVITE_ROLE: WorkspaceRole = "member";
+import { InviteDialog } from "./invite-dialog.tsx";
 
 const PAGE = "flex flex-col gap-6";
 const TITLE = "m-0 font-semibold text-xl";
@@ -99,11 +92,13 @@ export function MembersScreen() {
         )
       ) : null}
       {failed ? null : (
-        <InviteForm
-          reason={reason}
-          members={members.data?.items ?? []}
-          onOutcome={setOutcome}
-        />
+        <div>
+          <InviteDialog
+            reason={reason}
+            members={members.data?.items ?? []}
+            refusal={(error, role) => refusal(t, error, role)}
+          />
+        </div>
       )}
       <section className={SECTION} aria-labelledby={titleId}>
         <h2 id={titleId} className={SECTION_TITLE}>
@@ -126,162 +121,6 @@ export function MembersScreen() {
       </section>
       {members.isSuccess ? <InviteList onOutcome={setOutcome} /> : null}
     </div>
-  );
-}
-
-function InviteForm({
-  reason,
-  members,
-  onOutcome,
-}: {
-  readonly reason: string | undefined;
-  readonly members: readonly MemberView[];
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
-  const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
-  const queryClient = useQueryClient();
-  const role = useRole();
-  const [email, setEmail] = useState("");
-  const [inviteRole, setInviteRole] =
-    useState<WorkspaceRole>(DEFAULT_INVITE_ROLE);
-  const [link, setLink] = useState<{ url: string; expires: string } | null>(
-    null,
-  );
-  const linkRef = useRef<HTMLInputElement>(null);
-  const titleId = useId();
-
-  const invite = useMutation<
-    { invite_token: string; expires_at: string },
-    ApiError
-  >({
-    mutationFn: () =>
-      unwrap(
-        client.POST("/v1/invites", {
-          body: { email: email.trim(), role: inviteRole },
-        }),
-      ),
-    onMutate: () => {
-      onOutcome(null);
-      setLink(null);
-    },
-    onSuccess: async (created) => {
-      setLink({
-        url: `${window.location.origin}/invite/${encodeURIComponent(created.invite_token)}`,
-        expires: created.expires_at,
-      });
-      setEmail("");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.invites });
-    },
-    onError: (error) =>
-      onOutcome({ kind: "error", text: refusal(t, error, role) }),
-  });
-
-  // Re-inviting someone whose membership is off leads nowhere when their
-  // account has no password (Google sign-in only): the invite asks for one.
-  // Enabling the membership is the way back for everyone.
-  const disabledMatch = members.find(
-    (member) =>
-      member.disabled_at !== null &&
-      member.email.toLowerCase() === email.trim().toLowerCase(),
-  );
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    invite.mutate();
-  };
-
-  return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
-        {t("members.invite.title")}
-      </h2>
-      <form
-        className="flex max-w-xl flex-col items-start gap-4"
-        onSubmit={submit}
-      >
-        <Field>
-          <FieldLabel>{t("members.invite.email")}</FieldLabel>
-          <Input
-            type="email"
-            name="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          {disabledMatch ? (
-            <FieldDescription>
-              {t("members.invite.disabledHint", {
-                name: disabledMatch.display_name,
-              })}
-            </FieldDescription>
-          ) : null}
-        </Field>
-        <Field>
-          <FieldLabel>{t("members.invite.role")}</FieldLabel>
-          <NativeSelect
-            value={inviteRole}
-            onChange={(event) =>
-              setInviteRole(event.target.value as WorkspaceRole)
-            }
-          >
-            {WORKSPACE_ROLE_VALUES.map((value) => (
-              <NativeSelectOption key={value} value={value}>
-                {roleLabel(t, value)}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </Field>
-        <ReasonButton
-          type="submit"
-          className={buttonVariants()}
-          reason={reason}
-          disabled={invite.isPending}
-        >
-          {invite.isPending
-            ? t("members.invite.submitting")
-            : t("members.invite.submit")}
-        </ReasonButton>
-      </form>
-      {link ? (
-        <div
-          className="flex max-w-xl flex-col items-start gap-3 rounded-md border bg-card p-3"
-          data-testid="invite-link"
-        >
-          <Field>
-            <FieldLabel>{t("members.invite.link")}</FieldLabel>
-            <Input
-              ref={linkRef}
-              className="font-mono"
-              type="text"
-              readOnly
-              value={link.url}
-              onFocus={(event) => event.target.select()}
-            />
-            <FieldDescription>
-              {t("members.invite.linkOnce", {
-                expires: formatTimestamp(link.expires, locale),
-              })}
-            </FieldDescription>
-          </Field>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              void copyText(link.url, linkRef).then((copied) =>
-                onOutcome(
-                  copied
-                    ? { kind: "notice", text: t("members.invite.copied") }
-                    : { kind: "error", text: t("members.invite.copyFailed") },
-                ),
-              );
-            }}
-          >
-            {t("members.invite.copy")}
-          </Button>
-        </div>
-      ) : null}
-    </section>
   );
 }
 
