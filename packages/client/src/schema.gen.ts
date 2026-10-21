@@ -2257,6 +2257,13 @@ export interface components {
                 reason: string;
                 failures: number;
                 retry_at: string | null;
+            } | {
+                /** @constant */
+                code: "TRANSCRIPT_LIMIT";
+                /** @enum {string} */
+                reason: "transcript_near_limit" | "transcript_too_large" | "transcript_part_too_large";
+                transcript_bytes: number | null;
+                limit_bytes: number;
             }) | null;
             durability: components["schemas"]["SessionDurability"];
         };

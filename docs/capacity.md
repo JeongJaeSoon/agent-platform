@@ -125,7 +125,7 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 - API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절하고 `transcript_too_large`를 기록한다. 세션은 위와 같이 새 turn을 받지 않는다. worker 기준으로는 상한 안인 세션도 이렇게 멈출 수 있다.
 - worker만 옛 값(작은 상한): 큰 checkpoint의 restore를 거절하고, 작은 상한으로 capture도 거절한다.
 
-상한 초과 reason(`transcript_too_large`, `transcript_part_too_large`)과 `checkpoints.transcript_bytes` 컬럼(migration 0148)이 든 릴리스(94S-667)는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서로 배포한다. 옛 api는 worker가 보낸 새 reason을 400으로 거절하고, 새 worker는 그 보고가 실패하면 capture를 실패시킨다. 롤백은 이 reason을 아는 빌드까지만 한다. 그보다 옛 빌드는 이 reason이 남은 세션을 worker 경로에서 읽다가 예외를 낸다.
+상한 초과 reason(`transcript_too_large`, `transcript_part_too_large`)과 `checkpoints.transcript_bytes` 컬럼을 더하는 migration이 든 릴리스(94S-667)는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서로 배포한다. 옛 api는 worker가 보낸 새 reason을 400으로 거절하고, 새 worker는 그 보고가 실패하면 capture를 실패시킨다. 롤백은 이 reason을 아는 빌드까지만 한다. 그보다 옛 빌드는 이 reason이 남은 세션을 worker 경로에서 읽다가 예외를 낸다.
 
 `WORKER_MEMORY_MB`(`worker.memoryMb`)는 다음 launch부터 적용된다. 실행 중인 worker는 교체되지 않는다.
 
