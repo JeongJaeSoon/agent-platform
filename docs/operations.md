@@ -1025,6 +1025,8 @@ terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reco
 
 worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고(94S-292), scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
 
+`WERFT_API_KEY`·`WERFT_BASE_URL`은 서버 설정이 아니다. TypeScript SDK(`packages/sdk`)를 쓰는 호출자 쪽 스크립트가 읽는 값이고, SDK 예제는 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`도 읽는다([TypeScript SDK](sdk.md)).
+
 ## scheduler·worker 컨테이너·egress 설정
 
 scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기본값을 쓰고, 형식이 틀리면 기동하지 않는다. user, HOME·workspace 경로, tmpfs 크기, credential 포트, stop timeout은 `agent-platform.isolation` 지문에 들어간다(위 "reconciler·scheduler와 worker 격리"). 그래서 바꾸면 실행 중인 worker가 교체된다. CPU·메모리·PID 한도는 다음 launch부터 적용된다.

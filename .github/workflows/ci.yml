@@ -170,6 +170,7 @@ jobs:
               - apps/control-host/src/reconciler/
               - packages/contracts/
               - packages/client/
+              - packages/sdk/
               - packages/core/
               - packages/react/
               - packages/ui/
