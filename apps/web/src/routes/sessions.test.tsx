@@ -291,6 +291,34 @@ describe("approval inbox", () => {
     await waitFor(() => expect(waitingReads()).toBeGreaterThan(before));
   });
 
+  test("a session answered from the keyboard leaves and hands focus to the inbox heading", async () => {
+    const user = await setupUser();
+    let waiting = [summary(SESSION_ID, { status: "needs_input" })];
+    renderAt("/sessions", {
+      ...waitingRoutes([], null),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: waiting, next_cursor: null }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+        waiting = [];
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    const allow = await screen.findByRole("button", { name: "허용" });
+    allow.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByText("답을 기다리는 세션이 없습니다."),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { name: "승인 대기" }),
+      ),
+    );
+  });
+
   test("says so when nothing is waiting", async () => {
     renderAt("/sessions", waitingRoutes([], null));
     expect(

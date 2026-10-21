@@ -1,10 +1,14 @@
 import type { SessionSummary } from "@agent-platform/contracts";
 import { waitingSessionsQuery } from "@agent-platform/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
 import { useAgentPlatform } from "../provider.tsx";
 import { usePendingRequests } from "../sessions.ts";
-import { PendingAnswers, type SessionActionProps } from "./session-actions.tsx";
+import {
+  focusLost,
+  PendingAnswers,
+  type SessionActionProps,
+} from "./session-actions.tsx";
 import { useBlockText } from "./text.ts";
 
 export interface ApprovalInboxProps extends SessionActionProps {
@@ -28,6 +32,19 @@ export function ApprovalInbox({
   const { client } = useAgentPlatform();
   const titleId = useId();
   const waiting = useQuery(waitingSessionsQuery(client));
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const shown = useRef<readonly string[]>([]);
+
+  // A session answered from here leaves the list with the focus it held;
+  // the keyboard goes back to the inbox's heading.
+  useLayoutEffect(() => {
+    const ids = waiting.data?.items.map((session) => session.id) ?? [];
+    const left = shown.current.some((id) => !ids.includes(id));
+    shown.current = ids;
+    if (left && focusLost(titleRef.current)) {
+      titleRef.current?.focus();
+    }
+  }, [waiting.data]);
 
   let body: ReactNode;
   if (waiting.data === undefined) {
@@ -62,7 +79,12 @@ export function ApprovalInbox({
   }
   return (
     <section className="flex flex-col gap-3" aria-labelledby={titleId}>
-      <h2 id={titleId} className="m-0 font-semibold text-lg">
+      <h2
+        id={titleId}
+        ref={titleRef}
+        tabIndex={-1}
+        className="m-0 font-semibold text-lg"
+      >
         {t("inbox.title")}
       </h2>
       {body}
