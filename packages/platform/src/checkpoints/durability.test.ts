@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { MAX_TRANSCRIPT_BYTES } from "@agent-platform/runtime-core";
 
 import {
   checkpointPendingReason,
+  checkpointReasonBlocks,
   checkpointReasonHoldsWork,
   nextPendingReason,
   projectDurability,
+  storedPendingReasonBlocks,
   storedPendingReasonHoldsWork,
+  transcriptLimitAttention,
+  transcriptWarnBytes,
 } from "./durability.ts";
 
 describe("checkpoint pending reason", () => {
@@ -96,6 +101,98 @@ describe("a run that was not quiescent", () => {
     expect(nextPendingReason("mirror_error", "publish_failed")).toBe(
       "mirror_error",
     );
+  });
+});
+
+describe("a transcript past its limits", () => {
+  const reasons = [
+    ["transcript_too_large"],
+    ["transcript_part_too_large"],
+  ] as const;
+
+  test.each(reasons)("%s is recorded and refuses new turns", (reason) => {
+    expect(
+      checkpointPendingReason({ status: "rejected", reason, detail: "over" }),
+    ).toBe(reason);
+    expect(checkpointReasonHoldsWork(reason)).toBe(true);
+    expect(storedPendingReasonHoldsWork(reason)).toBe(true);
+  });
+
+  test.each(reasons)(
+    "%s still trusts the last checkpoint and lets the turn that crossed it complete",
+    (reason) => {
+      expect(checkpointReasonBlocks(reason)).toBe(false);
+      expect(storedPendingReasonBlocks(reason)).toBe(false);
+    },
+  );
+
+  test("a mirror failure and an unknown reason distrust the pointer", () => {
+    expect(checkpointReasonBlocks("mirror_error")).toBe(true);
+    expect(storedPendingReasonBlocks("mirror_error")).toBe(true);
+    expect(storedPendingReasonBlocks("from_a_newer_build")).toBe(true);
+    expect(storedPendingReasonBlocks("publish_failed")).toBe(false);
+  });
+
+  test("outranks an advisory reason and yields to a mirror failure", () => {
+    expect(nextPendingReason("transcript_too_large", "publish_failed")).toBe(
+      "transcript_too_large",
+    );
+    expect(nextPendingReason("publish_failed", "transcript_too_large")).toBe(
+      "transcript_too_large",
+    );
+    expect(nextPendingReason("transcript_too_large", "mirror_error")).toBe(
+      "mirror_error",
+    );
+    expect(nextPendingReason("mirror_error", "transcript_too_large")).toBe(
+      "mirror_error",
+    );
+    expect(
+      nextPendingReason("transcript_part_too_large", "transcript_too_large"),
+    ).toBe("transcript_too_large");
+  });
+});
+
+describe("transcript limit warning", () => {
+  const limits = { partBytes: 40, totalBytes: 100 };
+  const MiB = 1024 * 1024;
+
+  test("warns from 80% of the total", () => {
+    expect(transcriptWarnBytes(limits)).toBe(80);
+  });
+
+  test("the warning follows the checkpoint limit", () => {
+    expect(transcriptWarnBytes()).toBe(Math.floor(MAX_TRANSCRIPT_BYTES * 0.8));
+    // 409.6 MiB under a 512 MiB limit
+    expect(
+      transcriptWarnBytes({ partBytes: 16 * MiB, totalBytes: 512 * MiB }),
+    ).toBe(429_496_729);
+  });
+
+  test("the session detail names the reason and the limit it is judged by", () => {
+    expect(transcriptLimitAttention(null, null, limits)).toBeNull();
+    expect(transcriptLimitAttention(null, 79, limits)).toBeNull();
+    expect(transcriptLimitAttention("publish_failed", 80, limits)).toEqual({
+      code: "TRANSCRIPT_LIMIT",
+      reason: "transcript_near_limit",
+      transcript_bytes: 80,
+      limit_bytes: 100,
+    });
+    expect(
+      transcriptLimitAttention("transcript_too_large", 90, limits),
+    ).toEqual({
+      code: "TRANSCRIPT_LIMIT",
+      reason: "transcript_too_large",
+      transcript_bytes: 90,
+      limit_bytes: 100,
+    });
+    expect(
+      transcriptLimitAttention("transcript_part_too_large", null, limits),
+    ).toEqual({
+      code: "TRANSCRIPT_LIMIT",
+      reason: "transcript_part_too_large",
+      transcript_bytes: null,
+      limit_bytes: 40,
+    });
   });
 });
 

@@ -55,6 +55,8 @@ export type CommitCheckpointInput = {
   turnId: string | null;
   /** The verifier's `versionsHeld`, recorded on the pointer. */
   versionsHeld?: boolean;
+  /** The verified manifest's transcript total, recorded on its row. */
+  transcriptBytes?: number;
 };
 
 export type CommitCheckpointResult =

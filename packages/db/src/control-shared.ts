@@ -2,7 +2,7 @@ import type { ReceiptActor } from "@agent-platform/contracts";
 import {
   type Principal,
   type SessionBudget,
-  storedPendingReasonHoldsWork,
+  storedPendingReasonBlocks,
 } from "@agent-platform/platform";
 import {
   and,
@@ -334,7 +334,7 @@ export function hasRestorePoint<
 >(session: T): session is T & { checkpointRevision: number } {
   return (
     session.checkpointRevision !== null &&
-    !storedPendingReasonHoldsWork(session.checkpointPendingReason) &&
+    !storedPendingReasonBlocks(session.checkpointPendingReason) &&
     (session.contextResetCheckpointRevision === null ||
       session.checkpointRevision > session.contextResetCheckpointRevision)
   );

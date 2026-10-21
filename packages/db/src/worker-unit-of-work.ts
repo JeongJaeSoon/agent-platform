@@ -21,6 +21,7 @@ import {
   type CommitEventsResult,
   type ConfirmExecutionGoneInput,
   type ConfirmExecutionGoneResult,
+  checkpointReasonBlocks,
   checkpointReasonHoldsWork,
   type EgressAuthorization,
   type EgressPurpose,
@@ -50,6 +51,9 @@ import {
   type RunnablePair,
   type SessionBudget,
   storedPendingReasonHoldsWork,
+  TRANSCRIPT_LIMITS,
+  transcriptLimitReachedEvent,
+  transcriptWarnBytes,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -61,9 +65,11 @@ import {
   desc,
   eq,
   gt,
+  gte,
   inArray,
   isNotNull,
   isNull,
+  lt,
   lte,
   max,
   notInArray,
@@ -449,7 +455,12 @@ async function restoreRef(
  * the failure at best and says nothing about the transcript since; a fresh
  * run that re-mirrored from the local file is what a valid checkpoint
  * proves. An advisory reason (the run was not quiescent) is cleared by any
- * commit: a checkpoint that committed is exactly what it was missing.
+ * commit: a checkpoint that committed is exactly what it was missing. An
+ * exhausted one (a transcript past the limits) is cleared like a blocking
+ * one: the attempt that reported it cannot shrink its transcript.
+ *
+ * The first commit since start_fresh that takes the transcript past the
+ * warning threshold says so on the event stream, once.
  */
 /**
  * What the committing attempt's state was built on: the fallback's revision
@@ -480,6 +491,7 @@ export async function advanceCheckpointPointer(
     turnRowId: number | null;
     now: Date;
     versionsHeld: boolean;
+    transcriptBytes?: number;
   },
 ): Promise<
   | { outcome: "committed"; revision: number }
@@ -507,7 +519,11 @@ export async function advanceCheckpointPointer(
     // this attempt claimed, which the session may have changed since.
     profileId: sql`(SELECT ${attempts.profileId} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
+    transcriptBytes: input.transcriptBytes ?? null,
   });
+  if (input.transcriptBytes !== undefined) {
+    await warnNearTranscriptLimit(tx, input, input.transcriptBytes);
+  }
   const pending = storedPendingReason(input.session.checkpointPendingReason);
   const resolvesPending =
     pending !== null &&
@@ -533,6 +549,53 @@ export async function advanceCheckpointPointer(
     "session pointer",
   );
   return { outcome: "committed", revision: input.checkpoint.revision };
+}
+
+async function warnNearTranscriptLimit(
+  tx: Database,
+  input: {
+    fence: WorkerFence;
+    session: SessionRow;
+    checkpoint: CheckpointRef;
+    turnRowId: number | null;
+    now: Date;
+  },
+  bytes: number,
+): Promise<void> {
+  const warn = transcriptWarnBytes();
+  if (bytes < warn) return;
+  // Any earlier checkpoint past the threshold, not just the pointer: a
+  // fallback restore resumes a smaller one without the warning becoming news
+  // again. Revisions start_fresh retired belong to the engine session it gave up.
+  const retired = input.session.contextResetCheckpointRevision;
+  const [warned] = await tx
+    .select({ revision: checkpoints.revision })
+    .from(checkpoints)
+    .where(
+      and(
+        eq(checkpoints.sessionId, input.fence.sessionId),
+        lt(checkpoints.revision, input.checkpoint.revision),
+        retired === null ? undefined : gt(checkpoints.revision, retired),
+        gte(checkpoints.transcriptBytes, warn),
+      ),
+    )
+    .limit(1);
+  if (warned) return;
+  await recordEvent(tx, {
+    sessionId: input.fence.sessionId,
+    type: "system",
+    payload: {
+      type: "system",
+      subtype: "transcript_near_limit",
+      transcript_bytes: bytes,
+      warn_bytes: warn,
+      limit_bytes: TRANSCRIPT_LIMITS.totalBytes,
+      checkpoint_revision: input.checkpoint.revision,
+    },
+    turnRowId: input.turnRowId,
+    attemptId: input.fence.attemptId,
+    now: input.now,
+  });
 }
 
 function storedPendingReason(
@@ -1557,6 +1620,17 @@ export function createPostgresWorkerUnitOfWork(
         if (fenced.session.takeoverRequiredAt !== null && !redelivery) {
           return none;
         }
+        // Nor a turn queued before the session stopped taking new ones (a
+        // transcript past the limits, or a mirror failure that outranked
+        // it): it would run on a session no checkpoint can carry.
+        if (
+          checkpointReasonHoldsWork(
+            storedPendingReason(fenced.session.checkpointPendingReason),
+          ) &&
+          !redelivery
+        ) {
+          return none;
+        }
         // The scheduler is draining the launch to replace it: the
         // turn this attempt runs is its last. Read under the session lock,
         // which `requestDrain` takes before it looks for an open turn.
@@ -1914,8 +1988,7 @@ export function createPostgresWorkerUnitOfWork(
         if (
           input.terminal.status === "completed" &&
           !input.checkpoint &&
-          pendingReason !== null &&
-          checkpointReasonHoldsWork(pendingReason)
+          checkpointReasonBlocks(pendingReason)
         ) {
           return { outcome: "checkpoint_required", reason: pendingReason };
         }
@@ -1929,6 +2002,9 @@ export function createPostgresWorkerUnitOfWork(
             turnRowId: turn.id,
             now,
             versionsHeld: input.checkpointVersionsHeld === true,
+            ...(input.checkpointTranscriptBytes === undefined
+              ? {}
+              : { transcriptBytes: input.checkpointTranscriptBytes }),
           });
           if (advanced.outcome === "not_next") {
             // An interrupt has no second capture to wait for: its checkpoint
@@ -2118,6 +2194,22 @@ export function createPostgresWorkerUnitOfWork(
           nextPendingReason(pendingReason, input.pendingReason) ===
             input.pendingReason
         ) {
+          // Announced when it is first recorded, not on every turn that
+          // reports it again.
+          if (
+            pendingReason !== input.pendingReason &&
+            (input.pendingReason === "transcript_too_large" ||
+              input.pendingReason === "transcript_part_too_large")
+          ) {
+            await recordEvent(tx, {
+              sessionId: fence.sessionId,
+              type: "system",
+              payload: transcriptLimitReachedEvent(input.pendingReason),
+              turnRowId: null,
+              attemptId: fence.attemptId,
+              now: input.now,
+            });
+          }
           expectFenced(
             await tx
               .update(sessions)

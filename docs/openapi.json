@@ -2293,6 +2293,47 @@
                       "retry_at"
                     ],
                     "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "const": "TRANSCRIPT_LIMIT"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "transcript_near_limit",
+                          "transcript_too_large",
+                          "transcript_part_too_large"
+                        ]
+                      },
+                      "transcript_bytes": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "limit_bytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason",
+                      "transcript_bytes",
+                      "limit_bytes"
+                    ],
+                    "additionalProperties": false
                   }
                 ]
               },
