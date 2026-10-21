@@ -18,17 +18,24 @@ test("every entry has a budget", () => {
 
 for (const [entry, file] of Object.entries(packageJson.exports)) {
   test(`${entry} stays within its bundle budget`, async () => {
-    const build = await Bun.build({
-      entrypoints: [join(import.meta.dir, "..", file)],
-      target: "browser",
-      minify: true,
-    });
-    expect(build.success).toBe(true);
-    const code = await build.outputs[0]?.text();
-    const gzip = Bun.gzipSync(code ?? "").length;
+    // In its own process: after another suite's Bun.build in the same run
+    // (openapi.test.ts), Bun 1.3.14 fails this one with EISDIR.
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        "build",
+        join(import.meta.dir, "..", file),
+        "--target=browser",
+        "--minify",
+      ],
+      { stdout: "pipe", stderr: "inherit" },
+    );
+    const code = await new Response(build.stdout).text();
+    expect(await build.exited).toBe(0);
+    const gzip = Bun.gzipSync(code).length;
     const budget = BUDGET_BYTES[entry] ?? 0;
     console.log(
-      `bundle budget ${entry}: ${gzip} / ${budget} bytes gzip (${code?.length} minified)`,
+      `bundle budget ${entry}: ${gzip} / ${budget} bytes gzip (${code.length} minified)`,
     );
     expect(gzip).toBeLessThanOrEqual(budget);
   });
