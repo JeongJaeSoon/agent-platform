@@ -1,24 +1,24 @@
 import {
   integerSetting,
   positiveNumberSetting,
-} from "@agent-platform/contracts/settings";
+} from "@werft-ai/contracts/settings";
 import {
   type KubernetesBackendConfig,
   kubernetesConfigFromEnv,
-} from "@agent-platform/execution-kubernetes";
+} from "@werft-ai/execution-kubernetes";
 import {
   type LocalDockerBackendConfig,
   type LocalDockerBackendEnvironment,
   localDockerConfigFromEnv,
-} from "@agent-platform/execution-local-docker";
-import { type LogLevel, logLevelFromEnv } from "@agent-platform/observability";
+} from "@werft-ai/execution-local-docker";
+import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
 import {
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   type ExecutionResources,
   type InstallationLimits,
   type InstallationLimitsEnvironment,
   installationLimitsFromEnv,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 
 export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {

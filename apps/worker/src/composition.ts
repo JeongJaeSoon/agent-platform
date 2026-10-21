@@ -2,7 +2,7 @@ import type {
   BootstrapClaimResponse,
   RuntimeConfig,
   SessionRuntime,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
@@ -11,11 +11,11 @@ import {
   ClaudeSdkRuntime,
   claudeProfileFingerprint,
   type RuntimeProfile,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import type {
   CheckpointObjectStore,
   RuntimeFingerprint,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig } from "./config.ts";

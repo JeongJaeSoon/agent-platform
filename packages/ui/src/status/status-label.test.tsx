@@ -4,7 +4,7 @@ import {
   EXECUTION_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   TURN_STATUS_VALUES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 import { setupDom, stubPrefersReducedMotion } from "../test-support/dom.ts";
 import { StatusLabel } from "./status-label.tsx";
@@ -72,6 +72,30 @@ describe("StatusLabel", () => {
     const label = getByText("관리자가 세웠습니다").closest(".ap-status");
     expect(label?.getAttribute("data-state")).toBe("paused");
     expect(label?.getAttribute("data-tone")).toBe("caution");
+  });
+
+  test("axisLabel을 주면 스크린리더가 듣는 축 이름을 바꾼다", () => {
+    const { getByText, queryByText } = render(
+      <StatusLabel axis="admission" state="paused" axisLabel="State" />,
+    );
+    expect(getByText("State:").className).toContain("ap-visually-hidden");
+    expect(queryByText("세션:")).toBeNull();
+  });
+
+  test("stale 문구와 설명도 바꿀 수 있다", () => {
+    const { getByText, queryByText } = render(
+      <StatusLabel
+        axis="turn"
+        state="running"
+        stale
+        staleLabel="Out of date"
+        staleHint="Last value seen"
+      />,
+    );
+    expect(getByText("Out of date").getAttribute("title")).toBe(
+      "Last value seen",
+    );
+    expect(queryByText("갱신 지연")).toBeNull();
   });
 
   test("prefers-reduced-motion이면 스피너를 돌리지 않는다", () => {

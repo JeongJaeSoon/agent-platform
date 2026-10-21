@@ -5,7 +5,7 @@ import type {
   PushRefusal,
   PushRequest,
   ReceiptActor,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 /** What every refused push operation answers, and its receipt records. */
 export const PUSH_REFUSAL_ERRORS: Record<

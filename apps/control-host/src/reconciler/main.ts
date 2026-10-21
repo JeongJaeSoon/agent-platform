@@ -1,19 +1,20 @@
-import * as schema from "@agent-platform/db";
+import * as schema from "@werft-ai/db";
 import {
   announceLapsedInputWaits,
+  expireAuthzDecisions,
   expireOverdueInterrupts,
   expireOverdueTerminations,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
-} from "@agent-platform/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger, logLevelFromEnv } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger, logLevelFromEnv } from "@werft-ai/observability";
 import {
   INTERRUPT_RECEIPT_DEADLINE_MS,
   INTERRUPT_SETTLE_DEADLINE_MS,
   TERMINATE_DEADLINE_MS,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   type ReconcilerLogger,
@@ -89,5 +90,6 @@ export function reconcileOnce(
         logger,
       }),
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
+    expireDecisions: (options) => expireAuthzDecisions(db, options),
   });
 }

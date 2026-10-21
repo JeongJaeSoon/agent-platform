@@ -1,25 +1,29 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { WorkerEvent, WorkerScope } from "@agent-platform/contracts";
+import type { WorkerEvent, WorkerScope } from "@werft-ai/contracts";
 import {
   createWorkerGateway,
   DEFAULT_NONCE_TTL_MS,
   hashWorkerToken,
+  transcriptWarnBytes,
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { pauseBlocker } from "./pause-control.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  createPostgresSessionReader,
+  createPostgresSessionUnitOfWork,
+} from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
@@ -96,9 +100,22 @@ integration("worker gateway on PostgreSQL", () => {
       },
       checkpoints: {
         async verify({ checkpoint }) {
-          return checkpoint.manifest_ref.startsWith("bad/")
-            ? { status: "rejected", reason: "hash mismatch" }
-            : { status: "verified" };
+          if (checkpoint.manifest_ref.startsWith("bad/")) {
+            return { status: "rejected", reason: "hash mismatch" };
+          }
+          // Stand-ins for what the storage-backed verifier reads off the
+          // manifest: a transcript past the limits, or the total it pins.
+          if (checkpoint.manifest_ref.startsWith("over-limit/")) {
+            return {
+              status: "rejected",
+              reason: "the transcript is over the limit",
+              limit: "transcript_too_large",
+            };
+          }
+          const sized = /\/bytes-(\d+)\//.exec(checkpoint.manifest_ref);
+          return sized === null
+            ? { status: "verified" }
+            : { status: "verified", transcriptBytes: Number(sized[1]) };
         },
       },
       options: {
@@ -3253,6 +3270,386 @@ integration("worker gateway on PostgreSQL", () => {
       ).length,
     ).toBe(0);
     expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
+  });
+
+  test("a transcript past the limit keeps the turn that crossed it and the last checkpoint, and takes no new turn", async () => {
+    const partition = partitionFor("transcript-limit");
+    const { session, claimed, input } = await claimAndDeliver(partition);
+    const ownerId =
+      (
+        await db
+          .select({ ownerId: sessions.ownerId })
+          .from(sessions)
+          .where(eq(sessions.id, session.session_id))
+      )[0]?.ownerId ?? "";
+    const append = (message: string) =>
+      createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+        principal: { ownerId },
+        sessionId: session.session_id,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: crypto.randomUUID(),
+        message,
+      });
+    const detail = () =>
+      createPostgresSessionReader(db).getSession(ownerId, session.session_id);
+    const systemEvents = async (subtype: string) =>
+      (
+        await db
+          .select({ payload: events.payload })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, session.session_id),
+              eq(events.type, "system"),
+              sql`${events.payload}->>'subtype' = ${subtype}`,
+            ),
+          )
+      ).map((row) => row.payload);
+    const finalize = (
+      turnId: string,
+      checkpoint: { revision: number; manifest_ref: string } | null,
+    ) =>
+      gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, turnId),
+        turn_id: turnId,
+        finalize_key: `fin-${turnId}`,
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint:
+          checkpoint === null
+            ? null
+            : { ...checkpoint, manifest_sha256: "a".repeat(64) },
+      });
+    const next = async () =>
+      (await gateway.nextInput(principalOf(claimed), scopeOf(claimed))).input;
+    const warn = transcriptWarnBytes();
+
+    // One byte under the warning threshold: nothing to say.
+    await finalize(input.turn_id, {
+      revision: 0,
+      manifest_ref: `s3://bucket/bytes-${warn - 1}/manifest.json`,
+    });
+    expect((await detail())?.attention).toBeNull();
+    expect(await systemEvents("transcript_near_limit")).toEqual([]);
+
+    // At the threshold: warned once, and the detail says so.
+    expect((await append("second")).outcome).toBe("accepted");
+    const second = await next();
+    if (second === null) throw new Error("second turn not delivered");
+    await finalize(second.turn_id, {
+      revision: 1,
+      manifest_ref: `s3://bucket/bytes-${warn}/manifest.json`,
+    });
+    expect((await detail())?.attention).toEqual({
+      code: "TRANSCRIPT_LIMIT",
+      reason: "transcript_near_limit",
+      transcript_bytes: warn,
+      limit_bytes: expect.any(Number),
+    });
+    expect(await systemEvents("transcript_near_limit")).toEqual([
+      expect.objectContaining({
+        transcript_bytes: warn,
+        warn_bytes: warn,
+        checkpoint_revision: 1,
+      }),
+    ]);
+
+    // Past the limit: finalize refuses the checkpoint and records why.
+    expect((await append("third")).outcome).toBe("accepted");
+    expect((await append("queued before the limit")).outcome).toBe("accepted");
+    const third = await next();
+    if (third === null) throw new Error("third turn not delivered");
+    expect(
+      await failure(
+        finalize(third.turn_id, {
+          revision: 2,
+          manifest_ref: "over-limit/manifest.json",
+        }),
+      ),
+    ).toEqual({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    // The turn that crossed it ran, and is recorded completed without one.
+    expect(await finalize(third.turn_id, null)).toMatchObject({
+      status: "completed",
+      checkpoint_revision: null,
+    });
+    // A later report of the same reason announces nothing new.
+    await createPostgresWorkerUnitOfWork(db).checkpointStateAtomic({
+      fence: fenceOf(claimed),
+      now: clock,
+      pendingReason: "transcript_too_large",
+    });
+    expect(await systemEvents("transcript_limit_reached")).toEqual([
+      expect.objectContaining({ reason: "transcript_too_large" }),
+    ]);
+
+    // No new turn: refused at the door, and the one queued before is held.
+    expect(await append("fourth")).toEqual({
+      outcome: "checkpoint_unavailable",
+      reason: "transcript_too_large",
+    });
+    expect(await next()).toBeNull();
+
+    // The last checkpoint is still the one to resume from.
+    const shown = await detail();
+    expect(shown?.attention).toEqual({
+      code: "TRANSCRIPT_LIMIT",
+      reason: "transcript_too_large",
+      transcript_bytes: warn,
+      limit_bytes: expect.any(Number),
+    });
+    expect(shown?.durability).toMatchObject({
+      checkpoint_pending_reason: "transcript_too_large",
+      checkpoint_revision: 1,
+      last_completed_turn_id: third.turn_id,
+      last_checkpointed_turn_id: second.turn_id,
+    });
+    expect(
+      await createPostgresWorkerUnitOfWork(db).checkpointStateAtomic({
+        fence: fenceOf(claimed),
+        now: clock,
+      }),
+    ).toMatchObject({
+      outcome: "ok",
+      restorable: true,
+      pendingReason: "transcript_too_large",
+    });
+  });
+
+  test("a mirror failure recorded over a transcript limit still holds queued turns back", async () => {
+    const partition = partitionFor("transcript-limit-mirror");
+    const { session, claimed, input } = await claimAndDeliver(partition);
+    const ownerId =
+      (
+        await db
+          .select({ ownerId: sessions.ownerId })
+          .from(sessions)
+          .where(eq(sessions.id, session.session_id))
+      )[0]?.ownerId ?? "";
+    expect(
+      (
+        await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+          limits: {
+            queuedInputLimitPerSession: 1_000,
+            storageLimitBytes: 1e15,
+          },
+          principal: { ownerId },
+          sessionId: session.session_id,
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          message: "queued",
+        })
+      ).outcome,
+    ).toBe("accepted");
+    const work = createPostgresWorkerUnitOfWork(db);
+    await work.checkpointStateAtomic({
+      fence: fenceOf(claimed),
+      now: clock,
+      pendingReason: "transcript_too_large",
+    });
+    await work.checkpointStateAtomic({
+      fence: fenceOf(claimed),
+      now: clock,
+      pendingReason: "mirror_error",
+    });
+    // The running turn ends; the one queued behind it stays queued.
+    await gateway.finalize(principalOf(claimed), {
+      ...scopeOf(claimed, input.turn_id),
+      turn_id: input.turn_id,
+      finalize_key: "fin-failed",
+      final_source_sequence: 0,
+      terminal: { status: "failed", reason: null, result: null, usage: null },
+      checkpoint: null,
+    });
+    expect(
+      (await gateway.nextInput(principalOf(claimed), scopeOf(claimed))).input,
+    ).toBeNull();
+  });
+
+  test("a pointer start_fresh retired neither warns the session nor hides the next warning", async () => {
+    const partition = partitionFor("transcript-limit-reset");
+    const { session, claimed, input } = await claimAndDeliver(partition);
+    const ownerId =
+      (
+        await db
+          .select({ ownerId: sessions.ownerId })
+          .from(sessions)
+          .where(eq(sessions.id, session.session_id))
+      )[0]?.ownerId ?? "";
+    const warn = transcriptWarnBytes();
+    const finalize = (turnId: string, revision: number) =>
+      gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, turnId),
+        turn_id: turnId,
+        finalize_key: `fin-${turnId}`,
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision,
+          manifest_ref: `s3://bucket/bytes-${warn}/manifest-${revision}.json`,
+          manifest_sha256: "a".repeat(64),
+        },
+      });
+    const warnings = async () =>
+      (
+        await db
+          .select({ payload: events.payload })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, session.session_id),
+              sql`${events.payload}->>'subtype' = 'transcript_near_limit'`,
+            ),
+          )
+      ).length;
+    const attention = async () =>
+      (
+        await createPostgresSessionReader(db).getSession(
+          ownerId,
+          session.session_id,
+        )
+      )?.attention;
+
+    await finalize(input.turn_id, 0);
+    expect(await warnings()).toBe(1);
+    expect(await attention()).toMatchObject({
+      reason: "transcript_near_limit",
+    });
+
+    // What a start_fresh decision leaves: the pointer stays, retired.
+    await db
+      .update(sessions)
+      .set({ contextResetCheckpointRevision: 0 })
+      .where(eq(sessions.id, session.session_id));
+    expect(await attention()).toBeNull();
+
+    // The new engine session's first checkpoint at the threshold warns again.
+    expect(
+      (
+        await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+          limits: {
+            queuedInputLimitPerSession: 1_000,
+            storageLimitBytes: 1e15,
+          },
+          principal: { ownerId },
+          sessionId: session.session_id,
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          message: "after the reset",
+        })
+      ).outcome,
+    ).toBe("accepted");
+    const next = (
+      await gateway.nextInput(principalOf(claimed), scopeOf(claimed))
+    ).input;
+    if (next === null) throw new Error("turn not delivered");
+    await finalize(next.turn_id, 1);
+    expect(await warnings()).toBe(2);
+    expect(await attention()).toMatchObject({
+      reason: "transcript_near_limit",
+    });
+  });
+
+  test("a fallback to a smaller checkpoint does not warn the session a second time", async () => {
+    const partition = partitionFor("transcript-limit-fallback");
+    const { session, claimed, input } = await claimAndDeliver(partition);
+    const sessionId = session.session_id;
+    const ownerId =
+      (
+        await db
+          .select({ ownerId: sessions.ownerId })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+      )[0]?.ownerId ?? "";
+    const warn = transcriptWarnBytes();
+    const finalize = (turnId: string, revision: number, bytes: number) =>
+      gateway.finalize(principalOf(claimed), {
+        ...scopeOf(claimed, turnId),
+        turn_id: turnId,
+        finalize_key: `fin-${turnId}`,
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision,
+          manifest_ref: `s3://bucket/bytes-${bytes}/manifest-${revision}.json`,
+          manifest_sha256: "a".repeat(64),
+        },
+      });
+    const deliver = async () => {
+      await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+        limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+        principal: { ownerId },
+        sessionId,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: crypto.randomUUID(),
+        message: "next",
+      });
+      const next = (
+        await gateway.nextInput(principalOf(claimed), scopeOf(claimed))
+      ).input;
+      if (next === null) throw new Error("turn not delivered");
+      return next.turn_id;
+    };
+    const warnings = async () =>
+      (
+        await db
+          .select({ payload: events.payload })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, sessionId),
+              sql`${events.payload}->>'subtype' = 'transcript_near_limit'`,
+            ),
+          )
+      ).length;
+
+    expect(
+      await createPostgresCheckpointStore(db).commitAtomic({
+        checkpoint: {
+          revision: 0,
+          manifest_ref: "s3://bucket/small-0.json",
+          manifest_sha256: "a".repeat(64),
+        },
+        fence: fenceOf(claimed),
+        now: clock,
+        sessionId,
+        turnId: null,
+        transcriptBytes: warn - 10,
+      }),
+    ).toEqual({ outcome: "committed", revision: 0 });
+    await finalize(input.turn_id, 1, warn);
+    expect(await warnings()).toBe(1);
+
+    // Revision 1 is lost; the restore resumes revision 0 and grows again.
+    expect(
+      await createPostgresWorkerUnitOfWork(db).recordRestoreBaseAtomic({
+        fence: fenceOf(claimed),
+        now: clock,
+        pointerRevision: 1,
+        fallback: {
+          revision: 0,
+          skipped: [{ revision: 1, reason: "manifest object is missing" }],
+        },
+      }),
+    ).toEqual({ outcome: "ok" });
+    await finalize(await deliver(), 2, warn - 5);
+    await finalize(await deliver(), 3, warn);
+    expect(await warnings()).toBe(1);
   });
 
   test("a mirror failure never holds back an interrupt that commits its checkpoint", async () => {

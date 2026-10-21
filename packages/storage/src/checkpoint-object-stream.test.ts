@@ -6,16 +6,16 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import { S3Client } from "@aws-sdk/client-s3";
 import type {
   CheckpointObjectStore,
   ImmutableObjectSource,
-} from "@agent-platform/runtime-core";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/runtime-core";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import {
   localstackEnabled,
   withLocalstackBucket,
-} from "@agent-platform/testkit/localstack";
-import { S3Client } from "@aws-sdk/client-s3";
+} from "@werft-ai/testkit/localstack";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 import { type BodyReadBounds, DEFAULT_BODY_READ_BOUNDS } from "./s3.ts";

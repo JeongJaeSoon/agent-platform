@@ -1,11 +1,5 @@
-import {
-  type ApiErrorCode,
-  idempotencyKeySchema,
-} from "@agent-platform/contracts";
-import {
-  InvalidCursorError,
-  SessionServiceError,
-} from "@agent-platform/platform";
+import { type ApiErrorCode, idempotencyKeySchema } from "@werft-ai/contracts";
+import { InvalidCursorError, SessionServiceError } from "@werft-ai/platform";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
@@ -17,6 +11,8 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   BAD_REQUEST: 400,
   NOT_FOUND: 404,
   FORBIDDEN: 403,
+  OWNER_PROTECTED: 403,
+  SCOPE_NOT_GRANTABLE: 403,
   IDEMPOTENCY_CONFLICT: 409,
   REVISION_CONFLICT: 409,
   REQUEST_STALE: 409,
@@ -27,8 +23,23 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   PAUSE_COMMITTING: 409,
   SESSION_STOPPED: 409,
   SESSION_CLOSED: 409,
+  SESSION_CLOSING: 409,
   RECOVERY_REQUIRED: 409,
   TURN_NOT_STARTED: 409,
+  TAKEOVER_REQUIRED: 409,
+  SLACK_NOT_INSTALLED: 409,
+  LINK_TEAM_MISMATCH: 409,
+  LINK_TAKEN: 409,
+  LINK_EXISTS: 409,
+  AGENT_IDENTITY_TAKEN: 409,
+  PROFILE_DIGEST_MISMATCH: 409,
+  RELEASE_PROFILE_MISMATCH: 409,
+  CREDENTIAL_UNBOUND: 409,
+  CREDENTIAL_REF_IN_USE: 409,
+  ALREADY_EXISTS: 409,
+  INVITE_USED: 409,
+  LAST_OWNER: 409,
+  INVITE_EXPIRED: 410,
   STORAGE_LIMIT_EXCEEDED: 413,
   UNSUPPORTED_CAPABILITY: 422,
   RATE_LIMITED: 429,
@@ -54,7 +65,7 @@ export async function mapped<T>(work: () => Promise<T>): Promise<T> {
         error.message,
         error.retry !== undefined,
         error.retry?.afterSeconds,
-        error.details ?? null,
+        error.details,
       );
     }
     if (error instanceof InvalidCursorError) {

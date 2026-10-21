@@ -3,12 +3,12 @@ import type {
   PullRequest,
   PullRequestReceiptResult,
   PushRequestState,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type PullRequestReceipt,
   type PullRequestStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { pullRequests, pushRequests, receipts, sessions } from "./schema.ts";

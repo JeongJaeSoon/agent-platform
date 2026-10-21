@@ -4,16 +4,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as schema from "@agent-platform/db";
+import * as schema from "@werft-ai/db";
 import {
   apiKeys,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
-} from "@agent-platform/db";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@agent-platform/platform";
+  sessions,
+} from "@werft-ai/db";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -323,6 +321,10 @@ integration("API server on PostgreSQL", () => {
   }, 60_000);
 
   afterAll(async () => {
+    await db
+      .update(sessions)
+      .set({ createdByApiKeyId: null })
+      .where(eq(sessions.ownerId, ownerId));
     await db.delete(apiKeys).where(eq(apiKeys.ownerId, ownerId));
     await pool.end();
     await rm(root, { recursive: true, force: true });

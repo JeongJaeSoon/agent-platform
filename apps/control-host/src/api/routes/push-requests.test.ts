@@ -5,16 +5,17 @@ import {
   type PushRequest,
   pushRequestSchema,
   type SessionScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type CreatePushRequestInput,
+  createAuthorizationPolicy,
   createPushRequestService,
   type DecidePushRequestInput,
   type PushRefusalRecord,
   type PushRequestStore,
   type PushSourceResult,
   type SessionCatalog,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPushRequestRoutes } from "./push-requests.ts";
@@ -108,6 +109,7 @@ function app(
     ...options.store,
   };
   const service = createPushRequestService({
+    authorization: createAuthorizationPolicy(),
     store,
     catalog: CATALOG,
     source: {
@@ -127,6 +129,9 @@ function app(
               id: `key-${token}`,
               ownerId: "owner-a",
               workspaceId: null,
+              kind: "service" as const,
+              createdByUserId: null,
+              creatorRole: null,
               scopes: [...(KEYS[token] ?? [])],
             }
           : null;

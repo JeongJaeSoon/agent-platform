@@ -20,12 +20,12 @@ import type {
   CheckpointRequestResponse,
   RestorePlanRequest,
   RestorePlanResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import {
   type CheckpointManifest,
   type CheckpointPreparation,
@@ -35,12 +35,13 @@ import {
   type RuntimeFingerprint,
   readGitBundleHeader,
   type TranscriptMirror,
+  transcriptWarnBytes,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 
 import { stageCheckpointBundle } from "./checkpoint-restore.ts";
 import { RestoreRefused, SessionCheckpoints } from "./session-checkpoints.ts";
@@ -122,13 +123,17 @@ function harness(
     captureWorkspace?: ConstructorParameters<
       typeof SessionCheckpoints
     >[0]["captureWorkspace"];
-    fingerprint?: RuntimeFingerprint;
+    fingerprint?:
+      | RuntimeFingerprint
+      | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     instructionsCommit?: () => string | null;
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     claudeConfigDir?: string;
+    transcriptLimits?: { partBytes: number; totalBytes: number };
   } = {},
 ) {
   const gateway = options.gateway ?? new FakeWorkerGateway();
+  const { fingerprint } = options;
   const objects = options.objects ?? createMemoryCheckpointObjectStore();
   const infos: Logged[] = [];
   const warnings: Logged[] = [];
@@ -139,7 +144,10 @@ function harness(
     error: (event, fields) => errors.push({ event, fields }),
   };
   const port = new SessionCheckpoints({
-    fingerprint: () => options.fingerprint ?? runtime,
+    fingerprint: (claim) =>
+      typeof fingerprint === "function"
+        ? fingerprint(claim)
+        : (fingerprint ?? runtime),
     gateway,
     logger,
     now: () => new Date("2026-09-23T00:00:00.000Z"),
@@ -156,6 +164,9 @@ function harness(
     ...(options.claudeConfigDir === undefined
       ? {}
       : { claudeConfigDir: options.claudeConfigDir }),
+    ...(options.transcriptLimits === undefined
+      ? {}
+      : { transcriptLimits: options.transcriptLimits }),
   });
   return { errors, gateway, infos, logger, objects, port, warnings };
 }
@@ -1351,7 +1362,9 @@ function restoring(
   options: {
     answer?: (request: RestorePlanRequest) => RestorePlanResponse;
     claimed?: Partial<CheckpointRef>;
-    fingerprint?: RuntimeFingerprint;
+    fingerprint?:
+      | RuntimeFingerprint
+      | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     claudeConfigDir?: string;
   } = {},
@@ -1671,6 +1684,65 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     ]);
   });
 
+  test("a checkpoint made under the profile the session ran before is checked against that one, and the next is stamped with the new", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const switched = { ...runtime, profileSha256: "c".repeat(64) };
+    const h = restoring(from, {
+      fingerprint: (claim) =>
+        claim.runtime_config.model === "claude-haiku-5" ? switched : runtime,
+    });
+    const claimed = await claimOf(h.gateway);
+    const claim: BootstrapClaimResponse = {
+      ...claimed,
+      runtime_config: { ...claimed.runtime_config, model: "claude-haiku-5" },
+      restore_runtime_configs: [claimed.runtime_config],
+    };
+
+    const plan = await h.port.restorePlan(claim, neverStopped());
+
+    expect(h.errors).toEqual([]);
+    expect(plan.mode).toBe("resume");
+    expect(h.gateway.restorePlans[0]).toMatchObject({
+      runtime: { profile_sha256: switched.profileSha256 },
+      alternate_profile_sha256s: [runtime.profileSha256],
+    });
+    const next = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    if (next === null) throw new Error(`nothing published: ${h.warnings}`);
+    const bytes = await from.objects.get(next.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    expect(claudeCheckpointCodec.decode(bytes).runtime.profileSha256).toBe(
+      switched.profileSha256,
+    );
+  });
+
+  test("without the earlier profile's config, a checkpoint from it is refused as incompatible", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const h = restoring(from, {
+      fingerprint: (claim) =>
+        claim.runtime_config.model === "claude-haiku-5"
+          ? { ...runtime, profileSha256: "c".repeat(64) }
+          : runtime,
+    });
+    const claimed = await claimOf(h.gateway);
+    await expect(
+      h.port.restorePlan(
+        {
+          ...claimed,
+          runtime_config: {
+            ...claimed.runtime_config,
+            model: "claude-haiku-5",
+          },
+        },
+        neverStopped(),
+      ),
+    ).rejects.toMatchObject({ code: "INCOMPATIBLE_CHECKPOINT" });
+  });
+
   test("holds the manifest to this worker's runtime even when the gateway plans it", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
@@ -1969,7 +2041,7 @@ describe("a long session's transcript", () => {
     expect(parts[0]?.key).toContain("/merged-");
   });
 
-  test("a transcript part over the size limit is publish_failed at the transcript stage", async () => {
+  test("a transcript part over the size limit stops the publish before anything is requested or uploaded", async () => {
     const h = harness();
     const { claim, mirror } = await opened(h);
     // Enough parts that a capture within the limit would merge them.
@@ -1987,26 +2059,153 @@ describe("a long session's transcript", () => {
     expect(await h.port.capture(ready, context(claim))).toBeNull();
 
     expect(h.warnings[0]).toMatchObject({
-      event: "worker.checkpoint.failed",
-      fields: { stage: "transcript" },
+      event: "worker.checkpoint.transcript_limit",
+      fields: { reason: "transcript_part_too_large" },
     });
+    // Its own reason, not publish_failed, and no revision was asked for.
     expect(
       h.gateway.checkpointRequests.map((request) => request.preparation),
-    ).toContainEqual({
-      status: "rejected",
-      reason: "publish_failed",
-      detail: expect.stringMatching(
-        /^transcript: .*over the \d+-byte part limit$/,
-      ),
-    });
-    // Refused before anything was merged, let alone committed.
+    ).toEqual([
+      {
+        status: "rejected",
+        reason: "transcript_part_too_large",
+        detail: expect.stringMatching(/over the \d+-byte part limit$/),
+      },
+    ]);
     expect(
       h.objects
         .keys()
         .some(
-          (key) => key.endsWith("/manifest.json") || key.includes("/merged-"),
+          (key) =>
+            key.endsWith("/manifest.json") ||
+            key.includes("/merged-") ||
+            key.includes("/workspace-"),
         ),
     ).toBe(false);
+  });
+});
+
+describe("transcript limits, judged against limits a test sets", () => {
+  const context = (claim: BootstrapClaimResponse) => ({
+    scope: scopeOf(claim),
+    recheck: async () => ready,
+  });
+  // Mutated once the transcript is written, so each test can put the limit
+  // exactly at, or one byte from, the size it produced.
+  async function sized(limits: { partBytes: number; totalBytes: number }) {
+    const h = harness({ transcriptLimits: limits });
+    const { claim, mirror } = await opened(h);
+    for (let index = 0; index < 20; index += 1) {
+      await mirror.append(root, [
+        { type: "user", uuid: `u${index}`, message: "y".repeat(100) },
+      ]);
+    }
+    const sizes = await (mirror as ClaudeSessionStore).transcriptSizes(resume);
+    if (sizes === null) throw new Error("expected a root transcript");
+    const total = sizes.reduce((sum, part) => sum + part.bytes, 0);
+    return { claim, h, mirror: mirror as ClaudeSessionStore, sizes, total };
+  }
+  const nearLimit = (h: ReturnType<typeof harness>) =>
+    h.warnings.filter(
+      (logged) => logged.event === "worker.checkpoint.transcript_near_limit",
+    );
+  const reasons = (h: ReturnType<typeof harness>) =>
+    h.gateway.checkpointRequests.map((request) =>
+      request.preparation.status === "ready"
+        ? "ready"
+        : request.preparation.reason,
+    );
+
+  test("a transcript just under 80% of the limit publishes with no warning", async () => {
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const { claim, h, total } = await sized(limits);
+    // The smallest limit whose warning threshold is still above the total.
+    limits.totalBytes = Math.ceil((total + 1) / 0.8);
+    while (transcriptWarnBytes(limits) <= total) limits.totalBytes += 1;
+    expect(transcriptWarnBytes(limits)).toBe(total + 1);
+
+    expect(await h.port.capture(ready, context(claim))).not.toBeNull();
+    expect(nearLimit(h)).toEqual([]);
+    expect(reasons(h)).toEqual(["ready"]);
+  });
+
+  test("a transcript at 80% of the limit publishes and warns", async () => {
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const { claim, h, total } = await sized(limits);
+    limits.totalBytes = Math.ceil(total / 0.8);
+    while (transcriptWarnBytes(limits) > total) limits.totalBytes -= 1;
+    while (transcriptWarnBytes(limits) < total) limits.totalBytes += 1;
+    expect(transcriptWarnBytes(limits)).toBe(total);
+
+    expect(await h.port.capture(ready, context(claim))).not.toBeNull();
+    expect(nearLimit(h)).toEqual([
+      {
+        event: "worker.checkpoint.transcript_near_limit",
+        fields: { transcript_bytes: total, limit_bytes: limits.totalBytes },
+      },
+    ]);
+    expect(reasons(h)).toEqual(["ready"]);
+  });
+
+  test("a transcript exactly at the limit still publishes", async () => {
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const { claim, h, total } = await sized(limits);
+    limits.totalBytes = total;
+
+    expect(await h.port.capture(ready, context(claim))).not.toBeNull();
+    expect(reasons(h)).toEqual(["ready"]);
+  });
+
+  test("a transcript one byte over the limit is transcript_too_large before any upload", async () => {
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const { claim, h, total } = await sized(limits);
+    limits.totalBytes = total - 1;
+    const before = h.objects.keys().length;
+
+    expect(await h.port.capture(ready, context(claim))).toBeNull();
+    expect(reasons(h)).toEqual(["transcript_too_large"]);
+    expect(h.gateway.checkpointRequests[0]?.preparation).toEqual({
+      status: "rejected",
+      reason: "transcript_too_large",
+      detail: `the transcript is ${total} bytes, over the ${total - 1}-byte limit`,
+    });
+    // Nothing went up: no bundle, no merged part, no manifest.
+    expect(h.objects.keys().length).toBe(before);
+  });
+
+  test("a part one byte over the part limit is transcript_part_too_large", async () => {
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const { claim, h, sizes, total } = await sized(limits);
+    // The parts fit the total; the largest of them is one byte too many.
+    limits.totalBytes = total;
+    limits.partBytes = Math.max(...sizes.map((part) => part.bytes)) - 1;
+
+    expect(await h.port.capture(ready, context(claim))).toBeNull();
+    expect(reasons(h)).toEqual(["transcript_part_too_large"]);
+  });
+
+  test("a transcript that outgrew the limit after the size check is still transcript_too_large", async () => {
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const { claim, h, mirror, total } = await sized(limits);
+    limits.totalBytes = total - 1;
+    // As if it grew past the limit between the size check and the capture.
+    mirror.transcriptSizes = async () => null;
+
+    expect(await h.port.capture(ready, context(claim))).toBeNull();
+    expect(reasons(h)).toEqual(["ready", "transcript_too_large"]);
+  });
+
+  test("a limit the gateway did not record keeps the capture from answering", async () => {
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const { claim, h, total } = await sized(limits);
+    limits.totalBytes = total - 1;
+    h.gateway.requestCheckpoint = async () => {
+      throw new Error("restarting");
+    };
+
+    await expect(h.port.capture(ready, context(claim))).rejects.toThrow(
+      "The transcript is past its limits and the gateway did not record it: restarting",
+    );
   });
 });
 

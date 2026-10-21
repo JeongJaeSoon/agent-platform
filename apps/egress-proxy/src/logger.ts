@@ -1,7 +1,7 @@
 import { sanitizeFields, sanitizeText } from "./redaction.ts";
 
 /**
- * A small logger instead of `@agent-platform/observability`: the proxy's
+ * A small logger instead of `@werft-ai/observability`: the proxy's
  * image copies only its own directory and installs nothing
  * (tests/images.test.ts), so it carries no workspace dependency. It masks by
  * the platform's rules all the same (`./redaction.ts`), and the

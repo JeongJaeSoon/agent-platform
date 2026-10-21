@@ -2,19 +2,22 @@ import { randomUUID } from "node:crypto";
 import type {
   ControlAcceptedResponse,
   TerminateReceiptResult,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
+  ChangeProfileInput,
+  CloseSessionInput,
   PauseSessionInput,
   RecoveryDecisionInput,
   ResumeSessionInput,
   SessionControl,
   TerminateSessionInput,
   TerminateSessionResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";
+import { closeAtomic } from "./close-control.ts";
 import { logControlResult } from "./control-observability.ts";
 import {
   BindingMoved,
@@ -27,10 +30,13 @@ import {
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
+  receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
-import { openPauseReceipt, pauseAtomic } from "./pause-control.ts";
+import { drainOf, openDrainReceipt } from "./drain.ts";
+import { pauseAtomic } from "./pause-control.ts";
 import { publicStatus } from "./pending-requests.ts";
+import { changeProfileAtomic } from "./profile-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
@@ -131,7 +137,7 @@ function sessionIdFromTarget(target: unknown): string | undefined {
 
 type SessionRow = typeof sessions.$inferSelect;
 
-function rowsOf<T>(result: unknown): T[] {
+export function rowsOf<T>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[];
   if (
     result !== null &&
@@ -272,10 +278,11 @@ export async function stopExecution(
     // row lock the caller took; replacement_count is the scheduler's CAS and
     // stays as it is.
   }
-  // A pause still draining is overtaken: the kill ends the execution before
-  // any checkpoint the pause was waiting for. Likewise a resume still
-  // waiting on its worker's restore.
-  if (session.admissionState === "pausing") {
+  // A pause or close still draining is overtaken: the kill ends the
+  // execution before any checkpoint the drain was waiting for. Likewise a
+  // resume still waiting on its worker's restore.
+  const drain = drainOf(session.admissionState);
+  if (drain !== undefined) {
     await measure("supersede_pause_receipt_ms", () =>
       tx
         .update(receipts)
@@ -283,11 +290,11 @@ export async function stopExecution(
           status: "failed",
           error: {
             code: "CONTROL_SUPERSEDED",
-            message: `superseded by ${by} before the pause completed`,
+            message: `superseded by ${by} before the ${drain.operation} completed`,
           },
           updatedAt: now,
         })
-        .where(openPauseReceipt(sessionId)),
+        .where(openDrainReceipt(sessionId)),
     );
   }
   if (session.admissionState === "resuming") {
@@ -388,6 +395,8 @@ export function createPostgresSessionControl(
       const sessionId = input.sessionId.toLowerCase();
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: TERMINATE,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -577,6 +586,8 @@ export function createPostgresSessionControl(
           tx.insert(receipts).values({
             id: receiptId,
             ownerId: scope.principal,
+            actor: scope.actor,
+            requestId: scope.requestId,
             operation: TERMINATE,
             targetRef: {
               session_id: sessionId,
@@ -616,12 +627,35 @@ export function createPostgresSessionControl(
       return pauseAtomic(db, input);
     },
 
+    async closeAtomic(input: CloseSessionInput) {
+      const result = await closeAtomic(db, input);
+      if (
+        result.outcome === "accepted" &&
+        result.response.receipt_status === "succeeded"
+      ) {
+        const effectiveAt = new Date();
+        logControlResult(options.logger, {
+          acceptedAt: effectiveAt,
+          controlId: result.response.receipt_id,
+          effectiveAt,
+          operation: "close",
+          outcome: "succeeded",
+          reasonCode: "already_absent",
+          sessionId: input.sessionId.toLowerCase(),
+        });
+      }
+      return result;
+    },
+
     decideRecoveryAtomic(input: RecoveryDecisionInput) {
       return decideRecoveryAtomic(db, input);
     },
 
     resumeAtomic(input: ResumeSessionInput) {
       return resumeAtomic(db, input);
+    },
+    changeProfileAtomic(input: ChangeProfileInput) {
+      return changeProfileAtomic(db, input);
     },
   };
 }

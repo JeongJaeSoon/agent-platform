@@ -8,8 +8,8 @@ import {
   loginResponseSchema,
   SESSION_SCOPE_VALUES,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -17,10 +17,13 @@ import {
   memberships,
   users,
   webSessions,
-} from "@agent-platform/db";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import { allowAllPolicy, createSessionService } from "@agent-platform/platform";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/db";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import {
+  createAuthorizationPolicy,
+  createSessionService,
+} from "@werft-ai/platform";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -79,7 +82,7 @@ integration("auth API on PostgreSQL", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),

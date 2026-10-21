@@ -11,15 +11,15 @@ import {
   questionAnswerMismatch,
   type RegisterPendingRequest,
   type WorkerScope,
-} from "@agent-platform/contracts";
-import { pendingRequestEvent } from "@agent-platform/runtime-claude";
+} from "@werft-ai/contracts";
+import { pendingRequestEvent } from "@werft-ai/runtime-claude";
 import {
   isOwnershipLost,
   isRetryable,
   type PermissionDecision,
   type PermissionRequest,
   type WorkerGatewayClient,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 /** The tool the engine uses to put a question to the person, not to use a capability. */
 export const QUESTION_TOOL = "AskUserQuestion";

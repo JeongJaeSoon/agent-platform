@@ -11,13 +11,13 @@ import {
   type PushRequestStore,
   repositoryBinding,
   type SessionCatalog,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
   type GitCommandOptions,
   type GitCommandRunner,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 import {
   createGitBundleChain,
   createServedRepository,
@@ -26,7 +26,7 @@ import {
   type GitHttpServer,
   startFakeGitHub,
   startGitHttpServer,
-} from "@agent-platform/testkit";
+} from "@werft-ai/testkit";
 import { forgesOf } from "./forge-github.ts";
 import { createGitPusher, parseLsRemote } from "./git-push.ts";
 

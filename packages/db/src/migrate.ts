@@ -1,8 +1,5 @@
 import { join } from "node:path";
-import {
-  createLogger,
-  type StructuredLogger,
-} from "@agent-platform/observability";
+import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";

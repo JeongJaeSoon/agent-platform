@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ApiSettingsError,
   apiSettingsFromEnv,
@@ -117,6 +120,27 @@ describe("heartbeatTtlMsFromEnv", () => {
       expect(() => heartbeatTtlMsFromEnv(value)).toThrow(
         /^HEARTBEAT_TTL_SEC must be a number of seconds above 20 /,
       );
+    }
+  });
+});
+
+describe("WEB_DIST_DIR", () => {
+  test("unset serves no web console; a built directory is read as is", async () => {
+    expect(apiSettingsFromEnv({}).webDistDir).toBeUndefined();
+    const dist = await mkdtemp(join(tmpdir(), "web-dist-"));
+    try {
+      await writeFile(join(dist, "index.html"), "<!doctype html>");
+      expect(apiSettingsFromEnv({ WEB_DIST_DIR: dist }).webDistDir).toBe(dist);
+      expect(apiSettingsProblems({ WEB_DIST_DIR: join(dist, "nope") })).toEqual(
+        [
+          "WEB_DIST_DIR must be an absolute path to a directory holding index.html (apps/web's build output)",
+        ],
+      );
+      expect(
+        apiSettingsProblems({ WEB_DIST_DIR: "apps/web/dist" }),
+      ).toHaveLength(1);
+    } finally {
+      await rm(dist, { recursive: true, force: true });
     }
   });
 });

@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   ENV as DOCKER_ENV,
   workerEnvironmentFor as dockerEnvironmentFor,
-} from "@agent-platform/execution-local-docker";
-import type { LaunchIntent } from "@agent-platform/platform";
+} from "@werft-ai/execution-local-docker";
+import type { LaunchIntent } from "@werft-ai/platform";
 import {
   checkoutDirOf,
   cpuQuantity,

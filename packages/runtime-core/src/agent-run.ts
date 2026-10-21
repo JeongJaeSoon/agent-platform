@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@agent-platform/contracts";
+import type { SessionEvent } from "@werft-ai/contracts";
 
 import type { AgentInput } from "./agent-runtime.ts";
 import type {

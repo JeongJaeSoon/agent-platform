@@ -195,6 +195,10 @@ export const leaseRemainingMsSchema = z.number().int().nonnegative();
 export const WORKER_HEARTBEAT_INTERVAL_MS = 10_000;
 export const WORKER_LEASE_SAFETY_MARGIN_MS = 10_000;
 
+// How many earlier profiles a claim offers for a restore: one per change the
+// checkpoints still reachable from the pointer went through, at most.
+export const MAX_RESTORE_PROFILES = 16;
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
@@ -209,6 +213,15 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   object_store: z.object({ access: egressTokenAuthSchema }).strict(),
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
+  // Present when the session's checkpoints up to `restore` were committed
+  // under other profiles than the one it runs now (its profile was changed):
+  // the checkpoint restored, the pointer's or a fallback's, may be checked
+  // against any of these configs. The engine runs on runtime_config.
+  restore_runtime_configs: z
+    .array(runtimeConfigSchema)
+    .min(1)
+    .max(MAX_RESTORE_PROFILES)
+    .optional(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
   // most this attempt's engine may spend before it ends the turn in flight
   // . A second line only; the gate stays the stored sum against the
@@ -240,6 +253,8 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     branch: response.workspace.repository.branch,
     owner_scope: response.principal.owner_scope,
     restore_revision: response.restore?.revision ?? null,
+    restore_models:
+      response.restore_runtime_configs?.map((config) => config.model) ?? [],
     remaining_budget_usd: response.remaining_budget_usd,
   };
 }
@@ -280,6 +295,8 @@ export const checkpointBlockReasonSchema = z.enum([
   "no_engine_session",
   "publish_failed",
   "tool_in_flight",
+  "transcript_part_too_large",
+  "transcript_too_large",
   "turn_in_flight",
 ]);
 
@@ -475,7 +492,18 @@ export const runtimeFingerprintSchema = z
   })
   .strict();
 export const restorePlanRequestSchema = workerScopeSchema
-  .extend({ runtime: runtimeFingerprintSchema })
+  .extend({
+    runtime: runtimeFingerprintSchema,
+    // The profile digests of the claim's restore_runtime_configs: a manifest
+    // stamped with one of them is as compatible as one stamped with
+    // runtime's. Sent only when there are some, so an older gateway's strict
+    // parse never sees the field.
+    alternate_profile_sha256s: z
+      .array(z.string().regex(/^[0-9a-f]{64}$/))
+      .min(1)
+      .max(MAX_RESTORE_PROFILES)
+      .optional(),
+  })
   .strict();
 
 // `version`, when present, is the only thing the worker may download: the

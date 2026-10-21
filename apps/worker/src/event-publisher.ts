@@ -3,11 +3,8 @@ import {
   type WorkerEvent,
   type WorkerScope,
   workerEventSchema,
-} from "@agent-platform/contracts";
-import {
-  isRetryable,
-  type WorkerGatewayClient,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/contracts";
+import { isRetryable, type WorkerGatewayClient } from "@werft-ai/runtime-core";
 
 type Queued = { event: WorkerEvent; turnId: string | null };
 

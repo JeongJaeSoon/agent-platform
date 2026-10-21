@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_WORKTREE_REF,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 /**
  * Real `git bundle` output for tests about checkpoints.

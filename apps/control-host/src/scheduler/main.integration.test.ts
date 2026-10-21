@@ -2,14 +2,14 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as schema from "@agent-platform/db";
+import * as schema from "@werft-ai/db";
 import {
   executions,
   sessions,
   turns,
   unassignedSessions,
   workerLaunches,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 import {
   containerNameFor,
   DockerClient,
@@ -18,17 +18,17 @@ import {
   localDockerConfigFromEnv,
   networkNameFor,
   workspaceVolumePrefixFor,
-} from "@agent-platform/execution-local-docker";
+} from "@werft-ai/execution-local-docker";
 import {
   removeWorkerNetworks,
   startStandInProxy,
-} from "@agent-platform/execution-local-docker/testing";
+} from "@werft-ai/execution-local-docker/testing";
 import {
   hashWorkerToken,
   launchNonceFingerprint,
   launchSpecFingerprint,
-} from "@agent-platform/platform";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/platform";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

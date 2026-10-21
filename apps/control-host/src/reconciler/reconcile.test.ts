@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ReconciledOrphan } from "@agent-platform/db";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import type { ReconciledOrphan } from "@werft-ai/db";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { runReconciler } from "./reconcile.ts";
 
 describe("reconciler run", () => {
@@ -86,6 +86,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return [{ sessionId: "session-e", phase: "running" }];
       },
+      expireDecisions: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return 5;
+      },
     });
 
     expect(calls).toBe(1);
@@ -94,6 +98,7 @@ describe("reconciler run", () => {
     expect(result.interrupts).toHaveLength(1);
     expect(result.interruptsOverdue).toBe(3);
     expect(result.terminationsOverdue).toBe(2);
+    expect(result.decisionsExpired).toBe(5);
     expect(sink.records).toEqual([
       expect.objectContaining({
         level: "info",
@@ -147,6 +152,11 @@ describe("reconciler run", () => {
           session_ids: ["session-e"],
         },
       }),
+      expect.objectContaining({
+        level: "info",
+        message: "Expired authorization decisions deleted",
+        fields: { dry_run: false, deleted_count: 5 },
+      }),
     ]);
     expect(result.inputReturns).toEqual([
       { sessionId: "session-e", phase: "running" },
@@ -190,9 +200,13 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return [];
       },
+      expireDecisions: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 0;
+      },
     });
 
-    expect(seen).toEqual([true, true, true, true, true, true]);
+    expect(seen).toEqual([true, true, true, true, true, true, true]);
     expect(sink.records).toContainEqual(
       expect.objectContaining({
         message: "Overdue interrupt receipts marked unknown",
@@ -219,6 +233,7 @@ describe("reconciler run", () => {
     const expireInterrupts = async () => 0;
     const expireTerminations = async () => 0;
     const announceInputReturns = async () => [];
+    const expireDecisions = async () => 0;
     // Valid or not: the reconciler has no TTL to be told, so a value here is
     // an operator who believes it does. It must not start and quietly
     // judge by the deadlines the API wrote with a different one.
@@ -237,6 +252,7 @@ describe("reconciler run", () => {
           expireInterrupts,
           expireTerminations,
           announceInputReturns,
+          expireDecisions,
         }),
       ).rejects.toThrow("HEARTBEAT_TTL_SEC is read by the API only");
       expect(reconciled).toBe(0);
@@ -251,6 +267,7 @@ describe("reconciler run", () => {
         expireInterrupts,
         expireTerminations,
         announceInputReturns,
+        expireDecisions,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
     await expect(
@@ -263,6 +280,7 @@ describe("reconciler run", () => {
         expireInterrupts,
         expireTerminations,
         announceInputReturns,
+        expireDecisions,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");
   });

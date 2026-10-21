@@ -3,14 +3,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  localstackEnabled,
-  localstackEnv,
-} from "@agent-platform/testkit/localstack";
-import {
   CreateSecretCommand,
   DeleteSecretCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
+import { localstackEnabled, localstackEnv } from "@werft-ai/testkit/localstack";
 import { loadSessionCatalog, secretsManagerReader } from "./catalog-config.ts";
 
 const integration = localstackEnabled() ? describe : describe.skip;

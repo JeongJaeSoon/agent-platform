@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { ImmutableObjectSource } from "@agent-platform/runtime-core";
 import { S3Client } from "@aws-sdk/client-s3";
+import type { ImmutableObjectSource } from "@werft-ai/runtime-core";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 import {

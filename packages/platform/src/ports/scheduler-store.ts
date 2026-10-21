@@ -1,4 +1,4 @@
-import type { ExecutionBackend as ExecutionBackendKind } from "@agent-platform/contracts";
+import type { ExecutionBackend as ExecutionBackendKind } from "@werft-ai/contracts";
 import type {
   ExecutionObservation,
   ExecutionRef,

@@ -2,8 +2,11 @@ import { expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
   installationLimitsResponseSchema,
-} from "@agent-platform/contracts";
-import { allowAllPolicy, createUsageService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import {
+  createAuthorizationPolicy,
+  createUsageService,
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerUsageRoutes } from "./usage.ts";
 
@@ -15,7 +18,7 @@ const app = createApiApp({
     registerUsageRoutes(
       router,
       createUsageService({
-        authorization: allowAllPolicy,
+        authorization: createAuthorizationPolicy(),
         limits: {
           executionSlotLimit: 1,
           queuedInputLimitPerSession: 3,

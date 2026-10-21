@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/worker",
+  "name": "@werft-ai/worker",
   "description": "Kiel session runtime: one container per session running the Claude Agent SDK",
   "version": "0.0.0",
   "private": true,
@@ -11,14 +11,14 @@
     "test:direct-local": "bun test .integration.test.ts && bun run --cwd ../../packages/adapters/runtimes/claude test:direct-local"
   },
   "dependencies": {
-    "@agent-platform/contracts": "workspace:*",
-    "@agent-platform/observability": "workspace:*",
-    "@agent-platform/runtime-claude": "workspace:*",
-    "@agent-platform/runtime-core": "workspace:*",
-    "@agent-platform/storage": "workspace:*",
-    "@agent-platform/system": "workspace:*"
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/observability": "workspace:*",
+    "@werft-ai/runtime-claude": "workspace:*",
+    "@werft-ai/runtime-core": "workspace:*",
+    "@werft-ai/storage": "workspace:*",
+    "@werft-ai/system": "workspace:*"
   },
   "devDependencies": {
-    "@agent-platform/testkit": "workspace:*"
+    "@werft-ai/testkit": "workspace:*"
   }
 }

@@ -8,6 +8,7 @@
       "!!dist",
       "!!.claude",
       "!docs/openapi.json",
+      "!packages/client/src/schema.gen.ts",
       "!docs/api/index.html",
       "!docs/api/scalar.js"
     ]
@@ -21,5 +22,135 @@
     "rules": {
       "recommended": true
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/client/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "window": "@werft-ai/client runs in browsers and Node alike.",
+                  "document": "@werft-ai/client runs in browsers and Node alike.",
+                  "location": "@werft-ai/client runs in browsers and Node alike.",
+                  "navigator": "@werft-ai/client runs in browsers and Node alike.",
+                  "localStorage": "@werft-ai/client runs in browsers and Node alike.",
+                  "sessionStorage": "@werft-ai/client runs in browsers and Node alike.",
+                  "EventSource": "Session events go over fetch: subscribeSessionEvents.",
+                  "Bun": "@werft-ai/client runs in browsers and Node alike.",
+                  "process": "@werft-ai/client runs in browsers and Node alike.",
+                  "Buffer": "@werft-ai/client runs in browsers and Node alike."
+                }
+              }
+            },
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "The client knows no UI framework.",
+                  "react-dom": "The client knows no UI framework.",
+                  "zod": "Validators are injected; the client carries no schema library.",
+                  "@tanstack/react-router": "The client knows no router.",
+                  "@tanstack/react-query": "Query wiring belongs to the core package.",
+                  "@tanstack/query-core": "Query wiring belongs to the core package."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/client/src/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": "off",
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/core/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "window": "@werft-ai/core knows no DOM.",
+                  "document": "@werft-ai/core knows no DOM.",
+                  "location": "@werft-ai/core knows no DOM; links belong to the adapter.",
+                  "history": "@werft-ai/core knows no DOM; links belong to the adapter.",
+                  "navigator": "@werft-ai/core knows no DOM.",
+                  "localStorage": "@werft-ai/core knows no DOM.",
+                  "sessionStorage": "@werft-ai/core knows no DOM.",
+                  "fetch": "Requests go through the ApiClient the caller passes in."
+                }
+              }
+            },
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "The core knows no UI framework; hooks belong to @werft-ai/react.",
+                  "react-dom": "The core knows no UI framework.",
+                  "@tanstack/react-query": "The core builds on @tanstack/query-core.",
+                  "@tanstack/react-router": "The core knows no router.",
+                  "zod": "The root entry carries no schema library."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/core/src/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": "off",
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/react/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "window": "The modules leave the page to the host app.",
+                  "document": "The modules leave the page to the host app.",
+                  "location": "Links go through the renderLink the host passes in.",
+                  "history": "Links go through the renderLink the host passes in.",
+                  "fetch": "Requests go through the ApiClient the host passes in."
+                }
+              }
+            },
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@tanstack/react-router": "The modules know no router; links go through renderLink.",
+                  "react-router": "The modules know no router; links go through renderLink.",
+                  "next": "The modules know no router; links go through renderLink."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

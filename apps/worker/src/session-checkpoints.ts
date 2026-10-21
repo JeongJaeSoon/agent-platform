@@ -18,12 +18,12 @@ import type {
   CheckpointRef,
   RestorePlanWire,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   ClaudeSessionStore,
   claudeCheckpointCodec,
   TranscriptTooLarge,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import {
   type CheckpointCodec,
   type CheckpointManifest,
@@ -41,16 +41,22 @@ import {
   type RejectedCheckpoint,
   type RuntimeFingerprint,
   restoreCwdRefusal,
+  runtimeFor,
+  TRANSCRIPT_LIMITS,
   TRANSCRIPT_MIRROR_DIRECTORY,
+  type TranscriptLimits,
   type TranscriptRevision,
+  type TranscriptSizeProblem,
+  transcriptBytes,
   transcriptParts,
   transcriptSizeProblem,
+  transcriptWarnBytes,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
   type WorkspaceArtifact,
   workspacePathsProblem,
   writeWorkspaceFile,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type {
   CheckpointCaptureContext,
@@ -126,6 +132,8 @@ export type SessionCheckpointsOptions = {
     base?: BundleBase;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
+  /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
+  transcriptLimits?: TranscriptLimits;
   now?: () => Date;
   /** Waits out a restore's backoff; resolves early once `signal` aborts. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
@@ -198,6 +206,25 @@ class MirrorLost extends PublishFailure {
 }
 
 /**
+ * The transcript is past `TRANSCRIPT_LIMITS`. It only grows, so this too
+ * outlives the publish: it is reported under its own reason, which keeps the
+ * session from taking new turns, rather than as `publish_failed`.
+ */
+class TranscriptLimitReached extends PublishFailure {
+  readonly reason: TranscriptSizeProblem["reason"];
+  constructor(problem: TranscriptSizeProblem) {
+    super("transcript", problem.detail);
+    this.reason = problem.reason;
+  }
+}
+
+function isTranscriptLimit(reason: RejectedCheckpoint["reason"]): boolean {
+  return (
+    reason === "transcript_too_large" || reason === "transcript_part_too_large"
+  );
+}
+
+/**
  * Checkpoints one claimed session: the transcript mirror the engine writes
  * to, and the publisher that turns a quiescent turn boundary into a manifest
  * finalize can commit.
@@ -239,6 +266,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const runtime = this.#options.fingerprint(claim);
+    // Profiles the session ran before its profile was changed; the
+    // checkpoints this run takes carry `runtime`.
+    const alternates = (claim.restore_runtime_configs ?? []).map(
+      (config) =>
+        this.#options.fingerprint({ ...claim, runtime_config: config })
+          .profileSha256,
+    );
     const pointer = claim.restore;
     if (pointer !== null) {
       // The store not answering is no fault of the checkpoint: the restore
@@ -247,7 +281,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       // answer is held to the manifest as ever.
       for (let retries = 0; ; retries += 1) {
         try {
-          return await this.#restore(claim, pointer, runtime, signal);
+          return await this.#restore(
+            claim,
+            pointer,
+            { runtime, alternates },
+            signal,
+          );
         } catch (caught) {
           if (!signal.aborted && isRestoreOutage(caught)) {
             const retryInMs = Math.min(
@@ -311,6 +350,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         generation: claim.execution_generation,
         objects: this.#options.objects,
         prefix: this.#transcriptPrefix(),
+        ...this.#storeLimits(),
       });
       try {
         // Before the engine starts: a generation another launch already wrote
@@ -359,7 +399,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   async #restore(
     claim: BootstrapClaimResponse,
     pointer: CheckpointRef,
-    runtime: RuntimeFingerprint,
+    {
+      runtime,
+      alternates,
+    }: { runtime: RuntimeFingerprint; alternates: readonly string[] },
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const { objects, workspaceRoot } = this.#options;
@@ -371,6 +414,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         profile_sha256: runtime.profileSha256,
         sdk_version: runtime.sdkVersion,
       },
+      ...(alternates.length === 0
+        ? {}
+        : { alternate_profile_sha256s: [...alternates] }),
     });
     signal.throwIfAborted();
     const { plan, restoring } = planFor(answer, pointer);
@@ -393,7 +439,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
     }
     const manifest = this.#codec.decode(manifestBytes);
-    this.#checkManifest(claim, restoring, runtime, manifest);
+    this.#checkManifest(
+      claim,
+      restoring,
+      runtimeFor(manifest, runtime, alternates),
+      manifest,
+    );
     const pinned = <T extends ObjectRef>(ref: T): T => {
       const { version: _stale, ...rest } = ref;
       const version = versions.get(ref.key);
@@ -408,6 +459,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       },
       objects,
       prefix: this.#transcriptPrefix(),
+      ...this.#storeLimits(),
     });
     await store.ready();
     await store.verifyInherited(signal);
@@ -603,8 +655,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     // size is what would take the worker down.
     const oversized = transcriptSizeProblem(
       transcriptParts(manifest.transcripts),
+      this.#limits(),
     );
-    if (oversized !== undefined) throw refuse(oversized);
+    if (oversized !== undefined) throw refuse(oversized.detail);
     for (const ref of [
       ...(manifest.workspace.baseBundles ?? []),
       manifest.workspace.bundle,
@@ -614,6 +667,15 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         throw refuse(`${ref.key} is outside this session's objects`);
       }
     }
+  }
+
+  #limits(): TranscriptLimits {
+    return this.#options.transcriptLimits ?? TRANSCRIPT_LIMITS;
+  }
+
+  #storeLimits(): { transcriptLimits?: TranscriptLimits } {
+    const limits = this.#options.transcriptLimits;
+    return limits === undefined ? {} : { transcriptLimits: limits };
   }
 
   #transcriptPrefix(): string {
@@ -635,6 +697,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     let revision: number | null = null;
     let manifestRef: string | null = null;
     let lost: string | undefined;
+    let limit: TranscriptLimitReached | undefined;
     let failed: string | undefined;
     const timer = new StageTimer();
     let outcome = "failed";
@@ -647,6 +710,19 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         if (preparation.reason !== "mirror_error") {
           await this.#reportLostMirror(bound, context, undefined);
         }
+        return null;
+      }
+      const limited = await this.#limitReached(
+        bound,
+        preparation,
+        context,
+      ).catch((error: unknown) => {
+        if (isOwnershipLost(error)) reasonCode = "ownership_lost";
+        throw error;
+      });
+      if (limited !== undefined) {
+        outcome = "refused";
+        reasonCode = limited;
         return null;
       }
       try {
@@ -695,13 +771,20 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           ...timer.fields(),
         });
         if (error instanceof MirrorLost) lost = error.message;
+        else if (error instanceof TranscriptLimitReached) limit = error;
         else failed = `${failedAt}: ${describe(error)}`;
+      }
+      if (limit !== undefined) {
+        await this.#report(
+          { status: "rejected", reason: limit.reason, detail: limit.message },
+          context.scope,
+        );
       }
       const mirrorLost = await this.#reportLostMirror(bound, context, lost);
       // A ready run whose checkpoint went unwritten looks, from the session,
       // exactly like one that wrote it until something needs it. A lost mirror
       // already says more, and outranks it.
-      if (failed !== undefined && !mirrorLost) {
+      if (failed !== undefined && !mirrorLost && limit === undefined) {
         await this.#report(
           { status: "rejected", reason: "publish_failed", detail: failed },
           context.scope,
@@ -718,6 +801,51 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...timer.resultFields(),
       });
     }
+  }
+
+  /**
+   * Sizes the transcript before anything is requested or uploaded: one past
+   * the limits is reported under its reason and the publish never starts,
+   * so a session past them does not pay for a workspace bundle every turn.
+   * One past the warning threshold is only logged; finalize warns the
+   * session once it commits. Answers the reason when it stopped the publish.
+   */
+  async #limitReached(
+    bound: Bound,
+    preparation: ReadyCheckpoint,
+    context: CheckpointCaptureContext,
+  ): Promise<TranscriptSizeProblem["reason"] | undefined> {
+    let sizes: Array<{ bytes: number; key: string }> | null;
+    try {
+      sizes = await bound.store.transcriptSizes(preparation.checkpoint.resume);
+    } catch (error) {
+      if (isOwnershipLost(error)) throw error;
+      // The capture reads the same parts and reports what fails there.
+      return undefined;
+    }
+    if (sizes === null) return undefined;
+    const limits = this.#limits();
+    const problem = transcriptSizeProblem(sizes, limits);
+    if (problem === undefined) {
+      const bytes = transcriptBytes(sizes);
+      if (bytes >= transcriptWarnBytes(limits)) {
+        this.#options.logger.warn("worker.checkpoint.transcript_near_limit", {
+          transcript_bytes: bytes,
+          limit_bytes: limits.totalBytes,
+        });
+      }
+      return undefined;
+    }
+    this.#options.logger.warn("worker.checkpoint.transcript_limit", {
+      reason: problem.reason,
+      detail: problem.detail,
+    });
+    await this.#report(
+      { status: "rejected", reason: problem.reason, detail: problem.detail },
+      context.scope,
+    );
+    await this.#reportLostMirror(bound, context, undefined);
+    return problem.reason;
   }
 
   async finalizeRefused(detail: string, scope: WorkerScope): Promise<void> {
@@ -763,7 +891,8 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   /**
    * Sends a refusal to the gateway, which records the ones that outlive the
    * turn as the session's pending reason. An advisory one that does not land
-   * is only logged. A mirror error that does not land throws: finalize
+   * is only logged. A mirror error that does not land throws, and so does a
+   * transcript limit, which would otherwise let new turns in: finalize
    * without a checkpoint is accepted only while no blocking reason is
    * recorded, so the turn must stay open rather than be reported complete
    * ahead of the heartbeat that would have recorded it.
@@ -786,6 +915,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       if (preparation.reason === "mirror_error") {
         throw new Error(
           `The transcript mirror failed and the gateway did not record it: ${describe(error)}`,
+        );
+      }
+      // It holds new turns back too, so it has to land as well.
+      if (isTranscriptLimit(preparation.reason)) {
+        throw new Error(
+          `The transcript is past its limits and the gateway did not record it: ${describe(error)}`,
         );
       }
       this.#options.logger.warn("worker.checkpoint.report_failed", {
@@ -977,7 +1112,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         .captureTranscripts(preparation.checkpoint.resume)
         .catch((error: unknown) => {
           throw error instanceof TranscriptTooLarge
-            ? new PublishFailure("transcript", error.message)
+            ? new TranscriptLimitReached({
+                reason: error.reason,
+                detail: error.message,
+              })
             : error;
         }),
     );
@@ -999,10 +1137,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       throw new MirrorLost(now.detail);
     }
 
-    const oversized = transcriptSizeProblem(transcriptParts(transcripts));
-    if (oversized !== undefined) {
-      throw new PublishFailure("transcript", oversized);
-    }
+    const oversized = transcriptSizeProblem(
+      transcriptParts(transcripts),
+      this.#limits(),
+    );
+    if (oversized !== undefined) throw new TranscriptLimitReached(oversized);
     // Finalize refuses a manifest over either limit only after everything it
     // names was uploaded, so it is refused here first.
     const referenced =

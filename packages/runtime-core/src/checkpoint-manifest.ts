@@ -50,6 +50,21 @@ export type RuntimeFingerprint = {
 };
 
 /**
+ * The fingerprint a manifest is held to: `runtime`, or `runtime` with the
+ * manifest's own profile digest when that is one the session ran before its
+ * profile was changed. Engine, CLI and SDK versions must still match.
+ */
+export function runtimeFor(
+  manifest: { readonly runtime: RuntimeFingerprint },
+  runtime: RuntimeFingerprint,
+  alternates: readonly string[],
+): RuntimeFingerprint {
+  return alternates.includes(manifest.runtime.profileSha256)
+    ? { ...runtime, profileSha256: manifest.runtime.profileSha256 }
+    : runtime;
+}
+
+/**
  * An object plus where it goes back. A digest alone cannot restore a
  * workspace: two untracked files are indistinguishable without the path they
  * were captured from, so the path travels in the manifest rather than being
@@ -111,12 +126,33 @@ export type CheckpointTranscripts = {
  * (`WORKER_MEMORY_MB`) is sized so that stays under half the limit. A part
  * is what the worker holds at once. The worker checks these before
  * publishing, finalize before reading any part, and a restore before
- * fetching any part — all against these same values. A session past it keeps
- * running on its last checkpoint.
+ * fetching any part — all against these same values. A session past it
+ * takes no new turn (`transcript_too_large`), and its last checkpoint stays
+ * the one a restore resumes.
  * Measurements, sessions per node and how to change both: docs/capacity.md.
  */
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
 export const MAX_TRANSCRIPT_BYTES = 512 * 1024 * 1024;
+
+export type TranscriptLimits = {
+  readonly partBytes: number;
+  readonly totalBytes: number;
+};
+export const TRANSCRIPT_LIMITS: TranscriptLimits = {
+  partBytes: MAX_TRANSCRIPT_PART_BYTES,
+  totalBytes: MAX_TRANSCRIPT_BYTES,
+};
+
+/**
+ * From this total on the session is told it is nearing the limit
+ * (`transcript_near_limit`), while there is still room to finish the work in
+ * hand and move on to a new session.
+ */
+export function transcriptWarnBytes(
+  limits: TranscriptLimits = TRANSCRIPT_LIMITS,
+): number {
+  return Math.floor(limits.totalBytes * 0.8);
+}
 
 /** Every part of the root transcript and of each subagent's. */
 export function transcriptParts(
@@ -134,17 +170,37 @@ export function transcriptParts(
  */
 export function transcriptSizeProblem(
   parts: Iterable<{ readonly bytes: number; readonly key: string }>,
-): string | undefined {
+  limits: TranscriptLimits = TRANSCRIPT_LIMITS,
+): TranscriptSizeProblem | undefined {
   let total = 0;
   for (const part of parts) {
-    if (part.bytes > MAX_TRANSCRIPT_PART_BYTES) {
-      return `transcript part ${part.key} is ${part.bytes} bytes, over the ${MAX_TRANSCRIPT_PART_BYTES}-byte part limit`;
+    if (part.bytes > limits.partBytes) {
+      return {
+        reason: "transcript_part_too_large",
+        detail: `transcript part ${part.key} is ${part.bytes} bytes, over the ${limits.partBytes}-byte part limit`,
+      };
     }
     total += part.bytes;
   }
-  return total > MAX_TRANSCRIPT_BYTES
-    ? `the transcript is ${total} bytes, over the ${MAX_TRANSCRIPT_BYTES}-byte limit`
+  return total > limits.totalBytes
+    ? {
+        reason: "transcript_too_large",
+        detail: `the transcript is ${total} bytes, over the ${limits.totalBytes}-byte limit`,
+      }
     : undefined;
+}
+
+export type TranscriptSizeProblem = {
+  readonly detail: string;
+  readonly reason: "transcript_part_too_large" | "transcript_too_large";
+};
+
+export function transcriptBytes(
+  parts: Iterable<{ readonly bytes: number }>,
+): number {
+  let total = 0;
+  for (const part of parts) total += part.bytes;
+  return total;
 }
 
 export type CheckpointManifest = {

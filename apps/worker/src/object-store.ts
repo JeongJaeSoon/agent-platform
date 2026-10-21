@@ -1,4 +1,4 @@
-import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
+import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
 import {
   BodyStallError,
   BodyTruncatedError,
@@ -6,13 +6,13 @@ import {
   createObjectRouteClient,
   S3_REQUEST_BOUNDS,
   scopedCheckpointObjectStore,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 
 /**
  * The one file in the worker that knows objects live in S3. Everything else
  * — the turn loop, the Claude adapter's session store — takes the
  * `CheckpointObjectStore` port, and `tests/architecture` holds the package
- * to that: `@agent-platform/storage` may be imported from here and nowhere
+ * to that: `@werft-ai/storage` may be imported from here and nowhere
  * else in `apps/worker`.
  */
 

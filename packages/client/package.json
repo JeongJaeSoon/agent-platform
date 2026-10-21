@@ -1,0 +1,21 @@
+{
+  "name": "@werft-ai/client",
+  "description": "API client for the agent-platform HTTP API: typed requests, ApiError and the session event stream, with no UI framework",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "api:generate": "bun run scripts/generate-api.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "@werft-ai/contracts": "workspace:*",
+    "openapi-typescript": "7.13.0"
+  }
+}

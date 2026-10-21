@@ -1,0 +1,5 @@
+ALTER TABLE "pending_requests" ADD COLUMN "answered_by" jsonb;--> statement-breakpoint
+ALTER TABLE "pending_requests" ADD COLUMN "answer_surface" text;--> statement-breakpoint
+ALTER TABLE "pending_requests" ADD COLUMN "answer_decision_id" uuid;--> statement-breakpoint
+ALTER TABLE "pending_requests" ADD CONSTRAINT "pending_requests_answer_surface_check" CHECK ("pending_requests"."answer_surface" IN ('web', 'slack', 'api'));--> statement-breakpoint
+ALTER TABLE "pending_requests" ADD CONSTRAINT "pending_requests_approval_check" CHECK (("pending_requests"."answer_surface" IS NULL) = ("pending_requests"."answer_decision_id" IS NULL) AND ("pending_requests"."answer_surface" IS NULL OR "pending_requests"."answered_at" IS NOT NULL) AND ("pending_requests"."answered_by" IS NULL OR "pending_requests"."answer_surface" IS NOT NULL));

@@ -1,10 +1,10 @@
-import type { StructuredLogger } from "@agent-platform/observability";
+import type { StructuredLogger } from "@werft-ai/observability";
 
 export type ControlResultEvent = {
   acceptedAt: Date;
   controlId: string;
   effectiveAt: Date;
-  operation: "interrupt" | "terminate";
+  operation: "interrupt" | "terminate" | "close";
   outcome: string;
   reasonCode: string;
   sessionId: string;
