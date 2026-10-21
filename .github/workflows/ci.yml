@@ -486,10 +486,13 @@ jobs:
 
   # Publishes the build above to GitHub Pages. Main pushes only: a PR or a
   # feature-branch run never deploys, and is the only job here that may write
-  # to Pages.
+  # to Pages. Gated on the PAGES_ENABLED repo variable: with Pages off,
+  # deploy-pages answers 404 and turns main red.
   storybook-pages:
     needs: storybook
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name == 'push'
+      && vars.PAGES_ENABLED == 'true'
     permissions:
       contents: read
       pages: write
