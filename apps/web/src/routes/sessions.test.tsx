@@ -997,6 +997,38 @@ describe("session profile", () => {
     );
   });
 
+  test("a running command keeps its button focused and takes no second press", async () => {
+    const user = await setupUser();
+    let posts = 0;
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`POST /v1/sessions/${SESSION_ID}/pause`]: () => {
+        posts += 1;
+        return held;
+      },
+    });
+    const pause = await screen.findByRole("button", { name: "일시 정지" });
+    pause.focus();
+    await user.keyboard("{Enter}");
+    // The clock instead of waitFor while the command is held, as above.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(pause.getAttribute("aria-disabled")).toBe("true");
+    expect(pause.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement).toBe(pause);
+    await user.keyboard("{Enter}");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(posts).toBe(1);
+    await act(async () =>
+      release(
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+      ),
+    );
+  });
+
   test("a refused command does not take the keyboard back on a later change", async () => {
     const user = await setupUser();
     let state = { ...detail };

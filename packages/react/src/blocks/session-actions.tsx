@@ -312,10 +312,10 @@ export function SessionControls({
   // The commands drawn when one ran; a pause swaps its button for resume.
   const ranOn = useRef<string | null>(null);
 
-  // A command's button is turned off while it runs and may leave with the
-  // new state, taking focus with it each time: hand the keyboard to what the
-  // session takes now, until the state the command made has arrived or the
-  // command was refused. Each accepted command changes what the session takes.
+  // A command's button may leave with the new state, taking focus with it:
+  // hand the keyboard to what the session takes now, until the state the
+  // command made has arrived or the command was refused. Each accepted
+  // command changes what the session takes.
   useLayoutEffect(() => {
     if (ranOn.current === null) return;
     if (focusLost(outcomeRef.current)) {
@@ -361,11 +361,17 @@ export function SessionControls({
               key={action}
               type="button"
               variant={action === "terminate" ? "destructive" : "outline"}
-              disabled={reason !== undefined || control.isPending}
+              disabled={reason !== undefined}
+              // Not `disabled` while a command runs: Chrome takes focus off a
+              // disabled button, and the keyboard would lose its place.
+              aria-disabled={control.isPending || undefined}
+              className="aria-disabled:opacity-50"
               aria-describedby={reason === undefined ? undefined : reasonId}
-              onClick={() =>
-                action === "terminate" ? setConfirming(true) : run(action)
-              }
+              onClick={() => {
+                if (control.isPending) return;
+                if (action === "terminate") setConfirming(true);
+                else run(action);
+              }}
             >
               {t(`session.control.${action}`)}
             </Button>
