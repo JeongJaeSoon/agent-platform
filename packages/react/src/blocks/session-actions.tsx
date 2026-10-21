@@ -327,18 +327,22 @@ export function SessionControls({
     }
   }, [actionSet, control.isPending]);
 
+  // The confirm dialog gives focus back to what was focused last outside it,
+  // and the terminate button that opened it may be gone by now; the outcome
+  // line stays.
+  const settle = (next: Outcome) => {
+    if (confirming) outcomeRef.current?.focus();
+    setConfirming(false);
+    setOutcome(next);
+  };
+
   const run = (action: ControlAction) => {
     setOutcome(null);
     ranOn.current = actionSet;
     control.mutate(commandFor(action, session), {
-      onSuccess: () => {
-        setConfirming(false);
-        setOutcome({ kind: "notice", text: t("session.control.sent") });
-      },
-      onError: (error) => {
-        setConfirming(false);
-        setOutcome({ kind: "error", text: refused(error) });
-      },
+      onSuccess: () =>
+        settle({ kind: "notice", text: t("session.control.sent") }),
+      onError: (error) => settle({ kind: "error", text: refused(error) }),
     });
   };
 

@@ -24,6 +24,11 @@ const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const AT = "2026-10-11T08:14:02.000Z";
 // Far enough ahead that a request still takes answers.
 const LATER = "2099-01-01T00:00:00.000Z";
+const TERMINATE_ACCEPTED = {
+  receipt_id: RECEIPT_ID,
+  receipt_status: "accepted",
+  external_effects_reverted: false,
+};
 
 interface Connection {
   readonly request: Request;
@@ -997,7 +1002,7 @@ describe("session profile", () => {
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`POST /v1/sessions/${SESSION_ID}/terminate`]: () =>
-        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+        json(202, TERMINATE_ACCEPTED),
     });
     await user.click(await screen.findByRole("button", { name: "세션 종료" }));
     const dialog = await screen.findByRole("dialog", {
@@ -1011,6 +1016,47 @@ describe("session profile", () => {
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  test("a terminate whose button left before the receipt hands the keyboard to its outcome", async () => {
+    const user = await setupUser();
+    let state = { ...detail };
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let posted = false;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () => {
+        posted = true;
+        return held;
+      },
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    const terminate = await screen.findByRole("button", { name: "세션 종료" });
+    terminate.focus();
+    await user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", {
+      name: "세션을 종료할까요?",
+    });
+    within(dialog).getByRole("button", { name: "종료" }).focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(posted).toBe(true));
+    state = { ...detail, admission_state: "stopping", current_turn_id: null };
+    act(() => stream.emit("ev_1", "status", { phase: "running" }));
+    // The clock instead of waitFor while the command is held, as above.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(screen.queryByRole("button", { name: "세션 종료" })).toBeNull();
+    await act(async () => release(json(202, TERMINATE_ACCEPTED)));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe(
+        "요청을 보냈습니다. 바뀐 상태는 위 개요에 반영됩니다.",
+      ),
+    );
   });
 
   test("sends a message with Ctrl+Enter and names the turn it became", async () => {
