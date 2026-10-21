@@ -14,15 +14,15 @@ import {
   type ObjectRef,
   type RuntimeFingerprint,
   type WorkspaceArtifact,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 import {
   createGitBundle,
   createGitBundleChain,
-} from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/git-bundle";
 
 import {
   CHECKPOINT_ROOT_PARENT,

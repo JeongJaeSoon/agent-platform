@@ -2,7 +2,7 @@ import type {
   ListPendingRequestsResponse,
   PostSessionAnswerRequest,
   PostSessionAnswerResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type { PendingRequestStore } from "../ports/pending-requests.ts";
 import {

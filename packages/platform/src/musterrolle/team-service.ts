@@ -8,7 +8,7 @@ import {
   type TeamDetail as TeamDetailView,
   type TeamView,
   type UpdateTeamRequest,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   Team,
   TeamActor,

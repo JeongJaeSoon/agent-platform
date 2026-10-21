@@ -1,7 +1,7 @@
 /* What apps/web/src/styles.css does for the console, for the stories alone. */
 @import "tailwindcss";
-@import "@agent-platform/ui/styles.css";
-@import "@agent-platform/ui/theme.css";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../../../packages/ui/src";

@@ -7,18 +7,18 @@ import {
   loginResponseSchema,
   startGoogleLoginResponseSchema,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import type {
   ExternalSignInInput,
   ExternalSignInResult,
   IdentityStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   type MockOidcClaims,
   type MockOidcServer,
   startMockOidcServer,
-} from "@agent-platform/testkit/mock-oidc";
+} from "@werft-ai/testkit/mock-oidc";
 import { createBootstrapGate } from "./auth.ts";
 import {
   createGoogleLogin,

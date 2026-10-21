@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import {
   type ApiErrorCode,
   apiErrorResponseSchema,
@@ -10,23 +11,19 @@ import {
   type Principal,
   REQUEST_BODY_MAX_BYTES,
   readyResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   isConnectionFailure,
   RequestDeadlineExceededError,
-} from "@agent-platform/db/pool";
-import {
-  createLogger,
-  type StructuredLogger,
-} from "@agent-platform/observability";
+} from "@werft-ai/db/pool";
+import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
   type Caller,
   callerFor,
   type IdentityStore,
   type ResolvedWebSession,
-} from "@agent-platform/platform";
-import { OpenAPIHono } from "@hono/zod-openapi";
+} from "@werft-ai/platform";
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";

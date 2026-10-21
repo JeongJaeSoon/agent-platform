@@ -1,4 +1,4 @@
-import { type ApiClient, createApiClient } from "@agent-platform/client";
+import { type ApiClient, createApiClient } from "@werft-ai/client";
 
 type Handler = (request: Request) => Response | Promise<Response>;
 

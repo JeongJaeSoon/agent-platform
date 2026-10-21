@@ -13,9 +13,9 @@
  * claim fields the digest reads, as the API would hand them out.
  */
 
-import { bootstrapClaimResponseSchema } from "@agent-platform/contracts";
-import { CLAUDE_RUNTIME_FINGERPRINT } from "@agent-platform/runtime-claude";
-import type { RuntimeFingerprint } from "@agent-platform/runtime-core";
+import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
+import { CLAUDE_RUNTIME_FINGERPRINT } from "@werft-ai/runtime-claude";
+import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 
 import { claudeClaimFingerprint } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";

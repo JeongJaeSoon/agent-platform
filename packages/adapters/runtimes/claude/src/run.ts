@@ -1,18 +1,18 @@
 import type {
-  AgentFrame,
-  AgentInput,
-  AgentRun,
-  CheckpointLeaseGrant,
-  CheckpointPreparation,
-  NativeSdkMessage,
-} from "@agent-platform/runtime-core";
-import type {
   Query,
   SDKMessage,
   SDKResultError,
   SDKUserMessage,
   TerminalReason,
 } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  AgentFrame,
+  AgentInput,
+  AgentRun,
+  CheckpointLeaseGrant,
+  CheckpointPreparation,
+  NativeSdkMessage,
+} from "@werft-ai/runtime-core";
 
 import { frameFromNativeMessage } from "./mapper.ts";
 import type { ResumedHistory } from "./resumed-history.ts";

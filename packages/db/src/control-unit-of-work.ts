@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import type {
   ControlAcceptedResponse,
   TerminateReceiptResult,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   ChangeProfileInput,
   PauseSessionInput,
@@ -12,7 +12,7 @@ import type {
   SessionControl,
   TerminateSessionInput,
   TerminateSessionResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";

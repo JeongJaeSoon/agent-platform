@@ -4,15 +4,15 @@ import {
   controlAcceptedResponseSchema,
   createSessionResponseSchema,
   getReceiptResponseSchema,
-} from "@agent-platform/contracts";
-import { createApiApp } from "@agent-platform/control-host/src/api/app.ts";
-import { registerEventRoutes } from "@agent-platform/control-host/src/api/routes/events.ts";
-import { registerInterruptRoutes } from "@agent-platform/control-host/src/api/routes/interrupt.ts";
-import { registerReceiptRoutes } from "@agent-platform/control-host/src/api/routes/receipts.ts";
-import { registerSessionRoutes } from "@agent-platform/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "@agent-platform/control-host/src/api/routes/worker.ts";
-import { PostgresSessionNotifier } from "@agent-platform/control-host/src/api/session-notifier.ts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import { createApiApp } from "@werft-ai/control-host/src/api/app.ts";
+import { registerEventRoutes } from "@werft-ai/control-host/src/api/routes/events.ts";
+import { registerInterruptRoutes } from "@werft-ai/control-host/src/api/routes/interrupt.ts";
+import { registerReceiptRoutes } from "@werft-ai/control-host/src/api/routes/receipts.ts";
+import { registerSessionRoutes } from "@werft-ai/control-host/src/api/routes/sessions.ts";
+import { registerWorkerRoutes } from "@werft-ai/control-host/src/api/routes/worker.ts";
+import { PostgresSessionNotifier } from "@werft-ai/control-host/src/api/session-notifier.ts";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionControl,
   createPostgresSessionReader,
@@ -22,8 +22,8 @@ import {
   createPostgresWorkerUnitOfWork,
   turns,
   unassignedSessions,
-} from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createInterruptService,
@@ -31,13 +31,10 @@ import {
   createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
-} from "@agent-platform/platform";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-} from "@agent-platform/runtime-claude";
-import type { NativeSdkMessage } from "@agent-platform/runtime-core";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/platform";
+import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import type { NativeSdkMessage } from "@werft-ai/runtime-core";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

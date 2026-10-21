@@ -1,10 +1,3 @@
-import {
-  type ApiError,
-  CSRF_HEADER_VALUE,
-  unwrap,
-} from "@agent-platform/client";
-import { useAgentPlatform } from "@agent-platform/react";
-import { Button, Field, FieldLabel, Input } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
@@ -12,6 +5,9 @@ import {
   useNavigate,
   useSearch,
 } from "@tanstack/react-router";
+import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
+import { useAgentPlatform } from "@werft-ai/react";
+import { Button, Field, FieldLabel, Input } from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
 import { loginMethodsQuery, viewerQuery } from "../api/queries.ts";
 import {

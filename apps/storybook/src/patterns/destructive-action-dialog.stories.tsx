@@ -1,5 +1,5 @@
-import { DestructiveActionDialog } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { DestructiveActionDialog } from "@werft-ai/ui";
 import { fn } from "storybook/test";
 
 const meta = {

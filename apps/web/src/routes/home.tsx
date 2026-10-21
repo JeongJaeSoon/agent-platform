@@ -1,7 +1,7 @@
-import { useAgentPlatform, useSessions } from "@agent-platform/react";
-import { Card, CardContent, CardHeader, CardTitle } from "@agent-platform/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useAgentPlatform, useSessions } from "@werft-ai/react";
+import { Card, CardContent, CardHeader, CardTitle } from "@werft-ai/ui";
 import { useId } from "react";
 import { agentsQuery, invitesQuery, membersQuery } from "../api/queries.ts";
 import { useMe } from "../auth/guard.tsx";

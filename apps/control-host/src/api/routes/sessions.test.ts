@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type ApiErrorCode,
-  apiErrorResponseSchema,
-} from "@agent-platform/contracts";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createSessionService,
@@ -12,7 +9,7 @@ import {
   type SessionControl,
   type SessionReader,
   type SessionUnitOfWork,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 

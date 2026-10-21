@@ -3,7 +3,7 @@ import type {
   ExecutionState,
   ReceiptStatus,
   TurnStatus,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 /**
  * admission·turn·receipt·execution are separate axes and are never merged into

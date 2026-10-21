@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/runtime-core",
+  "name": "@werft-ai/runtime-core",
   "description": "Kiel session runtime: engine-neutral run contract, checkpoint limits and ports, workspace and bundle logic",
   "version": "0.0.0",
   "private": true,
@@ -9,6 +9,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@agent-platform/contracts": "workspace:*"
+    "@werft-ai/contracts": "workspace:*"
   }
 }

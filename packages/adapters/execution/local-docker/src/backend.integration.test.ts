@@ -4,7 +4,7 @@ import {
   type LaunchIntent,
   launchNonceFingerprint,
   launchSpecFingerprint,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   ENV,
   LABELS,

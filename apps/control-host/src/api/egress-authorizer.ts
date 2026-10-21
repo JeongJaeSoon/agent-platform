@@ -1,11 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { RequestDeadline, runWithDeadline } from "@agent-platform/db/pool";
-import type { StructuredLogger } from "@agent-platform/observability";
-import {
-  type WorkerGateway,
-  WorkerGatewayError,
-} from "@agent-platform/platform";
-import type { ObjectRouteSigner } from "@agent-platform/storage";
+import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
+import type { StructuredLogger } from "@werft-ai/observability";
+import { type WorkerGateway, WorkerGatewayError } from "@werft-ai/platform";
+import type { ObjectRouteSigner } from "@werft-ai/storage";
 import { z } from "zod";
 import { isStorageUnavailable } from "./app.ts";
 

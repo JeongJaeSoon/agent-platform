@@ -9,8 +9,8 @@ import {
   takeOverSessionResponseSchema,
   updateMemberRequestSchema,
   updateMemberResponseSchema,
-} from "@agent-platform/contracts";
-import type { InviteService, MemberService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { InviteService, MemberService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,

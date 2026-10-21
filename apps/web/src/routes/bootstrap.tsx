@@ -1,14 +1,14 @@
-import { type ApiError, unwrap } from "@agent-platform/client";
-import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { type ApiError, unwrap } from "@werft-ai/client";
+import { useAgentPlatform } from "@werft-ai/react";
 import {
   Button,
   Field,
   FieldDescription,
   FieldLabel,
   Input,
-} from "@agent-platform/ui";
-import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+} from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
 import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";

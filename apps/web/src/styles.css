@@ -4,8 +4,8 @@
  * rebuild.
  */
 @import "tailwindcss";
-@import "@agent-platform/ui/styles.css";
-@import "@agent-platform/ui/theme.css";
+@import "@werft-ai/ui/styles.css";
+@import "@werft-ai/ui/theme.css";
 
 /*
  * Tailwind's automatic detection stays inside this app and skips

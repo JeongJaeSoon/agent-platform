@@ -1,4 +1,6 @@
-import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   ActivateAgentResponse,
   AgentCard,
@@ -7,11 +9,9 @@ import type {
   AgentVersion,
   CreateAgentReleaseResponse,
   ProfileSummary,
-} from "@agent-platform/contracts";
-import { useAgentPlatform } from "@agent-platform/react";
-import { formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearch } from "@tanstack/react-router";
+} from "@werft-ai/contracts";
+import { useAgentPlatform } from "@werft-ai/react";
+import { formatTimestamp } from "@werft-ai/ui";
 import {
   type FormEvent,
   type ReactNode,

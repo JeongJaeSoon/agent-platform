@@ -1,4 +1,5 @@
-import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   Agent,
   ApiKeyView,
@@ -6,8 +7,8 @@ import type {
   CreateApiKeyResponse,
   RevokeApiKeyResponse,
   SessionScope,
-} from "@agent-platform/contracts";
-import { useAgentPlatform } from "@agent-platform/react";
+} from "@werft-ai/contracts";
+import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   type BadgeProps,
@@ -26,8 +27,7 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
-} from "@agent-platform/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+} from "@werft-ai/ui";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import {
   administeredAgentsQuery,

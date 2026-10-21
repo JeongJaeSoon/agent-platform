@@ -4,7 +4,7 @@ import {
   type AgentAdminsView,
   type ListAdministeredAgentsResponse,
   TEAM_LIST_LIMIT,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   AgentAdminStore,
   AgentAdmins,

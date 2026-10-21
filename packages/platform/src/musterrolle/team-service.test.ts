@@ -3,7 +3,7 @@ import {
   type Principal,
   scopesForRole,
   type WorkspaceRole,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   AgentAdminStore,
   AgentAdminSubject,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   runtimeConfigSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type { ForgeAdapter, ForgeResolver, RepoRef } from "../ports/forge.ts";
 import type {

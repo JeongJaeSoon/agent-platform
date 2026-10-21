@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { expectedMigrationHead } from "@agent-platform/db";
-import { installationLimitProblems } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
+import { expectedMigrationHead } from "@werft-ai/db";
+import { installationLimitProblems } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {

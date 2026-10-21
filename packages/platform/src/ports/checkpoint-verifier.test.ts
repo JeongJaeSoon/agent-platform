@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CheckpointManifest } from "@agent-platform/runtime-core";
+import type { CheckpointManifest } from "@werft-ai/runtime-core";
 import { serviceCheckpointVerifier } from "./checkpoint-verifier.ts";
 
 const fence = {

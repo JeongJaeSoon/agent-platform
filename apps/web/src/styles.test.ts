@@ -10,7 +10,7 @@ const css = await Bun.file(`${import.meta.dir}/styles.css`).text();
 describe("styles.css", () => {
   test("connects the packages/ui tokens to Tailwind through @theme inline", () => {
     expect(css).toContain('@import "tailwindcss";');
-    expect(css).toContain('@import "@agent-platform/ui/styles.css";');
+    expect(css).toContain('@import "@werft-ai/ui/styles.css";');
     const theme = css.match(/@theme inline \{([^}]*)\}/)?.[1] ?? "";
     const mappings = [...theme.matchAll(/--([\w-]+):\s*var\(--ap-([\w-]+)\)/g)];
     expect(mappings.length).toBeGreaterThan(10);

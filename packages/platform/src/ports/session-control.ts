@@ -2,7 +2,7 @@ import type {
   AdmissionState,
   ControlAcceptedResponse,
   RecoveryDecisionRequest,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type TerminateSessionInput = {

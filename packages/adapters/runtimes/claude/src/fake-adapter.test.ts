@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentFrame } from "@agent-platform/runtime-core";
+import type { AgentFrame } from "@werft-ai/runtime-core";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { FakeAgentRuntime } from "./fake-adapter.ts";
 

@@ -4,10 +4,7 @@
  * leaves nothing behind. Opt in like the contract suite.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  type LaunchIntent,
-  launchSpecFingerprint,
-} from "@agent-platform/platform";
+import { type LaunchIntent, launchSpecFingerprint } from "@werft-ai/platform";
 import { KubernetesBackend } from "./backend.ts";
 import { KubernetesApiError, type KubernetesClient } from "./client.ts";
 import { LABELS, NONCE_KEY, nonceSecretNameOf, podNameFor } from "./specs.ts";

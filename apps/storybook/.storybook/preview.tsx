@@ -1,10 +1,10 @@
+import type { Decorator, Preview } from "@storybook/react-vite";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentPlatformProvider,
   type Locale,
   type RenderLink,
-} from "@agent-platform/react";
-import type { Decorator, Preview } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+} from "@werft-ai/react";
 import { type ReactNode, useMemo, useState } from "react";
 import { type FakeRoutes, fakeClient } from "./fake-client.ts";
 

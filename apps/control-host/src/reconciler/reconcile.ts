@@ -1,10 +1,10 @@
-import { integerSetting } from "@agent-platform/contracts/settings";
+import { integerSetting } from "@werft-ai/contracts/settings";
 import type {
   AnnouncedInputReturn,
   ReconciledInterrupt,
   ReconciledLease,
   ReconciledOrphan,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 
 export type ReconcileOptions = {
   dryRun: boolean;

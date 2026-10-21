@@ -9,7 +9,7 @@ import {
   SESSION_SCOPE_VALUES,
   scopesForRole,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type ApiKeyRecord,
   bootstrapOwner,
@@ -26,8 +26,8 @@ import {
   retireBootstrapToken,
   revokeWebSession,
   signInWithExternalIdentity,
-} from "@agent-platform/db";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   BootstrapInput,
   ConsumePasswordResetInput,
@@ -35,7 +35,7 @@ import type {
   IdentityStore,
   IssuePasswordResetInput,
   ResolvedWebSession,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";

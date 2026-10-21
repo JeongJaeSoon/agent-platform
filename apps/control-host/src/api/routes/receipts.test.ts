@@ -3,12 +3,12 @@ import {
   apiErrorResponseSchema,
   getReceiptResponseSchema,
   type Receipt,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createSessionService,
   type SessionReader,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerReceiptRoutes } from "./receipts.ts";
 

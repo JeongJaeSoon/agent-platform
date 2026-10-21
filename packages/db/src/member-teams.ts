@@ -4,7 +4,7 @@ import type {
   TeamMember,
   TeamMembershipResult,
   TeamStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, asc, count, eq, exists, isNull, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import type { Database } from "./queries.ts";

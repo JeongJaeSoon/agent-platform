@@ -6,26 +6,26 @@ import {
   createCheckpointService,
   manifestRefFor,
   structuralBundleVerifier,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
   claudeProfileFingerprint,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import type {
   CheckpointManifest,
   CheckpointObjectStore,
   TranscriptEntry,
-} from "@agent-platform/runtime-core";
-import { createCheckpointObjectStore } from "@agent-platform/storage";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/runtime-core";
+import { createCheckpointObjectStore } from "@werft-ai/storage";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
+import { createGitBundle } from "@werft-ai/testkit/git-bundle";
 import {
   createLocalstackBucket,
   type LocalstackBucket,
   localstackEnabled,
-} from "@agent-platform/testkit/localstack";
+} from "@werft-ai/testkit/localstack";
 
 /**
  * The whole checkpoint path, wired the way a worker and the control plane wire

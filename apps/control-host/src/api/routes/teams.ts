@@ -15,8 +15,8 @@ import {
   teamIdParamsSchema,
   teamMemberParamsSchema,
   updateTeamRequestSchema,
-} from "@agent-platform/contracts";
-import type { AgentAdminService, TeamService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { AgentAdminService, TeamService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,

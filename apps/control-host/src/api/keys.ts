@@ -4,8 +4,8 @@ import {
   SESSION_SCOPE_VALUES,
   type SessionScope,
   sessionScopeSchema,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   type ApiKeyKind,
   type ApiKeyRecord,
@@ -16,9 +16,9 @@ import {
   findLiveRole,
   findWorkspace,
   revokeApiKey,
-} from "@agent-platform/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger } from "@werft-ai/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 export interface ApiKeyStore {

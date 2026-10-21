@@ -1,1 +1,1 @@
-export type { components, paths } from "@agent-platform/client";
+export type { components, paths } from "@werft-ai/client";

@@ -1,10 +1,5 @@
-import {
-  Field,
-  FieldDescription,
-  FieldLabel,
-  Textarea,
-} from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Field, FieldDescription, FieldLabel, Textarea } from "@werft-ai/ui";
 
 const meta = {
   title: "Primitives/Textarea",

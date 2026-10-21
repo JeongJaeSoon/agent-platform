@@ -4,8 +4,8 @@ import {
   createApiKeyResponseSchema,
   listApiKeysResponseSchema,
   revokeApiKeyResponseSchema,
-} from "@agent-platform/contracts";
-import type { ApiKeyService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { ApiKeyService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,

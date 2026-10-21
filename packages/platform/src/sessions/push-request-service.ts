@@ -5,7 +5,7 @@ import type {
   PushRefusal,
   PushRequest,
   ReceiptActor,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import {

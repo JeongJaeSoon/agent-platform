@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   type ControlAcceptedResponse,
   terminalTurnStatusSchema,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   InterruptTurnInput,
   InterruptTurnResult,
   TurnInterrupts,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   type ControlResultEvent,

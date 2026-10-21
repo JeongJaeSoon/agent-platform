@@ -1,7 +1,7 @@
 import type {
   InstallationLimitsResponse,
   SessionUsageResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   budgetExceeded,
   type InstallationLimits,

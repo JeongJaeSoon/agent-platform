@@ -2,7 +2,7 @@ import {
   type ApiErrorCode,
   CSRF_HEADER_VALUE,
   type SessionScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 // Prose the OpenAPI generator (openapi.ts) assembles into the document. Every
 // statement here describes behavior enforced elsewhere; change it with the code.

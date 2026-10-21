@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@agent-platform/platform";
-import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
+import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
+import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
 import {
   SHUTDOWN_CLOSE_MS,
   SHUTDOWN_DRAIN_MS,

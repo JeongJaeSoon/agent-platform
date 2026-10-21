@@ -7,7 +7,7 @@ import {
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,

@@ -1,5 +1,5 @@
-import { canonicalJsonOfJson } from "@agent-platform/contracts";
-import { sha256Hex } from "@agent-platform/runtime-claude-codec";
+import { canonicalJsonOfJson } from "@werft-ai/contracts";
+import { sha256Hex } from "@werft-ai/runtime-claude-codec";
 import { describeComponents } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { publicProfile } from "./profile.ts";

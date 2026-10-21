@@ -1,19 +1,16 @@
 import { lstat, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
-import type {
-  CheckpointRef,
-  WorkspaceDescriptor,
-} from "@agent-platform/contracts";
+import type { CheckpointRef, WorkspaceDescriptor } from "@werft-ai/contracts";
 import {
   planWorkspacePreparation,
   type WorkspaceObservation,
   type WorkspacePlan,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   type GitResourceLimits,
   gitCommand,
   killProcessGroup,
-} from "@agent-platform/system";
+} from "@werft-ai/system";
 
 /** What the host needs from a workspace before it starts an engine in it. */
 export interface WorkspacePreparer {

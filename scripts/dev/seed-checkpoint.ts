@@ -18,25 +18,25 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger } from "@agent-platform/observability";
-import { manifestRefFor } from "@agent-platform/platform";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger } from "@werft-ai/observability";
+import { manifestRefFor } from "@werft-ai/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import type {
   CheckpointManifest,
   CheckpointTranscripts,
   ObjectRef,
   TranscriptRevision,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
-} from "@agent-platform/storage";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/storage";
+import { createGitBundle } from "@werft-ai/testkit/git-bundle";
 import { s3SettingsFromEnv } from "../lib/object-store-cli.ts";
 
 const databaseUrl = process.env.DATABASE_URL;

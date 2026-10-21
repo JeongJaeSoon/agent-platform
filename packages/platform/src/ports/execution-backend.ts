@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   ExecutionBackend as ExecutionBackendKind,
   ExecutionState,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 export type ExecutionResources = {
   /** Fractional CPUs, e.g. 1.5. */

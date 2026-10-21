@@ -3,14 +3,14 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   listPendingRequestsResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type AnswerRequestInput,
   type AnswerRequestResult,
   createAuthorizationPolicy,
   createPendingRequestService,
   type PendingRequestStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPendingRoutes } from "./pending.ts";
 

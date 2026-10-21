@@ -1,4 +1,4 @@
-import type { ApiErrorCode } from "@agent-platform/contracts";
+import type { ApiErrorCode } from "@werft-ai/contracts";
 import type { ContractMismatch } from "./contract.ts";
 
 export type ClientErrorCode =

@@ -1,20 +1,20 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import type { CheckpointRef } from "@agent-platform/contracts";
+import type { CheckpointRef } from "@werft-ai/contracts";
 import type {
   CheckpointCodec,
   CheckpointManifest,
   ObjectRef,
   RuntimeFingerprint,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 import {
   createGitBundle,
   createGitBundleChain,
-} from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/git-bundle";
 
 import type { CheckpointCollectionStore } from "../ports/checkpoint-collection.ts";
 import type {

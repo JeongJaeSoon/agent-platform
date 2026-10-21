@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_MIGRATION_HELPER_IMAGE } from "@agent-platform/execution-local-docker";
+import { DEFAULT_MIGRATION_HELPER_IMAGE } from "@werft-ai/execution-local-docker";
 import { parseMigrateWorkspaceArgs } from "./migrate-workspace.ts";
 
 describe("parseMigrateWorkspaceArgs", () => {

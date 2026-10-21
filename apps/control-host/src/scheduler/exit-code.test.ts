@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SchedulerRunSummary } from "@agent-platform/platform";
+import type { SchedulerRunSummary } from "@werft-ai/platform";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { exitCodeFor } from "./main.ts";
 

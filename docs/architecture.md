@@ -86,7 +86,7 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 ## 설계 이력과 추가 참고
 
-저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@agent-platform/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 저장소 밖의 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
+저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@werft-ai/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 저장소 밖의 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
 
 - 통합 설계 정본: Obsidian `Private/Project/agent-platform`의 `final-design.md`·`module-design.md`·`api.md`·`deployment.md`·`delivery-plan.md`(비공개). rename 이전 설계서(`DESIGN.md`)는 지금의 계약·티켓 번호와 맞지 않아 저장소에서 지웠다(94S-433).
 - 작업 순서·상태·인수 조건: [Linear P-94S-5](https://linear.app/94soon/project/agent-platform-9c503b0fad62)의 D0~D4 티켓(94S-108~147)과 native blocked-by 관계. [옛 프로젝트](https://linear.app/94soon/project/claude-code-세션-컨트롤-플레인-f8420358ae56)(94S-7~94)는 rename 이전 이력이다.

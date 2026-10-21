@@ -2,7 +2,7 @@ import {
   type SessionEventName,
   type StatusEventPhase,
   sessionEventPayloadSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { and, eq, notExists, sql } from "drizzle-orm";
 import type { ControlStageMeasure } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";

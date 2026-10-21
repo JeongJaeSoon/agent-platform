@@ -18,12 +18,12 @@ import type {
   CheckpointRef,
   RestorePlanWire,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   ClaudeSessionStore,
   claudeCheckpointCodec,
   TranscriptTooLarge,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import {
   type CheckpointCodec,
   type CheckpointManifest,
@@ -51,7 +51,7 @@ import {
   type WorkspaceArtifact,
   workspacePathsProblem,
   writeWorkspaceFile,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type {
   CheckpointCaptureContext,

@@ -7,8 +7,8 @@ import {
   type Principal,
   SESSION_SCOPE_VALUES,
   type SessionScope,
-} from "@agent-platform/contracts";
-import { testCaller } from "@agent-platform/testkit/callers";
+} from "@werft-ai/contracts";
+import { testCaller } from "@werft-ai/testkit/callers";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import { createInterruptService } from "../sessions/interrupt-service.ts";
 import { createPendingRequestService } from "../sessions/pending-service.ts";

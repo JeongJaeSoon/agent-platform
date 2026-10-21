@@ -1,5 +1,5 @@
-import { Button } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Button } from "@werft-ai/ui";
 
 const meta = {
   title: "Primitives/Button",

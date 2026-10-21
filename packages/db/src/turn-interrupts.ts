@@ -1,8 +1,8 @@
 import type {
   InterruptReceiptResult,
   TerminalTurnStatus,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   type ControlResultEvent,

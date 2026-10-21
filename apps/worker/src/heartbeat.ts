@@ -3,13 +3,13 @@ import type {
   HeartbeatResponse,
   TranscriptReport,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   isOwnershipLost,
   isRetryable,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 /**
  * A lease as the gateway granted it: what was left of it on the database

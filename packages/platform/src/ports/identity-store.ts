@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@agent-platform/contracts";
+import type { WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type IdentityUser = {

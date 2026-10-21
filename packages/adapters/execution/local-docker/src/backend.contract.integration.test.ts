@@ -1,4 +1,4 @@
-import { describeExecutionBackendContract } from "@agent-platform/platform/testing";
+import { describeExecutionBackendContract } from "@werft-ai/platform/testing";
 import { LocalDockerBackend } from "./backend.ts";
 import { DockerClient } from "./docker-client.ts";
 import {

@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createServer, type Socket } from "node:net";
-import { createLogger } from "@agent-platform/observability";
+import { createLogger } from "@werft-ai/observability";
 import { Client } from "pg";
 import {
   createEnforcedPool,

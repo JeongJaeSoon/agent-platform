@@ -5,7 +5,7 @@ import type {
   PostSessionAnswerResponse,
   RegisterPendingRequest,
   SurfaceKind,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { FenceRejection, WorkerFence } from "./worker-unit-of-work.ts";
 

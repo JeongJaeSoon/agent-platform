@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import {
   API_ERROR_CODE_VALUES,
   SESSION_SCOPE_VALUES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   API_REFERENCE_OUTPUT_PATH,
   OPENAPI_OUTPUT_PATH,

@@ -1,7 +1,7 @@
 import type {
   SlackGuestSetting,
   SlackGuestSettingStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { lockActorAccount } from "./control-shared.ts";
 import type { Database } from "./queries.ts";

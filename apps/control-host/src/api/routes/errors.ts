@@ -1,11 +1,5 @@
-import {
-  type ApiErrorCode,
-  idempotencyKeySchema,
-} from "@agent-platform/contracts";
-import {
-  InvalidCursorError,
-  SessionServiceError,
-} from "@agent-platform/platform";
+import { type ApiErrorCode, idempotencyKeySchema } from "@werft-ai/contracts";
+import { InvalidCursorError, SessionServiceError } from "@werft-ai/platform";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";

@@ -10,8 +10,8 @@ import {
   listSessionsResponseSchema,
   type SessionShareScope,
   setSessionShareResponseSchema,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   authzDecisions,
   createDatabaseAgentAuthority,
@@ -32,8 +32,8 @@ import {
   receipts,
   sessions,
   users,
-} from "@agent-platform/db";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type Caller,
   callerFor,
@@ -46,8 +46,8 @@ import {
   createSessionShareService,
   createUsageService,
   type SessionCatalog,
-} from "@agent-platform/platform";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/platform";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

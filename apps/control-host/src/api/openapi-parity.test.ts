@@ -18,7 +18,7 @@ import type {
   SessionShareService,
   TeamService,
   UsageService,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";

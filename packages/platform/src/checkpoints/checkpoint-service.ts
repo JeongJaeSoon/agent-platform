@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CheckpointRef } from "@agent-platform/contracts";
+import type { CheckpointRef } from "@werft-ai/contracts";
 import type {
   CheckpointBlockReason,
   CheckpointCodec,
@@ -14,7 +14,7 @@ import type {
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   DEFAULT_MAX_MANIFEST_BYTES,
   DEFAULT_MAX_MANIFEST_OBJECTS,
@@ -25,7 +25,7 @@ import {
   transcriptParts,
   transcriptSizeProblem,
   workspacePathsProblem,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type {
   CheckpointFence,

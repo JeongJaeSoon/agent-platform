@@ -1,3 +1,4 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Button,
   Card,
@@ -8,8 +9,7 @@ import {
   ErrorState,
   Skeleton,
   StatusLabel,
-} from "@agent-platform/ui";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+} from "@werft-ai/ui";
 
 /*
  * One list panel in each state a screen goes through, built only from

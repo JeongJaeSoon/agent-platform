@@ -2,24 +2,24 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  GetObjectCommand,
+  ListObjectVersionsCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import type {
   CreateSessionResponse,
   GetSessionResponse,
   GetTurnResponse,
   PendingRequest,
   PostSessionMessageResponse,
-} from "@agent-platform/contracts";
-import { digestParts } from "@agent-platform/runtime-claude-codec";
+} from "@werft-ai/contracts";
+import { digestParts } from "@werft-ai/runtime-claude-codec";
 import {
   checkpointBundleRefs,
   PEELED_REF_FORMAT,
   peeledCommits,
-} from "@agent-platform/runtime-core";
-import {
-  GetObjectCommand,
-  ListObjectVersionsCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
+} from "@werft-ai/runtime-core";
 import { Pool } from "pg";
 
 /**

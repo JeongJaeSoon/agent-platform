@@ -8,7 +8,7 @@ import type {
   PauseBlockedReason,
   WorkerEvent,
   WorkspaceRepository,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 

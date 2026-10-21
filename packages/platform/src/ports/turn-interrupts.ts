@@ -1,4 +1,4 @@
-import type { ControlAcceptedResponse } from "@agent-platform/contracts";
+import type { ControlAcceptedResponse } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type InterruptTurnInput = {

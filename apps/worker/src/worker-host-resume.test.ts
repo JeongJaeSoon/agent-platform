@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { ControlIntent } from "@agent-platform/contracts";
+import type { ControlIntent } from "@werft-ai/contracts";
 import {
   FakeAgentRuntime,
   type FakeRuntimeOptions,
   type FakeStep,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import {
   type NativeSdkMessage,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";

@@ -13,9 +13,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readGitBundleHeader } from "@agent-platform/runtime-core";
-import { createGitWorkspaceBundleVerifier } from "@agent-platform/storage";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+import { readGitBundleHeader } from "@werft-ai/runtime-core";
+import { createGitWorkspaceBundleVerifier } from "@werft-ai/storage";
+import { createGitBundle } from "@werft-ai/testkit/git-bundle";
 
 import {
   CheckpointBundleRefused,
