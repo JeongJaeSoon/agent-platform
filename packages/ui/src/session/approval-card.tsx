@@ -49,6 +49,8 @@ export interface ApprovalCardProps {
   readonly className?: string | undefined;
 }
 
+const TIMER_MAX = 2 ** 31 - 1;
+
 function inputText(input: unknown): string {
   try {
     return JSON.stringify(input, null, 2) ?? String(input);
@@ -83,11 +85,18 @@ export function ApprovalCard({
   const expired = lapsedId === requestId || expiresAt <= now;
 
   useEffect(() => {
-    const delay = expiresAt - now;
-    // setTimeout fires at once past 2^31-1 ms; an expiry that far off is
-    // checked again on a later render.
-    if (expired || delay > 2 ** 31 - 1) return;
-    const timer = setTimeout(() => setLapsedId(requestId), delay);
+    if (expired) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // `now` may be the screen's clock; the wait runs on this one.
+    const deadline = Date.now() + (expiresAt - now);
+    // setTimeout fires at once past 2^31-1 ms, so a far expiry waits in
+    // steps, each measured again in case the machine slept.
+    const wait = () => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) setLapsedId(requestId);
+      else timer = setTimeout(wait, Math.min(remaining, TIMER_MAX));
+    };
+    wait();
     return () => clearTimeout(timer);
   }, [expired, expiresAt, now, requestId]);
 
