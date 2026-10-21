@@ -1,6 +1,8 @@
 import {
+  type ApiClient,
   type ApiError,
   type SessionEventFrame as ClientEventFrame,
+  type components,
   isApiError,
   type StreamState,
   subscribeSessionEvents,
@@ -8,7 +10,11 @@ import {
 } from "@agent-platform/client";
 import type {
   ChangeSessionProfileRequest,
+  PostSessionAnswerResponse,
+  PostSessionMessageResponse,
+  ReceiptAcceptedResponse,
   SessionEventPayload,
+  TerminateSessionResponse,
 } from "@agent-platform/contracts";
 import {
   pendingRequestsQuery,
@@ -17,6 +23,7 @@ import {
   sessionUsageQuery,
 } from "@agent-platform/core";
 import {
+  type QueryClient,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -74,6 +81,168 @@ export function useChangeSessionProfile(id: string) {
   });
 }
 
+/** A part of a session's server state that an event or a command can make stale. */
+type SessionPart = "list" | "detail" | "pending" | "usage";
+
+function refreshSession(
+  queryClient: QueryClient,
+  client: ApiClient,
+  id: string,
+  parts: Iterable<SessionPart>,
+) {
+  for (const part of parts) {
+    // The list's and the detail's keys prefix the others', so those two
+    // match exactly.
+    switch (part) {
+      case "list":
+        void queryClient.invalidateQueries({
+          ...sessionsQuery(client),
+          exact: true,
+        });
+        break;
+      case "detail":
+        void queryClient.invalidateQueries({
+          ...sessionQuery(client, id),
+          exact: true,
+        });
+        break;
+      case "pending":
+        void queryClient.invalidateQueries(pendingRequestsQuery(client, id));
+        break;
+      case "usage":
+        void queryClient.invalidateQueries(sessionUsageQuery(client, id));
+        break;
+    }
+  }
+}
+
+// Request bodies as the wire takes them; the contracts' inferred types allow
+// an explicit undefined the client's types refuse.
+type Body = components["schemas"];
+
+const commandParams = (id: string) => ({
+  path: { id },
+  header: { "Idempotency-Key": crypto.randomUUID() },
+});
+
+// Each mutation refreshes the cache only once the server took the command; a
+// refused one leaves every query as it was and hands the caller the error.
+
+/** Answers one of the session's pending permission or question requests. */
+export function useAnswer(id: string) {
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  return useMutation<
+    PostSessionAnswerResponse,
+    ApiError,
+    Body["PostSessionAnswerRequest"]
+  >({
+    mutationFn: (body) =>
+      unwrap(
+        client.POST("/v1/sessions/{id}/answers", {
+          params: commandParams(id),
+          body,
+        }),
+      ) as Promise<PostSessionAnswerResponse>,
+    onSuccess: () =>
+      refreshSession(queryClient, client, id, ["detail", "pending"]),
+  });
+}
+
+/** Queues a message as the session's next turn. */
+export function useSendMessage(id: string) {
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  return useMutation<
+    PostSessionMessageResponse,
+    ApiError,
+    Omit<Body["PostSessionMessageRequest"], "mode">
+  >({
+    mutationFn: (body) =>
+      unwrap(
+        client.POST("/v1/sessions/{id}/messages", {
+          params: commandParams(id),
+          body: { ...body, mode: "enqueue" },
+        }),
+      ) as Promise<PostSessionMessageResponse>,
+    onSuccess: () =>
+      refreshSession(queryClient, client, id, ["list", "detail"]),
+  });
+}
+
+export type SessionControl =
+  | {
+      readonly action: "interrupt";
+      readonly body: Body["InterruptSessionRequest"];
+    }
+  | { readonly action: "pause"; readonly body: Body["PauseSessionRequest"] }
+  | {
+      readonly action: "terminate";
+      readonly body: Body["TerminateSessionRequest"];
+    }
+  | { readonly action: "resume"; readonly body: Body["ResumeSessionRequest"] };
+
+/** Interrupts a running turn, or pauses, terminates or resumes the session. */
+export function useSessionControl(id: string) {
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  return useMutation<
+    ReceiptAcceptedResponse | TerminateSessionResponse,
+    ApiError,
+    SessionControl
+  >({
+    mutationFn: (command) => {
+      const params = commandParams(id);
+      switch (command.action) {
+        case "interrupt":
+          return unwrap(
+            client.POST("/v1/sessions/{id}/interrupt", {
+              params,
+              body: command.body,
+            }),
+          ) as Promise<ReceiptAcceptedResponse>;
+        case "pause":
+          return unwrap(
+            client.POST("/v1/sessions/{id}/pause", {
+              params,
+              body: command.body,
+            }),
+          ) as Promise<ReceiptAcceptedResponse>;
+        case "terminate":
+          return unwrap(
+            client.POST("/v1/sessions/{id}/terminate", {
+              params,
+              body: command.body,
+            }),
+          ) as Promise<TerminateSessionResponse>;
+        case "resume":
+          return unwrap(
+            client.POST("/v1/sessions/{id}/resume", {
+              params,
+              body: command.body,
+            }),
+          ) as Promise<ReceiptAcceptedResponse>;
+      }
+    },
+    // A terminate closes the open requests too.
+    onSuccess: () =>
+      refreshSession(queryClient, client, id, ["list", "detail", "pending"]),
+  });
+}
+
+/**
+ * What each event kind can make stale. Message and tool events only add to
+ * the stream itself, so they refetch nothing.
+ */
+const EVENT_STALES: Partial<
+  Record<SessionEventPayload["event"], readonly SessionPart[]>
+> = {
+  question: ["detail", "pending"],
+  status: ["list", "detail", "pending", "usage"],
+  result: ["detail", "usage"],
+  error: ["detail"],
+};
+
 export type EventStreamState = StreamState;
 
 /** One event as the client delivers it, a tool result's call named. */
@@ -104,10 +273,12 @@ function toolCalls(payload: SessionEventPayload) {
  * The session's event stream, replayed from the start. The client resumes
  * with Last-Event-ID after a dropped connection and delivers each event once;
  * a refusal (the share taken back, the login gone) closes it for good and the
- * screen says so.
+ * screen says so. An event that changes the session's state refreshes the
+ * queries it makes stale.
  */
 export function useSessionEvents(id: string, enabled: boolean) {
   const { client, onUnauthorized, eventRetry } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const [events, setEvents] = useState<readonly SessionEventFrame[]>([]);
   const [state, setState] = useState<EventStreamState>("connecting");
 
@@ -117,10 +288,22 @@ export function useSessionEvents(id: string, enabled: boolean) {
     setState("connecting");
     const stop = new AbortController();
     const callNames = new Map<string, string>();
+    // The replay on connect and a busy turn deliver events in bursts, every
+    // frame of a read in one go; a burst refetches each stale query once.
+    const stale = new Set<SessionPart>();
+    let flush: ReturnType<typeof setTimeout> | undefined;
     void subscribeSessionEvents(client, id, {
       signal: stop.signal,
       onEvent: (frame) => {
         const { payload } = frame;
+        for (const part of EVENT_STALES[payload.event] ?? []) stale.add(part);
+        if (stale.size > 0 && flush === undefined) {
+          flush = setTimeout(() => {
+            flush = undefined;
+            refreshSession(queryClient, client, id, stale);
+            stale.clear();
+          }, 0);
+        }
         for (const [callId, name] of toolCalls(payload)) {
           callNames.set(callId, name);
           if (callNames.size > PENDING_CALLS_MAX) {
@@ -147,8 +330,11 @@ export function useSessionEvents(id: string, enabled: boolean) {
       },
       ...(eventRetry ? { retry: eventRetry } : {}),
     });
-    return () => stop.abort();
-  }, [client, onUnauthorized, eventRetry, id, enabled]);
+    return () => {
+      stop.abort();
+      clearTimeout(flush);
+    };
+  }, [client, queryClient, onUnauthorized, eventRetry, id, enabled]);
 
   return { events, state };
 }
