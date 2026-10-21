@@ -1348,24 +1348,24 @@ describe("session profile", () => {
     stand?.focus();
     stand?.remove();
     expect(document.activeElement?.tagName).toBe("BODY");
-    return async () => {
-      await act(async () =>
-        release(
-          json(202, {
-            turn_id: "2",
-            receipt_id: RECEIPT_ID,
-            receipt_status: "accepted",
-          }),
-        ),
+    const answer = (response: Response) => act(async () => release(response));
+    const accept = async () => {
+      await answer(
+        json(202, {
+          turn_id: "2",
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        }),
       );
       expect(
         await screen.findByText("메시지를 보냈습니다(turn 2)."),
       ).toBeTruthy();
     };
+    return { accept, answer };
   }
 
   test("a message sent by mouse gives the keyboard back to the field", async () => {
-    const accept = await sendHeldByMouse();
+    const { accept } = await sendHeldByMouse();
     await accept();
     expect(
       document.activeElement ===
@@ -1374,15 +1374,16 @@ describe("session profile", () => {
   });
 
   test("a reader who clicked elsewhere while sending keeps their place", async () => {
-    const accept = await sendHeldByMouse();
+    const { accept } = await sendHeldByMouse();
     fireEvent.pointerDown(document.body);
     await accept();
     expect(document.activeElement?.tagName).toBe("BODY");
   });
 
-  test("a message accepted after the session paused hands the keyboard to its notice", async () => {
+  /** Sends, then the session pauses before the receipt comes back. */
+  async function sendThenPause() {
     let state = { ...detail };
-    const accept = await sendHeldByMouse({
+    const held = await sendHeldByMouse({
       [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
     });
     state = { ...detail, admission_state: "paused", current_turn_id: null };
@@ -1393,10 +1394,27 @@ describe("session profile", () => {
           .disabled,
       ).toBe(true),
     );
+    return held;
+  }
+
+  test("a message accepted after the session paused hands the keyboard to its notice", async () => {
+    const { accept } = await sendThenPause();
     await accept();
     expect(document.activeElement?.textContent).toBe(
       "메시지를 보냈습니다(turn 2).",
     );
+  });
+
+  test("a message refused after the session paused says why on the notice it focuses", async () => {
+    const { answer } = await sendThenPause();
+    await answer(apiError(409, "SESSION_PAUSED", "session paused"));
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe(
+        "일시 정지된 세션입니다.",
+      ),
+    );
+    // Said once, on the notice, not again under the field.
+    expect(screen.getAllByText("일시 정지된 세션입니다.")).toHaveLength(1);
   });
 
   test("a stopped session offers resume and takes no message", async () => {

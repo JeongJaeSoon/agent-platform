@@ -457,18 +457,21 @@ export function SessionComposer({
     };
     page?.addEventListener("pointerdown", away, true);
     page?.addEventListener("focusin", away, true);
+    let refusal: ApiError | null = null;
     try {
       await sending;
+    } catch (error) {
+      refusal = error as ApiError;
     } finally {
       page?.removeEventListener("pointerdown", away, true);
       page?.removeEventListener("focusin", away, true);
-      if (!movedOn && focusLost(root)) {
-        const field = root?.querySelector<HTMLElement>(
-          "textarea:not(:disabled)",
-        );
-        (field ?? noticeRef.current)?.focus();
-      }
     }
+    const field = root?.querySelector<HTMLElement>("textarea:not(:disabled)");
+    // A refusal shows under the field; with the field off (the session
+    // stopped meanwhile) it shows on the notice, where focus goes.
+    if (refusal && !field) setNotice({ kind: "error", text: refused(refusal) });
+    if (!movedOn && focusLost(root)) (field ?? noticeRef.current)?.focus();
+    if (refusal) throw refusal;
   };
 
   return (
@@ -483,7 +486,11 @@ export function SessionComposer({
         disabled={reason !== undefined}
         disabledReason={reason}
         pending={send.isPending}
-        error={send.error ? refused(send.error) : undefined}
+        error={
+          send.error && notice?.kind !== "error"
+            ? refused(send.error)
+            : undefined
+        }
         onSend={(message) => {
           setNotice(null);
           return keepFocus(
