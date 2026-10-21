@@ -91,6 +91,38 @@ export {
   type ReceiptSummaryProps,
   type ReceiptTimestamps,
 } from "./receipt/receipt-summary.tsx";
+export {
+  ApprovalCard,
+  type ApprovalCardMessages,
+  type ApprovalCardProps,
+  type PermissionRequest,
+} from "./session/approval-card.tsx";
+export {
+  Composer,
+  type ComposerMessages,
+  type ComposerProps,
+  type ComposerQueuedMessage,
+} from "./session/composer.tsx";
+export { Message, type MessageProps } from "./session/message.tsx";
+export {
+  SessionRow,
+  type SessionRowMessages,
+  type SessionRowProps,
+} from "./session/session-row.tsx";
+export {
+  StageIndicator,
+  type StageIndicatorProps,
+} from "./session/stage-indicator.tsx";
+export {
+  Timeline,
+  type TimelineEntry,
+  type TimelineMessages,
+  type TimelineProps,
+} from "./session/timeline.tsx";
+export {
+  type FormatTurnMessage,
+  turnSummaryText,
+} from "./session/turn-text.ts";
 export { StatusLabel, type StatusLabelProps } from "./status/status-label.tsx";
 export {
   describeStatus,

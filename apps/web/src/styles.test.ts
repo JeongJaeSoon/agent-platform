@@ -18,9 +18,8 @@ describe("styles.css", () => {
       expect(name?.startsWith("ap-")).toBe(false);
   });
 
-  test("steps at 768 and 1440 and fixes nothing wider than 360px", () => {
+  test("steps at 768 and fixes nothing wider than 360px", () => {
     expect(css).toContain("@media (min-width: 48rem)");
-    expect(css).toContain("@media (min-width: 90rem)");
     for (const [, value] of css.matchAll(
       /(?:^|[\s;{])(?:min-)?width:\s*(\d+)px/g,
     )) {
@@ -37,22 +36,19 @@ describe("styles.css", () => {
   });
 
   test("link colors leave links drawn as buttons alone", () => {
-    // `.web-auth a` outranks `.ap-button--primary` and painted its label in
-    // the button's own background color.
-    const rule = css.match(/([^{}]*)\{\s*color: var\(--ap-color-accent\);/);
-    const selectors = (rule?.[1] ?? "").split(",").map((s) => s.trim());
+    const prelude =
+      css.match(/([^{}]*)\{\s*color: var\(--ap-color-accent\);/)?.[1] ?? "";
+    const selectors = (prelude.split("*/").pop() ?? "")
+      .split(",")
+      .map((s) => s.trim());
     expect(selectors.length).toBeGreaterThan(0);
     for (const selector of selectors)
-      expect(selector).toEndWith("a:not(.ap-button)");
+      expect(selector).toEndWith('a:not([data-slot="button"]):not(.ap-button)');
   });
 
-  test("breaks Korean between words and keeps nav labels whole", () => {
+  test("breaks Korean between words", () => {
     const body = css.match(/\nbody \{([^}]*)\}/)?.[1] ?? "";
     expect(body).toContain("word-break: keep-all");
-    const nav = css.match(/\.web-shell__nav \{([^}]*)\}/)?.[1] ?? "";
-    expect(nav).toContain("flex-wrap: wrap");
-    const link = css.match(/\.web-shell__nav a \{([^}]*)\}/)?.[1] ?? "";
-    expect(link).toContain("white-space: nowrap");
   });
 
   test("keeps nowrap table cells on one line", () => {
@@ -63,12 +59,13 @@ describe("styles.css", () => {
   });
 
   test("draws focus on the dark rail in the rail's light foreground", () => {
-    const rule = css.match(/\.web-shell__bar :focus-visible \{([^}]*)\}/)?.[1];
+    const rule = css.match(
+      /\[data-slot="app-sidebar"\] :focus-visible \{([^}]*)\}/,
+    )?.[1];
     expect(rule).toContain("var(--ap-color-rail-foreground)");
   });
 
-  test("stops animation under prefers-reduced-motion", () => {
-    const block = css.split("@media (prefers-reduced-motion: reduce)")[1] ?? "";
-    expect(block).toContain("animation: none");
+  test("declares no animation of its own; motion comes from utilities", () => {
+    expect(css).not.toContain("@keyframes");
   });
 });
