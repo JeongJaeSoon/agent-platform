@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { sessionsEn, sessionsKo } from "@agent-platform/react";
+import {
+  flowEn,
+  flowKo,
+  sessionsEn,
+  sessionsKo,
+} from "@agent-platform/react";
 import { agentsEn, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysKo } from "./api-keys.ts";
 import { authEn, authKo } from "./auth.ts";
@@ -39,6 +44,7 @@ describe("i18n", () => {
         agentsKo,
         modelsKo,
         sessionsKo,
+        flowKo,
         linkedKo,
         apiKeysKo,
         workspaceKo,
@@ -55,6 +61,7 @@ describe("i18n", () => {
         agentsEn,
         modelsEn,
         sessionsEn,
+        flowEn,
         linkedEn,
         apiKeysEn,
         workspaceEn,
