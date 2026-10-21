@@ -8,6 +8,7 @@ import {
   type AgentCardDraft,
   agentCardStep,
   agentIdentityStep,
+  agentReleaseStep,
   inviteStep,
 } from "./index.ts";
 
@@ -52,6 +53,15 @@ describe("steps validate trimmed values", () => {
         .filter((issue) => issue.code === "too_small")
         .map((issue) => issue.path.join(".")),
     ).toEqual(["slug", "name"]);
+  });
+
+  test("the release step needs a profile and sends it trimmed", () => {
+    expect(
+      agentReleaseStep.safeParse({ runtime_profile_id: "  " }).success,
+    ).toBe(false);
+    expect(
+      agentReleaseStep.parse({ runtime_profile_id: " claude-coding-local " }),
+    ).toEqual({ runtime_profile_id: "claude-coding-local" });
   });
 
   test("the value sent is the trimmed one", () => {

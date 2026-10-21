@@ -65,7 +65,7 @@ const splitList = (text: string) =>
  * whose only type is null into `mcp?: never`, so a correct card (the server
  * requires `mcp: null`) does not type-check without this one cast.
  */
-type ApiCard = Omit<
+export type ApiCard = Omit<
   components["schemas"]["CreateAgentRequest"]["card"],
   "capabilities"
 > & {
