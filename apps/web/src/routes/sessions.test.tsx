@@ -17,7 +17,8 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, act, within } = await appHarness();
+const { renderAt, screen, waitFor, act, within, fireEvent } =
+  await appHarness();
 
 const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
@@ -1317,7 +1318,8 @@ describe("session profile", () => {
     ).toBe("");
   });
 
-  test("a message sent by mouse gives the keyboard back to the field", async () => {
+  /** Sends by mouse and holds the receipt; focus has left the send button. */
+  async function sendHeldByMouse(routes: Parameters<typeof renderAt>[1] = {}) {
     const user = await setupUser();
     let release!: (response: Response) => void;
     const held = new Promise<Response>((resolve) => {
@@ -1325,8 +1327,11 @@ describe("session profile", () => {
     });
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
+      ...routes,
       [`POST /v1/sessions/${SESSION_ID}/messages`]: () => held,
     });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
     await user.click(await screen.findByRole("textbox", { name: "메시지" }));
     await user.keyboard("next step");
     const send = screen.getByRole("button", { name: "보내기" });
@@ -1337,26 +1342,61 @@ describe("session profile", () => {
     // Chrome drops focus from a button that turns disabled. The DOM here
     // neither does that nor blurs a disabled button, but it does fall back
     // to the page when the focused element is removed.
-    const stand = document.body.appendChild(document.createElement("input"));
-    stand.focus();
-    stand.remove();
-    expect(document.activeElement?.tagName).toBe("BODY");
-    await act(async () =>
-      release(
-        json(202, {
-          turn_id: "2",
-          receipt_id: RECEIPT_ID,
-          receipt_status: "accepted",
-        }),
-      ),
+    const stand = send.parentElement?.appendChild(
+      document.createElement("input"),
     );
-    expect(
-      await screen.findByText("메시지를 보냈습니다(turn 2)."),
-    ).toBeTruthy();
+    stand?.focus();
+    stand?.remove();
+    expect(document.activeElement?.tagName).toBe("BODY");
+    return async () => {
+      await act(async () =>
+        release(
+          json(202, {
+            turn_id: "2",
+            receipt_id: RECEIPT_ID,
+            receipt_status: "accepted",
+          }),
+        ),
+      );
+      expect(
+        await screen.findByText("메시지를 보냈습니다(turn 2)."),
+      ).toBeTruthy();
+    };
+  }
+
+  test("a message sent by mouse gives the keyboard back to the field", async () => {
+    const accept = await sendHeldByMouse();
+    await accept();
     expect(
       document.activeElement ===
         screen.getByRole("textbox", { name: "메시지" }),
     ).toBe(true);
+  });
+
+  test("a reader who clicked elsewhere while sending keeps their place", async () => {
+    const accept = await sendHeldByMouse();
+    fireEvent.pointerDown(document.body);
+    await accept();
+    expect(document.activeElement?.tagName).toBe("BODY");
+  });
+
+  test("a message accepted after the session paused hands the keyboard to its notice", async () => {
+    let state = { ...detail };
+    const accept = await sendHeldByMouse({
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+    });
+    state = { ...detail, admission_state: "paused", current_turn_id: null };
+    act(() => stream.emit("ev_1", "status", { phase: "idle" }));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("textbox", { name: "메시지" }) as HTMLTextAreaElement)
+          .disabled,
+      ).toBe(true),
+    );
+    await accept();
+    expect(document.activeElement?.textContent).toBe(
+      "메시지를 보냈습니다(turn 2).",
+    );
   });
 
   test("a stopped session offers resume and takes no message", async () => {

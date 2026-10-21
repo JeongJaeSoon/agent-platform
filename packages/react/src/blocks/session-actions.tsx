@@ -446,12 +446,29 @@ export function SessionComposer({
 
   // The send button turns off while sending and Chrome drops focus to the
   // page: give it back to the field, or to the notice if the field is off.
-  const keepFocus = () => {
-    if (!focusLost(rootRef.current)) return;
-    const field = rootRef.current?.querySelector<HTMLElement>(
-      "textarea:not(:disabled)",
-    );
-    (field ?? noticeRef.current)?.focus();
+  // Not when the reader pointed or tabbed elsewhere meanwhile, even at blank
+  // page, which leaves focus on <body> just the same.
+  const keepFocus = async (sending: Promise<void>) => {
+    const root = rootRef.current;
+    const page = root?.ownerDocument;
+    let movedOn = false;
+    const away = (event: Event) => {
+      if (!root?.contains(event.target as Node)) movedOn = true;
+    };
+    page?.addEventListener("pointerdown", away, true);
+    page?.addEventListener("focusin", away, true);
+    try {
+      await sending;
+    } finally {
+      page?.removeEventListener("pointerdown", away, true);
+      page?.removeEventListener("focusin", away, true);
+      if (!movedOn && focusLost(root)) {
+        const field = root?.querySelector<HTMLElement>(
+          "textarea:not(:disabled)",
+        );
+        (field ?? noticeRef.current)?.focus();
+      }
+    }
   };
 
   return (
@@ -467,17 +484,16 @@ export function SessionComposer({
         disabledReason={reason}
         pending={send.isPending}
         error={send.error ? refused(send.error) : undefined}
-        onSend={async (message) => {
+        onSend={(message) => {
           setNotice(null);
-          try {
-            const accepted = await send.mutateAsync({ message });
-            setNotice({
-              kind: "notice",
-              text: t("session.composer.sent", { turn: accepted.turn_id }),
-            });
-          } finally {
-            keepFocus();
-          }
+          return keepFocus(
+            send.mutateAsync({ message }).then((accepted) => {
+              setNotice({
+                kind: "notice",
+                text: t("session.composer.sent", { turn: accepted.turn_id }),
+              });
+            }),
+          );
         }}
       />
       <OutcomeLine ref={noticeRef} outcome={notice} />
