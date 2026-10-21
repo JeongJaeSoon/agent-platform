@@ -36,7 +36,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link, useBlocker } from "@tanstack/react-router";
+import { Link, useBlocker, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
@@ -44,6 +44,7 @@ import { agentQuery, profilesQuery, queryKeys } from "../api/queries.ts";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
+  AGENT_CARD_LANGUAGE_VALUES,
   AgentCardFields,
   type ApiCard,
   CARD_ERROR_FIELDS,
@@ -103,7 +104,9 @@ const isCardDraft = (value: unknown): value is CardDraft =>
     (key) =>
       typeof (value as Record<string, unknown>)[key] ===
       typeof EMPTY_DRAFT[key],
-  );
+  ) &&
+  AGENT_CARD_LANGUAGE_VALUES.includes((value as CardDraft).language) &&
+  ["all", "list"].includes((value as CardDraft).toolsMode);
 
 /**
  * The slug a name suggests: what is left of it in lowercase kebab-case. A
@@ -243,16 +246,21 @@ export function NewAgentFlow({
   });
   const cardInput = useWatch({ control: card.control }) as CardDraft;
   const identityInput = useWatch({ control: identity.control });
+  const router = useRouter();
+  const keepTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the funnel object is new each render
   useEffect(() => {
     if (funnel.step !== "job") return;
     const kept = (funnel.context as Steps["job"]).card;
     if (canonical(kept ?? EMPTY_DRAFT) === canonical(cardInput)) return;
-    const timer = setTimeout(
-      () => void funnel.history.replace("job", { card: cardInput }),
-      KEEP_INPUT_DELAY_MS,
-    );
-    return () => clearTimeout(timer);
+    keepTimer.current = setTimeout(() => {
+      // A back or forward lands before this component hears of it; writing
+      // then would put the job step over the entry just reached.
+      const at = new URLSearchParams(router.history.location.search);
+      if (at.get("new-agent.step") === "job")
+        void funnel.history.replace("job", { card: cardInput });
+    }, KEEP_INPUT_DELAY_MS);
+    return () => clearTimeout(keepTimer.current);
   }, [cardInput, funnel.step]);
 
   // Moving between steps keeps the input; leaving the flow drops what the
@@ -330,6 +338,8 @@ export function NewAgentFlow({
     };
     setSaved(draft);
     writeDraft(flow, draft);
+    // The fields show what was saved, trimmed as the server keeps it.
+    identity.reset({ name: draft.name, slug: draft.slug });
     queryClient.setQueryData(queryKeys.agent(detail.agent.id), detail);
     await queryClient.invalidateQueries({
       queryKey: queryKeys.agents,
@@ -338,6 +348,9 @@ export function NewAgentFlow({
     return {
       agentId: detail.agent.id,
       versionId: savedVersionId(detail, sent),
+      // The job context may hold input from before the last edit; the steps
+      // after it carry what was saved.
+      card: input,
     };
   };
 
@@ -359,9 +372,10 @@ export function NewAgentFlow({
             form={card}
             catalog={catalog}
             focus={moved}
-            onSave={async (values) =>
-              history.push("release", await saveDraft(values, context))
-            }
+            onSave={async (values) => {
+              clearTimeout(keepTimer.current);
+              await history.push("release", await saveDraft(values, context));
+            }}
             refuse={refuse}
           />
         )}
