@@ -5,17 +5,27 @@ import type {
   StartSlackLinkResponse,
 } from "@agent-platform/contracts";
 import { useAgentPlatform } from "@agent-platform/react";
-import { formatTimestamp } from "@agent-platform/ui";
+import { Button, EmptyState, formatTimestamp } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
+import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import type { Outcome } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
+
+const PAGE = "flex flex-col gap-6";
+const TITLE = "m-0 font-semibold text-xl";
+const SECTION = "flex flex-col gap-3";
+const SECTION_TITLE = "m-0 font-semibold text-lg";
+const HINT = "m-0 text-muted-foreground";
+const PRIMARY = "block break-words font-semibold";
+const SECONDARY =
+  "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
 // Refusals whose server message is the product copy written for the person
 // linking (contracts LINK_MESSAGES); the page shows those words unchanged.
@@ -84,19 +94,25 @@ export function LinkedAccountsScreen() {
     [];
 
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("linked.title")}</h1>
-      <p className="web-page__intro">{t("linked.intro")}</p>
-      <OutcomeLine outcome={outcome} />
-      <section className="web-section" aria-labelledby={titleId}>
-        <h2 id={titleId}>{t("linked.slack")}</h2>
+    <div className={PAGE}>
+      <h1 className={TITLE}>{t("linked.title")}</h1>
+      <p className={HINT}>{t("linked.intro")}</p>
+      {outcome ? (
+        outcome.kind === "error" ? (
+          <FormError>{outcome.text}</FormError>
+        ) : (
+          <output className={NOTICE}>{outcome.text}</output>
+        )
+      ) : null}
+      <section className={SECTION} aria-labelledby={titleId}>
+        <h2 id={titleId} className={SECTION_TITLE}>
+          {t("linked.slack")}
+        </h2>
         {accounts.isPending ? (
           <StatusScreen kind="loading" />
         ) : accounts.error ? (
           isApiError(accounts.error, "FORBIDDEN") ? (
-            <p className="web-form__error" role="alert">
-              {linkRefusal(t, accounts.error, role)}
-            </p>
+            <FormError>{linkRefusal(t, accounts.error, role)}</FormError>
           ) : (
             <LoadFailure
               error={accounts.error}
@@ -113,16 +129,16 @@ export function LinkedAccountsScreen() {
         {/* One link per Slack workspace, so another workspace can still
             be added while one is linked. */}
         {accounts.isSuccess ? (
-          <button
+          <Button
             type="button"
-            className="ap-button ap-button--primary"
+            className="self-start"
             // Not held after success: back from Slack (bfcache) must be
             // able to start again.
             disabled={start.isPending}
             onClick={() => start.mutate()}
           >
             {start.isPending ? t("linked.starting") : t("linked.connect")}
-          </button>
+          </Button>
         ) : null}
       </section>
     </div>
@@ -140,33 +156,39 @@ function SlackAccounts({
 }) {
   const { t, locale } = useI18n();
   if (accounts.length === 0) {
-    return <p className="web-page__empty">{t("linked.none")}</p>;
+    return <EmptyState title={t("linked.none")} />;
   }
   return (
-    <ul className="web-list">
+    <ul className="m-0 flex list-none flex-col p-0">
       {accounts.map((account) => (
-        <li key={account.id} className="web-list__item">
-          <span className="web-table__primary">
-            {t("linked.slackAccount", {
-              user: account.external_user_id,
-              team: account.external_tenant,
-            })}
+        <li
+          key={account.id}
+          className="flex flex-col items-start gap-1 border-b py-3 sm:flex-row sm:items-center sm:gap-3"
+        >
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className={PRIMARY}>
+              {t("linked.slackAccount", {
+                user: account.external_user_id,
+                team: account.external_tenant,
+              })}
+            </span>
+            <span className={SECONDARY}>
+              {account.status === "stale"
+                ? t("linked.stale")
+                : t("linked.verified", {
+                    at: formatTimestamp(account.verified_at, locale),
+                  })}
+            </span>
           </span>
-          <span className="web-table__secondary">
-            {account.status === "stale"
-              ? t("linked.stale")
-              : t("linked.verified", {
-                  at: formatTimestamp(account.verified_at, locale),
-                })}
-          </span>
-          <button
+          <Button
             type="button"
-            className="ap-button"
+            variant="outline"
+            size="sm"
             disabled={unlinking === account.id}
             onClick={() => onUnlink(account)}
           >
             {t("linked.unlink")}
-          </button>
+          </Button>
         </li>
       ))}
     </ul>
@@ -233,14 +255,12 @@ export function SlackLinkCallbackScreen() {
         ? linkRefusal(t, finish.error, role)
         : null;
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("linked.title")}</h1>
+    <div className={PAGE}>
+      <h1 className={TITLE}>{t("linked.title")}</h1>
       {failure ? (
         <>
-          <p className="web-form__error" role="alert">
-            {failure}
-          </p>
-          <p>
+          <FormError>{failure}</FormError>
+          <p className="m-0">
             <Link to="/settings/linked-accounts">{t("linked.back")}</Link>
           </p>
         </>
