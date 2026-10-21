@@ -480,7 +480,7 @@ describe("권한", () => {
   });
 
   test("이 빌드가 모르는 역할이어도 서버가 목록을 주면 관리할 수 있다", async () => {
-    const future = { ...me(), principal: { ...me().principal, role: "admin" } };
+    const future = { ...me(undefined, "admin"), permissions: me().permissions };
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, future),
       "GET /v1/members": () => json(200, { items: [owner, teammate] }),

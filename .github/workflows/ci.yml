@@ -171,6 +171,7 @@ jobs:
               - packages/contracts/
               - packages/client/
               - packages/core/
+              - packages/react/
               - packages/ui/
               - apps/web/
               - apps/storybook/

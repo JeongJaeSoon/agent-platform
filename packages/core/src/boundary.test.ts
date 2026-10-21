@@ -52,15 +52,18 @@ async function runtimeGraph(entry: string): Promise<Set<string>> {
   return external;
 }
 
-test("the package source names no UI framework, router or schema library, not even as types", async () => {
+test("the package source names no UI framework or router, and zod only under schemas/, not even as types", async () => {
   const files = await sourceFiles();
   expect(files).toContain("index.ts");
+  expect(files).toContain("schemas/index.ts");
   const found: string[] = [];
   for (const name of files) {
+    const banned = name.startsWith("schemas/")
+      ? [...UI, ...ROUTERS]
+      : [...UI, ...ROUTERS, "zod"];
     const source = await readFile(`${import.meta.dir}/${name}`, "utf8");
     for (const specifier of specifiers(source)) {
-      const pkg = packageName(specifier);
-      if ([...UI, ...ROUTERS, "zod"].includes(pkg)) {
+      if (banned.includes(packageName(specifier))) {
         found.push(`${name} -> ${specifier}`);
       }
     }
@@ -75,6 +78,12 @@ test("the root entry reaches no zod and no UI framework at runtime", async () =>
   expect([...reached].filter((pkg) => [...UI, "zod"].includes(pkg))).toEqual(
     [],
   );
+});
+
+test("the schemas entry reaches zod through the contracts and no UI framework", async () => {
+  const reached = await runtimeGraph(`${import.meta.dir}/schemas/index.ts`);
+  expect(reached).toContain("zod");
+  expect([...reached].filter((pkg) => UI.includes(pkg))).toEqual([]);
 });
 
 test("the package takes a client and never builds one or fetches itself", async () => {

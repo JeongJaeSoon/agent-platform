@@ -68,6 +68,7 @@
         "@agent-platform/client": "workspace:*",
         "@agent-platform/contracts": "workspace:*",
         "@agent-platform/core": "workspace:*",
+        "@agent-platform/react": "workspace:*",
         "@agent-platform/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@radix-ui/react-dialog": "^1.1.23",
@@ -164,6 +165,7 @@
         "@agent-platform/client": "workspace:*",
         "@agent-platform/contracts": "workspace:*",
         "@tanstack/query-core": "5.103.2",
+        "zod": "4.6.5",
       },
     },
     "packages/db": {
@@ -199,6 +201,19 @@
       },
       "devDependencies": {
         "@agent-platform/testkit": "workspace:*",
+      },
+    },
+    "packages/react": {
+      "name": "@agent-platform/react",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@agent-platform/client": "workspace:*",
+        "@agent-platform/core": "workspace:*",
+        "@tanstack/react-query": "5.103.2",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
       },
     },
     "packages/runtime-core": {
@@ -293,6 +308,8 @@
     "@agent-platform/observability": ["@agent-platform/observability@workspace:packages/observability"],
 
     "@agent-platform/platform": ["@agent-platform/platform@workspace:packages/platform"],
+
+    "@agent-platform/react": ["@agent-platform/react@workspace:packages/react"],
 
     "@agent-platform/runtime-claude": ["@agent-platform/runtime-claude@workspace:packages/adapters/runtimes/claude"],
 
