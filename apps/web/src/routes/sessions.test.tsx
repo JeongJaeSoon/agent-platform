@@ -784,6 +784,51 @@ describe("session profile", () => {
     );
   });
 
+  test("focus moves on too when an event takes the card before the answer's receipt", async () => {
+    const user = await setupUser();
+    const second = {
+      ...pending.items[0],
+      request_id: "req_2",
+      tool: "Write",
+      expires_at: LATER,
+    };
+    let open = [{ ...pending.items[0], expires_at: LATER }, second];
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let posted = false;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { items: open }),
+      [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+        posted = true;
+        return held;
+      },
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    const [allow] = await screen.findAllByRole("button", { name: "허용" });
+    allow?.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(posted).toBe(true));
+    open = [second];
+    act(() => stream.emit("ev_1", "status", { phase: "running" }));
+    // waitFor's polling starves the refetch while the answer is held, so the
+    // test waits on the clock instead.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(screen.queryByText("권한 요청: Bash")).toBeNull();
+    expect(document.activeElement?.closest("article")?.textContent).toContain(
+      "권한 요청: Write",
+    );
+    await act(async () =>
+      release(
+        json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
+      ),
+    );
+  });
+
   test("a denial carries its reason, and an expired request says why it was refused", async () => {
     const user = await setupUser();
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {

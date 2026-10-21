@@ -108,7 +108,7 @@ export function PendingAnswers({
   const busyId = answer.isPending ? answer.variables?.request_id : undefined;
   const listRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLOutputElement>(null);
-  // The answered request whose card may still hold the keyboard.
+  // The request just answered, whose card may still hold the keyboard.
   const answered = useRef<string | null>(null);
 
   // An answered card leaves with the next read and takes focus with it:
@@ -120,29 +120,36 @@ export function PendingAnswers({
     }
     answered.current = null;
     if (document.activeElement !== document.body) return;
-    const next = listRef.current?.querySelector<HTMLElement>(
-      "li button:not(:disabled), li input:not(:disabled)",
-    );
+    // While another answer is on its way the buttons are off; the next
+    // card's folded input still takes focus.
+    const root = listRef.current;
+    const next =
+      root?.querySelector<HTMLElement>(
+        "li button:not(:disabled), li input:not(:disabled)",
+      ) ?? root?.querySelector<HTMLElement>("li summary");
     (next ?? noticeRef.current)?.focus();
   }, [items]);
 
   const send = (body: Parameters<typeof answer.mutate>[0]) => {
     setOutcome(null);
+    // Marked before the request: an event can take the card away before
+    // the answer's receipt comes back.
+    answered.current = body.request_id;
     answer.mutate(body, {
-      onSuccess: () => {
-        answered.current = body.request_id;
+      onSuccess: () =>
         setOutcome({
           kind: "notice",
           requestId: body.request_id,
           text: t("session.answer.sent"),
-        });
-      },
-      onError: (error) =>
+        }),
+      onError: (error) => {
+        answered.current = null;
         setOutcome({
           kind: "error",
           requestId: body.request_id,
           text: refused(error),
-        }),
+        });
+      },
     });
   };
   const errorFor = (request: PendingRequest) =>
