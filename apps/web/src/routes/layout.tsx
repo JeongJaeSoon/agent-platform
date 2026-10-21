@@ -1,3 +1,4 @@
+import { ApiError, isApiError, unwrap } from "@agent-platform/client";
 import { useAgentPlatform } from "@agent-platform/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,7 +7,6 @@ import {
   Outlet,
   useNavigate,
 } from "@tanstack/react-router";
-import { ApiError, isApiError, unwrap } from "../api/client.ts";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";

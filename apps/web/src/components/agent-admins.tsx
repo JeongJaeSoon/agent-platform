@@ -1,3 +1,4 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   AgentAdminChangeResponse,
   AgentAdminKind,
@@ -7,7 +8,6 @@ import { ConfirmDialog } from "@agent-platform/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
 import {
   administeredAgentsQuery,
   agentAdminsQuery,
