@@ -2,6 +2,7 @@ import {
   type AgentCard,
   acceptInviteRequestSchema,
   agentCardSchema,
+  createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
 } from "@agent-platform/contracts";
@@ -21,6 +22,13 @@ const trimmed = <T extends z.ZodType<unknown, string>>(field: T) =>
 export const agentIdentityStep = z.object({
   slug: trimmed(createAgentRequestSchema.shape.slug),
   name: trimmed(createAgentRequestSchema.shape.name),
+});
+
+/** The release step of making an agent: the version comes from the saved draft. */
+export const agentReleaseStep = z.object({
+  runtime_profile_id: trimmed(
+    createAgentReleaseRequestSchema.shape.runtime_profile_id,
+  ),
 });
 
 export const inviteStep = z.object({

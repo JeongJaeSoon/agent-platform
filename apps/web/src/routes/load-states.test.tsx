@@ -4,7 +4,7 @@ import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness, type Routes } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, within } = await appHarness();
+const { renderAt, screen, waitFor, within } = await appHarness();
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const failing = () => apiError(503, "BACKEND_UNAVAILABLE", "down", true);
@@ -164,9 +164,24 @@ describe("불러오기 실패", () => {
 });
 
 describe("주소 이름 형식", () => {
+  test("/agents/new: 형식이 틀린 식별자는 허용 형식을 알리고 다음으로 넘기지 않는다", async () => {
+    renderAt("/agents/new", meOk);
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "결제");
+    const input = screen.getByLabelText("식별자");
+    await user.type(input, "Bad Slug");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await waitFor(() =>
+      expect(input.getAttribute("aria-invalid")).toBe("true"),
+    );
+    expect(
+      input.closest("[data-slot=field]")?.querySelector("[role=alert]")
+        ?.textContent,
+    ).toContain("영어 소문자·숫자·하이픈(-)");
+  });
+
   for (const item of [
     { path: "/bootstrap", label: "워크스페이스 주소 이름", routes: {} },
-    { path: "/agents/new", label: "주소 이름", routes: meOk },
   ]) {
     test(`${item.path}: 형식이 틀리면 허용 형식을 알려 준다`, async () => {
       renderAt(item.path, item.routes);

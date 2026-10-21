@@ -92,6 +92,8 @@ export const useDialogFunnel = createFunnel(
   tanstackRouterOver({ restart: true }),
 );
 
+const ANNOUNCE_DELAY_MS = 100;
+
 /** Says a flow started over because its saved input no longer fit. */
 export function FunnelResetNotice({
   funnel,
@@ -99,10 +101,17 @@ export function FunnelResetNotice({
   readonly funnel: FunnelReset;
 }) {
   const { t } = useI18n();
-  // The live region stays mounted so the text is read when it appears.
+  // A live region that arrives already holding its text is not read out, and
+  // a reload knows about the reset at the first render. So the region goes in
+  // empty and the text follows a moment later.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setReady(true), ANNOUNCE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
   return (
     <div aria-live="polite">
-      {funnel.reset ? (
+      {ready && funnel.reset ? (
         <div className="web-notice flex items-start justify-between gap-3">
           <p className="m-0">{t("flow.reset")}</p>
           <Button variant="ghost" size="sm" onClick={funnel.dismissReset}>

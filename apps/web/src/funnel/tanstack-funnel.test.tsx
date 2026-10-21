@@ -312,9 +312,25 @@ describe("a step guard that turns the input away", () => {
       "/flow?new-agent.step=role",
     );
     const user = await setupUser();
+    // What the live region held when it entered the page.
+    const arrived: string[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof Element)
+            for (const region of [
+              ...(node.matches("[aria-live]") ? [node] : []),
+              ...node.querySelectorAll("[aria-live]"),
+            ])
+              arrived.push(region.textContent ?? "");
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
     mount();
     await at("name:{}");
     expect(await screen.findByText(RESET_TEXT)).toBeTruthy();
+    watch.disconnect();
+    // It arrived empty, so the text that followed is read out.
+    expect(arrived).toEqual([""]);
     // The stale input is gone, so the next reload starts clean too.
     await waitFor(() =>
       expect((stored() as unknown[]).at(-1)).toEqual({
