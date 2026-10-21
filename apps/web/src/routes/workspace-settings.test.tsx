@@ -137,6 +137,32 @@ describe("워크스페이스 설정", () => {
     ).toEqual([{ audit_retention_days: 29 }]);
   });
 
+  test("화면의 최대치는 계약의 최대치와 같다", async () => {
+    const { AUDIT_RETENTION_MAX_DAYS: contract } = await import(
+      "@agent-platform/contracts"
+    );
+    const { AUDIT_RETENTION_MAX_DAYS } = await import(
+      "./workspace-settings.tsx"
+    );
+    expect(AUDIT_RETENTION_MAX_DAYS).toBe(contract);
+  });
+
+  test("최대치를 넘기면 최대치를 넘겼다고 알린다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${RETENTION}`]: () =>
+        apiError(400, "BAD_REQUEST", "Invalid request body"),
+    });
+    const input = await screen.findByLabelText("보존 기간(일)");
+    const user = await setupUser();
+    await user.clear(input);
+    await user.type(input, "99999");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "감사 기록은 최대 3650일까지 보존할 수 있습니다. 3650일 이하로 정하세요.",
+    );
+  });
+
   test("관리자는 화면을 보지만 저장은 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
     const { api } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, adminMe()),
@@ -147,7 +173,7 @@ describe("워크스페이스 설정", () => {
       document.getElementById(save.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
-      "audit_retention.manage 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
     );
     expect(
       (screen.getByLabelText("보존 기간(일)") as HTMLInputElement).disabled,
@@ -155,7 +181,7 @@ describe("워크스페이스 설정", () => {
     expect(api.calls.some((c) => c.path === RETENTION)).toBe(false);
   });
 
-  test("서버가 403이면 같은 이유 문구와 서버 문구다", async () => {
+  test("서버가 403이면 같은 이유 문구이고 서버의 영어 문구는 없다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
       [`POST ${RETENTION}`]: () =>
@@ -164,7 +190,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "저장" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "audit_retention.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. Only an owner can change audit retention",
+      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });
 
@@ -214,20 +240,26 @@ describe("워크스페이스 설정", () => {
     ).toEqual([{ slack_guest_enabled: false }]);
   });
 
-  test("구성원은 게스트 토글이 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
+  test("구성원은 입력 칸 없이 지금 설정만 읽고, 서버에 묻지 않는다", async () => {
     const { api } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, memberMe()),
     });
-    const toggle = await screen.findByRole("switch", GUEST_SWITCH);
-    expect(toggle.hasAttribute("disabled")).toBe(true);
     expect(
-      document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toBe("workspace.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
-    expect(api.calls.some((c) => c.path === GUEST)).toBe(false);
+      await screen.findByText("감사 기록을 90일 보존합니다."),
+    ).toBeDefined();
+    expect(
+      screen.getByText("Slack 게스트는 에이전트를 쓸 수 없습니다."),
+    ).toBeDefined();
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("button", { name: "저장" })).toBeNull();
+    expect(screen.queryByRole("spinbutton")).toBeNull();
+    expect(document.body.textContent).not.toContain(".manage");
+    expect(
+      api.calls.some((c) => c.path === GUEST || c.path === RETENTION),
+    ).toBe(false);
   });
 
-  test("게스트 설정을 서버가 403으로 거절하면 같은 이유 문구와 서버 문구다", async () => {
+  test("게스트 설정을 서버가 403으로 거절하면 같은 이유 문구이고 서버의 영어 문구는 없다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, adminMe()),
       [`POST ${GUEST}`]: () =>
@@ -240,7 +272,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("switch", GUEST_SWITCH));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "workspace.manage 권한이 있어야 할 수 있습니다. 지금 역할: 관리자. Only an owner or admin can change the Slack guest setting",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
     );
   });
 

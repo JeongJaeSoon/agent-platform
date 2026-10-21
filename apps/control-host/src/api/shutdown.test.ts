@@ -52,6 +52,10 @@ describe("createShutdown", () => {
     const probe = shutdown.readiness(ready);
     const server = listener(steps);
     expect(await probe()).toEqual({ ready: true });
+    expect(shutdown.stopWaiting.aborted).toBe(false);
+    shutdown.stopWaiting.addEventListener("abort", () =>
+      steps.push("long polls: stop waiting"),
+    );
 
     const done = shutdown.run(
       "SIGTERM",
@@ -68,6 +72,7 @@ describe("createShutdown", () => {
     expect(steps).toEqual([
       "info: Shutdown started; readiness withdrawn",
       "listener: stop",
+      "long polls: stop waiting",
       "info: Stopped accepting connections",
       "listener: drained",
       "info: In-flight requests drained",

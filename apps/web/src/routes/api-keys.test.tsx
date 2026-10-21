@@ -5,8 +5,10 @@ import {
   agentSchema,
   apiKeyViewSchema,
   createApiKeyResponseSchema,
+  SESSION_SCOPE_VALUES,
 } from "@agent-platform/contracts";
 import { setupUser } from "@agent-platform/ui/test-support/dom";
+import { apiKeysEn, apiKeysKo } from "../i18n/api-keys.ts";
 import {
   apiError,
   json,
@@ -17,7 +19,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
 const OTHER_AGENT_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
@@ -127,16 +129,15 @@ describe("API key", () => {
     expect(within(row).getByText("발급자가 떠나도 유효")).toBeDefined();
   });
 
-  test("구성원은 워크스페이스 서비스 key 버튼이 이유와 함께 닫혀 있다", async () => {
+  test("에이전트 관리자인 구성원에게는 워크스페이스 서비스 key 버튼이 없다", async () => {
     renderAt("/settings/api-keys", { ...memberOk, ...keysServer() });
-    const button = await screen.findByRole("button", {
-      name: "워크스페이스 서비스 key 발급",
-    });
-    expect(button.hasAttribute("disabled")).toBe(true);
-    const reasonId = button.getAttribute("aria-describedby") ?? "";
-    expect(document.getElementById(reasonId)?.textContent).toBe(
-      "api_key.manage 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
-    );
+    expect(
+      await screen.findByRole("button", { name: "에이전트 전용 key 발급" }),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: "워크스페이스 서비스 key 발급" }),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("api_key.manage");
   });
 
   test("에이전트 관리자인 구성원은 자기 에이전트 전용 key를 받고, 값은 한 번만 보인다", async () => {
@@ -190,13 +191,29 @@ describe("API key", () => {
     await waitFor(() => expect(cached()).toBe(false));
   });
 
+  test("권한은 이름과 설명으로 고르고, 목록도 이름으로 보인다", async () => {
+    renderAt("/settings/api-keys", {
+      ...memberOk,
+      ...keysServer([key({ scopes: ["sessions:read", "sessions:write"] })]),
+    });
+    const [read] = await screen.findAllByRole("checkbox", {
+      name: "세션 보기 sessions:read",
+    });
+    expect(describedBy(read as HTMLElement)[0]).toContain(
+      "영수증·사용량·공유 설정",
+    );
+    expect(
+      await screen.findByText(/ID [0-9a-f]{8} · 세션 보기, 세션 만들기 · /),
+    ).toBeDefined();
+  });
+
   test("승인 범위만 고르면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
     renderAt("/settings/api-keys", { ...memberOk, ...keysServer() });
     const user = await setupUser();
     await screen.findByRole("option", { name: "Billing" });
     const service = screen.getByRole("region", { name: "서비스 key" });
     await user.click(
-      within(service).getByRole("checkbox", { name: "sessions:read" }),
+      within(service).getByRole("checkbox", { name: /sessions:read/ }),
     );
     await user.click(
       within(service).getByRole("checkbox", { name: /sessions:approve/ }),
@@ -233,20 +250,23 @@ describe("API key", () => {
     expect(screen.queryByText("관리하는 에이전트가 없습니다.")).toBeNull();
   });
 
-  test("관리하는 에이전트가 없으면 에이전트 전용 key 버튼이 이유와 함께 닫혀 있다", async () => {
-    renderAt("/settings/api-keys", {
+  test("관리하는 에이전트가 없는 구성원에게는 서비스 key 칸이 없다", async () => {
+    const { services } = renderAt("/settings/api-keys", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
       ...keysServer(),
     });
     expect(
-      await screen.findByText("관리하는 에이전트가 없습니다."),
+      await screen.findByRole("region", { name: "개인 key" }),
     ).toBeDefined();
-    expect(
-      screen
-        .getByRole("button", { name: "에이전트 전용 key 발급" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    // The section stays hidden while the list loads, so wait for the answer.
+    await waitFor(() =>
+      expect(
+        services.queryClient.getQueryState(["administered-agents"])?.status,
+      ).toBe("success"),
+    );
+    expect(screen.queryByRole("region", { name: "서비스 key" })).toBeNull();
+    expect(document.body.textContent).not.toContain("api_key.manage");
   });
 
   test("개인 key는 고른 범위와 만료일로 발급한다", async () => {
@@ -276,6 +296,72 @@ describe("API key", () => {
     expect((await screen.findAllByText("개인 key")).length).toBe(2);
   });
 
+  test("만료일은 오늘부터 고를 수 있다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
+    const personal = await screen.findByRole("region", { name: "개인 key" });
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    expect(
+      within(personal)
+        .getByLabelText(/^만료일/)
+        .getAttribute("min"),
+    ).toBe(
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    );
+  });
+
+  test("서비스 key도 지난 날짜를 만료일로 보내지 않는다", async () => {
+    const { api } = renderAt("/settings/api-keys", {
+      ...ownerOk,
+      ...keysServer(),
+    });
+    const user = await setupUser();
+    const service = await screen.findByRole("region", { name: "서비스 key" });
+    await user.type(within(service).getByLabelText(/^만료일/), "2020-01-01");
+    await user.click(
+      within(service).getByRole("button", {
+        name: "워크스페이스 서비스 key 발급",
+      }),
+    );
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+    expect(screen.queryByRole("region", { name: "새 key" })).toBeNull();
+  });
+
+  test("새 key 값으로 포커스가 가고, 복사에 실패하면 그렇다고 알린다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
+    const user = await setupUser();
+    const personal = await screen.findByRole("region", { name: "개인 key" });
+    await user.click(
+      within(personal).getByRole("button", { name: "개인 key 발급" }),
+    );
+    const secret = await screen.findByRole("region", { name: "새 key" });
+    const field = within(secret).getByLabelText("key 값");
+    await waitFor(() => expect(document.activeElement).toBe(field));
+
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    });
+    try {
+      const copyButton = within(secret).getByRole("button", { name: "복사" });
+      // The refusal settles after user-event's click returns; act flushes it.
+      await act(async () => copyButton.click());
+      expect((await within(secret).findByRole("alert")).textContent).toBe(
+        "복사하지 못했습니다. 위 칸의 값을 직접 선택해 복사하세요.",
+      );
+      expect(document.activeElement).toBe(field);
+      expect(within(secret).queryByText("복사했습니다")).toBeNull();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   test("폐기는 확인 뒤에 하고 행이 폐기됨으로 바뀐다", async () => {
     renderAt("/settings/api-keys", { ...ownerOk, ...keysServer([key()]) });
     const user = await setupUser();
@@ -295,7 +381,7 @@ describe("API key", () => {
     await waitFor(() => expect(screen.getByText(/^폐기됨/)).toBeDefined());
   });
 
-  test("가진 것보다 넓은 범위는 서버 거절을 그대로 보인다", async () => {
+  test("가진 것보다 넓은 범위(403)는 우리 문구만 보이고 서버의 영어 문구는 없다", async () => {
     renderAt("/settings/api-keys", {
       ...ownerOk,
       ...keysServer(),
@@ -312,11 +398,11 @@ describe("API key", () => {
       within(personal).getByRole("button", { name: "개인 key 발급" }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다. An agent key cannot carry sessions:approve",
+      "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다.",
     );
   });
 
-  test("역할이 바뀌어 서버가 403이면 같은 이유 문구와 서버 문구다", async () => {
+  test("역할이 바뀌어 서버가 403이면 같은 이유 문구이고 서버의 영어 문구는 없다", async () => {
     renderAt("/settings/api-keys", {
       ...ownerOk,
       ...keysServer(),
@@ -334,7 +420,86 @@ describe("API key", () => {
       }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "api_key.manage 권한이 있어야 할 수 있습니다. 지금 역할: 소유자. This principal does not hold api_key.manage",
+      "서비스 key 발급 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });
+
+  for (const [locale, catalog, region] of [
+    ["ko", apiKeysKo, "개인 key"],
+    ["en", apiKeysEn, "Personal key"],
+  ] as const) {
+    test(`권한마다 무엇을 허락하는지 한 줄 설명이 붙는다 (${locale})`, async () => {
+      renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() }, locale);
+      const personal = await screen.findByRole("region", { name: region });
+      for (const scope of SESSION_SCOPE_VALUES) {
+        const box = within(personal).getByRole("checkbox", {
+          name: new RegExp(`${scope}$`),
+        });
+        const hint = `apiKeys.scopeHint.${scope.slice("sessions:".length)}`;
+        expect(describedBy(box)).toEqual([
+          catalog[hint as keyof typeof catalog],
+        ]);
+      }
+    });
+  }
+
+  test("에이전트 전용 key에 넣을 수 없는 권한은 설명 뒤에 그 이유도 읽힌다", async () => {
+    renderAt("/settings/api-keys", { ...ownerOk, ...keysServer() });
+    const service = await screen.findByRole("region", { name: "서비스 key" });
+    expect(
+      describedBy(
+        within(service).getByRole("checkbox", {
+          name: "요청에 답하기 sessions:approve",
+        }),
+      ),
+    ).toEqual([
+      "세션이 기다리는 권한 요청과 질문에 답합니다.",
+      "에이전트 전용 key에는 넣을 수 없습니다. 에이전트가 사람 대신 승인할 수는 없습니다.",
+    ]);
+  });
+
+  test("발급된 값은 query 캐시와 console에 남지 않는다", async () => {
+    const logged: unknown[] = [];
+    const methods = ["log", "info", "warn", "error", "debug"] as const;
+    const originals = methods.map((name) => console[name]);
+    for (const name of methods) {
+      console[name] = (...args: unknown[]) => {
+        logged.push(...args);
+      };
+    }
+    try {
+      const { services } = renderAt("/settings/api-keys", {
+        ...ownerOk,
+        ...keysServer(),
+      });
+      const user = await setupUser();
+      const personal = await screen.findByRole("region", { name: "개인 key" });
+      await user.click(
+        within(personal).getByRole("button", { name: "개인 key 발급" }),
+      );
+      await screen.findByRole("region", { name: "새 key" });
+      // The list refetch after issuing must carry the key, not its secret.
+      await waitFor(() =>
+        expect(screen.getAllByText("개인 key").length).toBe(2),
+      );
+      const queries = services.queryClient.getQueryCache().getAll();
+      expect(
+        queries.some((q) =>
+          JSON.stringify(q.state.data ?? null).includes(SECRET),
+        ),
+      ).toBe(false);
+      expect(logged.some((arg) => String(arg).includes(SECRET))).toBe(false);
+    } finally {
+      methods.forEach((name, index) => {
+        console[name] = originals[index] as (typeof console)[typeof name];
+      });
+    }
+  });
 });
+
+function describedBy(element: HTMLElement): string[] {
+  return (element.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? `missing:${id}`);
+}

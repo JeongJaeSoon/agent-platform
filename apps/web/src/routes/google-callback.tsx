@@ -1,11 +1,15 @@
-import { useMutation } from "@tanstack/react-query";
+import {
+  type ApiError,
+  CSRF_HEADER_VALUE,
+  unwrap,
+} from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "../api/client.ts";
-import { Main } from "../components/main.tsx";
+import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 import { POST_LOGIN_PATH_KEY, safeRedirect } from "./login.tsx";
 
 export interface GoogleCallbackSearch {
@@ -26,6 +30,8 @@ export function googleCallbackSearch(
 function refusalKey(error: ApiError): MessageKey {
   if (error.code === "UNAUTHORIZED") return "login.google.rejected";
   if (error.code === "FORBIDDEN") return "login.google.forbidden";
+  // The callback route answers 404 only when Google sign-in is not set up.
+  if (error.code === "NOT_FOUND") return "login.google.unavailable";
   return errorKey(error.code);
 }
 
@@ -46,7 +52,8 @@ function takePostLoginPath(): string {
  */
 export function GoogleCallbackScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { code, state } = useSearch({ from: "/auth/google/callback" });
   const sent = useRef(false);
@@ -76,20 +83,21 @@ export function GoogleCallbackScreen() {
 
   const failure = !code || !state ? "login.google.cancelled" : null;
   return (
-    <Main className="web-auth">
-      <h1 className="web-auth__title">{t("login.google.title")}</h1>
+    <AuthPage title={t("login.google.title")}>
       {failure || finish.error ? (
         <>
-          <p className="web-form__error" role="alert">
+          <FormError>
             {t(failure ?? refusalKey(finish.error as ApiError))}
-          </p>
-          <p className="web-auth__aside">
-            <Link to="/login">{t("login.google.backToLogin")}</Link>
+          </FormError>
+          <p className={ASIDE}>
+            <Link className={LINK} to="/login">
+              {t("login.google.backToLogin")}
+            </Link>
           </p>
         </>
       ) : (
         <StatusScreen kind="loading" />
       )}
-    </Main>
+    </AuthPage>
   );
 }

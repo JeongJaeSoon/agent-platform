@@ -1,11 +1,21 @@
+import { isApiError } from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
-import { type ApiError, isApiError } from "../api/client.ts";
 import { myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
-import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
+import { LoadFailure } from "./load-failure.tsx";
+
+export const SECTION = "flex flex-col gap-3";
+export const SECTION_TITLE = "m-0 font-semibold text-lg";
+export const MUTED = "m-0 text-muted-foreground";
+export const LIST = "m-0 flex list-none flex-col gap-2 p-0";
+export const LIST_ITEM =
+  "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card p-3";
+export const PRIMARY_LINK =
+  "font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]";
 
 /**
  * The teams the viewer is in. A team links to its page only for those who
@@ -18,7 +28,7 @@ export function MyTeams({
   readonly showEmpty: boolean;
 }) {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const manages = useHasPermission("team.manage");
   const teams = useQuery(myTeamsQuery(client));
   const titleId = useId();
@@ -29,30 +39,32 @@ export function MyTeams({
   if (!teams.error && items.length === 0 && !showEmpty) return null;
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("teams.mine.title")}</h2>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("teams.mine.title")}
+      </h2>
       {teams.error ? (
-        <p className="web-form__error" role="alert">
-          {t(errorKey((teams.error as ApiError).code))}
-        </p>
+        <LoadFailure error={teams.error} onRetry={() => void teams.refetch()} />
       ) : items.length === 0 ? (
-        <p className="web-page__empty">{t("teams.mine.empty")}</p>
+        <p className={MUTED}>{t("teams.mine.empty")}</p>
       ) : (
         <>
-          <p className="web-field__hint">{t("teams.mine.intro")}</p>
-          <ul className="web-list">
+          <p className={`${MUTED} text-sm`}>{t("teams.mine.intro")}</p>
+          <ul className={LIST}>
             {items.map((team) => (
-              <li key={team.id} className="web-list__item">
+              <li key={team.id} className={LIST_ITEM}>
                 {manages ? (
                   <Link
                     to="/teams/$teamId"
                     params={{ teamId: team.id }}
-                    className="web-table__primary"
+                    className={PRIMARY_LINK}
                   >
                     {team.name}
                   </Link>
                 ) : (
-                  <span className="web-table__primary">{team.name}</span>
+                  <span className="font-medium [overflow-wrap:anywhere]">
+                    {team.name}
+                  </span>
                 )}
               </li>
             ))}

@@ -1,28 +1,50 @@
+import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
 import type {
   Invite,
   MemberView,
   WorkspaceRole,
 } from "@agent-platform/contracts";
-import { ConfirmDialog, formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useId, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
+import { useAgentPlatform } from "@agent-platform/react";
+import {
+  Badge,
+  Button,
+  buttonVariants,
+  ConfirmDialog,
+  EmptyState,
+  formatTimestamp,
+  NativeSelect,
+  NativeSelectOption,
+} from "@agent-platform/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useId, useState } from "react";
 import { invitesQuery, membersQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
   roleLabel,
+  useHasPermission,
+  useMe,
   usePermissionReason,
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
-import { TextField } from "../components/field.tsx";
+import { FormError, NOTICE } from "../components/auth-page.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { TableScroll } from "../components/table-scroll.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
+import { InviteDialog } from "./invite-dialog.tsx";
 
-// The least authority; anything more is a choice the inviter makes.
-const DEFAULT_INVITE_ROLE: WorkspaceRole = "member";
+const PAGE = "flex flex-col gap-6";
+const TITLE = "m-0 font-semibold text-xl";
+const SECTION = "flex flex-col gap-3";
+const SECTION_TITLE = "m-0 font-semibold text-lg";
+const MUTED = "m-0 text-muted-foreground";
+const CELL = "border-b p-2 text-left align-top";
+const PRIMARY =
+  "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
+const SECONDARY =
+  "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -35,46 +57,63 @@ type Outcome =
  */
 function refusal(t: Translate, error: ApiError, role: string | undefined) {
   if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, "member.manage", role)} ${error.message}`;
+    return permissionReason(t, "member.manage", role);
   return t(errorKey(error.code));
 }
 
 export function MembersScreen() {
   const { t } = useI18n();
-  const { client } = useServices();
-  const members = useQuery(membersQuery(client));
+  const { client } = useAgentPlatform();
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...membersQuery(client), enabled: manages });
   const reason = usePermissionReason("member.manage", members);
+  // The list is also the permission probe: when it failed, nobody knows.
+  const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
 
+  if (!manages) {
+    return (
+      <div className={PAGE}>
+        <h1 className={TITLE}>{t("members.title")}</h1>
+        <p className={MUTED}>{t("members.withheld")}</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("members.title")}</h1>
+    <div className={PAGE}>
+      <h1 className={TITLE}>{t("members.title")}</h1>
       {outcome ? (
         outcome.kind === "error" ? (
-          <p className="web-form__error" role="alert">
-            {outcome.text}
-          </p>
+          <FormError>{outcome.text}</FormError>
         ) : (
-          <output className="web-notice">{outcome.text}</output>
+          <output className={NOTICE}>{outcome.text}</output>
         )
       ) : null}
-      <InviteForm
-        reason={reason}
-        members={members.data?.items ?? []}
-        onOutcome={setOutcome}
-      />
-      <section className="web-section" aria-labelledby={titleId}>
-        <h2 id={titleId}>{t("members.listTitle")}</h2>
+      {failed ? null : (
+        <div>
+          <InviteDialog
+            reason={reason}
+            members={members.data?.items ?? []}
+            refusal={(error, role) => refusal(t, error, role)}
+          />
+        </div>
+      )}
+      <section className={SECTION} aria-labelledby={titleId}>
+        <h2 id={titleId} className={SECTION_TITLE}>
+          {t("members.listTitle")}
+        </h2>
         {members.isPending ? (
           <StatusScreen kind="loading" />
         ) : members.error ? (
           isApiError(members.error, "FORBIDDEN") ? (
-            <StatusScreen kind="forbidden" detail={members.error.message} />
+            <StatusScreen kind="forbidden" />
           ) : (
-            <p className="web-form__error" role="alert">
-              {t(errorKey((members.error as ApiError).code))}
-            </p>
+            <LoadFailure
+              error={members.error}
+              onRetry={() => void members.refetch()}
+            />
           )
         ) : (
           <MemberTable items={members.data.items} onOutcome={setOutcome} />
@@ -82,151 +121,6 @@ export function MembersScreen() {
       </section>
       {members.isSuccess ? <InviteList onOutcome={setOutcome} /> : null}
     </div>
-  );
-}
-
-function InviteForm({
-  reason,
-  members,
-  onOutcome,
-}: {
-  readonly reason: string | undefined;
-  readonly members: readonly MemberView[];
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
-  const { t } = useI18n();
-  const { client, queryClient } = useServices();
-  const role = useRole();
-  const [email, setEmail] = useState("");
-  const [inviteRole, setInviteRole] =
-    useState<WorkspaceRole>(DEFAULT_INVITE_ROLE);
-  const [link, setLink] = useState<{ url: string; expires: string } | null>(
-    null,
-  );
-  const titleId = useId();
-
-  const invite = useMutation<
-    { invite_token: string; expires_at: string },
-    ApiError
-  >({
-    mutationFn: () =>
-      unwrap(
-        client.POST("/v1/invites", {
-          body: { email: email.trim(), role: inviteRole },
-        }),
-      ),
-    onMutate: () => {
-      onOutcome(null);
-      setLink(null);
-    },
-    onSuccess: async (created) => {
-      setLink({
-        url: `${window.location.origin}/invite/${encodeURIComponent(created.invite_token)}`,
-        expires: created.expires_at,
-      });
-      setEmail("");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.invites });
-    },
-    onError: (error) =>
-      onOutcome({ kind: "error", text: refusal(t, error, role) }),
-  });
-
-  // Re-inviting someone whose membership is off leads nowhere when their
-  // account has no password (Google sign-in only): the invite asks for one.
-  // Enabling the membership is the way back for everyone.
-  const disabledMatch = members.find(
-    (member) =>
-      member.disabled_at !== null &&
-      member.email.toLowerCase() === email.trim().toLowerCase(),
-  );
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    invite.mutate();
-  };
-
-  return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("members.invite.title")}</h2>
-      <form className="web-form web-form--inline" onSubmit={submit}>
-        <TextField
-          label={t("members.invite.email")}
-          hint={
-            disabledMatch
-              ? t("members.invite.disabledHint", {
-                  name: disabledMatch.display_name,
-                })
-              : undefined
-          }
-          type="email"
-          name="email"
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-        <label className="web-field">
-          <span>{t("members.invite.role")}</span>
-          <select
-            className="ap-input"
-            value={inviteRole}
-            onChange={(event) =>
-              setInviteRole(event.target.value as WorkspaceRole)
-            }
-          >
-            {WORKSPACE_ROLE_VALUES.map((value) => (
-              <option key={value} value={value}>
-                {roleLabel(t, value)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <ReasonButton
-          type="submit"
-          className="ap-button ap-button--primary"
-          reason={reason}
-          disabled={invite.isPending}
-        >
-          {invite.isPending
-            ? t("members.invite.submitting")
-            : t("members.invite.submit")}
-        </ReasonButton>
-      </form>
-      {link ? (
-        <div className="web-invite-link" data-testid="invite-link">
-          <label className="web-field">
-            <span>{t("members.invite.link")}</span>
-            <input
-              className="ap-input"
-              type="text"
-              readOnly
-              value={link.url}
-              onFocus={(event) => event.target.select()}
-            />
-          </label>
-          <p className="web-field__hint">
-            {t("members.invite.linkOnce", {
-              expires: formatTimestamp(link.expires),
-            })}
-          </p>
-          <button
-            type="button"
-            className="ap-button"
-            onClick={() => {
-              void navigator.clipboard?.writeText(link.url).then(
-                () =>
-                  onOutcome({
-                    kind: "notice",
-                    text: t("members.invite.copied"),
-                  }),
-                () => {},
-              );
-            }}
-          >
-            {t("members.invite.copy")}
-          </button>
-        </div>
-      ) : null}
-    </section>
   );
 }
 
@@ -238,9 +132,27 @@ function MemberTable({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const [confirming, setConfirming] = useState<MemberView | null>(null);
+  // A picked role waits here for the confirmation; arrowing through the
+  // select must not send a role on every step.
+  const [roleChange, setRoleChange] = useState<{
+    member: MemberView;
+    role: WorkspaceRole;
+  } | null>(null);
+  const self = useMe()?.user?.id;
+  const activeOwners = items.filter(
+    (member) => member.role === "owner" && member.disabled_at === null,
+  ).length;
+  // The server refuses both; the button says so before anyone asks.
+  const keepReason = (member: MemberView) =>
+    member.user_id === self
+      ? t("members.disableSelf")
+      : member.role === "owner" && activeOwners === 1
+        ? t("members.disableLastOwner")
+        : undefined;
 
   const settle = async (text: string) => {
     onOutcome({ kind: "notice", text });
@@ -262,6 +174,7 @@ function MemberTable({
         }),
       ),
     onMutate: () => onOutcome(null),
+    onSettled: () => setRoleChange(null),
     onSuccess: (updated) =>
       settle(
         t("members.roleChanged", {
@@ -305,19 +218,27 @@ function MemberTable({
   });
 
   if (items.length === 0) {
-    return <p className="web-page__empty">{t("members.empty")}</p>;
+    return <EmptyState title={t("members.empty")} />;
   }
 
   return (
     <>
-      <div className="web-table-wrap">
-        <table className="web-table">
+      <TableScroll label={t("members.tableLabel")}>
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              <th scope="col">{t("members.column.name")}</th>
-              <th scope="col">{t("members.column.role")}</th>
-              <th scope="col">{t("members.column.state")}</th>
-              <th scope="col">{t("members.column.actions")}</th>
+              <th scope="col" className={CELL}>
+                {t("members.column.name")}
+              </th>
+              <th scope="col" className={CELL}>
+                {t("members.column.role")}
+              </th>
+              <th scope="col" className={CELL}>
+                {t("members.column.state")}
+              </th>
+              <th scope="col" className={CELL}>
+                {t("members.column.actions")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -329,63 +250,74 @@ function MemberTable({
                 (setAccess.isPending &&
                   setAccess.variables?.member.user_id === member.user_id);
               return (
-                <tr key={member.user_id} data-disabled={disabled}>
-                  <td>
-                    <span className="web-table__primary">
-                      {member.display_name}
-                    </span>
-                    <span className="web-table__secondary">{member.email}</span>
+                <tr
+                  key={member.user_id}
+                  className="group"
+                  data-disabled={disabled}
+                >
+                  <td className={CELL}>
+                    <span className={PRIMARY}>{member.display_name}</span>
+                    <span className={SECONDARY}>{member.email}</span>
                   </td>
-                  <td>
-                    <select
-                      className="ap-input"
+                  <td className={CELL}>
+                    <NativeSelect
+                      size="sm"
+                      className="w-auto"
                       aria-label={t("members.roleFor", {
                         name: member.display_name,
                       })}
                       value={member.role}
                       disabled={busy || disabled}
                       onChange={(event) =>
-                        changeRole.mutate({
+                        setRoleChange({
                           member,
                           role: event.target.value as WorkspaceRole,
                         })
                       }
                     >
                       {WORKSPACE_ROLE_VALUES.map((value) => (
-                        <option key={value} value={value}>
+                        <NativeSelectOption key={value} value={value}>
                           {roleLabel(t, value)}
-                        </option>
+                        </NativeSelectOption>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </td>
-                  <td>
+                  <td className={CELL}>
                     {disabled ? (
-                      <>
-                        <span>{t("members.state.disabled")}</span>
-                        <span className="web-table__secondary">
+                      <span className="flex flex-col items-start gap-1">
+                        <Badge variant="secondary">
+                          {t("members.state.disabled")}
+                        </Badge>
+                        <span className={SECONDARY}>
                           {t("members.enableHint")}
                         </span>
-                      </>
+                      </span>
                     ) : (
-                      t("members.state.active")
+                      <Badge variant="outline">
+                        {t("members.state.active")}
+                      </Badge>
                     )}
                   </td>
-                  <td>
+                  <td className={CELL}>
                     {disabled ? (
-                      <button
+                      <Button
                         type="button"
-                        className="ap-button"
+                        variant="outline"
+                        size="sm"
                         disabled={busy}
                         onClick={() =>
                           setAccess.mutate({ member, enable: true })
                         }
                       >
                         {t("members.enable")}
-                      </button>
+                      </Button>
                     ) : (
-                      <button
-                        type="button"
-                        className="ap-button"
+                      <ReasonButton
+                        className={buttonVariants({
+                          variant: "outline",
+                          size: "sm",
+                        })}
+                        reason={keepReason(member)}
                         disabled={busy}
                         aria-label={t("members.disableFor", {
                           name: member.display_name,
@@ -393,7 +325,7 @@ function MemberTable({
                         onClick={() => setConfirming(member)}
                       >
                         {t("members.disable")}
-                      </button>
+                      </ReasonButton>
                     )}
                   </td>
                 </tr>
@@ -401,7 +333,7 @@ function MemberTable({
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {
@@ -420,6 +352,27 @@ function MemberTable({
             setAccess.mutate({ member: confirming, enable: false });
         }}
       />
+      <ConfirmDialog
+        open={roleChange !== null}
+        onOpenChange={(open) => {
+          if (!open) setRoleChange(null);
+        }}
+        title={t("members.roleChangeTitle", {
+          name: roleChange?.member.display_name ?? "",
+          role: roleChange ? roleLabel(t, roleChange.role) : "",
+        })}
+        consequence={
+          roleChange?.role === "owner"
+            ? t("members.roleChangeOwnerConsequence")
+            : t("members.roleChangeConsequence")
+        }
+        confirmLabel={t("members.roleChangeConfirm")}
+        cancelLabel={t("common.cancel")}
+        busy={changeRole.isPending}
+        onConfirm={() => {
+          if (roleChange) changeRole.mutate(roleChange);
+        }}
+      />
     </>
   );
 }
@@ -429,10 +382,12 @@ function InviteList({
 }: {
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
-  const { t } = useI18n();
-  const { client, queryClient } = useServices();
+  const { t, locale } = useI18n();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
   const role = useRole();
   const invites = useQuery(invitesQuery(client));
+  const [revoking, setRevoking] = useState<Invite | null>(null);
   const titleId = useId();
 
   const revoke = useMutation<unknown, ApiError, Invite>({
@@ -443,6 +398,7 @@ function InviteList({
         }),
       ),
     onMutate: () => onOutcome(null),
+    onSettled: () => setRevoking(null),
     onSuccess: async (_result, invite) => {
       onOutcome({
         kind: "notice",
@@ -458,42 +414,73 @@ function InviteList({
     invites.data?.items.filter((invite) => invite.status === "pending") ?? [];
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("members.invites.title")}</h2>
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("members.invites.title")}
+      </h2>
       {invites.isPending ? (
         <StatusScreen kind="loading" />
       ) : invites.error ? (
-        <p className="web-form__error" role="alert">
-          {refusal(t, invites.error as ApiError, role)}
-        </p>
+        isApiError(invites.error, "FORBIDDEN") ? (
+          <FormError>{refusal(t, invites.error, role)}</FormError>
+        ) : (
+          <LoadFailure
+            error={invites.error}
+            onRetry={() => void invites.refetch()}
+          />
+        )
       ) : pending.length === 0 ? (
-        <p className="web-page__empty">{t("members.invites.empty")}</p>
+        <EmptyState title={t("members.invites.empty")} />
       ) : (
-        <ul className="web-list">
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {pending.map((invite) => (
-            <li key={invite.id} className="web-list__item">
-              <span className="web-table__primary">{invite.email}</span>
-              <span className="web-table__secondary">
-                {roleLabel(t, invite.role)} ·{" "}
-                {t("members.invites.expires", {
-                  expires: formatTimestamp(invite.expires_at),
-                })}
+            <li
+              key={invite.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card p-3"
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className={PRIMARY}>{invite.email}</span>
+                <span className={SECONDARY}>
+                  {roleLabel(t, invite.role)} ·{" "}
+                  {t("members.invites.expires", {
+                    expires: formatTimestamp(invite.expires_at, locale),
+                  })}
+                </span>
               </span>
-              <button
+              <Button
                 type="button"
-                className="ap-button"
+                variant="outline"
+                size="sm"
+                className="ml-auto"
                 disabled={revoke.isPending}
                 aria-label={t("members.invites.revokeFor", {
                   email: invite.email,
                 })}
-                onClick={() => revoke.mutate(invite)}
+                onClick={() => setRevoking(invite)}
               >
                 {t("members.invites.revoke")}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
+      <ConfirmDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevoking(null);
+        }}
+        title={t("members.invites.revokeTitle", {
+          email: revoking?.email ?? "",
+        })}
+        consequence={t("members.invites.revokeConsequence")}
+        confirmLabel={t("members.invites.revoke")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (revoking) revoke.mutate(revoking);
+        }}
+      />
     </section>
   );
 }

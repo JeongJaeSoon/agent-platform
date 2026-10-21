@@ -1,12 +1,19 @@
+import { type ApiError, unwrap } from "@agent-platform/client";
+import { useAgentPlatform } from "@agent-platform/react";
+import {
+  Button,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  Input,
+} from "@agent-platform/ui";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useId, useState } from "react";
-import { type ApiError, unwrap } from "../api/client.ts";
+import { type FormEvent, useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
-import { Main } from "../components/main.tsx";
-import { StatusScreen } from "../components/status-screen.tsx";
+import { ASIDE, AuthPage, FormError, LINK } from "../components/auth-page.tsx";
+import { slugInput } from "../components/field.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
 
 const FIELDS = [
   {
@@ -68,15 +75,20 @@ const EMPTY: Form = {
 // from the answer: 409 BOOTSTRAP_DONE sends the reader to log in.
 export function BootstrapScreen() {
   const { t } = useI18n();
-  const { client } = useServices();
+  const { client } = useAgentPlatform();
   const navigate = useNavigate();
   const [form, setForm] = useState<Form>(EMPTY);
-  const hintId = useId();
 
   const create = useMutation<unknown, ApiError>({
     meta: { public: true },
     mutationFn: () => unwrap(client.POST("/v1/auth/bootstrap", { body: form })),
-    onSuccess: () => navigate({ to: "/login", search: { notice: "created" } }),
+    onSuccess: () =>
+      navigate({
+        to: "/login",
+        search: { notice: "created" },
+        // History state, not the URL: the address stays free of the email.
+        state: (prev) => ({ ...prev, loginEmail: form.email }),
+      }),
     onError: async (error) => {
       if (error.code === "BOOTSTRAP_DONE") {
         await navigate({ to: "/login", search: { notice: "bootstrap_done" } });
@@ -96,11 +108,9 @@ export function BootstrapScreen() {
     : null;
 
   return (
-    <Main className="web-auth">
-      <h1 className="web-auth__title">{t("bootstrap.title")}</h1>
-      <StatusScreen kind="bootstrap-required" action={false} />
-      <p className="web-auth__intro">{t("bootstrap.intro")}</p>
-      <form className="web-form" onSubmit={submit}>
+    <AuthPage title={t("bootstrap.title")}>
+      <p className={ASIDE}>{t("bootstrap.intro")}</p>
+      <form className="flex flex-col gap-4" onSubmit={submit}>
         {FIELDS.map((field) => {
           const hint =
             field.name === "password"
@@ -108,54 +118,39 @@ export function BootstrapScreen() {
               : field.name === "workspace_slug"
                 ? t("bootstrap.workspaceSlugHint")
                 : null;
-          const describedBy = `${hintId}-${field.name}`;
           return (
-            <div className="web-field" key={field.name}>
-              <label className="web-field">
-                <span>{t(field.label)}</span>
-                <input
-                  className="ap-input"
-                  name={field.name}
-                  type={field.type}
-                  autoComplete={field.autoComplete}
-                  required
-                  {...(hint ? { "aria-describedby": describedBy } : {})}
-                  {...(field.name === "password"
-                    ? { minLength: PASSWORD_MIN_LENGTH }
-                    : {})}
-                  {...(field.name === "workspace_slug"
-                    ? { pattern: "[a-z0-9][a-z0-9\\-]*", maxLength: 64 }
-                    : {})}
-                  value={form[field.name]}
-                  onChange={(event) =>
-                    setForm({ ...form, [field.name]: event.target.value })
-                  }
-                />
-              </label>
-              {hint ? (
-                <small id={describedBy} className="web-field__hint">
-                  {hint}
-                </small>
-              ) : null}
-            </div>
+            <Field key={field.name}>
+              <FieldLabel>{t(field.label)}</FieldLabel>
+              <Input
+                name={field.name}
+                type={field.type}
+                autoComplete={field.autoComplete}
+                required
+                {...(field.name === "password"
+                  ? { minLength: PASSWORD_MIN_LENGTH }
+                  : {})}
+                {...(field.name === "workspace_slug"
+                  ? slugInput(t("field.slugFormat"))
+                  : {})}
+                value={form[field.name]}
+                onChange={(event) =>
+                  setForm({ ...form, [field.name]: event.target.value })
+                }
+              />
+              {hint ? <FieldDescription>{hint}</FieldDescription> : null}
+            </Field>
           );
         })}
-        {errorText ? (
-          <p className="web-form__error" role="alert">
-            {errorText}
-          </p>
-        ) : null}
-        <button
-          type="submit"
-          className="ap-button ap-button--primary"
-          disabled={create.isPending}
-        >
+        {errorText ? <FormError>{errorText}</FormError> : null}
+        <Button type="submit" disabled={create.isPending}>
           {create.isPending ? t("bootstrap.submitting") : t("bootstrap.submit")}
-        </button>
+        </Button>
       </form>
-      <p className="web-auth__aside">
-        <Link to="/login">{t("bootstrap.loginLink")}</Link>
+      <p className={ASIDE}>
+        <Link className={LINK} to="/login">
+          {t("bootstrap.loginLink")}
+        </Link>
       </p>
-    </Main>
+    </AuthPage>
   );
 }

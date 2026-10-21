@@ -232,6 +232,45 @@ describe("tokens.css", () => {
     expect(failures).toEqual([]);
   });
 
+  test("입력 칸 테두리가 surface·canvas에서 3:1을 넘는다", () => {
+    const themes: [string, Map<string, string>][] = [
+      [
+        "light",
+        paletteOf((d) => d.selector === ":root" && d.atRules.length === 0),
+      ],
+      [
+        "dark(수동)",
+        paletteOf((d) => d.selector === ':root[data-theme="dark"]'),
+      ],
+      [
+        "dark(시스템)",
+        paletteOf((d) =>
+          d.atRules.includes("@media (prefers-color-scheme: dark)"),
+        ),
+      ],
+    ];
+    expect(TOKENS).toContain("--input: var(--ap-color-border-input);");
+    const ratios = themes.flatMap(([theme, palette]) =>
+      ["--ap-color-surface", "--ap-color-canvas"].map((surface) => {
+        const border = palette.get("--ap-color-border-input") ?? "";
+        const ratio = contrast(border, palette.get(surface) ?? "");
+        return `${theme} ${surface} ${ratio >= 3 ? "ok" : ratio.toFixed(2)}`;
+      }),
+    );
+    expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
+  });
+
+  test("테마마다 color-scheme을 선언해 native 컨트롤도 따라간다", () => {
+    const schemes = tokenDeclarations
+      .filter((d) => d.property === "color-scheme")
+      .map((d) => `${d.selector} ${d.value}`);
+    expect(schemes).toEqual([
+      ":root light dark",
+      ':root[data-theme="light"] light',
+      ':root[data-theme="dark"] dark',
+    ]);
+  });
+
   test("색 토큰이 라이트·다크 양쪽에 모두 있다", () => {
     const light = new Set(
       customProperties((d) => d.selector === ":root" && d.atRules.length === 0),

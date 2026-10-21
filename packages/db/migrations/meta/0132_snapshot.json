@@ -1,6 +1,6 @@
 {
-  "id": "123c2ebb-cf51-415d-a839-a6977ae1bf46",
-  "prevId": "216ed472-6665-416d-8523-0488a96510df",
+  "id": "8421a67d-c69e-4559-b0e6-4c207a932a0f",
+  "prevId": "30dfadd7-92bf-4ee7-847d-204e7d276378",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -232,32 +232,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.bootstrap_token_uses": {
-      "name": "bootstrap_token_uses",
-      "schema": "",
-      "columns": {
-        "token_hash": {
-          "name": "token_hash",
-          "type": "bytea",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1363,130 +1337,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.password_resets": {
-      "name": "password_resets",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issued_by": {
-          "name": "issued_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "password_resets_live_user_uniq": {
-          "name": "password_resets_live_user_uniq",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"password_resets\".\"used_at\" IS NULL AND \"password_resets\".\"revoked_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "password_resets_workspace_id_workspaces_id_fk": {
-          "name": "password_resets_workspace_id_workspaces_id_fk",
-          "tableFrom": "password_resets",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "password_resets_user_id_users_id_fk": {
-          "name": "password_resets_user_id_users_id_fk",
-          "tableFrom": "password_resets",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "password_resets_issued_by_users_id_fk": {
-          "name": "password_resets_issued_by_users_id_fk",
-          "tableFrom": "password_resets",
-          "tableTo": "users",
-          "columnsFrom": ["issued_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "password_resets_token_hash_unique": {
-          "name": "password_resets_token_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": ["token_hash"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "password_resets_single_outcome_check": {
-          "name": "password_resets_single_outcome_check",
-          "value": "\"password_resets\".\"used_at\" IS NULL OR \"password_resets\".\"revoked_at\" IS NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.pending_requests": {
       "name": "pending_requests",
       "schema": "",
@@ -1906,6 +1756,282 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.push_requests": {
+      "name": "push_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "repository_id": {
+          "name": "repository_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checkpoint_revision": {
+          "name": "checkpoint_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "git_commit": {
+          "name": "git_commit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_branch": {
+          "name": "target_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'requested'"
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_receipt_id": {
+          "name": "request_receipt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "decided_by": {
+          "name": "decided_by",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision_reason": {
+          "name": "decision_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision_receipt_id": {
+          "name": "decision_receipt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_started_at": {
+          "name": "push_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_error": {
+          "name": "push_error",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_receipt_id": {
+          "name": "push_receipt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "repository_binding": {
+          "name": "repository_binding",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_attempts": {
+          "name": "push_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "push_requests_open_session_idx": {
+          "name": "push_requests_open_session_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"push_requests\".\"state\" IN ('requested','approved','pushing')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "push_requests_session_created_idx": {
+          "name": "push_requests_session_created_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "push_requests_approved_idx": {
+          "name": "push_requests_approved_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"push_requests\".\"state\" = 'approved'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "push_requests_pushing_lease_idx": {
+          "name": "push_requests_pushing_lease_idx",
+          "columns": [
+            {
+              "expression": "lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"push_requests\".\"state\" = 'pushing'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "push_requests_session_id_sessions_id_fk": {
+          "name": "push_requests_session_id_sessions_id_fk",
+          "tableFrom": "push_requests",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "push_requests_request_receipt_id_receipts_id_fk": {
+          "name": "push_requests_request_receipt_id_receipts_id_fk",
+          "tableFrom": "push_requests",
+          "tableTo": "receipts",
+          "columnsFrom": ["request_receipt_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "push_requests_decision_receipt_id_receipts_id_fk": {
+          "name": "push_requests_decision_receipt_id_receipts_id_fk",
+          "tableFrom": "push_requests",
+          "tableTo": "receipts",
+          "columnsFrom": ["decision_receipt_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "push_requests_push_receipt_id_receipts_id_fk": {
+          "name": "push_requests_push_receipt_id_receipts_id_fk",
+          "tableFrom": "push_requests",
+          "tableTo": "receipts",
+          "columnsFrom": ["push_receipt_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "push_requests_state_check": {
+          "name": "push_requests_state_check",
+          "value": "\"push_requests\".\"state\" IN ('requested','approved','rejected','pushing','pushed','failed')"
+        },
+        "push_requests_git_commit_check": {
+          "name": "push_requests_git_commit_check",
+          "value": "\"push_requests\".\"git_commit\" ~ '^[0-9a-f]{40}$'"
+        },
+        "push_requests_checkpoint_revision_check": {
+          "name": "push_requests_checkpoint_revision_check",
+          "value": "\"push_requests\".\"checkpoint_revision\" >= 0"
+        },
+        "push_requests_target_branch_check": {
+          "name": "push_requests_target_branch_check",
+          "value": "\"push_requests\".\"target_branch\" = 'agent/' || \"push_requests\".\"session_id\"::text"
+        },
+        "push_requests_decision_check": {
+          "name": "push_requests_decision_check",
+          "value": "(\"push_requests\".\"state\" = 'requested') = (\"push_requests\".\"decided_at\" IS NULL) AND (\"push_requests\".\"decided_at\" IS NULL) = (\"push_requests\".\"decided_by\" IS NULL) AND (\"push_requests\".\"decided_at\" IS NULL) = (\"push_requests\".\"decision_receipt_id\" IS NULL)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.queue_messages": {
@@ -2556,104 +2682,6 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.slack_installations": {
-      "name": "slack_installations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "app_id": {
-          "name": "app_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bot_user_id": {
-          "name": "bot_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "verified_at": {
-          "name": "verified_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "slack_installations_workspace_id_workspaces_id_fk": {
-          "name": "slack_installations_workspace_id_workspaces_id_fk",
-          "tableFrom": "slack_installations",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "slack_installations_app_team_uniq": {
-          "name": "slack_installations_app_team_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["app_id", "team_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "slack_installations_status_check": {
-          "name": "slack_installations_status_check",
-          "value": "\"slack_installations\".\"status\" IN ('pending', 'verified', 'revoked')"
-        },
-        "slack_installations_verified_check": {
-          "name": "slack_installations_verified_check",
-          "value": "\"slack_installations\".\"status\" <> 'verified' OR (\"slack_installations\".\"bot_user_id\" IS NOT NULL AND \"slack_installations\".\"verified_at\" IS NOT NULL)"
-        },
-        "slack_installations_revoked_check": {
-          "name": "slack_installations_revoked_check",
-          "value": "(\"slack_installations\".\"status\" = 'revoked') = (\"slack_installations\".\"revoked_at\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false

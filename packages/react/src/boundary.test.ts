@@ -1,0 +1,80 @@
+import { expect, test } from "bun:test";
+import { readdir, readFile } from "node:fs/promises";
+
+// Biome's override for packages/react/src rejects router imports and the
+// page's globals file by file; these checks cover what an import rule cannot
+// name: a query key written here instead of taken from the core, and a client
+// built or a request made here instead of through the one the host passes in.
+
+const ROUTERS = ["@tanstack/react-router", "react-router", "next"];
+
+const sourceFiles = async () =>
+  (await readdir(import.meta.dir, { recursive: true })).filter(
+    (name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name),
+  );
+
+const read = (name: string) => readFile(`${import.meta.dir}/${name}`, "utf8");
+
+const packageName = (specifier: string) =>
+  specifier
+    .split("/")
+    .slice(0, specifier.startsWith("@") ? 2 : 1)
+    .join("/");
+
+test("the package imports no router, not even as types", async () => {
+  const files = await sourceFiles();
+  expect(files).toContain("provider.tsx");
+  const found: string[] = [];
+  for (const name of files) {
+    // `from "x"`, `from 'x'`, a bare `import "x"` and `import("x")`.
+    for (const [, specifier = ""] of (await read(name)).matchAll(
+      /\b(?:from|import)\s*\(?\s*["']([^"']+)["']/g,
+    )) {
+      if (ROUTERS.includes(packageName(specifier)))
+        found.push(`${name} -> ${specifier}`);
+    }
+  }
+  expect(found).toEqual([]);
+});
+
+test("the 0.x funnel library is pinned to one exact version", async () => {
+  // A caret on a 0.x version still takes minor releases, which may break.
+  const versions = await Promise.all(
+    ["../package.json", "../../../apps/web/package.json"].map(
+      async (path) =>
+        JSON.parse(await read(path)).devDependencies["@use-funnel/core"],
+    ),
+  );
+  for (const version of versions) expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+  expect(new Set(versions).size).toBe(1);
+});
+
+test("query keys come from the core's factories, never written here", async () => {
+  const found: string[] = [];
+  for (const name of await sourceFiles()) {
+    const source = await read(name);
+    // Any spelling of the option, quoted or computed, and any hook called
+    // with an inline options object instead of a core factory's result. An
+    // object that opens by spreading a factory's result only adds what the
+    // caller decides (`enabled`), never the key.
+    if (/queryKey/.test(source)) found.push(`${name}: queryKey`);
+    if (
+      /\buse\w*Query\s*(?:<[^(]*>)?\s*\(\s*\{(?!\s*\.\.\.\w+Query\()/.test(
+        source,
+      )
+    )
+      found.push(`${name}: inline query options`);
+  }
+  expect(found).toEqual([]);
+});
+
+test("the package takes a client and never builds one or fetches itself", async () => {
+  const found: string[] = [];
+  for (const name of await sourceFiles()) {
+    const source = await read(name);
+    if (/\bcreateApiClient\b/.test(source))
+      found.push(`${name}: createApiClient`);
+    if (/\bfetch\s*\(/.test(source)) found.push(`${name}: fetch(`);
+  }
+  expect(found).toEqual([]);
+});

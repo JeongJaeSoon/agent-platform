@@ -388,12 +388,12 @@ describe("changing a session's profile", () => {
     ).toEqual([["claude-sonnet-5-long", "https://sonnet.invalid"]]);
   });
 
-  test("a checkpoint 0144 backfilled without a fingerprint takes the one the session ran before the change", async () => {
+  test("a checkpoint 0147 backfilled without a fingerprint takes the one the session ran before the change", async () => {
     const sessionId = await createSession();
     const g = gateway();
     const claimed = await claim(g, sessionId);
     await commitCheckpoint(sessionId, claimed, 0);
-    // A session from before 0119 had no fingerprint when 0144 copied it; the
+    // A session from before 0119 had no fingerprint when 0147 copied it; the
     // claim pinned one on the session only.
     await db
       .update(checkpoints)

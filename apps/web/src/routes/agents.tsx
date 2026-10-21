@@ -1,31 +1,30 @@
-import type { AgentDetail } from "@agent-platform/contracts";
-import { formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { type ApiError, isApiError } from "@agent-platform/client";
+import type { Agent } from "@agent-platform/contracts";
+import { useAgentPlatform } from "@agent-platform/react";
+import { Badge, type BadgeProps, formatTimestamp } from "@agent-platform/ui";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useId, useState } from "react";
-import { type ApiError, isApiError, unwrap } from "../api/client.ts";
-import { agentsQuery, queryKeys } from "../api/queries.ts";
+import { agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,
   ReasonButton,
-  usePermissionReason,
+  useHasPermission,
   useRole,
 } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
-import {
-  AgentCardFields,
-  type CardDraft,
-  cardFromDraft,
-  EMPTY_DRAFT,
-} from "../components/agent-card-form.tsx";
-import { TextField } from "../components/field.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
+import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useServices } from "../services.tsx";
+
+// The release check's model refusal (release-ids.ts), as "<field>: <message>".
+const MODEL_REFUSAL =
+  /^card\.model: model (.+) is not the model of runtime profile (.+)$/;
 
 /**
  * What a refused agent action says: a 403 in the words of the disabled
- * button, a capability the profile does not have with the server's reason.
+ * button, a model mismatch in our words, any other capability the profile
+ * does not have with the server's reason.
  */
 export function agentRefusal(
   t: Translate,
@@ -33,43 +32,63 @@ export function agentRefusal(
   role: string | undefined,
 ): string {
   if (error.code === "FORBIDDEN")
-    return `${permissionReason(t, "agent.manage", role)} ${error.message}`;
+    return permissionReason(t, "agent.manage", role);
+  // Only making an agent answers this: its slug is taken.
+  if (error.code === "ALREADY_EXISTS") return t("agents.slugTaken");
+  const model =
+    error.code === "UNSUPPORTED_CAPABILITY"
+      ? MODEL_REFUSAL.exec(error.message)
+      : null;
+  if (model)
+    return t("agent.releases.modelRefused", {
+      card: model[1] ?? "",
+      profile: model[2] ?? "",
+    });
   if (error.code === "UNSUPPORTED_CAPABILITY" || error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
   return t(errorKey(error.code));
 }
 
 export function AgentsScreen() {
-  const { t } = useI18n();
-  const { client } = useServices();
+  const { t, locale } = useI18n();
+  const { client } = useAgentPlatform();
   const navigate = useNavigate();
+  const role = useRole();
   const agents = useQuery(agentsQuery(client));
-  const reason = usePermissionReason("agent.manage", agents);
+  // Making an agent needs less than listing them all: a member makes one and
+  // becomes its admin.
+  const reason = useHasPermission("agent.create")
+    ? undefined
+    : permissionReason(t, "agent.create", role);
+  const failed = agents.isError && !isApiError(agents.error, "FORBIDDEN");
 
   return (
     <div className="web-page">
       <div className="web-page__head">
         <h1 className="web-page__title">{t("agents.title")}</h1>
-        <ReasonButton
-          className="ap-button ap-button--primary"
-          reason={reason}
-          onClick={() => void navigate({ to: "/agents/new" })}
-        >
-          {t("agents.new")}
-        </ReasonButton>
+        {failed ? null : (
+          <ReasonButton
+            className="ap-button ap-button--primary"
+            reason={reason}
+            onClick={() => void navigate({ to: "/agents/new" })}
+          >
+            {t("agents.new")}
+          </ReasonButton>
+        )}
       </div>
       {agents.isPending ? (
         <StatusScreen kind="loading" />
       ) : agents.error ? (
         isApiError(agents.error, "FORBIDDEN") ? (
           <>
-            <StatusScreen kind="forbidden" detail={agents.error.message} />
+            <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
         ) : (
-          <p className="web-form__error" role="alert">
-            {t(errorKey((agents.error as ApiError).code))}
-          </p>
+          <LoadFailure
+            error={agents.error}
+            onRetry={() => void agents.refetch()}
+          />
         )
       ) : agents.data.items.length === 0 ? (
         <p className="web-page__empty">{t("agents.empty")}</p>
@@ -86,17 +105,13 @@ export function AgentsScreen() {
                   {agent.name}
                 </Link>
                 <span className="web-table__secondary">
-                  {agent.slug} ·{" "}
+                  {t("agents.slugLine", { slug: agent.slug })} ·{" "}
                   {t("agents.updated", {
-                    at: formatTimestamp(agent.updated_at),
+                    at: formatTimestamp(agent.updated_at, locale),
                   })}
                 </span>
               </span>
-              <span className="web-badge" data-tone={agentTone(agent)}>
-                {agent.active_release_id === null
-                  ? t("agents.state.notReleased")
-                  : t(`agents.status.${agent.status}`)}
-              </span>
+              <AgentStateBadge agent={agent} />
             </li>
           ))}
         </ul>
@@ -105,99 +120,52 @@ export function AgentsScreen() {
   );
 }
 
-function agentTone(agent: {
-  status: string;
-  active_release_id: string | null;
-}): string {
-  if (agent.active_release_id === null) return "pending";
-  return agent.status === "active" ? "ok" : "muted";
+type AgentState = "draft" | Agent["status"];
+type AgentSummary = Pick<Agent, "status" | "active_release_id">;
+
+/** An agent never released is a draft, whatever its status; archived wins. */
+export function agentState(agent: AgentSummary): AgentState {
+  if (agent.status === "archived") return "archived";
+  return agent.active_release_id === null ? "draft" : agent.status;
+}
+
+const STATE_VARIANT = {
+  draft: "outline",
+  active: "default",
+  paused: "secondary",
+  archived: "outline",
+} as const satisfies Record<AgentState, BadgeProps["variant"]>;
+
+function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
+  const { t } = useI18n();
+  const state = agentState(agent);
+  return (
+    <Badge
+      variant={STATE_VARIANT[state]}
+      data-state={state}
+      className={state === "archived" ? "text-muted-foreground" : undefined}
+    >
+      {state === "draft"
+        ? t("agents.state.draft")
+        : t(`agents.status.${state}`)}
+    </Badge>
+  );
 }
 
 /**
- * A blank card. One-line hiring (a model drafting the card) is 94S-156's
- * and adds its button here when it lands.
+ * A blank card, made in steps. One-line hiring (a model drafting the card)
+ * is 94S-156's and adds its button here when it lands.
  */
 export function NewAgentScreen() {
   const { t } = useI18n();
-  const { client, queryClient } = useServices();
-  const navigate = useNavigate();
   const role = useRole();
-  const [slug, setSlug] = useState("");
-  const [name, setName] = useState("");
-  const [draft, setDraft] = useState<CardDraft>(EMPTY_DRAFT);
-  const titleId = useId();
-
-  const create = useMutation<AgentDetail, ApiError>({
-    mutationFn: () =>
-      unwrap(
-        client.POST("/v1/agents", {
-          body: {
-            slug: slug.trim(),
-            name: name.trim(),
-            card: cardFromDraft(draft),
-          },
-        }),
-      ) as Promise<AgentDetail>,
-    onSuccess: async (detail) => {
-      queryClient.setQueryData(queryKeys.agent(detail.agent.id), detail);
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.agents,
-        exact: true,
-      });
-      await navigate({
-        to: "/agents/$id",
-        params: { id: detail.agent.id },
-        search: { notice: "created" },
-      });
-    },
-  });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    create.mutate();
-  };
-
+  const refuse = (error: unknown) =>
+    isApiError(error) ? agentRefusal(t, error, role) : t(errorKey("UNKNOWN"));
   return (
     <div className="web-page">
-      <h1 className="web-page__title" id={titleId}>
-        {t("agents.newTitle")}
-      </h1>
+      <h1 className="web-page__title">{t("agents.newTitle")}</h1>
       <p className="web-page__empty">{t("agents.newIntro")}</p>
-      <form
-        className="web-form web-form--wide"
-        aria-labelledby={titleId}
-        onSubmit={submit}
-      >
-        <TextField
-          label={t("agents.name")}
-          required
-          maxLength={120}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <TextField
-          label={t("agents.slug")}
-          hint={t("agents.slugHint")}
-          required
-          maxLength={64}
-          pattern="[a-z0-9][a-z0-9\-]*"
-          value={slug}
-          onChange={(event) => setSlug(event.target.value)}
-        />
-        <AgentCardFields draft={draft} onChange={setDraft} />
-        {create.error ? (
-          <p className="web-form__error" role="alert">
-            {agentRefusal(t, create.error, role)}
-          </p>
-        ) : null}
-        <button
-          type="submit"
-          className="ap-button ap-button--primary"
-          disabled={create.isPending}
-        >
-          {create.isPending ? t("agents.creating") : t("agents.create")}
-        </button>
-      </form>
+      <NewAgentFlow refuse={refuse} />
     </div>
   );
 }

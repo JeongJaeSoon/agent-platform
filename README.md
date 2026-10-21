@@ -1,8 +1,10 @@
 # Agent Platform
 
-이 저장소 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)과 그 공개 `/v1` API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. Werft의 다른 모듈과 개발 순서는 아래 이름 범위 문단에, 어떤 코드가 어느 모듈인지는 [architecture.md](docs/architecture.md)에 있다.
+이 저장소 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)과 그 공개 `/v1` API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. Werft의 다른 모듈과 개발 순서는 아래 모듈 구성 문단에, 어떤 코드가 어느 모듈인지는 [architecture.md](docs/architecture.md)에 있다.
 
-이름 범위: 제품 이름은 Agent Platform이고 저장소 이름은 agent-platform이다. Werft는 Agent Platform을 이루는 에이전트 기반 전체의 설계상 이름이고, 제품 이름을 대신하지 않는다. Werft는 네 모듈로 나뉜다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. 지금 구현된 모듈은 Kiel이고, Musterrolle은 첫 owner bootstrap·cookie 로그인·API 키와 권한 데이터 일부가 먼저 들어와 Kiel 안에서 돈다. 개발 순서는 Musterrolle → Kollegium → Lotse다. 지금의 `/v1` API는 Kiel이 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. Kollegium의 API 채널은 앞으로 만들 에이전트 호출 입구다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
+이름 범위: 바깥에 내놓는 이름은 Werft다. 앞으로 낼 TypeScript SDK도 이 이름을 써서, 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`로 정했다. SDK는 아직 이 저장소에 없고, npm 패키지 이름은 `@werft-ai/sdk`로 정했지만 아직 배포하지 않았다. Agent Platform은 Werft를 만드는 이 저장소의 이름이다. 저장소 `agent-platform`과 내부 패키지 `@agent-platform/*`가 이 이름을 쓰고, `/v1` API 참조의 제목처럼 지금 바깥에 보이는 표기에도 아직 Agent Platform이 남아 있다.
+
+모듈 구성: Werft는 안에서 네 모듈로 나뉜다. 모듈 이름은 저장소 안에서만 쓰고, API나 SDK처럼 바깥에 보이는 곳에는 내놓지 않는다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. 지금 구현된 모듈은 Kiel이고, Musterrolle은 첫 owner bootstrap·cookie 로그인·API 키와 권한 데이터 일부가 먼저 들어와 Kiel 안에서 돈다. 개발 순서는 Musterrolle → Kollegium → Lotse다. 지금의 `/v1` API는 Kiel이 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. Kollegium의 API 채널은 앞으로 만들 에이전트 호출 입구다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
 
 ## 현재 상태
 
@@ -19,5 +21,18 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/development.md), [구성요소와 경계](docs/architecture.md), [CI](docs/ci.md), [실제 Claude 확인](docs/real-claude.md), [과거 soak 결과](docs/soak.md) |
 
 `docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
+
+## UI 컴포넌트 보기 (Storybook)
+
+`packages/ui`의 primitive·pattern과 화면 상태(로딩·빈·오류)는 [apps/storybook](apps/storybook)에서 스토리로 본다. 툴바의 Theme으로 라이트·다크를, Viewport로 390px(Mobile 390)·360px·768px·1440px를 바꾼다.
+
+```bash
+bun install
+bun run --filter @agent-platform/storybook dev     # http://localhost:6006
+bun run --filter @agent-platform/storybook build   # 정적 빌드: apps/storybook/dist
+bun run --filter @agent-platform/storybook test:stories  # 모든 스토리를 Chrome에서 그리고 a11y(axe) 위반이 있으면 실패
+```
+
+Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다.
 
 라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다.

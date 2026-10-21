@@ -88,6 +88,7 @@ export function createWorkerHost(
             objectToken.current(),
           ),
         workspaceRoot: config.runtime.cwd,
+        claudeConfigDir: config.runtime.claudeConfigDir,
       }),
     engines,
     execution: {
