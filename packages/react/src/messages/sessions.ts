@@ -55,7 +55,7 @@ export const sessionsKo = {
   "session.profile.refused.release":
     "이 프로필로 바꿀 수 없습니다. 에이전트 release로 만든 세션은 그 release의 프로필만 씁니다.",
   "session.profile.refused.capability":
-    "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소에서 쓸 수 없는 프로필입니다.",
+    "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소·런타임·과금 방식과 맞지 않는 프로필이거나, 지금 프로필의 설정이 바뀌었습니다.",
   "session.profile.none":
     "같은 런타임과 과금 방식으로 바꿀 수 있는 다른 프로필이 없습니다.",
   "session.profile.unknown":
@@ -167,7 +167,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.profile.refused.release":
     "The session cannot move to this profile. A session made from an agent release runs only that release's profile.",
   "session.profile.refused.capability":
-    "The session cannot move to this profile. This profile cannot be used with the session's repository.",
+    "The session cannot move to this profile. It does not fit the session's repository, runtime or billing, or the current profile's settings have changed.",
   "session.profile.none":
     "No other profile runs the same runtime and billing, so there is nothing to change to.",
   "session.profile.unknown":

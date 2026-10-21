@@ -681,27 +681,32 @@ describe("session profile", () => {
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
-  test("shows why the server refused, in Korean only", async () => {
-    const user = await setupUser();
-    renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
-        apiError(
-          422,
-          "UNSUPPORTED_CAPABILITY",
-          "profile fast is not allowed for repository demo",
+  // changeProfile answers all of these with UNSUPPORTED_CAPABILITY, so the
+  // sentence must hold for each.
+  for (const message of [
+    "Profile fast is not in this host's catalog or not allowed with the session's repository",
+    "The session's profile default is no longer in this host's catalog as the session runs it, so the runtime its checkpoints were taken on cannot be checked",
+    "Profile fast runs claude_agent_sdk 2.0.0; the session's checkpoints were taken on claude_agent_sdk 1.0.0",
+    "Profile fast is billed differently from the session's (billing: none on one side only), so the session's cost limit would change",
+  ]) {
+    test(`shows a refusal that holds for every reason, in Korean only: ${message.slice(0, 40)}`, async () => {
+      const user = await setupUser();
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`POST /v1/sessions/${SESSION_ID}/profile`]: () =>
+          apiError(422, "UNSUPPORTED_CAPABILITY", message),
+      });
+      await user.click(
+        await screen.findByRole("button", { name: "프로필 바꾸기" }),
+      );
+      expect(
+        await screen.findByText(
+          "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소·런타임·과금 방식과 맞지 않는 프로필이거나, 지금 프로필의 설정이 바뀌었습니다.",
         ),
+      ).toBeTruthy();
+      expect(screen.queryByText(message)).toBeNull();
     });
-    await user.click(
-      await screen.findByRole("button", { name: "프로필 바꾸기" }),
-    );
-    expect(
-      await screen.findByText(
-        "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소에서 쓸 수 없는 프로필입니다.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByText(/not allowed/)).toBeNull();
-  });
+  }
 
   test("a session from an agent release says why it keeps its profile", async () => {
     const user = await setupUser();
