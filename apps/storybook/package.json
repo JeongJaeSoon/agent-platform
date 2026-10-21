@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
+    "@agent-platform/contracts": "workspace:*",
     "@agent-platform/ui": "workspace:*",
     "@storybook/addon-a11y": "10.6.1",
     "@storybook/addon-vitest": "10.6.1",
