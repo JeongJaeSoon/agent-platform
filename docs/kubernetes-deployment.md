@@ -4,6 +4,8 @@ main을 Kubernetes에 올리는 절차다. chart는 `deploy/helm/agent-platform`
 
 Docker 단일 서버 알파(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [alpha-deployment.md](alpha-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
 
+worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰 잡은 값이고, requests = limits라서 노드당 동시 세션 수를 정한다. 노드 크기를 정하거나 이 값을 바꾸기 전에 [capacity.md](capacity.md)를 본다.
+
 명령마다 어디서 확인했는지 적었다. **kind**는 `deploy/kind/up.sh`로 띄운 클러스터에서 그대로 돌려 본 명령이고, **AWS 전용**은 AWS 리소스가 있어야 해서 로컬에서는 돌릴 수 없는 명령이다.
 
 ## chart가 만드는 것
