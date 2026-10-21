@@ -343,8 +343,8 @@ describe("새 에이전트", () => {
     expect(model.value).toBe("");
     expect([...model.options].map((option) => option.textContent)).toEqual([
       "모델을 고르세요",
-      "claude-haiku-5 · claude-coding-fast",
-      "claude-sonnet-5 · claude-coding-local",
+      "claude-haiku-5",
+      "claude-sonnet-5",
     ]);
     await user.selectOptions(model, CARD.model);
     await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
@@ -1026,10 +1026,10 @@ describe("편집 중 다른 곳의 저장", () => {
         .map((id) => document.getElementById(id)?.textContent)
         .join(" ");
     expect(await described("모델")).toContain(
-      "release할 프로필의 모델과 정확히 같아야 합니다",
+      "release할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
     );
     expect(await described("프로필")).toBe(
-      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다 프로필의 권한 모드와 고를 수 있는 모델은 아직 이 화면에 나오지 않습니다.",
+      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 release할 수 있습니다 프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
     );
     expect(document.body.textContent).not.toContain("profiles.yaml");
   });

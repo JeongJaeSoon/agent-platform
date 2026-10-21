@@ -4,7 +4,6 @@
  */
 export const modelsKo = {
   "agentCard.modelPick": "모델을 고르세요",
-  "agentCard.modelOption": "{model} · {profiles}",
   "agentCard.modelUncataloged": "{model} · 카탈로그에 없음",
   "agentCard.modelUncatalogedWarning":
     "이 모델은 카탈로그에 없어 이 카드로는 release를 만들 수 없습니다. 바꾸지 않으면 그대로 저장됩니다.",
@@ -23,7 +22,6 @@ export const modelsKo = {
 
 export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agentCard.modelPick": "Choose a model",
-  "agentCard.modelOption": "{model} · {profiles}",
   "agentCard.modelUncataloged": "{model} · not in the catalog",
   "agentCard.modelUncatalogedWarning":
     "This model is not in the catalog, so this card cannot be released. If you leave it, it is saved as it is.",

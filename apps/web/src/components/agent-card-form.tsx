@@ -305,10 +305,7 @@ function ModelSelect({
           <NativeSelectOption key={option.model} value={option.model}>
             {option.profileIds.length === 0
               ? t("agentCard.modelUncataloged", { model: option.model })
-              : t("agentCard.modelOption", {
-                  model: option.model,
-                  profiles: option.profileIds.join(", "),
-                })}
+              : option.model}
           </NativeSelectOption>
         ))}
       </NativeSelect>
