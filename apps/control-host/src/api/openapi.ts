@@ -377,7 +377,7 @@ export const API_ROUTE_DECLARATIONS = [
       description: "The OpenAPI 3.1 document.",
       example: {
         openapi: "3.1.0",
-        info: { title: "Agent Platform API", version: OPENAPI_VERSION },
+        info: { title: "Werft API", version: OPENAPI_VERSION },
       },
     },
     errors: [],
@@ -1704,7 +1704,7 @@ export function buildOpenApiDocument() {
   const generated = registry.getOpenAPI31Document({
     openapi: "3.1.0",
     info: {
-      title: "Agent Platform API",
+      title: "Werft API",
       version: OPENAPI_VERSION,
       description: API_INFO_DESCRIPTION,
     },

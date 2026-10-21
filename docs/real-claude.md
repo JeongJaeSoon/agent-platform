@@ -127,7 +127,7 @@ allow_until_done 1
 
 대화 흐름을 보려면 다른 터미널에서 이벤트 스트림을 연다(Ctrl-C로 닫는다): `curl -sSN "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY"`.
 
-커밋 작성자는 워커 이미지의 기본값 `agent-platform <noreply@agent-platform.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. worker에서는 push를 지원하지 않으므로 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `Initial commit`만 남는다. 커밋은 worker의 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다.
+커밋 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. worker에서는 push를 지원하지 않으므로 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `Initial commit`만 남는다. 커밋은 worker의 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다.
 
 **4. pause → resume 뒤 이어서 대화.** turn이 끝나 세션이 `idle`이 되면 quickstart ⑦·⑧과 같이 멈췄다 되살린다. 새 worker가 checkpoint에서 저장소와 Claude Code 세션을 복원하므로 앞의 대화를 기억한다.
 

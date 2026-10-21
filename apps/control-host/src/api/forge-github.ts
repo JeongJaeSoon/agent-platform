@@ -85,7 +85,7 @@ function clientOf(
     };
   return new GitHubClient({
     baseUrl: apiBase,
-    userAgent: "agent-platform",
+    userAgent: "Werft",
     // Octokit's own log would print request errors with their headers.
     log: { debug() {}, info() {}, warn() {}, error() {} },
     request: {

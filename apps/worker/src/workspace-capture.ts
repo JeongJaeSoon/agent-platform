@@ -193,10 +193,10 @@ const OUTPUT_LIMIT_BYTES = 256 * 1024 * 1024;
 const PATH_BYTES = 4096 + 1;
 
 const SNAPSHOT_IDENTITY = {
-  GIT_AUTHOR_EMAIL: "checkpoint@agent-platform.invalid",
-  GIT_AUTHOR_NAME: "agent-platform checkpoint",
-  GIT_COMMITTER_EMAIL: "checkpoint@agent-platform.invalid",
-  GIT_COMMITTER_NAME: "agent-platform checkpoint",
+  GIT_AUTHOR_EMAIL: "checkpoint@werft.invalid",
+  GIT_AUTHOR_NAME: "Werft checkpoint",
+  GIT_COMMITTER_EMAIL: "checkpoint@werft.invalid",
+  GIT_COMMITTER_NAME: "Werft checkpoint",
 };
 
 /**
@@ -444,7 +444,7 @@ async function captureWorkspaceOnce(
                   "-p",
                   headCommit,
                   "-m",
-                  "agent-platform checkpoint: working tree",
+                  "Werft checkpoint: working tree",
                 ],
                 SNAPSHOT_IDENTITY,
               ),
@@ -615,7 +615,7 @@ async function captureWorkspaceOnce(
                 "tag",
                 "-a",
                 "-m",
-                `agent-platform checkpoint: ${name}`,
+                `Werft checkpoint: ${name}`,
                 `agent-platform/${name}`,
                 oid,
               ],

@@ -322,7 +322,7 @@ get "/v1/sessions/$SID/usage" | jq .
 | Idempotency 확인 | 같은 `Idempotency-Key`로 같은 본문을 다시 보내면 첫 응답이 그대로 온다. 같은 key에 다른 본문을 보내면 409 `IDEMPOTENCY_CONFLICT`다 |
 | Gitea에서 커밋 보기 | `http://127.0.0.1:3001`의 `agent/sample-app`. 읽기는 공개다. 로그인하거나 push하려면 비밀번호를 직접 정한다: `docker compose exec -u git gitea gitea admin user change-password -u agent -p <비밀번호>` |
 
-에이전트가 워커 안에서 만든 커밋의 작성자는 워커 이미지의 기본값 `agent-platform <noreply@agent-platform.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 Claude가 커밋 전에 이름과 이메일을 묻지 않는다. 세션 안에서 `git config`로 정한 값이 있으면 그 값이 먼저다.
+에이전트가 워커 안에서 만든 커밋의 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 Claude가 커밋 전에 이름과 이메일을 묻지 않는다. 세션 안에서 `git config`로 정한 값이 있으면 그 값이 먼저다.
 
 ### 백업 → 복원 → 검증 (수동)
 
