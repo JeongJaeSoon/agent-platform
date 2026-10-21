@@ -17,12 +17,13 @@ import { cn } from "../lib/cn.ts";
  * shadcn/ui new-york Field. Changed from upstream: a Field wires itself up.
  * Upstream leaves `id`, `htmlFor` and `aria-describedby` to the caller; here
  * the Field mints the ids, FieldLabel points at the control, and the single
- * control inside (Input, Textarea, Checkbox) reads them through
- * `useFieldControl`. Each FieldDescription and FieldError registers the id it
- * renders with, so `aria-describedby` only names elements that are on the
- * page, and a mounted FieldError marks the control `aria-invalid`. The parts
- * register in an effect, so server-rendered HTML lacks them until hydration;
- * nothing here renders on a server. FieldLabel is a native <label>
+ * control inside (Input, Textarea, NativeSelect, Checkbox, RadioGroupItem)
+ * reads them through `useFieldControl`. Each FieldDescription and FieldError
+ * registers the id it renders with, so `aria-describedby` only names elements
+ * that are on the page, and a mounted FieldError marks the control
+ * `aria-invalid`. The parts register in an effect, so server-rendered HTML
+ * lacks them until hydration; nothing here renders on a server. FieldLabel is
+ * a native <label>
  * rather than Radix Label, Field drops its unnamed `role="group"` (FieldSet
  * is the named group), FieldSeparator and FieldTitle are left out, and there
  * are no `dark:` variants.

@@ -90,9 +90,11 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | worker |
 | @radix-ui/react-checkbox | 1.3.11 | MIT | worker |
+| @radix-ui/react-collection | 1.1.15 | MIT | worker |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT | worker |
 | @radix-ui/react-context | 1.2.2 | MIT | worker |
 | @radix-ui/react-dialog | 1.1.23 | MIT | worker |
+| @radix-ui/react-direction | 1.1.4 | MIT | worker |
 | @radix-ui/react-dismissable-layer | 1.1.19 | MIT | worker |
 | @radix-ui/react-focus-guards | 1.1.6 | MIT | worker |
 | @radix-ui/react-focus-scope | 1.1.16 | MIT | worker |
@@ -100,10 +102,14 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-portal | 1.1.17 | MIT | worker |
 | @radix-ui/react-presence | 1.1.10 | MIT | worker |
 | @radix-ui/react-primitive | 2.1.10 | MIT | worker |
+| @radix-ui/react-radio-group | 1.4.7 | MIT | worker |
+| @radix-ui/react-roving-focus | 1.1.19 | MIT | worker |
 | @radix-ui/react-slot | 1.3.3 | MIT | worker |
+| @radix-ui/react-tabs | 1.1.21 | MIT | worker |
 | @radix-ui/react-use-callback-ref | 1.1.4 | MIT | worker |
 | @radix-ui/react-use-controllable-state | 1.2.6 | MIT | worker |
 | @radix-ui/react-use-effect-event | 0.0.5 | MIT | worker |
+| @radix-ui/react-use-is-hydrated | 0.1.3 | MIT | worker |
 | @radix-ui/react-use-layout-effect | 1.1.4 | MIT | worker |
 | @radix-ui/react-use-size | 1.1.4 | MIT | worker |
 | @smithy/core | 3.34.1 | Apache-2.0 | control-host, worker |
