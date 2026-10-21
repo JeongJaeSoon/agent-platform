@@ -95,7 +95,7 @@ export function schedulerConfigFromEnv(
         // half the limit (spikes/94s-667).
         integerSetting(environment, "WORKER_MEMORY_MB", {
           min: 1,
-          default: 6144,
+          default: 4608,
         }) *
         1024 *
         1024,

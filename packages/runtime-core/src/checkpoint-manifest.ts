@@ -115,7 +115,7 @@ export type CheckpointTranscripts = {
  * running on its last checkpoint.
  */
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
-export const MAX_TRANSCRIPT_BYTES = 800 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 512 * 1024 * 1024;
 
 /** Every part of the root transcript and of each subagent's. */
 export function transcriptParts(

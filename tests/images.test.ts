@@ -257,7 +257,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(example).not.toContain("WORKER_MEM_LIMIT");
     expect(example).toContain("WORKER_MEMORY_MB=");
     expect(compose).toContain(
-      "WORKER_MEMORY_MB: $" + "{WORKER_MEMORY_MB:-6144}",
+      "WORKER_MEMORY_MB: $" + "{WORKER_MEMORY_MB:-4608}",
     );
     // The local daemon has no project quota; the opt-out must be explicit.
     expect(compose).toContain(

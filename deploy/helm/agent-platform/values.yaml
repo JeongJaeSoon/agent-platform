@@ -227,8 +227,8 @@ worker:
   tolerations: []
   cpus: 1
   # Requests equal limits on worker pods; sized so a resumed engine holding
-  # a transcript at the 800 MiB checkpoint limit stays under half of it.
-  memoryMb: 6144
+  # a transcript at the 512 MiB checkpoint limit stays under half of it.
+  memoryMb: 4608
   workspace:
     quotaMb: 4096
     gcMinAgeSec: 3600

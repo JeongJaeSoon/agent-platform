@@ -698,7 +698,7 @@ scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기�
 | 변수 | 기본값 | 의미 |
 |---|---|---|
 | `WORKER_CPUS` | 1 | worker 하나의 CPU 몫. 0.01 이상 |
-| `WORKER_MEMORY_MB` | 6144 | worker 하나의 메모리 한도(MiB). 압축 없는 800MiB transcript를 resume한 엔진이 한도의 절반 아래에 들도록 잡은 값이다(94S-667) |
+| `WORKER_MEMORY_MB` | 4608 | worker 하나의 메모리 한도(MiB). 압축 없는 512MiB transcript를 resume한 엔진이 한도의 절반 아래에 들도록 잡은 값이다(94S-667) |
 | `WORKER_PIDS_LIMIT` | 512 | worker 하나의 PID 한도. compose는 넘기지 않는다 |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | worker의 숫자 `uid[:gid]`. uid나 gid가 0이면 기동을 거부한다. worker 이미지의 `/workspace` 소유자와 같아야 한다 |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs로 마운트하는 HOME. 절대 경로 |
