@@ -196,7 +196,10 @@ function InviteForm({
       <h2 id={titleId} className={SECTION_TITLE}>
         {t("members.invite.title")}
       </h2>
-      <form className="flex max-w-xl flex-col gap-4" onSubmit={submit}>
+      <form
+        className="flex max-w-xl flex-col items-start gap-4"
+        onSubmit={submit}
+      >
         <Field>
           <FieldLabel>{t("members.invite.email")}</FieldLabel>
           <Input
@@ -420,6 +423,7 @@ function MemberTable({
                   <td className={CELL}>
                     <NativeSelect
                       size="sm"
+                      className="min-w-fit"
                       aria-label={t("members.roleFor", {
                         name: member.display_name,
                       })}
