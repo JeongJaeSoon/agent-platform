@@ -22,6 +22,7 @@ import {
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import {
+  type CatalogProfile,
   createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
@@ -68,25 +69,28 @@ const OLD_URL = "https://old.invalid/app.git";
 const NEW_URL = "https://example.invalid/app.git";
 const CLAIM_TIMEOUT_MS = 30_000;
 
+const PROFILE: CatalogProfile = {
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  model: "claude-sonnet-5",
+  tools: [],
+  permission_mode: "default",
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+};
+
 function catalogAt(url: string): SessionCatalog {
   return {
     profiles: {
-      [PROFILE_ID]: {
-        runtime_kind: "claude_agent_sdk",
-        runtime_version: "0.3.270",
-        model: "claude-sonnet-5",
-        tools: [],
-        permission_mode: "default",
-        provider: {
-          kind: "litellm",
-          endpoint: "https://litellm.invalid",
-          auth: {
-            kind: "api_key",
-            value: "catalog-provider-key",
-            ref: { value_env: "PROVIDER_KEY" },
-          },
-        },
-      },
+      [PROFILE_ID]: PROFILE,
+      general: { ...PROFILE, tools: ["Read", "Write"], repository: "none" },
     },
     repositories: {
       "sample-app": { url, branch: "main", profiles: [PROFILE_ID] },
@@ -345,7 +349,14 @@ integration("a session whose pair left the catalog, end to end", () => {
     server = Bun.serve({ port: 0, fetch: (request) => after.fetch(request) });
   }
 
-  async function create(app: ReturnType<typeof createApiApp>, message: string) {
+  async function create(
+    app: ReturnType<typeof createApiApp>,
+    message: string,
+    run: { profile_id: string; repository_id?: string } = {
+      profile_id: PROFILE_ID,
+      repository_id: "sample-app",
+    },
+  ) {
     const response = await app.request("/v1/sessions", {
       method: "POST",
       headers: {
@@ -353,11 +364,7 @@ integration("a session whose pair left the catalog, end to end", () => {
         "Idempotency-Key": crypto.randomUUID(),
         "X-Owner-Id": owner,
       },
-      body: JSON.stringify({
-        profile_id: PROFILE_ID,
-        repository_id: "sample-app",
-        message,
-      }),
+      body: JSON.stringify({ ...run, message }),
     });
     expect(response.status).toBe(201);
     return createSessionResponseSchema.parse(await response.json());
@@ -445,5 +452,74 @@ integration("a session whose pair left the catalog, end to end", () => {
       await read(`/v1/sessions/${healthy.session_id}`),
     );
     expect(other.attention).toBeNull();
+  }, 60_000);
+
+  test("a session without a repository runs on its profile alone, and is failed once the profile it was pinned to is gone", async () => {
+    const general = { profile_id: "general" };
+    const runs = await create(after, "no repository", general);
+    const stale = await create(after, "no repository, edited since", general);
+    // What an operator editing the general profile looks like from the
+    // session's side: the row keeps the settings it was created with.
+    await db
+      .update(schema.sessions)
+      .set({ profileFingerprint: "0".repeat(64) })
+      .where(eq(schema.sessions.id, stale.session_id));
+
+    const backend = new WorkerBackend(
+      () => `http://127.0.0.1:${server.port}`,
+      async (sessionId) => {
+        const [queued] = await db
+          .select({ id: queueMessages.id })
+          .from(queueMessages)
+          .where(eq(queueMessages.sessionId, sessionId));
+        return String(queued?.id ?? "none");
+      },
+    );
+    const store = createPostgresSchedulerStore(db, {
+      connectForLock: () => pool.connect(),
+      sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
+    });
+    const pass = () =>
+      runScheduler({
+        backend,
+        image: "worker:test",
+        logger: { error: () => {}, info: () => {}, warn: () => {} },
+        resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 64 },
+        slotLimit: 1,
+        store,
+      });
+
+    expect((await pass()).launched).toHaveLength(1);
+    const [ran] = await backend.startWorkers();
+    expect(ran?.sessionId).toBe(runs.session_id);
+    expect(ran?.summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+    const issued = await db
+      .select({ purpose: schema.workerCredentials.purpose })
+      .from(schema.workerCredentials)
+      .innerJoin(
+        schema.attempts,
+        eq(schema.attempts.id, schema.workerCredentials.attemptId),
+      )
+      .where(eq(schema.attempts.sessionId, runs.session_id));
+    expect(issued.map((row) => row.purpose)).not.toContain("repository");
+
+    expect((await pass()).launched).toHaveLength(1);
+    const [refused] = await backend.startWorkers();
+    expect(refused?.sessionId).toBe(stale.session_id);
+    expect(refused?.summary.outcome).toBe("unclaimed");
+    expect(refused?.elapsedMs).toBeLessThan(5_000);
+
+    const detail = getSessionResponseSchema.parse(
+      await read(`/v1/sessions/${stale.session_id}`),
+    );
+    expect(detail.status).toBe("failed");
+    expect(detail.attention).toMatchObject({ code: "CATALOG_MISMATCH" });
+    const ok = getSessionResponseSchema.parse(
+      await read(`/v1/sessions/${runs.session_id}`),
+    );
+    expect(ok.attention).toBeNull();
   }, 60_000);
 });

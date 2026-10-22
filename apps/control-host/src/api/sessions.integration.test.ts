@@ -26,6 +26,7 @@ import {
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import {
+  type CatalogProfile,
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
@@ -40,30 +41,33 @@ import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
+const coding: CatalogProfile = {
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  model: "claude-sonnet-5",
+  tools: ["Read", "Edit", "Bash"],
+  permission_mode: "default",
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+};
 const catalog: SessionCatalog = {
   profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    },
+    "claude-coding-v1": coding,
+    "claude-coding-optional": { ...coding, repository: "optional" },
+    general: { ...coding, tools: ["Read", "Write"], repository: "none" },
   },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
+      profiles: ["claude-coding-v1", "claude-coding-optional"],
     },
   },
 };
@@ -1287,5 +1291,169 @@ integration("sessions API on PostgreSQL", () => {
       .set({ branch: "main" })
       .where(eq(sessions.id, sessionId));
     expect((await detail()).detail.attention).toBeNull();
+  }, 60_000);
+
+  test("repository_id follows the profile's repository mode: required needs it, none refuses it, optional takes either", async () => {
+    const message = "Summarize the meeting notes.";
+    const refusal = async (payload: unknown) => {
+      const response = await create(crypto.randomUUID(), payload);
+      expect(response.status).toBe(422);
+      return ((await response.json()) as { error: unknown }).error;
+    };
+    expect(
+      await refusal({ profile_id: "claude-coding-v1", message }),
+    ).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message:
+        "Profile claude-coding-v1 needs a repository: send repository_id",
+    });
+    expect(
+      await refusal({
+        profile_id: "general",
+        repository_id: "sample-app",
+        message,
+      }),
+    ).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: "Profile general runs without a repository: omit repository_id",
+    });
+    // An explicit null is not an omission.
+    const nulled = await create(crypto.randomUUID(), {
+      profile_id: "general",
+      repository_id: null,
+      message,
+    });
+    expect(nulled.status).toBe(400);
+
+    const rowOf = async (sessionId: string) => {
+      const [row] = await db
+        .select({
+          repositoryMode: sessions.repositoryMode,
+          repositoryId: sessions.repositoryId,
+          repoUrl: sessions.repoUrl,
+          branch: sessions.branch,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      return row;
+    };
+    const without = {
+      repositoryMode: "none",
+      repositoryId: null,
+      repoUrl: null,
+      branch: null,
+    };
+    const created = async (payload: unknown) => {
+      const response = await create(crypto.randomUUID(), payload);
+      expect(response.status).toBe(201);
+      return createSessionResponseSchema.parse(await response.json())
+        .session_id;
+    };
+    const general = await created({ profile_id: "general", message });
+    expect(await rowOf(general)).toEqual(without);
+    expect(
+      await rowOf(
+        await created({ profile_id: "claude-coding-optional", message }),
+      ),
+    ).toEqual(without);
+    expect(
+      await rowOf(
+        await created({
+          profile_id: "claude-coding-optional",
+          repository_id: "sample-app",
+          message,
+        }),
+      ),
+    ).toEqual({
+      repositoryMode: "repository",
+      repositoryId: "sample-app",
+      repoUrl: "https://example.invalid/app.git",
+      branch: "main",
+    });
+
+    // The detail says nothing of the row's mode, and no worker is
+    // missing for it.
+    const read = await app.request(`/v1/sessions/${general}`, {
+      headers: { "X-Owner-Id": owner },
+    });
+    const text = await read.text();
+    const detail = getSessionResponseSchema.parse(JSON.parse(text));
+    expect(detail.repository_id).toBeNull();
+    expect(detail.attention).toBeNull();
+    expect(text).not.toContain("repository_mode");
+  }, 60_000);
+
+  test("a session without a repository is judged by its profile alone: CATALOG_MISMATCH and profile changes", async () => {
+    const response = await create(crypto.randomUUID(), {
+      profile_id: "general",
+      message: "Draft the weekly report.",
+    });
+    expect(response.status).toBe(201);
+    const { session_id: sessionId } = createSessionResponseSchema.parse(
+      await response.json(),
+    );
+    const detail = async () => {
+      const read = await app.request(`/v1/sessions/${sessionId}`, {
+        headers: { "X-Owner-Id": owner },
+      });
+      expect(read.status).toBe(200);
+      return getSessionResponseSchema.parse(await read.json());
+    };
+    const changeTo = (profileId: string, expectedRevision: number) =>
+      app.request(`/v1/sessions/${sessionId}/profile`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": owner,
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          profile_id: profileId,
+          expected_revision: expectedRevision,
+        }),
+      });
+
+    expect((await detail()).attention).toBeNull();
+    // A profile that needs a repository cannot take over a session that
+    // has none.
+    const refused = await changeTo(
+      "claude-coding-v1",
+      (await detail()).revision,
+    );
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({
+      error: {
+        code: "UNSUPPORTED_CAPABILITY",
+        message:
+          "Profile claude-coding-v1 is not in this host's catalog or needs a repository, which the session has none of",
+      },
+    });
+    const moved = await changeTo(
+      "claude-coding-optional",
+      (await detail()).revision,
+    );
+    expect(moved.status).toBe(200);
+    const [row] = await db
+      .select({
+        profileId: sessions.profileId,
+        repositoryMode: sessions.repositoryMode,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(row).toEqual({
+      profileId: "claude-coding-optional",
+      repositoryMode: "none",
+    });
+    expect((await detail()).attention).toBeNull();
+
+    // A profile the catalog now defines with other settings than the
+    // session was pinned to is a mismatch, repository or not.
+    await db
+      .update(sessions)
+      .set({ profileFingerprint: "0".repeat(64) })
+      .where(eq(sessions.id, sessionId));
+    expect((await detail()).attention).toMatchObject({
+      code: "CATALOG_MISMATCH",
+    });
   }, 60_000);
 });

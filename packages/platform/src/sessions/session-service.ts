@@ -47,13 +47,15 @@ import type {
   InputLimitRefusal,
   InputLimits,
   ReadEventsQuery,
+  SessionDetailRecord,
   SessionReader,
 } from "../ports/session-unit-of-work.ts";
 import {
-  allowedPair,
+  allowedRun,
   isUnmetered,
   profileFingerprint,
   profileWithModel,
+  repositoryModeOf,
   type SessionCatalog,
   sessionProfile,
 } from "./catalog.ts";
@@ -302,22 +304,43 @@ export function createSessionService(deps: {
   };
   const now = deps.now ?? (() => new Date());
 
-  function catalogAllows(record: {
-    profile_id: string | null;
-    repository_id: string | null;
-    repo_url: string | null;
-    branch: string | null;
-    profile_fingerprint: string | null;
-  }): boolean {
-    const pair =
-      record.profile_id && record.repository_id
-        ? allowedPair(catalog, record.profile_id, record.repository_id)
-        : null;
+  // A row from before the catalog has a repository mode but no repository
+  // id; it runs as nothing.
+  function runOf(
+    record: Pick<SessionDetailRecord, "repository_mode" | "repository_id">,
+    profileId: string,
+  ) {
+    if (record.repository_mode === "none") {
+      return allowedRun(catalog, profileId, null);
+    }
+    return record.repository_id === null
+      ? null
+      : allowedRun(catalog, profileId, record.repository_id);
+  }
+
+  function repositoryRefusal(
+    profileId: string,
+    repositoryId: string | null,
+  ): string {
+    const profile = own(catalog.profiles, profileId);
+    const mode = profile ? repositoryModeOf(profile) : undefined;
+    if (mode === "required" && repositoryId === null) {
+      return `Profile ${profileId} needs a repository: send repository_id`;
+    }
+    if (mode === "none" && repositoryId !== null) {
+      return `Profile ${profileId} runs without a repository: omit repository_id`;
+    }
+    return "Unknown profile_id or repository_id, or a pair the catalog does not allow";
+  }
+
+  function catalogAllows(record: SessionDetailRecord): boolean {
+    const run = record.profile_id ? runOf(record, record.profile_id) : null;
     return (
-      pair !== null &&
-      pair.repository.url === record.repo_url &&
-      pair.repository.branch === record.branch &&
-      sessionProfile(pair.profile, record.profile_fingerprint) !== null
+      run !== null &&
+      (run.repository === null ||
+        (run.repository.url === record.repo_url &&
+          run.repository.branch === record.branch)) &&
+      sessionProfile(run.profile, record.profile_fingerprint) !== null
     );
   }
 
@@ -424,6 +447,7 @@ export function createSessionService(deps: {
       provider_tokens,
       repo_url,
       branch,
+      repository_mode,
       profile_fingerprint,
       ...detail
     } = record;
@@ -487,11 +511,8 @@ export function createSessionService(deps: {
       );
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
-      const allowed = allowedPair(
-        catalog,
-        input.body.profile_id,
-        input.body.repository_id,
-      );
+      const repositoryId = input.body.repository_id ?? null;
+      const allowed = allowedRun(catalog, input.body.profile_id, repositoryId);
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
@@ -504,13 +525,16 @@ export function createSessionService(deps: {
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         profileId: input.body.profile_id,
-        repository: pair
-          ? {
-              id: input.body.repository_id,
-              url: pair.repository.url,
-              branch: pair.repository.branch,
-            }
-          : null,
+        repository:
+          pair === null
+            ? null
+            : pair.repository === null || repositoryId === null
+              ? "none"
+              : {
+                  id: repositoryId,
+                  url: pair.repository.url,
+                  branch: pair.repository.branch,
+                },
         ...(pair
           ? {
               profileFingerprint: profileFingerprint(pair.profile),
@@ -538,7 +562,7 @@ export function createSessionService(deps: {
             "UNSUPPORTED_CAPABILITY",
             allowed && !runs
               ? `Profile ${input.body.profile_id} does not offer model ${input.body.model}`
-              : "Unknown profile_id or repository_id, or a pair the catalog does not allow",
+              : repositoryRefusal(input.body.profile_id, repositoryId),
           );
         case "actor_inactive":
           throw new SessionServiceError(
@@ -766,9 +790,7 @@ export function createSessionService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       const wanted = input.body.profile_id;
-      const pair = record.repository_id
-        ? allowedPair(catalog, wanted, record.repository_id)
-        : null;
+      const pair = runOf(record, wanted);
       // The session row keeps no runtime of its own: only its profile, as the
       // catalog still defines it, says which runtime took its checkpoints.
       const found = record.profile_id
@@ -781,9 +803,12 @@ export function createSessionService(deps: {
       // the runtime has to stay; the model, tools and provider may change.
       const refusal =
         pair === null ||
-        pair.repository.url !== record.repo_url ||
-        pair.repository.branch !== record.branch
-          ? `Profile ${wanted} is not in this host's catalog or not allowed with the session's repository`
+        (pair.repository !== null &&
+          (pair.repository.url !== record.repo_url ||
+            pair.repository.branch !== record.branch))
+          ? record.repository_mode === "none"
+            ? `Profile ${wanted} is not in this host's catalog or needs a repository, which the session has none of`
+            : `Profile ${wanted} is not in this host's catalog or not allowed with the session's repository`
           : current === undefined
             ? `The session's profile ${record.profile_id} is no longer in this host's catalog as the session runs it, so the runtime its checkpoints were taken on cannot be checked`
             : current.runtime_kind !== pair.profile.runtime_kind ||
