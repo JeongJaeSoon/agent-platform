@@ -84,22 +84,53 @@ describe("preferences", () => {
     ).toBeDefined();
   });
 
-  test("a theme chosen here shows in the user menu at once, and the other way round", async () => {
+  test("theme and language chosen here show in the account menu at once, and the other way round", async () => {
     renderAt("/settings/preferences", signedIn);
     const user = await setupUser();
     const themes = await screen.findByRole("radiogroup", { name: "테마" });
-    const menu = screen.getByRole("region", { name: "사용자 메뉴" });
-    const menuTheme = within(menu).getByLabelText("테마") as HTMLSelectElement;
+    const openMenu = async () => {
+      const region = screen.getByRole("region", { name: /メニュー|메뉴/ });
+      await user.click(within(region).getByRole("button", { name: /Owner/ }));
+      return screen.getByRole("menu", { name: /Owner/ });
+    };
 
     await user.click(within(themes).getByRole("radio", { name: /어둡게/ }));
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
-    expect(menuTheme.value).toBe("dark");
+    let menu = await openMenu();
+    expect(
+      within(menu)
+        .getByRole("menuitemradio", { name: "어둡게" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
 
-    await user.selectOptions(menuTheme, "light");
+    await user.click(within(menu).getByRole("menuitemradio", { name: "밝게" }));
     expect(
       within(themes)
         .getByRole("radio", { name: /밝게/ })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: "언어" })).getByRole(
+        "radio",
+        { name: /日本語/ },
+      ),
+    );
+    menu = await openMenu();
+    await user.click(within(menu).getByRole("menuitem", { name: "言語" }));
+    const languages = screen.getByRole("menu", { name: "言語" });
+    expect(
+      within(languages)
+        .getByRole("menuitemradio", { name: "日本語" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    await user.click(
+      within(languages).getByRole("menuitemradio", { name: "English" }),
+    );
+    expect(
+      screen
+        .getByRole("radio", { name: /English/ })
         .getAttribute("aria-checked"),
     ).toBe("true");
   });

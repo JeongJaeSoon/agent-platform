@@ -177,7 +177,7 @@ case "$app" in
     # and carries the one docs/operations.md names.
     ident="$(docker run --rm "$image" sh -c 'cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"
     echo "default commit identity: $ident"
-    expected="agent-platform <noreply@agent-platform.invalid>"
+    expected="Werft <noreply@werft.invalid>"
     [ "$ident" = "$expected|$expected" ] || { echo "expected $expected as author and committer" >&2; exit 1; }
     # Its own ENTRYPOINT, a command standing in for the worker's: the
     # scheduler overrides Cmd only when it launches a worker.

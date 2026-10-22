@@ -1349,6 +1349,51 @@ describe("WorkerHost cost and provider failures", () => {
     expect(summary.reason).toContain("BUDGET_EXCEEDED");
     expect(gateway.releases).toHaveLength(1);
   });
+
+  test("takes no checkpoint of its own when it gives the slot back for a spent budget", async () => {
+    // The last turn's finalize carried the checkpoint; the release that
+    // follows captures nothing more, so the session resumes from that turn.
+    let captures = 0;
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        checkpoints: {
+          restorePlan: async () => ({ mode: "new" }),
+          capture: async () => {
+            captures += 1;
+            return {
+              revision: captures - 1,
+              manifest_ref: `checkpoints/${captures - 1}.json`,
+              manifest_sha256: "a".repeat(64),
+            };
+          },
+        },
+        gateway,
+        timeouts: { idleTimeoutMs: 60_000 },
+      },
+    );
+    gateway.enqueue("one message");
+
+    const running = host.runLoop();
+    await waitFor(() => gateway.finalized.length === 1, "the first finalize");
+    gateway.overBudget = true;
+    const summary = await running;
+
+    expect(summary.outcome).toBe("idle");
+    expect(captures).toBe(1);
+    expect(gateway.finalized[0]?.checkpoint?.revision).toBe(0);
+    expect(gateway.releases).toEqual([
+      expect.objectContaining({
+        turn_id: null,
+        reason: expect.stringContaining("BUDGET_EXCEEDED"),
+      }),
+    ]);
+  });
 });
 
 describe("inputUuid", () => {
@@ -1426,7 +1471,7 @@ describe("WorkerHost before the engine starts", () => {
           committedClaudeMd: () => null,
           instructionsCommit: () => null,
           async prepare({ descriptor }) {
-            order.push(`prepare ${descriptor.repository.branch}`);
+            order.push(`prepare ${descriptor.repository?.branch}`);
             expect(runtime.inputs).toHaveLength(0);
             return "clone";
           },
@@ -1517,6 +1562,39 @@ describe("WorkerHost before the engine starts", () => {
     expect(gateway.releases).toHaveLength(1);
     // A failure: the session counts it against its startups.
     expect(gateway.releases[0]).not.toHaveProperty("stop_kind");
+  });
+
+  test("refuses a claim without a repository before preparing anything, and logs why", async () => {
+    const gateway = new FakeWorkerGateway({ workspace: { repository: null } });
+    const prepared: string[] = [];
+    const logged: string[] = [];
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      logger: {
+        info: (event, fields) => logged.push(event, JSON.stringify(fields)),
+        warn: (event, fields) => logged.push(event, JSON.stringify(fields)),
+        error: (event, fields) => logged.push(event, JSON.stringify(fields)),
+      },
+      workspace: {
+        committedClaudeMd: () => null,
+        instructionsCommit: () => null,
+        async prepare() {
+          prepared.push("prepare");
+          return "clone";
+        },
+      },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary).toMatchObject({ outcome: "failed", turns: [] });
+    expect(summary.reason).toContain("no repository");
+    expect(prepared).toEqual([]);
+    expect(launched).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+    const failed = logged.indexOf("worker.failed");
+    expect(failed).toBeGreaterThan(-1);
+    expect(logged[failed + 1]).toContain("no repository");
   });
 
   test("a drain during preparation aborts it and releases, with no engine", async () => {
