@@ -272,7 +272,7 @@ describe("API key", () => {
       "soon/caution",
       "expired/danger",
       "plain",
-      "plain",
+      "none/caution",
     ]);
     expect(rows()[0]?.textContent).toContain("곧 만료 · ");
     expect(rows()[1]?.textContent).toContain("만료됨 · ");
@@ -371,6 +371,8 @@ describe("API key", () => {
     expect(
       await screen.findByText("Billing · 세션 보기, 세션 만들기"),
     ).toBeDefined();
+    // Read from the scopes: without sessions:approve it cannot approve.
+    expect(screen.getByText("승인 불가").dataset.approve).toBe("false");
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "새 key" }));
     const read = await screen.findByRole("checkbox", {

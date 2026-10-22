@@ -77,7 +77,11 @@ import {
 
 // A settings column, not the full content width: one key per row reads
 // better narrow (GitHub's token list).
-const PAGE = "mx-auto flex w-full max-w-[52rem] flex-col gap-6";
+const PAGE = "mx-auto flex w-full max-w-[52.5rem] flex-col gap-6";
+// Title, a rule 16px above the intro, then the page's 24px gap.
+const HEAD = "flex flex-col gap-4";
+const HEAD_RULE = "border-b pb-3";
+const INTRO = "m-0 text-muted-foreground text-sm";
 const TITLE = "m-0 font-semibold text-xl";
 const SECTION_TITLE = "m-0 font-semibold text-lg";
 const META = "text-muted-foreground text-xs";
@@ -353,8 +357,13 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
   return (
     <div className={PAGE}>
       <KeyScreenNav current={kind} />
-      <div className="flex flex-col gap-3 border-b pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={HEAD}>
+        <div
+          className={cn(
+            HEAD_RULE,
+            "flex flex-wrap items-center justify-between gap-3",
+          )}
+        >
           <h1 className={TITLE}>{t(screen.title)}</h1>
           <ReasonButton
             className={buttonVariants()}
@@ -365,7 +374,7 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
             {t("apiKeys.new")}
           </ReasonButton>
         </div>
-        <p className="m-0 text-muted-foreground text-sm">{t(screen.intro)}</p>
+        <p className={INTRO}>{t(screen.intro)}</p>
       </div>
       {outcome ? (
         outcome.kind === "error" ? (
@@ -463,25 +472,43 @@ function KeyIdMeta({ id }: { readonly id: string }) {
   );
 }
 
-function ExpiryMeta({ expiresAt }: { readonly expiresAt: string | null }) {
+/** Expiry, or revocation, in the state tokens: a key that never ends warns. */
+function ExpiryMeta({
+  expiresAt,
+  revokedAt,
+}: {
+  readonly expiresAt: string | null;
+  readonly revokedAt: string | null;
+}) {
   const { t, locale } = useI18n();
-  const state = expiryState(expiresAt);
-  if (expiresAt === null) return <span>{t("apiKeys.noExpiry")}</span>;
-  const at = formatTimestamp(expiresAt, locale);
-  if (state === "later") return <span>{t("apiKeys.expiresAt", { at })}</span>;
-  const expired = state === "expired";
+  const state = revokedAt ? "revoked" : expiryState(expiresAt);
+  if (state === "later" && expiresAt)
+    return (
+      <span>
+        {t("apiKeys.expiresAt", { at: formatTimestamp(expiresAt, locale) })}
+      </span>
+    );
+  const danger = state === "expired" || state === "revoked";
+  const text =
+    state === "revoked" && revokedAt
+      ? t("apiKeys.revokedAt", { at: formatTimestamp(revokedAt, locale) })
+      : state === "none" || !expiresAt
+        ? t("apiKeys.noExpiry")
+        : t(state === "expired" ? "apiKeys.expiredAt" : "apiKeys.expiresSoon", {
+            at: formatTimestamp(expiresAt, locale),
+          });
   return (
     <span
-      data-tone={expired ? "danger" : "caution"}
+      data-tone={danger ? "danger" : "caution"}
       data-expiry={state}
       className="inline-flex items-center gap-1 font-medium text-[var(--ap-tone-fg)]"
     >
-      {expired ? (
+      {danger ? (
         <CircleAlert aria-hidden="true" className={ICON} />
       ) : (
         <Clock aria-hidden="true" className={ICON} />
       )}
-      {t(expired ? "apiKeys.expiredAt" : "apiKeys.expiresSoon", { at })}
+      {text}
     </span>
   );
 }
@@ -557,23 +584,27 @@ function KeyList({
           const scopes = key.scopes
             .map((scope) => t(SCOPE_NAME[scope]))
             .join(", ");
+          const approves = key.scopes.includes("sessions:approve");
           return (
             <li
               key={key.id}
-              className="flex items-start gap-3 border-b px-4 py-3 last:border-b-0"
+              className="flex min-h-12 items-center gap-3 border-b px-4 py-3 last:border-b-0"
               data-revoked={key.revoked_at !== null}
             >
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="break-words font-semibold">
+                  <span className="break-words font-semibold text-sm leading-5">
                     {agent === null ? scopes : `${agent} · ${scopes}`}
                   </span>
                   <KindBadge kind={kind} />
+                  <Badge variant="outline" data-approve={approves}>
+                    {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
+                  </Badge>
                 </div>
                 <div
                   className={cn(
                     META,
-                    "flex flex-wrap items-center gap-x-2 gap-y-1",
+                    "flex flex-wrap items-center gap-x-2 leading-4",
                   )}
                 >
                   <KeyIdMeta id={key.id} />
@@ -584,15 +615,10 @@ function KeyList({
                     })}
                   </span>
                   <span aria-hidden="true">·</span>
-                  {key.revoked_at ? (
-                    <span>
-                      {t("apiKeys.revokedAt", {
-                        at: formatTimestamp(key.revoked_at, locale),
-                      })}
-                    </span>
-                  ) : (
-                    <ExpiryMeta expiresAt={key.expires_at} />
-                  )}
+                  <ExpiryMeta
+                    expiresAt={key.expires_at}
+                    revokedAt={key.revoked_at}
+                  />
                 </div>
                 {key.kind === "service" ? (
                   <span className={META}>
@@ -605,7 +631,8 @@ function KeyList({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="shrink-0 text-destructive"
+                  data-tone="danger"
+                  className="shrink-0 border-[var(--ap-tone-border)] text-[var(--ap-tone-fg)] hover:bg-[var(--ap-tone-bg)] hover:text-[var(--ap-tone-fg)]"
                   disabled={revoke.isPending}
                   aria-label={t("apiKeys.revokeFor", {
                     key: `${label} (${key.id})`,
@@ -746,16 +773,18 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
 
   return (
     <div className={PAGE}>
-      <div className="flex flex-col items-start gap-3 border-b pb-4">
-        <Link
-          to={screen.list}
-          className="inline-flex items-center gap-1 text-muted-foreground text-sm no-underline hover:text-foreground"
-        >
-          <ArrowLeft aria-hidden="true" className="size-4" />
-          {t(screen.title)}
-        </Link>
-        <h1 className={TITLE}>{t(screen.newTitle)}</h1>
-        <p className="m-0 text-muted-foreground text-sm">{t(screen.intro)}</p>
+      <div className={HEAD}>
+        <div className={cn(HEAD_RULE, "flex flex-col items-start gap-2")}>
+          <Link
+            to={screen.list}
+            className="inline-flex items-center gap-1 text-muted-foreground text-sm no-underline hover:text-foreground"
+          >
+            <ArrowLeft aria-hidden="true" className="size-4" />
+            {t(screen.title)}
+          </Link>
+          <h1 className={TITLE}>{t(screen.newTitle)}</h1>
+        </div>
+        <p className={INTRO}>{t(screen.intro)}</p>
       </div>
       {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
       {issued ? (
