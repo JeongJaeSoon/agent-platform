@@ -338,17 +338,34 @@ describe("readCatalogConfig", () => {
         await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
         () => "placeholder-credential-value",
       );
+      // A profile added since has no sessions to fail.
+      const pinned = Object.keys(expected).map((id) => {
+        const profile = catalog.profiles[id];
+        if (profile === undefined) throw new Error(`${dir}: no profile ${id}`);
+        return [id, profile] as const;
+      });
       expect(
         Object.fromEntries(
-          Object.entries(catalog.profiles).map(([id, profile]) => [
-            id,
-            profileFingerprint(profile),
-          ]),
+          pinned.map(([id, profile]) => [id, profileFingerprint(profile)]),
         ),
       ).toEqual(expected);
-      for (const profile of Object.values(catalog.profiles)) {
+      for (const [, profile] of pinned) {
         expect(repositoryModeOf(profile)).toBe("required");
       }
     }
+  });
+
+  test("the fake-model catalog offers a profile that runs without a repository", async () => {
+    const catalog = resolveSessionCatalog(
+      await readCatalogConfig(join(DEFAULT_CONFIG_DIR, "fake-model")),
+      () => "placeholder-credential-value",
+    );
+    const general = catalog.profiles.general;
+    if (general === undefined) throw new Error("no general profile");
+    expect(repositoryModeOf(general)).toBe("none");
+    expect(general.tools).not.toContain("Bash");
+    expect(general.provider).toEqual(
+      catalog.profiles["claude-coding-local"]?.provider,
+    );
   });
 });

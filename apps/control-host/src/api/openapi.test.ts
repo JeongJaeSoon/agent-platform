@@ -608,4 +608,23 @@ describe("OpenAPI document", () => {
     ]);
     expect(receipt.required).not.toContain("actor");
   });
+
+  test("a session's repository_id is optional, and when it is refused is documented", () => {
+    const request = buildOpenApiDocument().components.schemas
+      .CreateSessionRequest as {
+      required: string[];
+      properties: Record<string, { description?: string }>;
+    };
+    expect(request.required).not.toContain("repository_id");
+    expect(request.properties.repository_id?.description).toContain(
+      "`repository_mode`",
+    );
+    const create = JSON.stringify(operation("post", "/v1/sessions"));
+    expect(create).toContain(
+      "Profile <id> needs a repository: send repository_id",
+    );
+    expect(create).toContain(
+      "Profile <id> runs without a repository: omit repository_id",
+    );
+  });
 });
