@@ -22,8 +22,9 @@ bun run check
 ```bash
 bun run --cwd packages/adapters/runtimes/claude test:unit
 bun run --cwd packages/adapters/runtimes/claude test:direct-local
-bun run --cwd scripts/agent-sdk-compat test:transport
 ```
+
+실제 LiteLLM proxy를 거친 SDK 왕복은 호환 harness가 따로 확인한다. harness는 자기 의존성과 LiteLLM을 따로 설치해야 하므로, 설치와 실행 순서는 [harness README](../../scripts/agent-sdk-compat/README.md#실행)를 따른다.
 
 terminate 수락 지연은 PostgreSQL 임시 DB에서 동시 세션 10개(terminate 5개와 pause 5개)를 섞어 재현한다. 기본 20라운드의 terminate 100표본에서 nearest-rank p95가 500ms를 넘으면 실패하며, 결과에는 단계별 p95도 함께 나온다. `BENCH_ROUNDS`는 표본을 더 모을 때만 늘린다.
 

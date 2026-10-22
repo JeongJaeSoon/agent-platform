@@ -1,8 +1,8 @@
-# 결정: Agent SDK와 LiteLLM 버전은 정확히 고정하고 호환 harness로 올린다
+# 결정: Agent SDK 버전은 정확히 고정하고 호환 harness로 확인한 뒤 올린다
 
 ## 무엇을 골랐나
 
-worker는 `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 SDK에 번들된 Claude Code `2.1.270`을 로컬 process로 실행한다. Anthropic 전송은 직접 연결하거나, LiteLLM `1.100.1`의 `/v1/messages` 경로를 거친다.
+worker는 `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 SDK에 번들된 Claude Code `2.1.270`을 로컬 process로 실행한다. Anthropic 전송은 직접 연결하거나, 운영자가 승인한 LiteLLM의 `/v1/messages` 경로를 거친다. 제품은 LiteLLM을 함께 배포하지 않는다. 호환 harness가 확인하는 LiteLLM은 `1.100.1`이고, 로컬 모델 확인용 compose(`infra/compose.local-model.yml`)의 LiteLLM 이미지는 이와 별도로 digest로 고정한다.
 
 버전은 이렇게 고정한다.
 
@@ -11,9 +11,9 @@ worker는 `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 SDK에 번들된 Claud
 | 제품이 쓰는 SDK | `packages/adapters/runtimes/claude/package.json` | 범위 없는 정확한 버전(`0.3.270`). 루트 `bun.lock`이 함께 고정한다 |
 | 번들 Claude Code | SDK 패키지 | SDK 버전을 따라간다. 따로 설치하지 않는다 |
 | 호환 harness가 쓰는 SDK | `scripts/agent-sdk-compat/package.json` | 제품과 같은 정확한 버전. harness 자신의 `bun.lock`이 고정한다 |
-| LiteLLM | CI `agent-sdk-compat` job | `uv tool install 'litellm[proxy]==1.100.1'` |
+| harness가 확인하는 LiteLLM | CI `agent-sdk-compat` job | `uv tool install 'litellm[proxy]==1.100.1'` |
 
-harness는 workspace 밖의 독립 설치 단위라서 제품 버전을 올려도 자동으로 따라오지 않는다. 그래서 두 `package.json`의 SDK 버전이 같은지 `tests/agent-sdk-compat/sdk-version.test.ts`가 검사한다. 이 테스트는 루트 `bun test`에 들어 있어 PR마다 돈다.
+harness는 workspace 밖의 독립 설치 단위라서 제품 버전을 올려도 자동으로 따라오지 않는다. 그래서 두 `package.json`이 함께 선언한 의존성(SDK와 MCP tool schema에 쓰는 `zod`)의 버전이 같은지 `tests/agent-sdk-compat/sdk-version.test.ts`가 검사한다. 이 테스트는 루트 `bun test`에 들어 있어 PR마다 돈다.
 
 ## 운영 제약
 
@@ -61,4 +61,4 @@ bun run --cwd scripts/agent-sdk-compat probe:version
 bun run --cwd scripts/agent-sdk-compat check
 ```
 
-SDK를 올릴 때는 두 `package.json`을 같은 버전으로 함께 바꾸고, 두 lockfile을 갱신한 뒤 위 명령과 CI 수동 실행으로 확인한다.
+SDK나 `zod`를 올릴 때는 두 `package.json`을 같은 버전으로 함께 바꾸고, 두 lockfile을 갱신한 뒤 위 명령과 CI 수동 실행으로 확인한다.
