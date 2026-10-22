@@ -1,6 +1,10 @@
 import { lstat, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
-import type { CheckpointRef, WorkspaceDescriptor } from "@werft-ai/contracts";
+import type {
+  CheckpointRef,
+  WorkspaceDescriptor,
+  WorkspaceRepository,
+} from "@werft-ai/contracts";
 import {
   planWorkspacePreparation,
   type WorkspaceObservation,
@@ -142,6 +146,11 @@ export class GitWorkspace implements WorkspacePreparer {
     restore: CheckpointRef | null;
     signal: AbortSignal;
   }): Promise<WorkspacePlan["action"]> {
+    if (input.descriptor.repository === null) {
+      throw new Error(
+        `Workspace ${this.root} refused: the session has no repository`,
+      );
+    }
     const { access, url } = input.descriptor.repository;
     const remote = routed(splitSecret(url), access, this.egressTransport);
     const redact = redactor(
@@ -635,7 +644,7 @@ type Remote = {
 
 function routed(
   remote: Remote,
-  access: WorkspaceDescriptor["repository"]["access"],
+  access: WorkspaceRepository["access"],
   transport: string | null,
 ): Remote {
   if (access === undefined) return remote;

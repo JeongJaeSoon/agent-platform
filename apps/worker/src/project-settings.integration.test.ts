@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { RuntimeConfig, WorkspaceDescriptor } from "@werft-ai/contracts";
+import type { RuntimeConfig, WorkspaceRepository } from "@werft-ai/contracts";
 import { ClaudeSdkRuntime } from "@werft-ai/runtime-claude";
 import {
   type FakeAnthropicServer,
@@ -82,7 +82,7 @@ function git(args: string[], cwd: string): void {
 }
 
 type Repository = {
-  descriptor: WorkspaceDescriptor;
+  descriptor: { repository: WorkspaceRepository };
   home: string;
   markers: string[];
   publish(claudeMd: string): Promise<void>;

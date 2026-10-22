@@ -458,7 +458,7 @@ integration("worker gateway on PostgreSQL", () => {
     const providerOf = (claimed: typeof first) =>
       claimed.runtime_config.provider.auth.token;
     const repositoryOf = (claimed: typeof first) =>
-      claimed.workspace.repository.access?.token ?? "";
+      claimed.workspace.repository?.access?.token ?? "";
     const authorize = (token: string, purpose: "provider" | "repository") =>
       failure(gateway.authorizeEgress({ token, purpose }));
 
