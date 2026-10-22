@@ -87,7 +87,7 @@ API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할
 - heading에 번호나 날짜를 넣지 않는다. heading이 바뀌면 anchor가 바뀌어, 그 anchor를 가리키는 문서와 `infra/datadog` monitor 메시지의 링크가 깨진다.
 - 문서는 독자별 디렉터리에 둔다. 사용자 문서(quickstart·API 가이드)는 `docs/` 바로 아래, 운영자 문서는 `docs/operator/`, 기여자 문서는 `docs/contributing/`, 채택·선택 결정의 결론은 `docs/contributing/decisions/`에 둔다. 새 문서는 [docs/README.md](../README.md) 색인에 넣는다.
 - 조사용 코드(spike)는 저장소에 남기지 않는다. 결론은 결정 기록에 적고, 계속 지킬 계약은 제품 테스트나 `scripts/<이름>/` harness로 옮긴 뒤 지운다.
-- `tests/docs-links.test.ts`가 추적 중인 Markdown의 티켓 번호, 깨진 상대 링크, 맞지 않는 heading anchor를 검사한다. 아직 정리 전인 문서만 그 파일의 제외 목록에 있다.
+- `tests/docs-links.test.ts`가 추적 중인 Markdown의 Linear 티켓 번호(`94S-` 뒤 숫자), 깨진 상대 링크, 맞지 않는 heading anchor를 검사한다. PR 번호와 작업 경위는 검사하지 않으니 리뷰에서 본다. 아직 정리 전인 문서만 그 파일의 제외 목록에 있다.
 
 ## migration 만들기
 

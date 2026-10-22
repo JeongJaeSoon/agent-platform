@@ -9,11 +9,20 @@ const root = join(import.meta.dir, "..");
 // first: a snippet showing Markdown is not a link.
 const INLINE = /!?\[(?:[^[\]]|\[[^\]]*\])*\]\(\s*(<[^>]*>|[^)\s]+)/g;
 const REFERENCE = /^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/gm;
-const FENCE = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm;
-const COMMENT = /<!--[\s\S]*?-->/g;
-// One left-to-right pass, so a backtick inside a comment cannot pair with
-// one after it and hide the links in between.
-const COMMENT_OR_CODE = /<!--[\s\S]*?-->|(`+)[\s\S]*?\1/g;
+// One left-to-right pass, so whichever opens first hides the others: a fence
+// opener or a backtick inside a comment does not reach past it. A fence
+// closes on a bare run of its own character at least as long, or at the end
+// of the file; a code span does not cross a blank line.
+const HIDDEN =
+  /^ {0,3}((`|~)\2{2,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1\2*[ \t]*$|(?![\s\S]))|<!--[\s\S]*?-->|(?<!`)(`+)(?:(?!\n[ \t]*\n)[\s\S])*?(?<!`)\3(?!`)/gm;
+
+function decoded(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
 
 interface Link {
   path: string;
@@ -21,7 +30,7 @@ interface Link {
 }
 
 function relativeLinks(markdown: string): Link[] {
-  const prose = markdown.replace(FENCE, "").replace(COMMENT_OR_CODE, "");
+  const prose = markdown.replace(HIDDEN, "");
   const targets = [...prose.matchAll(INLINE), ...prose.matchAll(REFERENCE)].map(
     (match) => (match[1] ?? "").replace(/^<|>$/g, ""),
   );
@@ -30,10 +39,7 @@ function relativeLinks(markdown: string): Link[] {
     .map((target) => {
       const [, path = "", anchor = ""] =
         /^([^#?]*)(?:\?[^#]*)?(?:#(.*))?$/.exec(target) ?? [];
-      return {
-        path: decodeURIComponent(path),
-        anchor: decodeURIComponent(anchor),
-      };
+      return { path: decoded(path), anchor: decoded(anchor) };
     });
 }
 
@@ -43,27 +49,49 @@ function relativeTargets(markdown: string): string[] {
     .filter((path) => path !== "");
 }
 
-// GitHub's heading id: markup and punctuation dropped, spaces to hyphens.
-// Symbols such as the circled digit in "② 이벤트 관찰" go too.
+const ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+};
+
+// GitHub's heading id, from the rendered text: markup and punctuation
+// dropped, spaces to hyphens. Symbols such as the circled digit in
+// "② 이벤트 관찰" go too.
 function slug(heading: string): string {
   return heading
     .replace(/<[^>]+>/g, "")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, name: string) =>
+      name.startsWith("#")
+        ? String.fromCodePoint(Number(`0${name.slice(1)}`))
+        : (ENTITIES[name.toLowerCase()] ?? entity),
+    )
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "")
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{Nd}\p{Nl}\p{Mn}_ -]/gu, "")
     .replace(/ /g, "-");
 }
 
+// ATX headings, and setext ones under a line that does not open a list,
+// quote, table or heading.
+const HEADING =
+  /^ {0,3}#{1,6}(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$|^(?! {0,3}(?:(?:[-*+]|#{1,6}|\d+[.)])(?:[ \t]|$)|[>|]|$)) {0,3}(\S.*?)[ \t]*\n {0,3}(?:=+|-+)[ \t]*$/gm;
+
 function headingAnchors(markdown: string): Set<string> {
-  const prose = markdown.replace(FENCE, "").replace(COMMENT, "");
-  const seen = new Map<string, number>();
+  const prose = markdown.replace(HIDDEN, (match, _fence, _char, code) =>
+    code ? match : "",
+  );
   const anchors = new Set<string>();
-  for (const match of prose.matchAll(/^ {0,3}#{1,6}\s+(.*?)\s*#*\s*$/gm)) {
-    const base = slug(match[1] ?? "");
-    const count = seen.get(base) ?? 0;
-    anchors.add(count === 0 ? base : `${base}-${count}`);
-    seen.set(base, count + 1);
+  for (const match of prose.matchAll(HEADING)) {
+    const base = slug(match[1] ?? match[2] ?? "");
+    if (base === "") continue;
+    let id = base;
+    for (let n = 1; anchors.has(id); n++) id = `${base}-${n}`;
+    anchors.add(id);
   }
   return anchors;
 }
@@ -150,6 +178,44 @@ describe("Markdown relative links", () => {
         "반복-1",
       ].sort(),
     );
+    const anchorsOf = (lines: string[]) => [
+      ...headingAnchors(lines.join("\n")),
+    ];
+    expect(anchorsOf(["# foo", "# foo", "# foo-1"])).toEqual([
+      "foo",
+      "foo-1",
+      "foo-1-1",
+    ]);
+    expect(
+      anchorsOf(["# A &amp; B &#x41;", "## _italics_ and __init__ snake_case"]),
+    ).toEqual(["a--b-a", "italics-and-init-snake_case"]);
+    expect(anchorsOf(["#", "# next", "#hashtag"])).toEqual(["next"]);
+    expect(
+      anchorsOf([
+        "Title",
+        "=====",
+        "",
+        "**Sub**",
+        "---",
+        "",
+        "- item",
+        "---",
+        "",
+        "| a |",
+        "---",
+      ]),
+    ).toEqual(["title", "sub"]);
+    expect(
+      anchorsOf([
+        "~~~",
+        "# hidden",
+        "~~~bad",
+        "# hidden-too",
+        "~~~",
+        "# shown",
+      ]),
+    ).toEqual(["shown"]);
+    expect(anchorsOf(["```", "# never closed"])).toEqual([]);
   });
 
   test("the parser keeps relative paths and drops the rest", () => {
@@ -184,6 +250,17 @@ describe("Markdown relative links", () => {
       { path: "", anchor: "here" },
       { path: "x#y.md", anchor: "frag" },
     ]);
+    expect(
+      relativeLinks(
+        ["<!--", "~~~", "-->", "[x](#missing) [pct](#100%)"].join("\n"),
+      ),
+    ).toEqual([
+      { path: "", anchor: "missing" },
+      { path: "", anchor: "100%" },
+    ]);
+    expect(
+      relativeTargets(["`open", "", "[x](y.md)", "", "`close"].join("\n")),
+    ).toEqual(["y.md"]);
   });
 
   // Not yet rewritten to describe only current behavior.
