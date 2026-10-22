@@ -89,7 +89,6 @@ import {
   type WorkspaceCaptureResult,
 } from "./workspace-capture.ts";
 import {
-  DEFAULT_OUTPUT_LIMITS,
   indexOutputs,
   OUTPUT_DIRECTORY,
   type OutputIndex,
@@ -1129,34 +1128,6 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       ),
     );
 
-    const transcripts = await timer.time("transcript", () =>
-      bound.store
-        .captureTranscripts(preparation.checkpoint.resume)
-        .catch((error: unknown) => {
-          throw error instanceof TranscriptTooLarge
-            ? new TranscriptLimitReached({
-                reason: error.reason,
-                detail: error.message,
-              })
-            : error;
-        }),
-    );
-    if (transcripts === null) {
-      throw new PublishFailure(
-        "transcript",
-        `engine session ${preparation.checkpoint.resume} has no mirrored root transcript`,
-      );
-    }
-    const restoring =
-      1 +
-      bases.length +
-      untracked.length +
-      transcripts.root.parts.length +
-      Object.values(transcripts.subagents).reduce(
-        (total, revision) => total + revision.parts.length,
-        0,
-      );
-
     // Inherited by digest from the checkpoint this one builds on, whatever
     // its bundle chain did, since finalize vouches for that pointer's refs.
     const parent =
@@ -1177,24 +1148,14 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       () => true,
       () => false,
     );
-    const outputLimits = this.#options.outputLimits ?? DEFAULT_OUTPUT_LIMITS;
     const indexed: OutputIndex = !hasOutputs
       ? { dropped: 0, outputs: [] }
       : await timer.time("outputs", () =>
           indexOutputs({
             workspaceRoot: this.#options.workspaceRoot,
-            // Outputs take only the objects restoring leaves, so the files
-            // past them are dropped rather than the checkpoint refused.
-            limits: {
-              ...outputLimits,
-              maxFiles: Math.max(
-                0,
-                Math.min(
-                  outputLimits.maxFiles,
-                  DEFAULT_MAX_MANIFEST_OBJECTS - restoring,
-                ),
-              ),
-            },
+            ...(this.#options.outputLimits === undefined
+              ? {}
+              : { limits: this.#options.outputLimits }),
             store: async ({ bytes, path }) => {
               const digest = sha256(bytes);
               const earlier = earlierOutputs.get(digest);
@@ -1216,6 +1177,24 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           }),
         );
 
+    const transcripts = await timer.time("transcript", () =>
+      bound.store
+        .captureTranscripts(preparation.checkpoint.resume)
+        .catch((error: unknown) => {
+          throw error instanceof TranscriptTooLarge
+            ? new TranscriptLimitReached({
+                reason: error.reason,
+                detail: error.message,
+              })
+            : error;
+        }),
+    );
+    if (transcripts === null) {
+      throw new PublishFailure(
+        "transcript",
+        `engine session ${preparation.checkpoint.resume} has no mirrored root transcript`,
+      );
+    }
     // Pinned, but only worth committing if nothing was lost on the way: a
     // batch whose append failed is one the SDK may still retry or give up
     // on, and a mirror error the engine raised since the verdict means the
@@ -1235,7 +1214,31 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (oversized !== undefined) throw new TranscriptLimitReached(oversized);
     // Finalize refuses a manifest over either limit only after everything it
     // names was uploaded, so it is refused here first.
-    const referenced = restoring + storedOutputs(indexed.outputs).length;
+    const restoring =
+      1 +
+      bases.length +
+      untracked.length +
+      transcripts.root.parts.length +
+      Object.values(transcripts.subagents).reduce(
+        (total, revision) => total + revision.parts.length,
+        0,
+      );
+    // Outputs get only the objects restoring leaves; the ones past that were
+    // uploaded but are dropped, not the checkpoint. Indexing after the
+    // transcripts would put the uploads between their capture and the
+    // checks above.
+    let room = DEFAULT_MAX_MANIFEST_OBJECTS - restoring;
+    let outputsDropped = indexed.dropped;
+    const listed = indexed.outputs.filter((output) => {
+      if ("omitted" in output) return true;
+      if (room > 0) {
+        room -= 1;
+        return true;
+      }
+      outputsDropped += 1;
+      return false;
+    });
+    const referenced = restoring + storedOutputs(listed).length;
     if (referenced > DEFAULT_MAX_MANIFEST_OBJECTS) {
       throw new PublishFailure(
         "manifest",
@@ -1263,7 +1266,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         untracked: untracked.map(versioned),
       },
     });
-    let manifest = manifestOf(indexed.outputs);
+    let manifest = manifestOf(listed);
     let encoded = this.#codec.encode(manifest);
     let outputsRefused = indexed.refused;
     // The index does not restore anything, so an index too long to read
@@ -1322,7 +1325,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ? {
             outputs: outputs.length,
             outputs_too_large: outputs.length - storedOutputs(outputs).length,
-            outputs_dropped: indexed.dropped,
+            outputs_dropped: outputsDropped,
             outputs_inherited: outputsInherited,
             outputs_uploads: uploadedOutputs.size,
             ...(outputsRefused === undefined
