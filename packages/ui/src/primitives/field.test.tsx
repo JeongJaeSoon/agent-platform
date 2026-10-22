@@ -236,3 +236,18 @@ describe("Field", () => {
     expect(remote.getAttribute("aria-checked")).toBe("true");
   });
 });
+
+describe("Textarea", () => {
+  // No layout engine here: an explicit height switches field-sizing off in a
+  // browser, so the class list is what keeps the field growing with its text.
+  test("내용에 따라 늘어나도록 고정 높이 없이 최소·최대 높이만 둔다", () => {
+    const { getByRole } = render(<Textarea aria-label="다음 지시" />);
+    const classes = getByRole("textbox", { name: "다음 지시" }).className.split(
+      /\s+/,
+    );
+    expect(classes).toContain("field-sizing-content");
+    expect(classes.filter((name) => /^h-/.test(name))).toEqual([]);
+    expect(classes.some((name) => /^min-h-/.test(name))).toBe(true);
+    expect(classes.some((name) => /^max-h-/.test(name))).toBe(true);
+  });
+});

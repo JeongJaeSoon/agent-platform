@@ -1548,7 +1548,7 @@ describe("세션 상세 레이아웃", () => {
     );
   });
 
-  test.each(["loading", "error"] as const)(
+  test.each(["error", "loading"] as const)(
     "pending %s keeps the composer in the panel",
     async (state) => {
       renderAt(`/sessions/${SESSION_ID}`, {
@@ -1563,14 +1563,123 @@ describe("세션 상세 레이아웃", () => {
       const composer = await screen.findByRole("textbox", {
         name: "다음 지시",
       });
+      const aside = composer.closest("aside") as HTMLElement;
+      expect(aside).toBeTruthy();
       if (state === "error")
-        await screen.findByRole("button", { name: "다시 시도" });
-      expect(composer.closest("aside")).toBeTruthy();
+        await within(aside).findByRole("button", { name: "다시 시도" });
+      else expect(within(aside).getByText("불러오는 중…")).toBeTruthy();
       expect(
         screen.getAllByRole("textbox", { name: "다음 지시" }),
       ).toHaveLength(1);
+      // Requests that could not be read are not reported as none.
+      expect(aside.textContent).not.toContain("기다리는 요청 없음");
+      expect(aside.textContent).not.toContain("답을 기다리는 요청이 없습니다.");
     },
   );
+
+  test("작성 중인 다음 지시는 요청이 생기고 사라져도, 폭이 바뀌어도 남는다", async () => {
+    const original = globalThis.ResizeObserver;
+    let resize: ResizeObserverCallback | undefined;
+    class Observer {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = Observer as unknown as typeof ResizeObserver;
+    try {
+      const user = await setupUser();
+      let open: ListPendingRequestsResponse["items"] = [];
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+          json(200, { items: open }),
+        [`POST /v1/sessions/${SESSION_ID}/answers`]: () => {
+          open = [];
+          return json(202, {
+            receipt_id: RECEIPT_ID,
+            receipt_status: "accepted",
+          });
+        },
+      });
+      const draft = () =>
+        (
+          screen.getByRole("textbox", {
+            name: "다음 지시",
+          }) as HTMLTextAreaElement
+        ).value;
+      await screen.findByText("답을 기다리는 요청이 없습니다.");
+      await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
+      await user.keyboard("next step draft");
+      await waitFor(() => expect(stream.requests).toHaveLength(1));
+      await act(async () => stream.open());
+
+      open = pending.items.map((item) => ({ ...item, expires_at: LATER }));
+      act(() => stream.emit("ev_1", "status", { phase: "running" }));
+      const allow = await screen.findByRole("button", { name: "허용" });
+      expect(draft()).toBe("next step draft");
+
+      await waitFor(() => expect(resize).toBeDefined());
+      act(() =>
+        resize?.(
+          [{ contentRect: { width: 390 } } as ResizeObserverEntry],
+          {} as ResizeObserver,
+        ),
+      );
+      expect(draft()).toBe("next step draft");
+
+      allow.focus();
+      await user.keyboard("{Enter}");
+      await screen.findByText("답을 기다리는 요청이 없습니다.");
+      expect(draft()).toBe("next step draft");
+
+      act(() =>
+        resize?.(
+          [{ contentRect: { width: 1000 } } as ResizeObserverEntry],
+          {} as ResizeObserver,
+        ),
+      );
+      expect(draft()).toBe("next step draft");
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
+  });
+
+  test("다른 세션으로 옮기면 앞 세션의 초안을 가져가지 않는다", async () => {
+    const user = await setupUser();
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${OTHER_ID}`]: () =>
+        json(200, { ...detail, id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+        json(200, { ...usage, session_id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: () =>
+        new Promise<Response>(() => {}),
+    });
+    await screen.findByText("권한 요청: Bash");
+    await user.click(screen.getByRole("textbox", { name: "다음 지시" }));
+    await user.keyboard("for the first session");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "다음 지시",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe("for the first session");
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", { name: OTHER_ID });
+    expect(
+      (
+        (await screen.findByRole("textbox", {
+          name: "다음 지시",
+        })) as HTMLTextAreaElement
+      ).value,
+    ).toBe("");
+  });
 
   test("요청이 있으면 진행 탭에 작성창을 두고 넓은 화면은 본문부터 읽는다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
@@ -1607,9 +1716,8 @@ describe("세션 상세 레이아웃", () => {
         [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
           json(200, { items: [] }),
       });
-      const composer = await screen.findByRole("textbox", {
-        name: "다음 지시",
-      });
+      await screen.findByText("답을 기다리는 요청이 없습니다.");
+      const composer = screen.getByRole("textbox", { name: "다음 지시" });
       expect(composer.closest("aside")).toBeTruthy();
       expect(
         screen.getAllByText("답을 기다리는 요청이 없습니다."),

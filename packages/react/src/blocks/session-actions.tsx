@@ -10,7 +10,15 @@ import {
   ConfirmDialog,
   QuestionCard,
 } from "@werft-ai/ui";
-import { type Ref, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type Ref,
+  type SetStateAction,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   type SessionControl,
   useAnswer,
@@ -438,7 +446,13 @@ export function SessionComposer({
   session,
   unavailable,
   refusal,
-}: SessionActionProps & { readonly session: SessionDetailData }) {
+  draft,
+  onDraftChange,
+}: SessionActionProps & {
+  readonly session: SessionDetailData;
+  readonly draft?: string;
+  readonly onDraftChange?: Dispatch<SetStateAction<string>>;
+}) {
   const { t } = useBlockText();
   const send = useSendMessage(session.id);
   const refused = useRefusal(refusal);
@@ -489,6 +503,8 @@ export function SessionComposer({
           hint: t("session.composer.hint"),
           queued: t("session.composer.queued"),
         }}
+        value={draft}
+        onValueChange={onDraftChange}
         disabled={reason !== undefined}
         disabledReason={reason}
         pending={send.isPending}

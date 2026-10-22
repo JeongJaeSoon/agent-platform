@@ -67,6 +67,12 @@ export function SessionDetail({
   const session = useSession(id);
   const [tab, setTab] = useState("timeline");
   const [debug, setDebug] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [draftFor, setDraftFor] = useState(id);
+  if (draftFor !== id) {
+    setDraftFor(id);
+    setDraft("");
+  }
   const lostAccess =
     isApiError(session.error, "NOT_FOUND") ||
     isApiError(session.error, "FORBIDDEN");
@@ -88,15 +94,17 @@ export function SessionDetail({
     }
     return renderError(session.error, () => void session.refetch());
   }
-  const hasPending =
-    !pending.isPending &&
-    !pending.error &&
-    (pending.data?.items.length ?? 0) > 0;
+  const pendingCount = pending.data?.items.length;
+  const hasPending = (pendingCount ?? 0) > 0;
+  // The composer moves between the tab and the panel as requests come and
+  // go; the draft lives here so the move does not wipe it.
   const composer = (
     <SessionComposer
       session={detail}
       unavailable={unavailable}
       refusal={refusal}
+      draft={draft}
+      onDraftChange={setDraft}
     />
   );
   const body = (
@@ -168,13 +176,22 @@ export function SessionDetail({
       ) : pending.error ? (
         renderError(pending.error, () => void pending.refetch())
       ) : null}
-      {!hasPending ? (
+      {pendingCount === 0 ? (
         <Section title={t("session.pending.emptyTitle")}>
           <p className="m-0 text-caption text-muted-foreground">
             {t("session.pending.empty")}
           </p>
           {composer}
         </Section>
+      ) : pendingCount === undefined ? (
+        <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4">
+          {pending.error ? null : (
+            <output className="text-caption text-muted-foreground">
+              {t("sessions.loadingMore")}
+            </output>
+          )}
+          {composer}
+        </div>
       ) : null}
       {usage.data ? (
         <Usage usage={usage.data} compact />
