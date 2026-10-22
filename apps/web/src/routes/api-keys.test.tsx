@@ -238,6 +238,9 @@ describe("API key", () => {
       await act(async () => button.click());
       expect(written).toEqual([KEY_ID]);
       expect(button.textContent).toBe("복사했습니다");
+      expect(
+        within(rows()[0] as HTMLElement).getByRole("status").textContent,
+      ).toBe("복사했습니다");
     } finally {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
       else Reflect.deleteProperty(navigator, "clipboard");
@@ -508,6 +511,43 @@ describe("API key", () => {
     }
   });
 
+  test("값 복사에 성공하면 status 영역이 그렇다고 알린다", async () => {
+    renderAt(NEW_PERSONAL, { ...ownerOk, ...keysServer() });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "key 만들기" }));
+    const secret = await screen.findByRole("region", { name: "새 key" });
+
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => undefined },
+    });
+    try {
+      const status = within(secret).getByRole("status");
+      expect(status.textContent).toBe("");
+      await act(async () =>
+        within(secret).getByRole("button", { name: "복사" }).click(),
+      );
+      expect(status.textContent).toBe("복사했습니다");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  test("공백 없는 긴 에이전트 이름도 행 폭 안에서 줄을 바꾼다", async () => {
+    const long = { ...mine, name: `billing_${"x".repeat(80)}` };
+    renderAt(SERVICE, {
+      ...ownerOk,
+      "GET /v1/agents": () => json(200, { items: [long] }),
+      ...keysServer([key()]),
+    });
+    const title = await screen.findByText(`${long.name} · 세션 보기`);
+    // Layout is not measured here; the live 390px check covers the width.
+    expect(title.classList.contains("min-w-0")).toBe(true);
+    expect(title.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
+  });
+
   test("폐기는 확인 뒤에 하고 행이 폐기됨으로 바뀐다", async () => {
     renderAt(SERVICE, { ...ownerOk, ...keysServer([key()]) });
     const user = await setupUser();
@@ -521,8 +561,10 @@ describe("API key", () => {
       within(dialog).getByText(`ID ${KEY_ID} key를 폐기할까요?`),
     ).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "폐기" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "key를 폐기했습니다.",
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").map((status) => status.textContent),
+      ).toContain("key를 폐기했습니다."),
     );
     await waitFor(() => expect(screen.getByText(/^폐기됨/)).toBeDefined());
     expect(screen.queryByRole("button", { name: /폐기$/ })).toBeNull();

@@ -426,26 +426,38 @@ function CopyButton({
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className="h-6 gap-1 px-1.5 text-xs"
-      aria-label={label}
-      onClick={() => {
-        void copyText(value, field ?? { current: null }).then((ok) => {
-          setCopied(ok);
-          onResult(ok);
-        });
-      }}
-    >
-      {copied ? (
-        <Check aria-hidden="true" className={ICON} />
-      ) : (
-        <Copy aria-hidden="true" className={ICON} />
-      )}
-      {copied ? <span>{t("apiKeys.copied")}</span> : null}
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-1.5 text-xs"
+        aria-label={label}
+        onClick={() => {
+          void copyText(value, field ?? { current: null }).then((ok) => {
+            setCopied(ok);
+            onResult(ok);
+          });
+        }}
+      >
+        {copied ? (
+          <Check aria-hidden="true" className={ICON} />
+        ) : (
+          <Copy aria-hidden="true" className={ICON} />
+        )}
+        {copied ? <span>{t("apiKeys.copied")}</span> : null}
+      </Button>
+      <CopiedStatus copied={copied} />
+    </>
+  );
+}
+
+// A button's changed name is not announced reliably, and a fixed aria-label
+// hides it entirely.
+function CopiedStatus({ copied }: { readonly copied: boolean }) {
+  const { t } = useI18n();
+  return (
+    <output className="sr-only">{copied ? t("apiKeys.copied") : ""}</output>
   );
 }
 
@@ -593,7 +605,7 @@ function KeyList({
             >
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="break-words font-semibold text-sm leading-5">
+                  <span className="min-w-0 font-semibold text-sm leading-5 [overflow-wrap:anywhere]">
                     {agent === null ? scopes : `${agent} · ${scopes}`}
                   </span>
                   <KindBadge kind={kind} />
@@ -891,23 +903,26 @@ function SecretCopyButton({
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
-    <Button
-      type="button"
-      className="shrink-0"
-      onClick={() => {
-        void copyText(secret, field).then((ok) => {
-          setCopied(ok);
-          onResult(ok);
-        });
-      }}
-    >
-      {copied ? (
-        <Check aria-hidden="true" className="size-4" />
-      ) : (
-        <Copy aria-hidden="true" className="size-4" />
-      )}
-      {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
-    </Button>
+    <>
+      <Button
+        type="button"
+        className="shrink-0"
+        onClick={() => {
+          void copyText(secret, field).then((ok) => {
+            setCopied(ok);
+            onResult(ok);
+          });
+        }}
+      >
+        {copied ? (
+          <Check aria-hidden="true" className="size-4" />
+        ) : (
+          <Copy aria-hidden="true" className="size-4" />
+        )}
+        {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
+      </Button>
+      <CopiedStatus copied={copied} />
+    </>
   );
 }
 
