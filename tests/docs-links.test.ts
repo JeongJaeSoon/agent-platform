@@ -12,9 +12,10 @@ const REFERENCE = /^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/gm;
 // One left-to-right pass, so whichever opens first hides the others: a fence
 // opener or a backtick inside a comment does not reach past it. A fence
 // closes on a bare run of its own character at least as long, or at the end
-// of the file; a code span does not cross a blank line.
+// of the file; a backtick fence's info string has no backtick; a code span
+// does not cross a blank line.
 const HIDDEN =
-  /^ {0,3}((`|~)\2{2,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1\2*[ \t]*$|(?![\s\S]))|<!--[\s\S]*?-->|(?<!`)(`+)(?:(?!\n[ \t]*\n)[\s\S])*?(?<!`)\3(?!`)/gm;
+  /^ {0,3}((`|~)\2{2,})(?:(?<=`)[^`\n]*|(?<=~)[^\n]*)\n[\s\S]*?(?:^ {0,3}\1\2*[ \t]*$|(?![\s\S]))|<!--[\s\S]*?-->|(?<!`)(`+)(?:(?!\n[ \t]*\n)[\s\S])*?(?<!`)\3(?!`)/gm;
 
 function decoded(text: string): string {
   try {
@@ -57,11 +58,8 @@ const ENTITIES: Record<string, string> = {
   apos: "'",
 };
 
-// GitHub's heading id, from the rendered text: markup and punctuation
-// dropped, spaces to hyphens. Symbols such as the circled digit in
-// "② 이벤트 관찰" go too.
-function slug(heading: string): string {
-  return heading
+function rendered(markup: string): string {
+  return markup
     .replace(/<[^>]+>/g, "")
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, name: string) =>
       name.startsWith("#")
@@ -69,25 +67,60 @@ function slug(heading: string): string {
         : (ENTITIES[name.toLowerCase()] ?? entity),
     )
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "")
+    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "");
+}
+
+// GitHub's heading id, from the rendered text: markup and punctuation
+// dropped, spaces to hyphens. Symbols such as the circled digit in
+// "② 이벤트 관찰" go too. Code spans render as written.
+function slug(heading: string): string {
+  return heading
+    .replace(/(`+)(.*?)\1|[^`]+/g, (part, ticks, code) =>
+      ticks ? code : rendered(part),
+    )
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{Nd}\p{Nl}\p{Mn}_ -]/gu, "")
     .replace(/ /g, "-");
 }
 
-// ATX headings, and setext ones under a line that does not open a list,
-// quote, table or heading.
-const HEADING =
-  /^ {0,3}#{1,6}(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$|^(?! {0,3}(?:(?:[-*+]|#{1,6}|\d+[.)])(?:[ \t]|$)|[>|]|$)) {0,3}(\S.*?)[ \t]*\n {0,3}(?:=+|-+)[ \t]*$/gm;
+const ATX = /^ {0,3}#{1,6}(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
+const THEMATIC_BREAK = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+const LIST_QUOTE_OR_TABLE = /^ {0,3}(?:(?:[-*+]|\d+[.)])(?:[ \t]|$)|[>|])/;
+
+// ATX headings, and setext ones whose text is the whole paragraph above the
+// underline. Lines after a list item, quote or table row continue that block
+// until a blank line, so they never become a setext heading.
+function headingTexts(prose: string): string[] {
+  const texts: string[] = [];
+  let paragraph: string[] | null = [];
+  for (const line of prose.split("\n")) {
+    const atx = ATX.exec(line);
+    if (atx) {
+      texts.push(atx[1] ?? "");
+      paragraph = [];
+    } else if (SETEXT_UNDERLINE.test(line) && paragraph?.length) {
+      texts.push(paragraph.join(" "));
+      paragraph = [];
+    } else if (line.trim() === "" || THEMATIC_BREAK.test(line)) {
+      paragraph = [];
+    } else if (LIST_QUOTE_OR_TABLE.test(line)) {
+      paragraph = null;
+    } else {
+      paragraph?.push(line.trim());
+    }
+  }
+  return texts;
+}
 
 function headingAnchors(markdown: string): Set<string> {
   const prose = markdown.replace(HIDDEN, (match, _fence, _char, code) =>
     code ? match : "",
   );
   const anchors = new Set<string>();
-  for (const match of prose.matchAll(HEADING)) {
-    const base = slug(match[1] ?? match[2] ?? "");
+  for (const text of headingTexts(prose)) {
+    const base = slug(text);
     if (base === "") continue;
     let id = base;
     for (let n = 1; anchors.has(id); n++) id = `${base}-${n}`;
@@ -216,6 +249,28 @@ describe("Markdown relative links", () => {
       ]),
     ).toEqual(["shown"]);
     expect(anchorsOf(["```", "# never closed"])).toEqual([]);
+    expect(
+      anchorsOf([
+        "## `__init__` and __bold__",
+        "```Use `x` here```",
+        "# after",
+      ]),
+    ).toEqual(["__init__-and-bold", "after"]);
+    expect(
+      anchorsOf([
+        "First line",
+        "second line",
+        "---",
+        "",
+        "***",
+        "Next",
+        "---",
+        "",
+        "- item",
+        "lazy",
+        "---",
+      ]),
+    ).toEqual(["first-line-second-line", "next"]);
   });
 
   test("the parser keeps relative paths and drops the rest", () => {
@@ -261,6 +316,9 @@ describe("Markdown relative links", () => {
     expect(
       relativeTargets(["`open", "", "[x](y.md)", "", "`close"].join("\n")),
     ).toEqual(["y.md"]);
+    expect(
+      relativeTargets(["```Use `x` here```", "[x](z.md)"].join("\n")),
+    ).toEqual(["z.md"]);
   });
 
   // Not yet rewritten to describe only current behavior.
