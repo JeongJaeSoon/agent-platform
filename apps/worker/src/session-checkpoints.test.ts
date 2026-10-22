@@ -28,8 +28,11 @@ import {
   claudeCheckpointCodec,
 } from "@werft-ai/runtime-claude";
 import {
+  type CheckpointCodec,
   type CheckpointManifest,
   type CheckpointPreparation,
+  DEFAULT_MAX_MANIFEST_BYTES,
+  DEFAULT_MAX_MANIFEST_OBJECTS,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
   type ObjectRef,
@@ -137,6 +140,7 @@ function harness(
       maxFiles: number;
       maxTotalBytes: number;
     };
+    codec?: CheckpointCodec;
   } = {},
 ) {
   const gateway = options.gateway ?? new FakeWorkerGateway();
@@ -164,6 +168,7 @@ function harness(
     ...(options.captureWorkspace === undefined
       ? {}
       : { captureWorkspace: options.captureWorkspace }),
+    ...(options.codec === undefined ? {} : { codec: options.codec }),
     ...(options.instructionsCommit === undefined
       ? {}
       : { instructionsCommit: options.instructionsCommit }),
@@ -1315,6 +1320,102 @@ describe.skipIf(!existsSync("/proc/self/fd"))("files under out/", () => {
       outputs_too_large: 1,
       outputs_inherited: 3,
       outputs_uploads: 0,
+    });
+  });
+
+  test("outputs past the objects the manifest has left are dropped, not the checkpoint", async () => {
+    await writeFile(join(workspace, ".git", "info", "exclude"), "out/\n");
+    await mkdir(join(workspace, "out"));
+    for (const name of ["a.md", "b.md", "c.md"]) {
+      await writeFile(join(workspace, "out", name), `${name}\n`);
+    }
+    // The bundle and one transcript part, plus these, leave room for two.
+    const padding = Array.from(
+      { length: DEFAULT_MAX_MANIFEST_OBJECTS - 4 },
+      (_, index) => ({
+        bytes: new TextEncoder().encode("same bytes"),
+        executable: false,
+        path: `pad/${index}.txt`,
+      }),
+    );
+    const h = harness({
+      captureWorkspace: async (input) => {
+        const result = await captureWorkspace(input);
+        return result.status === "captured"
+          ? {
+              ...result,
+              capture: {
+                ...result.capture,
+                untracked: [...result.capture.untracked, ...padding],
+              },
+            }
+          : result;
+      },
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    const bytes =
+      ref === null ? undefined : await h.objects.get(ref.manifest_ref);
+    if (bytes === undefined) {
+      throw new Error(`manifest missing: ${JSON.stringify(h.warnings)}`);
+    }
+
+    expect(
+      claudeCheckpointCodec.decode(bytes).outputs?.map((output) => output.path),
+    ).toEqual(["out/a.md", "out/b.md"]);
+    expect(
+      h.infos.find(({ event }) => event === "worker.checkpoint.published")
+        ?.fields,
+    ).toMatchObject({ outputs: 2, outputs_dropped: 1 });
+  });
+
+  test("an index that would take the manifest past its bytes is left out, not the checkpoint", async () => {
+    await writeFile(join(workspace, ".git", "info", "exclude"), "out/\n");
+    await mkdir(join(workspace, "out"));
+    await writeFile(join(workspace, "out", "report.md"), "report\n");
+    // Stands in for thousands of long paths: only a manifest listing outputs
+    // encodes past the limit.
+    const codec: CheckpointCodec = {
+      engine: claudeCheckpointCodec.engine,
+      decode: (bytes) => claudeCheckpointCodec.decode(bytes),
+      encode: (manifest) =>
+        manifest.outputs === undefined
+          ? claudeCheckpointCodec.encode(manifest)
+          : {
+              bytes: new Uint8Array(DEFAULT_MAX_MANIFEST_BYTES + 1),
+              sha256: "0".repeat(64),
+            },
+      validateCompatibility: (manifest, fingerprint) =>
+        claudeCheckpointCodec.validateCompatibility(manifest, fingerprint),
+    };
+    const h = harness({ codec });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    const bytes =
+      ref === null ? undefined : await h.objects.get(ref.manifest_ref);
+    if (bytes === undefined) {
+      throw new Error(`manifest missing: ${JSON.stringify(h.warnings)}`);
+    }
+
+    expect("outputs" in claudeCheckpointCodec.decode(bytes)).toBe(false);
+    expect(
+      h.infos.find(({ event }) => event === "worker.checkpoint.published")
+        ?.fields,
+    ).toMatchObject({
+      outputs: 0,
+      outputs_refused: expect.stringMatching(
+        /^listing 1 outputs takes the manifest to \d+ bytes, over the \d+ the control plane reads$/,
+      ),
     });
   });
 

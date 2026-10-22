@@ -121,6 +121,27 @@ describe.skipIf(!procfs)("indexOutputs", () => {
     ).toEqual(["out/ok.txt"]);
   });
 
+  test("skips a name that is not UTF-8 rather than list the file its lossy decode names", async () => {
+    await mkdir(join(workspace, "out"));
+    await writeFile(
+      Buffer.concat([
+        Buffer.from(`${join(workspace, "out")}/`),
+        Buffer.from([0xff]),
+      ]),
+      "invalid name\n",
+    );
+    await writeFile(join(workspace, "out", "�"), "replacement\n");
+
+    const result = await recording().index();
+
+    expect(result.outputs).toEqual([
+      expect.objectContaining({
+        path: "out/�",
+        sha256: sha256("replacement\n"),
+      }),
+    ]);
+  });
+
   test("lists a file over the file limit, or past the total, as too large without reading it", async () => {
     await mkdir(join(workspace, "out"));
     await writeFile(join(workspace, "out", "a.txt"), "1234");

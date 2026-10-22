@@ -1,5 +1,5 @@
-import { constants, type Dirent } from "node:fs";
-import { type FileHandle, open, readdir, stat } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { type FileHandle, lstat, open, readdir, stat } from "node:fs/promises";
 import {
   type CheckpointOutput,
   type StoredOutput,
@@ -91,12 +91,12 @@ export async function indexOutputs(input: {
 
     const visitFile = async (
       parent: FileHandle,
-      entry: Dirent,
+      name: string,
       path: string,
     ) => {
       let file: FileHandle;
       try {
-        file = await open(`${fdDirectory}/${parent.fd}/${entry.name}`, FILE);
+        file = await open(`${fdDirectory}/${parent.fd}/${name}`, FILE);
       } catch (error) {
         if (CONFINEMENT_ERRORS.has(errorCode(error) ?? "")) return;
         throw error;
@@ -139,18 +139,33 @@ export async function indexOutputs(input: {
       prefix: string,
       depth: number,
     ) => {
-      const entries = (
-        await readdir(`${fdDirectory}/${directory.fd}`, { withFileTypes: true })
-      ).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-      for (const entry of entries) {
-        const path = `${prefix}/${entry.name}`;
-        // A name the manifest would refuse (`.git`, a backslash, a name that
-        // is not valid UTF-8) is skipped here, or the whole checkpoint goes.
+      // Read as bytes: a lossy decode turns `\xff` into U+FFFD, the name of
+      // another file, and the manifest would then list one path twice. Bun
+      // gives no file types with byte names, so each entry is lstat'ed.
+      const names = (
+        await readdir(`${fdDirectory}/${directory.fd}`, { encoding: "buffer" })
+      )
+        .flatMap((bytes) => {
+          const name = utf8(bytes);
+          return name === undefined ? [] : [name];
+        })
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      for (const name of names) {
+        const path = `${prefix}/${name}`;
+        // A name the manifest would refuse (`.git`, a backslash) is skipped
+        // here, or the whole checkpoint goes.
         if (workspacePathProblem(path) !== undefined) continue;
+        let entry: Stats;
+        try {
+          entry = await lstat(`${fdDirectory}/${directory.fd}/${name}`);
+        } catch (error) {
+          if (CONFINEMENT_ERRORS.has(errorCode(error) ?? "")) continue;
+          throw error;
+        }
         if (entry.isDirectory()) {
           if (depth >= MAX_DEPTH) continue;
           const child = await openDirectory(
-            `${fdDirectory}/${directory.fd}/${entry.name}`,
+            `${fdDirectory}/${directory.fd}/${name}`,
           );
           if (child === undefined) continue;
           try {
@@ -159,7 +174,7 @@ export async function indexOutputs(input: {
             await child.close().catch(() => undefined);
           }
         } else if (entry.isFile()) {
-          await visitFile(directory, entry, path);
+          await visitFile(directory, name, path);
         }
       }
     };
@@ -207,6 +222,16 @@ async function addressable(
     viaDirectory.dev === direct.dev &&
     viaDirectory.ino === direct.ino
   );
+}
+
+function utf8(name: Uint8Array): string | undefined {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      name,
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 function errorCode(error: unknown): string | undefined {

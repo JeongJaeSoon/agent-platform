@@ -128,9 +128,10 @@ worker는 checkpoint마다 작업 디렉터리의 `out/` 아래 일반 파일을
 | checkpoint 하나의 업로드 합계 `maxTotalBytes` | 256MiB | 합계를 넘기게 하는 파일부터 `too_large`가 된다 |
 | 파일 수 `maxFiles` | 1,000 | 경로 순으로 1,000개 뒤의 파일은 목록에서 빠진다. publish 로그의 `outputs_dropped`에 개수가 남는다 |
 
-- 색인 상한을 넘어도 checkpoint는 실패하지 않는다. git bundle 상한(256MiB)과 workspace quota는 그대로라서, git이 추적하거나 저장소 없는 세션이 bundle에 싣는 큰 `out/` 파일은 그쪽 상한에 따로 걸린다.
+- 색인 상한을 넘어도 checkpoint는 실패하지 않는다. git bundle 상한(256MiB)과 workspace quota는 그대로라서, git이 추적하거나 저장소 없는 세션이 bundle에 싣는 큰 `out/` 파일은 그쪽 상한에 따로 걸린다. git이 무시하지 않는 untracked `out/` 파일도 복원용 untracked 객체로는 그대로 올라간다. 색인에서 `too_large`여도 마찬가지다.
+- manifest 상한(객체 20,000개, 8MiB)도 checkpoint를 실패시키지 않는다. 결과물은 복원에 쓰는 객체가 남긴 개수까지만 목록에 들고, 넘는 파일은 `outputs_dropped`로 센다. 목록 때문에 manifest가 8MiB를 넘으면 그 checkpoint는 `outputs` 없이 올라가고, publish 로그 `outputs_refused`에 이유가 남는다.
 - 파일은 한 번에 하나씩 메모리에 읽는다. worker 메모리에 더해지는 것은 파일 하나 상한(64MiB)까지다.
-- symlink, 일반 파일 아닌 것, `.git` 같은 manifest가 받지 않는 이름은 목록에 없다. `out` 자체가 symlink면 목록이 빈다.
+- symlink, 일반 파일 아닌 것, `.git`이나 UTF-8이 아닌 이름처럼 manifest가 받지 않는 이름은 목록에 없다. `out` 자체가 symlink면 목록이 빈다.
 - 같은 digest는 한 번만 올린다. 직전 checkpoint가 올린 같은 digest는 그 객체를 그대로 가리키고 다시 올리지 않는다.
 - 객체는 `sessions/<id>/checkpoints/<revision>/<attempt>/<publish>/outputs/<sha256>`에 있다. control plane이 finalize에서 크기와 digest를 확인하고 version을 hold한다. checkpoint GC는 보존하는 checkpoint가 가리키는 결과물 객체를 지우지 않는다.
 

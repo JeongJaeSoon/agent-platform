@@ -28,6 +28,7 @@ import {
   type CheckpointCodec,
   type CheckpointManifest,
   type CheckpointObjectStore,
+  type CheckpointOutput,
   type CheckpointPreparation,
   type CheckpointTranscripts,
   DEFAULT_MAX_MANIFEST_BYTES,
@@ -88,6 +89,7 @@ import {
   type WorkspaceCaptureResult,
 } from "./workspace-capture.ts";
 import {
+  DEFAULT_OUTPUT_LIMITS,
   indexOutputs,
   OUTPUT_DIRECTORY,
   type OutputIndex,
@@ -1127,6 +1129,34 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       ),
     );
 
+    const transcripts = await timer.time("transcript", () =>
+      bound.store
+        .captureTranscripts(preparation.checkpoint.resume)
+        .catch((error: unknown) => {
+          throw error instanceof TranscriptTooLarge
+            ? new TranscriptLimitReached({
+                reason: error.reason,
+                detail: error.message,
+              })
+            : error;
+        }),
+    );
+    if (transcripts === null) {
+      throw new PublishFailure(
+        "transcript",
+        `engine session ${preparation.checkpoint.resume} has no mirrored root transcript`,
+      );
+    }
+    const restoring =
+      1 +
+      bases.length +
+      untracked.length +
+      transcripts.root.parts.length +
+      Object.values(transcripts.subagents).reduce(
+        (total, revision) => total + revision.parts.length,
+        0,
+      );
+
     // Inherited by digest from the checkpoint this one builds on, whatever
     // its bundle chain did, since finalize vouches for that pointer's refs.
     const parent =
@@ -1147,14 +1177,24 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       () => true,
       () => false,
     );
+    const outputLimits = this.#options.outputLimits ?? DEFAULT_OUTPUT_LIMITS;
     const indexed: OutputIndex = !hasOutputs
       ? { dropped: 0, outputs: [] }
       : await timer.time("outputs", () =>
           indexOutputs({
             workspaceRoot: this.#options.workspaceRoot,
-            ...(this.#options.outputLimits === undefined
-              ? {}
-              : { limits: this.#options.outputLimits }),
+            // Outputs take only the objects restoring leaves, so the files
+            // past them are dropped rather than the checkpoint refused.
+            limits: {
+              ...outputLimits,
+              maxFiles: Math.max(
+                0,
+                Math.min(
+                  outputLimits.maxFiles,
+                  DEFAULT_MAX_MANIFEST_OBJECTS - restoring,
+                ),
+              ),
+            },
             store: async ({ bytes, path }) => {
               const digest = sha256(bytes);
               const earlier = earlierOutputs.get(digest);
@@ -1175,26 +1215,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
             },
           }),
         );
-    const outputs = indexed.outputs;
 
-    const transcripts = await timer.time("transcript", () =>
-      bound.store
-        .captureTranscripts(preparation.checkpoint.resume)
-        .catch((error: unknown) => {
-          throw error instanceof TranscriptTooLarge
-            ? new TranscriptLimitReached({
-                reason: error.reason,
-                detail: error.message,
-              })
-            : error;
-        }),
-    );
-    if (transcripts === null) {
-      throw new PublishFailure(
-        "transcript",
-        `engine session ${preparation.checkpoint.resume} has no mirrored root transcript`,
-      );
-    }
     // Pinned, but only worth committing if nothing was lost on the way: a
     // batch whose append failed is one the SDK may still retry or give up
     // on, and a mirror error the engine raised since the verdict means the
@@ -1214,24 +1235,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (oversized !== undefined) throw new TranscriptLimitReached(oversized);
     // Finalize refuses a manifest over either limit only after everything it
     // names was uploaded, so it is refused here first.
-    const referenced =
-      1 +
-      bases.length +
-      untracked.length +
-      storedOutputs(outputs).length +
-      transcripts.root.parts.length +
-      Object.values(transcripts.subagents).reduce(
-        (total, revision) => total + revision.parts.length,
-        0,
-      );
+    const referenced = restoring + storedOutputs(indexed.outputs).length;
     if (referenced > DEFAULT_MAX_MANIFEST_OBJECTS) {
       throw new PublishFailure(
         "manifest",
         `the manifest would name ${referenced} objects, over the ${DEFAULT_MAX_MANIFEST_OBJECTS} the control plane reads`,
       );
     }
-    const manifest: CheckpointManifest = {
-      createdAt: (this.#options.now?.() ?? new Date()).toISOString(),
+    const createdAt = (this.#options.now?.() ?? new Date()).toISOString();
+    const manifestOf = (
+      outputs: readonly CheckpointOutput[],
+    ): CheckpointManifest => ({
+      createdAt,
       cwd: this.#options.workspaceRoot,
       engine: preparation.checkpoint.engine,
       ...(outputs.length === 0 ? {} : { outputs }),
@@ -1247,8 +1262,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         gitCommit: capture.gitCommit,
         untracked: untracked.map(versioned),
       },
-    };
-    const encoded = this.#codec.encode(manifest);
+    });
+    let manifest = manifestOf(indexed.outputs);
+    let encoded = this.#codec.encode(manifest);
+    let outputsRefused = indexed.refused;
+    // The index does not restore anything, so an index too long to read
+    // leaves the checkpoint without it rather than fail it.
+    if (
+      encoded.bytes.byteLength > DEFAULT_MAX_MANIFEST_BYTES &&
+      manifest.outputs !== undefined
+    ) {
+      outputsRefused = `listing ${manifest.outputs.length} outputs takes the manifest to ${encoded.bytes.byteLength} bytes, over the ${DEFAULT_MAX_MANIFEST_BYTES} the control plane reads`;
+      manifest = manifestOf([]);
+      encoded = this.#codec.encode(manifest);
+    }
+    const outputs = manifest.outputs ?? [];
     timer.manifest(encoded.bytes.byteLength);
     if (encoded.bytes.byteLength > DEFAULT_MAX_MANIFEST_BYTES) {
       throw new PublishFailure(
@@ -1297,9 +1325,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
             outputs_dropped: indexed.dropped,
             outputs_inherited: outputsInherited,
             outputs_uploads: uploadedOutputs.size,
-            ...(indexed.refused === undefined
+            ...(outputsRefused === undefined
               ? {}
-              : { outputs_refused: indexed.refused }),
+              : { outputs_refused: outputsRefused }),
           }
         : {}),
       manifest_bytes: encoded.bytes.byteLength,
