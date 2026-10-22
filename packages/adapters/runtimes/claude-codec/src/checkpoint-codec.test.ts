@@ -240,6 +240,66 @@ describe("Claude checkpoint codec", () => {
     ).toThrow(/Invalid Claude checkpoint manifest/);
   });
 
+  test("reads a manifest from before outputs, and leaves the field out of it", () => {
+    const stored = new TextEncoder().encode(
+      `${JSON.stringify(STORED_MANIFEST)}\n`,
+    );
+
+    const decoded = decodeCheckpointManifest(stored);
+
+    expect("outputs" in decoded).toBe(false);
+    expect(encodeCheckpointManifest(decoded).bytes).toEqual(stored);
+  });
+
+  test("round-trips stored and too-large outputs", () => {
+    const original = manifest({
+      outputs: [
+        {
+          bytes: 12,
+          key: `sessions/s1/checkpoints/p/outputs/${"e".repeat(64)}`,
+          path: "out/report.md",
+          sha256: "e".repeat(64),
+          version: "v3",
+        },
+        { bytes: 70_000_000, omitted: "too_large", path: "out/video.mp4" },
+      ],
+    });
+
+    expect(
+      decodeCheckpointManifest(encodeCheckpointManifest(original).bytes),
+    ).toEqual(original);
+  });
+
+  test.each([
+    ["a field this build does not know", { path: "out/a", future: 1 }],
+    ["a path outside out/", { path: "notes/a" }],
+    ["a climbing path", { path: "out/../secret" }],
+    ["a path into .git", { path: "out/.git/config" }],
+    ["a too-large entry that also names an object", { omitted: "too_large" }],
+  ])("refuses an output with %s", (_, edit) => {
+    const body = JSON.parse(
+      new TextDecoder().decode(
+        encodeCheckpointManifest(
+          manifest({
+            outputs: [
+              {
+                bytes: 1,
+                key: `sessions/s1/checkpoints/p/outputs/${"e".repeat(64)}`,
+                path: "out/a",
+                sha256: "e".repeat(64),
+              },
+            ],
+          }),
+        ).bytes,
+      ),
+    );
+    body.outputs[0] = { ...body.outputs[0], ...edit };
+
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
   test("refuses bytes that are not a manifest", () => {
     expect(() =>
       decodeCheckpointManifest(new TextEncoder().encode("not json")),

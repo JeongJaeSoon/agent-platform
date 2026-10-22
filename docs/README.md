@@ -10,6 +10,7 @@ API로 세션을 만들고 쓰는 사람.
 | --- | --- |
 | [Quickstart](quickstart.md) | 로컬 스택을 띄우고 curl로 세션 한 바퀴 |
 | [API 유즈케이스 가이드](api-guide.md) | 유즈케이스별 API 호출 |
+| [TypeScript SDK](sdk.md) | 서버·스크립트에서 API key로 세션을 다루는 `@werft-ai/sdk` |
 | [API 참조 페이지](api/index.html) | 배포 서버가 `GET /docs`로 서빙하는 읽기 전용 참조의 저장소 생성물. 페이지가 부르는 스크립트는 [api/scalar.js](api/scalar.js)다 |
 | [OpenAPI 사양](openapi.json) | 서버가 `GET /v1/openapi.json`으로 내주는 사양의 저장소 생성물 |
 
@@ -25,7 +26,7 @@ API로 세션을 만들고 쓰는 사람.
 | [백업과 복원](operator/backup-restore.md) | compose 설치의 백업·복원 |
 | [용량 관리](operator/capacity.md) | transcript 상한, worker 메모리, 노드당 세션 수 |
 | [Datadog 감시 기준](operator/monitoring-datadog.md) | Datadog Agent와 monitor |
-| [세션 데이터가 흐르는 길](operator/observability.md) | 이벤트 표와 OTel 트레이스 |
+| [세션 데이터가 흐르는 길](operator/observability.md) | `events` 표, 비밀값 마스킹, 보존 기간, 예제 OTLP 수집기 |
 | [test-ops 운영 runbook](operator/test-ops.md) | test-ops 설치의 운영 절차 |
 
 ## 기여자
