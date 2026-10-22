@@ -23,6 +23,7 @@ import {
   DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   MAX_WORKSPACE_BUNDLE_CHAIN,
   runtimeFor,
+  storedOutputs,
   TRANSCRIPT_LIMITS,
   transcriptBytes,
   transcriptGenerationOf,
@@ -592,7 +593,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       ),
     ];
     const untracked = manifest.workspace.untracked;
-    const refs: readonly ObjectRef[] = [...transcriptRefs, ...untracked];
+    const outputs = storedOutputs(manifest.outputs);
+    const refs: readonly ObjectRef[] = [
+      ...transcriptRefs,
+      ...untracked,
+      ...outputs,
+    ];
     const chain = chainOf(manifest.workspace);
     // Counted before any request goes out: the bundles are the rest.
     if (refs.length + chain.length > maxManifestObjects) {
@@ -630,6 +636,20 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const directories = `${prefix}checkpoints/`;
     const outsidePublish = (ref: ObjectRef) =>
       ref.key.startsWith(directories) && !ref.key.startsWith(publish);
+    // An output is stored at `<publish directory>outputs/<its sha256>`, the
+    // key a reader of the list may take as the digest's own name. Another
+    // publish's directory only for the exact ref the pointer named, like an
+    // untracked file.
+    const misplaced = outputs.find(
+      (ref) =>
+        !ref.key.startsWith(directories) ||
+        !ref.key.endsWith(`/outputs/${ref.sha256}`),
+    );
+    if (misplaced !== undefined) {
+      return refused(
+        `manifest output ${misplaced.path} is stored at ${misplaced.key}, not at a checkpoint directory's outputs/${misplaced.sha256}`,
+      );
+    }
     const stray = confined
       ? (transcriptRefs.find(outsidePublish) ??
         untracked.find((ref) => {
@@ -638,12 +658,31 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
             outsidePublish(ref) &&
             (artifact === undefined || !verified.untracked.has(artifact))
           );
+        }) ??
+        outputs.find((ref) => {
+          const token = refToken(ref);
+          return (
+            outsidePublish(ref) &&
+            (token === undefined || !verified.objects.has(token))
+          );
         }))
       : undefined;
     if (stray !== undefined) {
       return refused(
         `manifest references ${stray.key}, which is not under this publish's ${publish}`,
       );
+    }
+    const outputPathProblem = workspacePathsProblem(
+      (manifest.outputs ?? []).map((output) => output.path),
+    );
+    if (outputPathProblem !== undefined) {
+      return refused(`manifest lists outputs unsafely: ${outputPathProblem}`);
+    }
+    const outsideOut = (manifest.outputs ?? []).find(
+      (output) => !output.path.startsWith("out/"),
+    );
+    if (outsideOut !== undefined) {
+      return refused(`manifest lists output ${outsideOut.path} outside out/`);
     }
     // The key says where the object is stored; `path` says where restoring
     // writes it. A safe key with a climbing path lands outside the workspace,
@@ -979,6 +1018,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         if (token !== undefined) objects.add(token);
         const artifact = workspaceArtifactToken(ref);
         if (artifact !== undefined) untracked.add(artifact);
+      }
+      for (const ref of storedOutputs(manifest.outputs)) {
+        const token = refToken(ref);
+        if (token !== undefined) objects.add(token);
       }
     } catch {
       return { objects: new Set(), untracked: new Set() };
@@ -1859,6 +1902,13 @@ function withoutVersions(manifest: CheckpointManifest): CheckpointManifest {
   });
   return {
     ...manifest,
+    ...(manifest.outputs === undefined
+      ? {}
+      : {
+          outputs: manifest.outputs.map((output) =>
+            "omitted" in output ? output : strip(output),
+          ),
+        }),
     transcripts: {
       root: revision(manifest.transcripts.root),
       subagents: Object.fromEntries(
