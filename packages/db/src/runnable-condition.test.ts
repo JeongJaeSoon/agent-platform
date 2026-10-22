@@ -118,55 +118,64 @@ describe("runnable judgement", () => {
     });
   }
 
-  test("a pair without a repository matches no row yet, a pre-catalog one or a repository-less one", async () => {
-    await db.insert(sessions).values({
-      id: crypto.randomUUID(),
-      ownerId: "owner-a",
+  test("a pair without a repository matches a row of mode none by profile, never a pre-catalog one", async () => {
+    // Rows without a repository: the pair's own, another profile, and
+    // every fingerprint a row can carry.
+    const none = [null, fingerprint("a"), fingerprint("b"), "x"].flatMap(
+      (print) =>
+        ["profile-a", "profile-z"].map((profileId) => ({
+          id: crypto.randomUUID(),
+          ownerId: "owner-a",
+          profileId,
+          profileFingerprint: print,
+          repositoryMode: "none" as const,
+          repositoryId: null,
+          repoUrl: null,
+          branch: null,
+        })),
+    );
+    await db.insert(sessions).values(none);
+    const without: RunnablePair = {
       profileId: "profile-a",
       profileFingerprint: fingerprint("a"),
-      repositoryMode: "none",
       repositoryId: null,
-      repoUrl: null,
-      branch: null,
-    });
-    const runnable: RunnablePair[] = [
-      ...RUNNABLE,
-      {
-        profileId: "profile-a",
-        profileFingerprint: fingerprint("a"),
-        repositoryId: null,
-      },
-    ];
+    };
     const all = await db.select().from(sessions);
     const pick = (pairs: readonly RunnablePair[]) =>
       all
         .filter((row) => runnablePairOf(row, pairs) !== undefined)
         .map((row) => row.id)
         .sort();
-    const inSql = (
-      await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(runnableCondition(runnable))
-    )
+    const inSql = async (pairs: readonly RunnablePair[]) =>
+      (
+        await db
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(runnableCondition(pairs))
+      )
+        .map((row) => row.id)
+        .sort();
+    // Its own fingerprint and none, as for a pair with a repository.
+    const expected = none
+      .filter(
+        (row) =>
+          row.profileId === "profile-a" &&
+          (row.profileFingerprint === null ||
+            row.profileFingerprint === fingerprint("a")),
+      )
       .map((row) => row.id)
       .sort();
-    expect(pick(runnable)).toEqual(pick(RUNNABLE));
-    expect(inSql).toEqual(pick(RUNNABLE));
-    expect(
-      await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(
-          runnableCondition([
-            {
-              profileId: "profile-a",
-              profileFingerprint: fingerprint("a"),
-              repositoryId: null,
-            },
-          ]),
-        ),
-    ).toEqual([]);
+    expect(pick([without])).toEqual(expected);
+    expect(await inSql([without])).toEqual(expected);
+    // Beside the repository pairs it adds those rows and nothing else: the
+    // pre-catalog rows of profile-a (repository_id null) stay unmatched.
+    const both = [...RUNNABLE, without];
+    expect(pick(both)).toEqual([...pick(RUNNABLE), ...expected].sort());
+    expect(await inSql(both)).toEqual(pick(both));
+    // A repository pair never matches a row without a repository.
+    expect(pick(RUNNABLE).some((id) => none.some((row) => row.id === id))).toBe(
+      false,
+    );
   });
 });
 

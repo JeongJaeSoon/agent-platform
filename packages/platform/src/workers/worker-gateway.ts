@@ -57,6 +57,7 @@ import {
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ConfirmExecutionGoneResult,
+  EgressIssue,
   EgressPurpose,
   FenceRejection,
   FinalizeResult,
@@ -68,6 +69,7 @@ import type {
 } from "../ports/worker-unit-of-work.ts";
 import {
   allowedPair,
+  type CatalogProfile,
   catalogRevision,
   type EgressUpstream,
   profileFingerprint,
@@ -75,6 +77,7 @@ import {
   profileWithModel,
   providerUpstreamOf,
   repositoryBinding,
+  repositoryModeOf,
   repositoryUpstreamOf,
   runtimeConfigOf,
   type SessionCatalog,
@@ -447,30 +450,40 @@ export function createWorkerGateway(deps: {
   // through a queue slot. It waits for a host that knows the profile — as
   // the session was created with it — and that still lets it run
   // against the session's repository.
-  const runnable: RunnablePair[] = Object.entries(catalog.repositories).flatMap(
-    ([repositoryId, repository]) =>
-      repository.profiles.flatMap((profileId) => {
-        const profile = own(catalog.profiles, profileId);
-        // One pair per model the profile offers, its default first: a row
-        // from before the pin binds to the first pair that matches it.
-        return profile
-          ? profileModels(profile).flatMap((model) => {
-              const runs = profileWithModel(profile, model);
-              return runs
-                ? [
-                    {
-                      profileId,
-                      profileFingerprint: profileFingerprint(runs),
-                      repositoryId,
-                      url: repository.url,
-                      branch: repository.branch,
-                    },
-                  ]
-                : [];
-            })
-          : [];
-      }),
-  );
+  // One pair per model the profile offers, its default first: a row
+  // from before the pin binds to the first pair that matches it.
+  function fingerprintsOf(profile: CatalogProfile): string[] {
+    return profileModels(profile).flatMap((model) => {
+      const runs = profileWithModel(profile, model);
+      return runs ? [profileFingerprint(runs)] : [];
+    });
+  }
+  const runnable: RunnablePair[] = [
+    ...Object.entries(catalog.repositories).flatMap(
+      ([repositoryId, repository]) =>
+        repository.profiles.flatMap((profileId) => {
+          const profile = own(catalog.profiles, profileId);
+          return profile
+            ? fingerprintsOf(profile).map((fingerprint) => ({
+                profileId,
+                profileFingerprint: fingerprint,
+                repositoryId,
+                url: repository.url,
+                branch: repository.branch,
+              }))
+            : [];
+        }),
+    ),
+    ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
+      repositoryModeOf(profile) === "required"
+        ? []
+        : fingerprintsOf(profile).map((fingerprint) => ({
+            profileId,
+            profileFingerprint: fingerprint,
+            repositoryId: null,
+          })),
+    ),
+  ];
 
   const revision = catalogRevision(catalog);
 
@@ -487,6 +500,7 @@ export function createWorkerGateway(deps: {
     profileId: string | null,
     fingerprint: string | null,
     providerToken: string,
+    hasRepository: boolean,
   ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
@@ -509,7 +523,7 @@ export function createWorkerGateway(deps: {
         profile_id: profileId,
       },
       profile_fingerprint: profileFingerprint(profile),
-      runtime_config: runtimeConfigOf(profile, providerToken),
+      runtime_config: runtimeConfigOf(profile, providerToken, hasRepository),
     };
   }
 
@@ -519,7 +533,10 @@ export function createWorkerGateway(deps: {
   // runtime_config. A profile this catalog no longer holds as it was is left
   // out, so a checkpoint made under it is refused as incompatible.
   function restoreRuntimesOf(
-    binding: Pick<WorkerBinding, "profileId" | "restoreProfiles">,
+    binding: Pick<
+      WorkerBinding,
+      "profileId" | "restoreProfiles" | "repository"
+    >,
     profileFingerprintNow: string,
     providerToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
@@ -534,7 +551,9 @@ export function createWorkerGateway(deps: {
       const profile = listed
         ? sessionProfile(listed, made.profileFingerprint)
         : null;
-      return profile ? [runtimeConfigOf(profile, providerToken)] : [];
+      return profile
+        ? [runtimeConfigOf(profile, providerToken, binding.repository !== null)]
+        : [];
     });
     return configs.length === 0
       ? {}
@@ -543,31 +562,35 @@ export function createWorkerGateway(deps: {
 
   // What each egress token is held to, taken from the catalog at the moment
   // the claim binds the session. Only a runnable pair is ever claimed, so
-  // both entries exist here.
-  function egressBindingsOf(session: {
-    id: string;
-    profileId: string | null;
-    profileFingerprint: string | null;
-    repositoryId: string | null;
-  }): Record<EgressPurpose, string> {
+  // its entries exist here; a session without a repository gets no
+  // repository binding.
+  function egressBindingsOf(
+    session: Parameters<EgressIssue["bindingsOf"]>[0],
+  ): ReturnType<EgressIssue["bindingsOf"]> {
     const listed = session.profileId
       ? own(catalog.profiles, session.profileId)
       : undefined;
     const profile = listed
       ? sessionProfile(listed, session.profileFingerprint)
       : null;
+    if (!profile) {
+      throw new Error("A claimed session has no runnable profile");
+    }
+    const provider = profileFingerprint(profile);
+    const object_store = sessionObjectPrefix(session.id);
+    if (session.repositoryMode === "none") {
+      return { provider, repository: null, object_store };
+    }
     const repository = session.repositoryId
       ? own(catalog.repositories, session.repositoryId)
       : undefined;
-    if (!profile || !repository || session.repositoryId === null) {
-      throw new Error(
-        "A claimed session has no runnable profile and repository",
-      );
+    if (!repository || session.repositoryId === null) {
+      throw new Error("A claimed session has no runnable repository");
     }
     return {
-      provider: profileFingerprint(profile),
+      provider,
       repository: repositoryBinding(session.repositoryId, repository),
-      object_store: sessionObjectPrefix(session.id),
+      object_store,
     };
   }
 
@@ -822,6 +845,7 @@ export function createWorkerGateway(deps: {
             binding.profileId,
             binding.profileFingerprint,
             providerToken,
+            binding.repository !== null,
           );
           return {
             session_id: binding.sessionId,

@@ -4,6 +4,7 @@ import {
   createWorkerGateway,
   DEFAULT_NONCE_TTL_MS,
   hashWorkerToken,
+  profileFingerprint,
   transcriptWarnBytes,
   type WorkerGateway,
   WorkerGatewayError,
@@ -35,6 +36,7 @@ import {
   sessions,
   turns,
   unassignedSessions,
+  workerCredentials,
   workerLaunches,
   workers,
 } from "./schema.ts";
@@ -1614,6 +1616,115 @@ integration("worker gateway on PostgreSQL", () => {
     expect(waiting).toHaveLength(1);
     // A host that knows the profile takes it.
     expect((await claim(l)).session_id).toBe(session.session_id);
+  });
+
+  test("a session without a repository is claimed by profile alone; a row from before the catalog is not", async () => {
+    const coding = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      permission_mode: "default" as const,
+      provider: {
+        kind: "litellm" as const,
+        endpoint: "https://litellm.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const general = {
+      ...coding,
+      tools: ["Read", "Write"],
+      repository: "none" as const,
+    };
+    // The coding profile may run without a repository too, so a pair
+    // without one names it: the old row must still not match it.
+    const host = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: {
+        profiles: {
+          "claude-coding-v1": { ...coding, repository: "optional" },
+          general,
+        },
+        repositories: {
+          "sample-app": {
+            url: "https://example.invalid/app.git",
+            branch: "main",
+            profiles: ["claude-coding-v1"],
+          },
+        },
+      },
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: LEASE_TTL_MS,
+        now: () => clock,
+        sleep: async () => {},
+      },
+    });
+    const claimOn = (l: Awaited<ReturnType<typeof launch>>) =>
+      host.bootstrapClaim(bootstrap, {
+        execution_id: l.executionId,
+        execution_generation: l.generation,
+        credential: { kind: "launch_nonce", nonce: l.nonce },
+      });
+
+    const oldPartition = partitionFor("before-catalog");
+    const old = await queuedSession(oldPartition);
+    await db
+      .update(sessions)
+      .set({ repositoryId: null })
+      .where(eq(sessions.id, old.session_id));
+    expect(await failure(claimOn(await launch(oldPartition)))).toEqual({
+      status: 404,
+      code: "NOT_FOUND",
+    });
+
+    const partition = partitionFor("without-repository");
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      profileId: "general",
+      profileFingerprint: profileFingerprint(general),
+      repository: "none",
+      message: "first input",
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    const sessionId = accepted.response.session_id;
+    await db
+      .update(sessions)
+      .set({ partition })
+      .where(eq(sessions.id, sessionId));
+    await db
+      .update(unassignedSessions)
+      .set({ partition })
+      .where(eq(unassignedSessions.sessionId, sessionId));
+
+    const claimed = await claimOn(await launch(partition));
+    expect(claimed.session_id).toBe(sessionId);
+    expect(claimed.workspace).toEqual({ repository: null });
+    expect(claimed.runtime_config.tools).toEqual(["Read", "Write"]);
+    const issued = await db
+      .select({ purpose: workerCredentials.purpose })
+      .from(workerCredentials)
+      .where(eq(workerCredentials.attemptId, claimed.attempt_id));
+    expect(issued.map((row) => row.purpose).sort()).toEqual([
+      "gateway",
+      "object_store",
+      "provider",
+    ]);
   });
 
   test("an exit observation racing the last heartbeats never deadlocks", async () => {
