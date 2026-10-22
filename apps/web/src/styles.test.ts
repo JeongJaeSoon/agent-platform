@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 /*
  * happy-dom has no layout engine, so widths and motion cannot be observed by
  * rendering. These are properties of the stylesheet instead, as in
- * packages/ui/src/styles.test.ts.
+ * packages/ui/src/foundations/styles.test.ts.
  */
 const css = await Bun.file(`${import.meta.dir}/styles.css`).text();
 

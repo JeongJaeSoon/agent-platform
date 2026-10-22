@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 
 /*
  * Not a shadcn item (shadcn has no stepper). The steps form one tab stop:
