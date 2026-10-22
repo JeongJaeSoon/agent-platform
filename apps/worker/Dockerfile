@@ -53,8 +53,8 @@ RUN apt-get update --error-on=any \
 # the session sets one; without it git refuses to commit and Claude asks the
 # user who they are (94S-423). System scope, so a `git config` the session
 # runs still wins; the worker's own git reads no system config.
-RUN git config --system user.name agent-platform \
-  && git config --system user.email noreply@agent-platform.invalid
+RUN git config --system user.name Werft \
+  && git config --system user.email noreply@werft.invalid
 # uid/gid 1000 is what LocalDockerBackend runs the container as
 # (DEFAULT_WORKER_USER); the base image already owns it as user `bun`, so
 # the build asserts that instead of adding a second account. /workspace is

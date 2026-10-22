@@ -330,7 +330,7 @@ describe("default commit identity", () => {
             event.event === "tool_result" && event.data.turn_id === "1",
         )
       ).at(-1);
-      const identity = "agent-platform <noreply@agent-platform.invalid>";
+      const identity = "Werft <noreply@werft.invalid>";
       expect(JSON.stringify(result?.data.data)).toContain(
         `${identity}|${identity}`,
       );
