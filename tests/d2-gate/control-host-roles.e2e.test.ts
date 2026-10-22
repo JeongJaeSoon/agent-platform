@@ -315,7 +315,7 @@ describe.skipIf(env === null)("control host roles", () => {
     let judged: Record<string, unknown> = {};
     try {
       // Long enough for each loop to fail a pass: the scheduler's DB wait is
-      // bounded near 45s (docs/operations.md), the reconciler's the same.
+      // bounded near 45s (docs/operator/execution.md), the reconciler's the same.
       during = await waitFor(
         "both loops to report a failed pass",
         async () => {

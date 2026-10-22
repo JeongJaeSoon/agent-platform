@@ -22,7 +22,11 @@ API로 세션을 만들고 쓰는 사람.
 | --- | --- |
 | [단일 서버 배포](operator/server-deployment.md) | compose로 서버 한 대에 배포 |
 | [Kubernetes 설치](operator/kubernetes-deployment.md) | Helm chart로 설치 |
-| [운영 참고](operations.md) | 실행 기반, 구성요소별 보장, 설정값 |
+| [실행 기반과 worker 격리](operator/execution.md) | reconciler·scheduler, 세션 실패 처리, workspace 상한과 회수, worker 네트워크 |
+| [Kubernetes 실행 backend](operator/kubernetes-backend.md) | worker를 Pod로 띄울 때의 동작, chart가 넣는 env, probe |
+| [API 서버](operator/api-server.md) | 운영자 카탈로그, 자격 증명, checkpoint 저장소, 인증과 권한 |
+| [이미지와 공급망](operator/images-and-supply-chain.md) | 이미지와 Compose `apps` profile, 업그레이드·롤백, 취약점 정책 |
+| [설정 레퍼런스](operator/configuration.md) | 설치 상한, API 설정, scheduler·worker·egress 설정 |
 | [백업과 복원](operator/backup-restore.md) | compose 설치의 백업·복원 |
 | [용량 관리](operator/capacity.md) | transcript 상한, worker 메모리, 노드당 세션 수 |
 | [Datadog 감시 기준](operator/monitoring-datadog.md) | Datadog Agent와 monitor |

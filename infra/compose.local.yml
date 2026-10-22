@@ -136,7 +136,7 @@ services:
       # file and no argument. The proxy puts it on each worker call.
       ANTHROPIC_API_KEY:
       # A profile with permission_mode bypassPermissions or auto stops the API
-      # unless this is true (docs/operations.md); off by default.
+      # unless this is true (docs/operator/api-server.md); off by default.
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
     depends_on:
       localstack:

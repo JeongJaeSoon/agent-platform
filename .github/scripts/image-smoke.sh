@@ -174,7 +174,7 @@ case "$app" in
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && test -d /workspace'
     # a commit in a fresh repository needs no identity of its own
-    # and carries the one docs/operations.md names.
+    # and carries the one docs/operator/images-and-supply-chain.md names.
     ident="$(docker run --rm "$image" sh -c 'cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"
     echo "default commit identity: $ident"
     expected="Werft <noreply@werft.invalid>"

@@ -1,6 +1,6 @@
 # 구성요소와 경계
 
-이 저장소만 받은 사람이 무엇이 어디 있고 서로 무엇을 넘지 않는지 알 수 있게 적는다. 작동 방식과 설정값은 [operations.md](../operations.md)에, 개발 명령은 [development.md](development.md)에 있다.
+이 저장소만 받은 사람이 무엇이 어디 있고 서로 무엇을 넘지 않는지 알 수 있게 적는다. 작동 방식과 설정값은 [docs 색인의 운영자 문서](../README.md#운영자)에, 개발 명령은 [development.md](development.md)에 있다.
 
 ## 한눈에
 
@@ -8,7 +8,7 @@
 
 - **control host**(`apps/control-host`)가 Kiel의 제어 영역이고, 먼저 들어온 Musterrolle 인증 코드도 여기서 돈다. 실행물 하나가 api·scheduler·reconciler 세 role을 인자로 받는다. api는 공개 `/v1` API(Musterrolle의 `/v1/auth/*` 포함)와 worker용 `/internal` Worker Gateway를, scheduler는 세션마다 worker 컨테이너(Docker)나 Pod(Kubernetes)를, reconciler는 lease가 만료된 세션의 회수를 맡는다.
 - **worker**(`apps/worker`)는 세션 하나당 컨테이너(Kubernetes에서는 Pod) 하나다. Gateway에서 세션을 claim하고 그 안에서 Claude Agent SDK와 번들된 Claude Code를 돌린다. DB driver와 Docker socket이 없고, object store는 `packages/storage`를 거쳐서만 부른다.
-- **egress proxy**(`apps/egress-proxy`)가 worker 네트워크에서 바깥으로 나가는 유일한 길이다. provider key와 저장소·object store 자격 증명은 worker에 가지 않는다([operations.md § provider 키와 저장소 자격 증명](../operations.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다-94s-252)).
+- **egress proxy**(`apps/egress-proxy`)가 worker 네트워크에서 바깥으로 나가는 유일한 길이다. provider key와 저장소·object store 자격 증명은 worker에 가지 않는다([api-server.md § provider 키와 저장소 자격 증명](../operator/api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다)).
 - 상태는 PostgreSQL(세션·turn·lease·checkpoint pointer, Musterrolle의 사용자·워크스페이스·인증·권한 데이터)과 S3 호환 object store(transcript·workspace bundle·checkpoint manifest)에 있다. 저장소 원본은 Gitea(로컬)나 카탈로그에 등록한 git 서버(GitHub·GHES 포함)다.
 
 ## 저장소 구성
@@ -75,11 +75,11 @@
 
 immutable checkpoint manifest와 authoritative pointer는 `packages/platform`의 `CheckpointService`가 담당하고, `apps/control-host`의 api role이 이를 S3 object store·Postgres `CheckpointStore`·git bundle verifier로 조립해 Worker Gateway에 붙인다. Gateway의 finalize는 manifest ref가 `requestCheckpoint`가 발급한 `sessions/<sid>/checkpoints/<rev>/<attempt>/<publishId>/manifest.json`이고 본문 digest·bundle이 검증된 checkpoint만 받으며, pointer는 `finalizeAtomic`(turn 있는 경로)과 `CheckpointStore.commitAtomic`(turn 없는 경로)이 같은 SQL helper로 "정확히 current+1"만 전진시킨다. 워커용 `/internal/worker/checkpoint-request`·`/restore-plan`은 lease fence 안에서 읽은 pointer로 답한다. 워커는 turn 경계에 engine process tree의 descendant나 reparent 뒤에도 workspace 안을 cwd로 둔 process가 남아 있으면 `background_writer`로 checkpoint를 거절한다. 또한 경로·형태·크기·mtime·ctime으로 만든 workspace 지문을 capture 전후에 비교하고, 바뀌었으면 전체 capture를 한 번 다시 시도한 뒤 다시 바뀌면 publish를 거절한다. 워커 heartbeat의 `transcript` 보고는 세션의 `last_transcript_persisted_at`과 `checkpoint_pending_reason`이 되고, `mirror_error`가 기록된 세션은 새 입력과 checkpoint 없는 completed 종료를 409 `CHECKPOINT_UNAVAILABLE`로 거절한다 — 같은 attempt의 checkpoint는 이를 지우지 못하고 **다른** attempt가 커밋한 checkpoint만 지운다. 롤백한 빌드가 모르는 reason(새 빌드가 남긴 값)은 세션 상세에 `unknown`으로 보이고 경고 로그를 남기며, 새 입력은 `mirror_error`처럼 거절한다. transcript가 checkpoint 상한(`TRANSCRIPT_LIMITS`)을 넘으면 worker는 workspace를 올리기 전에, finalize는 part를 읽기 전에 `transcript_too_large`·`transcript_part_too_large`를 기록한다. 이 값은 새 입력과 queue에 있던 turn의 실행을 막지만, 상한을 넘긴 turn의 checkpoint 없는 completed 종료는 받고 마지막 pointer는 복원 지점으로 남긴다. 커밋된 checkpoint가 상한의 80%를 처음 넘으면 `transcript_near_limit` 이벤트를 남기고 세션 상세 `attention`은 `TRANSCRIPT_LIMIT`가 된다. completed turn에 checkpoint를 강제하지는 않는다: 세션 상세의 `durability`가 `last_completed_turn_id`와 `last_checkpointed_turn_id`의 차이로 드러낸다. 기존 storage primitive를 완성된 SDK checkpoint로 간주하지 않는다.
 
-checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.md](../operator/backup-restore.md)에, GC와 복원이 계속 실패하는 세션의 처리는 [operations.md](../operations.md)에 있다.
+checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.md](../operator/backup-restore.md)에, GC는 [api-server.md § checkpoint object store](../operator/api-server.md#checkpoint-object-store)에, 복원이 계속 실패하는 세션의 처리는 [execution.md](../operator/execution.md#checkpoint-복원이-계속-실패하는-세션)에 있다.
 
 ## SDK와 LiteLLM 방향
 
-`@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. profile의 endpoint·model 설정은 [operations.md § 운영자 카탈로그](../operations.md#운영자-카탈로그-agent-profile--repository)에 있다.
+`@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. profile의 endpoint·model 설정은 [api-server.md § 운영자 카탈로그](../operator/api-server.md#운영자-카탈로그-agent-profile--repository)에 있다.
 
 검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 호환 harness(`scripts/agent-sdk-compat`)의 transport suite는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 제품 경로(빌드한 이미지의 worker·scheduler·API)는 `tests/e2e`가 확인한다. 각 명령은 [development.md](development.md)에 있다.
 

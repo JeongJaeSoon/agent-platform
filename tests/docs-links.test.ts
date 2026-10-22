@@ -172,8 +172,10 @@ describe("Operator settings", () => {
   const documented = (text: string, name: string) =>
     new RegExp(`(?<![A-Z0-9_])${name}(?![A-Z0-9_])`).test(text);
 
-  test("every setting the code reads is in docs/operations.md", () => {
-    const operations = readFileSync(join(root, "docs/operations.md"), "utf8");
+  test("every setting the code reads is in docs/operator/", () => {
+    const operator = scan("docs/operator/*.md")
+      .map((file) => readFileSync(join(root, file), "utf8"))
+      .join("\n");
     const names = codeSettings();
     // The scan still sees each of its three forms, and every exception.
     for (const name of [
@@ -186,7 +188,7 @@ describe("Operator settings", () => {
     }
     const missing = [...names]
       .filter((name) => !(name in NOT_SETTINGS))
-      .filter((name) => !documented(operations, name))
+      .filter((name) => !documented(operator, name))
       .sort();
     expect(missing).toEqual([]);
   });

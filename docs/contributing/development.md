@@ -33,7 +33,7 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
   bun run --cwd packages/db bench:terminate
 ```
 
-실제 Docker daemon 대상 테스트(`DOCKER_BACKEND_TEST=1`)는 [operations.md § worker 네트워크](../operations.md#worker-네트워크-주소-풀-slot-limit-회수)에 있다.
+실제 Docker daemon 대상 테스트(`DOCKER_BACKEND_TEST=1`)는 [execution.md § worker 네트워크](../operator/execution.md#worker-네트워크-주소-풀-slot-limit-회수)에 있다.
 
 ## 의존 서비스만 띄우기와 host에서 도는 API
 

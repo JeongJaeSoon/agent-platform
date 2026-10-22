@@ -306,7 +306,7 @@ describe("recovery close over public HTTP", () => {
 
 describe("default commit identity", () => {
   test(
-    "Claude commits in a new session as the identity docs/operations.md names",
+    "Claude commits in a new session as the identity docs/operator/images-and-supply-chain.md names",
     async () => {
       const created = await api.createSession(
         scripted(
