@@ -33,6 +33,9 @@ function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
 const meOk = {
   "GET /v1/auth/me": () => json(200, me()),
   "GET /v1/my-teams": () => json(200, { items: [] }),
+  // Home lists the waiting and recent sessions; an unrouted read would put
+  // its error alert beside the one a test looks for.
+  "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
 };
 const callsTo = (calls: Recorded[], path: string) =>
   calls.filter((call) => call.path === path);
@@ -105,7 +108,9 @@ describe("workspace shell", () => {
     expect(
       screen.getByText("Owner(owner@example.com) 계정으로 로그인했습니다"),
     ).toBeDefined();
-    const steps = screen.getAllByRole("listitem");
+    const steps = within(
+      screen.getByRole("region", { name: "시작하기" }),
+    ).getAllByRole("listitem");
     expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([
       "true",
       "false",

@@ -84,9 +84,11 @@
 
   /* Typography — Korean operational copy reads at 16px/1.7, not 14px/1.4. */
   --ap-font-sans:
-    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    Geist, "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
     "Apple SD Gothic Neo", "Segoe UI", system-ui, sans-serif;
-  --ap-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --ap-font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    "Pretendard Variable", monospace;
 
   --ap-text-xs: 0.75rem;
   --ap-text-sm: 0.8125rem;
