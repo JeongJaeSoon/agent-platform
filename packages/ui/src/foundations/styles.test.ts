@@ -178,6 +178,16 @@ describe("이름공간", () => {
     expect(loose.map((d) => `${d.property}: ${d.value}`)).toEqual([]);
   });
 
+  test("theme.css는 --ap- 밖의 변수를 읽지 않는다", () => {
+    // A rule reading a Tailwind theme key makes Tailwind emit that key on
+    // `:root`, outside the namespace.
+    const reads = parse(THEME).flatMap((d) =>
+      [...d.value.matchAll(/var\((--[\w-]+)/g)].map(([, name]) => name),
+    );
+    expect(reads.length).toBeGreaterThan(40);
+    expect(reads.filter((name) => !name?.startsWith("--ap-"))).toEqual([]);
+  });
+
   test("ap layer가 Tailwind layer 뒤에 온다", () => {
     expect(stripComments(TOKENS)).toContain(
       "@layer theme, base, components, utilities, ap;",

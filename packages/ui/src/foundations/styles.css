@@ -16,12 +16,15 @@
    * a browser found that, no jsdom test could — and an Input sized by `h-*`
    * grew taller in a host without Tailwind's preflight. `:where()` keeps the
    * specificity at zero so the host app can still override, and the attribute
-   * match scopes it to this package's own elements: BEM classes and shadcn's
-   * `data-slot`.
+   * match scopes it to this package's components (BEM classes and shadcn's
+   * `data-slot`) and what they render inside, such as ApprovalCard's `<pre>`.
    */
   :where([class^="ap-"], [class*=" ap-"], [data-slot]),
-  :where([data-slot])::before,
-  :where([data-slot])::after {
+  :where([class^="ap-"], [class*=" ap-"], [data-slot]) *,
+  :where([class^="ap-"], [class*=" ap-"], [data-slot])::before,
+  :where([class^="ap-"], [class*=" ap-"], [data-slot]) *::before,
+  :where([class^="ap-"], [class*=" ap-"], [data-slot])::after,
+  :where([class^="ap-"], [class*=" ap-"], [data-slot]) *::after {
     box-sizing: border-box;
   }
 
