@@ -1,7 +1,13 @@
 /*
- * Tailwind 4 only: exposes the shadcn semantic variables from tokens.css as
- * utilities (`bg-primary`, `text-muted-foreground`, `border-input`…). Import
- * it after `tailwindcss`; without Tailwind this file does nothing.
+ * Tailwind 4 only: the one place tokens.css becomes utilities, for every
+ * consumer (apps/web, Storybook, a host app compiling this package). Import it
+ * after `tailwindcss`; without Tailwind this file does nothing.
+ *
+ * shadcn's semantic names (`bg-primary`, `border-input`…) exist only as these
+ * Tailwind keys and point straight at `--ap-*`: there is no unprefixed
+ * `--primary` at runtime. shadcn's `accent` is a quiet hover surface; the
+ * strong colour is `primary`, which is `--ap-color-accent`. `inline` makes a
+ * utility read the token at runtime, so it follows the dark theme.
  */
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
@@ -14,26 +20,45 @@
   --text-title--letter-spacing: -0.025rem;
   --text-number: var(--ap-text-number);
   --text-number--line-height: var(--ap-leading-number);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
+
+  --color-background: var(--ap-color-canvas);
+  --color-foreground: var(--ap-color-foreground);
+  --color-card: var(--ap-color-surface);
+  --color-card-foreground: var(--ap-color-foreground);
+  --color-popover: var(--ap-color-surface);
+  --color-popover-foreground: var(--ap-color-foreground);
+  --color-primary: var(--ap-color-accent);
+  --color-primary-hover: var(--ap-color-accent-hover);
+  --color-primary-foreground: var(--ap-color-accent-foreground);
+  --color-secondary: var(--ap-tone-neutral-bg);
+  --color-secondary-foreground: var(--ap-tone-neutral-fg);
+  --color-muted: var(--ap-color-surface-sunken);
+  --color-muted-foreground: var(--ap-color-muted-foreground);
+  --color-accent: var(--ap-tone-neutral-bg);
+  --color-accent-foreground: var(--ap-color-foreground);
+  --color-destructive: var(--ap-tone-danger-fg);
+  --color-destructive-foreground: var(--ap-color-surface);
+  --color-border: var(--ap-color-border);
+  --color-input: var(--ap-color-border-input);
+  --color-ring: var(--ap-color-focus-ring);
+
+  /* Tokens with no shadcn name. */
+  --color-canvas: var(--ap-color-canvas);
+  --color-surface: var(--ap-color-surface);
+  --color-surface-sunken: var(--ap-color-surface-sunken);
+  --color-rail: var(--ap-color-rail);
+  --color-rail-foreground: var(--ap-color-rail-foreground);
+  --color-rail-muted-foreground: var(--ap-color-rail-muted-foreground);
+  --color-border-strong: var(--ap-color-border-strong);
+  --color-focus-ring: var(--ap-color-focus-ring);
+  --font-sans: var(--ap-font-sans);
+  --font-mono: var(--ap-font-mono);
+  --radius-sm: var(--ap-radius-sm);
+  --radius-md: var(--ap-radius-md);
+  --radius-lg: var(--ap-radius-lg);
+  --shadow-sm: var(--ap-shadow-sm);
+  --shadow-md: var(--ap-shadow-md);
+  --shadow-lg: var(--ap-shadow-lg);
 }
 
 /* Tailwind 4 borders default to currentColor; shadcn's items assume this. */

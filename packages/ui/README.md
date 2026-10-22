@@ -22,14 +22,20 @@ import를 상대 경로(`../foundations/cn.ts`)로 바꾸고 `src/primitives/ind
 upstream과 다른 점은 각 파일 머리 주석에 적었다. 공통으로 `dark:` variant를 쓰지 않는다. 다크는 토큰이 바꾸고,
 Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이다.
 
-- **색.** shadcn 의미 변수(`--primary`·`--border`·`--ring`…)는 `tokens.css`에서 `--ap-*`를 가리킨다. 값을 따로 갖지 않으므로
-  다크 블록에 다시 적지 않는다. shadcn의 `accent`는 hover용 조용한 바탕이고, 우리 브랜드 색은 `primary`다.
-  상태 색처럼 도메인 전용 색은 `--ap-tone-*`을 직접 쓴다.
-- **Tailwind 연결.** `src/foundations/theme.css`가 의미 변수를 `@theme inline`으로 유틸리티(`bg-primary` 등)에 잇는다. 쓰는 쪽 CSS는
+- **색.** shadcn 의미 이름(`primary`·`border`·`ring`…)은 런타임 변수로 두지 않는다. `theme.css`의 Tailwind 키
+  (`--color-primary` 등)가 `--ap-*` 토큰을 바로 가리킨다. 그래서 키트는 접두사 없는 `--primary`·`--border`를 선언하지
+  않고, 같은 이름을 쓰는 앱(shadcn을 쓰는 앱 등)의 변수와 부딪치지 않는다. shadcn의 `accent`는 hover용 조용한 바탕이고, 우리 브랜드 색은
+  `primary`(= `--ap-color-accent`)다. 상태 색처럼 도메인 전용 색은 `--ap-tone-*`을 직접 쓴다.
+- **Tailwind 연결.** `src/foundations/theme.css`가 토큰을 유틸리티에 잇는 유일한 곳이다. 색(`bg-primary`·`bg-canvas`…),
+  글자 크기(`text-control` 등), `font-sans`·`font-mono`, `rounded-sm|md|lg`, `shadow-sm|md|lg`가 여기서 나온다. 쓰는 쪽 CSS는
   `tailwindcss`·`styles.css`·`theme.css` 순으로 import하고 `@source`로 이 패키지의 `src`를 스캔해야 한다
   (`apps/web/src/styles.css`가 예다). Tailwind 없이 쓰면 primitive는 모양 없이 그려진다.
-- **BEM과 함께.** `styles.css`의 `ap-*` 규칙은 layer 밖에 있어 Tailwind 유틸리티를 이긴다. `ConfirmDialog`는 이 성질로
-  shadcn Dialog 위에서 기존 모양과 reduced-motion 규칙을 유지한다. BEM 클래스는 화면을 옮기면서(W11·W17) 지운다.
+- **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer ap` 안에 있다. `tokens.css`가
+  `@layer theme, base, components, utilities, ap;`로 순서를 먼저 정하므로, import 순서와 상관없이 `ap-*` 규칙은 Tailwind
+  유틸리티를 이기고 쓰는 쪽 앱의 layer 밖 규칙에는 진다. `ConfirmDialog`는 앞의 성질로 shadcn Dialog 위에서 기존 모양과
+  reduced-motion 규칙을 유지한다. BEM 클래스는 화면을 옮기면서(W11·W17) 지운다.
+- **box-sizing.** `styles.css`가 키트 요소(`ap-*` 클래스와 `data-slot`)에만 `border-box`를 건다. Tailwind preflight가 없는
+  앱에서도 `Input` 높이가 콘솔과 같다.
 
 ## 토큰
 
@@ -38,18 +44,8 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
 `@theme`는 Tailwind 컴파일러를 거쳐야만 살아남는데, 이 패키지는 Tailwind 없이도 렌더돼야 하기 때문이다.
-`apps/web`에서 한 줄로 이어 붙인다:
-
-```css
-@import "@werft-ai/ui/styles.css"; /* tokens.css를 함께 가져온다 */
-@theme inline {
-  --color-canvas: var(--ap-color-canvas);
-  --color-surface: var(--ap-color-surface);
-  /* ... */
-}
-```
-
-접두사가 없으면 `--color-canvas: var(--color-canvas)`가 되어 순환한다. 접두사는 그것을 막는다.
+Tailwind에는 `theme.css`가 이어 붙인다(`--color-canvas: var(--ap-color-canvas)` 식). 접두사가 없으면
+`--color-canvas: var(--color-canvas)`가 되어 순환한다. 접두사는 그것을 막는다.
 
 ## 들어 있는 것
 
