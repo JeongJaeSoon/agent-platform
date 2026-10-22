@@ -1224,6 +1224,12 @@ export function startCredentialProxy(
             Object.assign(question, { server: route.server, rpc: parsed.call });
             whole = Promise.resolve(parsed.body);
           } else {
+            // Judged as no call at all, so it must carry none: a server that
+            // reads a DELETE's body would otherwise run an unchecked one.
+            if (read instanceof Uint8Array && read.byteLength > 0) {
+              release();
+              return reply(400, "a GET or DELETE carries no body");
+            }
             Object.assign(question, {
               server: route.server,
               rpc: { method: null, tool: null },

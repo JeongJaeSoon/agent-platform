@@ -386,7 +386,7 @@ describe("a card naming a remote MCP server", () => {
     );
   });
 
-  test("refuses a server the catalog lacks, a credential the card does not name, or no allowed tool", () => {
+  test("refuses a server the catalog lacks, a credential the card does not name, no allowed tool, or an allowed tool it forbids", () => {
     const capabilities = mcpCard.capabilities;
     for (const [value, field] of [
       [
@@ -409,6 +409,13 @@ describe("a card naming a remote MCP server", () => {
           },
         },
         "card.capabilities.tool_policy.per_tool",
+      ],
+      [
+        {
+          ...mcpCard,
+          capabilities: { ...capabilities, forbidden: ["mcp__fake__whoami"] },
+        },
+        "card.capabilities.forbidden",
       ],
     ] as const) {
       const resolved = resolve(agentCardSchema.parse(value));

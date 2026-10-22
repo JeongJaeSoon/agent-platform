@@ -1930,7 +1930,7 @@ describe("startCredentialProxy", () => {
           "content-type": "application/json",
           "mcp-session-id": "mcp-1",
         },
-        ...(method === "POST" ? { body } : {}),
+        ...(body === "" ? {} : { body }),
       });
     const TOOLS_CALL =
       '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami"}}';
@@ -1971,6 +1971,11 @@ describe("startCredentialProxy", () => {
         server: "fake",
         rpc: { method: null, tool: null },
       });
+      // Judged as no call, so a body riding along is refused unasked.
+      const smuggled = await call(server.port, TOOLS_CALL, "DELETE");
+      expect(smuggled.status).toBe(400);
+      expect(auth.asked).toHaveLength(2);
+      expect(up.seen).toHaveLength(2);
     });
 
     test("a refusal with a receipt names it; a batch never reaches the authorizer", async () => {

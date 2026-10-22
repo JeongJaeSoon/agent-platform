@@ -185,6 +185,20 @@ function resolveMcpServer(
     };
   }
   const tools = pinnedMcpTools(named.server, pins.tools?.per_tool ?? {});
+  // The pin is what the relay and the authorizer read, so a forbidden tool
+  // must never get one.
+  const forbidden = tools.filter((tool) =>
+    card.capabilities.forbidden.includes(tool),
+  );
+  if (forbidden.length > 0) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.forbidden",
+        message: `${forbidden.join(", ")} is both forbidden and allowed`,
+      },
+    };
+  }
   if (tools.length === 0) {
     return {
       ok: false,
