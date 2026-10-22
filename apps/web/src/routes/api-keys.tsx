@@ -75,15 +75,13 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-// A settings column, not the full content width: one key per row reads
-// better narrow (GitHub's token list).
-const PAGE = "mx-auto flex w-full max-w-[52.5rem] flex-col gap-6";
-// Title, a rule 16px above the intro, then the page's 24px gap.
-const HEAD = "flex flex-col gap-4";
-const HEAD_RULE = "border-b pb-3";
-const INTRO = "m-0 text-muted-foreground text-sm";
-const TITLE = "m-0 font-semibold text-xl";
-const SECTION_TITLE = "m-0 font-semibold text-lg";
+// A narrow settings column, left-aligned: one key per row reads better
+// narrow (GitHub's token list).
+const PAGE = "flex w-full max-w-[52.5rem] flex-col gap-6";
+const HEAD = "flex flex-col gap-1";
+const INTRO = "m-0 text-control text-muted-foreground leading-5";
+const TITLE = "m-0 font-semibold text-title";
+const SECTION_TITLE = "m-0 font-semibold text-body";
 const META = "text-muted-foreground text-xs";
 const ICON = "size-3.5 shrink-0";
 
@@ -224,7 +222,7 @@ function KeyKindGuide({ kinds }: { readonly kinds: readonly KeyKind[] }) {
           data-testid={`guide-${kind}`}
         >
           <KindBadge kind={kind} />
-          <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
+          <ul className="m-0 flex list-disc flex-col gap-1 pl-4">
             {KIND_FACTS[kind].map((fact) => (
               <li key={fact}>{t(fact)}</li>
             ))}
@@ -358,12 +356,7 @@ function KeysScreen({ kind }: { readonly kind: ApiKeyKind }) {
     <div className={PAGE}>
       <KeyScreenNav current={kind} />
       <div className={HEAD}>
-        <div
-          className={cn(
-            HEAD_RULE,
-            "flex flex-wrap items-center justify-between gap-3",
-          )}
-        >
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className={TITLE}>{t(screen.title)}</h1>
           <ReasonButton
             className={buttonVariants()}
@@ -431,7 +424,7 @@ function CopyButton({
         type="button"
         variant="ghost"
         size="sm"
-        className="h-6 gap-1 px-1.5 text-xs"
+        className="gap-1 px-2 text-xs"
         aria-label={label}
         onClick={() => {
           void copyText(value, field ?? { current: null }).then((ok) => {
@@ -573,7 +566,7 @@ function KeyList({
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 rounded-md border px-4 py-10 text-center text-muted-foreground text-sm">
+      <div className="flex flex-col items-center gap-2 rounded-md border px-4 py-8 text-center text-muted-foreground text-sm">
         <KeyRound aria-hidden="true" className="size-5" />
         <p className="m-0">{empty}</p>
       </div>
@@ -603,7 +596,7 @@ function KeyList({
               className="flex min-h-12 flex-col items-start gap-2 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-3"
               data-revoked={key.revoked_at !== null}
             >
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 font-semibold text-sm leading-5 [overflow-wrap:anywhere]">
                     {agent === null ? scopes : `${agent} · ${scopes}`}
@@ -786,7 +779,7 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
   return (
     <div className={PAGE}>
       <div className={HEAD}>
-        <div className={cn(HEAD_RULE, "flex flex-col items-start gap-2")}>
+        <div className="flex flex-col items-start gap-2">
           <Link
             to={screen.list}
             className="inline-flex items-center gap-1 text-muted-foreground text-sm no-underline! hover:text-foreground"
@@ -851,7 +844,7 @@ function IssuedSecret({
       </div>
       <div
         data-tone="caution"
-        className="flex items-start gap-2 rounded-md border border-[var(--ap-tone-border)] bg-[var(--ap-tone-bg)] p-3 text-[var(--ap-tone-fg)] text-sm"
+        className="flex items-start gap-2 rounded-md border border-[var(--ap-tone-border)] bg-[var(--ap-tone-bg)] px-4 py-3 text-[var(--ap-tone-fg)] text-sm"
       >
         <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
         <p className="m-0">{t("apiKeys.secretOnce")}</p>
@@ -931,7 +924,7 @@ interface FormProps {
   readonly send: (body: IssueRequest) => void;
 }
 
-const FORM = "flex flex-col items-start gap-5 rounded-md border p-4";
+const FORM = "flex flex-col items-start gap-4 rounded-md border p-4";
 
 function FormFoot({
   listTo,
