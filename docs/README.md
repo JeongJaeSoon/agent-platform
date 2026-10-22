@@ -38,4 +38,5 @@ API로 세션을 만들고 쓰는 사람.
 | [구성요소와 경계](contributing/architecture.md) | 저장소 구성, 앱과 패키지의 경계 |
 | [CI에서 실행되는 것](contributing/ci.md) | CI job과 그 조건 |
 | [로컬 모델로 확인하기](contributing/local-model.md) | Ollama·LiteLLM으로 확인 |
+| [결정: transcript 저장](contributing/decisions/session-store.md) | SessionStore를 고른 이유, 실패 계약, 그 계약을 지키는 테스트 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |
