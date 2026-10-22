@@ -215,7 +215,7 @@
   gap: var(--ap-space-1);
   margin: 0;
   padding: var(--ap-space-2) var(--ap-space-3);
-  border-left: 3px solid var(--ap-tone-danger-border);
+  border: 1px solid var(--ap-tone-danger-border);
   border-radius: var(--ap-radius-sm);
   background: var(--ap-tone-danger-bg);
   color: var(--ap-tone-danger-fg);
@@ -303,12 +303,12 @@
   text-align: center;
 }
 
-/* Loud on purpose, so it can never be mistaken for the empty state. */
+/* Loud on purpose, so it can never be mistaken for the empty state: the red
+   fill, the "!" mark and the red title carry that, not a heavier edge. */
 .ap-state--error {
   align-items: flex-start;
   padding: var(--ap-space-4);
   border: 1px solid var(--ap-tone-danger-border);
-  border-left: 4px solid var(--ap-tone-danger-fg);
   background: var(--ap-tone-danger-bg);
   color: var(--ap-tone-danger-fg);
   text-align: left;
