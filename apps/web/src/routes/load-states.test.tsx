@@ -93,7 +93,7 @@ const RETRY_CASES: ReadonlyArray<{
     routes: meOk,
     failingKey: "GET /v1/api-keys",
     answer: () => json(200, { items: [] }),
-    after: /발급된 key가 없습니다/,
+    after: /아직 만든 개인 key가 없습니다/,
   },
   {
     name: "세션 목록",
