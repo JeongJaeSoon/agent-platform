@@ -1,7 +1,7 @@
 import type { ReceiptStatus } from "@werft-ai/contracts";
 import type { JSX, ReactNode } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 import { describeStatus } from "../status/vocabulary.ts";
 
 export interface ReceiptLinkProps {

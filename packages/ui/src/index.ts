@@ -2,91 +2,17 @@
  * packages/ui draws what the server said and nothing else: no fetch, no
  * permission judgement, no state-transition policy (Kollegium v1 §12.4). If a
  * component here needs to know whether something is allowed, the prop is wrong.
+ *
+ * The layers (foundations, primitives, patterns) export through their own
+ * index. The modules named one by one take @werft-ai/contracts types and have
+ * no layer here because they are leaving this package for packages/react.
  */
 
-export {
-  ConfirmDialog,
-  type ConfirmDialogProps,
-} from "./dialog/confirm-dialog.tsx";
-export {
-  DestructiveActionDialog,
-  type DestructiveActionDialogProps,
-} from "./dialog/destructive-action-dialog.tsx";
-export { EmptyState, type EmptyStateProps } from "./feedback/empty-state.tsx";
 export { ERROR_GUIDANCE, guidanceFor } from "./feedback/error-guidance.ts";
 export { ErrorState, type ErrorStateProps } from "./feedback/error-state.tsx";
-export { Skeleton, type SkeletonProps } from "./feedback/skeleton.tsx";
-export { cn } from "./lib/cn.ts";
-export {
-  DETAIL_NARROW_WIDTH,
-  useDetailLayout,
-} from "./lib/use-detail-layout.ts";
-export { useReducedMotion } from "./lib/use-reduced-motion.ts";
-export {
-  Badge,
-  type BadgeProps,
-  badgeVariants,
-} from "./primitives/badge.tsx";
-export {
-  Button,
-  type ButtonProps,
-  buttonVariants,
-} from "./primitives/button.tsx";
-export {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "./primitives/card.tsx";
-export { Checkbox } from "./primitives/checkbox.tsx";
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-} from "./primitives/dialog.tsx";
-export {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-  FieldLegend,
-  type FieldProps,
-  FieldSet,
-  fieldVariants,
-} from "./primitives/field.tsx";
-export { Input } from "./primitives/input.tsx";
-export {
-  NativeSelect,
-  NativeSelectOptGroup,
-  NativeSelectOption,
-} from "./primitives/native-select.tsx";
-export { RadioGroup, RadioGroupItem } from "./primitives/radio-group.tsx";
-export {
-  Stepper,
-  type StepperProps,
-  type StepperStep,
-} from "./primitives/stepper.tsx";
-export {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  tabsListVariants,
-} from "./primitives/tabs.tsx";
-export { Textarea } from "./primitives/textarea.tsx";
-export { formatTimestamp } from "./receipt/format-timestamp.ts";
+export * from "./foundations/index.ts";
+export * from "./patterns/index.ts";
+export * from "./primitives/index.ts";
 export { ReceiptLink, type ReceiptLinkProps } from "./receipt/receipt-link.tsx";
 export {
   RECEIPT_OPERATION_LABEL,

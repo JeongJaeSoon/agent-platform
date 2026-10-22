@@ -9,11 +9,11 @@ import {
 } from "lucide-react";
 import type { JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 import {
   formatTimestamp,
   type TimestampLocale,
-} from "../receipt/format-timestamp.ts";
+} from "../foundations/format-timestamp.ts";
 import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
 
 export interface TimelineEntry {
