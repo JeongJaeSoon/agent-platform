@@ -33,7 +33,10 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 - **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer ap` 안에 있다. `tokens.css`가
   `@layer theme, base, components, utilities, ap;`로 순서를 먼저 정하므로, import 순서와 상관없이 `ap-*` 규칙은 Tailwind
   유틸리티를 이기고 쓰는 쪽 앱의 layer 밖 규칙에는 진다. `ConfirmDialog`는 앞의 성질로 shadcn Dialog 위에서 기존 모양과
-  reduced-motion 규칙을 유지한다. BEM 클래스는 화면을 옮기면서(W11·W17) 지운다.
+  reduced-motion 규칙을 유지한다. 그래서 `ap-*` 클래스를 그리는 컴포넌트(`ConfirmDialog`·`DestructiveActionDialog`·
+  `EmptyState`·`ErrorState`·`Skeleton`·`StatusLabel`·`ReceiptSummary`·`ReceiptLink`)에 `className`으로 넘긴 유틸리티는
+  BEM 규칙과 같은 속성이면 적용되지 않는다. 바꾸려면 쓰는 쪽 앱의 layer 밖 CSS로 덮는다. BEM 클래스는 화면을 옮기면서
+  (W11·W17) 지운다.
 - **box-sizing.** `styles.css`가 키트 요소(`ap-*` 클래스와 `data-slot`)에만 `border-box`를 건다. Tailwind preflight가 없는
   앱에서도 `Input` 높이가 콘솔과 같다.
 
