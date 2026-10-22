@@ -13,7 +13,7 @@
   "info": {
     "title": "Werft API",
     "version": "0.1.0-alpha",
-    "description": "Private alpha session control plane. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.\n\n## Authentication\n\nSend an API key as an HTTP bearer token, `Bearer \u003ckey>` (`bearerApiKey`), or use the browser session cookie that `POST /v1/auth/login` sets (`cookieSession`). A missing, malformed, unknown or revoked credential answers `401 UNAUTHORIZED`. `/healthz`, `/readyz`, `/v1/openapi.json`, `/v1/auth/bootstrap` and `/v1/auth/login` take no credential.\n\nA cookie-authenticated request with any method other than GET must also send `X-Requested-With: agent-platform-web` and must not be cross-site (`Sec-Fetch-Site`, `Origin`); otherwise it answers `403 FORBIDDEN`. API-key requests never need that header.\n\n## Scopes\n\nEach operation names the one scope it requires, in its description and in its `security` requirement:\n\n- `sessions:read`: read sessions, turns, events, pending requests, usage, limits and receipts.\n- `sessions:write`: create sessions and send messages.\n- `sessions:approve`: answer pending permission and question requests.\n- `sessions:control`: interrupt, pause, resume and terminate.\n- `sessions:recover`: record recovery decisions.\n\nWhat a credential holds:\n\n- An API key holds exactly the scopes it was issued with (`scopes` in `POST /v1/api-keys`, or `--scopes` in the key CLI). A key issued before scopes existed holds none and must be reissued.\n- A cookie session holds the scopes of the user's workspace role: `owner` holds all five, `admin` and `member` all but `sessions:recover`.\n- A credential without the required scope answers `403 FORBIDDEN` before the body or the resource is read.\n\n## Idempotency\n\nEach command (any method but GET) says in its description whether `Idempotency-Key` is required or ignored. Where it is required, send 1–255 characters; a missing or invalid key answers `400 BAD_REQUEST`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. After a timeout or a lost response, retry with the same key rather than a new one. Where it is ignored, nothing is replayed: a retry runs the command again, so reread the resource before retrying.\n\n## Errors\n\nEvery error answers `application/json` with `{\"error\": {\"code\", \"message\", \"retryable\", \"request_id\", \"details\"}}` (`ApiErrorResponse`). Branch on `code`, not on `message`. `retryable: true` means the same request may succeed later unchanged (`REQUEST_TIMEOUT`, `RATE_LIMITED`, `BACKEND_UNAVAILABLE`, `NOT_READY`). Each response below lists its codes and when each one happens.\n\n## Response headers\n\n- `X-Request-Id`: on every response, a fresh id for this request; an error's `request_id` is the same value. Quote it when reporting a problem.\n- `Retry-After`: seconds to wait, on `429 RATE_LIMITED` and on `503 BACKEND_UNAVAILABLE`."
+    "description": "Private alpha session control plane. This document is generated from the route declarations in apps/control-host/src/api/openapi.ts and the Zod schemas in packages/contracts; do not edit it by hand.\n\n## Authentication\n\nThere are two ways to call the API, and they are not interchangeable:\n\n- **Servers and scripts** send an API key as an HTTP bearer token, `Bearer \u003ckey>` (`bearerApiKey`). The key is limited to the scopes it was issued with, and it never needs the CSRF header.\n- **The web console** uses the browser session cookie that `POST /v1/auth/login` sets (`cookieSession`). What it may do follows the user's workspace role, and every request other than GET must send `X-Requested-With: agent-platform-web` and must not be cross-site (`Sec-Fetch-Site`, `Origin`); otherwise it answers `403 FORBIDDEN`.\n\nAn operation whose `security` lists only `cookieSession` (managing agents, members, teams and API keys, and the administration operations) refuses an API key with `403 FORBIDDEN`. A missing, malformed, unknown or revoked credential answers `401 UNAUTHORIZED`. `/healthz`, `/readyz`, `/v1/openapi.json`, `/v1/auth/bootstrap` and `/v1/auth/login` take no credential.\n\n## Scopes\n\nEach operation names the one scope it requires, in its description and in its `security` requirement:\n\n- `sessions:read`: read sessions, turns, events, pending requests, usage, limits and receipts.\n- `sessions:write`: create sessions and send messages.\n- `sessions:approve`: answer pending permission and question requests.\n- `sessions:control`: interrupt, pause, resume and terminate.\n- `sessions:recover`: record recovery decisions.\n\nWhat a credential holds:\n\n- An API key holds exactly the scopes it was issued with (`scopes` in `POST /v1/api-keys`, or `--scopes` in the key CLI). A key issued before scopes existed holds none and must be reissued.\n- A cookie session holds the scopes of the user's workspace role: `owner` holds all five, `admin` and `member` all but `sessions:recover`.\n- A credential without the required scope answers `403 FORBIDDEN` before the body or the resource is read.\n\n## Idempotency\n\nEach command (any method but GET) says in its description whether `Idempotency-Key` is required or ignored. Where it is required, send 1–255 characters; a missing or invalid key answers `400 BAD_REQUEST`. The key is scoped to the caller, the operation and the target resource. Retrying with the same key and the same body returns the original status and body without running the command again; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. After a timeout or a lost response, retry with the same key rather than a new one. Where it is ignored, nothing is replayed: a retry runs the command again, so reread the resource before retrying.\n\n## Errors\n\nEvery error answers `application/json` with `{\"error\": {\"code\", \"message\", \"retryable\", \"request_id\", \"details\"}}` (`ApiErrorResponse`). Branch on `code`, not on `message`. `retryable: true` means the same request may succeed later unchanged (`REQUEST_TIMEOUT`, `RATE_LIMITED`, `BACKEND_UNAVAILABLE`, `NOT_READY`). Each response below lists its codes and when each one happens.\n\n## Response headers\n\n- `X-Request-Id`: on every response, a fresh id for this request; an error's `request_id` is the same value. Quote it when reporting a problem.\n- `Retry-After`: seconds to wait, on `429 RATE_LIMITED` and on `503 BACKEND_UNAVAILABLE`."
   },
   "tags": [
     {
@@ -22,7 +22,7 @@
     },
     {
       "name": "Auth",
-      "description": "Discover the API and manage authenticated browser sessions."
+      "description": "Discover the API, sign in (including by redeeming an invite) and manage authenticated browser sessions."
     },
     {
       "name": "Sessions",
@@ -50,11 +50,15 @@
     },
     {
       "name": "Recovery",
-      "description": "Resolve sessions that require an operator recovery decision."
+      "description": "Resolve sessions that require an operator recovery decision. The requester's own decision also takes an API key with `sessions:recover`."
+    },
+    {
+      "name": "Admin",
+      "description": "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. From a browser session; owners and admins, and only an owner decides recovery for another's session."
     },
     {
       "name": "Members",
-      "description": "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role."
+      "description": "Invite people, change member roles and issue password reset links. Owners and admins, from a browser session; only an owner grants or changes the owner role."
     },
     {
       "name": "Teams",
@@ -81,18 +85,67 @@
       "description": "Inspect installation limits and asynchronous command receipts."
     }
   ],
+  "x-tagGroups": [
+    {
+      "name": "Getting started",
+      "tags": [
+        "Auth",
+        "API keys"
+      ]
+    },
+    {
+      "name": "Agents",
+      "tags": [
+        "Agents"
+      ]
+    },
+    {
+      "name": "Sessions",
+      "tags": [
+        "Sessions",
+        "Messages & turns",
+        "Events",
+        "Pending requests",
+        "Session control",
+        "Push requests"
+      ]
+    },
+    {
+      "name": "Workspace management",
+      "tags": [
+        "Members",
+        "Teams",
+        "Linked accounts",
+        "Workspace settings"
+      ]
+    },
+    {
+      "name": "Administration",
+      "tags": [
+        "Admin",
+        "Recovery"
+      ]
+    },
+    {
+      "name": "Operations",
+      "tags": [
+        "Health",
+        "Limits & receipts"
+      ]
+    }
+  ],
   "components": {
     "securitySchemes": {
       "bearerApiKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API key sent as an HTTP bearer token, `Bearer \u003ckey>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none."
+        "description": "For servers and scripts: an API key sent as an HTTP bearer token, `Bearer \u003ckey>`. It holds exactly the scopes it was issued with; a key issued before scopes existed holds none. It never needs the CSRF header, and operations that list only `cookieSession` refuse it."
       },
       "cookieSession": {
         "type": "apiKey",
         "in": "cookie",
         "name": "__Host-ap_session",
-        "description": "The browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: agent-platform-web`."
+        "description": "For the web console: the browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `admin` and `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: agent-platform-web`."
       }
     },
     "headers": {
@@ -10727,7 +10780,7 @@
       "post": {
         "operationId": "issuePasswordReset",
         "tags": [
-          "Auth"
+          "Members"
         ],
         "summary": "Issue a one-time password reset link for a member (owner only)",
         "description": "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -13601,7 +13654,7 @@
       "post": {
         "operationId": "auditReadSession",
         "tags": [
-          "Sessions"
+          "Admin"
         ],
         "summary": "Read a session outside its share, with a reason",
         "description": "Owners and admins. The session detail and a page of its turns, whatever the share; nothing on the session changes and no other action is opened by it. Every read is recorded with its `justification`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -13918,7 +13971,7 @@
       "get": {
         "operationId": "listAdminSessions",
         "tags": [
-          "Sessions"
+          "Admin"
         ],
         "summary": "Every session of the workspace, metadata only",
         "description": "Owners and admins. Who made each session, its agent release, state and share scope, newest first; no content, title or summary.\n\n**Auth:** cookie session only; no scope.",
@@ -14062,7 +14115,7 @@
       "post": {
         "operationId": "adminTerminateSession",
         "tags": [
-          "Session control"
+          "Admin"
         ],
         "summary": "Stop any session of the workspace, with a reason",
         "description": "Owners and admins, whatever the session's share. The `justification` is recorded with the decision and becomes the stop reason. Otherwise as `POST /v1/sessions/{id}/terminate`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
@@ -14466,7 +14519,7 @@
       "post": {
         "operationId": "adminDecideSessionRecovery",
         "tags": [
-          "Recovery"
+          "Admin"
         ],
         "summary": "Decide recovery for any session of the workspace",
         "description": "Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
@@ -22662,7 +22715,7 @@
       "post": {
         "operationId": "acceptInvite",
         "tags": [
-          "Members"
+          "Auth"
         ],
         "summary": "Redeem an invite; sets the session cookie",
         "description": "An address with no account gets one with this password. An existing account joins with its current password, which is never changed. The token is spent once; a revoked, replaced or expired token answers 410, an accepted one 409. Writes an `accept_invite` receipt.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
@@ -24873,7 +24926,7 @@
       "get": {
         "operationId": "listTakeovers",
         "tags": [
-          "Members"
+          "Admin"
         ],
         "summary": "Sessions waiting for an owner to take them over",
         "description": "Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.\n\n**Auth:** cookie session only; no scope.",
@@ -25017,7 +25070,7 @@
       "post": {
         "operationId": "takeOverSession",
         "tags": [
-          "Members"
+          "Admin"
         ],
         "summary": "Become the requester of an offboarded member's session",
         "description": "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
@@ -33059,7 +33112,7 @@
       "get": {
         "operationId": "listProfiles",
         "tags": [
-          "Limits & receipts"
+          "Agents"
         ],
         "summary": "The runtime profiles this installation can run",
         "description": "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",

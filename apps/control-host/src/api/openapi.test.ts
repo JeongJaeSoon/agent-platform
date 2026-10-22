@@ -91,6 +91,7 @@ const ROUTES: readonly RouteDeclaration[] = API_ROUTE_DECLARATIONS;
 
 type Operation = {
   description: string;
+  tags?: string[];
   security: Array<Record<string, string[]>>;
   "x-scope"?: string;
   parameters: Array<{
@@ -207,6 +208,43 @@ describe("OpenAPI document", () => {
     }
 
     expect([...used].sort()).toEqual([...declared].sort());
+  });
+
+  test("puts every declared tag in exactly one tag group", () => {
+    const document = buildOpenApiDocument();
+    expect(document["x-tagGroups"].map((group) => group.name)).toEqual([
+      "Getting started",
+      "Agents",
+      "Sessions",
+      "Workspace management",
+      "Administration",
+      "Operations",
+    ]);
+    const grouped = document["x-tagGroups"].flatMap((group) => group.tags);
+    expect([...grouped].sort()).toEqual(
+      OPENAPI_TAGS.map((tag) => tag.name).sort(),
+    );
+    expect(new Set(grouped).size).toBe(grouped.length);
+  });
+
+  test("files each operation under the tag of its audience", () => {
+    const tagOf = (method: string, path: string) =>
+      operation(method, path).tags?.[0];
+    expect(tagOf("get", "/v1/profiles")).toBe("Agents");
+    for (const [method, path] of [
+      ["get", "/v1/admin/sessions"],
+      ["post", "/v1/admin/sessions/{id}/terminate"],
+      ["post", "/v1/admin/sessions/{id}/recovery-decisions"],
+      ["post", "/v1/sessions/{id}/audit-read"],
+      ["get", "/v1/takeovers"],
+      ["post", "/v1/sessions/{id}/takeover"],
+    ] as const) {
+      expect(tagOf(method, path), `${method} ${path}`).toBe("Admin");
+    }
+    expect(
+      tagOf("post", "/v1/workspaces/{id}/members/{userId}/password-reset"),
+    ).toBe("Members");
+    expect(tagOf("post", "/v1/invites/accept")).toBe("Auth");
   });
 
   const SETS_SESSION_COOKIE = new Set([
