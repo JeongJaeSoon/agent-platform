@@ -1,6 +1,6 @@
 # 94S-91 Agent SDK 호환성 게이트
 
-SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. CI `spikes` job은 main push와 수동 실행에서만 이 harness를 돌린다([docs/ci.md](../../docs/ci.md)).
+SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. CI `spikes` job은 main push와 수동 실행에서만 이 harness를 돌린다([docs/contributing/ci.md](../../docs/contributing/ci.md)).
 
 ## 결론
 

@@ -23,7 +23,7 @@
 #         key goes into the Secret from a file descriptor: never printed,
 #         never in an argument. A fresh cluster only.
 #
-# CI pulls nothing from Docker Hub (docs/ci.md § 서드파티 이미지 미러):
+# CI pulls nothing from Docker Hub (docs/contributing/ci.md § 서드파티 이미지 미러):
 #   KIND_NODE_IMAGE, REGISTRY_IMAGE  the node and registry images
 #   KIND_IMAGE_MIRROR                prefix the stand-ins' images are pulled
 #                                    from instead, by the same digest

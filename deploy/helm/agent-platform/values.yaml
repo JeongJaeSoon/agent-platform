@@ -207,7 +207,7 @@ migrate:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
 
-# Must not run while a backup is being taken (docs/backup-restore.md).
+# Must not run while a backup is being taken (docs/operator/backup-restore.md).
 checkpointGc:
   enabled: true
   schedule: "0 4 * * 0"
@@ -228,7 +228,7 @@ worker:
   cpus: 1
   # Requests equal limits on worker pods; sized so a resumed engine holding
   # a transcript at the 512 MiB checkpoint limit stays under half of it.
-  # Sessions per node and how to trade them off: docs/capacity.md.
+  # Sessions per node and how to trade them off: docs/operator/capacity.md.
   memoryMb: 4608
   workspace:
     quotaMb: 4096
