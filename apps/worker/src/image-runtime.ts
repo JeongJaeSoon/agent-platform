@@ -9,7 +9,7 @@
  *   docker run --rm -i --network none --entrypoint bun <image> \
  *     run apps/worker/src/image-runtime.ts < claims.json
  *
- * stdin: `{ "<session id>": { "principal": …, "runtime_config": … } }`, the
+ * stdin: `{ "<session id>": { "principal": …, "runtime_config": …, "workspace"?: … } }`, the
  * claim fields the digest reads, as the API would hand them out.
  */
 
@@ -20,10 +20,11 @@ import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import { claudeClaimFingerprint } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 
-const claimSchema = bootstrapClaimResponseSchema.pick({
-  principal: true,
-  runtime_config: true,
-});
+// `workspace` only tells a session without a repository apart; absent, the
+// claim is a session with one.
+const claimSchema = bootstrapClaimResponseSchema
+  .pick({ principal: true, runtime_config: true, workspace: true })
+  .partial({ workspace: true });
 
 type ImageProfile = { profileSha256: string } | { error: string };
 

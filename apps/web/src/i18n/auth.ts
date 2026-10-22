@@ -176,3 +176,94 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.invalid.body":
     "It looks cut short or changed. Open the full link you received again.",
 };
+
+export const authJa: Record<keyof typeof authKo, string> = {
+  "login.title": "ログイン",
+  "login.email": "メールアドレス",
+  "login.password": "パスワード",
+  "login.submit": "ログイン",
+  "login.submitting": "ログイン中…",
+  "login.bootstrapPrompt":
+    "最初のオーナーは、インストール時に出力された bootstrap トークンで一度だけ作成できます。",
+  "login.signedIn": "すでに {email} でログインしています。",
+  "login.signedInHome": "ワークスペースへ移動",
+  "login.bootstrapLink": "最初のオーナーを作成",
+  "login.notice.bootstrapDone":
+    "オーナーはすでに存在します。そのアカウントでログインしてください。",
+  "login.notice.loggedOut": "ログアウトしました。",
+  "login.notice.created":
+    "オーナーを作成しました。設定したパスワードでログインしてください。",
+
+  "login.or": "または",
+  "login.alternatives": "その他のログイン方法",
+  "login.google.submit": "Google でログイン",
+  "login.google.starting": "Google に移動しています…",
+  "login.google.title": "Google ログイン",
+  "login.google.rejected":
+    "Google アカウントでログインできませんでした。招待されたメールアドレスのアカウントか確認して、もう一度お試しください。",
+  "login.google.forbidden":
+    "この Google アカウントではログインできません。ワークスペースで許可されたドメインのアカウントを使ってください。",
+  "login.google.cancelled":
+    "Google ログインが完了しませんでした。もう一度お試しください。",
+  "login.google.backToLogin": "ログイン画面へ",
+  "login.google.unavailable":
+    "この環境では Google ログインを利用できません。メールアドレスとパスワードでログインしてください。",
+
+  "bootstrap.title": "最初のオーナーを作成",
+  "bootstrap.intro":
+    "このインストールの初期設定で、最初のオーナーとワークスペースを作成する画面です。インストール時に出力された bootstrap トークンが必要です。オーナーがすでに存在する場合は作成されません。",
+  "bootstrap.token": "bootstrap トークン",
+  "bootstrap.email": "オーナーのメールアドレス",
+  "bootstrap.displayName": "名前",
+  "bootstrap.password": "パスワード",
+  "bootstrap.passwordHint": "{min}文字以上",
+  "bootstrap.workspaceName": "ワークスペース名",
+  "bootstrap.workspaceSlug": "ワークスペース識別子（slug）",
+  "bootstrap.workspaceSlugHint":
+    "ワークスペースを区別する名前のため、ほかのワークスペースと重複できず、あとから変更できません。英小文字・数字・ハイフン（-）",
+  "bootstrap.submit": "オーナーを作成",
+  "bootstrap.submitting": "作成中…",
+  "bootstrap.tokenInvalid":
+    "bootstrap トークンが正しくありません。インストール時に出力された値をそのまま入力してください。",
+  "bootstrap.loginLink": "オーナーがすでにいる場合はログイン",
+  "bootstrap.ownerExistsLogin": "ログイン",
+
+  "invite.title": "招待を承諾",
+  "invite.intro":
+    "招待を承諾すると、ワークスペースに参加します。このメールアドレスのアカウントがすでにある場合はそのパスワードを、初めての場合は新しいパスワードを入力してください。",
+  "invite.password": "パスワード",
+  "invite.passwordHint":
+    "{min}文字以上。既存のアカウントの場合は現在のパスワード",
+  "invite.displayName": "名前",
+  "invite.displayNameHint":
+    "新規登録時のみ使います。空欄の場合はメールアドレスの @ より前の部分を使います",
+  "invite.submit": "招待を承諾",
+  "invite.submitting": "承諾中…",
+  "invite.wrongPassword":
+    "パスワードが一致しません。このメールアドレスのアカウントがすでにある場合は、そのアカウントのパスワードを入力してください。Google ログインのみで利用してきたアカウントにはパスワードがないため、ここでは承諾できません。オーナーまたは管理者に再有効化を依頼してください。",
+  "invite.expired.title": "この招待は使用できません",
+  "invite.expired.body":
+    "期限切れか、取り消された招待です。招待した人に新しいリンクを依頼してください。",
+  "invite.used.title": "この招待は承諾済みです",
+  "invite.used.body":
+    "この招待はすでに使用されています。承諾したアカウントでログインしてください。",
+  "invite.used.login": "ログイン画面へ",
+  "invite.member.title": "すでにこのワークスペースのメンバーです",
+  "invite.member.body":
+    "{email} で {workspace} にログインしているため、招待を承諾する必要はありません。",
+  "invite.member.home": "ワークスペースへ移動",
+  "invite.member.switch": "ログアウトして別のアカウントで承諾",
+  "invite.steps": "招待承諾のステップ",
+  "invite.step.account": "アカウント確認",
+  "invite.step.password": "パスワード",
+  "invite.account.question":
+    "招待されたメールアドレスのアカウントをお持ちですか？",
+  "invite.account.existing": "はい、アカウントがあります",
+  "invite.account.new": "いいえ、初めてです",
+  "invite.passwordTitle.existing": "既存のアカウントで承諾",
+  "invite.passwordTitle.new": "新しいアカウントで承諾",
+  "invite.back": "戻る",
+  "invite.invalid.title": "招待リンクが正しくありません",
+  "invite.invalid.body":
+    "リンクが途中で切れているか、変更されているようです。受け取ったリンク全体をもう一度開いてください。",
+};

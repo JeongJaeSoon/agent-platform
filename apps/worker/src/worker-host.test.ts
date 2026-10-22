@@ -8,6 +8,7 @@ import {
   type ReleaseRequest,
   type RuntimeConfig,
   TURN_BUDGET_EXCEEDED_REASON,
+  type WorkspaceDescriptor,
 } from "@werft-ai/contracts";
 import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import {
@@ -103,10 +104,12 @@ function harness(
   const budgets: Array<number | undefined> = [];
   const principals: ClaimPrincipal[] = [];
   const claudeMds: Array<string | null> = [];
+  const workspaces: Array<WorkspaceDescriptor | undefined> = [];
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: ({ runtimeConfig, principal, ...launch }, hooks) => {
+      start: ({ runtimeConfig, principal, workspace, ...launch }, hooks) => {
         launched.push(runtimeConfig);
+        workspaces.push(workspace);
         budgets.push(launch.maxBudgetUsd);
         principals.push(principal);
         claudeMds.push(launch.committedClaudeMd());
@@ -143,7 +146,16 @@ function harness(
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
     ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
   });
-  return { budgets, claudeMds, gateway, host, launched, principals, runtime };
+  return {
+    budgets,
+    claudeMds,
+    gateway,
+    host,
+    launched,
+    principals,
+    runtime,
+    workspaces,
+  };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -1471,7 +1483,7 @@ describe("WorkerHost before the engine starts", () => {
           committedClaudeMd: () => null,
           instructionsCommit: () => null,
           async prepare({ descriptor }) {
-            order.push(`prepare ${descriptor.repository.branch}`);
+            order.push(`prepare ${descriptor.repository?.branch}`);
             expect(runtime.inputs).toHaveLength(0);
             return "clone";
           },
@@ -1562,6 +1574,47 @@ describe("WorkerHost before the engine starts", () => {
     expect(gateway.releases).toHaveLength(1);
     // A failure: the session counts it against its startups.
     expect(gateway.releases[0]).not.toHaveProperty("stop_kind");
+  });
+
+  test("prepares and runs a claim without a repository, handing the engine its workspace", async () => {
+    const gateway = new FakeWorkerGateway({ workspace: { repository: null } });
+    const prepared: Array<WorkspaceDescriptor> = [];
+    const logged: Array<[string, unknown]> = [];
+    const { host, launched, workspaces } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        logger: {
+          info: (event, fields) => logged.push([event, fields]),
+          warn: (event, fields) => logged.push([event, fields]),
+          error: (event, fields) => logged.push([event, fields]),
+        },
+        workspace: {
+          committedClaudeMd: () => null,
+          instructionsCommit: () => null,
+          async prepare({ descriptor }) {
+            prepared.push(descriptor);
+            return "init";
+          },
+        },
+      },
+    );
+    gateway.enqueue("hello");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).not.toBe("failed");
+    expect(prepared).toEqual([{ repository: null }]);
+    expect(launched).toHaveLength(1);
+    expect(workspaces).toEqual([{ repository: null }]);
+    expect(logged).toContainEqual([
+      "worker.workspace.prepared",
+      { action: "init", repository_id: null, branch: null },
+    ]);
   });
 
   test("a drain during preparation aborts it and releases, with no engine", async () => {

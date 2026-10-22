@@ -1,6 +1,6 @@
 # 운영 참고 — 실행 기반과 설정
 
-로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](backup-restore.md), 선택형 Datadog Agent와 감시 기준은 [monitoring-datadog.md](monitoring-datadog.md), 세션 데이터가 이벤트 표와 OTel 트레이스로 흐르는 길은 [observability.md](observability.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](development.md), CI는 [ci.md](ci.md)에 있다.
+로컬 스택을 처음 띄우는 절차는 [quickstart](quickstart.md)에, Helm chart로 Kubernetes에 올리는 절차는 [kubernetes-deployment.md](operator/kubernetes-deployment.md)에 있다. 이 문서는 주로 compose 스택의 각 구성요소가 무엇을 보장하고 어디서 멈추는지, 설정값과 운영자가 직접 하는 일을 적는다. 백업·복원은 [backup-restore.md](operator/backup-restore.md), 선택형 Datadog Agent와 감시 기준은 [monitoring-datadog.md](operator/monitoring-datadog.md), 세션 데이터가 이벤트 표와 OTel 트레이스로 흐르는 길은 [observability.md](operator/observability.md), 의존 서비스만 띄우거나 API를 host에서 돌리는 개발 환경은 [development.md](contributing/development.md), CI는 [ci.md](contributing/ci.md)에 있다.
 
 ## reconciler·scheduler와 worker 격리
 
@@ -535,7 +535,7 @@ docker compose exec -T -e CHECKPOINT_GC_DRY_RUN=true api bun run apps/control-ho
 docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts                                 # exit 0이면 끝
 ```
 
-cron에 걸려면 `0 4 * * 0 cd <checkout> && docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts`처럼 저장소 루트에서 부른다. 세션 하나라도 실패하면 exit 1이고, 로그에 `Checkpoint GC failed for a session`이 남는다. 백업과 겹치면 안 된다(아래). 백업은 api가 멈춰 있어야 시작하므로, api 컨테이너에서 도는 GC는 백업 중에 시작될 수 없다. 다만 GC가 도는 도중에 api를 멈추고 백업을 시작하면 겹칠 수 있다. 백업은 GC가 끝난 뒤에 받는다. test-ops 설치의 명령은 [test-ops.md](test-ops.md)의 점검표에 있다.
+cron에 걸려면 `0 4 * * 0 cd <checkout> && docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts`처럼 저장소 루트에서 부른다. 세션 하나라도 실패하면 exit 1이고, 로그에 `Checkpoint GC failed for a session`이 남는다. 백업과 겹치면 안 된다(아래). 백업은 api가 멈춰 있어야 시작하므로, api 컨테이너에서 도는 GC는 백업 중에 시작될 수 없다. 다만 GC가 도는 도중에 api를 멈추고 백업을 시작하면 겹칠 수 있다. 백업은 GC가 끝난 뒤에 받는다. test-ops 설치의 명령은 [test-ops.md](operator/test-ops.md)의 점검표에 있다.
 
 **한계: checkpoint 바이트는 저장량에 세지 않는다.** `STORAGE_LIMIT_BYTES`는 보관한 입력 메시지 바이트만 센다(아래 "설치 상한"). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
 
@@ -1025,11 +1025,13 @@ terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reco
 
 worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고(94S-292), scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
 
+`WERFT_API_KEY`·`WERFT_BASE_URL`은 서버 설정이 아니다. TypeScript SDK(`packages/sdk`)를 쓰는 호출자 쪽 스크립트가 읽는 값이고, SDK 예제는 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`도 읽는다([TypeScript SDK](sdk.md)).
+
 ## scheduler·worker 컨테이너·egress 설정
 
 scheduler가 worker 컨테이너를 만들 때 읽는 값이다. 없으면 기본값을 쓰고, 형식이 틀리면 기동하지 않는다. user, HOME·workspace 경로, tmpfs 크기, credential 포트, stop timeout은 `agent-platform.isolation` 지문에 들어간다(위 "reconciler·scheduler와 worker 격리"). 그래서 바꾸면 실행 중인 worker가 교체된다. CPU·메모리·PID 한도는 다음 launch부터 적용된다.
 
-`WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 실측, 노드당 세션 수, 바꾸는 방법은 [capacity.md](capacity.md)에 있다.
+`WORKER_MEMORY_MB`는 transcript 상한(`MAX_TRANSCRIPT_BYTES`)과 함께 정한 값이다. 둘의 관계, 실측, 노드당 세션 수, 바꾸는 방법은 [capacity.md](operator/capacity.md)에 있다.
 
 | 변수 | 기본값 | 의미 |
 |---|---|---|
@@ -1098,7 +1100,7 @@ kubernetes 모드에서만 읽는 설정은 다음과 같다.
 
 ### chart가 넣는 값
 
-Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment.md](kubernetes-deployment.md))로 설치하면 위 env를 직접 적지 않는다. chart가 values에서 만든다.
+Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment.md](operator/kubernetes-deployment.md))로 설치하면 위 env를 직접 적지 않는다. chart가 values에서 만든다.
 
 | env | values | 비고 |
 | --- | --- | --- |
@@ -1116,7 +1118,7 @@ Helm chart(`deploy/helm/agent-platform`, 설치 절차는 [kubernetes-deployment
 | 설치 상한(`EXECUTION_SLOT_LIMIT` 등) | `config.limits` | api와 scheduler에 같은 값 |
 | `SCHEDULER_*` | `scheduler.intervalSec` 등 | `SCHEDULER_PASS_TIMEOUT_SEC`(`scheduler.passTimeoutSec`, 기본 180)는 150보다 커야 한다 |
 
-어느 Deployment에나 `extraEnv`로 env를 더할 수 있다. Secret에서 오는 값(`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, AWS key, 카탈로그 credential)은 [kubernetes-deployment.md § 준비](kubernetes-deployment.md#준비)의 표에 있다.
+어느 Deployment에나 `extraEnv`로 env를 더할 수 있다. Secret에서 오는 값(`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, AWS key, 카탈로그 credential)은 [kubernetes-deployment.md § 준비](operator/kubernetes-deployment.md#준비)의 표에 있다.
 
 ### probe
 

@@ -1,0 +1,99 @@
+# Datadog 감시 기준
+
+이 문서는 서버 배포에서 확인할 최소 감시 기준이다. 앱에 Datadog SDK나 OTel을 넣지 않는다. Datadog Agent가 Docker의 JSON stdout 로그, `/readyz`, 읽기 전용 PostgreSQL query, 호스트 지표를 수집한다. 정의는 [`infra/datadog/definitions`](../../infra/datadog/definitions)에만 버전 관리하며 이 저장소의 도구나 CI는 Datadog API를 호출하지 않는다.
+
+모든 임계는 **서버 배포 뒤 첫 7일 동안 조정할 초기값**이다. `threshold_stage:first-week-tuning` tag가 붙은 monitor를 첫 주 데이터 없이 장기 기준으로 간주하지 않는다. 이미 채운 공백은 `없음`으로, 그 범위 밖이어서 서버 배포 뒤 우선순위를 다시 정할 항목은 `배포 뒤 판단`으로 표시한다.
+
+## 시작과 비밀 관리
+
+Agent는 선택형 [`infra/compose.datadog.yml`](../../infra/compose.datadog.yml)에서만 생긴다. 이 파일을 지정하지 않는 로컬·test-ops 기본 stack에는 Agent, mount, label, 필수 환경 변수가 하나도 추가되지 않는다. Agent image는 `gcr.io/datadoghq/agent:7.83.3`으로 고정한다.
+
+`DD_API_KEY`와 Datadog용 PostgreSQL password는 저장소나 shell history에 넣지 않는다. 서버에서 운영자가 `/etc/agent-platform/datadog.env`를 만들고 mode 600을 확인한다. 다른 절대 경로를 써야 할 때만 `DATADOG_ENV_FILE`로 바꾸며, 값은 예시 자리표시자이므로 실제 값을 문서·티켓·로그에 복사하지 않는다.
+
+```dotenv
+DD_API_KEY=<operator-supplied>
+DD_SITE=datadoghq.com
+DD_ENV=alpha
+DD_VERSION=<release-sha>
+DD_POSTGRES_PASSWORD=<read-only-role-password>
+```
+
+```bash
+sudo chown root:root /etc/agent-platform/datadog.env
+sudo chmod 600 /etc/agent-platform/datadog.env
+stat -c '%a %U:%G' /etc/agent-platform/datadog.env
+```
+
+Agent service는 이 절대 경로를 `env_file`로만 읽는다. compose YAML에는 `DD_API_KEY`의 이름이나 값 interpolation이 없으므로 ambient `DD_API_KEY`로 우회할 수 없다. `DD_ENV`와 `DD_VERSION`은 같은 파일을 compose의 두 번째 `--env-file`로 읽어 product container의 unified tags에 쓴다.
+
+PostgreSQL role은 `queue_messages`, `sessions`, `turns`, `attempts`, `provider_usage`에 `SELECT`만 허용하고 기본 transaction을 read-only로 고정한다. 아래 명령은 서버 운영자가 admin connection에서 한 번 실행한다.
+
+```sql
+CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
+ALTER ROLE datadog SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE sessions TO datadog;
+GRANT USAGE ON SCHEMA public TO datadog;
+GRANT SELECT ON TABLE queue_messages, sessions, turns, attempts, provider_usage TO datadog;
+```
+
+test-ops S3 설치의 예시는 다음과 같다. 기존 배포 명령의 layer는 그대로 두고 마지막에 overlay만 더한다.
+
+```bash
+docker compose \
+  --env-file /etc/agent-platform/test-ops.env \
+  --env-file /etc/agent-platform/datadog.env \
+  -f infra/compose.core.yml \
+  -f infra/compose.test-ops.yml \
+  -f infra/compose.test-ops.s3.yml \
+  -f infra/compose.datadog.yml \
+  --profile apps up -d
+```
+
+Agent는 Docker socket과 container log directory를 read-only로 mount하고 host PID·cgroup namespace를 읽는다. `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`로 동적 worker도 수집한다. compose service는 `service`·`env`·`version` label을 받는다. 동적 worker의 `service`는 container short-image에서 유도되고, `env`는 Agent의 전역 `DD_ENV`, `version`은 전역 `DD_TAGS`에서 받는다. `session_id`·`turn_id`는 조사할 로그 attribute로만 남기며 metric tag나 facet으로 만들지 않는다.
+
+## 신호와 초기 monitor
+
+구조화 logger의 원본 record는 `timestamp`, `level`, 기계가 읽는 `event`, 사람이 읽는 `message`, 선택형 `fields`, context(`session_id` 등)다. log pipeline은 JSON을 parse하고, 이전 record에 `event`가 없을 때만 `message`를 fallback으로 쓴다. 상세 값은 `fields.*` 아래다. query의 metric 이름은 [`log-metrics.json`](../../infra/datadog/definitions/log-metrics.json)과 PostgreSQL custom query가 만든 이름이다.
+
+| 위험                                     | 현재 신호(로그 event·필드, DB query, readyz)                                                                                                                                                                                                                                                                                 | Datadog monitor(query·임계·창)                                                                                                                          | 경보 시 대응 runbook                                                                                   | 계측 공백                                                                                    |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| interrupt effect가 5초를 넘김            | `control.result`의 `fields.operation:interrupt`, `effect_ms`, `outcome`, `reason_code`, `control_id` → `agent_platform.control.effect.duration_ms`. 단계별 진단은 같은 `control_id`의 `worker.turn.interrupt.stage`를 쓴다                                                                                                   | p95 `avg(last_5m):p95:agent_platform.control.effect.duration_ms{operation:interrupt} > 5000`; unknown 결과 `> 0/5m`                                     | [interrupt 뒤 결과를 알 수 없는 turn](../operations.md#interrupt-뒤-결과를-알-수-없는-turn)               | 없음                                                                                         |
+| terminate·control 수락 지연              | 모든 `/v1` 완료의 `api.request.completed`(`route_template`, `method`, `status`, `duration_ms`, `request_id`). terminate 202는 `agent_platform.terminate.acceptance.duration_ms`로 만들며 같은 `request_id`의 control transaction 단계와 상관한다                                                                             | p95 `avg(last_5m):p95:agent_platform.terminate.acceptance.duration_ms{*} > 200`                                                                         | [API 설정의 terminate 계측](../operations.md#api-설정-94s-389)                                            | 없음                                                                                         |
+| 세션 생성 p95                            | `api.request.completed`의 `route_template:/v1/sessions`, `method:POST`, `duration_ms` → `agent_platform.session.create.duration_ms`                                                                                                                                                                                          | 배포 첫 주 p95를 dashboard에서 관찰한 뒤 임계 확정                                                                                                      | [API 설정](../operations.md#api-설정-94s-389)                                                             | 없음. 임계 선택은 계측 공백과 구분                                                           |
+| checkpoint 실패                          | `worker.checkpoint.failed`(`fields.stage`, `fields.reason`, `fields.revision`) → `agent_platform.checkpoint.failed`                                                                                                                                                                                                          | `sum(last_5m):sum:agent_platform.checkpoint.failed{*}.as_count() > 0`                                                                                   | [checkpoint 복원이 계속 실패하는 세션](../operations.md#checkpoint-복원이-계속-실패하는-세션-94s-345)     | 없음                                                                                         |
+| checkpoint pending 사유·경과             | `sessions.checkpoint_pending_reason`; custom query `agent_platform.checkpoint.pending_age_seconds`                                                                                                                                                                                                                           | `max(last_5m):max:agent_platform.checkpoint.pending_age_seconds{*} > 300`                                                                               | [checkpoint 복원이 계속 실패하는 세션](../operations.md#checkpoint-복원이-계속-실패하는-세션-94s-345)     | `sessions.updated_at`은 pending 시작의 보수적 proxy이며 exact 시작 시각은 **배포 뒤 판단** |
+| capture 지연, PUT 수·bytes·manifest 크기 | 성공·거절·실패마다 `worker.checkpoint.result` 하나가 `duration_ms`, `durations_ms`, `put_count`, `uploaded_bytes`, `manifest_bytes`, `reused_count`, `conflict_count`, `outcome`, `reason_code`를 남긴다. `worker.checkpoint.published`의 bundle·untracked 크기와 `worker.checkpoint.late`도 유지한다                        | capture p95 `> 20,000 ms/5m`; late count `> 0/5m`; bundle·untracked `> 214,748,364 bytes/15m`; manifest `> 6,710,886 bytes/15m`                         | [checkpoint 복원이 계속 실패하는 세션](../operations.md#checkpoint-복원이-계속-실패하는-세션-94s-345)     | 없음                                                                                         |
+| S3 5xx·stall                             | checkpoint 결과의 `outcome`, `reason_code`, 단계별 `durations_ms`로 capture 결과는 구분하지만 S3 응답 자체는 구조화하지 않음                                                                                                                                                                                                 | 신뢰할 S3 status query가 없어 monitor 정의 없음                                                                                                         | [object store 고르기](backup-restore.md#object-store-고르기)                                           | S3 operation/status/duration은 **배포 뒤 판단**                                            |
+| worker launch/exit 반복                  | `Launching execution failed; intent kept for retry`, `Execution resource exited right after launch`, `Launch attempt failed; retrying after a backoff` → `agent_platform.launch.failed`; `Execution exited; resource reclaimed`, `Claimed execution resource vanished; binding released` → `agent_platform.execution.exited` | launch: `sum(last_10m):sum:agent_platform.launch.failed{*}.as_count() > 3`; exit: `sum(last_10m):sum:agent_platform.execution.exited{*}.as_count() > 5` | [시작 단계에서 계속 죽는 세션](../operations.md#시작-단계에서-계속-죽는-세션-94s-302-94s-347)             | 없음                                                                                         |
+| 저장소 장애 뒤 수렴                      | `Execution launched`, 위 launch/exit event, `Orphan session reconciliation completed`의 `fields.requeued_count`·`fields.blocked_count`                                                                                                                                                                                       | 반복 launch/exit monitor로 증상은 감지                                                                                                                  | [reconciler·scheduler](../operations.md#reconcilerscheduler와-worker-격리)                                | 장애 시작부터 모든 session 수렴까지의 시간과 미수렴 session 수는 **배포 뒤 판단**          |
+| lease lost                               | `Expired lease reconciliation completed`(`fields.fenced_count`, `fields.ended_count`); custom query `agent_platform.lease.stale_count`                                                                                                                                                                                       | `max(last_5m):max:agent_platform.lease.stale_count{*} > 0`                                                                                              | [reconciler·scheduler](../operations.md#reconcilerscheduler와-worker-격리)                                | 없음                                                                                         |
+| queue oldest age                         | unclaimed·visible `queue_messages.created_at`의 최솟값 → `agent_platform.queue.oldest_age_seconds`                                                                                                                                                                                                                           | `max(last_5m):max:agent_platform.queue.oldest_age_seconds{*} > 30`                                                                                      | [reconciler·scheduler](../operations.md#reconcilerscheduler와-worker-격리)                                | 없음                                                                                         |
+| readyz 가용률                            | Agent HTTP check `agent-platform-readyz` → `http.can_connect`                                                                                                                                                                                                                                                                | 마지막 3회 중 실패, 5분 no-data                                                                                                                         | [API 설정](../operations.md#api-설정-94s-389)                                                             | 없음                                                                                         |
+| provider 429·5xx                         | proxy는 upstream connect 실패만 기록하고 provider response status를 기록하지 않음                                                                                                                                                                                                                                            | 신뢰할 status query가 없어 monitor 정의 없음                                                                                                            | [provider·egress 설정](../operations.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다-94s-252)    | provider status·retry 결과는 **배포 뒤 판단**                                              |
+| provider 비용·fallback pricing           | `provider_usage` 1시간 합계 → `agent_platform.provider.cost_usd_1h`, `agent_platform.provider.fallback_pricing_count_1h`, `agent_platform.provider.unmetered_tokens_1h`                                                                                                                                                                                                   | cost `> 20 USD/1h`; fallback count `> 0/1h`                                                                                                             | [설치 상한](../operations.md#설치-상한-94s-131)                                                           | 없음. 비용 임계는 설치 예산에 맞춰 첫 주에 반드시 조정                                       |
+| disk·inode·XFS quota                     | Agent host `system.disk.in_use`, `system.fs.inodes.in_use`; 현재 `scripts/test-ops.sh status`와 `xfs_quota` 수동 확인                                                                                                                                                                                                        | host disk·inode `> 0.8` for 10m                                                                                                                         | [worker workspace의 상한과 회수](../operations.md#worker-workspace의-상한과-회수)                         | workspace별 XFS project quota 사용률 metric은 **배포 뒤 판단**                             |
+| legal hold·orphan 증가                   | 현재 checkpoint inventory metric 없음                                                                                                                                                                                                                                                                                        | monitor 정의 없음                                                                                                                                       | [checkpoint 객체의 version과 hold](backup-restore.md#checkpoint-객체의-version-복원-뒤-재고정) | inventory metric을 구현한 뒤 감시를 다시 판단                           |
+| backup 실패                              | `scripts/backup.sh` exit와 운영 history는 Docker JSON stdout에 들어오지 않음                                                                                                                                                                                                                                                 | monitor 정의 없음                                                                                                                                       | [백업](backup-restore.md#백업)                                                                         | backup 실행 결과 구조화는 **배포 뒤 판단**                                                 |
+
+## DB 점검 query 계약
+
+[`infra/datadog/conf.d/postgres.d/conf.yaml`](../../infra/datadog/conf.d/postgres.d/conf.yaml)의 `custom_queries`가 정본이다. 모든 query는 `SELECT` 하나이며 table을 바꾸지 않는다.
+
+- queue oldest age: 아직 claim되지 않았고 이미 visible인 message의 가장 오래된 `created_at`을 DB clock과 비교한다.
+- checkpoint pending age: `checkpoint_pending_reason IS NOT NULL`인 session의 `updated_at` 중 가장 오래된 값을 쓴다. checkpoint와 무관한 같은 session 갱신이 이 시각을 움직일 수 있으므로 exact SLI가 아니라 하한 proxy다.
+- `outcome_unknown`: 최근 5분에 만들어진 `turns.outcome_unknown = true` row 수다.
+- stale lease: `exited`·`lost`가 아닌 attempt 가운데 `lease_expires_at < clock_timestamp()`인 수다.
+- provider 비용: 최근 1시간 `cost_usd` 합계와 `priced_by = 'fallback'` row 수다. `agent_platform.provider.unmetered_tokens_1h`는 같은 1시간의 `priced_by = 'unmetered'` row 토큰 합계(input·output·cache write·cache read)다. `billing: none` profile은 비용이 0으로 남으므로, 유료 upstream을 잘못 선언했을 때 드러나는 곳은 이 토큰 수뿐이다. monitor는 정의하지 않는다. 정상값이 설치의 로컬 모델 사용량에 달려 있어서다.
+
+어느 query도 `session_id`를 반환하지 않는다. [`log-metrics.json`](../../infra/datadog/definitions/log-metrics.json)의 group-by도 `service`·`env`와 낮은 cardinality 상태만 쓴다. `session_id`는 incident에서 원본 로그나 DB를 좁힐 때만 쓴다.
+
+## 정의 적용과 검증
+
+정의는 자동으로 적용되지 않는다. 운영자는 JSON을 검토한 뒤 각 파일의 `endpoint`에 `requests` 항목을 하나씩 적용한다. [`log-facets.json`](../../infra/datadog/definitions/log-facets.json)은 UI에서 만들 facet과 만들지 않을 high-cardinality attribute 목록이다. [`dashboard.json`](../../infra/datadog/definitions/dashboard.json)은 dashboard create body다.
+
+서버 배포에서 다음을 확인한다.
+
+1. 기본 stack을 overlay 없이 render·기동했을 때 service 목록과 설정이 이전과 같다.
+2. overlay를 더한 `docker compose config`가 `DD_ENV`·`DD_VERSION` 누락을 거부하고, Agent의 Docker socket mount가 `ro`이며 `/etc/agent-platform/datadog.env`만 읽는다.
+3. Agent status에서 Docker log, `http_check:agent-platform-readyz`, PostgreSQL custom query가 모두 성공한다.
+4. `/readyz`를 잠깐 실패시켜 service check가 바뀌고 복구되는지 서버에서 확인한다. 실제 장기 stack 실행과 monitor notification 전달은 로컬 검증 증거로 대체하지 않는다.

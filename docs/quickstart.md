@@ -15,7 +15,7 @@ not run as-is is ```sh or ```text.
 
 ## 알려진 제약
 
-- 워커 안에서 실행되는 코드(에이전트의 tool 실행, prompt injection으로 들어온 명령 포함)는 attempt가 살아 있는 동안 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 그리고 자기 세션 prefix 안의 object를 부를 수 있다. provider key, 저장소 credential, object store credential 값 자체는 worker에 가지 않는다([94S-252](https://linear.app/94soon/issue/94S-252), [94S-251](https://linear.app/94soon/issue/94S-251)).
+- 워커 안에서 실행되는 코드(에이전트의 tool 실행, prompt injection으로 들어온 명령 포함)는 attempt가 살아 있는 동안 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 그리고 자기 세션 prefix 안의 object를 부를 수 있다. provider key, 저장소 credential, object store credential 값 자체는 worker에 가지 않는다.
 - 모든 세션이 운영자의 provider key 하나를 같이 쓴다.
 
 ## 0. 준비물
@@ -24,7 +24,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 
 | 항목 | 버전 | 왜 |
 |---|---|---|
-| Docker Engine | **28 이상** | 워커 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다. 28보다 낮은 daemon에서는 scheduler가 기동을 거부한다([94S-274](https://linear.app/94soon/issue/94S-274)) |
+| Docker Engine | **28 이상** | 워커 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다. 28보다 낮은 daemon에서는 scheduler가 기동을 거부한다 |
 | Docker Compose | 2.24.6 이상(Docker Desktop의 5.x도 된다) | compose의 `include`와 `env_file`의 `required`를 쓰고, `local.sh up`이 `include`로 합친 스택 위에 overlay를 겹친다 |
 | curl, jq, uuidgen | 아무 버전 | `local.sh`와 3장의 수동 확인 |
 | lsof | 아무 버전 | 0장의 포트 점검. 없으면 점검 블록이 아무것도 출력하지 않는다(`local.sh up`이 다시 확인한다) |
@@ -320,11 +320,11 @@ get "/v1/sessions/$SID/usage" | jq .
 | Idempotency 확인 | 같은 `Idempotency-Key`로 같은 본문을 다시 보내면 첫 응답이 그대로 온다. 같은 key에 다른 본문을 보내면 409 `IDEMPOTENCY_CONFLICT`다 |
 | Gitea에서 커밋 보기 | `http://127.0.0.1:3001`의 `agent/sample-app`. 읽기는 공개다. 로그인하거나 push하려면 비밀번호를 직접 정한다: `docker compose exec -u git gitea gitea admin user change-password -u agent -p <비밀번호>` |
 
-에이전트가 워커 안에서 만든 커밋의 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 Claude가 커밋 전에 이름과 이메일을 묻지 않는다. 세션 안에서 `git config`로 정한 값이 있으면 그 값이 먼저다.
+에이전트가 워커 안에서 만든 커밋의 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다. 그래서 Claude가 커밋 전에 이름과 이메일을 묻지 않는다. 세션 안에서 `git config`로 정한 값이 있으면 그 값이 먼저다.
 
 ### 백업 → 복원 → 검증 (수동)
 
-백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [단일 서버 배포의 백업·복원 기준](server-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
+백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](operator/backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [단일 서버 배포의 백업·복원 기준](operator/server-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
 
 ## 7. 정리
 
@@ -360,14 +360,14 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 | `local.sh up`이 `up needs ANTHROPIC_API_KEY exported or in .env`로 끝난다 | 옵션 없는 `up`은 실제 Claude를 쓴다. 이 문서대로 key 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 key를 준다 |
 | `local.sh up`이 `127.0.0.1 port(s) … already in use`로 끝나거나 `bind: address already in use`가 나온다 | 0장의 포트 중 하나를 다른 프로세스나 다른 스택이 쓰고 있다. 0장의 `lsof` 루프로 찾는다 |
 | API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | `docker compose down`이나 Docker 재시작으로 LocalStack의 S3 객체만 사라지고 postgres의 checkpoint 행은 남았다. 계정과 key를 남기려면 `scripts/local.sh forget-lost-checkpoints` 뒤 `up`([7장](#재부팅이나-docker-재시작-뒤), 잃은 checkpoint의 세션은 `recovery_required`), 모두 지우고 새로 띄우려면 `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이, 세션도 지워진다) |
-| scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다([94S-385](https://linear.app/94soon/issue/94S-385)). 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |
+| scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다. 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |
 | zsh에서 `readyz`나 다른 URL이 `NOT_FOUND`이고 `Could not resolve host: echo`가 함께 뜬다 | oh-my-zsh의 `url-quote-magic`이 URL 뒤에 붙여 넣은 `;` 앞에 `\`를 넣었다. 명령을 보면 `readyz\;`로 되어 있고, 요청은 `/readyz;`로 가며 `echo`는 curl의 호스트 이름이 된다. URL을 따옴표로 감싸도 막히지 않는다. 스택 문제가 아니다. 이 문서의 명령처럼 줄바꿈은 `curl -sS -w '\n' http://127.0.0.1:3000/readyz`로 붙인다. 이 동작을 아예 끄려면 `~/.zshrc`에서 `DISABLE_MAGIC_FUNCTIONS="true"`의 주석을 풀고 새 셸을 연다 |
 | `readyz`가 503 `NOT_READY`다 | DB나 migration이 아직 준비되지 않았다. `docker compose --profile apps ps -a`에서 `migrate`가 `Exited (0)`인지 보고 `docker compose logs api migrate`를 확인한다 |
 | `scripts/backup.sh`가 `checkpoint objects could not be backed up at the versions their checkpoints pin`으로 끝난다 | LocalStack의 S3 객체가 사라졌다(위 bucket 행과 같은 원인). `scripts/local.sh reset --fake-model` 뒤 세션을 새로 만들고 idle이 된 다음 backup한다 |
 | 세션이 `queued`에서 움직이지 않는다 | `docker compose logs scheduler`와 worker 로그(3장 끝의 루프)를 본다. `EXECUTION_SLOT_LIMIT`(기본 10)만큼 세션이 이미 실행 중일 수도 있다 |
 | POST가 401이다 | `Authorization` 헤더가 빠졌거나, key가 다른 스택의 DB에서 발급됐다. `reset`이나 `down` 뒤라면 key도 지워졌다. 1장의 `KEY=…`와 2장의 함수를 다시 설정한다 |
 | POST가 403이다 | key에 그 scope가 없다. `--scopes`를 1장과 같게 발급한다 |
-| ④의 allow가 409 `REQUEST_EXPIRED`다 | 권한 요청이 30분 안에 답을 받지 못해 거절로 끝났고 turn 1도 이미 끝났다([94S-425](https://linear.app/94soon/issue/94S-425)). `hello.txt`가 만들어지지 않았으니 ⑧에서 `alpha`가 나오지 않는다. ①부터 새 세션으로 다시 하고 ②–④를 30분 안에 진행한다 |
+| ④의 allow가 409 `REQUEST_EXPIRED`다 | 권한 요청이 30분 안에 답을 받지 못해 거절로 끝났고 turn 1도 이미 끝났다. `hello.txt`가 만들어지지 않았으니 ⑧에서 `alpha`가 나오지 않는다. ①부터 새 세션으로 다시 하고 ②–④를 30분 안에 진행한다 |
 | 409 `REVISION_CONFLICT` | 그 사이 세션이 바뀌었다. `$(revision)`으로 다시 읽어 보낸다 |
 | pause가 오래 `pausing`이고 `attention.code`가 `PAUSE_BLOCKED`다 | worker가 60초 안에 drain하지 못했다. 진행 중인 turn을 interrupt하거나 기다린다 |
 | pull한 코드가 반영되지 않은 것 같다 | `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 다시 실행한다. 이미지를 이 checkout에서 다시 빌드한다 |

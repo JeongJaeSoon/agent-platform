@@ -37,3 +37,21 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agent.releases.modelRefused":
     "The card's model {card} is not the model of profile {profile}, so no release was created. Choose a profile that runs the card's model.",
 };
+
+export const modelsJa: Record<keyof typeof modelsKo, string> = {
+  "agentCard.modelPick": "モデルを選択",
+  "agentCard.modelUncataloged": "{model} · カタログにありません",
+  "agentCard.modelUncatalogedWarning":
+    "このモデルはカタログにないため、このカードはリリースできません。そのままにすると、現在の状態で保存されます。",
+  "agentCard.modelsLoading":
+    "モデルを読み込み中… 読み込みが終わると保存できます。",
+  "agentCard.modelsFailed":
+    "モデルを読み込めなかったため、保存できません: {reason}",
+
+  "agent.releases.modelMismatch":
+    "このバージョンのカードは {card} を使いますが、選択したプロファイルは {profile} を実行します。この組み合わせのリリースは拒否されます。",
+  "agent.releases.profileOptionMismatch":
+    "{profile} · {model} · カードのモデルと不一致",
+  "agent.releases.modelRefused":
+    "カードのモデル {card} はプロファイル {profile} のモデルではないため、リリースは作成されませんでした。カードのモデルを実行するプロファイルを選んでください。",
+};

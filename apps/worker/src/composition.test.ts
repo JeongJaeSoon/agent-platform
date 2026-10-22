@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { CLAUDE_AGENT_SDK_VERSION } from "@werft-ai/runtime-claude";
+import {
+  CLAUDE_AGENT_SDK_VERSION,
+  claudeProfileFingerprint,
+} from "@werft-ai/runtime-claude";
 
-import { claudeRuntimeRegistry, createWorkerHost } from "./composition.ts";
+import {
+  claudeClaimFingerprint,
+  claudeRunConfig,
+  claudeRuntimeRegistry,
+  createWorkerHost,
+  OUT_DIRECTORY_PROMPT,
+} from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { WorkerHost } from "./worker-host.ts";
@@ -118,5 +127,130 @@ describe("claudeRuntimeRegistry", () => {
         { onPermission: async () => ({ behavior: "deny", message: "none" }) },
       ),
     ).toThrow("no freshly fetched commit");
+  });
+});
+
+describe("claudeClaimFingerprint", () => {
+  const claimToken = { kind: "egress_token" as const, token: "claim-token" };
+  // The runtime_config the API hands out for each profile under config/, as
+  // runtimeConfigOf builds it.
+  const shipped = {
+    "claude-coding-real": {
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      permission_mode: "default" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.com",
+        auth: claimToken,
+      },
+      project_settings: { claude_md: true },
+    },
+    "claude-coding-local": {
+      model: "claude-sonnet-5",
+      tools: [
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash",
+        "AskUserQuestion",
+      ],
+      permission_mode: "default" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "http://fake-messages:4010",
+        auth: claimToken,
+      },
+      project_settings: { claude_md: true },
+    },
+    "local-ollama": {
+      model: "gemma4:26b-mlx",
+      tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      permission_mode: "default" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "http://ollama.internal:11434",
+        auth: claimToken,
+      },
+      project_settings: { claude_md: true },
+    },
+    "local-litellm": {
+      model: "gemma4-local",
+      tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      permission_mode: "default" as const,
+      provider: {
+        kind: "litellm" as const,
+        endpoint: "http://litellm:4000",
+        auth: claimToken,
+      },
+      project_settings: { claude_md: true },
+    },
+  };
+  // Computed on main at 535745c6, before repositoryless sessions: a
+  // repository session's checkpoints must keep resuming.
+  const onMain: Record<keyof typeof shipped, string> = {
+    "claude-coding-real":
+      "11264a133b88785aea552a70fe41191476cde610102801b3af6f0c421b9908a0",
+    "claude-coding-local":
+      "182ab96118dab50191a75f2e059db83385fbcf8c6c6508122448a894c8eefed8",
+    "local-ollama":
+      "70df2e8d6b479d84e79fb3df988fdb64be95660f588e0cd573d61a61da4e6c6a",
+    "local-litellm":
+      "308002b17585b7fc3ff77dc05e403bac013e476ccf5b3065c6722b9945cbcf24",
+  };
+  const principal = { owner_scope: "owner-a" };
+  const fingerprint = claudeClaimFingerprint(config);
+
+  test("a repository session's digest is the one main computed for every shipped profile", () => {
+    const repository = {
+      id: "sample-app",
+      url: "https://example.invalid/team/app.git",
+      branch: "main",
+    };
+    for (const workspace of [undefined, { repository }]) {
+      const digests = Object.fromEntries(
+        Object.entries(shipped).map(([id, runtime_config]) => [
+          id,
+          fingerprint({
+            principal,
+            runtime_config,
+            ...(workspace === undefined ? {} : { workspace }),
+          }).profileSha256,
+        ]),
+      );
+      expect(digests).toEqual(onMain);
+    }
+    expect(
+      claudeRunConfig(
+        config,
+        {
+          principal,
+          runtimeConfig: shipped["claude-coding-real"],
+          workspace: { repository },
+        },
+        () => null,
+      ),
+    ).not.toHaveProperty("appendSystemPrompt");
+  });
+
+  test("a session without a repository is told about out/, and its digest says so", () => {
+    for (const [id, runtimeConfig] of Object.entries(shipped)) {
+      const run = claudeRunConfig(
+        config,
+        { principal, runtimeConfig, workspace: { repository: null } },
+        () => null,
+      );
+      expect(run.appendSystemPrompt).toBe(OUT_DIRECTORY_PROMPT);
+      const digest = fingerprint({
+        principal,
+        runtime_config: runtimeConfig,
+        workspace: { repository: null },
+      }).profileSha256;
+      expect(digest).toBe(claudeProfileFingerprint(run));
+      expect(digest).not.toBe(onMain[id as keyof typeof shipped]);
+    }
+    expect(OUT_DIRECTORY_PROMPT).toContain("`out/`");
   });
 });

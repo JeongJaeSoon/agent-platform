@@ -81,7 +81,8 @@ export type ClaudeSessionStoreOptions = {
  * Mirrors the engine's root and subagent transcripts to the object store, and
  * pins them as exact revisions.
  *
- * Three properties carry the design (see spikes/94s-92 and)
+ * Three properties carry the design (see
+ * docs/contributing/decisions/session-store.md):
  *
  * - Parts are write-once under unique keys, so an append that times out and is
  *   retried stores both copies. Reads deduplicate by entry `uuid`: an entry

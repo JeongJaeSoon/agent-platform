@@ -27,3 +27,18 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.waiting": "{count} waiting for an answer",
   "shell.waitingMore": "{count}+ waiting for an answer",
 };
+
+export const shellJa: Record<keyof typeof shellKo, string> = {
+  "shell.group.work": "業務",
+  "shell.group.workspace": "ワークスペース",
+  "shell.group.personal": "個人設定",
+  "shell.openMenu": "メニューを開く",
+  "shell.closeMenu": "メニューを閉じる",
+  "shell.account": "ユーザーメニュー",
+  "shell.theme": "テーマ",
+  "shell.theme.system": "システム設定",
+  "shell.theme.light": "ライト",
+  "shell.theme.dark": "ダーク",
+  "shell.waiting": "回答待ち {count}件",
+  "shell.waitingMore": "回答待ち {count}件以上",
+};

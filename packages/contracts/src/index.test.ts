@@ -788,6 +788,19 @@ describe("worker protocol", () => {
         workspace: { repository: { ...claim.workspace.repository, id: null } },
       }).success,
     ).toBe(true);
+    // A session accepted without a repository names none at all.
+    const repositoryless = bootstrapClaimResponseSchema.parse({
+      ...claim,
+      workspace: { repository: null },
+    });
+    expect(loggableBootstrapClaim(repositoryless)).toMatchObject({
+      repository_id: null,
+      branch: null,
+    });
+    expect(
+      bootstrapClaimResponseSchema.safeParse({ ...claim, workspace: {} })
+        .success,
+    ).toBe(false);
     // A repository reached without the proxy (a local path in tests) has no
     // token to carry.
     const { access: _a, ...withoutAccess } = claim.workspace.repository;

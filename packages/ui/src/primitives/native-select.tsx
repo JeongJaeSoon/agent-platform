@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../lib/cn.ts";
@@ -33,20 +34,12 @@ export function NativeSelect({
         )}
         {...useFieldControl(props)}
       />
-      <svg
+      <ChevronDown
         data-slot="native-select-icon"
         className="pointer-events-none absolute top-1/2 right-3.5 size-4 -translate-y-1/2 select-none text-muted-foreground"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        strokeWidth={2}
         aria-hidden="true"
-        focusable="false"
-      >
-        <path d="m6 9 6 6 6-6" />
-      </svg>
+      />
     </div>
   );
 }

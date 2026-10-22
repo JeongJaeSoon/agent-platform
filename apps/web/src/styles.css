@@ -54,6 +54,26 @@ body {
   overflow-wrap: break-word;
 }
 
+/* Japanese has no spaces, so keep-all would leave a whole sentence unbroken
+   and push the page sideways; it wraps between characters instead. */
+:lang(ja) body {
+  word-break: normal;
+}
+
+/* Pretendard carries the kana and a few hundred kanji but not the rest, so a
+   single Japanese word mixed its faces. A Japanese system face goes first;
+   Hangul still falls through to Pretendard. Nothing more is downloaded. */
+:lang(ja) {
+  --ap-font-sans:
+    Geist, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI",
+    "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Noto Sans JP",
+    "Pretendard Variable", Pretendard, system-ui, sans-serif;
+}
+
+[lang="ja"] {
+  font-family: var(--ap-font-sans);
+}
+
 *,
 *::before,
 *::after {
@@ -79,6 +99,10 @@ select:focus-visible,
 /* The light ring is too dark to see against the dark rail (WCAG 1.4.11). */
 [data-slot="app-sidebar"] :focus-visible {
   outline-color: var(--ap-color-rail-foreground);
+}
+/* The account menu is a light card over the rail: back to the usual ring. */
+[data-slot="app-sidebar"] [role="menu"] :focus-visible {
+  outline-color: var(--ap-color-focus-ring);
 }
 
 .web-auth {
@@ -190,9 +214,6 @@ select:focus-visible,
   max-width: none;
 }
 
-.web-table-wrap {
-  overflow-x: auto;
-}
 .web-table {
   width: 100%;
   border-collapse: collapse;
@@ -236,8 +257,9 @@ select:focus-visible,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--ap-space-2) var(--ap-space-3);
-  padding: var(--ap-space-3);
+  gap: var(--ap-row-line-gap) var(--ap-space-3);
+  min-height: var(--ap-row-min-height);
+  padding: var(--ap-row-padding-y) var(--ap-row-padding-x);
   border: 1px solid var(--ap-color-border);
   border-radius: var(--ap-radius-md);
   background: var(--ap-color-surface);

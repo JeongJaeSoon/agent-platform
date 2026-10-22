@@ -51,3 +51,32 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.guestValueOn": "Slack guests can use agents.",
   "workspace.guestValueOff": "Slack guests cannot use agents.",
 };
+
+export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
+  "workspace.title": "ワークスペース設定",
+  "workspace.retention": "監査ログの保存期間",
+  "workspace.retentionDays": "保存日数",
+  "workspace.retentionHint":
+    "許可・拒否されたリクエストの記録をこの期間保存します。最短 30 日です。変更できるのはオーナーのみです。",
+  "workspace.retentionFloor":
+    "監査ログは 30 日以上保存する必要があります。30〜3650 の数値を入力してください。",
+  "workspace.retentionCeiling":
+    "監査ログの保存期間は最長 {max} 日です。{max} 以下の数値を入力してください。",
+  "workspace.retentionSaved": "監査ログを {days} 日間保存します。",
+  "workspace.save": "保存",
+  "workspace.guest": "Slack ゲスト",
+  "workspace.guestLabel": "Slack ゲストにエージェントの利用を許可",
+  "workspace.guestOn": "オン",
+  "workspace.guestOff": "オフ",
+  "workspace.guestHint":
+    "オンの場合でも、ゲストは先に Web で Slack アカウントを連携する必要があります。Slack コネクトで参加したほかの組織の人は、エージェントを利用できません。変更できるのはオーナーまたは管理者です。",
+  "workspace.guestSavedOn":
+    "Slack ゲストがエージェントを利用できるようになりました。",
+  "workspace.guestSavedOff":
+    "Slack ゲストはエージェントを利用できなくなりました。",
+  "workspace.readOnly":
+    "現在の設定です。変更するには、ワークスペースのオーナーまたは管理者に依頼してください。",
+  "workspace.retentionValue": "監査ログを {days} 日間保存します。",
+  "workspace.guestValueOn": "Slack ゲストはエージェントを利用できます。",
+  "workspace.guestValueOff": "Slack ゲストはエージェントを利用できません。",
+};

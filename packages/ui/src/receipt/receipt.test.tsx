@@ -198,6 +198,15 @@ describe("formatTimestamp", () => {
     );
   });
 
+  test("ja는 연/월/일 순서로, 같은 서울 시각을 쓴다", () => {
+    expect(formatTimestamp("2026-09-21T02:15:00.000Z", "ja")).toBe(
+      "2026/09/21 11:15",
+    );
+    expect(formatTimestamp("2026-09-21T15:00:00.000Z", "ja")).toBe(
+      "2026/09/22 00:00",
+    );
+  });
+
   test("날짜가 아니면 받은 문자열을 그대로 둔다", () => {
     expect(formatTimestamp("나중에")).toBe("나중에");
   });

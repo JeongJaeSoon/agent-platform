@@ -111,6 +111,36 @@ export type CheckpointWorkspace = {
   readonly untracked: readonly WorkspaceArtifact[];
 };
 
+/**
+ * A file the engine left under `out/` for a person to take away, indexed
+ * apart from git: a file the engine committed, or one an ignore rule hides,
+ * is listed all the same. `path` is relative to the workspace root and
+ * starts with `out/`. The object sits at `<publish directory>outputs/<sha256>`
+ * of the checkpoint that first uploaded it; a later checkpoint names the same
+ * ref rather than uploading the bytes again.
+ */
+export type StoredOutput = ObjectRef & { readonly path: string };
+
+/**
+ * A file under `out/` over the output limits: listed so a person learns it
+ * exists, never uploaded. Its bytes were not read, so it has no digest.
+ */
+export type OmittedOutput = {
+  readonly bytes: number;
+  readonly omitted: "too_large";
+  readonly path: string;
+};
+
+export type CheckpointOutput = StoredOutput | OmittedOutput;
+
+export function storedOutputs(
+  outputs: readonly CheckpointOutput[] | undefined,
+): StoredOutput[] {
+  return (outputs ?? []).filter(
+    (output): output is StoredOutput => !("omitted" in output),
+  );
+}
+
 export type CheckpointTranscripts = {
   readonly root: TranscriptRevision;
   /** Keyed by the engine's subagent subpath. */
@@ -129,7 +159,7 @@ export type CheckpointTranscripts = {
  * fetching any part — all against these same values. A session past it
  * takes no new turn (`transcript_too_large`), and its last checkpoint stays
  * the one a restore resumes.
- * Measurements, sessions per node and how to change both: docs/capacity.md.
+ * Measurements, sessions per node and how to change both: docs/operator/capacity.md.
  */
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
 export const MAX_TRANSCRIPT_BYTES = 512 * 1024 * 1024;
@@ -207,6 +237,11 @@ export type CheckpointManifest = {
   readonly createdAt: string;
   readonly cwd: string;
   readonly engine: string;
+  /**
+   * Absent when the workspace had no file under `out/`, which keeps such a
+   * manifest byte for byte what a build before this field wrote.
+   */
+  readonly outputs?: readonly CheckpointOutput[];
   /** The handle a later `mode: "resume"` config passes back to the engine. */
   readonly resume: string;
   /** Monotonic per session; the DB pointer only ever moves forward. */

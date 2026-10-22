@@ -23,12 +23,11 @@ import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import { NOTICE } from "../../components/auth-page.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
+import { RowLines, RowList, RowListItem } from "../../components/table.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import {
   FORM_INLINE,
-  LIST,
-  LIST_ITEM,
   MUTED,
   PRIMARY,
   SECONDARY,
@@ -175,7 +174,7 @@ export function Releases({
       {ordered.length === 0 ? (
         <p className={MUTED}>{t("agent.releases.empty")}</p>
       ) : (
-        <ul className={LIST}>
+        <RowList>
           {ordered.map((item) => {
             const active = item.id === detail.agent.active_release_id;
             const label = t("agent.releaseLabel", {
@@ -183,15 +182,14 @@ export function Releases({
               profile: item.runtime_profile_id,
             });
             return (
-              <li
+              <RowListItem
                 key={item.id}
                 className={cn(
-                  LIST_ITEM,
                   active && "border-[var(--ap-tone-positive-border)]",
                 )}
                 data-active={active}
               >
-                <span className="min-w-0 flex-1">
+                <RowLines>
                   <span className={PRIMARY}>{label}</span>
                   <span className={SECONDARY}>
                     {formatTimestamp(item.created_at, locale)} ·{" "}
@@ -201,7 +199,7 @@ export function Releases({
                         })
                       : t("agent.releases.notApproved")}
                   </span>
-                </span>
+                </RowLines>
                 {active ? (
                   <Badge>{t("agent.releases.active")}</Badge>
                 ) : (
@@ -220,10 +218,10 @@ export function Releases({
                       : t("agent.releases.activate")}
                   </Button>
                 )}
-              </li>
+              </RowListItem>
             );
           })}
-        </ul>
+        </RowList>
       )}
     </section>
   );

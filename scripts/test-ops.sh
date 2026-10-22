@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The test-ops installation's lifecycle in one place (docs/test-ops.md)
+# The test-ops installation's lifecycle in one place (docs/operator/test-ops.md)
 #
 #   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, settings, catalog, and on s3 the bucket
 #                                              and S3 key (the deployed release when no manifest is named)
@@ -34,7 +34,7 @@
 #
 # LocalStack keeps S3 in memory: after a restart of its container, Docker or
 # the host the API refuses to start until reseed or reset
-# (docs/test-ops.md).
+# (docs/operator/test-ops.md).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
@@ -157,7 +157,7 @@ take_lock() {
 
 # --- settings ------------------------------------------------------------------
 check_env_file() {
-  [ -f "$ENV_FILE" ] || die "env file $ENV_FILE not found (set TEST_OPS_ENV_FILE; docs/test-ops.md)"
+  [ -f "$ENV_FILE" ] || die "env file $ENV_FILE not found (set TEST_OPS_ENV_FILE; docs/operator/test-ops.md)"
   [ -r "$ENV_FILE" ] || die "env file $ENV_FILE is not readable by $(id -un)"
   [ -z "$(find "$ENV_FILE" -prune \( -perm -g=r -o -perm -g=w -o -perm -o=r -o -perm -o=w \))" ] \
     || die "env file $ENV_FILE is open to group or others; chmod 600 it"
@@ -287,7 +287,7 @@ preflight() {
   else
     # LocalStack starts with the installation; the API checks its bucket at
     # startup, and deploy and upgrade wait for that.
-    log "preflight: object store is LocalStack, in memory — a restart loses every checkpoint object (docs/test-ops.md)"
+    log "preflight: object store is LocalStack, in memory — a restart loses every checkpoint object (docs/operator/test-ops.md)"
   fi
   log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, catalog $CATALOG_REVISION"
 }
@@ -302,7 +302,7 @@ start_apps() {
   if ! ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" "$@" api scheduler reconciler; then
     log "the installation did not become healthy; last scheduler and api log lines:"
     ops_compose logs --no-color --tail 30 scheduler api >&2 || true
-    die "start failed; the scheduler's quota or network preflight is the usual cause (docs/test-ops.md)"
+    die "start failed; the scheduler's quota or network preflight is the usual cause (docs/operator/test-ops.md)"
   fi
   log "readyz: $(readyz)"
 }
@@ -562,9 +562,9 @@ reseed() {
   CLEANUPS+=("rm -f '$skip'")
   printf '%s\n' "$manifest_keys" > "$skip"
   object_store "$PROJECT" "$bucket" upload "$BACKUP_DIR/objects" "$skip" >/dev/null \
-    || die "the upload stopped; the installation stays stopped — reset it (docs/test-ops.md)"
+    || die "the upload stopped; the installation stays stopped — reset it (docs/operator/test-ops.md)"
   checkpoint_pins "$PROJECT" "$bucket" repin "$BACKUP_DIR/objects" >/dev/null \
-    || die "the re-pin refused, most likely because the database moved on since the backup; the installation stays stopped — reset it (docs/test-ops.md)"
+    || die "the re-pin refused, most likely because the database moved on since the backup; the installation stays stopped — reset it (docs/operator/test-ops.md)"
   expected="$(jq -r '.objects.count' "$BACKUP_DIR/manifest.json")"
   restored="$(object_store "$PROJECT" "$bucket" count)" || die "could not count the objects in $bucket"
   [ "$restored" = "$expected" ] \
@@ -659,7 +659,7 @@ STORE="$(sed -n 's/^object_store=//p' "$IDENTITY" 2>/dev/null || true)"
 if [ -z "$STORE" ]; then
   STORE="${TEST_OPS_OBJECT_STORE:-localstack}"
 elif [ -n "${TEST_OPS_OBJECT_STORE:-}" ] && [ "$TEST_OPS_OBJECT_STORE" != "$STORE" ]; then
-  die "the installation was deployed on $STORE; moving it to $TEST_OPS_OBJECT_STORE is a reset and a new deploy (docs/test-ops.md)"
+  die "the installation was deployed on $STORE; moving it to $TEST_OPS_OBJECT_STORE is a reset and a new deploy (docs/operator/test-ops.md)"
 fi
 case "$STORE" in
   localstack|s3) ;;

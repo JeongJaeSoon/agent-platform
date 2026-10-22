@@ -3,7 +3,13 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type ApiError, isApiError } from "@werft-ai/client";
 import type { Agent } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Badge, type BadgeProps, formatTimestamp } from "@werft-ai/ui";
+import {
+  Badge,
+  type BadgeProps,
+  buttonVariants,
+  cn,
+  formatTimestamp,
+} from "@werft-ai/ui";
 import { agentsQuery } from "../api/queries.ts";
 import {
   permissionReason,
@@ -15,6 +21,15 @@ import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import {
+  RowLines,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/table.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
@@ -63,12 +78,17 @@ export function AgentsScreen() {
   const failed = agents.isError && !isApiError(agents.error, "FORBIDDEN");
 
   return (
-    <div className="web-page">
-      <div className="web-page__head">
-        <h1 className="web-page__title">{t("agents.title")}</h1>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="m-0 font-semibold text-title">{t("agents.title")}</h1>
+          <p className="m-0 text-control text-muted-foreground">
+            {t("agents.intro")}
+          </p>
+        </div>
         {failed ? null : (
           <ReasonButton
-            className="ap-button ap-button--primary"
+            className={buttonVariants()}
             reason={reason}
             onClick={() => void navigate({ to: "/agents/new" })}
           >
@@ -93,32 +113,73 @@ export function AgentsScreen() {
       ) : agents.data.items.length === 0 ? (
         <p className="web-page__empty">{t("agents.empty")}</p>
       ) : (
-        <ul className="web-list">
-          {agents.data.items.map((agent) => (
-            <li key={agent.id} className="web-list__item">
-              <span>
-                <Link
-                  to="/agents/$id"
-                  params={{ id: agent.id }}
-                  className="web-table__primary"
-                >
-                  {agent.name}
-                </Link>
-                <span className="web-table__secondary">
-                  {t("agents.slugLine", { slug: agent.slug })} ·{" "}
-                  {t("agents.updated", {
-                    at: formatTimestamp(agent.updated_at, locale),
-                  })}
-                </span>
-              </span>
-              <AgentStateBadge agent={agent} />
-            </li>
-          ))}
-        </ul>
+        <div className="@container overflow-hidden rounded-lg border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">{t("agents.column.agent")}</TableHead>
+                <TableHead scope="col" className={cn(FIT, LAST_WHEN_NARROW)}>
+                  {t("agents.column.state")}
+                </TableHead>
+                <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
+                  {t("agents.column.updated")}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {agents.data.items.map((agent) => (
+                <TableRow key={agent.id}>
+                  <TableCell>
+                    <RowLines>
+                      <Link
+                        to="/agents/$id"
+                        params={{ id: agent.id }}
+                        className="font-medium text-primary underline-offset-2 hover:underline [overflow-wrap:anywhere]"
+                      >
+                        {agent.name}
+                      </Link>
+                      <span className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
+                        <span className="sr-only">{t("agents.slug")} </span>
+                        {agent.slug}
+                      </span>
+                      <span className="text-caption text-muted-foreground @[480px]:hidden">
+                        {t("agents.updated", {
+                          at: formatTimestamp(agent.updated_at, locale),
+                        })}
+                      </span>
+                    </RowLines>
+                  </TableCell>
+                  <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>
+                    <AgentStateBadge agent={agent} />
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      FIT,
+                      WIDE,
+                      "text-right text-caption text-muted-foreground",
+                    )}
+                  >
+                    <time dateTime={agent.updated_at}>
+                      {formatTimestamp(agent.updated_at, locale)}
+                    </time>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );
 }
+
+// Shrinks the column to its content so the name column takes the rest.
+const FIT = "w-px whitespace-nowrap";
+const WIDE = "hidden @[480px]:table-cell";
+// The hidden time column is still the DOM's last cell, so below 480px the
+// state cell takes the outer inset itself.
+const LAST_WHEN_NARROW =
+  "pr-[var(--ap-row-padding-x)] @[480px]:pr-[calc(var(--ap-row-padding-x)/2)]";
 
 type AgentState = "draft" | Agent["status"];
 type AgentSummary = Pick<Agent, "status" | "active_release_id">;
@@ -162,9 +223,13 @@ export function NewAgentScreen() {
   const refuse = (error: unknown) =>
     isApiError(error) ? agentRefusal(t, error, role) : t(errorKey("UNKNOWN"));
   return (
-    <div className="web-page">
-      <h1 className="web-page__title">{t("agents.newTitle")}</h1>
-      <p className="web-page__empty">{t("agents.newIntro")}</p>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="m-0 font-semibold text-title">{t("agents.newTitle")}</h1>
+        <p className="m-0 text-control text-muted-foreground">
+          {t("agents.newIntro")}
+        </p>
+      </div>
       <NewAgentFlow refuse={refuse} />
     </div>
   );

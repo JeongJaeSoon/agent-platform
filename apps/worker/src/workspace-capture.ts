@@ -22,6 +22,7 @@ import {
   GitResourceLimitError,
   type GitResult,
   LOCAL_DEADLINE_MS,
+  runGit,
   runGitBytes,
   workerScratch,
 } from "./workspace.ts";
@@ -253,6 +254,13 @@ type WorkspaceCaptureInput = {
   limits?: WorkspaceCaptureLimits;
   instructions?: InstructionsPin;
   base?: BundleBase;
+  /**
+   * For a session without a repository: first marks every new file in the
+   * workspace's own index intent-to-add, the one change a capture makes, so
+   * the files ride the bundle — symlinks included, which the untracked
+   * path refuses — rather than travel as untracked files.
+   */
+  markNewFiles?: boolean;
   /** For tests that need procfs to be missing. */
   fdDirectory?: string;
 };
@@ -261,6 +269,10 @@ export async function captureWorkspace(
   input: WorkspaceCaptureInput,
 ): Promise<WorkspaceCaptureResult> {
   const limits = input.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS;
+  if (input.markNewFiles === true) {
+    const marked = await markNewFiles(input.root, input.signal, limits);
+    if (marked !== undefined) return { status: "refused", reason: marked };
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const before = await workspaceMarker(input.root, input.signal, limits);
     if (before.status === "refused") return before;
@@ -289,6 +301,66 @@ export async function captureWorkspace(
     status: "refused",
     reason: "the workspace changed during both checkpoint capture attempts",
   };
+}
+
+/**
+ * Marks the untracked, unignored paths intent-to-add in the workspace's own
+ * index, under the capture's settings and limits, its filter drivers
+ * emptied. Only those: `add --all` would also stage tracked paths, turning an
+ * unmerged path into a resolved one the capture no longer refuses. A `.git`
+ * that is no directory is left for the capture to refuse.
+ */
+async function markNewFiles(
+  root: string,
+  signal: AbortSignal,
+  limits: WorkspaceCaptureLimits,
+): Promise<string | undefined> {
+  const gitDirectory = join(root, ".git");
+  const found = await lstat(gitDirectory).catch(() => null);
+  if (found?.isDirectory() !== true) return undefined;
+  const neutralized: Array<[string, string]> = [];
+  const options = {
+    cwd: root,
+    extra: {
+      config: CHECKPOINT_GIT_CONFIG,
+      env: { GIT_DIR: gitDirectory, GIT_WORK_TREE: root },
+    },
+    limits: checkpointGitLimits(limits),
+    network: null,
+    overrides: neutralized,
+    redact: (text: string) => text,
+    signal,
+  };
+  neutralized.push(...(await filterOverrides((args) => runGit(args, options))));
+  const listed = await runGitBytes(
+    ["ls-files", "-z", "--others", "--exclude-standard"],
+    { ...options, maxStdoutBytes: OUTPUT_LIMIT_BYTES },
+  );
+  if (listed.code !== 0) {
+    return `new files cannot be listed: ${lastLine({ ...listed, stdout: "" })}`;
+  }
+  if (listed.stdout.byteLength === 0) return undefined;
+  const scratch = await workerScratch(root, "mark");
+  if (scratch === undefined) return undefined;
+  try {
+    const paths = join(scratch, "paths");
+    await writeFile(paths, listed.stdout);
+    const marked = await runGit(
+      [
+        "--literal-pathspecs",
+        "add",
+        "--intent-to-add",
+        `--pathspec-from-file=${paths}`,
+        "--pathspec-file-nul",
+      ],
+      options,
+    );
+    return marked.code === 0
+      ? undefined
+      : `new files cannot be marked intent-to-add: ${lastLine(marked)}`;
+  } finally {
+    await rm(scratch, { force: true, recursive: true });
+  }
 }
 
 async function captureWorkspaceOnce(
@@ -396,9 +468,11 @@ async function captureWorkspaceOnce(
     };
     const stage = (args: string[], env: Record<string, string> = {}) =>
       run(args, { ...staging, ...env });
-    let added = await stage(["add", "--update", "--", "."]);
+    // No `.` pathspec: on an empty index (a local git whose engine wrote
+    // nothing) it matches nothing, and git calls that an error.
+    let added = await stage(["add", "--update"]);
     if (added.code === 0) {
-      added = await stage(["add", "--renormalize", "--", "."]);
+      added = await stage(["add", "--renormalize", "--", ":/"]);
     }
     if (added.code !== 0) {
       return refused(`the working tree cannot be staged: ${lastLine(added)}`);
