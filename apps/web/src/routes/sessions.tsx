@@ -18,6 +18,7 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
+import { ArrowLeft } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import {
   permissionReason,
@@ -92,7 +93,8 @@ export function SessionDetailScreen() {
             to="/sessions"
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
-            ← {t("session.back")}
+            <ArrowLeft className="size-3.5" aria-hidden="true" />
+            {t("session.back")}
           </Link>
         }
         id={id}

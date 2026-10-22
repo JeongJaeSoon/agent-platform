@@ -33,6 +33,9 @@ function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
 const meOk = {
   "GET /v1/auth/me": () => json(200, me()),
   "GET /v1/my-teams": () => json(200, { items: [] }),
+  // Home lists the waiting and recent sessions; an unrouted read would put
+  // its error alert beside the one a test looks for.
+  "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
 };
 const callsTo = (calls: Recorded[], path: string) =>
   calls.filter((call) => call.path === path);
@@ -105,7 +108,9 @@ describe("workspace shell", () => {
     expect(
       screen.getByText("Owner(owner@example.com) 계정으로 로그인했습니다"),
     ).toBeDefined();
-    const steps = screen.getAllByRole("listitem");
+    const steps = within(
+      screen.getByRole("region", { name: "시작하기" }),
+    ).getAllByRole("listitem");
     expect(steps.map((step) => step.getAttribute("data-done"))).toEqual([
       "true",
       "false",
@@ -120,7 +125,10 @@ describe("workspace shell", () => {
       "POST /v1/auth/logout": () => new Response(null, { status: 204 }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Owner 소유자" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
     const [logout] = callsTo(api.calls, "/v1/auth/logout");
@@ -134,7 +142,10 @@ describe("workspace shell", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "Storage is unavailable"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Owner 소유자" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "로그아웃하지 못해 아직 로그인된 상태입니다.",
     );
@@ -149,7 +160,10 @@ describe("workspace shell", () => {
         apiError(401, "UNAUTHORIZED", "Authentication is required"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Owner 소유자" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
   });
@@ -402,7 +416,9 @@ describe("i18n·반응형·키보드", () => {
       expect(
         await screen.findByRole("heading", { name: "Acme" }),
       ).toBeDefined();
-      expect(screen.getByRole("button", { name: "로그아웃" })).toBeDefined();
+      expect(
+        screen.getByRole("button", { name: "Owner 소유자" }),
+      ).toBeDefined();
       expect(window.innerWidth).toBe(width);
     },
   );

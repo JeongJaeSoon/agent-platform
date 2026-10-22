@@ -146,8 +146,9 @@ describe("에이전트 목록", () => {
     renderAt("/agents", { ...meOk, ...server.routes });
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
-    expect(screen.getByText("초안")).toBeDefined();
-    expect(screen.getByText(/^식별자 billing · /)).toBeDefined();
+    const row = link.closest("tr") as HTMLElement;
+    expect(within(row).getByText("초안")).toBeDefined();
+    expect(row.textContent).toContain("식별자 billing");
   });
 
   test("배지는 초안·활성·일시정지·보관됨을 서로 다르게 보인다", async () => {
@@ -181,7 +182,7 @@ describe("에이전트 목록", () => {
     const badges = ["draft", "live", "held", "old"].map((name) => {
       const badge = screen
         .getByRole("link", { name })
-        .closest("li")
+        .closest("tr")
         ?.querySelector("[data-slot=badge]");
       return [badge?.textContent, badge?.getAttribute("data-state")];
     });
@@ -459,7 +460,7 @@ describe("새 에이전트", () => {
     act(() => history.push("/agents"));
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(
-      link.closest("li")?.querySelector("[data-slot=badge]")?.textContent,
+      link.closest("tr")?.querySelector("[data-slot=badge]")?.textContent,
     ).toBe("초안");
   });
 
@@ -889,7 +890,12 @@ describe("에이전트 상세", () => {
     await user.type(instructions, "환불 문의에도 답한다.");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다 — version 2/);
-    await user.click(screen.getByRole("button", { name: "배포 탭으로" }));
+    // The summary panel offers the same move; this is the one by the result.
+    await user.click(
+      within(screen.getByRole("tabpanel")).getByRole("button", {
+        name: "배포 탭으로",
+      }),
+    );
     expect(
       screen.getByRole("tab", { name: "배포", selected: true }),
     ).toBeDefined();
