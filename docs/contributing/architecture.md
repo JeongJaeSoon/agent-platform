@@ -26,7 +26,7 @@
 | `infra` | compose layer(`compose.core.yml`·`compose.local.yml`·`compose.test-ops*.yml`·`compose.real-model.yml`·`compose.fake-model.yml`·`compose.datadog.yml`)와 진입 파일 `docker-compose.yml`, 복원용 layer `docker-compose.restore.yml`, 컨테이너 초기화 스크립트(`infra/gitea`·`infra/localstack`), Datadog 설정(`infra/datadog`) |
 | `deploy` | Kubernetes 배포: Helm chart(`deploy/helm/agent-platform`)와 그 렌더 검사(`deploy/helm/render-check.ts`), 로컬 kind 확인(`deploy/kind/up.sh`). chart의 NetworkPolicy가 worker Pod의 바깥 연결을 egress proxy 하나로 묶는다. worker Pod는 DNS도 쓰지 않고 proxy 주소를 hosts 파일로 받는다. 설치 절차는 [kubernetes-deployment.md](../operator/kubernetes-deployment.md) |
 | `config` | API가 읽는 로컬 기본 카탈로그(`profiles.yaml`·`repositories.yaml`). 실제 Messages API를 실행자의 `ANTHROPIC_API_KEY`로 부른다. compose가 `/app/config`로 mount한다. `config/fake-model`은 compose `fake-messages`를 부르는 카탈로그로, `--fake-model` overlay(`infra/compose.fake-model.yml`)를 얹은 실행(quickstart, 무료 e2e·복원 확인)이 쓴다 |
-| `docs` | 독자별 문서. 색인은 [docs/README.md](../README.md)다. 사용자 문서(quickstart·API 가이드)는 `docs` 바로 아래, 운영자 문서는 `docs/operator`, 기여자 문서는 `docs/contributing`, 설계 결정 기록은 `docs/contributing/decisions`에 둔다. 생성된 `openapi.json`과 API가 `/docs`로 서빙하는 참조 페이지(`docs/api`)도 여기 있다 |
+| `docs` | 독자별 문서. 색인은 [docs/README.md](../README.md)다. 사용자 문서(quickstart·API 가이드)는 `docs` 바로 아래, 운영자 문서는 `docs/operator`, 기여자 문서는 `docs/contributing`에 둔다. 생성된 `openapi.json`과 API가 `/docs`로 서빙하는 참조 페이지(`docs/api`)도 여기 있다 |
 
 ### 패키지와 앱
 
