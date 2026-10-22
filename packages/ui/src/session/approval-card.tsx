@@ -107,7 +107,7 @@ export function ApprovalCard({
       data-slot="approval-card"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-lg border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
+        "flex min-w-0 flex-col gap-3 rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
         className,
       )}
       {...within}
@@ -139,7 +139,7 @@ export function ApprovalCard({
         <summary className="cursor-pointer text-muted-foreground text-caption">
           {messages.input}
         </summary>
-        <pre className="mt-2 max-h-60 overflow-auto rounded-md bg-card p-2 font-mono text-caption">
+        <pre className="mt-2 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption">
           {inputText(request.input)}
         </pre>
       </details>

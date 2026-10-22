@@ -23,7 +23,7 @@ export function SessionTable({ label, messages, children }: SessionTableProps) {
     <div
       role="table"
       aria-label={label}
-      className="@container m-0 w-full overflow-hidden rounded-lg border bg-card p-0"
+      className="@container m-0 w-full overflow-hidden rounded-card border bg-card p-0"
     >
       <div
         role="row"

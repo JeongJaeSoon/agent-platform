@@ -15,6 +15,8 @@
   --text-caption: var(--ap-text-xs);
   --text-control: var(--ap-text-sm);
   --text-body: var(--ap-text-label);
+  --text-description: var(--ap-text-sm);
+  --text-description--line-height: var(--ap-leading-body);
   --text-title: var(--ap-text-title);
   --text-title--line-height: var(--ap-leading-title);
   --text-title--letter-spacing: -0.025rem;
@@ -44,7 +46,9 @@
 
   /* Tokens with no shadcn name. */
   --color-canvas: var(--ap-color-canvas);
+  --color-sidebar: var(--ap-color-sidebar);
   --color-surface: var(--ap-color-surface);
+  --color-subtle-foreground: var(--ap-color-subtle-foreground);
   --color-surface-sunken: var(--ap-color-surface-sunken);
   --color-rail: var(--ap-color-rail);
   --color-rail-foreground: var(--ap-color-rail-foreground);
@@ -53,6 +57,11 @@
   --color-focus-ring: var(--ap-color-focus-ring);
   --font-sans: var(--ap-font-sans);
   --font-mono: var(--ap-font-mono);
+  --radius-control: var(--ap-radius-control);
+  --radius-card: var(--ap-radius-card);
+  --shadow-pop: var(--ap-shadow-pop);
+
+  /* Old names apps/web still uses; the kit itself uses the ones above. */
   --radius-sm: var(--ap-radius-sm);
   --radius-md: var(--ap-radius-md);
   --radius-lg: var(--ap-radius-lg);

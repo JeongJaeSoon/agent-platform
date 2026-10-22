@@ -122,7 +122,7 @@ export function QuestionCard({
       data-slot="question-card"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-lg border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
+        "flex min-w-0 flex-col gap-3 rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
         className,
       )}
       {...within}
