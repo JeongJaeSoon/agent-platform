@@ -39,7 +39,7 @@
 - SDK는 terminal `result`를 iterator에 넘기기 전에 남은 mirror batch를 flush한다. 그래서 같은 turn에서 먼저 도착한 `system/mirror_error`를 보고 checkpoint publish를 막을 수 있다.
 - mirror는 best-effort다. append가 실패해도 agent 실행은 성공할 수 있고, timeout된 write는 늦게 반영될 수 있다. 그래서 store가 UUID로 dedup하고, payload가 다른 같은 UUID는 손상으로 다룬다.
 - store의 최신 suffix는 계속 늘어날 수 있다. checkpoint revision은 capture 시점의 exact part와 hash만 담으므로, 그 뒤에 붙은 suffix는 revision을 읽을 때 보이지 않는다. lease를 잃은 worker가 계속 쓰더라도 다음 generation은 그 write를 읽지 않는다.
-- store resume용 임시 config는 SDK가 종료할 때 지운다. host 설정을 복사해 쓰지 않고, worker 이미지 안의 config 디렉터리(`apps/worker/src/image-runtime.ts`)를 SDK에 준다.
+- store resume용 임시 config는 SDK가 종료할 때 지운다. host 설정을 복사해 쓰지 않고, worker가 자기 설정의 config 디렉터리(`apps/worker/src/composition.ts`의 `claudeConfigDir`)를 SDK에 준다.
 
 공식 계약과 비교 기준:
 
