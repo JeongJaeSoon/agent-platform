@@ -86,7 +86,7 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 ## 설계 이력과 추가 참고
 
-저장소는 `claude-session-platform`에서 `agent-platform`으로 이름을 바꿨다. 내부 package scope는 `@werft-ai/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
+내부 package scope는 `@werft-ai/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
 
 - SDK gate와 저장 backend 선택: process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](../spikes/94s-91/README.md), [`spikes/94s-92`](../spikes/94s-92/README.md)에 둔다.
 - 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): Kiel 실행 경로는 바꾸지 않고 그 위에 올린다.

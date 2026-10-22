@@ -213,7 +213,7 @@ manifest는 JSON 파일 하나다. 예시는 `infra/test-ops.release.example.jso
 
 이미지 digest는 `v*` tag push로 돈 Images workflow(`.github/workflows/images.yml`)가 ghcr.io에 올린 값이다. run의 `staged-digest-*` artifact나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/agent-platform-worker:<tag>`로 읽는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
 
-`v*` tag가 아직 없으면(첫 release 전) ghcr.io에 받을 이미지가 없다. 그때는 `source_commit`의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 manifest에 적는다. 인수 리허설은 호스트 loopback의 registry(`127.0.0.1:5000`)로 이렇게 했다.
+`v*` tag가 아직 없으면(첫 release 전) ghcr.io에 받을 이미지가 없다. 그때는 `source_commit`의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 manifest에 적는다. 호스트 loopback의 registry(`127.0.0.1:5000`)를 써도 된다.
 
 ```bash
 R=<registry>   # 예: 127.0.0.1:5000
