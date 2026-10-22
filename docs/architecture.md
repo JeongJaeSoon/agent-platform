@@ -19,7 +19,7 @@
 |---|---|
 | `apps` | 배포 단위 셋(control-host·worker·egress-proxy). 앱마다 `Dockerfile`이 있고 이미지 하나가 된다. 앱끼리는 import하지 않는다 |
 | `packages` | 앱이 조립하는 workspace 라이브러리. 아래 표에 패키지마다 한 줄씩 있다 |
-| `spikes` | workspace 밖의 독립 설치 단위. [`spikes/94s-91`](../spikes/94s-91/README.md)은 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. 실제 LiteLLM proxy를 거친 SDK 왕복은 여기서만 확인한다. `spikes/94s-92`는 저장 backend 선택의 harness다. CI `spikes` job은 main push와 수동 실행에서만 돌고 run을 막지 않는다([ci.md](ci.md)) |
+| `spikes` | workspace 밖의 독립 설치 단위. [`spikes/94s-91`](../spikes/94s-91/README.md)은 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. 실제 LiteLLM proxy를 거친 SDK 왕복은 여기서만 확인한다. CI `spikes` job은 main push와 수동 실행에서만 돌고 run을 막지 않는다([ci.md](ci.md)) |
 | `tests` | 패키지 하나로 닫히지 않는 테스트: 여러 앱·패키지를 엮는 흐름, 저장소·CI·`scripts`를 검사하는 테스트, 스택 전체 harness(`tests/e2e`, `tests/d2-gate`), `scripts/soak` 판정 함수의 단위 테스트(`tests/soak`) |
 | `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), Kubernetes 설치의 운영자 CLI(`k8s-api.sh`), gate와 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 개발용 fixture(`scripts/dev`), `THIRD_PARTY_NOTICES.md` 생성기(`third-party-notices.ts`), 수동 재현기(`scripts/bun-http-stall`) |
 | `.github` | CI 전용. workflow(`workflows`), composite action(`actions/bun-setup`), workflow만 부르는 helper(`.github/scripts`). 운영자가 부르는 도구는 여기가 아니라 `scripts`에 둔다 |
@@ -88,5 +88,6 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 내부 package scope는 `@werft-ai/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
 
-- SDK gate와 저장 backend 선택: process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](../spikes/94s-91/README.md), [`spikes/94s-92`](../spikes/94s-92/README.md)에 둔다.
+- SDK gate: process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](../spikes/94s-91/README.md)에 둔다.
+- 저장 backend 선택: SessionStore를 채택한 이유와 그 계약을 지키는 제품 테스트는 [결정 기록](contributing/decisions/session-store.md)에 있다.
 - 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): Kiel 실행 경로는 바꾸지 않고 그 위에 올린다.
