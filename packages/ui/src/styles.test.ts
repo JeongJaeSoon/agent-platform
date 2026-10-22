@@ -439,12 +439,33 @@ describe("styles.css", () => {
 
   test("한쪽 면만 굵게 그은 강조선이 없다", () => {
     // Spinner arcs (`border-top-color: transparent`) are a shape, not an accent.
-    const accents = styleDeclarations.filter(
-      (d) =>
-        /^border-(top|right|bottom|left|inline|block)(-(start|end))?(-width)?$/.test(
+    const KEYWORD_PX: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
+    const widthsPx = (value: string): number[] =>
+      [
+        ...value.matchAll(
+          /(?<![\w.-])(\d*\.?\d+)(px|rem|em)?(?![\w.%-])|\b(thin|medium|thick)\b/g,
+        ),
+      ].map(([, n, unit, keyword]) =>
+        keyword
+          ? (KEYWORD_PX[keyword] ?? 0)
+          : Number(n) * (unit === "px" || !unit ? 1 : ROOT_FONT_SIZE_PX),
+      );
+    const accents = styleDeclarations.filter((d) => {
+      if (d.property === "border-width") {
+        return new Set(widthsPx(d.value)).size > 1;
+      }
+      if (
+        !/^border-(top|right|bottom|left|inline|block)(-(start|end))?(-width)?$/.test(
           d.property,
-        ) && !/^(0|1px)\b/.test(d.value),
-    );
+        )
+      ) {
+        return false;
+      }
+      if (/^(0|none|hidden)$/.test(d.value)) return false;
+      const widths = widthsPx(d.value);
+      // A side drawn without a width falls back to `medium`.
+      return (widths.length === 0 ? [3] : widths).some((px) => px > 1);
+    });
     expect(
       accents.map((d) => `${d.selector} { ${d.property}: ${d.value} }`),
     ).toEqual([]);
