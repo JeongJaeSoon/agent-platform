@@ -9,9 +9,10 @@
  * app's own `--primary` or `--border` never collides with the kit's.
  *
  * Everything the kit declares lives in the `ap` cascade layer. The statement
- * below fixes its place after Tailwind's layers whichever file loads first:
- * kit rules still beat utilities (ConfirmDialog relies on it), and any
- * unlayered rule in the host app beats the kit.
+ * below puts it after Tailwind's layers whether this file or Tailwind loads
+ * first: kit rules still beat utilities (ConfirmDialog relies on it), and any
+ * unlayered rule in the host app beats the kit. A host that declares its own
+ * layer order before this file decides the order instead.
  */
 
 @layer theme, base, components, utilities, ap;

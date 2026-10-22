@@ -61,11 +61,15 @@
   --shadow-lg: var(--ap-shadow-lg);
 }
 
-/* Tailwind 4 borders default to currentColor; shadcn's items assume this. */
+/*
+ * Tailwind 4 borders default to currentColor; shadcn's items assume this.
+ * The token, not `--color-border`: reading a theme key here would make
+ * Tailwind emit it on `:root`, where a host's own key of that name collides.
+ */
 @layer base {
   *,
   ::after,
   ::before {
-    border-color: var(--color-border);
+    border-color: var(--ap-color-border);
   }
 }
