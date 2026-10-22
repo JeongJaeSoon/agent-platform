@@ -30,6 +30,7 @@ export * from "./ports/forge.ts";
 export * from "./ports/git-push.ts";
 export * from "./ports/identity-store.ts";
 export * from "./ports/linked-account-store.ts";
+export * from "./ports/mcp-egress.ts";
 export * from "./ports/member-store.ts";
 export * from "./ports/pending-requests.ts";
 export * from "./ports/pull-requests.ts";

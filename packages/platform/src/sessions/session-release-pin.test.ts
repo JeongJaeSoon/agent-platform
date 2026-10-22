@@ -16,6 +16,7 @@ import {
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const MEMBER = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-00000000b0a1";
+const RECEIPT = "019a0000-0000-7000-8000-00000000c0a1";
 
 const profile: SessionCatalog["profiles"][string] = {
   runtime_kind: "claude_agent_sdk",
@@ -84,11 +85,11 @@ function setup(
     inputs: {
       async acceptInputAtomic(input) {
         accepted.push(input);
-        if (options.accept === "credential_unbound") {
-          return { outcome: "credential_unbound" };
-        }
-        if (input.credentialsUnbound && options.accept !== "replayed") {
-          return { outcome: "credential_unbound" };
+        if (
+          options.accept === "credential_unbound" ||
+          (input.credentialsUnbound && options.accept !== "replayed")
+        ) {
+          return { outcome: "credential_unbound", receiptId: RECEIPT };
         }
         return {
           outcome: options.accept ?? "accepted",
@@ -288,7 +289,11 @@ describe("a session pinned to an agent release", () => {
         .catch((e: unknown) => e),
     ).toMatchObject({
       code: "CREDENTIAL_UNBOUND",
-      details: { reason_code: "credential_unbound", agent_id: AGENT },
+      details: {
+        reason_code: "credential_unbound",
+        agent_id: AGENT,
+        receipt_id: RECEIPT,
+      },
     });
     expect(accepted[0]?.credentialsUnbound).toBeUndefined();
   });

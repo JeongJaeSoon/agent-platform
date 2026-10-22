@@ -359,6 +359,7 @@ export function createSessionService(deps: {
   async function credentialUnbound(
     workspaceId: string,
     agentId: string,
+    receiptId: string,
   ): Promise<SessionServiceError> {
     const admins = (
       (await deps.credentials?.contacts(workspaceId, agentId)) ?? []
@@ -371,6 +372,7 @@ export function createSessionService(deps: {
       reason_code: "credential_unbound",
       guidance: CREDENTIAL_UNBOUND_GUIDANCE,
       agent_id: agentId,
+      receipt_id: receiptId,
       admins,
       admin_link:
         admins.length === 0
@@ -529,7 +531,11 @@ export function createSessionService(deps: {
           if (!release) {
             throw new Error("Only a pinned release names credentials");
           }
-          throw await credentialUnbound(actor.ownerId, release.agent_id);
+          throw await credentialUnbound(
+            actor.ownerId,
+            release.agent_id,
+            result.receiptId,
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -590,6 +596,12 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "FORBIDDEN",
             "This principal is no longer a member of the workspace",
+          );
+        case "credential_unbound":
+          throw await credentialUnbound(
+            actor.ownerId,
+            result.agentId,
+            result.receiptId,
           );
         case "queue_full":
         case "storage_exhausted":

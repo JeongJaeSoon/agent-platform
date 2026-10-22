@@ -91,6 +91,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "push",
   "open_pull_request",
   "comment_pull_request",
+  // A remote MCP exchange the egress proxy refused for the agent's
+  // credential: unbound, not for this workspace, or moved in the catalog.
+  "call_mcp",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

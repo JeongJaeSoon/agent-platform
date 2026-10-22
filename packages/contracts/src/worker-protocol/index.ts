@@ -9,6 +9,7 @@ import {
   sessionRuntimeSchema,
   terminalTurnStatusSchema,
 } from "../api/session.ts";
+import { mcpServerIdSchema } from "../kollegium/agents.ts";
 import {
   attemptIdSchema,
   epochSchema,
@@ -163,13 +164,35 @@ export const projectSettingsSchema = z
 // with the attempt. That token is still a secret for as long as it lives, so
 // nothing here may reach an event, a manifest or a log — see
 // `loggableBootstrapClaim`.
+// The remote MCP server the session's agent release names. Like the
+// provider, `endpoint` is the upstream the proxy calls, named for the
+// checkpoint fingerprint, and `binding` is what the token was issued
+// against (server, URL and credential name), which the fingerprint names in
+// place of the token. The worker calls the proxy's `/mcp/<name>` route from
+// its own process and never hands the token to the engine.
+//
+// Absent when the release names none: a worker built before the field
+// refuses unknown keys, which is the right answer from a worker that could
+// not call it.
+export const runtimeMcpServerSchema = z
+  .object({
+    name: mcpServerIdSchema,
+    endpoint: z.url(),
+    binding: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    access: egressTokenAuthSchema,
+  })
+  .strict();
+
 export const runtimeConfigSchema = z
   .object({
     model: z.string().min(1),
+    // With an MCP server, also its `mcp__<name>__<tool>` names the release
+    // allows.
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),
+    mcp_servers: z.array(runtimeMcpServerSchema).min(1).max(1).optional(),
   })
   .strict();
 

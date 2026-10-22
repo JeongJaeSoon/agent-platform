@@ -63,7 +63,10 @@ import {
   parseTurnSequence,
   receiptActorOf,
 } from "./control-shared.ts";
-import { lockUnboundRefs } from "./credential-bindings.ts";
+import {
+  lockUnboundRefs,
+  recordUnboundRefusal,
+} from "./credential-bindings.ts";
 import {
   decodeEventCursor,
   decodeSessionCursor,
@@ -186,7 +189,20 @@ export function createPostgresSessionUnitOfWork(
             response: createSessionResponseSchema.parse(existing.result),
           };
         }
-        if (input.credentialsUnbound) return { outcome: "credential_unbound" };
+        const unbound = async (releaseId: string) => {
+          const { receiptId } = await recordUnboundRefusal(tx, {
+            ownerId: scope.principal,
+            actor: scope.actor,
+            requestId: scope.requestId,
+            operation: CREATE_SESSION,
+            releaseId,
+            sessionId: null,
+          });
+          return { outcome: "credential_unbound" as const, receiptId };
+        };
+        if (input.credentialsUnbound && input.agentReleaseId !== undefined) {
+          return unbound(input.agentReleaseId);
+        }
 
         if (!input.repository) {
           return { outcome: "unsupported" };
@@ -203,7 +219,7 @@ export function createPostgresSessionUnitOfWork(
             })
           ).length > 0
         ) {
-          return { outcome: "credential_unbound" };
+          return unbound(input.agentReleaseId);
         }
         const refused = await admitInput(tx, {
           sessionId: null,
@@ -287,6 +303,7 @@ export function createPostgresSessionUnitOfWork(
             checkpointPendingReason: sessions.checkpointPendingReason,
             status: sessions.status,
             takeoverRequiredAt: sessions.takeoverRequiredAt,
+            agentReleaseId: sessions.agentReleaseId,
           })
           .from(sessions)
           .where(
@@ -318,6 +335,27 @@ export function createPostgresSessionUnitOfWork(
           storedPendingReasonHoldsWork(pendingReason)
         ) {
           return { outcome: "checkpoint_unavailable", reason: pendingReason };
+        }
+        // A binding revoked since the session started stops its next
+        // message too, under the same share lock a new session takes.
+        if (
+          session.agentReleaseId !== null &&
+          (
+            await lockUnboundRefs(tx, {
+              workspaceId: scope.principal,
+              releaseId: session.agentReleaseId,
+            })
+          ).length > 0
+        ) {
+          const refusal = await recordUnboundRefusal(tx, {
+            ownerId: scope.principal,
+            actor: scope.actor,
+            requestId: scope.requestId,
+            operation: APPEND_MESSAGE,
+            releaseId: session.agentReleaseId,
+            sessionId,
+          });
+          return { outcome: "credential_unbound", ...refusal };
         }
         const refused = await admitInput(tx, {
           sessionId,

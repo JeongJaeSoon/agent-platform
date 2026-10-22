@@ -343,3 +343,77 @@ describe("resolveReleaseContent", () => {
     expect(!resolved.ok && resolved.error.field).toBe("card.model");
   });
 });
+
+describe("a card naming a remote MCP server", () => {
+  const servers = {
+    fake: {
+      url: "http://fake-mcp:4020/mcp",
+      credential_ref: "mcp/fake",
+      auth: {
+        kind: "bearer" as const,
+        value: "sa-value",
+        ref: { value_env: "FAKE_MCP_SA" },
+      },
+      workspaces: ["default"],
+    },
+  };
+  const mcpCard = agentCardSchema.parse({
+    ...card,
+    capabilities: {
+      ...card.capabilities,
+      mcp: [{ server: "fake" }],
+      credential_refs: ["mcp/fake"],
+      tool_policy: {
+        per_tool: { mcp__fake__whoami: "allow", mcp__fake__other: "ask" },
+      },
+    },
+  });
+  const resolve = (value: AgentCard) =>
+    resolveReleaseContent(value, "coding", profile, servers);
+
+  test("pins the server's allowed tools, and only those", () => {
+    const resolved = resolve(mcpCard);
+    expect(resolved.ok && resolved.content.effective_tools).toEqual({
+      tools: ["Read", "Grep"],
+      mcp: ["mcp__fake__whoami"],
+    });
+    // No credential in what the release keeps.
+    expect(JSON.stringify(resolved)).not.toContain("sa-value");
+  });
+
+  test("a card without one resolves as it did before the catalog had any", () => {
+    expect(resolveReleaseContent(card, "coding", profile, servers)).toEqual(
+      resolveReleaseContent(card, "coding", profile),
+    );
+  });
+
+  test("refuses a server the catalog lacks, a credential the card does not name, or no allowed tool", () => {
+    const capabilities = mcpCard.capabilities;
+    for (const [value, field] of [
+      [
+        {
+          ...mcpCard,
+          capabilities: { ...capabilities, mcp: [{ server: "gone" }] },
+        },
+        "card.capabilities.mcp",
+      ],
+      [
+        { ...mcpCard, capabilities: { ...capabilities, credential_refs: [] } },
+        "card.capabilities.credential_refs",
+      ],
+      [
+        {
+          ...mcpCard,
+          capabilities: {
+            ...capabilities,
+            tool_policy: { per_tool: { mcp__fake__whoami: "ask" } },
+          },
+        },
+        "card.capabilities.tool_policy.per_tool",
+      ],
+    ] as const) {
+      const resolved = resolve(agentCardSchema.parse(value));
+      expect(!resolved.ok && resolved.error.field).toBe(field);
+    }
+  });
+});

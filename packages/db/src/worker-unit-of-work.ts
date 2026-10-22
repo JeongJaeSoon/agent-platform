@@ -101,6 +101,7 @@ import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
+import { sessionMcpOf } from "./mcp-egress.ts";
 import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
@@ -921,6 +922,7 @@ async function bindingOf(
     )),
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
+    mcp: await sessionMcpOf(tx, session),
   };
 }
 
@@ -971,11 +973,18 @@ async function issueCredentials(
   attemptId: string,
   session: Pick<
     SessionRow,
-    "id" | "profileId" | "profileFingerprint" | "repositoryId"
+    | "id"
+    | "profileId"
+    | "profileFingerprint"
+    | "repositoryId"
+    | "agentReleaseId"
   >,
 ) {
   const expiresAt = fromDbNow(input.credentialTtlMs);
-  const bindings = input.egress.bindingsOf(session);
+  const bindings = input.egress.bindingsOf({
+    ...session,
+    mcp: await sessionMcpOf(tx, session),
+  });
   await tx.insert(workerCredentials).values([
     {
       tokenHash: input.credentialHash,
@@ -1004,6 +1013,17 @@ async function issueCredentials(
       binding: bindings.object_store,
       expiresAt,
     },
+    ...(bindings.mcp === undefined || input.egress.mcpHash === undefined
+      ? []
+      : [
+          {
+            tokenHash: input.egress.mcpHash,
+            attemptId,
+            purpose: "mcp",
+            binding: bindings.mcp,
+            expiresAt,
+          },
+        ]),
   ]);
 }
 

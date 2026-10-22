@@ -54,9 +54,11 @@ import {
   type GitCredential,
   repoRefOf,
 } from "../ports/forge.ts";
+import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ConfirmExecutionGoneResult,
+  EgressBindings,
   EgressPurpose,
   FenceRejection,
   FinalizeResult,
@@ -70,6 +72,7 @@ import {
   allowedPair,
   catalogRevision,
   type EgressUpstream,
+  mcpBinding,
   profileFingerprint,
   profileModels,
   profileWithModel,
@@ -77,9 +80,12 @@ import {
   repositoryBinding,
   repositoryUpstreamOf,
   runtimeConfigOf,
+  runtimeConfigWithMcp,
   type SessionCatalog,
+  type SessionMcp,
   sessionProfile,
 } from "../sessions/catalog.ts";
+import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 
@@ -99,6 +105,8 @@ export class WorkerGatewayError extends Error {
     readonly code: ApiErrorCode,
     message: string,
     readonly retryable = false,
+    // The receipt a refusal left, for the caller to name.
+    readonly receiptId?: string,
   ) {
     super(message);
   }
@@ -195,6 +203,7 @@ const EGRESS_TOKEN_PREFIXES: Record<EgressPurpose, string> = {
   provider: "wep",
   repository: "wer",
   object_store: "weo",
+  mcp: "wem",
 };
 
 function generateEgressToken(purpose: EgressPurpose): string {
@@ -413,9 +422,23 @@ export function createWorkerGateway(deps: {
   // The forge behind each catalog repository that has one. Absent, a
   // repository whose credential a forge issues (`github_app`) is refused.
   forges?: ForgeResolver;
+  // Absent, the remote MCP route is refused: nothing can say whether the
+  // agent's credential is still bound.
+  mcp?: McpEgressStore;
+  onMcpReceiptError?: (error: unknown) => void;
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending } = deps;
+  const decideMcp =
+    deps.mcp === undefined
+      ? null
+      : createMcpEgress({
+          catalog,
+          store: deps.mcp,
+          ...(deps.onMcpReceiptError === undefined
+            ? {}
+            : { onReceiptError: deps.onMcpReceiptError }),
+        });
   const protocol = deps.checkpointProtocol;
   function requireProtocol(): CheckpointProtocol {
     if (protocol === undefined) {
@@ -483,6 +506,27 @@ export function createWorkerGateway(deps: {
   // fingerprint is runnable, so what is read here is what the
   // session was created with. What the session was created against — its
   // repository — comes from the row (WorkerBinding.repository).
+  // The session's MCP server as this catalog has it, if the release names
+  // one the catalog still declares; the claim issued its token only then.
+  function claimedMcp(mcp: SessionMcp | null | undefined) {
+    const server = mcp ? own(catalog.mcp_servers ?? {}, mcp.server) : undefined;
+    if (!mcp || !server) return null;
+    return {
+      name: mcp.server,
+      endpoint: server.url,
+      binding: mcpBinding(mcp.releaseId, mcp.server, server),
+      tools: mcp.tools,
+    };
+  }
+
+  function withMcp(
+    config: RuntimeConfig,
+    mcp: ReturnType<typeof claimedMcp>,
+    mcpToken: string,
+  ): RuntimeConfig {
+    return mcp === null ? config : runtimeConfigWithMcp(config, mcp, mcpToken);
+  }
+
   function resolveProfile(
     profileId: string | null,
     fingerprint: string | null,
@@ -522,6 +566,8 @@ export function createWorkerGateway(deps: {
     binding: Pick<WorkerBinding, "profileId" | "restoreProfiles">,
     profileFingerprintNow: string,
     providerToken: string,
+    mcp: ReturnType<typeof claimedMcp>,
+    mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
     const configs = binding.restoreProfiles.flatMap((made) => {
       if (
@@ -534,7 +580,9 @@ export function createWorkerGateway(deps: {
       const profile = listed
         ? sessionProfile(listed, made.profileFingerprint)
         : null;
-      return profile ? [runtimeConfigOf(profile, providerToken)] : [];
+      return profile
+        ? [withMcp(runtimeConfigOf(profile, providerToken), mcp, mcpToken)]
+        : [];
     });
     return configs.length === 0
       ? {}
@@ -549,7 +597,8 @@ export function createWorkerGateway(deps: {
     profileId: string | null;
     profileFingerprint: string | null;
     repositoryId: string | null;
-  }): Record<EgressPurpose, string> {
+    mcp?: SessionMcp | null;
+  }): EgressBindings {
     const listed = session.profileId
       ? own(catalog.profiles, session.profileId)
       : undefined;
@@ -564,10 +613,12 @@ export function createWorkerGateway(deps: {
         "A claimed session has no runnable profile and repository",
       );
     }
+    const mcp = claimedMcp(session.mcp);
     return {
       provider: profileFingerprint(profile),
       repository: repositoryBinding(session.repositoryId, repository),
       object_store: sessionObjectPrefix(session.id),
+      ...(mcp === null ? {} : { mcp: mcp.binding }),
     };
   }
 
@@ -759,6 +810,7 @@ export function createWorkerGateway(deps: {
       const providerToken = generateEgressToken("provider");
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
+      const mcpToken = generateEgressToken("mcp");
       const result = await work.claimAtomic({
         runnable,
         catalogRevision: revision,
@@ -774,6 +826,7 @@ export function createWorkerGateway(deps: {
           providerHash: hashWorkerToken(providerToken),
           repositoryHash: hashWorkerToken(repositoryToken),
           objectStoreHash: hashWorkerToken(objectStoreToken),
+          mcpHash: hashWorkerToken(mcpToken),
           bindingsOf: egressBindingsOf,
         },
         leaseTtlMs,
@@ -818,11 +871,16 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
-          const resolved = resolveProfile(
+          const mcp = claimedMcp(binding.mcp);
+          const profile = resolveProfile(
             binding.profileId,
             binding.profileFingerprint,
             providerToken,
           );
+          const resolved = {
+            ...profile,
+            runtime_config: withMcp(profile.runtime_config, mcp, mcpToken),
+          };
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -838,6 +896,8 @@ export function createWorkerGateway(deps: {
               binding,
               resolved.profile_fingerprint,
               providerToken,
+              mcp,
+              mcpToken,
             ),
             workspace: {
               repository: {
@@ -894,9 +954,43 @@ export function createWorkerGateway(deps: {
     // route: what does this token stand for right now? The answer
     // carries the upstream credential, so only the authorizer listener —
     // unreachable from any worker — may put it on the wire.
+    // The remote MCP route's question, asked like the others on every
+    // exchange; mcp-egress.ts decides it.
+    async authorizeMcpEgress(
+      request: { token: string } & McpEgressRequest,
+    ): Promise<EgressGrant> {
+      const result = await authorizedEgress({
+        token: request.token,
+        purpose: "mcp",
+      });
+      if (decideMcp === null) {
+        throw new WorkerGatewayError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "This gateway does not serve the MCP route",
+          true,
+        );
+      }
+      const decision = await decideMcp(result, request);
+      if (decision.kind === "refused") {
+        throw new WorkerGatewayError(
+          decision.status,
+          decision.code,
+          decision.message,
+          false,
+          decision.receiptId,
+        );
+      }
+      return {
+        session_id: result.sessionId,
+        attempt_id: result.attemptId,
+        upstream: decision.upstream,
+      };
+    },
+
     async authorizeEgress(request: {
       token: string;
-      purpose: Exclude<EgressPurpose, "object_store">;
+      purpose: "provider" | "repository";
     }): Promise<EgressGrant> {
       const result = await authorizedEgress(request);
       const grant = (upstream: EgressUpstream): EgressGrant => ({

@@ -461,6 +461,15 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
           },
         ],
         admin_link: "mailto:agent-admin%40example.com",
+        receipt_id: details.receipt_id,
+      });
+      const [receipt] = await db
+        .select({ operation: receipts.operation, status: receipts.status })
+        .from(receipts)
+        .where(eq(receipts.id, details.receipt_id));
+      expect(receipt).toEqual({
+        operation: "create_session",
+        status: "failed",
       });
       // The requester learns whom to ask, not which name is missing.
       expect(JSON.stringify(error)).not.toContain(REF);
@@ -481,5 +490,28 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       "credential_unbound",
       "credential_unbound",
     ]);
+
+    // The running session takes no next message either, and says where
+    // the refusal is recorded.
+    const appended = await send(
+      "POST",
+      `/v1/sessions/${session_id}/messages`,
+      { ...bearer(agentKey), "Idempotency-Key": crypto.randomUUID() },
+      { message: "And the next one.", mode: "enqueue" },
+    );
+    expect(appended.status).toBe(409);
+    const appendError = await errorOf(appended);
+    expect(appendError.code).toBe("CREDENTIAL_UNBOUND");
+    const appendDetails = sessionCredentialUnboundDetailsSchema.parse(
+      appendError.details,
+    );
+    const [appendReceipt] = await db
+      .select({ operation: receipts.operation, status: receipts.status })
+      .from(receipts)
+      .where(eq(receipts.id, appendDetails.receipt_id));
+    expect(appendReceipt).toEqual({
+      operation: "append_message",
+      status: "failed",
+    });
   });
 });

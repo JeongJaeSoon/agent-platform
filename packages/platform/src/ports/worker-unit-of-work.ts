@@ -10,6 +10,7 @@ import type {
   WorkspaceRepository,
 } from "@werft-ai/contracts";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
+import type { SessionMcp } from "../sessions/catalog.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
@@ -71,6 +72,9 @@ export type WorkerBinding = {
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
   providerTokens: number;
+  // The remote MCP server the session's agent release names; absent or null
+  // for none.
+  mcp?: SessionMcp | null;
 };
 
 // A profile and repository this host may run together, with the URL and
@@ -118,18 +122,26 @@ export type ClaimInput = {
   now: Date;
 };
 
-export type EgressPurpose = "provider" | "repository" | "object_store";
+export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
 
 export type EgressIssue = {
   providerHash: Uint8Array;
   repositoryHash: Uint8Array;
   objectStoreHash: Uint8Array;
+  // Issued only when `bindingsOf` names an MCP binding; a caller that never
+  // claims one may leave it out.
+  mcpHash?: Uint8Array;
   bindingsOf(session: {
     id: string;
     profileId: string | null;
     profileFingerprint: string | null;
     repositoryId: string | null;
-  }): Record<EgressPurpose, string>;
+    mcp?: SessionMcp | null;
+  }): EgressBindings;
+};
+
+export type EgressBindings = Record<Exclude<EgressPurpose, "mcp">, string> & {
+  mcp?: string;
 };
 
 // What an egress token stands for once the attempt it belongs to still owns

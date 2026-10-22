@@ -191,7 +191,12 @@ export function createAgentService(deps: {
           `Unknown runtime_profile_id ${profileId}`,
         );
       }
-      const resolved = resolveReleaseContent(version.card, profileId, profile);
+      const resolved = resolveReleaseContent(
+        version.card,
+        profileId,
+        profile,
+        catalog.mcp_servers,
+      );
       if (!resolved.ok) {
         throw new SessionServiceError(
           "UNSUPPORTED_CAPABILITY",

@@ -521,7 +521,9 @@ export function createAuthorizationPolicy(
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
     // Re-read at every start: a binding revoked since activation stops the
-    // next session, never one already running (D11).
+    // next session here. A running one is stopped at its next message by
+    // the acceptance's own recheck, and its remote MCP calls by the egress
+    // route's per-exchange check; a call already sent finishes.
     if (resource.release_id !== undefined) {
       if (action !== "session.submit") return ["error", []];
       const unbound = await credentials.unboundRefs(

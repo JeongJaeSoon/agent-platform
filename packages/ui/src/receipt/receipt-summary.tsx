@@ -60,6 +60,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   push: "push",
   open_pull_request: "PR 열기",
   comment_pull_request: "PR 코멘트",
+  call_mcp: "원격 MCP 호출",
 };
 
 export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;

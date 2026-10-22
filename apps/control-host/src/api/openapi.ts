@@ -2123,7 +2123,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The credential names bound to an agent",
     description:
-      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.",
+      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session and the next message of a running one, and cuts its remote MCP calls within 30 seconds. Names only; no value is ever stored.",
     auth: "session",
     success: { status: 200, schema: "ListCredentialBindingsResponse" },
     errors: [401, 403, 404, 503],
@@ -2150,7 +2150,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Unbind a credential name from an agent",
     description:
-      "Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
+      "Takes what binding takes. The next session of a release naming it, and the next message to a running one, is refused 409 CREDENTIAL_UNBOUND with a failed receipt; a running session's remote MCP calls are refused from the next exchange and an open one is cut within 30 seconds, while a call already sent finishes. The answer's `binding.running_sessions` and `revoke_notice` say so. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
     auth: "session",
     success: { status: 200, schema: "RevokeCredentialBindingResponse" },
     errors: [401, 403, 404, 503],

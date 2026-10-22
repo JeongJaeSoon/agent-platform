@@ -145,7 +145,7 @@ export const agentsKo = {
   "agent.credentials.revokeFor": "{name} 연결 해제",
   "agent.credentials.revokeTitle": "{name}의 연결을 해제할까요?",
   "agent.credentials.revokeConsequence":
-    "이 이름을 쓰는 release는 다음 세션부터 시작하지 못합니다. 실행 중인 세션은 끝날 때까지 이 자격을 씁니다. 바로 막으려면 외부 서비스에서 폐기하세요.",
+    "이 이름을 쓰는 release는 다음 세션부터 시작하지 못하고, 실행 중인 세션도 다음 메시지부터 막힙니다. 원격 MCP 호출은 30초 안에 끊기지만 이미 보낸 호출은 끝까지 실행되니, 값 자체는 외부 서비스에서 폐기하세요.",
   "agent.credentials.revokeRunning":
     "지금 실행 중인 세션이 {count}개 있습니다.",
   "agent.credentials.revoked": "{name}의 연결을 해제했습니다.",
@@ -346,7 +346,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.credentials.revokeFor": "Disconnect {name}",
   "agent.credentials.revokeTitle": "Disconnect {name}?",
   "agent.credentials.revokeConsequence":
-    "Releases that name it will not start their next session. Running sessions keep using it until they end; to stop it now, revoke it at the external service.",
+    "Releases that name it will not start their next session, and running sessions take no further message. Remote MCP calls are cut within 30 seconds, but a call already sent still finishes; revoke the value itself at the external service.",
   "agent.credentials.revokeRunning": "{count} sessions are running now.",
   "agent.credentials.revoked": "Disconnected {name}.",
   "agent.unbound.title": "Could not activate: a credential is not connected",
