@@ -41,22 +41,70 @@ describe("planWorkspacePreparation", () => {
     ).toEqual({ action: "restore", checkpoint });
   });
 
-  test("a session without a repository is refused unless it restores a checkpoint", () => {
-    const repositoryless = { repository: null };
-    expect(
+  describe("a session without a repository", () => {
+    const local: WorkspaceObservation = {
+      kind: "checkout",
+      remoteUrl: "",
+      branch: "main",
+      healthy: true,
+      // No origin reaches the empty commit: always "work" here.
+      localWork: true,
+      headCommit: true,
+    };
+    const planLocal = (observed: WorkspaceObservation, restore = null) =>
       planWorkspacePreparation({
-        workspace: repositoryless,
-        restore: null,
-        observed: { kind: "empty" },
-      }),
-    ).toEqual({ action: "refuse", reason: "the session has no repository" });
-    expect(
-      planWorkspacePreparation({
-        workspace: repositoryless,
-        restore: checkpoint,
-        observed: { kind: "empty" },
-      }),
-    ).toEqual({ action: "restore", checkpoint });
+        workspace: { repository: null },
+        restore,
+        observed,
+      });
+
+    test("restores a checkpoint before looking at the volume", () => {
+      for (const observed of [
+        { kind: "empty" } as const,
+        { kind: "foreign" } as const,
+        { ...local, healthy: false },
+      ]) {
+        expect(
+          planWorkspacePreparation({
+            workspace: { repository: null },
+            restore: checkpoint,
+            observed,
+          }),
+        ).toEqual({ action: "restore", checkpoint });
+      }
+    });
+
+    test("initializes an empty root and keeps its own sound local git", () => {
+      expect(planLocal({ kind: "empty" })).toEqual({ action: "init" });
+      expect(planLocal(local)).toEqual({ action: "keep" });
+    });
+
+    test("refuses, never deletes, a partial init, an unsound git, an origin or stray files", () => {
+      expect(planLocal({ ...local, headCommit: false })).toEqual({
+        action: "refuse",
+        reason: "local git has no commit: its init never finished",
+      });
+      const { headCommit: _unprobed, ...unprobed } = local;
+      expect(planLocal(unprobed)).toMatchObject({ action: "refuse" });
+      expect(planLocal({ ...local, healthy: false })).toEqual({
+        action: "refuse",
+        reason: "local git is incomplete or corrupt and exists nowhere else",
+      });
+      expect(
+        planLocal({ ...local, localWork: false, healthy: false }),
+      ).toMatchObject({
+        action: "refuse",
+      });
+      expect(
+        planLocal({ ...local, remoteUrl: workspace.repository.url }),
+      ).toEqual({
+        action: "refuse",
+        reason: "checkout has an origin, but the session has no repository",
+      });
+      expect(planLocal({ kind: "foreign" })).toMatchObject({
+        action: "refuse",
+      });
+    });
   });
 
   test("an empty root is cloned from the descriptor", () => {

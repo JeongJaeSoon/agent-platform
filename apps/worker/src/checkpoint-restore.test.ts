@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  readlink,
   rm,
   stat,
   symlink,
@@ -23,7 +24,7 @@ import {
   stageCheckpointBundle,
   stagedClaudeMd,
 } from "./checkpoint-restore.ts";
-import { GitResourceLimitError } from "./workspace.ts";
+import { GitResourceLimitError, GitWorkspace } from "./workspace.ts";
 import {
   type BundleBase,
   CHECKPOINT_WORKTREE_REF,
@@ -655,4 +656,176 @@ describe("a bundle built on the checkpoint before", () => {
     });
     expect(third.bundle.incremental).toBe(false);
   });
+});
+
+describe("a session without a repository, from init through a lost volume", () => {
+  const signal = new AbortController().signal;
+  const init = async (target: string) => {
+    await rm(target, { force: true, recursive: true });
+    expect(
+      await new GitWorkspace(target).prepare({
+        descriptor: { repository: null },
+        restore: null,
+        signal,
+      }),
+    ).toBe("init");
+  };
+  const capturedLocal = async (from: string, base?: BundleBase) => {
+    const result = await captureWorkspace({
+      root: from,
+      bundlePath: join(scratch, `capture-${crypto.randomUUID()}.bundle`),
+      signal,
+      markNewFiles: true,
+      ...(base === undefined ? {} : { base }),
+    });
+    if (result.status !== "captured") throw new Error(result.reason);
+    return result.capture;
+  };
+  const verdict = (tip: WorkspaceCapture, ...bases: WorkspaceCapture[]) => {
+    const file = (capture: WorkspaceCapture, key: string) => ({
+      bytes: capture.bundle.bytes,
+      key,
+      path: capture.bundle.path,
+    });
+    return createGitWorkspaceBundleVerifier({ tempRoot: scratch }).verify({
+      ...file(tip, "tip"),
+      bases: bases.map((base, index) => file(base, `base-${index}`)),
+      commit: tip.gitCommit,
+    });
+  };
+  /** A volume that is gone: whatever was there, the restore starts over. */
+  const restoredOnANewVolume = async (
+    tip: WorkspaceCapture,
+    ...bases: WorkspaceCapture[]
+  ) => {
+    const target = await staleRoot();
+    await restoreCheckpointTree({
+      origin: null,
+      root: target,
+      signal,
+      staged: await stageCheckpointBundle({
+        bases: bases.map((base) => base.bundle.path),
+        bundle: tip.bundle.path,
+        gitCommit: tip.gitCommit,
+        repository: join(scratch, `staged-${crypto.randomUUID()}.git`),
+        signal,
+      }),
+    });
+    return target;
+  };
+  const excludes = "node_modules/\n.venv/\n__pycache__/\n.cache/\n";
+
+  test("captures what the engine wrote, out/ and a symlink included, and brings it back with no origin", async () => {
+    await init(root);
+    await mkdir(join(root, "out"));
+    await mkdir(join(root, "notes"));
+    await writeFile(join(root, "out", "report.md"), "# 보고서\n결과\n");
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 255]);
+    await writeFile(join(root, "out", "chart.png"), png);
+    await symlink("report.md", join(root, "out", "latest.md"));
+    await writeFile(join(root, "notes", "draft.txt"), "draft\n");
+    await mkdir(join(root, "node_modules", "x"), { recursive: true });
+    await writeFile(join(root, "node_modules", "x", "index.js"), "x\n");
+
+    const first = await capturedLocal(root);
+
+    // In the bundle, not uploaded beside it.
+    expect(first.untracked).toEqual([]);
+    expect(await verdict(first)).toEqual({ status: "restorable" });
+
+    const target = await restoredOnANewVolume(first);
+
+    // The dependency stayed out.
+    expect(await git(target, "ls-files")).toBe(
+      "notes/draft.txt\nout/chart.png\nout/latest.md\nout/report.md\n",
+    );
+    expect(await readFile(join(target, "out", "report.md"), "utf8")).toBe(
+      "# 보고서\n결과\n",
+    );
+    expect(
+      new Uint8Array(await readFile(join(target, "out", "chart.png"))),
+    ).toEqual(png);
+    expect(await readlink(join(target, "out", "latest.md"))).toBe("report.md");
+    expect(await readFile(join(target, "notes", "draft.txt"), "utf8")).toBe(
+      "draft\n",
+    );
+    expect(existsSync(join(target, "node_modules"))).toBe(false);
+    expect(existsSync(join(target, "written-after-the-checkpoint.txt"))).toBe(
+      false,
+    );
+    expect(await git(target, "remote")).toBe("");
+    expect(
+      await readFile(join(target, ".git", "info", "exclude"), "utf8"),
+    ).toBe(excludes);
+    expect(await git(target, "log", "--format=%s", "HEAD")).toBe(
+      "Werft: empty workspace\n",
+    );
+
+    // The next turn, on the restored volume: an increment, and the excludes
+    // written back by the restore still keep the dependency out.
+    await mkdir(join(target, "node_modules", "y"), { recursive: true });
+    await writeFile(join(target, "node_modules", "y", "index.js"), "y\n");
+    await writeFile(join(target, "out", "new.md"), "new\n");
+    const second = await capturedLocal(target, {
+      maxBytes: DEFAULT_WORKSPACE_CAPTURE_LIMITS.maxBundleBytes,
+      tips: first.bundle.tips,
+    });
+
+    expect(second.bundle.incremental).toBe(true);
+    expect(second.untracked).toEqual([]);
+    expect(await verdict(second, first)).toEqual({ status: "restorable" });
+    const again = await restoredOnANewVolume(second, first);
+    expect(await git(again, "ls-files")).toBe(
+      "notes/draft.txt\nout/chart.png\nout/latest.md\nout/new.md\nout/report.md\n",
+    );
+    expect(existsSync(join(again, "node_modules"))).toBe(false);
+    expect(await readFile(join(again, "out", "new.md"), "utf8")).toBe("new\n");
+    expect(await readlink(join(again, "out", "latest.md"))).toBe("report.md");
+    expect(await git(again, "remote")).toBe("");
+  });
+
+  test("captures a workspace the engine wrote nothing in, and restores it empty", async () => {
+    await init(root);
+
+    const empty = await capturedLocal(root);
+
+    expect(empty.untracked).toEqual([]);
+    expect(empty.gitCommit).toBe((await git(root, "rev-parse", "HEAD")).trim());
+    expect(await verdict(empty)).toEqual({ status: "restorable" });
+    const target = await restoredOnANewVolume(empty);
+    expect((await readdir(target)).sort()).toEqual([".git"]);
+    expect(await git(target, "remote")).toBe("");
+    expect(
+      await readFile(join(target, ".git", "info", "exclude"), "utf8"),
+    ).toBe(excludes);
+
+    // Its first file, on top.
+    await writeFile(join(target, "a.txt"), "a\n");
+    const next = await capturedLocal(target, {
+      maxBytes: DEFAULT_WORKSPACE_CAPTURE_LIMITS.maxBundleBytes,
+      tips: empty.bundle.tips,
+    });
+    expect(await verdict(next, empty)).toEqual({ status: "restorable" });
+  });
+
+  // Unmarked, the file is captured as untracked, read by descriptor through
+  // procfs.
+  test.skipIf(!existsSync("/proc/self/fd"))(
+    "marks new files in the engine's own index only when asked",
+    async () => {
+      await init(root);
+      await writeFile(join(root, "a.txt"), "a\n");
+
+      const unmarked = await captureWorkspace({
+        root,
+        bundlePath: join(scratch, "unmarked.bundle"),
+        signal,
+      });
+      expect(unmarked).toMatchObject({ status: "captured" });
+      expect(await git(root, "status", "--porcelain")).toBe("?? a.txt\n");
+
+      await capturedLocal(root);
+      expect(await git(root, "status", "--porcelain")).toBe(" A a.txt\n");
+    },
+  );
 });

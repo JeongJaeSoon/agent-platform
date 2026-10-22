@@ -1,4 +1,12 @@
-import { lstat, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join, posix } from "node:path";
 import type {
   CheckpointRef,
@@ -19,7 +27,8 @@ import {
 /** What the host needs from a workspace before it starts an engine in it. */
 export interface WorkspacePreparer {
   /**
-   * Leaves the session's repository checked out at the root, or throws.
+   * Leaves the session's repository checked out at the root — a local git
+   * with no origin when the session has none — or throws.
    * `restore` wins over the descriptor; restoring is the checkpoint port's
    * job, so that plan comes back untouched.
    */
@@ -146,11 +155,7 @@ export class GitWorkspace implements WorkspacePreparer {
     restore: CheckpointRef | null;
     signal: AbortSignal;
   }): Promise<WorkspacePlan["action"]> {
-    if (input.descriptor.repository === null) {
-      throw new Error(
-        `Workspace ${this.root} refused: the session has no repository`,
-      );
-    }
+    if (input.descriptor.repository === null) return this.prepareLocal(input);
     const { access, url } = input.descriptor.repository;
     const remote = routed(splitSecret(url), access, this.egressTransport);
     const redact = redactor(
@@ -177,15 +182,7 @@ export class GitWorkspace implements WorkspacePreparer {
       // from the one the checkpoint pinned (`RuntimeResumePlan`). Refused
       // rather than absent, so a port that does not would fail the claim
       // instead of resuming without them.
-      this.instructions = {
-        claudeMd: {
-          kind: "refused",
-          reason:
-            "a restored workspace has no freshly fetched commit behind it",
-        },
-        commit: null,
-      };
-      return "restore";
+      return this.restored();
     }
     const plan = planWorkspacePreparation({
       workspace: input.descriptor,
@@ -195,6 +192,9 @@ export class GitWorkspace implements WorkspacePreparer {
     switch (plan.action) {
       case "restore":
         throw new Error("A workspace with no checkpoint planned a restore");
+      case "init":
+      case "keep":
+        throw new Error(`A workspace with a repository planned ${plan.action}`);
       case "refuse":
         throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
       case "recreate":
@@ -252,6 +252,99 @@ export class GitWorkspace implements WorkspacePreparer {
     }
   }
 
+  private restored(): "restore" {
+    this.instructions = {
+      claudeMd: {
+        kind: "refused",
+        reason: "a restored workspace has no freshly fetched commit behind it",
+      },
+      commit: null,
+    };
+    return "restore";
+  }
+
+  /**
+   * A session without a repository works in a local git with no origin,
+   * which nothing but this session's own checkpoints can bring back: it is
+   * made here once and never recreated. Nothing reaches the network, and no
+   * CLAUDE.md is pinned, there being no repository to pin it from.
+   */
+  private async prepareLocal(input: {
+    restore: CheckpointRef | null;
+    signal: AbortSignal;
+  }): Promise<WorkspacePlan["action"]> {
+    this.instructions = NOTHING_PINNED;
+    if (input.restore !== null) return this.restored();
+    const neutralized: Array<[string, string]> = [];
+    const git: Git = (args, options = {}) =>
+      runGit(args, {
+        cwd: options.cwd ?? this.root,
+        network: null,
+        overrides: neutralized,
+        redact: (text) => text,
+        signal: input.signal,
+      });
+    const plan = planWorkspacePreparation({
+      workspace: { repository: null },
+      restore: null,
+      observed: await this.observe(git, neutralized),
+    });
+    switch (plan.action) {
+      case "refuse":
+        throw new Error(`Workspace ${this.root} refused: ${plan.reason}`);
+      case "init":
+        await this.init(git, input.signal);
+        return plan.action;
+      case "keep": {
+        const found = await lstat(join(this.root, ".git")).catch(() => null);
+        if (found?.isDirectory() !== true) {
+          throw new Error(
+            `Workspace ${this.root} refused: its .git is not a directory`,
+          );
+        }
+        await sweepWorkerScratch(this.root);
+        return plan.action;
+      }
+      default:
+        throw new Error(
+          `A workspace without a repository planned ${plan.action}`,
+        );
+    }
+  }
+
+  private async init(git: Git, signal: AbortSignal): Promise<void> {
+    // From `/`, as for a clone: the root may not exist yet.
+    await check(
+      git(
+        [
+          "init",
+          "--quiet",
+          "--template=",
+          "--initial-branch=main",
+          "--",
+          this.root,
+        ],
+        { cwd: "/" },
+      ),
+      "init",
+    );
+    await writeLocalExcludes(this.root);
+    await check(
+      runGit(
+        ["commit", "--quiet", "--allow-empty", "-m", "Werft: empty workspace"],
+        {
+          cwd: this.root,
+          extra: { env: LOCAL_WORKSPACE_IDENTITY },
+          network: null,
+          overrides: [],
+          redact: (text) => text,
+          signal,
+        },
+      ),
+      "commit",
+    );
+  }
+
   private async observe(
     git: Git,
     neutralized: Array<[string, string]>,
@@ -271,6 +364,12 @@ export class GitWorkspace implements WorkspacePreparer {
     const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"]);
     const shallow = await git(["rev-parse", "--is-shallow-repository"]);
     const fsck = await git(["fsck", "--connectivity-only", "--no-progress"]);
+    const head = await git([
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      "HEAD^{commit}",
+    ]);
     return {
       kind: "checkout",
       remoteUrl: remote.code === 0 ? remote.stdout.trim() : "",
@@ -280,6 +379,7 @@ export class GitWorkspace implements WorkspacePreparer {
         shallow.code === 0 &&
         shallow.stdout.trim() === "false",
       localWork: await this.holdsLocalWork(git),
+      headCommit: head.code === 0,
     };
   }
 
@@ -405,6 +505,40 @@ export class GitWorkspace implements WorkspacePreparer {
       await rm(join(this.root, entry), { force: true, recursive: true });
     }
   }
+}
+
+/**
+ * What a session without a repository keeps out of its checkpoints, having
+ * no `.gitignore` of its own: dependencies and caches an engine rebuilds,
+ * which would otherwise fill the bundle up to its limit.
+ */
+export const LOCAL_WORKSPACE_EXCLUDES = [
+  "node_modules/",
+  ".venv/",
+  "__pycache__/",
+  ".cache/",
+] as const;
+
+const LOCAL_WORKSPACE_IDENTITY = {
+  GIT_AUTHOR_EMAIL: "workspace@werft.invalid",
+  GIT_AUTHOR_NAME: "Werft workspace",
+  GIT_COMMITTER_EMAIL: "workspace@werft.invalid",
+  GIT_COMMITTER_NAME: "Werft workspace",
+};
+
+/**
+ * Writes `LOCAL_WORKSPACE_EXCLUDES` into the `.git` an init or a restore
+ * just made without a template. Neither leaves `info/` behind, so one that
+ * exists was not made here and is refused rather than overwritten.
+ */
+export async function writeLocalExcludes(root: string): Promise<void> {
+  const info = join(root, ".git", "info");
+  await mkdir(info);
+  await writeFile(
+    join(info, "exclude"),
+    LOCAL_WORKSPACE_EXCLUDES.map((pattern) => `${pattern}\n`).join(""),
+    { flag: "wx" },
+  );
 }
 
 /**

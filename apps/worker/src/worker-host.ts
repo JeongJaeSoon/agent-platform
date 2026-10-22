@@ -12,6 +12,7 @@ import type {
   TerminalTurnStatus,
   TranscriptReport,
   WorkerScope,
+  WorkspaceDescriptor,
 } from "@werft-ai/contracts";
 import {
   MAX_TURN_COST_USD,
@@ -75,6 +76,8 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   maxBudgetUsd?: number;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
+  /** The claim's; absent is a session with a repository. */
+  workspace?: WorkspaceDescriptor;
 };
 
 export type RuntimeLauncher = {
@@ -414,6 +417,7 @@ export class WorkerHost {
                 : { maxBudgetUsd: claim.remaining_budget_usd }),
               principal: claim.principal,
               runtimeConfig: claim.runtime_config,
+              workspace: claim.workspace,
             },
             { onPermission: (request) => this.onPermission(request) },
           );
@@ -470,11 +474,6 @@ export class WorkerHost {
     claim: BootstrapClaimResponse,
   ): Promise<RuntimeResumePlan | undefined> {
     const repository = claim.workspace.repository;
-    if (repository === null) {
-      throw new Error(
-        "The session has no repository, and this worker cannot prepare a workspace without one",
-      );
-    }
     const prepared = await this.untilStopped(
       this.options.workspace
         .prepare({
@@ -492,8 +491,8 @@ export class WorkerHost {
     if (prepared === undefined || this.stopping !== undefined) return;
     this.logger.info("worker.workspace.prepared", {
       action: prepared,
-      repository_id: repository.id,
-      branch: repository.branch,
+      repository_id: repository?.id ?? null,
+      branch: repository?.branch ?? null,
     });
     const restoring = this.checkpoints
       .restorePlan(claim, this.preparation.signal)

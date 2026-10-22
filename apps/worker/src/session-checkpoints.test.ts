@@ -50,6 +50,7 @@ import {
   type FakeWorkerGatewayOptions,
 } from "./testing/fake-gateway.ts";
 import type { WorkerLogger } from "./worker-host.ts";
+import { GitWorkspace } from "./workspace.ts";
 import type {
   WorkspaceCapture,
   WorkspaceCaptureResult,
@@ -2398,5 +2399,59 @@ describe("a bundle built on the checkpoint before", () => {
     });
 
     expect(second.manifest.workspace.baseBundles).toBeUndefined();
+  });
+});
+
+describe("SessionCheckpoints for a session without a repository", () => {
+  test("publishes the engine's files in the bundle and restores them on a new volume with no origin", async () => {
+    await rm(workspace, { force: true, recursive: true });
+    await new GitWorkspace(workspace).prepare({
+      descriptor: { repository: null },
+      restore: null,
+      signal: neverStopped(),
+    });
+    const objects = createMemoryCheckpointObjectStore();
+    const h = harness({
+      gateway: new FakeWorkerGateway({ workspace: { repository: null } }),
+      objects,
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    await mkdir(join(workspace, "out"));
+    await writeFile(join(workspace, "out", "report.md"), "report\n");
+
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    if (ref === null) throw new Error("nothing published");
+    const bytes = await objects.get(ref.manifest_ref, ref.manifest_version);
+    if (bytes === undefined) throw new Error("manifest missing");
+    const manifest = claudeCheckpointCodec.decode(bytes);
+    expect(manifest.workspace.untracked).toEqual([]);
+
+    await replaceWorkspaceWithLeftovers();
+    const r = harness({
+      gateway: new PlanningGateway(
+        { restore: ref, workspace: { repository: null } },
+        () => planOf(ref, manifest),
+      ),
+      objects,
+    });
+    const plan = await r.port.restorePlan(
+      await claimOf(r.gateway),
+      neverStopped(),
+    );
+
+    expect(r.errors).toEqual([]);
+    expect(plan.mode).toBe("resume");
+    expect(await readFile(join(workspace, "out", "report.md"), "utf8")).toBe(
+      "report\n",
+    );
+    expect(existsSync(join(workspace, "left-behind.txt"))).toBe(false);
+    expect(await git("remote")).toBe("");
+    expect(
+      await readFile(join(workspace, ".git", "info", "exclude"), "utf8"),
+    ).toBe("node_modules/\n.venv/\n__pycache__/\n.cache/\n");
   });
 });

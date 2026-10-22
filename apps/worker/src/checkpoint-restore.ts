@@ -13,6 +13,7 @@ import {
   type Git,
   readCommittedClaudeMd,
   runGit,
+  writeLocalExcludes,
 } from "./workspace.ts";
 import {
   CHECKPOINT_GIT_CONFIG,
@@ -181,11 +182,13 @@ export async function stagedClaudeMd(
  * now is, when that is inside `keep`, holding only what the instructions
  * commit reaches. The repository is new: the old one's config, hooks and
  * remotes are the last engine's.
+ * A null `origin` is a session without a repository: no remote, and the
+ * local git's default excludes written again, since the new `.git` has none.
  * Stops between steps once `signal` aborts; a restore stopped half way is
  * redone whole by the next attempt, which never reads what this one left.
  */
 export async function restoreCheckpointTree(input: {
-  origin: string;
+  origin: string | null;
   root: string;
   signal: AbortSignal;
   staged: StagedCheckpoint;
@@ -250,7 +253,11 @@ export async function restoreCheckpointTree(input: {
   for (const name of restoring.split("\n")) {
     if (name !== "") await check(git(["update-ref", "-d", name]), "update-ref");
   }
-  await check(git(["remote", "add", "origin", input.origin]), "remote add");
+  if (input.origin === null) {
+    await writeLocalExcludes(root);
+  } else {
+    await check(git(["remote", "add", "origin", input.origin]), "remote add");
+  }
   return kept === undefined ? { staged } : { kept, staged };
 }
 

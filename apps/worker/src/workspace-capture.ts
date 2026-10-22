@@ -22,6 +22,7 @@ import {
   GitResourceLimitError,
   type GitResult,
   LOCAL_DEADLINE_MS,
+  runGit,
   runGitBytes,
   workerScratch,
 } from "./workspace.ts";
@@ -253,6 +254,13 @@ type WorkspaceCaptureInput = {
   limits?: WorkspaceCaptureLimits;
   instructions?: InstructionsPin;
   base?: BundleBase;
+  /**
+   * For a session without a repository: first marks every new file in the
+   * workspace's own index intent-to-add, the one change a capture makes, so
+   * the files ride the bundle — symlinks included, which the untracked
+   * path refuses — rather than travel as untracked files.
+   */
+  markNewFiles?: boolean;
   /** For tests that need procfs to be missing. */
   fdDirectory?: string;
 };
@@ -261,6 +269,10 @@ export async function captureWorkspace(
   input: WorkspaceCaptureInput,
 ): Promise<WorkspaceCaptureResult> {
   const limits = input.limits ?? DEFAULT_WORKSPACE_CAPTURE_LIMITS;
+  if (input.markNewFiles === true) {
+    const marked = await markNewFiles(input.root, input.signal, limits);
+    if (marked !== undefined) return { status: "refused", reason: marked };
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const before = await workspaceMarker(input.root, input.signal, limits);
     if (before.status === "refused") return before;
@@ -289,6 +301,40 @@ export async function captureWorkspace(
     status: "refused",
     reason: "the workspace changed during both checkpoint capture attempts",
   };
+}
+
+/**
+ * `git add --intent-to-add --all` in the workspace's own index, under the
+ * capture's settings and limits, its filter drivers emptied. A `.git` that
+ * is no directory is left for the capture to refuse.
+ */
+async function markNewFiles(
+  root: string,
+  signal: AbortSignal,
+  limits: WorkspaceCaptureLimits,
+): Promise<string | undefined> {
+  const gitDirectory = join(root, ".git");
+  const found = await lstat(gitDirectory).catch(() => null);
+  if (found?.isDirectory() !== true) return undefined;
+  const neutralized: Array<[string, string]> = [];
+  const workspace: Git = (args) =>
+    runGit(args, {
+      cwd: root,
+      extra: {
+        config: CHECKPOINT_GIT_CONFIG,
+        env: { GIT_DIR: gitDirectory, GIT_WORK_TREE: root },
+      },
+      limits: checkpointGitLimits(limits),
+      network: null,
+      overrides: neutralized,
+      redact: (text) => text,
+      signal,
+    });
+  neutralized.push(...(await filterOverrides(workspace)));
+  const marked = await workspace(["add", "--intent-to-add", "--all"]);
+  return marked.code === 0
+    ? undefined
+    : `new files cannot be marked intent-to-add: ${lastLine(marked)}`;
 }
 
 async function captureWorkspaceOnce(
@@ -396,9 +442,11 @@ async function captureWorkspaceOnce(
     };
     const stage = (args: string[], env: Record<string, string> = {}) =>
       run(args, { ...staging, ...env });
-    let added = await stage(["add", "--update", "--", "."]);
+    // No `.` pathspec: on an empty index (a local git whose engine wrote
+    // nothing) it matches nothing, and git calls that an error.
+    let added = await stage(["add", "--update"]);
     if (added.code === 0) {
-      added = await stage(["add", "--renormalize", "--", "."]);
+      added = await stage(["add", "--renormalize", "--", ":/"]);
     }
     if (added.code !== 0) {
       return refused(`the working tree cannot be staged: ${lastLine(added)}`);
