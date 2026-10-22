@@ -720,7 +720,7 @@ function ExpiryField({
       <FieldLabel>{t("apiKeys.expires")}</FieldLabel>
       <Input
         type="date"
-        className="w-auto"
+        className="w-auto self-start"
         min={today()}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1026,27 +1026,29 @@ function ServiceKeyForm({ busy, send }: FormProps) {
     <form className={FORM} onSubmit={submit}>
       <Field>
         <FieldLabel>{t("apiKeys.target")}</FieldLabel>
-        <NativeSelect
-          className="w-auto"
-          value={target}
-          disabled={!workspaceWide && agents.length === 0}
-          onChange={(event) => setTarget(event.target.value)}
-        >
-          {workspaceWide ? (
-            <NativeSelectOption value={WORKSPACE}>
-              {t("apiKeys.targetWorkspace")}
-            </NativeSelectOption>
-          ) : (
-            <NativeSelectOption value="">
-              {t("apiKeys.pickAgent")}
-            </NativeSelectOption>
-          )}
-          {agents.map((agent) => (
-            <NativeSelectOption key={agent.id} value={agent.id}>
-              {agent.name}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        {/* The field stretches its children; a block keeps the select its own width. */}
+        <div>
+          <NativeSelect
+            value={target}
+            disabled={!workspaceWide && agents.length === 0}
+            onChange={(event) => setTarget(event.target.value)}
+          >
+            {workspaceWide ? (
+              <NativeSelectOption value={WORKSPACE}>
+                {t("apiKeys.targetWorkspace")}
+              </NativeSelectOption>
+            ) : (
+              <NativeSelectOption value="">
+                {t("apiKeys.pickAgent")}
+              </NativeSelectOption>
+            )}
+            {agents.map((agent) => (
+              <NativeSelectOption key={agent.id} value={agent.id}>
+                {agent.name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
         <FieldDescription>{t("apiKeys.agentHint")}</FieldDescription>
       </Field>
       <ScopePicker
