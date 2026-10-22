@@ -99,7 +99,7 @@ worker 전용 노드 그룹(`worker.nodeSelector`, `worker.tolerations`)을 쓰�
 
 | `worker.memoryMb` | 노드당 세션 |
 |---|---|
-| 2048 (이전 기본값) | 15 |
+| 2048 | 15 |
 | **4608 (현재)** | **6** |
 | 6144 | 5 |
 
