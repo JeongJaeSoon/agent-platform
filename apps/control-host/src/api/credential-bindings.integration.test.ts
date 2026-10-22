@@ -491,8 +491,6 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       "credential_unbound",
     ]);
 
-    // The running session takes no next message either, and says where
-    // the refusal is recorded.
     const appended = await send(
       "POST",
       `/v1/sessions/${session_id}/messages`,

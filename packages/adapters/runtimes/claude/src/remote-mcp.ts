@@ -9,8 +9,6 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// Just under the egress proxy's own deadline for one exchange, so the proxy
-// is what ends a call that runs that long, not a timer here.
 const CALL_TIMEOUT_MS = 30 * 60_000;
 const MAX_LIST_PAGES = 50;
 
@@ -54,7 +52,6 @@ export function remoteMcpRelay(server: RemoteMcpServer): {
       await client.connect(transport);
       return client;
     })();
-    // A failed connect is tried again on the next request, not kept.
     upstream.catch(() => {
       upstream = undefined;
     });
@@ -91,8 +88,6 @@ export function remoteMcpRelay(server: RemoteMcpServer): {
           timeout: CALL_TIMEOUT_MS,
         })) as CallToolResult;
       } catch (error) {
-        // The proxy's refusal, receipt id included, is what the model and
-        // the session's events get to read.
         return failed(error instanceof Error ? error.message : String(error));
       }
     },

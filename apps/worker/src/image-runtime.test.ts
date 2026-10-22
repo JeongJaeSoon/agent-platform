@@ -18,7 +18,6 @@ const claim = {
   },
 };
 
-// Computed on main before remote MCP: a claim without one must keep it.
 const NO_MCP_FINGERPRINT =
   "d12b869e3f65a58193274b04ea1ab40d3cfd962a4d82e38b4f3f63190c2ef186";
 
@@ -71,7 +70,6 @@ describe("imageRuntimeOf", () => {
     expect(withMcp(one, "wem_a")).toBe(withMcp(one, "wem_b"));
     expect(withMcp(one, "wem_a")).not.toBe(withMcp(two, "wem_a"));
     expect(withMcp(one, "wem_a")).not.toBe(fingerprint(claim).profileSha256);
-    // A claim without one hashes as it did before remote MCP existed.
     expect(fingerprint(claim).profileSha256).toBe(NO_MCP_FINGERPRINT);
   });
 

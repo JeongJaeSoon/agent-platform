@@ -152,11 +152,6 @@ export function resolveReleaseContent(
   };
 }
 
-/**
- * The card's MCP server must be one the catalog declares, and its credential
- * one the card names, so the bind, activation and session-start checks
- * already cover it; its tools run only where the release pins them `allow`.
- */
 function resolveMcpServer(
   card: AgentCard,
   pins: PolicyPins,

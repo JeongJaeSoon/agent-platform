@@ -110,7 +110,6 @@ export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
 
 export type CredentialRoute = {
   purpose: EgressPurpose;
-  /** The remote MCP server `/mcp/<name>` names; the authorizer judges it. */
   server?: string;
   /** Path and query appended to the upstream's base. */
   path: string;
@@ -601,7 +600,6 @@ type Authorized =
       kind: "refused";
       status: number;
       budgetExceeded?: true;
-      // Where the session can read why: an MCP credential refusal's receipt.
       receiptId?: string;
     };
 
@@ -678,7 +676,6 @@ export function startCredentialProxy(
   async function authorize(
     token: string,
     purpose: EgressPurpose,
-    // The route's own question: the S3 request, or the MCP server and call.
     question: Record<string, unknown>,
   ): Promise<Authorized> {
     let response: Response;
@@ -1217,8 +1214,6 @@ export function startCredentialProxy(
       };
       try {
         if (route.purpose === "mcp") {
-          // The method and tool are judged before anything goes upstream,
-          // so the whole message is read first.
           const read = whole === null ? null : await whole;
           if (request.method === "POST") {
             const parsed = read instanceof Uint8Array ? mcpCallOf(read) : null;

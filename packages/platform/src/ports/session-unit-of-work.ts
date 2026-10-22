@@ -56,7 +56,6 @@ export type AcceptSessionResult =
   | { outcome: "accepted" | "replayed"; response: CreateSessionResponse }
   | { outcome: "conflict" | "unsupported" }
   | { outcome: "actor_inactive" }
-  // With the failed create_session receipt the refusal wrote.
   | { outcome: "credential_unbound"; receiptId: string }
   | InputLimitRefusal;
 
@@ -80,8 +79,6 @@ export type AppendMessageResult =
   | { outcome: "checkpoint_unavailable"; reason: string }
   | { outcome: "awaiting_takeover" }
   | { outcome: "actor_inactive" }
-  // The session's agent release names a credential no longer bound to the
-  // agent, with the failed append_message receipt the refusal wrote.
   | { outcome: "credential_unbound"; agentId: string; receiptId: string }
   | InputLimitRefusal;
 

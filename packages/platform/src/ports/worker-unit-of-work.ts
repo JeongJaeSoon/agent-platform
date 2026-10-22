@@ -72,8 +72,6 @@ export type WorkerBinding = {
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
   providerTokens: number;
-  // The remote MCP server the session's agent release names; absent or null
-  // for none.
   mcp?: SessionMcp | null;
 };
 
@@ -128,8 +126,6 @@ export type EgressIssue = {
   providerHash: Uint8Array;
   repositoryHash: Uint8Array;
   objectStoreHash: Uint8Array;
-  // Issued only when `bindingsOf` names an MCP binding; a caller that never
-  // claims one may leave it out.
   mcpHash?: Uint8Array;
   bindingsOf(session: {
     id: string;

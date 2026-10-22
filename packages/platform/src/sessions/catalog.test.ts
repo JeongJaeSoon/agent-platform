@@ -873,7 +873,6 @@ describe("remote MCP servers", () => {
       url: "http://fake-mcp:4020/mcp",
       headers: [["authorization", "Bearer sa-value"]],
     });
-    // A catalog without the key is the catalog it was before.
     expect(load(config())).not.toHaveProperty("mcp_servers");
     expect(catalogRevision(catalog)).toBe(catalogRevision(load(config())));
   });

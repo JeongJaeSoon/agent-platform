@@ -377,7 +377,6 @@ describe("a card naming a remote MCP server", () => {
       tools: ["Read", "Grep"],
       mcp: ["mcp__fake__whoami"],
     });
-    // No credential in what the release keeps.
     expect(JSON.stringify(resolved)).not.toContain("sa-value");
   });
 

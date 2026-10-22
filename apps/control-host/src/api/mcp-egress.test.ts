@@ -23,9 +23,6 @@ import {
   EGRESS_AUTHORIZER_PATH,
 } from "./egress-authorizer.ts";
 
-// The remote MCP route end to end on the stored rows: the claim's token,
-// the authorizer's grant, and the refusal and its receipt once the
-// agent's credential is unbound.
 const AUTHORIZER_TOKEN = "authorizer-token-of-at-least-32-characters";
 const SERVICE_ACCOUNT = "sa-value-kept-from-the-worker";
 
@@ -261,11 +258,9 @@ describe("the remote MCP route on stored rows", () => {
         headers: [["authorization", `Bearer ${SERVICE_ACCOUNT}`]],
       },
     });
-    // The route token opens no other route.
     expect(
       (await ask({ token: mcp?.access.token, purpose: "provider" })).status,
     ).toBe(401);
-    // A tool the release does not allow is refused, with no receipt.
     const other = await ask({
       token: mcp?.access.token,
       purpose: "mcp",

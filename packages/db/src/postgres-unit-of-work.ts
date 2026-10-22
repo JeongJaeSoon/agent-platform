@@ -336,8 +336,6 @@ export function createPostgresSessionUnitOfWork(
         ) {
           return { outcome: "checkpoint_unavailable", reason: pendingReason };
         }
-        // A binding revoked since the session started stops its next
-        // message too, under the same share lock a new session takes.
         if (
           session.agentReleaseId !== null &&
           (

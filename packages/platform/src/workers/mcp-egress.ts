@@ -15,8 +15,8 @@ import {
  * checked), the server is the one its release names, as the catalog had it
  * at the claim, the agent's credential for it is still bound, the session's
  * workspace is one the operator allows it in, and the JSON-RPC call is one
- * the release pins. The first three are the agent's credential, and a
- * refusal for them leaves a receipt.
+ * the release pins. A refusal for the catalog, the credential or the
+ * workspace is about the agent's credential and leaves a receipt.
  */
 
 export type McpEgressRequest = {
@@ -94,8 +94,6 @@ export function createMcpEgress(deps: {
     if (state === null || state.server === null) {
       return forbidden("The session's release names no MCP server");
     }
-    // The route's name is the worker's word; the token's server is the
-    // release's. A token is never good for another server's route.
     if (request.server !== state.server) {
       return forbidden("The egress token is for another MCP server");
     }
@@ -114,8 +112,6 @@ export function createMcpEgress(deps: {
             : null;
     if (reason !== null || server === undefined) {
       const why = reason ?? "catalog_moved";
-      // An exchange cut under way may already have run upstream: its
-      // outcome is not known, so neither is the receipt's.
       const status = request.regrant ? "unknown" : "failed";
       const receiptId = uuidV5(
         JSON.stringify([

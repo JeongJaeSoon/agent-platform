@@ -105,7 +105,6 @@ export class WorkerGatewayError extends Error {
     readonly code: ApiErrorCode,
     message: string,
     readonly retryable = false,
-    // The receipt a refusal left, for the caller to name.
     readonly receiptId?: string,
   ) {
     super(message);
@@ -497,17 +496,6 @@ export function createWorkerGateway(deps: {
 
   const revision = catalogRevision(catalog);
 
-  // Resolved at claim time, on purpose: the catalog is where an operator
-  // rotates a provider credential, and the next claim (a new generation, or
-  // a replay) is when the egress route should use it. Everything else under
-  // a profile id stays put — a session's checkpoint fingerprint and
-  // transcript were made with that model and those tools — and the claim
-  // enforces it: only a profile that still hashes to the session's stored
-  // fingerprint is runnable, so what is read here is what the
-  // session was created with. What the session was created against — its
-  // repository — comes from the row (WorkerBinding.repository).
-  // The session's MCP server as this catalog has it, if the release names
-  // one the catalog still declares; the claim issued its token only then.
   function claimedMcp(mcp: SessionMcp | null | undefined) {
     const server = mcp ? own(catalog.mcp_servers ?? {}, mcp.server) : undefined;
     if (!mcp || !server) return null;
@@ -527,6 +515,15 @@ export function createWorkerGateway(deps: {
     return mcp === null ? config : runtimeConfigWithMcp(config, mcp, mcpToken);
   }
 
+  // Resolved at claim time, on purpose: the catalog is where an operator
+  // rotates a provider credential, and the next claim (a new generation, or
+  // a replay) is when the egress route should use it. Everything else under
+  // a profile id stays put — a session's checkpoint fingerprint and
+  // transcript were made with that model and those tools — and the claim
+  // enforces it: only a profile that still hashes to the session's stored
+  // fingerprint is runnable, so what is read here is what the
+  // session was created with. What the session was created against — its
+  // repository — comes from the row (WorkerBinding.repository).
   function resolveProfile(
     profileId: string | null,
     fingerprint: string | null,
@@ -954,8 +951,6 @@ export function createWorkerGateway(deps: {
     // route: what does this token stand for right now? The answer
     // carries the upstream credential, so only the authorizer listener —
     // unreachable from any worker — may put it on the wire.
-    // The remote MCP route's question, asked like the others on every
-    // exchange; mcp-egress.ts decides it.
     async authorizeMcpEgress(
       request: { token: string } & McpEgressRequest,
     ): Promise<EgressGrant> {

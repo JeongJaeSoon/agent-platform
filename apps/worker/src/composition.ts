@@ -230,11 +230,6 @@ function claudeRunConfig(
   };
 }
 
-/**
- * The release's remote MCP server, reached through the egress proxy by an
- * in-process relay. Its identity is the binding the claim was issued under,
- * so a checkpoint resumes only on the same server, URL and credential name.
- */
 function mcpRunConfig(
   runtimeConfig: RuntimeConfig,
   egressCredentialUrl: string,

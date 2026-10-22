@@ -28,7 +28,6 @@ export const DEFAULT_CONFIG_DIR = resolve(
 );
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
-// Optional: without it no agent can name a remote MCP server.
 export const MCP_SERVERS_FILE = "mcp-servers.yaml";
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 // One bounded read per secret at startup; the API does not start without

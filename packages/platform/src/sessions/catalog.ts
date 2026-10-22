@@ -300,7 +300,6 @@ export const catalogRepositorySchema = z
 // route. Workspaces are named by slug, which never changes.
 export const catalogMcpServerSchema = z
   .object({
-    // The egress proxy takes an upstream with no query.
     url: webUrl.refine(
       (value) => !isWebUrl(value) || new URL(value).search === "",
       { message: "must not carry a query" },
@@ -415,7 +414,6 @@ export type CatalogMcpServer = Omit<
 export type SessionCatalog = {
   profiles: Record<string, CatalogProfile>;
   repositories: Record<string, CatalogRepository>;
-  /** Absent when the operator declared none. */
   mcp_servers?: Record<string, CatalogMcpServer>;
 };
 
