@@ -41,11 +41,11 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 이 표에 기대는 기능은 다음과 같다. 트레이스로는 이 기능들을 대신할 수 없다. 트레이스는 늦게 오고, 순서와 완전성을 보장하지 않고, 수집기가 없는 설치도 있다.
 
-- **SSE와 재연결.** `apps/control-host/src/api/routes/events.ts`가 `Last-Event-ID` 다음부터 이 표를 읽어 스트림으로 보낸다. 사용법은 [api-guide.md § 5](api-guide.md#5-sse로-진행-보기와-last-event-id-재연결)에 있다.
+- **SSE와 재연결.** `apps/control-host/src/api/routes/events.ts`가 `Last-Event-ID` 다음부터 이 표를 읽어 스트림으로 보낸다. 사용법은 [api-guide.md § 5](../api-guide.md#5-sse로-진행-보기와-last-event-id-재연결)에 있다.
 - **turn 종료 판정.** 앞 sequence가 비어 있으면 `sequence_gap`, finalize할 때 이벤트가 덜 저장됐으면 `events_incomplete`로 거절한다(`packages/db/src/worker-unit-of-work.ts`, `packages/platform/src/workers/worker-gateway.ts`).
 - **대기 요청 알림.** 질문·권한 요청의 `question` 이벤트와 세션의 `needs_input` 상태가 같은 트랜잭션에서 커밋된다. 그래서 클라이언트는 질문을 보기 전에 `needs_input`을 받지 않는다(`packages/db/src/pending-control.ts`). 답은 `pending_requests` 표에 남는다.
 - **상태 전이.** 복구·재개·일시정지·interrupt 같은 제어 단계가 `recordStatus`·`recordEvent`(`packages/db/src/session-events.ts`)로 상태와 함께 커밋된다.
-- **클라이언트의 작업 완료 판단.** 공개 API 클라이언트는 `assistant`·`tool_use`·`tool_result` 이벤트를 읽고 일이 끝났는지 판단한다([api-guide.md](api-guide.md)).
+- **클라이언트의 작업 완료 판단.** 공개 API 클라이언트는 `assistant`·`tool_use`·`tool_result` 이벤트를 읽고 일이 끝났는지 판단한다([api-guide.md](../api-guide.md)).
 
 비용과 사용량의 정본은 이벤트가 아니라 `provider_usage` 표다. egress proxy가 Messages 응답에서 사용량을 읽고(`apps/egress-proxy/src/usage.ts`), API가 이 표에 쓴다(`packages/db/src/worker-unit-of-work.ts`).
 
@@ -105,7 +105,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 1. **엔진 메시지.** Claude adapter의 `sanitizeNativeMessage`(`packages/adapters/runtimes/claude/src/mapper.ts`)가 엔진 메시지마다 민감한 키의 값, `Bearer …` 같은 비밀 모양의 값, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다. 이벤트는 이 결과로 만든다.
 2. **claim이 준 비밀값.** worker의 `SecretScrubber`(`apps/worker/src/secret-scrubber.ts`)가 이 attempt에 받은 비밀값 자체를 찾아 `<redacted>`로 바꾼다. `scrubbingGateway`가 `appendEvents`와 `registerPending`에 이 처리를 건다. 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다.
-3. **프로세스 로그.** `packages/observability/src/redaction.ts`의 `sanitizeText`·`sanitizeFields`가 API·worker의 stdout 로그를 가린다. egress proxy는 같은 파일의 사본 `apps/egress-proxy/src/redaction.ts`를 쓴다. 규칙 목록은 [operations.md § provider 키와 저장소 자격 증명](operations.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다-94s-252)에 있다. 이 규칙은 로그용이고 이벤트에는 걸리지 않는다.
+3. **프로세스 로그.** `packages/observability/src/redaction.ts`의 `sanitizeText`·`sanitizeFields`가 API·worker의 stdout 로그를 가린다. egress proxy는 같은 파일의 사본 `apps/egress-proxy/src/redaction.ts`를 쓴다. 규칙 목록은 [operations.md § provider 키와 저장소 자격 증명](../operations.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다-94s-252)에 있다. 이 규칙은 로그용이고 이벤트에는 걸리지 않는다.
 
 1과 3의 패턴 규칙은 내용 수집에 그대로 쓰기 어렵다. 로그 규칙 `sanitizeText`는 비밀 모양이나 `token=` 같은 조각을 하나라도 보면 문자열 전체를 `[REDACTED]`로 바꾼다. mapper는 대부분 일치한 구간만 바꾸고, `name=value` 꼴에서 값의 끝이 분명하면 값만 가린다. 그러나 mapper의 `hideNamedValues`도 `password: …`처럼 콜론으로 이어지는 값이나 끝을 가를 수 없는 값을 보면 텍스트 전체를 가린다. 그래서 `password:`가 든 YAML 파일을 Read한 도구 결과는 지금 이벤트에서도 통째로 사라진다. 두 파일의 패턴 목록도 서로 다르다. 그리고 로그 규칙의 키 패턴에는 맨 `token`이 있어서, 트레이스 속성에 그대로 걸면 토큰 수 속성까지 가려진다.
 
@@ -124,7 +124,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 계획대로 트레이스에 내용을 실으면 같은 내용이 ① DB와 ② 수집기에 두 번 저장된다. 정본은 ①이므로 ②의 내용은 오래 둘 필요가 없다.
 
-- **① `events` 표.** 지금은 trim하지 않는다([api-guide.md](api-guide.md)의 410 `CURSOR_EXPIRED` 설명). 보존 기간 정책은 아직 정하지 않았고 맡은 티켓도 없다.
+- **① `events` 표.** 지금은 trim하지 않는다([api-guide.md](../api-guide.md)의 410 `CURSOR_EXPIRED` 설명). 보존 기간 정책은 아직 정하지 않았고 맡은 티켓도 없다.
 - **② 수집기(계획).** 내용이 든 데이터는 짧게, 메타데이터는 길게 두는 것을 권장값으로 둔다. 보존 기간은 수집기에서 운영자가 정한다. 설정 방법은 수집기마다 다르고, 판(edition)에 따라 없는 것도 있다. 수집기별 예시는 [94S-737](https://linear.app/94soon/issue/94S-737)이 더한다.
 - **샘플링하지 않는다(계획).** worker 트레이스를 샘플링하면 내용과 유실 구간 대조가 빈다. 양은 속성 상한, 트레이스 상한, ingest의 분당 상한, 보존 기간으로 줄인다.
 

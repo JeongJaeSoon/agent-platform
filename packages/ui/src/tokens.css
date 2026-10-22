@@ -84,9 +84,11 @@
 
   /* Typography — Korean operational copy reads at 16px/1.7, not 14px/1.4. */
   --ap-font-sans:
-    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    Geist, "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
     "Apple SD Gothic Neo", "Segoe UI", system-ui, sans-serif;
-  --ap-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --ap-font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    "Pretendard Variable", monospace;
 
   --ap-text-xs: 0.75rem;
   --ap-text-sm: 0.8125rem;
@@ -136,6 +138,18 @@
   --ap-layout-sidebar-width: 14.75rem;
   --ap-layout-content-width: 78rem;
   --ap-layout-detail-panel-width: 21.25rem;
+  /* Settings screens: 840px of content inside the 24px gutters. */
+  --ap-layout-settings-width: 55.5rem;
+  /*
+   * Table and list rows (console design v30): a row is at least 48px and a
+   * header row 40px. Lines stacked in one cell sit 2px apart.
+   */
+  --ap-row-padding-x: var(--ap-space-4);
+  --ap-row-padding-y: var(--ap-space-3);
+  --ap-row-head-padding-y: var(--ap-space-2);
+  --ap-row-min-height: 3rem;
+  --ap-row-head-min-height: 2.5rem;
+  --ap-row-line-gap: 0.125rem;
   --ap-control-height: 2rem;
   --ap-control-height-sm: 1.75rem;
   --ap-text-title: 1.25rem;

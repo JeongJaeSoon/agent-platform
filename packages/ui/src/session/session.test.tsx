@@ -6,7 +6,11 @@ import {
 } from "@werft-ai/contracts";
 
 import { setupDom } from "../test-support/dom.ts";
-import { SessionRow, type SessionRowMessages } from "./session-row.tsx";
+import {
+  SESSION_COLUMNS,
+  SessionRow,
+  type SessionRowMessages,
+} from "./session-row.tsx";
 import { StageIndicator } from "./stage-indicator.tsx";
 import {
   Timeline,
@@ -15,6 +19,16 @@ import {
 } from "./timeline.tsx";
 
 const { render } = await setupDom();
+
+test("세션 표 열 정의는 폭마다 떨어진 class 하나씩이다", () => {
+  // Two classes run together are one unknown class, and Tailwind drops both.
+  expect(SESSION_COLUMNS.split(" ")).toEqual([
+    "grid",
+    expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
+    expect.stringMatching(/^@\[480px\]:grid-cols-\[[^\s@]+\]$/),
+    expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
+  ]);
+});
 
 // Echoes the key and params, so a test reads what the component asked for.
 function formatMessage({ key, params }: TurnEventMessage): string {
@@ -66,6 +80,58 @@ describe("Timeline", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toContain('session.event.thinkingTokens{"count":3}');
     expect(lines[1]).toContain('session.event.thinkingTokens{"count":1}');
+  });
+
+  test("응답·도구·요청·오류·시스템 이벤트는 아이콘이 다르고 아이콘마다 이름이 있다", () => {
+    const { container } = render(
+      <Timeline
+        entries={[
+          entry("assistant", {
+            message: { content: [{ type: "text", text: "hi" }] },
+          }),
+          entry("tool_use", {
+            message: {
+              content: [{ type: "tool_use", id: "c1", name: "Bash" }],
+            },
+          }),
+          entry("question", { kind: "permission", tool: "Bash", input: {} }),
+          entry("error", { message: "boom" }),
+          entry("status", { phase: "running" }),
+        ]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, kind: (kind) => `kind:${kind}` }}
+      />,
+    );
+    const rows = [...container.querySelectorAll("li")];
+    expect(rows.map((row) => row.dataset.kind)).toEqual([
+      "agent",
+      "tool",
+      "request",
+      "error",
+      "system",
+    ]);
+    const icons = rows.map((row) => row.querySelector('[role="img"]'));
+    expect(icons.map((icon) => icon?.getAttribute("aria-label"))).toEqual([
+      "kind:agent",
+      "kind:tool",
+      "kind:request",
+      "kind:error",
+      "kind:system",
+    ]);
+    const drawn = icons.map((icon) => icon?.querySelector("svg")?.innerHTML);
+    expect(new Set(drawn).size).toBe(5);
+  });
+
+  test("아이콘 이름을 주지 않으면 아이콘은 스크린리더에서 숨는다", () => {
+    const { container } = render(
+      <Timeline
+        entries={[entry("error", { message: "boom" })]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+      />,
+    );
+    expect(container.querySelector('[role="img"]')).toBeNull();
+    expect(container.querySelector('li [aria-hidden="true"]')).not.toBeNull();
   });
 
   test("debug 이벤트는 showDebug일 때만 보이고 tick 접기를 끊지 않는다", () => {

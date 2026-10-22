@@ -657,7 +657,7 @@ describe("session detail", () => {
     });
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
-    await user.click(screen.getByRole("link", { name: "← 세션 목록" }));
+    await user.click(screen.getByRole("link", { name: "세션 목록" }));
     await screen.findByText("아직 세션이 없습니다.");
     expect(stream.closed).toBe(true);
   });

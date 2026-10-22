@@ -46,8 +46,9 @@ const oneSession = {
 
 async function states() {
   await screen.findByRole("heading", { name: "Acme" });
+  // Home has other lists; the checklist is the region named for it.
   return () =>
-    screen
+    within(screen.getByRole("region", { name: "시작하기" }))
       .getAllByRole("listitem")
       .map((step) => step.getAttribute("data-state"));
 }
@@ -193,6 +194,104 @@ describe("bootstrap checklist", () => {
     const read = await states();
     await waitFor(() =>
       expect(read()).toEqual(["done", "pending", "pending", "unknown"]),
+    );
+  });
+});
+
+describe("홈 요약", () => {
+  const waitingSession = {
+    ...oneSession,
+    id: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    status: "needs_input",
+  };
+  const homeRoutes = () => {
+    const server = agentServer();
+    const released = {
+      ...server.detail().agent,
+      active_release_id: "rel-1",
+    };
+    return {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => json(200, { items: [owner] }),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () =>
+        json(200, { items: [released, server.detail().agent] }),
+      "GET /v1/sessions?status=needs_input": () =>
+        json(200, { items: [waitingSession], next_cursor: null }),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [waitingSession, oneSession],
+          next_cursor: "next",
+        }),
+    };
+  };
+
+  test("답이 필요한 세션을 먼저, 이어서 세 요약 카드와 최근 세션을 보인다", async () => {
+    renderAt("/", homeRoutes());
+    const waiting = await screen.findByRole("region", {
+      name: /답이 필요한 요청/,
+    });
+    await waitFor(() =>
+      expect(
+        within(waiting).getByRole("link", { name: waitingSession.id }),
+      ).toBeDefined(),
+    );
+    expect(
+      within(waiting)
+        .getByRole("link", { name: "전체 보기" })
+        .getAttribute("href"),
+    ).toBe("/sessions");
+
+    const overview = screen.getByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(
+        within(overview)
+          .getAllByRole("listitem")
+          .map((card) => [
+            card.querySelector("h3")?.textContent,
+            card.querySelector("h3 + div > p")?.textContent,
+          ]),
+      ).toEqual([
+        ["답변 대기", "1"],
+        ["세션", "2+"],
+        ["에이전트", "2"],
+      ]),
+    );
+    expect(within(overview).getByText("켜짐 1 · 초안 1")).toBeDefined();
+
+    const recent = screen.getByRole("table", { name: "최근 세션" });
+    expect(
+      within(recent)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual([waitingSession.id, oneSession.id]);
+  });
+
+  test("시작하기를 다 마치면 checklist는 요약 아래로 내려간다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      "GET /v1/members": () =>
+        json(200, {
+          items: [
+            owner,
+            {
+              ...owner,
+              user_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+              email: "member@example.com",
+              role: "member",
+            },
+          ],
+        }),
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual(["done", "done", "done", "done"]),
+    );
+    const order = [...document.querySelectorAll("main section > div h2")].map(
+      (heading) => heading.textContent,
+    );
+    expect(order.indexOf("시작하기")).toBeGreaterThan(
+      order.findIndex((title) => title?.startsWith("최근 세션")),
     );
   });
 });

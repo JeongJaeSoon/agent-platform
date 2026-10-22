@@ -29,6 +29,11 @@ export type WorkspaceObservation =
        * disposable.
        */
       readonly localWork: boolean;
+      /**
+       * Whether HEAD names a commit. Only a session without a repository
+       * reads it: there, an unborn HEAD is an init that never finished.
+       */
+      readonly headCommit?: boolean;
     }
   /** Non-empty, but not a git checkout at the root. */
   | { readonly kind: "foreign" };
@@ -50,6 +55,10 @@ export type WorkspacePlan =
       readonly reason: string;
       readonly url: string;
     }
+  /** No repository, nothing here: a local git with one empty commit. */
+  | { readonly action: "init" }
+  /** No repository, and this session's own local git: used as it is. */
+  | { readonly action: "keep" }
   /** Something is here that this policy may not discard: stop and say why. */
   | { readonly action: "refuse"; readonly reason: string };
 
@@ -63,6 +72,9 @@ export type WorkspacePlan =
  * local work. Everything else is refused: a checkout of another repository
  * or a non-git tree is not this policy's to judge, and an explicit recovery
  * step has to decide what to keep.
+ *
+ * A session without a repository has no origin to start over from, so its
+ * local git is never recreated: only a sound one of its own is kept.
  */
 export function planWorkspacePreparation(input: {
   readonly workspace: WorkspaceDescriptor;
@@ -71,7 +83,7 @@ export function planWorkspacePreparation(input: {
 }): WorkspacePlan {
   if (input.restore) return { action: "restore", checkpoint: input.restore };
   if (input.workspace.repository === null) {
-    return { action: "refuse", reason: "the session has no repository" };
+    return planLocalWorkspace(input.observed);
   }
   const { url, branch } = input.workspace.repository;
   const observed = input.observed;
@@ -104,6 +116,38 @@ export function planWorkspacePreparation(input: {
         url,
       };
     }
+  }
+}
+
+function planLocalWorkspace(observed: WorkspaceObservation): WorkspacePlan {
+  switch (observed.kind) {
+    case "empty":
+      return { action: "init" };
+    case "foreign":
+      return {
+        action: "refuse",
+        reason: "workspace root holds files that are not a git checkout",
+      };
+    case "checkout":
+      if (observed.remoteUrl !== "") {
+        return {
+          action: "refuse",
+          reason: "checkout has an origin, but the session has no repository",
+        };
+      }
+      if (observed.headCommit !== true) {
+        return {
+          action: "refuse",
+          reason: "local git has no commit: its init never finished",
+        };
+      }
+      if (!observed.healthy) {
+        return {
+          action: "refuse",
+          reason: "local git is incomplete or corrupt and exists nowhere else",
+        };
+      }
+      return { action: "keep" };
   }
 }
 

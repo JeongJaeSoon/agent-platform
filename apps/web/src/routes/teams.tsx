@@ -34,8 +34,6 @@ import {
 } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import {
-  LIST,
-  LIST_ITEM,
   MUTED,
   MyTeams,
   PRIMARY_LINK,
@@ -44,6 +42,7 @@ import {
 } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { RowList, RowListItem } from "../components/table.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 const PAGE = "flex flex-col gap-6";
@@ -169,9 +168,9 @@ export function TeamsScreen() {
         ) : teams.data.items.length === 0 ? (
           <p className={MUTED}>{t("teams.empty")}</p>
         ) : (
-          <ul className={LIST}>
+          <RowList>
             {teams.data.items.map((team) => (
-              <li key={team.id} className={LIST_ITEM}>
+              <RowListItem key={team.id}>
                 <Link
                   to="/teams/$teamId"
                   params={{ teamId: team.id }}
@@ -182,9 +181,9 @@ export function TeamsScreen() {
                 <span className={`${SECONDARY} ml-auto`}>
                   {t("teams.memberCount", { count: team.member_count })}
                 </span>
-              </li>
+              </RowListItem>
             ))}
-          </ul>
+          </RowList>
         )}
       </section>
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
@@ -458,11 +457,11 @@ function TeamMembers({
       {team.members.length === 0 ? (
         <p className={MUTED}>{t("teams.noMembers")}</p>
       ) : (
-        <ul className={LIST}>
+        <RowList>
           {team.members.map((member) => {
             const name = member.display_name ?? member.email;
             return (
-              <li key={member.user_id} className={LIST_ITEM}>
+              <RowListItem key={member.user_id}>
                 <span className="font-medium [overflow-wrap:anywhere]">
                   {name}
                 </span>
@@ -483,10 +482,10 @@ function TeamMembers({
                 >
                   {t("teams.removeMember")}
                 </Button>
-              </li>
+              </RowListItem>
             );
           })}
-        </ul>
+        </RowList>
       )}
       <ConfirmDialog
         open={removing !== null}

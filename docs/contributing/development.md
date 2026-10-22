@@ -1,6 +1,6 @@
 # 개발 환경과 검증
 
-이 저장소를 고치는 사람을 위한 문서다. 로컬 스택을 사용자로 띄우는 절차는 [quickstart.md](quickstart.md)에, 구성요소와 경계는 [architecture.md](architecture.md)에, CI가 어느 job에서 무엇을 도는지는 [ci.md](ci.md)에 있다.
+이 저장소를 고치는 사람을 위한 문서다. 로컬 스택을 사용자로 띄우는 절차는 [quickstart.md](../quickstart.md)에, 구성요소와 경계는 [architecture.md](architecture.md)에, CI가 어느 job에서 무엇을 도는지는 [ci.md](ci.md)에 있다.
 
 ## 준비물
 
@@ -32,7 +32,7 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
   bun run --cwd packages/db bench:terminate
 ```
 
-실제 Docker daemon 대상 테스트(`DOCKER_BACKEND_TEST=1`)는 [operations.md § worker 네트워크](operations.md#worker-네트워크-주소-풀-slot-limit-회수)에 있다.
+실제 Docker daemon 대상 테스트(`DOCKER_BACKEND_TEST=1`)는 [operations.md § worker 네트워크](../operations.md#worker-네트워크-주소-풀-slot-limit-회수)에 있다.
 
 ## 의존 서비스만 띄우기와 host에서 도는 API
 
@@ -56,11 +56,11 @@ API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할
 
 | 명령 | 확인하는 것 | CI | 더 읽을 곳 |
 |---|---|---|---|
-| `tests/e2e/run.sh` | fake 모델(`infra/compose.fake-model.yml`)로 세션 경로 전체(생성 → 이벤트 → 권한 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume)와 pause 경계 케이스 | `e2e` job | [quickstart.md § 4](quickstart.md#4-명령-하나로-자동-검증) |
-| `tests/e2e/quickstart.sh` | `docs/quickstart.md`의 `bash` 블록을 그대로 실행하고 `jq -e` 줄을 단언한다. **기본 project(`agent-platform`)와 그 데이터를 지운다** | `quickstart` job | [quickstart.md § 4](quickstart.md#4-명령-하나로-자동-검증) |
-| `tests/e2e/run.sh --real-model` | 실제 Claude로 세션 경로 한 번. 실행자의 `ANTHROPIC_API_KEY`가 필요하고 유료다 | 없음 | [real-claude.md](real-claude.md) |
+| `tests/e2e/run.sh` | fake 모델(`infra/compose.fake-model.yml`)로 세션 경로 전체(생성 → 이벤트 → 권한 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume)와 pause 경계 케이스 | `e2e` job | [quickstart.md § 4](../quickstart.md#4-명령-하나로-자동-검증) |
+| `tests/e2e/quickstart.sh` | `docs/quickstart.md`의 `bash` 블록을 그대로 실행하고 `jq -e` 줄을 단언한다. **기본 project(`agent-platform`)와 그 데이터를 지운다** | `quickstart` job | [quickstart.md § 4](../quickstart.md#4-명령-하나로-자동-검증) |
+| `tests/e2e/run.sh --real-model` | 실제 Claude로 세션 경로 한 번. 실행자의 `ANTHROPIC_API_KEY`가 필요하고 유료다 | 없음 | [real-claude.md](../real-claude.md) |
 | `tests/e2e/run.sh --local-model` | 같은 경로를 이 컴퓨터의 Ollama 모델로, 직접과 LiteLLM 경유 두 번. Ollama가 필요하고 무료다 | 없음 | [local-model.md](local-model.md) |
-| `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | 없음 | [backup-restore.md § 실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인) |
+| `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | 없음 | [backup-restore.md § 실스택에서 복원 뒤 재개 확인](../operator/backup-restore.md#실스택에서-복원-뒤-재개-확인) |
 | `tests/e2e/db-restart.sh` | Postgres가 새 주소로 재시작한 뒤 API가 따라붙는지(`/readyz`, 요청 pool, 이벤트 listener) | 없음 | 스크립트 머리 주석 |
 | `scripts/d2-gate/run.sh` | D2 gate(A–E, R1–R2, H1–H5) | `D2 gate` workflow(nightly, required 아님) | [ci.md § D2 gate](ci.md#d2-gate-nightly) |
 | `scripts/soak/rc.sh <rc-sha>` | RC 판정 흐름: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | 스크립트 머리 주석 |
