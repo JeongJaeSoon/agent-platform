@@ -709,7 +709,7 @@ describe("transcript mirror against the actual SDK", () => {
     });
     const mirrored: TranscriptKey[] = [];
     const lateWrites: Promise<void>[] = [];
-    let sentWithUuid = 0;
+    const sent: Array<Record<string, unknown>> = [];
     const run = new ClaudeSdkRuntime({
       endpoints: [server.url],
       models: ["claude-sonnet-4-5"],
@@ -721,9 +721,11 @@ describe("transcript mirror against the actual SDK", () => {
           // it and retried, as an S3 PUT whose answer timed out would.
           append: async (key, entries) => {
             mirrored.push(key);
-            sentWithUuid += entries.filter(
-              (entry) => typeof entry.uuid === "string",
-            ).length;
+            if (key.subpath === undefined) {
+              sent.push(
+                ...(JSON.parse(JSON.stringify(entries)) as typeof sent),
+              );
+            }
             const late = Bun.sleep(150).then(() => mirror.append(key, entries));
             lateWrites.push(late);
             await Promise.race([
@@ -772,11 +774,13 @@ describe("transcript mirror against the actual SDK", () => {
       const uuids = entries.flatMap((entry) =>
         typeof entry.uuid === "string" ? [entry.uuid] : [],
       );
-      // An empty transcript is unique too; it is what lost writes would leave.
-      expect(uuids.length).toBeGreaterThan(0);
       expect(new Set(uuids).size).toBe(uuids.length);
+      // Every entry the SDK sent, each once: a lost entry fails here too.
+      expect(byUuid(entries)).toEqual(byUuid(sent));
       // Every retry landed, so the store holds each entry more than once.
-      expect(sentWithUuid).toBeGreaterThan(uuids.length);
+      expect(
+        sent.filter((entry) => typeof entry.uuid === "string").length,
+      ).toBeGreaterThan(uuids.length);
       expect(JSON.stringify(entries)).toContain(
         "finish after an ambiguous append timeout",
       );

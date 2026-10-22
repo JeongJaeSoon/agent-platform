@@ -8,16 +8,18 @@
 
 ### publish 순서
 
-checkpoint 요청은 아래가 모두 성립하기 전에는 새 generation을 만들지 않는다.
+두 번호를 구분한다. **execution generation**은 실행(claim) 하나에 하나다. worker는 SDK를 시작하기 전에 claim이 준 generation으로 store를 열고, 그 실행의 transcript는 그 generation의 prefix에만 쓴다. **checkpoint revision**은 세션의 checkpoint pointer가 가리키는 번호이고, 한 실행 안에서 checkpoint를 commit할 때마다 하나씩 오른다.
+
+아래가 모두 성립하기 전에는 새 checkpoint revision을 commit하지 않는다.
 
 1. 진행 중인 tool 호출과 등록된 background writer가 안전 지점에 이른다. checkpoint가 끝날 때까지 새 writer는 시작하지 못한다.
-2. 그 turn의 terminal `result` 앞에서 mirror flush가 끝났고, 그 turn에 `mirror_error`가 없다.
+2. 그 turn의 terminal `result` 앞에서 mirror flush가 끝났고, 그 실행에 `mirror_error`도 실패한 채 남은 append도 없다.
 3. workspace를 commit해 exact git SHA를 얻는다.
 4. root와 모든 subagent transcript의 exact part key·SHA-256 revision을 capture한다.
 5. git SHA, transcript revision, `cwd`, 버전, config fingerprint를 immutable manifest에 쓴다.
-6. 현재 owner와 이전 generation을 조건으로 pointer를 compare-and-set한다.
+6. pointer를 다음 revision(현재 revision + 1)으로 올린다. 세션 행의 lease epoch, execution generation, auth revision이 이 실행의 것과 같을 때만 올라간다.
 
-1~5에서 실패하거나 6의 CAS가 실패하면 이전 pointer를 그대로 둔다. branch HEAD, 최신 mirror object, 미완료 manifest를 서로 섞어 resume하지 않는다.
+1~5에서 실패하거나 6의 조건이 맞지 않으면 pointer는 이전 revision에 그대로 있다. branch HEAD, 최신 mirror object, 미완료 manifest를 서로 섞어 resume하지 않는다.
 
 ### 실패 계약
 
@@ -26,7 +28,7 @@ checkpoint 요청은 아래가 모두 성립하기 전에는 새 generation을 �
 | 같은 UUID 재전달 | timeout·retry로 같은 entry가 여러 part에 남을 수 있다 | body가 같으면 한 번만 복원하고, 다르면 손상으로 거절한다 |
 | append reject | 세 번 시도한 뒤 `mirror_error`를 내고, agent `result`는 성공일 수 있다 | 그 turn의 checkpoint를 승격하지 않는다 |
 | append timeout | 늦게 도착한 원 요청과 retry가 모두 반영될 수 있다 | UUID로 dedup하고, `mirror_error`가 있었으면 승격하지 않는다 |
-| process kill | flush 중이면 result도 checkpoint도 없다 | 이전 generation만 쓴다 |
+| process kill | flush 중이면 result도 checkpoint도 없다 | pointer는 마지막으로 commit된 revision에 남는다. 다음 실행은 새 generation으로 그 revision이 고정한 part만 채택하므로, 죽은 프로세스가 그 뒤에 남긴 write는 읽지 않는다 |
 | manifest·object 누락, hash 불일치 | exact revision 검증이 실패한다 | SDK를 시작하기 전에 claim을 실패시킨다. 조용히 새 session을 만들지 않는다 |
 | store에 없는 session resume | SDK는 로컬 transcript로 fallback하고, 그것도 없으면 `No conversation found`로 끝난다. 모델 호출은 없다 | 제품은 revision을 먼저 검증·materialize하므로 이 fallback에 기대지 않는다 |
 | 같은 `/workspace`의 두 session | 같은 project key를 공유한다 | `sessionId` namespace로 완전히 분리한다 |
@@ -58,7 +60,7 @@ checkpoint 요청은 아래가 모두 성립하기 전에는 새 generation을 �
 |---|---|
 | UUID dedup, 같은 UUID의 다른 body 거절, key 순서 무관 | `packages/adapters/runtimes/claude/src/session-store.test.ts` |
 | exact revision: 이후 suffix 무시, part 목록·bytes 변조와 누락 거절 | `packages/adapters/runtimes/claude/src/session-store.test.ts` |
-| generation 분리, checkpoint만큼만 이전 generation 채택 | `packages/adapters/runtimes/claude/src/session-store.test.ts` |
+| generation 분리, checkpoint만큼만 이전 generation 채택(죽거나 lease를 잃은 실행이 checkpoint 뒤에 쓴 write는 다음 실행이 읽지 않음) | `packages/adapters/runtimes/claude/src/session-store.test.ts`, `runtime.integration.test.ts`의 `resumes a new generation from the pinned checkpoint, never from an old worker's later writes` |
 | 실제 SDK에서 mirror 내용과 로컬 transcript 일치, pinned checkpoint에서 resume | `packages/adapters/runtimes/claude/src/runtime.integration.test.ts` (`transcript mirror against the actual SDK`) |
 | 실제 SDK에서 `mirror_error`가 `result`보다 먼저 오고 checkpoint를 막음 | 같은 파일, `a mirror that keeps rejecting is reported before the turn's result, which still succeeds` |
 | 실제 SDK에서 timeout 뒤 늦게 반영된 write를 한 번만 복원 | 같은 파일, `restores once the entries of appends that timed out but still landed` |
