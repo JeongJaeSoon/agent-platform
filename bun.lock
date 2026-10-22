@@ -14,6 +14,13 @@
       "name": "@werft-ai/control-host",
       "version": "0.0.0",
       "dependencies": {
+        "@aws-sdk/client-secrets-manager": "^3.888.0",
+        "@hono/zod-openapi": "1.6.3",
+        "@octokit/auth-app": "8.3.1",
+        "@octokit/core": "7.0.8",
+        "@octokit/plugin-retry": "8.1.1",
+        "@octokit/plugin-throttling": "11.0.5",
+        "@octokit/request": "10.0.16",
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/db": "workspace:*",
         "@werft-ai/execution-kubernetes": "workspace:*",
@@ -22,24 +29,17 @@
         "@werft-ai/platform": "workspace:*",
         "@werft-ai/runtime-claude-codec": "workspace:*",
         "@werft-ai/storage": "workspace:*",
-        "@aws-sdk/client-secrets-manager": "^3.888.0",
-        "@hono/zod-openapi": "1.6.3",
-        "@octokit/auth-app": "8.3.1",
-        "@octokit/core": "7.0.8",
-        "@octokit/plugin-retry": "8.1.1",
-        "@octokit/plugin-throttling": "11.0.5",
-        "@octokit/request": "10.0.16",
         "drizzle-orm": "0.45.2",
-        "hono": "4.13.7",
+        "hono": "4.13.11",
         "pg": "8.16.3",
         "yaml": "^2.9.1",
         "zod": "4.6.5",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
         "@electric-sql/pglite": "0.3.10",
         "@scalar/api-reference": "1.72.1",
         "@types/pg": "8.15.5",
+        "@werft-ai/testkit": "workspace:*",
       },
     },
     "apps/egress-proxy": {
@@ -50,11 +50,6 @@
       "name": "@werft-ai/storybook",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/react": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
         "@storybook/addon-a11y": "10.6.2",
         "@storybook/addon-vitest": "10.6.2",
         "@storybook/react-vite": "10.6.2",
@@ -62,6 +57,11 @@
         "@tanstack/react-query": "5.103.2",
         "@types/react": "^19.3.0",
         "@vitest/browser-playwright": "4.1.12",
+        "@werft-ai/client": "workspace:*",
+        "@werft-ai/contracts": "workspace:*",
+        "@werft-ai/core": "workspace:*",
+        "@werft-ai/react": "workspace:*",
+        "@werft-ai/ui": "workspace:*",
         "playwright": "1.64.1",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
@@ -75,11 +75,6 @@
       "name": "@werft-ai/web",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/react": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@hookform/resolvers": "5.9.1",
         "@radix-ui/react-dialog": "^1.1.23",
@@ -93,6 +88,11 @@
         "@types/react-dom": "^19.3.0",
         "@use-funnel/core": "0.1.0",
         "@vitejs/plugin-react": "5.2.0",
+        "@werft-ai/client": "workspace:*",
+        "@werft-ai/contracts": "workspace:*",
+        "@werft-ai/core": "workspace:*",
+        "@werft-ai/react": "workspace:*",
+        "@werft-ai/ui": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "react": "^19.3.0",
@@ -145,10 +145,10 @@
       "name": "@werft-ai/runtime-claude",
       "version": "0.0.0",
       "dependencies": {
+        "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/runtime-claude-codec": "workspace:*",
         "@werft-ai/runtime-core": "workspace:*",
-        "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "zod": "4.6.5",
       },
       "devDependencies": {
@@ -186,9 +186,9 @@
       "name": "@werft-ai/core",
       "version": "0.0.0",
       "devDependencies": {
+        "@tanstack/query-core": "5.103.2",
         "@werft-ai/client": "workspace:*",
         "@werft-ai/contracts": "workspace:*",
-        "@tanstack/query-core": "5.103.2",
         "zod": "4.6.5",
       },
     },
@@ -205,9 +205,9 @@
         "pg-connection-string": "2.14.0",
       },
       "devDependencies": {
-        "@werft-ai/testkit": "workspace:*",
         "@electric-sql/pglite": "0.3.10",
         "@types/pg": "8.15.5",
+        "@werft-ai/testkit": "workspace:*",
         "drizzle-kit": "0.31.4",
       },
     },
@@ -231,10 +231,6 @@
       "name": "@werft-ai/react",
       "version": "0.0.0",
       "devDependencies": {
-        "@werft-ai/client": "workspace:*",
-        "@werft-ai/contracts": "workspace:*",
-        "@werft-ai/core": "workspace:*",
-        "@werft-ai/ui": "workspace:*",
         "@happy-dom/global-registrator": "^20.14.5",
         "@hookform/resolvers": "5.9.1",
         "@tanstack/react-query": "5.103.2",
@@ -243,6 +239,10 @@
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
         "@use-funnel/core": "0.1.0",
+        "@werft-ai/client": "workspace:*",
+        "@werft-ai/contracts": "workspace:*",
+        "@werft-ai/core": "workspace:*",
+        "@werft-ai/ui": "workspace:*",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
         "react-hook-form": "7.90.0",
@@ -260,15 +260,15 @@
       "name": "@werft-ai/storage",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/platform": "workspace:*",
-        "@werft-ai/runtime-core": "workspace:*",
-        "@werft-ai/system": "workspace:*",
         "@aws-sdk/client-s3": "^3.888.0",
         "@aws-sdk/credential-provider-node": "^3.972.84",
         "@smithy/core": "^3.34.1",
         "@smithy/node-http-handler": "^4.12.1",
         "@smithy/signature-v4": "^5.7.3",
         "@smithy/types": "^4.18.0",
+        "@werft-ai/platform": "workspace:*",
+        "@werft-ai/runtime-core": "workspace:*",
+        "@werft-ai/system": "workspace:*",
       },
       "devDependencies": {
         "@werft-ai/testkit": "workspace:*",
@@ -282,11 +282,11 @@
       "name": "@werft-ai/testkit",
       "version": "0.0.0",
       "dependencies": {
+        "@aws-sdk/client-s3": "^3.888.0",
+        "@types/pg": "8.15.5",
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/db": "workspace:*",
         "@werft-ai/runtime-core": "workspace:*",
-        "@aws-sdk/client-s3": "^3.888.0",
-        "@types/pg": "8.15.5",
         "pg": "8.16.3",
       },
     },
@@ -294,12 +294,12 @@
       "name": "@werft-ai/ui",
       "version": "0.0.0",
       "dependencies": {
-        "@werft-ai/contracts": "workspace:*",
         "@radix-ui/react-checkbox": "1.3.11",
         "@radix-ui/react-dialog": "^1.1.23",
         "@radix-ui/react-radio-group": "1.4.7",
         "@radix-ui/react-slot": "^1.3.3",
         "@radix-ui/react-tabs": "1.1.21",
+        "@werft-ai/contracts": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "react": "^19.3.0",
@@ -324,48 +324,6 @@
   },
   "packages": {
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
-
-    "@werft-ai/client": ["@werft-ai/client@workspace:packages/client"],
-
-    "@werft-ai/contracts": ["@werft-ai/contracts@workspace:packages/contracts"],
-
-    "@werft-ai/control-host": ["@werft-ai/control-host@workspace:apps/control-host"],
-
-    "@werft-ai/core": ["@werft-ai/core@workspace:packages/core"],
-
-    "@werft-ai/db": ["@werft-ai/db@workspace:packages/db"],
-
-    "@werft-ai/egress-proxy": ["@werft-ai/egress-proxy@workspace:apps/egress-proxy"],
-
-    "@werft-ai/execution-kubernetes": ["@werft-ai/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
-
-    "@werft-ai/execution-local-docker": ["@werft-ai/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
-
-    "@werft-ai/observability": ["@werft-ai/observability@workspace:packages/observability"],
-
-    "@werft-ai/platform": ["@werft-ai/platform@workspace:packages/platform"],
-
-    "@werft-ai/react": ["@werft-ai/react@workspace:packages/react"],
-
-    "@werft-ai/runtime-claude": ["@werft-ai/runtime-claude@workspace:packages/adapters/runtimes/claude"],
-
-    "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
-
-    "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
-
-    "@werft-ai/storage": ["@werft-ai/storage@workspace:packages/storage"],
-
-    "@werft-ai/storybook": ["@werft-ai/storybook@workspace:apps/storybook"],
-
-    "@werft-ai/system": ["@werft-ai/system@workspace:packages/system"],
-
-    "@werft-ai/testkit": ["@werft-ai/testkit@workspace:packages/testkit"],
-
-    "@werft-ai/ui": ["@werft-ai/ui@workspace:packages/ui"],
-
-    "@werft-ai/web": ["@werft-ai/web@workspace:apps/web"],
-
-    "@werft-ai/worker": ["@werft-ai/worker@workspace:apps/worker"],
 
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.13", "", { "dependencies": { "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.5", "@vercel/oidc": "3.1.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-g7nE4PFtngOZNZSy1lOPpkC+FAiHxqBJXqyRMEG7NUrEVZlz5goBdtHg1YgWRJIX776JTXAmbOI5JreAKVAsVA=="],
 
@@ -1127,6 +1085,48 @@
 
     "@webcontainer/env": ["@webcontainer/env@1.1.1", "", {}, "sha512-6aN99yL695Hi9SuIk1oC88l9o0gmxL1nGWWQ/kNy81HigJ0FoaoTXpytCj6ItzgyCEwA9kF1wixsTuv5cjsgng=="],
 
+    "@werft-ai/client": ["@werft-ai/client@workspace:packages/client"],
+
+    "@werft-ai/contracts": ["@werft-ai/contracts@workspace:packages/contracts"],
+
+    "@werft-ai/control-host": ["@werft-ai/control-host@workspace:apps/control-host"],
+
+    "@werft-ai/core": ["@werft-ai/core@workspace:packages/core"],
+
+    "@werft-ai/db": ["@werft-ai/db@workspace:packages/db"],
+
+    "@werft-ai/egress-proxy": ["@werft-ai/egress-proxy@workspace:apps/egress-proxy"],
+
+    "@werft-ai/execution-kubernetes": ["@werft-ai/execution-kubernetes@workspace:packages/adapters/execution/kubernetes"],
+
+    "@werft-ai/execution-local-docker": ["@werft-ai/execution-local-docker@workspace:packages/adapters/execution/local-docker"],
+
+    "@werft-ai/observability": ["@werft-ai/observability@workspace:packages/observability"],
+
+    "@werft-ai/platform": ["@werft-ai/platform@workspace:packages/platform"],
+
+    "@werft-ai/react": ["@werft-ai/react@workspace:packages/react"],
+
+    "@werft-ai/runtime-claude": ["@werft-ai/runtime-claude@workspace:packages/adapters/runtimes/claude"],
+
+    "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
+
+    "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
+
+    "@werft-ai/storage": ["@werft-ai/storage@workspace:packages/storage"],
+
+    "@werft-ai/storybook": ["@werft-ai/storybook@workspace:apps/storybook"],
+
+    "@werft-ai/system": ["@werft-ai/system@workspace:packages/system"],
+
+    "@werft-ai/testkit": ["@werft-ai/testkit@workspace:packages/testkit"],
+
+    "@werft-ai/ui": ["@werft-ai/ui@workspace:packages/ui"],
+
+    "@werft-ai/web": ["@werft-ai/web@workspace:apps/web"],
+
+    "@werft-ai/worker": ["@werft-ai/worker@workspace:apps/worker"],
+
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
@@ -1407,7 +1407,7 @@
 
     "highlight.js": ["highlight.js@11.12.0", "", {}, "sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg=="],
 
-    "hono": ["hono@4.13.7", "", {}, "sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ=="],
+    "hono": ["hono@4.13.11", "", {}, "sha512-/SMX/RQNJn7oNmFwH6DtwDqcrzZU2otm1FD6OJe2cWF6cfy/F8hq0XVBv7xW3FTJshRQwuBnXHDq2kNsdZnshg=="],
 
     "hookable": ["hookable@6.1.2", "", {}, "sha512-+abwxtiEA52GCVIsQqut3S/uKTbUwYIp4Pe/vv+6py5XiXBCqMZHg6pA6Y5qhgLSEys0/cYuPbO0z1QFj5ZCmg=="],
 
@@ -2044,6 +2044,8 @@
     "@floating-ui/vue/@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
 
     "@modelcontextprotocol/sdk/content-type": ["content-type@1.0.5", "", {}, "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA=="],
+
+    "@modelcontextprotocol/sdk/hono": ["hono@4.13.7", "", {}, "sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ=="],
 
     "@octokit/plugin-retry/@octokit/types": ["@octokit/types@17.0.0", "", { "dependencies": { "@octokit/openapi-types": "^28.0.0" } }, "sha512-ByP1v7YL5SMveFPP7+sj0/ZuWCOOg/Chs4NafOMpq6WNIM/hdGY0S7C0TCGDBWu1aGmOxmUIhMx3cO+IdwYZ1Q=="],
 
