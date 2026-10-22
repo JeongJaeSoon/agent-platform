@@ -27,7 +27,13 @@ import {
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { applyTheme, storedTheme } from "../components/theme.ts";
-import { errorKey, LOCALES, type Locale, useI18n } from "../i18n/i18n.tsx";
+import {
+  errorKey,
+  LOCALE_NAMES,
+  LOCALES,
+  type Locale,
+  useI18n,
+} from "../i18n/i18n.tsx";
 
 export function RootLayout() {
   const { t } = useI18n();
@@ -65,7 +71,7 @@ function LocaleSwitch() {
       >
         {LOCALES.map((value) => (
           <NativeSelectOption key={value} value={value}>
-            {value === "ko" ? "한국어" : "English"}
+            {LOCALE_NAMES[value]}
           </NativeSelectOption>
         ))}
       </NativeSelect>

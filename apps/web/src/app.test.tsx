@@ -407,6 +407,24 @@ describe("i18n·반응형·키보드", () => {
     ).toBeDefined();
   });
 
+  test("일본어를 고르면 바로 바뀌고 다음 방문을 위해 기억한다", async () => {
+    renderAt("/login", {});
+    const user = await setupUser();
+    const select = await screen.findByLabelText("언어");
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["한국어", "日本語", "English"]);
+    await user.selectOptions(select, "ja");
+    expect(
+      await screen.findByRole("heading", { name: "ログイン" }),
+    ).toBeDefined();
+    expect(document.documentElement.lang).toBe("ja");
+    expect(localStorage.getItem("ap.locale")).toBe("ja");
+    localStorage.removeItem("ap.locale");
+  });
+
   test.each([360, 768, 1440])(
     "%ipx에서 shell이 같은 내용으로 그려진다",
     async (width) => {

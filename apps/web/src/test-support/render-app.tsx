@@ -20,7 +20,12 @@ export async function appHarness() {
     [WAITING_SESSIONS]: () => json(200, { items: [], next_cursor: null }),
   };
 
-  function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
+  // `null` leaves the language to the app: stored choice, then the browser.
+  function renderAt(
+    path: string,
+    routes: Routes,
+    locale: "ko" | "en" | null = "ko",
+  ) {
     const api = fakeApi({ ...nothingWaiting, ...routes });
     const left: string[] = [];
     const services = createServices({
@@ -33,7 +38,11 @@ export async function appHarness() {
     });
     const history = createMemoryHistory({ initialEntries: [path] });
     const { container } = testing.render(
-      <App services={services} history={history} locale={locale} />,
+      <App
+        services={services}
+        history={history}
+        {...(locale ? { locale } : {})}
+      />,
     );
     return { api, history, services, container, left };
   }

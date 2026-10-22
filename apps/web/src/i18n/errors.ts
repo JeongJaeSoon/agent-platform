@@ -59,3 +59,39 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
     "The profile changed after this release was created — create a new release.",
   "error.ALREADY_EXISTS": "That identifier (slug) is already taken.",
 };
+
+export const errorsJa: Record<keyof typeof errorsKo, string> = {
+  "error.BAD_REQUEST": "入力内容を確認して、もう一度お試しください。",
+  "error.UNAUTHORIZED": "メールアドレスまたはパスワードが正しくありません。",
+  "error.SCOPE_NOT_GRANTABLE":
+    "自分が持っていない権限をキーに付与することはできません。",
+  "error.FORBIDDEN":
+    "権限がありません。オーナーまたは管理者に依頼してください。",
+  "error.BOOTSTRAP_DONE": "オーナーはすでに存在します。ログインしてください。",
+  "error.RATE_LIMITED":
+    "試行回数が多すぎます。しばらくしてからもう一度お試しください。",
+  "error.BACKEND_UNAVAILABLE":
+    "サーバーを利用できません。しばらくしてからもう一度お試しください。",
+  "error.NETWORK_ERROR":
+    "サーバーに接続できませんでした。ネットワーク接続を確認してください。",
+  "error.LOGIN_LINK_REQUIRED":
+    "このメールアドレスのアカウントはすでに存在します。そのアカウントのパスワードでログインしてください。",
+  "error.UNKNOWN":
+    "問題が発生しました。しばらくしてからもう一度お試しください。",
+  "error.NOT_FOUND": "すでに存在しません。一覧を再読み込みしてください。",
+  "error.PAYLOAD_TOO_LARGE":
+    "入力内容が長すぎます。短くしてからもう一度お試しください。",
+  "error.INVITE_EXPIRED": "この招待は期限切れか、取り消されています。",
+  "error.INVITE_USED": "この招待はすでに使用されています。",
+  "error.LAST_OWNER":
+    "最後のオーナーは、ロールの変更も無効化もできません。先にほかの人をオーナーにしてください。また、自分自身は無効化できません。",
+  "error.OWNER_PROTECTED":
+    "オーナーのロールを付与・変更できるのはオーナーのみです。オーナーに依頼してください。",
+  "error.UNSUPPORTED_CAPABILITY":
+    "カードのモデルがこのプロファイルのモデルと異なるか、プロファイルで許可されていないツールをカードが使っているか、プロファイルが存在しません。",
+  "error.REVISION_CONFLICT":
+    "ほかの人が先に変更しました。再読み込みしてから、もう一度お試しください。",
+  "error.PROFILE_DIGEST_MISMATCH":
+    "このリリースの作成後にプロファイルが変更されました。新しいリリースを作成してください。",
+  "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
+};

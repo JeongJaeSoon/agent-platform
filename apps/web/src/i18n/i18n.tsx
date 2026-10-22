@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { en } from "./en.ts";
+import { ja } from "./ja.ts";
 import { ko, type MessageKey } from "./ko.ts";
 
 export type { Locale, MessageKey };
@@ -18,8 +19,15 @@ export type Translate = (
   vars?: Record<string, string | number>,
 ) => string;
 
-const catalogs: Record<Locale, Record<MessageKey, string>> = { ko, en };
+const catalogs: Record<Locale, Record<MessageKey, string>> = { ko, ja, en };
 export const LOCALE_STORAGE_KEY = "ap.locale";
+
+/** Each language is offered in its own words, whatever the page shows now. */
+export const LOCALE_NAMES: Readonly<Record<Locale, string>> = {
+  ko: "한국어",
+  ja: "日本語",
+  en: "English",
+};
 
 export function translate(
   locale: Locale,
@@ -51,8 +59,15 @@ export function initialLocale(): Locale {
   } catch {
     // Storage can be blocked; the browser language still decides.
   }
-  const language = globalThis.navigator?.language ?? "";
-  return language.toLowerCase().startsWith("en") ? "en" : "ko";
+  const navigator = globalThis.navigator;
+  const languages = navigator?.languages?.length
+    ? navigator.languages
+    : [navigator?.language ?? ""];
+  for (const language of languages) {
+    const primary = language.toLowerCase().split("-")[0];
+    if (isLocale(primary)) return primary;
+  }
+  return "en";
 }
 
 interface I18nValue {

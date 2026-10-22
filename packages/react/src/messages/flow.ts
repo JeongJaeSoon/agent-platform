@@ -12,3 +12,10 @@ export const flowEn: Record<keyof typeof flowKo, string> = {
     "Your earlier input no longer fits this form, so it starts again from the first step.",
   "flow.reset.dismiss": "Dismiss",
 };
+
+export const flowJa: Record<keyof typeof flowKo, string> = {
+  "flow.stepCompleted": "完了",
+  "flow.reset":
+    "以前の入力内容が現在の画面と合わないため、最初のステップからやり直します。",
+  "flow.reset.dismiss": "閉じる",
+};

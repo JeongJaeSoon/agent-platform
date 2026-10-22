@@ -198,3 +198,106 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
     "Anything that uses this key stops working right away. You cannot undo this.",
   "apiKeys.revoked": "Key revoked.",
 };
+
+export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
+  "apiKeys.title": "API キー",
+  "apiKeys.guideTitle": "キーの種類",
+  "apiKeys.guide.personal.actsAs":
+    "発行した人として動作します。このキーで開始したセッションは、その人のものになります。",
+  "apiKeys.guide.personal.issuerLeaves":
+    "その人がワークスペースを離れるかアカウントが停止されるとすぐに使えなくなり、その人の現在のロールで許可された範囲を超えることはありません。",
+  "apiKeys.guide.personal.sessions":
+    "その人が閲覧できるセッションにアクセスできます。",
+  "apiKeys.guide.personal.approve":
+    "「リクエストへの回答」（sessions:approve）を含められます。",
+  "apiKeys.guide.service.actsAs":
+    "人ではなく、キー自体として動作します。このキーで開始したセッションはキーのものになります。",
+  "apiKeys.guide.service.issuerLeaves":
+    "発行者が離れても有効なままです。不要になったら自分で取り消してください。",
+  "apiKeys.guide.service.sessions":
+    "すべてのエージェントについて、ワークスペース全体に共有されたセッションと、このキーで開始したセッションにアクセスできます。",
+  "apiKeys.guide.service.approve":
+    "「リクエストへの回答」（sessions:approve）を含められます。",
+  "apiKeys.guide.agent.actsAs":
+    "サービスキーと同じく、キー自体として動作します。",
+  "apiKeys.guide.agent.issuerLeaves":
+    "発行者が離れても有効なままです。不要になったら自分で取り消してください。",
+  "apiKeys.guide.agent.sessions":
+    "サービスキーがアクセスできるセッションのうち、選択したエージェントのセッションのみにアクセスできます。",
+  "apiKeys.guide.agent.approve":
+    "「リクエストへの回答」（sessions:approve）は含められません。エージェントが人の代わりに承認することはありません。",
+  "apiKeys.nav": "キーの一覧",
+  "apiKeys.mineTitle": "自分のキー",
+  "apiKeys.mineIntro":
+    "あなたとして動作するキーです。CLI やスクリプトがあなたの権限の範囲で API を呼び出すときに使います。",
+  "apiKeys.service": "サービスキー",
+  "apiKeys.serviceIntro":
+    "人ではなく、ワークスペースやエージェントに属するキーです。発行した人が離れても動作し続けます。",
+  "apiKeys.new": "新しいキー",
+  "apiKeys.newPersonalTitle": "新しい個人キー",
+  "apiKeys.newServiceTitle": "新しいサービスキー",
+  "apiKeys.generate": "キーを作成",
+  "apiKeys.emptyMine": "まだ個人キーを作成していません。",
+  "apiKeys.emptyService": "サービスキーはまだありません。",
+  "apiKeys.survivesIssuerShort": "発行者が離れても有効",
+  "apiKeys.target": "対象",
+  "apiKeys.targetWorkspace": "ワークスペース全体（エージェント指定なし）",
+  "apiKeys.pickAgent": "エージェントを選択",
+  "apiKeys.agentHint":
+    "エージェントを選択すると、そのエージェントのセッションでのみ使えるエージェントキーになります。",
+  "apiKeys.noAgents": "管理しているエージェントがありません。",
+  "apiKeys.agentNeedsScope":
+    "権限を 1 つ以上選択してください。エージェントキーには sessions:approve を含められません。",
+  "apiKeys.agentNoApprove":
+    "エージェントキーでは使えません。エージェントキーは人の代わりに承認できません。",
+  "apiKeys.scopes": "権限",
+  "apiKeys.scope.read": "セッションの閲覧",
+  "apiKeys.scope.write": "セッションの作成",
+  "apiKeys.scope.approve": "リクエストへの回答",
+  "apiKeys.scope.control": "セッションの操作",
+  "apiKeys.scope.recover": "セッションの復旧",
+  "apiKeys.scopeHint.read":
+    "セッションとそのターン・イベント・レシート・使用量・共有設定、回答待ちのリクエストを閲覧します。",
+  "apiKeys.scopeHint.write": "セッションを開始し、メッセージを送信します。",
+  "apiKeys.scopeHint.approve":
+    "セッションが待っている権限リクエストと質問に回答します。",
+  "apiKeys.scopeHint.control":
+    "セッションの一時停止・再開・中断・終了と、プロファイルの変更を行います。",
+  "apiKeys.scopeHint.recover":
+    "復旧が必要なセッションの続け方を決めます。ターンの破棄、完了の確認、クローズ、新規開始、復元の再試行ができます。",
+  "apiKeys.expires": "有効期限（任意）",
+  "apiKeys.expiresHint": "空欄にすると、取り消すまでキーは有効なままです。",
+  "apiKeys.secretTitle": "新しいキー",
+  "apiKeys.createdTitle": "キーを作成しました",
+  "apiKeys.secretOnce":
+    "今すぐコピーしてください。この画面を離れると、値は二度と表示されません。",
+  "apiKeys.secret": "キー",
+  "apiKeys.copy": "コピー",
+  "apiKeys.copied": "コピーしました",
+  "apiKeys.copyFailed":
+    "コピーできませんでした。上の値を選択して手動でコピーしてください。",
+  "apiKeys.toList": "一覧に戻る",
+  "apiKeys.listTitle": "発行済みのキー",
+  "apiKeys.kind.personal": "個人キー",
+  "apiKeys.kind.service": "サービスキー",
+  "apiKeys.kind.agent": "エージェントキー",
+  "apiKeys.createdAt": "{at}に発行",
+  "apiKeys.expiresAt": "{at}に期限切れ",
+  "apiKeys.expiresSoon": "まもなく期限切れ · {at}",
+  "apiKeys.expiredAt": "期限切れ · {at}",
+  "apiKeys.noExpiry": "有効期限なし",
+  "apiKeys.approveYes": "承認可",
+  "apiKeys.approveNo": "承認不可",
+  "apiKeys.revokedAt": "{at}に取り消し",
+  "apiKeys.revoke": "取り消し",
+  "apiKeys.revokeFor": "{key}を取り消し",
+  "apiKeys.revokeTitle": "キー ID {id} を取り消しますか？",
+  "apiKeys.keyId": "ID {id}",
+  "apiKeys.idLabel": "ID",
+  "apiKeys.copyIdFor": "ID {id} をコピー",
+  "apiKeys.copyIdFailed":
+    "コピーできませんでした。ID を選択して手動でコピーしてください。",
+  "apiKeys.revokeConsequence":
+    "このキーを使っているものはすぐに動作しなくなります。この操作は元に戻せません。",
+  "apiKeys.revoked": "キーを取り消しました。",
+};

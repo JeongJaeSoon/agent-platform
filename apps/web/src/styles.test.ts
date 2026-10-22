@@ -18,6 +18,22 @@ describe("styles.css", () => {
       expect(name?.startsWith("ap-")).toBe(false);
   });
 
+  test("Japanese wraps between characters, not only at spaces", () => {
+    expect(css).toMatch(/:lang\(ja\) body \{\s*word-break: normal;/);
+  });
+
+  test("Japanese takes a Japanese face before Pretendard, so no word mixes faces", () => {
+    const stack =
+      css.match(/:lang\(ja\) \{\s*--ap-font-sans:([^;]+);/)?.[1] ?? "";
+    expect(stack.indexOf("Hiragino Sans")).toBeGreaterThan(-1);
+    expect(stack.indexOf("Hiragino Sans")).toBeLessThan(
+      stack.indexOf("Pretendard"),
+    );
+    expect(css).toMatch(
+      /\[lang="ja"\] \{\s*font-family: var\(--ap-font-sans\);/,
+    );
+  });
+
   test("steps at 768 and fixes nothing wider than 360px", () => {
     expect(css).toContain("@media (min-width: 48rem)");
     for (const [, value] of css.matchAll(
