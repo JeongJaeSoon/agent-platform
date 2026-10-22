@@ -469,6 +469,12 @@ export class WorkerHost {
   private async startUp(
     claim: BootstrapClaimResponse,
   ): Promise<RuntimeResumePlan | undefined> {
+    const repository = claim.workspace.repository;
+    if (repository === null) {
+      throw new Error(
+        "The session has no repository, and this worker cannot prepare a workspace without one",
+      );
+    }
     const prepared = await this.untilStopped(
       this.options.workspace
         .prepare({
@@ -486,8 +492,8 @@ export class WorkerHost {
     if (prepared === undefined || this.stopping !== undefined) return;
     this.logger.info("worker.workspace.prepared", {
       action: prepared,
-      repository_id: claim.workspace.repository.id,
-      branch: claim.workspace.repository.branch,
+      repository_id: repository.id,
+      branch: repository.branch,
     });
     const restoring = this.checkpoints
       .restorePlan(claim, this.preparation.signal)

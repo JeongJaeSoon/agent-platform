@@ -511,6 +511,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
 
       signal.throwIfAborted();
+      if (claim.workspace.repository === null) {
+        throw new Error("A session without a repository cannot be restored");
+      }
       const tree = await restoreCheckpointTree({
         keep: spool,
         origin: storableRepositoryUrl(claim.workspace.repository.url),
