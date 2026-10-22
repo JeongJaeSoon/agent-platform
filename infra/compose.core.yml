@@ -140,10 +140,10 @@ services:
       # On the forward proxy each would be a way round its route: the
       # provider with a key of the worker's own, outside cost accounting;
       # Gitea without a token; LocalStack, which takes any signature, into
-      # every session's prefix. fake-messages:4010 is config/fake-model's
-      # Messages API.
+      # every session's prefix. fake-messages:4010 and fake-mcp:4020 are
+      # config/fake-model's Messages API and remote MCP server.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443}
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,localstack:4566}
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:

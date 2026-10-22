@@ -161,12 +161,13 @@ worker 로그의 `worker.turn.interrupt.stage`를 같은 `session_id`·`turn_id`
 
 worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로그인이 없다. claim은 attempt마다 새로 만든 **egress token** 세 개만 준다(`runtime_config.provider.auth = {kind: "egress_token", token}`, `workspace.repository.access`, `object_store.access`). 세 token은 session credential과 수명이 같다. claim 재생이면 폐기하고 다시 발급하며, heartbeat가 연장하고, attempt가 끝나면 폐기한다. 각 token은 claim 시점의 profile fingerprint, 저장소 binding, 세션 object prefix에 묶여 있다.
 
-* **credential route:** egress proxy는 forward proxy(3128) 옆에 두 번째 listener `EGRESS_CREDENTIAL_PORT`(기본 3129)를 연다. 이 listener가 받는 요청은 아래 다섯 가지뿐이고, 나머지는 404다.
+* **credential route:** egress proxy는 forward proxy(3128) 옆에 두 번째 listener `EGRESS_CREDENTIAL_PORT`(기본 3129)를 연다. 이 listener가 받는 요청은 아래 여섯 가지뿐이고, 나머지는 404다.
   * `POST /provider/v1/messages`
   * `POST /provider/v1/messages/count_tokens`(query는 없거나 `?beta=true`)
   * `GET /repository/info/refs?service=git-upload-pack`
   * `POST /repository/git-upload-pack`
   * `/object-store/<bucket>/<key>` 아래의 S3 요청(아래 object store route)
+  * `POST`·`GET`·`DELETE /mcp/<name>`(아래 "원격 MCP 서버" 절)
 * **요청 하나의 처리:** proxy는 요청마다 API의 authorizer에 token을 묻는다. authorizer는 API의 별도 listener로, `EGRESS_AUTHORIZER_PORT`의 `POST /authorize`에서 `EGRESS_AUTHORIZER_TOKEN` bearer를 요구한다. 같은 listener의 `POST /usage`는 proxy가 Messages 호출의 usage를 보고하는 곳이다(94S-409, 아래 설치 상한 절). token이 지금 유효하면 authorizer는 upstream과 붙일 헤더를 돌려준다. 유효하다는 것은 lease가 DB 시계로 살아 있고 epoch가 맞으며 purpose가 일치한다는 뜻이다. proxy는 worker의 token을 떼고 카탈로그의 자격 증명을 붙여 upstream으로 보낸다.
 * **fail-closed:** 긍정 응답은 캐시하지 않는다. 그래서 authorizer가 죽어 있으면 503이고, attempt를 잃은 token은 다음 요청부터 401·409다.
 * **upstream 연결:** upstream은 forward proxy와 같은 allowlist·주소 규칙으로 판정한다. 연결은 판정한 주소에 하고, TLS 인증서는 카탈로그의 host 이름으로 요청을 보내기 전에 검증한다. redirect는 따라가지도 전달하지도 않는다(502, GitHub의 경우는 아래 "GitHub 저장소" 절). 오류 본문에 주입한 자격 증명이 되비쳐 있거나, 본문이 압축돼 있거나, 64 KiB를 넘으면 본문을 보류한다.
@@ -381,6 +382,28 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `p
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 가고, 카탈로그 전체의 revision은 기동 로그 `Session catalog loaded`에 남는다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다(94S-253). 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
+
+### 원격 MCP 서버 (94S-780)
+
+`PLATFORM_CONFIG_DIR`에 `mcp-servers.yaml`(최상위 키 `mcp_servers`)이 있으면 에이전트가 원격 MCP 서버 하나를 쓸 수 있다. 파일이 없으면 어떤 에이전트도 MCP 서버를 이름으로 가리키지 못한다. 서버는 streamable HTTP 하나뿐이고, 자격 증명은 에이전트의 서비스 계정 하나다(요청자 자격·OAuth는 없다).
+
+```yaml
+mcp_servers:
+  notion:                       # id: 소문자·숫자·`-`·`_`(연속 `__` 불가), 32자까지
+    url: https://mcp.example.com/mcp   # query 불가
+    credential_ref: mcp/notion  # card의 credential_refs에도 있어야 한다
+    auth:
+      kind: bearer
+      secret_id: prod/mcp/notion       # 또는 value_env
+    workspaces: [acme]          # 이 서버를 쓸 수 있는 workspace slug
+```
+
+- 에이전트 card는 `capabilities.mcp: [{server: notion}]`로 서버를 고르고, 쓸 도구를 `tool_policy.per_tool`에 `mcp__notion__<도구>: allow`로 적는다. release는 `allow`인 도구만 고정한다(`effective_tools.mcp`). `allow` 도구가 없거나, 카탈로그에 없는 서버거나, card가 `credential_ref`를 적지 않았으면 release를 만들 때 거절한다. 실행에는 이 이름이 연결돼 있어야 한다(아래 자격 연결 절).
+- worker는 서버 URL도 자격 증명도 받지 않는다. claim은 `runtime_config.mcp_servers[0]`에 이름·카탈로그 endpoint·binding(release·서버·URL·`credential_ref`의 해시)·`wem_` egress token을 주고, worker 프로세스 안의 relay가 engine 대신 proxy의 `/mcp/<name>` route로 부른다. 그래서 token은 engine의 argv·env에 없다. checkpoint fingerprint에는 binding만 들어간다.
+- proxy는 POST 본문을 다 읽고 JSON-RPC 메시지 하나(배치 불가)의 `method`와 `tools/call`의 도구 이름을 authorizer에 넘긴다. authorizer는 요청마다 다시 판정한다: token의 attempt가 세션을 쥐고 있는지, 서버가 release의 서버인지, 카탈로그의 그 서버가 claim 때와 같은지, `credential_ref`가 지금 연결돼 있는지, 세션의 workspace가 `workspaces`에 있는지, method가 `initialize`·`ping`·`tools/list`·`tools/call`·`notifications/*` 중 하나인지, 도구가 release에 `allow`로 고정됐는지. 도구·method 거절은 `403 FORBIDDEN`이고 receipt가 없다. 자격 거절(해제, workspace, 카탈로그 변경)은 `403 CREDENTIAL_UNBOUND`와 `call_mcp` receipt(`status: failed`, 이미 열린 교환을 끊은 것이면 `unknown`)를 남기고, worker에는 `egress denied: credential_unbound (receipt <id>)`로 알린다. 같은 attempt·turn의 같은 거절은 receipt 하나다.
+- upstream의 401은 worker에 403으로 가고 `WWW-Authenticate`는 떼어 낸다. 서비스 계정 자격은 운영자가 고칠 일이고, worker 쪽 MCP client가 로그인을 시도하면 안 된다.
+
+**배포 순서:** worker 이미지를 먼저, control plane(API·egress proxy)을 나중에 올린다. 옛 worker는 `runtime_config.mcp_servers`를 모르는 schema로 claim을 거절하므로, MCP 서버를 쓰는 release가 생기기 전에 새 worker가 깔려 있어야 한다.
 
 ### GitHub 저장소 (94S-626, 94S-627)
 
@@ -815,7 +838,8 @@ curl -s -b jar http://127.0.0.1:3000/v1/admin/sessions
 
 - 연결은 두 번 다시 검사한다. 활성화(`POST /v1/agents/{id}/activate`)는 release의 이름 중 연결되지 않은 것이 있으면 `409 CREDENTIAL_UNBOUND`이고 `error.details.missing`에 그 이름들이 있다. 새 세션(`POST /v1/sessions`에 `agent_release_id`)도 같은 검사를 판정(`session.submit`, `reason_code: credential_unbound`)에서 한 번 더 한다. 활성화 뒤에 해제했을 때를 막는 자리다. 세션을 받는 transaction은 그 에이전트의 살아 있는 연결 행을 잠그고 다시 읽는다. 그래서 동시에 온 해제는 세션이 들어간 뒤에 끝나고 실행 중 세션 수에 그 세션을 센다. 해제 전에 받은 세션을 같은 `Idempotency-Key`로 다시 보내면 원래 응답(`201`)이 돌아온다.
 - 세션 거절은 요청자에게 이름을 보여 주지 않는다. `error.details`는 안내 문구(`guidance`), 그 에이전트의 관리자 목록(`admins`, 관리자가 없으면 owner·admin), 연락 링크(`admin_link`, `mailto:`)다.
-- 해제는 실행 중인 세션을 멈추지 않는다. 그 세션은 끝날 때까지 자격을 쓰고, 다음 세션부터 막힌다. 바로 막으려면 외부 서비스에서 그 자격을 폐기한다. 해제 응답의 `revoke_notice`가 같은 말을 한다.
+- 해제는 지금 도는 turn을 멈추지 않지만, 실행 중인 세션도 다음 메시지부터 막힌다(`POST /v1/sessions/{id}/messages`가 `409 CREDENTIAL_UNBOUND`, `error.details.receipt_id`의 `append_message` receipt). 세션 시작 거절도 `create_session` receipt를 `receipt_id`로 준다. 원격 MCP 호출은 다음 요청부터, 이미 열린 교환은 regrant 주기(30초) 안에 끊긴다. 이미 upstream에 보낸 POST는 끝까지 실행된다. 바로 막으려면 외부 서비스에서 그 자격을 폐기한다. 해제 응답의 `revoke_notice`가 같은 말을 한다.
+- 해제한 이름을 다시 연결하면, 해제 때문에 막혔던 실행 중 세션도 다음 메시지와 다음 MCP 호출부터 다시 돈다. 연결 상태는 요청마다 읽고 세션에 저장하지 않기 때문이다.
 - 에이전트 신원(M8)에 묶인 이름은 다른 에이전트에 연결하지 못한다(`409 CREDENTIAL_REF_IN_USE`). 거꾸로도 같다. 한 이름에 대한 두 경로는 같은 advisory lock과 trigger(`credential_bindings_exclusive_target`)로 막는다.
 - 연결·해제는 `bind_credential`·`unbind_credential` receipt와 `credential.bind` 판정 행을 남긴다. receipt `result`에는 이름(`credential_ref`)만 있다.
 
