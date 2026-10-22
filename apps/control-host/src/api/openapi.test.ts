@@ -212,13 +212,26 @@ describe("OpenAPI document", () => {
 
   test("puts every declared tag in exactly one tag group", () => {
     const document = buildOpenApiDocument();
-    expect(document["x-tagGroups"].map((group) => group.name)).toEqual([
-      "Getting started",
-      "Agents",
-      "Sessions",
-      "Workspace management",
-      "Administration",
-      "Operations",
+    expect(document["x-tagGroups"]).toEqual([
+      { name: "Getting started", tags: ["Auth", "API keys"] },
+      { name: "Agents", tags: ["Agents"] },
+      {
+        name: "Sessions",
+        tags: [
+          "Sessions",
+          "Messages & turns",
+          "Events",
+          "Pending requests",
+          "Session control",
+          "Push requests",
+        ],
+      },
+      {
+        name: "Workspace management",
+        tags: ["Members", "Teams", "Linked accounts", "Workspace settings"],
+      },
+      { name: "Administration", tags: ["Admin", "Recovery"] },
+      { name: "Operations", tags: ["Health", "Limits & receipts"] },
     ]);
     const grouped = document["x-tagGroups"].flatMap((group) => group.tags);
     expect([...grouped].sort()).toEqual(

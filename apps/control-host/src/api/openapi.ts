@@ -319,7 +319,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Admin",
     description:
-      "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. From a browser session; owners and admins, and only an owner decides recovery for another's session.",
+      "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. Owners and admins; only an owner decides recovery for another's session.",
   },
   {
     name: "Members",
