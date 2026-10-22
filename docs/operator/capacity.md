@@ -150,6 +150,6 @@ manifest `outputs`가 든 릴리스는 control-host(api) **모든** 인스턴스
 
 ## 관련 문서
 
-- [operations.md § scheduler·worker 컨테이너·egress 설정](../operations.md#schedulerworker-컨테이너egress-설정): `WORKER_MEMORY_MB` 등 환경 변수
-- [operations.md § worker workspace의 상한과 회수](../operations.md#worker-workspace의-상한과-회수): workspace quota
+- [configuration.md § scheduler·worker 컨테이너·egress 설정](configuration.md#schedulerworker-컨테이너egress-설정): `WORKER_MEMORY_MB` 등 환경 변수
+- [execution.md § worker workspace의 상한과 회수](execution.md#worker-workspace의-상한과-회수): workspace quota
 - [kubernetes-deployment.md](kubernetes-deployment.md): chart 설치와 업그레이드
