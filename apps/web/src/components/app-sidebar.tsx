@@ -141,7 +141,8 @@ export function AppSidebar({
       data-open={openBelowMd}
       // Only the nav scrolls, so the user block stays in view at any height;
       // below md the open menu is capped to the screen under the header.
-      className="hidden max-h-[calc(100dvh-3.25rem)] flex-col gap-2 bg-rail px-2 py-3 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none"
+      // z-10: the language submenu opens past the rail, over the page.
+      className="hidden max-h-[calc(100dvh-3.25rem)] flex-col gap-2 bg-rail px-2 py-3 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none"
     >
       <div className="hidden h-11 shrink-0 flex-col justify-center px-2 md:flex">
         <p className="m-0 truncate font-semibold text-control leading-5">
