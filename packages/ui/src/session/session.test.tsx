@@ -239,7 +239,7 @@ const SESSION: SessionSummary = {
 };
 
 describe("SessionRow", () => {
-  test("짧은 id 링크가 전체 id로 읽히고 없는 값은 none으로 그린다", () => {
+  test("행 링크가 전체 id로 읽히고 런타임과 대기 작업을 그린다", () => {
     const { getByRole, container } = render(
       <SessionRow
         session={SESSION}
@@ -249,14 +249,23 @@ describe("SessionRow", () => {
     );
     const link = getByRole("link", { name: SESSION.id });
     expect(link.getAttribute("href")).toBe("/sessions/abc");
-    expect(link.textContent).toBe("0192f0c4");
+    expect(link.textContent).toBe(SESSION.id);
+    expect(link.closest('[role="cell"]')).toBeTruthy();
+    const row = link.closest('[role="row"]');
+    expect(row?.querySelectorAll("a")).toHaveLength(1);
+    expect(
+      Array.from(row?.children ?? []).every(
+        (cell) => cell.getAttribute("role") === "cell",
+      ),
+    ).toBe(true);
+    expect(link.className).toContain("after:inset-0");
+    expect(link.className).toContain("focus-visible:after:ring-2");
     const text = container.textContent ?? "";
     for (const part of [
       "work: status:running",
       "session: admission:active",
       "queued:2",
       "runtime: claude-default · claude_agent_sdk 1.2.3",
-      "last none",
     ]) {
       expect(text).toContain(part);
     }

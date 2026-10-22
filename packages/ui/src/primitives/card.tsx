@@ -2,8 +2,6 @@ import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../lib/cn.ts";
 
-// shadcn/ui new-york Card, unchanged apart from the imports.
-
 export function Card({
   className,
   ...props
@@ -12,7 +10,7 @@ export function Card({
     <div
       data-slot="card"
       className={cn(
-        "flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
+        "flex flex-col gap-3 rounded-lg border bg-card py-4 text-card-foreground",
         className,
       )}
       {...props}
@@ -28,7 +26,7 @@ export function CardHeader({
     <div
       data-slot="card-header"
       className={cn(
-        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
+        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-4 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-4",
         className,
       )}
       {...props}
@@ -43,7 +41,7 @@ export function CardTitle({
   return (
     <div
       data-slot="card-title"
-      className={cn("font-semibold leading-none", className)}
+      className={cn("font-semibold text-body leading-5", className)}
       {...props}
     />
   );
@@ -56,7 +54,7 @@ export function CardDescription({
   return (
     <div
       data-slot="card-description"
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-muted-foreground text-body", className)}
       {...props}
     />
   );
@@ -85,7 +83,7 @@ export function CardContent({
   return (
     <div
       data-slot="card-content"
-      className={cn("px-6", className)}
+      className={cn("px-4", className)}
       {...props}
     />
   );
@@ -98,7 +96,7 @@ export function CardFooter({
   return (
     <div
       data-slot="card-footer"
-      className={cn("flex items-center px-6 [.border-t]:pt-6", className)}
+      className={cn("flex items-center px-4 [.border-t]:pt-4", className)}
       {...props}
     />
   );

@@ -6,6 +6,14 @@
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @theme inline {
+  --text-caption: var(--ap-text-xs);
+  --text-control: var(--ap-text-sm);
+  --text-body: var(--ap-text-label);
+  --text-title: var(--ap-text-title);
+  --text-title--line-height: var(--ap-leading-title);
+  --text-title--letter-spacing: -0.025rem;
+  --text-number: var(--ap-text-number);
+  --text-number--line-height: var(--ap-leading-number);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

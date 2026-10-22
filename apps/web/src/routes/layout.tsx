@@ -104,8 +104,8 @@ export function AuthedLayout() {
   return (
     // Header, sidebar, main in reading order: below md the open menu unfolds
     // under its button; from md on the grid puts the sidebar on the left.
-    <div className="flex flex-1 flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
-      <header className="flex min-h-14 items-center gap-3 border-b bg-card px-4 md:col-start-2 md:row-start-1 md:px-8">
+    <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
+      <header className="flex min-h-[3.25rem] items-center gap-3 border-b bg-card px-4 md:col-start-2 md:row-start-1 md:px-6">
         <Button
           type="button"
           variant="outline"
@@ -160,7 +160,7 @@ function PageTrail({
   const { t } = useI18n();
   const here = navItemFor(groups, usePathname());
   return (
-    <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-sm">
+    <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-control">
       {here ? (
         <>
           <span className="text-muted-foreground">{t(here.group.label)}</span>
@@ -180,10 +180,10 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
   return (
     <Main
       className={cn(
-        "web-shell__main mx-auto flex w-full min-w-0 flex-col gap-4 px-4 py-6 md:col-start-2 md:row-start-2 md:px-8 md:py-8",
+        "web-shell__main mx-auto flex w-full min-w-0 flex-col p-4 md:col-start-2 md:row-start-2 md:px-6 md:py-6",
         usesReadingColumn(usePathname())
           ? "max-w-[var(--ap-layout-reading-width)]"
-          : "max-w-6xl",
+          : "max-w-[var(--ap-layout-content-width)]",
       )}
     >
       {children}

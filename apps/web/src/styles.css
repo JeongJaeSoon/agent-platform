@@ -47,7 +47,8 @@ body {
   background: var(--ap-color-canvas);
   color: var(--ap-color-foreground);
   font-family: var(--ap-font-sans);
-  line-height: var(--ap-leading-normal);
+  font-size: var(--ap-text-label);
+  line-height: 1.5;
   /* Korean breaks between words, not syllables; a word too long still wraps. */
   word-break: keep-all;
   overflow-wrap: break-word;
