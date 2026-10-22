@@ -49,6 +49,7 @@ import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { RowLines, RowList, RowListItem } from "../components/table.tsx";
 import {
   errorKey,
   type MessageKey,
@@ -60,7 +61,7 @@ const PAGE = "flex flex-col gap-6";
 const TITLE = "m-0 font-semibold text-xl";
 const SECTION = "flex flex-col gap-3";
 const SECTION_TITLE = "m-0 font-semibold text-lg";
-const FORM = "flex max-w-xl flex-col items-start gap-4";
+const FORM = "flex flex-col items-start gap-4";
 const PRIMARY = "block break-words font-semibold";
 const SECONDARY =
   "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
@@ -276,7 +277,7 @@ function IssuedSecret({
   }, []);
   return (
     <section
-      className="flex max-w-xl flex-col items-start gap-3 rounded-md border bg-card p-4 text-card-foreground"
+      className="flex flex-col items-start gap-3 rounded-md border bg-card p-4 text-card-foreground"
       data-status="secret"
       aria-label={t("apiKeys.secretTitle")}
     >
@@ -679,7 +680,7 @@ function KeyList({
       {items.length === 0 ? (
         <EmptyState title={t("apiKeys.empty")} />
       ) : (
-        <ul className="m-0 flex list-none flex-col p-0">
+        <RowList variant="joined">
           {items.map((key) => {
             const kind = kindOf(key);
             const agent = agentName(key.agent_id);
@@ -688,12 +689,12 @@ function KeyList({
                 ? t(KIND_NAME[kind])
                 : `${t(KIND_NAME[kind])} · ${agent}`;
             return (
-              <li
+              <RowListItem
                 key={key.id}
-                className="flex flex-col items-start gap-1 border-b py-3 sm:flex-row sm:items-center sm:gap-3"
+                className="flex-col items-start sm:flex-row sm:items-center"
                 data-revoked={key.revoked_at !== null}
               >
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <RowLines>
                   <span className="flex flex-wrap items-center gap-2">
                     <KindBadge kind={kind} />
                     {agent === null ? null : (
@@ -716,7 +717,7 @@ function KeyList({
                       {t("apiKeys.survivesIssuerShort")}
                     </span>
                   ) : null}
-                </span>
+                </RowLines>
                 {key.revoked_at ? (
                   <Badge variant="secondary">
                     {t("apiKeys.revokedAt", {
@@ -737,10 +738,10 @@ function KeyList({
                     {t("apiKeys.revoke")}
                   </Button>
                 )}
-              </li>
+              </RowListItem>
             );
           })}
-        </ul>
+        </RowList>
       )}
       <ConfirmDialog
         open={confirming !== null}

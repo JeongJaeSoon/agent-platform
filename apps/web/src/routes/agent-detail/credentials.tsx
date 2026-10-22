@@ -15,14 +15,13 @@ import { permissionReason, useRole } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
+import { RowLines, RowList, RowListItem } from "../../components/table.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import {
   ALERT,
   ALERT_TITLE,
   HINT,
-  LIST,
-  LIST_ITEM,
   MUTED,
   PRIMARY,
   SECONDARY,
@@ -162,28 +161,24 @@ export function Credentials({
       ) : (
         <>
           {unbound.length > 0 ? (
-            <ul
-              className={LIST}
-              aria-label={t("agent.credentials.unboundList")}
-            >
+            <RowList aria-label={t("agent.credentials.unboundList")}>
               {unbound.map((ref) => (
-                <li
+                <RowListItem
                   key={ref}
                   className={cn(
-                    LIST_ITEM,
                     missing.includes(ref) &&
                       "border-[var(--ap-tone-attention-border)]",
                   )}
                   data-missing={missing.includes(ref)}
                 >
-                  <span className="min-w-0 flex-1">
+                  <RowLines>
                     <span className={PRIMARY}>{ref}</span>
                     <span className={SECONDARY}>
                       {missing.includes(ref)
                         ? t("agent.credentials.neededToActivate")
                         : t("agent.credentials.namedByCard")}
                     </span>
-                  </span>
+                  </RowLines>
                   <Button
                     type="button"
                     variant="outline"
@@ -194,9 +189,9 @@ export function Credentials({
                   >
                     {t("agent.credentials.bind")}
                   </Button>
-                </li>
+                </RowListItem>
               ))}
-            </ul>
+            </RowList>
           ) : null}
           {active.length === 0 ? (
             <p className={MUTED}>
@@ -207,17 +202,17 @@ export function Credentials({
               )}
             </p>
           ) : (
-            <ul className={LIST} aria-label={t("agent.credentials.boundList")}>
+            <RowList aria-label={t("agent.credentials.boundList")}>
               {active.map((binding) => (
-                <li key={binding.id} className={LIST_ITEM}>
-                  <span className="min-w-0 flex-1">
+                <RowListItem key={binding.id}>
+                  <RowLines>
                     <span className={PRIMARY}>{binding.credential_ref}</span>
                     <span className={SECONDARY}>
                       {t("agent.credentials.running", {
                         count: binding.running_sessions,
                       })}
                     </span>
-                  </span>
+                  </RowLines>
                   <Button
                     type="button"
                     variant="outline"
@@ -230,9 +225,9 @@ export function Credentials({
                   >
                     {t("agent.credentials.revoke")}
                   </Button>
-                </li>
+                </RowListItem>
               ))}
-            </ul>
+            </RowList>
           )}
         </>
       )}

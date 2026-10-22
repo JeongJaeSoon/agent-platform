@@ -21,6 +21,15 @@ import { AdministeredAgents } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import {
+  RowLines,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/table.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
@@ -105,36 +114,23 @@ export function AgentsScreen() {
         <p className="web-page__empty">{t("agents.empty")}</p>
       ) : (
         <div className="@container overflow-hidden rounded-lg border bg-card">
-          <table className="w-full border-collapse text-control">
-            <thead className="bg-surface-sunken text-caption text-muted-foreground">
-              <tr className="h-9 border-b">
-                <th scope="col" className={cn(CELL, "font-medium")}>
-                  {t("agents.column.agent")}
-                </th>
-                <th scope="col" className={cn(CELL, FIT, "font-medium")}>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">{t("agents.column.agent")}</TableHead>
+                <TableHead scope="col" className={cn(FIT, LAST_WHEN_NARROW)}>
                   {t("agents.column.state")}
-                </th>
-                <th
-                  scope="col"
-                  className={cn(CELL, FIT, WIDE, "text-right font-medium")}
-                >
+                </TableHead>
+                <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
                   {t("agents.column.updated")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.data.items.map((agent) => {
-                const updated = (
-                  <time dateTime={agent.updated_at}>
-                    {formatTimestamp(agent.updated_at, locale)}
-                  </time>
-                );
-                return (
-                  <tr
-                    key={agent.id}
-                    className="h-11 border-b align-middle last:border-b-0"
-                  >
-                    <td className={cn(CELL, "py-2")}>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {agents.data.items.map((agent) => (
+                <TableRow key={agent.id}>
+                  <TableCell>
+                    <RowLines>
                       <Link
                         to="/agents/$id"
                         params={{ id: agent.id }}
@@ -142,44 +138,48 @@ export function AgentsScreen() {
                       >
                         {agent.name}
                       </Link>
-                      <span className="block font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
+                      <span className="font-mono text-caption text-muted-foreground [overflow-wrap:anywhere]">
                         <span className="sr-only">{t("agents.slug")} </span>
                         {agent.slug}
                       </span>
-                      <span className="block text-caption text-muted-foreground @[480px]:hidden">
+                      <span className="text-caption text-muted-foreground @[480px]:hidden">
                         {t("agents.updated", {
                           at: formatTimestamp(agent.updated_at, locale),
                         })}
                       </span>
-                    </td>
-                    <td className={cn(CELL, FIT)}>
-                      <AgentStateBadge agent={agent} />
-                    </td>
-                    <td
-                      className={cn(
-                        CELL,
-                        FIT,
-                        WIDE,
-                        "text-right text-caption text-muted-foreground",
-                      )}
-                    >
-                      {updated}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </RowLines>
+                  </TableCell>
+                  <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>
+                    <AgentStateBadge agent={agent} />
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      FIT,
+                      WIDE,
+                      "text-right text-caption text-muted-foreground",
+                    )}
+                  >
+                    <time dateTime={agent.updated_at}>
+                      {formatTimestamp(agent.updated_at, locale)}
+                    </time>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
   );
 }
 
-const CELL = "px-4 text-left";
 // Shrinks the column to its content so the name column takes the rest.
 const FIT = "w-px whitespace-nowrap";
 const WIDE = "hidden @[480px]:table-cell";
+// The hidden time column is still the DOM's last cell, so below 480px the
+// state cell takes the outer inset itself.
+const LAST_WHEN_NARROW =
+  "pr-[var(--ap-row-padding-x)] @[480px]:pr-[calc(var(--ap-row-padding-x)/2)]";
 
 type AgentState = "draft" | Agent["status"];
 type AgentSummary = Pick<Agent, "status" | "active_release_id">;
