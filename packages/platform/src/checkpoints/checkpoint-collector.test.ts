@@ -642,6 +642,63 @@ describe("against a finalize in flight", () => {
     ).toBe(false);
   });
 
+  test("a kept checkpoint keeps the outputs it names, its own and those inherited from a collected revision", async () => {
+    const part = await transcriptPart(0);
+    // Uploaded into the directory the next `publish` writes its manifest to.
+    const output = async (revision: number, body: string, path: string) => {
+      const manifestRef = manifestRefFor(
+        sessionId,
+        revision,
+        "attempt-a",
+        (publishes + 1).toString(16).padStart(32, "0"),
+      );
+      const bytes = encode(body);
+      return {
+        ...(await upload(
+          `${manifestRef.slice(0, manifestRef.lastIndexOf("/") + 1)}outputs/${sha256(bytes)}`,
+          bytes,
+        )),
+        path,
+      };
+    };
+    const finalizeAs = async (published: Awaited<ReturnType<typeof publish>>) =>
+      expect(
+        await service().finalize({
+          checkpoint: published.checkpoint,
+          fence: fenceOf("attempt-a"),
+          now: new Date(),
+          sessionId,
+          turnId: null,
+        }),
+      ).toMatchObject({ outcome: "committed" });
+
+    const report = await output(0, "# report\n", "out/report.md");
+    const draft = await output(0, "draft\n", "out/draft.md");
+    const revision0 = await publish(0, "attempt-a", [part], (manifest) => ({
+      ...manifest,
+      outputs: [report, draft],
+    }));
+    await finalizeAs(revision0);
+    const chart = await output(1, "chart\n", "out/chart.csv");
+    await finalizeAs(
+      await publish(1, "attempt-a", [part], (manifest) => ({
+        ...manifest,
+        outputs: [chart, report],
+      })),
+    );
+
+    await collector({ maxRestoreFallbacks: 0 }).collectSession(sessionId, {
+      dryRun: false,
+    });
+
+    expect(await present(versionOf(report))).toBe(true);
+    expect(await present(versionOf(chart))).toBe(true);
+    expect(await present(versionOf(draft))).toBe(false);
+    expect(
+      await present(revision0.versions[0] as { key: string; version: string }),
+    ).toBe(false);
+  });
+
   test("finalize refuses another publish's untracked file when its executable bit differs", async () => {
     const part = await transcriptPart(0);
     const revision0 = await commit(0, "attempt-a", [part]);

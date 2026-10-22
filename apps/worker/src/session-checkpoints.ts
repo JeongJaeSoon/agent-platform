@@ -28,6 +28,7 @@ import {
   type CheckpointCodec,
   type CheckpointManifest,
   type CheckpointObjectStore,
+  type CheckpointOutput,
   type CheckpointPreparation,
   type CheckpointTranscripts,
   DEFAULT_MAX_MANIFEST_BYTES,
@@ -42,6 +43,8 @@ import {
   type RuntimeFingerprint,
   restoreCwdRefusal,
   runtimeFor,
+  type StoredOutput,
+  storedOutputs,
   TRANSCRIPT_LIMITS,
   TRANSCRIPT_MIRROR_DIRECTORY,
   type TranscriptLimits,
@@ -85,6 +88,12 @@ import {
   type WorkspaceCaptureLimits,
   type WorkspaceCaptureResult,
 } from "./workspace-capture.ts";
+import {
+  indexOutputs,
+  OUTPUT_DIRECTORY,
+  type OutputIndex,
+  type OutputLimits,
+} from "./workspace-outputs.ts";
 
 const UPLOAD_CONCURRENCY = 8;
 /** Objects a restore downloads at once, each streamed and verified to disk. */
@@ -133,6 +142,8 @@ export type SessionCheckpointsOptions = {
     markNewFiles?: boolean;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
+  /** `DEFAULT_OUTPUT_LIMITS` unless a test sets smaller ones. */
+  outputLimits?: OutputLimits;
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
   transcriptLimits?: TranscriptLimits;
   now?: () => Date;
@@ -162,6 +173,7 @@ type BundleChain = {
 
 type PublishedCheckpoint = BundleChain & {
   untracked: readonly WorkspaceArtifact[];
+  outputs: readonly StoredOutput[];
 };
 
 /**
@@ -560,6 +572,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           links: [...bases, manifest.workspace.bundle],
           tips: staged.tips,
           untracked: manifest.workspace.untracked.map(pinned),
+          // As the manifest names them: finalize lets the next one inherit
+          // exactly that ref, and the restore plan does not carry them.
+          outputs: storedOutputs(manifest.outputs),
         },
       };
       restored = true;
@@ -1113,6 +1128,55 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       ),
     );
 
+    // Inherited by digest from the checkpoint this one builds on, whatever
+    // its bundle chain did, since finalize vouches for that pointer's refs.
+    const parent =
+      bound.committed?.revision === request.revision - 1
+        ? bound.committed
+        : undefined;
+    const earlierOutputs = new Map(
+      parent?.outputs
+        .filter((ref) => ref.version !== undefined)
+        .map((ref) => [ref.sha256, ref]),
+    );
+    const uploadedOutputs = new Map<string, ObjectRef>();
+    let outputsInherited = 0;
+    // A workspace without out/ publishes and logs exactly what it did before.
+    const hasOutputs = await lstat(
+      join(this.#options.workspaceRoot, OUTPUT_DIRECTORY),
+    ).then(
+      () => true,
+      () => false,
+    );
+    const indexed: OutputIndex = !hasOutputs
+      ? { dropped: 0, outputs: [] }
+      : await timer.time("outputs", () =>
+          indexOutputs({
+            workspaceRoot: this.#options.workspaceRoot,
+            ...(this.#options.outputLimits === undefined
+              ? {}
+              : { limits: this.#options.outputLimits }),
+            store: async ({ bytes, path }) => {
+              const digest = sha256(bytes);
+              const earlier = earlierOutputs.get(digest);
+              if (earlier !== undefined && earlier.bytes === bytes.byteLength) {
+                outputsInherited += 1;
+                timer.reused(1);
+                const { path: _path, ...ref } = earlier;
+                return { ...ref, path };
+              }
+              let ref = uploadedOutputs.get(digest);
+              if (ref === undefined) {
+                ref = refOf(`${directory}outputs/${digest}`, bytes);
+                await upload(ref.key, bytes);
+                ref = versioned(ref);
+                uploadedOutputs.set(digest, ref);
+              }
+              return { ...ref, path };
+            },
+          }),
+        );
+
     const transcripts = await timer.time("transcript", () =>
       bound.store
         .captureTranscripts(preparation.checkpoint.resume)
@@ -1150,7 +1214,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (oversized !== undefined) throw new TranscriptLimitReached(oversized);
     // Finalize refuses a manifest over either limit only after everything it
     // names was uploaded, so it is refused here first.
-    const referenced =
+    const restoring =
       1 +
       bases.length +
       untracked.length +
@@ -1159,16 +1223,36 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         (total, revision) => total + revision.parts.length,
         0,
       );
+    // Outputs get only the objects restoring leaves; the ones past that were
+    // uploaded but are dropped, not the checkpoint. Indexing after the
+    // transcripts would put the uploads between their capture and the
+    // checks above.
+    let room = DEFAULT_MAX_MANIFEST_OBJECTS - restoring;
+    let outputsDropped = indexed.dropped;
+    const listed = indexed.outputs.filter((output) => {
+      if ("omitted" in output) return true;
+      if (room > 0) {
+        room -= 1;
+        return true;
+      }
+      outputsDropped += 1;
+      return false;
+    });
+    const referenced = restoring + storedOutputs(listed).length;
     if (referenced > DEFAULT_MAX_MANIFEST_OBJECTS) {
       throw new PublishFailure(
         "manifest",
         `the manifest would name ${referenced} objects, over the ${DEFAULT_MAX_MANIFEST_OBJECTS} the control plane reads`,
       );
     }
-    const manifest: CheckpointManifest = {
-      createdAt: (this.#options.now?.() ?? new Date()).toISOString(),
+    const createdAt = (this.#options.now?.() ?? new Date()).toISOString();
+    const manifestOf = (
+      outputs: readonly CheckpointOutput[],
+    ): CheckpointManifest => ({
+      createdAt,
       cwd: this.#options.workspaceRoot,
       engine: preparation.checkpoint.engine,
+      ...(outputs.length === 0 ? {} : { outputs }),
       resume: preparation.checkpoint.resume,
       revision: request.revision,
       runtime: bound.runtime,
@@ -1181,8 +1265,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         gitCommit: capture.gitCommit,
         untracked: untracked.map(versioned),
       },
-    };
-    const encoded = this.#codec.encode(manifest);
+    });
+    let manifest = manifestOf(listed);
+    let encoded = this.#codec.encode(manifest);
+    let outputsRefused = indexed.refused;
+    // The index does not restore anything, so an index too long to read
+    // leaves the checkpoint without it rather than fail it.
+    if (
+      encoded.bytes.byteLength > DEFAULT_MAX_MANIFEST_BYTES &&
+      manifest.outputs !== undefined
+    ) {
+      outputsRefused = `listing ${manifest.outputs.length} outputs takes the manifest to ${encoded.bytes.byteLength} bytes, over the ${DEFAULT_MAX_MANIFEST_BYTES} the control plane reads`;
+      manifest = manifestOf([]);
+      encoded = this.#codec.encode(manifest);
+    }
+    const outputs = manifest.outputs ?? [];
     timer.manifest(encoded.bytes.byteLength);
     if (encoded.bytes.byteLength > DEFAULT_MAX_MANIFEST_BYTES) {
       throw new PublishFailure(
@@ -1210,6 +1307,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...capture.bundle.tips,
       ],
       untracked: manifest.workspace.untracked,
+      outputs: storedOutputs(outputs),
     };
     this.#options.logger.info("worker.checkpoint.published", {
       revision: request.revision,
@@ -1223,6 +1321,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       untracked_changed: untracked.length - unchanged,
       untracked_unchanged: unchanged,
       untracked_uploads: distinct.size,
+      ...(hasOutputs
+        ? {
+            outputs: outputs.length,
+            outputs_too_large: outputs.length - storedOutputs(outputs).length,
+            outputs_dropped: outputsDropped,
+            outputs_inherited: outputsInherited,
+            outputs_uploads: uploadedOutputs.size,
+            ...(outputsRefused === undefined
+              ? {}
+              : { outputs_refused: outputsRefused }),
+          }
+        : {}),
       manifest_bytes: encoded.bytes.byteLength,
       bundle_bytes: bundle.bytes,
       base_bundles: bases.length,
