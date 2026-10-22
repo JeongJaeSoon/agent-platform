@@ -59,7 +59,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 ## 누가 내용을 보나
 
-세션 이벤트는 그 세션을 만든 주체(principal의 `ownerId`)만 `sessions:read` scope로 읽는다. 다른 주체의 세션은 404다(`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). scope는 HTTP 경계에서 `apps/control-host/src/api/scope-policy.ts`가 검사한다.
+세션 이벤트는 `sessions:read` scope를 가진 주체가 그 세션을 볼 수 있을 때만 읽는다(`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). 먼저 세션이 주체와 같은 범위에 있어야 한다. 사람은 자기 workspace, API key는 그 key의 owner다(`packages/contracts/src/musterrolle/authorization.ts`의 `ownerScopeOf`). 그 안에서 세션의 공유 범위가 `workspace`(한 번도 바꾸지 않은 세션의 기본값)이면 workspace 구성원 모두가 읽고, `people`·`team`이면 만든 사람과 지정된 사람·팀 구성원만 읽는다. key가 만든 세션은 그 key가 만든 사람 자리에 선다(`packages/db/src/session-shares.ts`의 `sessionVisibleTo`). 볼 수 없는 세션은 404다. 공유 범위를 바꾸는 법과 owner·admin의 감사 열람은 [operations.md](../operations.md)의 '세션 공유 범위와 감사 열람' 절에 있다. scope는 HTTP 경계에서 `apps/control-host/src/api/scope-policy.ts`가 검사한다.
 
 ## 보존 기간
 
