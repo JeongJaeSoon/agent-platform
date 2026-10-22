@@ -18,6 +18,10 @@ describe("styles.css", () => {
       expect(name?.startsWith("ap-")).toBe(false);
   });
 
+  test("Japanese wraps between characters, not only at spaces", () => {
+    expect(css).toMatch(/:lang\(ja\) body \{\s*word-break: normal;/);
+  });
+
   test("steps at 768 and fixes nothing wider than 360px", () => {
     expect(css).toContain("@media (min-width: 48rem)");
     for (const [, value] of css.matchAll(

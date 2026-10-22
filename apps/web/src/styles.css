@@ -54,6 +54,12 @@ body {
   overflow-wrap: break-word;
 }
 
+/* Japanese has no spaces, so keep-all would leave a whole sentence unbroken
+   and push the page sideways; it wraps between characters instead. */
+:lang(ja) body {
+  word-break: normal;
+}
+
 *,
 *::before,
 *::after {
