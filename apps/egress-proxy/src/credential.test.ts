@@ -13,6 +13,7 @@ import {
   bodyReservation,
   type CredentialProxyServer,
   type EgressGrant,
+  mcpCallOf,
   parseGrant,
   responseHeaders,
   routeOf,
@@ -67,6 +68,70 @@ describe("routeOf", () => {
     ] as const) {
       expect(routeOf(method, path, search)).toBeNull();
     }
+  });
+
+  test("routes one remote MCP server's URL for the streamable HTTP methods", () => {
+    for (const method of ["POST", "GET", "DELETE"]) {
+      expect(routeOf(method, "/mcp/fake", "")).toEqual({
+        purpose: "mcp",
+        server: "fake",
+        path: "",
+        search: "",
+      });
+    }
+    expect(routeOf("POST", "/mcp/my_srv-2", "")).toMatchObject({
+      server: "my_srv-2",
+    });
+    for (const [method, path, search] of [
+      ["PUT", "/mcp/fake", ""],
+      ["POST", "/mcp/fake", "?x=1"],
+      ["POST", "/mcp/fake/", ""],
+      ["POST", "/mcp/fake/tools", ""],
+      ["POST", "/mcp/", ""],
+      ["POST", "/mcp/Fake", ""],
+      ["POST", "/mcp/a__b", ""],
+      ["POST", "/mcp/../provider", ""],
+    ] as const) {
+      expect(routeOf(method, path, search)).toBeNull();
+    }
+  });
+});
+
+describe("mcpCallOf", () => {
+  const of = (body: string) => mcpCallOf(new TextEncoder().encode(body));
+  test("names the method and a tools/call's tool, and sends one canonical copy", () => {
+    expect(of('{"jsonrpc":"2.0","id":1,"method":"initialize"}')?.call).toEqual({
+      method: "initialize",
+      tool: null,
+    });
+    const call = of(
+      '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"whoami","name":"other"}}',
+    );
+    expect(call?.call).toEqual({ method: "tools/call", tool: "other" });
+    expect(new TextDecoder().decode(call?.body)).toBe(
+      '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"other"}}',
+    );
+    expect(of('{"jsonrpc":"2.0","id":3,"result":{}}')?.call).toEqual({
+      method: null,
+      tool: null,
+    });
+  });
+
+  test("refuses a batch, a lookalike key and anything that is not one message", () => {
+    for (const body of [
+      '[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"x"}}]',
+      '{"method":"tools/list","Method":"tools/call"}',
+      '{"method":"tools/call","params":{"name":"x","NAME":"y"}}',
+      '{"method":"tools/call","params":{}}',
+      '{"method":"tools/call"}',
+      '{"method":1}',
+      '{"method":""}',
+      "null",
+      "not json",
+    ]) {
+      expect(of(body)).toBeNull();
+    }
+    expect(mcpCallOf(new Uint8Array([0x7b, 0xff, 0x7d]))).toBeNull();
   });
 });
 
@@ -1853,6 +1918,131 @@ describe("startCredentialProxy", () => {
     const response = await messages(server.port);
     expect(response.status).toBe(403);
     expect(up.seen).toEqual([]);
+  });
+
+  describe("the remote MCP route", () => {
+    const SERVICE_ACCOUNT = "sa-value-kept-from-the-worker";
+    const call = (port: number, body: string, method = "POST") =>
+      fetch(`http://127.0.0.1:${port}/mcp/fake`, {
+        method,
+        headers: {
+          authorization: `Bearer ${WORKER_TOKEN}`,
+          "content-type": "application/json",
+          "mcp-session-id": "mcp-1",
+        },
+        ...(method === "POST" ? { body } : {}),
+      });
+    const TOOLS_CALL =
+      '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami"}}';
+
+    test("asks with the server and call, and sends the service account's bearer", async () => {
+      const up = upstream(() =>
+        Response.json(
+          { jsonrpc: "2.0", id: 1, result: {} },
+          { headers: { "mcp-session-id": "mcp-1" } },
+        ),
+      );
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}/mcp`, [
+          ["authorization", `Bearer ${SERVICE_ACCOUNT}`],
+        ]),
+      );
+      const server = proxy(auth.url, up.port);
+      const response = await call(server.port, TOOLS_CALL);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("mcp-session-id")).toBe("mcp-1");
+      expect<unknown>(auth.asked).toEqual([
+        {
+          token: WORKER_TOKEN,
+          purpose: "mcp",
+          server: "fake",
+          rpc: { method: "tools/call", tool: "whoami" },
+        },
+      ]);
+      const [seen] = up.seen;
+      expect(new URL(seen?.url ?? "").pathname).toBe("/mcp");
+      expect(seen?.headers.authorization).toBe(`Bearer ${SERVICE_ACCOUNT}`);
+      expect(seen?.headers["mcp-session-id"]).toBe("mcp-1");
+      expect(seen?.body).toBe(TOOLS_CALL);
+      expect(JSON.stringify(seen)).not.toContain(WORKER_TOKEN);
+
+      expect((await call(server.port, "", "DELETE")).status).toBe(200);
+      expect(auth.asked[1]).toMatchObject({
+        server: "fake",
+        rpc: { method: null, tool: null },
+      });
+    });
+
+    test("a refusal with a receipt names it; a batch never reaches the authorizer", async () => {
+      const up = upstream(() => new Response("ok"));
+      const receipt = "0a1b2c3d-0000-5000-8000-000000000001";
+      const auth = authorizer(() =>
+        Response.json(
+          { code: "CREDENTIAL_UNBOUND", message: "x", receipt_id: receipt },
+          { status: 403 },
+        ),
+      );
+      const server = proxy(auth.url, up.port);
+      const refused = await call(server.port, TOOLS_CALL);
+      expect(refused.status).toBe(403);
+      expect(await refused.text()).toBe(
+        `egress denied: credential_unbound (receipt ${receipt})\n`,
+      );
+      const batch = await call(server.port, `[${TOOLS_CALL}]`);
+      expect(batch.status).toBe(400);
+      expect(auth.asked).toHaveLength(1);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("an upstream 401 reaches the worker as 403 with no challenge", async () => {
+      const up = upstream(
+        () =>
+          new Response("bad credential", {
+            status: 401,
+            headers: { "www-authenticate": 'Bearer resource_metadata="x"' },
+          }),
+      );
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}/mcp`, [
+          ["authorization", `Bearer ${SERVICE_ACCOUNT}`],
+        ]),
+      );
+      const server = proxy(auth.url, up.port);
+      const response = await call(server.port, TOOLS_CALL);
+      expect(response.status).toBe(403);
+      expect(response.headers.get("www-authenticate")).toBeNull();
+    });
+
+    test("asks again as a regrant while the exchange is open", async () => {
+      const gate = new Promise<void>(() => {});
+      const up = upstream(
+        () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                controller.enqueue(new TextEncoder().encode("data: {}\n\n"));
+                await gate;
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}/mcp`, [
+          ["authorization", `Bearer ${SERVICE_ACCOUNT}`],
+        ]),
+      );
+      const server = proxy(auth.url, up.port, { regrantIntervalMs: 20 });
+      const response = await call(server.port, TOOLS_CALL);
+      await response.body?.getReader().read();
+      await until(() => auth.asked.length >= 2);
+      expect(auth.asked[0]).not.toHaveProperty("regrant");
+      expect(auth.asked[1]).toMatchObject({
+        regrant: true,
+        rpc: { method: "tools/call", tool: "whoami" },
+      });
+      await response.body?.cancel().catch(() => {});
+    });
   });
 });
 

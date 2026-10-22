@@ -16,7 +16,7 @@ import {
 } from "@werft-ai/platform";
 import { parse as parseYaml } from "yaml";
 
-// The operator's catalog: two YAML files in one directory, read
+// The operator's catalog: two YAML files (three with remote MCP servers) in one directory, read
 // once at startup. Anything wrong — a missing file, a schema error, a
 // credential that does not resolve — stops the API with a message naming
 // the file and path, never a value.
@@ -28,6 +28,8 @@ export const DEFAULT_CONFIG_DIR = resolve(
 );
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
+// Optional: without it no agent can name a remote MCP server.
+export const MCP_SERVERS_FILE = "mcp-servers.yaml";
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 // One bounded read per secret at startup; the API does not start without
 // them, so a hung endpoint must fail the boot rather than hold it.
@@ -69,6 +71,7 @@ export async function readCatalogConfig(
 ): Promise<SessionCatalogConfig> {
   const profilesPath = resolve(dir, PROFILES_FILE);
   const repositoriesPath = resolve(dir, REPOSITORIES_FILE);
+  const mcpServersPath = resolve(dir, MCP_SERVERS_FILE);
   const parsed = sessionCatalogConfigSchema.safeParse({
     profiles: section(await readYaml(profilesPath), "profiles", profilesPath),
     repositories: section(
@@ -76,6 +79,15 @@ export async function readCatalogConfig(
       "repositories",
       repositoriesPath,
     ),
+    ...((await Bun.file(mcpServersPath).exists())
+      ? {
+          mcp_servers: section(
+            await readYaml(mcpServersPath),
+            "mcp_servers",
+            mcpServersPath,
+          ),
+        }
+      : {}),
   });
   if (!parsed.success) {
     throw new Error(

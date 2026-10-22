@@ -106,10 +106,12 @@ export const DEFAULT_MAX_BODY_BYTES_IN_FLIGHT = 512 * 1024 * 1024;
  */
 const UNAUTHORIZED_IDLE_SECONDS = 30;
 
-export type EgressPurpose = "provider" | "repository" | "object_store";
+export type EgressPurpose = "provider" | "repository" | "object_store" | "mcp";
 
 export type CredentialRoute = {
   purpose: EgressPurpose;
+  /** The remote MCP server `/mcp/<name>` names; the authorizer judges it. */
+  server?: string;
   /** Path and query appended to the upstream's base. */
   path: string;
   search: string;
@@ -120,6 +122,10 @@ const PROVIDER_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
 const PROVIDER_QUERIES = new Set(["", "?beta=true"]);
 
 const OBJECT_STORE_PREFIX = "/object-store";
+
+// The streamable HTTP transport's three methods, on the server's one URL.
+const MCP_METHODS = new Set(["POST", "GET", "DELETE"]);
+const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
 
 /** The exact operations routed, or null for everything else. */
 export function routeOf(
@@ -135,6 +141,12 @@ export function routeOf(
       path: pathname.slice(OBJECT_STORE_PREFIX.length),
       search,
     };
+  }
+  const server = MCP_PATH.exec(pathname)?.[1];
+  if (server !== undefined) {
+    return MCP_METHODS.has(method) && search === ""
+      ? { purpose: "mcp", server, path: "", search }
+      : null;
   }
   if (pathname.startsWith("/provider/")) {
     const path = pathname.slice("/provider".length);
@@ -163,6 +175,58 @@ export function routeOf(
     return { purpose: "repository", path: "/git-upload-pack", search };
   }
   return null;
+}
+
+export type McpCall = { method: string | null; tool: string | null };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// A key another parser could read as one of these (a case-insensitive
+// one, say) would let the upstream act on a method the authorizer never saw.
+function hasLookalike(record: Record<string, unknown>, keys: string[]) {
+  return Object.keys(record).some((key) => {
+    const lower = key.toLowerCase();
+    return keys.includes(lower) && key !== lower;
+  });
+}
+
+/**
+ * What the authorizer is shown of an MCP POST, and the body sent upstream:
+ * re-serialized, so a duplicate key the authorizer's parse dropped never
+ * reaches a parser that keeps the other one. One message only; a batch
+ * could hide a refused call among allowed ones. A response to the server
+ * (no method) passes as nulls. null for a body that is none of these.
+ */
+export function mcpCallOf(
+  body: Uint8Array,
+): { call: McpCall; body: Uint8Array } | null {
+  let message: unknown;
+  try {
+    message = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(body),
+    );
+  } catch {
+    return null;
+  }
+  if (!isRecord(message) || hasLookalike(message, ["method", "params"])) {
+    return null;
+  }
+  const { method, params } = message;
+  const canonical = new TextEncoder().encode(JSON.stringify(message));
+  if (method === undefined) {
+    return { call: { method: null, tool: null }, body: canonical };
+  }
+  if (typeof method !== "string" || method === "") return null;
+  if (method !== "tools/call") {
+    return { call: { method, tool: null }, body: canonical };
+  }
+  if (!isRecord(params) || hasLookalike(params, ["name"])) return null;
+  const { name } = params;
+  return typeof name === "string" && name !== ""
+    ? { call: { method, tool: name }, body: canonical }
+    : null;
 }
 
 const BEARER = /^Bearer ([!-~]+)$/;
@@ -533,7 +597,24 @@ export type CredentialProxyServer = {
 
 type Authorized =
   | { kind: "granted"; grant: EgressGrant }
-  | { kind: "refused"; status: number; budgetExceeded?: true };
+  | {
+      kind: "refused";
+      status: number;
+      budgetExceeded?: true;
+      // Where the session can read why: an MCP credential refusal's receipt.
+      receiptId?: string;
+    };
+
+const RECEIPT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function receiptOf(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const { receipt_id } = body as { receipt_id?: unknown };
+  return typeof receipt_id === "string" && RECEIPT_ID.test(receipt_id)
+    ? receipt_id
+    : null;
+}
 
 function isBudgetRefusal(body: unknown): boolean {
   return (
@@ -597,7 +678,8 @@ export function startCredentialProxy(
   async function authorize(
     token: string,
     purpose: EgressPurpose,
-    objectRequest?: ObjectRequest,
+    // The route's own question: the S3 request, or the MCP server and call.
+    question: Record<string, unknown>,
   ): Promise<Authorized> {
     let response: Response;
     try {
@@ -607,11 +689,7 @@ export function startCredentialProxy(
           authorization: `Bearer ${options.authorizer.token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify(
-          objectRequest === undefined
-            ? { token, purpose }
-            : { token, purpose, request: objectRequest },
-        ),
+        body: JSON.stringify({ token, purpose, ...question }),
         redirect: "error",
         signal: AbortSignal.timeout(
           options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS,
@@ -636,9 +714,13 @@ export function startCredentialProxy(
       if (status === 503) {
         logger.warn("Egress authorizer failed", { status: response.status });
       }
-      return isBudgetRefusal(refusal)
-        ? { kind: "refused", status, budgetExceeded: true }
-        : { kind: "refused", status };
+      if (isBudgetRefusal(refusal)) {
+        return { kind: "refused", status, budgetExceeded: true };
+      }
+      const receiptId = receiptOf(refusal);
+      return receiptId === null
+        ? { kind: "refused", status }
+        : { kind: "refused", status, receiptId };
     }
     const grant = parseGrant(await response.json().catch(() => null));
     if (grant === null) {
@@ -846,11 +928,22 @@ export function startCredentialProxy(
     if (objectStore && request.method === "HEAD" && length !== null) {
       headers.set("content-length", length);
     }
+    if (route.purpose === "mcp") {
+      // The service account's credential is the operator's to fix; a 401 and
+      // its challenge would send the worker's client after a login of its own.
+      headers.delete("www-authenticate");
+    }
     if (!response.ok) {
-      return withheldIfLeaking(response, headers, secrets, route.purpose, {
-        ...fields,
-        path: route.path,
-      });
+      const relayed = await withheldIfLeaking(
+        response,
+        headers,
+        secrets,
+        route.purpose,
+        { ...fields, path: route.path },
+      );
+      return route.purpose === "mcp" && relayed.status === 401
+        ? new Response(relayed.body, { status: 403, headers: relayed.headers })
+        : relayed;
     }
     const encoding = response.headers.get("content-encoding");
     if (encoding !== null && encoding.toLowerCase() !== "identity") {
@@ -1015,14 +1108,16 @@ export function startCredentialProxy(
       if (token === null) {
         return reply(401, "one egress token is required", route.purpose);
       }
-      const objectRequest =
+      const question: Record<string, unknown> =
         route.purpose === "object_store"
-          ? objectRequestOf(
-              request.method,
-              `${route.path}${route.search}`,
-              request.headers,
-            )
-          : undefined;
+          ? {
+              request: objectRequestOf(
+                request.method,
+                `${route.path}${route.search}`,
+                request.headers,
+              ),
+            }
+          : {};
       // Decided before anything is awaited: Bun takes the body off the
       // socket meanwhile, and only a request answered now is never held.
       const reservation = bodyReservation(request.headers, route.purpose);
@@ -1081,7 +1176,7 @@ export function startCredentialProxy(
       // Read from admission on, so what Bun takes off the socket moves into
       // the reservation rather than piling up beside it while the
       // authorizer is asked.
-      const whole =
+      let whole =
         route.purpose === "object_store"
           ? null
           : readWhole(
@@ -1096,7 +1191,11 @@ export function startCredentialProxy(
       let grantedAt = performance.now();
       const watchGrant = (grant: EgressGrant) => {
         regrant = setTimeout(async () => {
-          const again = await authorize(token, route.purpose, objectRequest);
+          const again = await authorize(
+            token,
+            route.purpose,
+            route.purpose === "mcp" ? { ...question, regrant: true } : question,
+          );
           if (ended) return;
           if (again.kind === "granted") grantedAt = performance.now();
           const refused = again.kind === "refused" && again.status !== 503;
@@ -1117,7 +1216,26 @@ export function startCredentialProxy(
         }, regrantIntervalMs);
       };
       try {
-        const authorized = await authorize(token, route.purpose, objectRequest);
+        if (route.purpose === "mcp") {
+          // The method and tool are judged before anything goes upstream,
+          // so the whole message is read first.
+          const read = whole === null ? null : await whole;
+          if (request.method === "POST") {
+            const parsed = read instanceof Uint8Array ? mcpCallOf(read) : null;
+            if (parsed === null) {
+              release();
+              return reply(400, "one JSON-RPC message is required");
+            }
+            Object.assign(question, { server: route.server, rpc: parsed.call });
+            whole = Promise.resolve(parsed.body);
+          } else {
+            Object.assign(question, {
+              server: route.server,
+              rpc: { method: null, tool: null },
+            });
+          }
+        }
+        const authorized = await authorize(token, route.purpose, question);
         if (authorized.kind === "refused") {
           release();
           if (authorized.budgetExceeded && route.purpose === "provider") {
@@ -1125,7 +1243,9 @@ export function startCredentialProxy(
           }
           return reply(
             authorized.status,
-            "egress token refused",
+            authorized.receiptId === undefined
+              ? "egress token refused"
+              : `egress denied: credential_unbound (receipt ${authorized.receiptId})`,
             route.purpose,
           );
         }
@@ -1150,6 +1270,9 @@ export function startCredentialProxy(
         return relayed;
       } catch (error) {
         release();
+        if (error instanceof BodyTooLargeError) {
+          return reply(413, "request body too large", route.purpose);
+        }
         logger.error("Credential exchange failed", {
           error: error instanceof Error ? error.name : "error",
         });
