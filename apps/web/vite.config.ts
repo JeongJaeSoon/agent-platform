@@ -10,7 +10,10 @@ const apiTarget = process.env.VITE_API_TARGET ?? "http://127.0.0.1:3000";
  * fonts are CSS assets, so their OFL texts ship beside it under licenses/.
  */
 function fontLicenses(): Plugin {
-  const fonts = new URL("../../packages/ui/src/fonts/", import.meta.url);
+  const fonts = new URL(
+    "../../packages/ui/src/foundations/fonts/",
+    import.meta.url,
+  );
   return {
     name: "font-licenses",
     apply: "build",

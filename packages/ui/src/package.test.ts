@@ -122,6 +122,7 @@ describe("패키지 경계", () => {
 
   test("모든 컴포넌트가 index.ts로 나간다", async () => {
     const index = await Bun.file(`${PACKAGE_ROOT}/src/index.ts`).text();
+    const LAYERS = ["foundations", "primitives", "patterns"];
     const components = (await sourceFiles()).filter(
       (file) =>
         file.endsWith(".tsx") &&
@@ -133,8 +134,16 @@ describe("패키지 경계", () => {
     );
     expect(components.length).toBeGreaterThan(0);
     for (const file of components) {
-      const specifier = file.replace(/^src\//, "./");
-      expect(index).toContain(`from "${specifier}"`);
+      const [, dir, name] = file.match(/^src\/([^/]+)\/(.+)$/) ?? [];
+      if (dir && name && LAYERS.includes(dir)) {
+        const layerIndex = await Bun.file(
+          `${PACKAGE_ROOT}/src/${dir}/index.ts`,
+        ).text();
+        expect(layerIndex).toContain(`from "./${name}"`);
+        expect(index).toContain(`export * from "./${dir}/index.ts"`);
+      } else {
+        expect(index).toContain(`from "${file.replace(/^src\//, "./")}"`);
+      }
     }
   });
 });

@@ -19,6 +19,8 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 | 운영자 | [단일 서버 배포](docs/operator/server-deployment.md) | [운영자 문서 색인](docs/README.md#운영자), [Datadog 감시 기준](docs/operator/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/operator/test-ops.md), [백업과 복원](docs/operator/backup-restore.md) |
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/contributing/development.md), [구성요소와 경계](docs/contributing/architecture.md), [CI](docs/contributing/ci.md), [실제 Claude 확인](docs/real-claude.md) |
 
+독자별 전체 문서 색인은 [docs/README.md](docs/README.md)에 있다.
+
 `docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
 
 ## UI 컴포넌트 보기 (Storybook)

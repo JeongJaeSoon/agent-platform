@@ -1,7 +1,7 @@
 import type { CSSProperties, JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
-import { useReducedMotion } from "../lib/use-reduced-motion.ts";
+import { cn } from "../foundations/cn.ts";
+import { useReducedMotion } from "../foundations/use-reduced-motion.ts";
 
 export interface SkeletonProps {
   readonly shape?: "text" | "block" | "circle" | undefined;

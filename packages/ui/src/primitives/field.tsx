@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 
 /*
  * shadcn/ui new-york Field. Changed from upstream: a Field wires itself up.

@@ -1,10 +1,9 @@
 import type { JSX } from "react";
 
-import { ConfirmDialog } from "../dialog/confirm-dialog.tsx";
-import { DestructiveActionDialog } from "../dialog/destructive-action-dialog.tsx";
-import { EmptyState } from "../feedback/empty-state.tsx";
 import { ErrorState } from "../feedback/error-state.tsx";
-import { Skeleton } from "../feedback/skeleton.tsx";
+import { ConfirmDialog } from "../patterns/confirm-dialog.tsx";
+import { DestructiveActionDialog } from "../patterns/destructive-action-dialog.tsx";
+import { EmptyState } from "../patterns/empty-state.tsx";
 import { Badge } from "../primitives/badge.tsx";
 import { Button } from "../primitives/button.tsx";
 import {
@@ -16,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../primitives/card.tsx";
+import { Skeleton } from "../primitives/skeleton.tsx";
 import { ReceiptLink } from "../receipt/receipt-link.tsx";
 import { ReceiptSummary } from "../receipt/receipt-summary.tsx";
 import { StatusLabel } from "../status/status-label.tsx";

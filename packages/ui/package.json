@@ -5,9 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./tokens.css": "./src/tokens.css",
-    "./styles.css": "./src/styles.css",
-    "./theme.css": "./src/theme.css",
+    "./tokens.css": "./src/foundations/tokens.css",
+    "./styles.css": "./src/foundations/styles.css",
+    "./theme.css": "./src/foundations/theme.css",
     "./test-support/dom": "./src/test-support/dom.ts"
   },
   "scripts": {
