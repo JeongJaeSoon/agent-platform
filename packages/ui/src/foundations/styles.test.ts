@@ -182,7 +182,7 @@ describe("이름공간", () => {
     // A rule reading a Tailwind theme key makes Tailwind emit that key on
     // `:root`, outside the namespace.
     const reads = parse(THEME).flatMap((d) =>
-      [...d.value.matchAll(/var\((--[\w-]+)/g)].map(([, name]) => name),
+      [...d.value.matchAll(/var\(\s*(--[\w-]+)/g)].map(([, name]) => name),
     );
     expect(reads.length).toBeGreaterThan(40);
     expect(reads.filter((name) => !name?.startsWith("--ap-"))).toEqual([]);
