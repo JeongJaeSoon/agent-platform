@@ -437,6 +437,19 @@ describe("styles.css", () => {
     expect(last?.atRules).toContain(REDUCED_MOTION);
   });
 
+  test("한쪽 면만 굵게 그은 강조선이 없다", () => {
+    // Spinner arcs (`border-top-color: transparent`) are a shape, not an accent.
+    const accents = styleDeclarations.filter(
+      (d) =>
+        /^border-(top|right|bottom|left|inline|block)(-(start|end))?(-width)?$/.test(
+          d.property,
+        ) && !/^(0|1px)\b/.test(d.value),
+    );
+    expect(
+      accents.map((d) => `${d.selector} { ${d.property}: ${d.value} }`),
+    ).toEqual([]);
+  });
+
   test("!important로 캐스케이드를 뒤집지 않는다", () => {
     const shouting = styleDeclarations.filter((d) =>
       d.value.includes("!important"),
