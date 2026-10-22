@@ -642,7 +642,238 @@ describe("transcript mirror against the actual SDK", () => {
     expect(restored).toContain("TURN_TWO_RESUMED");
     expect(restored).not.toContain("ZOMBIE_SUFFIX");
   }, 60_000);
+
+  test("a mirror that keeps rejecting is reported before the turn's result, which still succeeds", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "mirror-reject-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer(() => textReply("MIRROR_FAILURE_RESULT"));
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: "sessions/mirror/reject",
+    });
+    let attempts = 0;
+    const run = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    }).start(
+      {
+        ...mirrorProbeConfig(server.url, home, workspace),
+        sessionStore: {
+          append: async () => {
+            attempts += 1;
+            throw new Error("injected append failure");
+          },
+          listSubkeys: (key) => mirror.listSubkeys(key),
+          load: (key) => mirror.load(key),
+        },
+      },
+      denyEveryTool,
+    );
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({
+      message: "finish despite the mirror",
+      uuid: crypto.randomUUID(),
+    });
+    run.finishInput();
+    await withTimeout(consume, 30_000, "Rejecting mirror run did not settle");
+
+    const sequence = frames.map(({ envelope: { message } }) =>
+      message.type === "system" || message.type === "result"
+        ? `${message.type}:${String(message.subtype)}`
+        : message.type,
+    );
+    // The SDK flushes the pending batch before it hands over the result, so the
+    // host learns of the loss in time to hold that turn's checkpoint back.
+    const mirrorError = sequence.indexOf("system:mirror_error");
+    expect(attempts).toBeGreaterThanOrEqual(3);
+    expect(mirrorError).toBeGreaterThanOrEqual(0);
+    expect(mirrorError).toBeLessThan(sequence.indexOf("result:success"));
+    expect(await run.prepareCheckpoint()).toMatchObject({
+      reason: "mirror_error",
+      status: "rejected",
+    });
+  }, 40_000);
+
+  test("restores once the entries of appends that timed out but still landed", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "mirror-timeout-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer(() => textReply("MIRROR_TIMEOUT_RESULT"));
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: "sessions/mirror/timeout",
+    });
+    const mirrored: TranscriptKey[] = [];
+    const lateWrites: Promise<void>[] = [];
+    let sentWithUuid = 0;
+    const run = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    }).start(
+      {
+        ...mirrorProbeConfig(server.url, home, workspace),
+        sessionStore: {
+          // The write reaches the store after the SDK has already given up on
+          // it and retried, as an S3 PUT whose answer timed out would.
+          append: async (key, entries) => {
+            mirrored.push(key);
+            sentWithUuid += entries.filter(
+              (entry) => typeof entry.uuid === "string",
+            ).length;
+            const late = Bun.sleep(150).then(() => mirror.append(key, entries));
+            lateWrites.push(late);
+            await Promise.race([
+              late,
+              Bun.sleep(25).then(() => {
+                throw new Error("injected append timeout");
+              }),
+            ]);
+          },
+          listSubkeys: (key) => mirror.listSubkeys(key),
+          load: (key) => mirror.load(key),
+        },
+      },
+      denyEveryTool,
+    );
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({
+      message: "finish after an ambiguous append timeout",
+      uuid: crypto.randomUUID(),
+    });
+    run.finishInput();
+    await withTimeout(consume, 30_000, "Timing-out mirror run did not settle");
+    await withTimeout(
+      Promise.all(lateWrites),
+      15_000,
+      "Late writes did not land",
+    );
+
+    expect(
+      frames.some(
+        ({ envelope: { message } }) =>
+          message.type === "system" && message.subtype === "mirror_error",
+      ),
+    ).toBe(true);
+    const rootKey = mirrored.find((key) => key.subpath === undefined);
+    if (rootKey === undefined) throw new Error("The SDK mirrored nothing");
+    const revision = await mirror.captureRevision(rootKey);
+    if (revision === null) throw new Error("expected a revision");
+    for (const entries of [
+      (await mirror.load(rootKey)) ?? [],
+      await mirror.loadRevision(revision),
+    ]) {
+      const uuids = entries.flatMap((entry) =>
+        typeof entry.uuid === "string" ? [entry.uuid] : [],
+      );
+      // An empty transcript is unique too; it is what lost writes would leave.
+      expect(uuids.length).toBeGreaterThan(0);
+      expect(new Set(uuids).size).toBe(uuids.length);
+      // Every retry landed, so the store holds each entry more than once.
+      expect(sentWithUuid).toBeGreaterThan(uuids.length);
+      expect(JSON.stringify(entries)).toContain(
+        "finish after an ambiguous append timeout",
+      );
+    }
+  }, 60_000);
+
+  test("a resume the store holds nothing for fails without reaching the model", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "mirror-missing-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer(() => textReply("MUST_NOT_RUN"));
+    const missing = new ClaudeSessionStore({
+      generation: 1,
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: "sessions/mirror/missing",
+    });
+    const run = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    }).start(
+      {
+        ...mirrorProbeConfig(server.url, home, workspace),
+        mode: "resume",
+        resume: crypto.randomUUID(),
+        // Answers `load` with null, as a store that materialized the resumed
+        // transcript onto the engine's disk does, except nothing is on disk:
+        // the engine falls back to a local transcript that does not exist.
+        sessionStore: {
+          append: (key, entries) => missing.append(key, entries),
+          listSubkeys: (key) => missing.listSubkeys(key),
+          load: (key) => missing.load(key),
+          revisionScoped: true,
+        },
+      },
+      denyEveryTool,
+    );
+    const frames: AgentFrame[] = [];
+    const settled = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    run.send({
+      message: "resume a missing session",
+      uuid: crypto.randomUUID(),
+    });
+    run.finishInput();
+    const failure = await withTimeout(
+      settled,
+      30_000,
+      "Missing resume did not settle",
+    );
+
+    // Not a quiet new session: the engine refuses, and no turn is billed.
+    expect(String(failure)).toContain("No conversation found");
+    expect(
+      frames
+        .filter(({ envelope: { message } }) => message.type === "result")
+        .map(({ envelope: { message } }) => message),
+    ).toEqual([
+      expect.objectContaining({
+        is_error: true,
+        num_turns: 0,
+        subtype: "error_during_execution",
+      }),
+    ]);
+    expect(server.requests).toHaveLength(0);
+  }, 40_000);
 });
+
+/** The smallest new-session config the transcript mirror probes above share. */
+function mirrorProbeConfig(endpoint: string, home: string, workspace: string) {
+  return {
+    claudeConfigDir: home,
+    correlationId: "actual-mirror-probe",
+    cwd: workspace,
+    home,
+    maxTurns: 1,
+    mode: "new" as const,
+    model: "claude-sonnet-4-5",
+    profile: {
+      kind: "anthropic" as const,
+      endpoint,
+      auth: { kind: "api_key" as const, value: "placeholder-local" },
+      principal: { ownerScope: "owner-a" },
+    },
+    settingSources: ["project"] as ["project"],
+    tools: [],
+  };
+}
+
+const denyEveryTool = {
+  onPermission: async () => ({
+    behavior: "deny" as const,
+    message: "No tools expected",
+  }),
+};
 
 describe("resumed history against the actual SDK", () => {
   test("a checkpoint resume holds exactly the inputs the engine loaded", async () => {
