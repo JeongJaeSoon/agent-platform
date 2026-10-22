@@ -73,8 +73,13 @@ function LocaleSwitch() {
   );
 }
 
+// The key screens keep their own 840px column (api-keys.tsx).
 function usesReadingColumn(pathname: string) {
-  return pathname === "/agents/new" || pathname.startsWith("/settings/");
+  return (
+    pathname === "/agents/new" ||
+    (pathname.startsWith("/settings/") &&
+      !pathname.startsWith("/settings/api-keys"))
+  );
 }
 
 export function AuthedLayout() {
