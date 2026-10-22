@@ -1,6 +1,6 @@
 # 용량 관리: transcript 상한, worker 메모리, 노드당 세션 수
 
-세션 하나가 쓸 수 있는 transcript 크기와 worker 메모리는 서로 묶여 있다. Kubernetes에서는 worker Pod의 requests가 limits와 같아서, 이 두 값이 노드 하나에 올릴 수 있는 동시 세션 수까지 정한다. 이 문서는 세 값의 관계, 근거가 된 실측, 바꾸는 방법과 그 대가를 한곳에 모은다(94S-667, 94S-748).
+세션 하나가 쓸 수 있는 transcript 크기와 worker 메모리는 서로 묶여 있다. Kubernetes에서는 worker Pod의 requests가 limits와 같아서, 이 두 값이 노드 하나에 올릴 수 있는 동시 세션 수까지 정한다. 이 문서는 세 값의 관계, 근거가 된 실측, 바꾸는 방법과 그 대가를 한곳에 모은다.
 
 ## 한눈에
 
@@ -72,7 +72,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 
 ## 512MiB / 4608MiB를 고른 이유
 
-후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 분포는 사용자가 2026-10-21에 자기 PC 두 대에서 잰 실제 transcript 12개다. 한 PC의 상위 10개는 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4, 68.5MiB이고, 다른 PC의 상위 2개는 591.8, 150MiB다. 이 값과 산정 과정은 [94S-667 코멘트](https://linear.app/94soon/issue/94S-667#comment-c7ea3c9d)에 있다. 상위 값만 모은 표본이라 전체 분포를 대표하지는 않는다.
+후보 상한마다 필요한 메모리와 노드당 세션 수를 비교했다. 메모리는 2 × peak를 512MiB 단위로 올린 값이다. 세션 수는 allocatable 30GiB(30720MiB) 노드 기준이다. 분포는 사용자가 2026-10-21에 자기 PC 두 대에서 잰 실제 transcript 12개다. 한 PC의 상위 10개는 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4, 68.5MiB이고, 다른 PC의 상위 2개는 591.8, 150MiB다. 상위 값만 모은 표본이라 전체 분포를 대표하지는 않는다.
 
 | 상한 | compaction 없는 peak | 절반 기준 메모리 | 노드당 세션 | 분포 중 상한 안 | 80% 경고 |
 |---|---|---|---|---|---|
@@ -99,7 +99,7 @@ worker 전용 노드 그룹(`worker.nodeSelector`, `worker.tolerations`)을 쓰�
 
 | `worker.memoryMb` | 노드당 세션 |
 |---|---|
-| 2048 (94S-667 이전) | 15 |
+| 2048 (이전 기본값) | 15 |
 | **4608 (현재)** | **6** |
 | 6144 | 5 |
 
@@ -125,7 +125,7 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 - API만 옛 값(작은 상한): finalize가 큰 checkpoint를 거절하고 `transcript_too_large`를 기록한다. 세션은 위와 같이 새 turn을 받지 않는다. worker 기준으로는 상한 안인 세션도 이렇게 멈출 수 있다.
 - worker만 옛 값(작은 상한): 큰 checkpoint의 restore를 거절하고, 작은 상한으로 capture도 거절한다.
 
-상한 초과 reason(`transcript_too_large`, `transcript_part_too_large`)과 `checkpoints.transcript_bytes` 컬럼을 더하는 migration이 든 릴리스(94S-667)는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서로 배포한다. 옛 api는 worker가 보낸 새 reason을 400으로 거절하고, 새 worker는 그 보고가 실패하면 capture를 실패시킨다. 롤백은 이 reason을 아는 빌드까지만 한다. 그보다 옛 빌드는 이 reason이 남은 세션을 worker 경로에서 읽다가 예외를 낸다.
+상한 초과 reason(`transcript_too_large`, `transcript_part_too_large`)과 `checkpoints.transcript_bytes` 컬럼을 더하는 migration이 든 릴리스는 migration → control-host(api) **모든** 인스턴스 → worker 이미지 순서로 배포한다. 옛 api는 worker가 보낸 새 reason을 400으로 거절하고, 새 worker는 그 보고가 실패하면 capture를 실패시킨다. 롤백은 이 reason을 아는 빌드까지만 한다. 그보다 옛 빌드는 이 reason이 남은 세션을 worker 경로에서 읽다가 예외를 낸다.
 
 `WORKER_MEMORY_MB`(`worker.memoryMb`)는 다음 launch부터 적용된다. 실행 중인 worker는 교체되지 않는다.
 

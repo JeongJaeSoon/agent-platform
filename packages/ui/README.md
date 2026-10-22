@@ -1,7 +1,6 @@
 # @werft-ai/ui
 
 웹 콘솔(I1)·받은편지함(I2)·연결(I3)·기억(I4) 화면이 공유하는 표현 계층이다.
-정본은 Obsidian `Project/agent-platform/interface/02 UX 설계` §4(상태 표현)·§6(반응형·접근성)·§8(컴포넌트 인벤토리)·§9(카피 톤).
 
 ## 경계
 
@@ -39,7 +38,7 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
 `@theme`는 Tailwind 컴파일러를 거쳐야만 살아남는데, 이 패키지는 Tailwind 없이도 렌더돼야 하기 때문이다.
-`apps/web`(94S-158)에서 한 줄로 이어 붙인다:
+`apps/web`에서 한 줄로 이어 붙인다:
 
 ```css
 @import "@werft-ai/ui/styles.css"; /* tokens.css를 함께 가져온다 */
