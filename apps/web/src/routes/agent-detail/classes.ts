@@ -1,6 +1,4 @@
 export {
-  LIST,
-  LIST_ITEM,
   MUTED,
   SECTION,
   SECTION_TITLE,

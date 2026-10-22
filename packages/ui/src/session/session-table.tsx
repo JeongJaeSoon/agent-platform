@@ -2,6 +2,9 @@
 /* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type { ReactNode } from "react";
 
+import { cn } from "../lib/cn.ts";
+import { SESSION_COLUMNS } from "./session-row.tsx";
+
 export interface SessionTableProps {
   readonly label: string;
   readonly messages: {
@@ -24,7 +27,10 @@ export function SessionTable({ label, messages, children }: SessionTableProps) {
     >
       <div
         role="row"
-        className="grid min-h-9 grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_120px_136px] items-center gap-4 border-b bg-surface-sunken px-4 text-muted-foreground text-caption font-medium @[820px]:grid-cols-[minmax(0,2fr)_120px_120px_minmax(0,2fr)_minmax(72px,1fr)]"
+        className={cn(
+          SESSION_COLUMNS,
+          "min-h-[var(--ap-row-head-min-height)] items-center gap-4 border-b bg-surface-sunken px-[var(--ap-row-padding-x)] py-[var(--ap-row-head-padding-y)] text-muted-foreground text-caption font-medium",
+        )}
       >
         <span role="columnheader">{messages.id}</span>
         <span role="columnheader">{messages.status}</span>

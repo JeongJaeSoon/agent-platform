@@ -27,7 +27,18 @@ import {
 import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { TableScroll } from "../components/table-scroll.tsx";
+import {
+  RowLines,
+  RowList,
+  RowListItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/table.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
 
@@ -36,7 +47,6 @@ const TITLE = "m-0 font-semibold text-xl";
 const SECTION = "flex flex-col gap-3";
 const SECTION_TITLE = "m-0 font-semibold text-lg";
 const MUTED = "m-0 text-muted-foreground";
-const CELL = "border-b p-2 text-left align-top";
 const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 const SECONDARY =
@@ -219,25 +229,17 @@ function MemberTable({
 
   return (
     <>
-      <TableScroll label={t("members.tableLabel")}>
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th scope="col" className={CELL}>
-                {t("members.column.name")}
-              </th>
-              <th scope="col" className={CELL}>
-                {t("members.column.role")}
-              </th>
-              <th scope="col" className={CELL}>
-                {t("members.column.state")}
-              </th>
-              <th scope="col" className={CELL}>
-                {t("members.column.actions")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
+      <TableContainer label={t("members.tableLabel")}>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">{t("members.column.name")}</TableHead>
+              <TableHead scope="col">{t("members.column.role")}</TableHead>
+              <TableHead scope="col">{t("members.column.state")}</TableHead>
+              <TableHead scope="col">{t("members.column.actions")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {items.map((member) => {
               const disabled = member.disabled_at !== null;
               const busy =
@@ -246,16 +248,18 @@ function MemberTable({
                 (setAccess.isPending &&
                   setAccess.variables?.member.user_id === member.user_id);
               return (
-                <tr
+                <TableRow
                   key={member.user_id}
                   className="group"
                   data-disabled={disabled}
                 >
-                  <td className={CELL}>
-                    <span className={PRIMARY}>{member.display_name}</span>
-                    <span className={SECONDARY}>{member.email}</span>
-                  </td>
-                  <td className={CELL}>
+                  <TableCell>
+                    <RowLines>
+                      <span className={PRIMARY}>{member.display_name}</span>
+                      <span className={SECONDARY}>{member.email}</span>
+                    </RowLines>
+                  </TableCell>
+                  <TableCell>
                     <NativeSelect
                       size="sm"
                       className="w-auto"
@@ -277,24 +281,24 @@ function MemberTable({
                         </NativeSelectOption>
                       ))}
                     </NativeSelect>
-                  </td>
-                  <td className={CELL}>
+                  </TableCell>
+                  <TableCell>
                     {disabled ? (
-                      <span className="flex flex-col items-start gap-1">
+                      <RowLines className="items-start">
                         <Badge variant="secondary">
                           {t("members.state.disabled")}
                         </Badge>
                         <span className={SECONDARY}>
                           {t("members.enableHint")}
                         </span>
-                      </span>
+                      </RowLines>
                     ) : (
                       <Badge variant="outline">
                         {t("members.state.active")}
                       </Badge>
                     )}
-                  </td>
-                  <td className={CELL}>
+                  </TableCell>
+                  <TableCell>
                     {disabled ? (
                       <Button
                         type="button"
@@ -323,13 +327,13 @@ function MemberTable({
                         {t("members.disable")}
                       </ReasonButton>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
-      </TableScroll>
+          </TableBody>
+        </Table>
+      </TableContainer>
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {
@@ -428,13 +432,10 @@ function InviteList({
       ) : pending.length === 0 ? (
         <EmptyState title={t("members.invites.empty")} />
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+        <RowList>
           {pending.map((invite) => (
-            <li
-              key={invite.id}
-              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-card p-3"
-            >
-              <span className="flex min-w-0 flex-col">
+            <RowListItem key={invite.id}>
+              <RowLines>
                 <span className={PRIMARY}>{invite.email}</span>
                 <span className={SECONDARY}>
                   {roleLabel(t, invite.role)} ·{" "}
@@ -442,7 +443,7 @@ function InviteList({
                     expires: formatTimestamp(invite.expires_at, locale),
                   })}
                 </span>
-              </span>
+              </RowLines>
               <Button
                 type="button"
                 variant="outline"
@@ -456,9 +457,9 @@ function InviteList({
               >
                 {t("members.invites.revoke")}
               </Button>
-            </li>
+            </RowListItem>
           ))}
-        </ul>
+        </RowList>
       )}
       <ConfirmDialog
         open={revoking !== null}
