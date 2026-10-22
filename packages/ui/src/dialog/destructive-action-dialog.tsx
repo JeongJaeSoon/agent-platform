@@ -23,8 +23,9 @@ export interface DestructiveActionDialogProps {
 }
 
 /**
- * 해고·삭제처럼 되돌릴 수 없는 동작. Typing the name is the gate (§3 에이전트
- * 카드 "이름 입력 확인"); everything else is `ConfirmDialog`.
+ * Archiving, deleting and other actions too heavy for one click. Typing the
+ * name is the gate (§3 에이전트 카드 "이름 입력 확인"); everything else is
+ * `ConfirmDialog`.
  */
 export function DestructiveActionDialog({
   open,
