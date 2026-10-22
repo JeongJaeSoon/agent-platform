@@ -3,6 +3,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  profileFingerprint,
+  repositoryModeOf,
+  resolveSessionCatalog,
+} from "@werft-ai/platform";
+import {
   ALLOW_UNATTENDED_SETTING,
   DEFAULT_CONFIG_DIR,
   loadSessionCatalog,
@@ -311,6 +316,38 @@ describe("readCatalogConfig", () => {
     for (const repository of Object.values(config.repositories)) {
       for (const id of repository.profiles) {
         expect(Object.hasOwn(config.profiles, id)).toBe(true);
+      }
+    }
+  });
+
+  test("the shipped profiles keep the fingerprints main computed before `repository` existed", async () => {
+    // Captured on main 015a1634; a change here fails every session pinned
+    // to these profiles with CATALOG_MISMATCH.
+    const before = {
+      ".": {
+        "claude-coding-real":
+          "sha256:9aa74e1f9a8acefabe103d06d97a92ee00fc98eed014d634356caa66472f735c",
+      },
+      "fake-model": {
+        "claude-coding-local":
+          "sha256:a4c77446d640fa3aebb3c5ccc66f2b3d2a1ab475a431435b320f50852c16ac57",
+      },
+    };
+    for (const [dir, expected] of Object.entries(before)) {
+      const catalog = resolveSessionCatalog(
+        await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
+        () => "placeholder-credential-value",
+      );
+      expect(
+        Object.fromEntries(
+          Object.entries(catalog.profiles).map(([id, profile]) => [
+            id,
+            profileFingerprint(profile),
+          ]),
+        ),
+      ).toEqual(expected);
+      for (const profile of Object.values(catalog.profiles)) {
+        expect(repositoryModeOf(profile)).toBe("required");
       }
     }
   });

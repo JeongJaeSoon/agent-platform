@@ -204,6 +204,7 @@ function profile(id: string, overrides: Partial<ProfileSummary> = {}) {
     runtime_kind: "claude_agent_sdk",
     runtime_version: "1.0.0",
     billing: "metered",
+    repository_mode: "required",
     ...overrides,
   } as ProfileSummary;
 }

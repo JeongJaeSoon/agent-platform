@@ -248,5 +248,6 @@ function profile(id: string, model: string): ProfileSummary {
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",
     billing: "metered",
+    repository_mode: "required",
   };
 }
