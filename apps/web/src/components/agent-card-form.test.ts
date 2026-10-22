@@ -19,6 +19,7 @@ const profile = (id: string, model: string): ProfileSummary => ({
   runtime_kind: "claude_agent_sdk",
   runtime_version: "1",
   billing: "none",
+  repository_mode: "required",
 });
 
 const CARD: AgentCard = {
