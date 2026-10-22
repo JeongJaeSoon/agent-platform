@@ -2,7 +2,7 @@
 /* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type { ReactNode } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 import { SESSION_COLUMNS } from "./session-row.tsx";
 
 export interface SessionTableProps {

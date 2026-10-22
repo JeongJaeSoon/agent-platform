@@ -2,7 +2,7 @@ import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps, JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 
 /*
  * shadcn/ui new-york Tabs. Changed from upstream: no `dark:` variants, the

@@ -1,7 +1,7 @@
 import type { JSX, ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 import { Button } from "../primitives/button.tsx";
 import {
   Dialog,

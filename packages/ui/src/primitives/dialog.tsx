@@ -1,7 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import type { ComponentProps, JSX } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 
 /*
  * shadcn/ui new-york Dialog — the only place packages/ui imports the Radix
