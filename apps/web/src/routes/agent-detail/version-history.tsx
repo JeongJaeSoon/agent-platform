@@ -2,11 +2,10 @@ import type { AgentDetail, AgentVersion } from "@werft-ai/contracts";
 import { formatTimestamp } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
+import { RowLines, RowList, RowListItem } from "../../components/table.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import {
   FORM_INLINE,
-  LIST,
-  LIST_ITEM,
   PRIMARY,
   SECONDARY,
   SECTION,
@@ -37,19 +36,21 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
       <h2 id={titleId} className={SECTION_TITLE}>
         {t("agent.versions.title")}
       </h2>
-      <ul className={LIST}>
+      <RowList>
         {ordered.map((version) => (
-          <li key={version.id} className={LIST_ITEM}>
-            <span className={PRIMARY}>{label(version)}</span>
-            <span className={SECONDARY}>
-              {formatTimestamp(version.created_at, locale)}
-              {version.id === activeVersionId
-                ? ` · ${t("agent.versions.active")}`
-                : ""}
-            </span>
-          </li>
+          <RowListItem key={version.id}>
+            <RowLines>
+              <span className={PRIMARY}>{label(version)}</span>
+              <span className={SECONDARY}>
+                {formatTimestamp(version.created_at, locale)}
+                {version.id === activeVersionId
+                  ? ` · ${t("agent.versions.active")}`
+                  : ""}
+              </span>
+            </RowLines>
+          </RowListItem>
         ))}
-      </ul>
+      </RowList>
       {ordered.length > 1 ? (
         <>
           <div className={FORM_INLINE}>

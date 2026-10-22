@@ -34,7 +34,7 @@ export function SessionList({ loading, renderError }: SessionListProps) {
   }
 
   return (
-    <div className="flex flex-col items-start gap-3">
+    <div className="flex flex-col items-start gap-4">
       <Sessions items={items} />
       {sessions.error
         ? renderError(

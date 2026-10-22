@@ -6,7 +6,11 @@ import {
 } from "@werft-ai/contracts";
 
 import { setupDom } from "../test-support/dom.ts";
-import { SessionRow, type SessionRowMessages } from "./session-row.tsx";
+import {
+  SESSION_COLUMNS,
+  SessionRow,
+  type SessionRowMessages,
+} from "./session-row.tsx";
 import { StageIndicator } from "./stage-indicator.tsx";
 import {
   Timeline,
@@ -15,6 +19,16 @@ import {
 } from "./timeline.tsx";
 
 const { render } = await setupDom();
+
+test("세션 표 열 정의는 폭마다 떨어진 class 하나씩이다", () => {
+  // Two classes run together are one unknown class, and Tailwind drops both.
+  expect(SESSION_COLUMNS.split(" ")).toEqual([
+    "grid",
+    expect.stringMatching(/^grid-cols-\[[^\s@]+\]$/),
+    expect.stringMatching(/^@\[480px\]:grid-cols-\[[^\s@]+\]$/),
+    expect.stringMatching(/^@\[820px\]:grid-cols-\[[^\s@]+\]$/),
+  ]);
+});
 
 // Echoes the key and params, so a test reads what the component asked for.
 function formatMessage({ key, params }: TurnEventMessage): string {
