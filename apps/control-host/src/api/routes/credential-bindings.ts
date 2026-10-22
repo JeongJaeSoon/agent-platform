@@ -5,8 +5,8 @@ import {
   credentialBindingParamsSchema,
   listCredentialBindingsResponseSchema,
   revokeCredentialBindingResponseSchema,
-} from "@agent-platform/contracts";
-import type { CredentialBindingService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { CredentialBindingService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,

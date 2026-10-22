@@ -13,7 +13,7 @@ import {
   type LiveMembership,
   type MembershipRole,
   type ResolvedWebSession,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,

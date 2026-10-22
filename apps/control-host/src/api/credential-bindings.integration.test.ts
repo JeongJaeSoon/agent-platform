@@ -14,8 +14,8 @@ import {
   listCredentialBindingsResponseSchema,
   revokeCredentialBindingResponseSchema,
   sessionCredentialUnboundDetailsSchema,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   authzDecisions,
   createDatabaseAgentAuthority,
@@ -30,8 +30,8 @@ import {
   memberships,
   receipts,
   users,
-} from "@agent-platform/db";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAgentService,
   createApiKeyService,
@@ -39,8 +39,8 @@ import {
   createCredentialBindingService,
   createSessionService,
   type SessionCatalog,
-} from "@agent-platform/platform";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/platform";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

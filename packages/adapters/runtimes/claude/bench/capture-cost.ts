@@ -7,8 +7,8 @@
  *   bun packages/adapters/runtimes/claude/bench/capture-cost.ts [turns] [entries-per-turn] [entry-bytes]
  */
 import { performance } from "node:perf_hooks";
-import type { TranscriptEntry } from "@agent-platform/runtime-core";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
+import type { TranscriptEntry } from "@werft-ai/runtime-core";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import { ClaudeSessionStore } from "../src/session-store.ts";
 
 const turns = Number(process.argv[2] ?? 1000);

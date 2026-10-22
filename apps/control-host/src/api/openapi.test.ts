@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import {
   API_ERROR_CODE_VALUES,
   SESSION_SCOPE_VALUES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   API_REFERENCE_OUTPUT_PATH,
   OPENAPI_OUTPUT_PATH,
@@ -280,6 +280,7 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}",
         "/v1/sessions/{id}/answers",
         "/v1/sessions/{id}/audit-read",
+        "/v1/sessions/{id}/close",
         "/v1/sessions/{id}/events",
         "/v1/sessions/{id}/interrupt",
         "/v1/sessions/{id}/messages",

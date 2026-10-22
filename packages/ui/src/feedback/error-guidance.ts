@@ -1,4 +1,4 @@
-import type { ApiErrorCode } from "@agent-platform/contracts";
+import type { ApiErrorCode } from "@werft-ai/contracts";
 
 /**
  * 오류는 원문 대신 "할 일"을 먼저 말한다 (02 UX 설계 §9). The server message is
@@ -29,6 +29,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   SESSION_PAUSED: "세션이 일시정지 상태입니다 — 재개한 뒤 보내세요.",
   SESSION_RESUMING: "세션을 복원하는 중입니다 — 잠시 뒤 다시 시도하세요.",
   SESSION_CLOSED: "보관된 세션입니다 — 새 세션으로 이어가세요.",
+  SESSION_CLOSING: "세션을 보관하는 중입니다 — 끝날 때까지 기다리세요.",
   SESSION_STOPPED: "종료된 세션입니다 — 재개한 뒤 보내세요.",
   RECOVERY_REQUIRED: "결과를 확인해야 합니다 — 복구 결정을 내리세요.",
   CHECKPOINT_UNAVAILABLE:

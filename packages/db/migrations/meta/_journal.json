@@ -400,6 +400,20 @@
       "when": 1791849388721,
       "tag": "0147_attempt_checkpoint_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1792579364205,
+      "tag": "0148_session_closing",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1792618688732,
+      "tag": "0149_checkpoint_transcript_bytes",
+      "breakpoints": true
     }
   ]
 }

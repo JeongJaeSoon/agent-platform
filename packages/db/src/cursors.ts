@@ -1,7 +1,7 @@
 // Every public page cursor is minted and checked here. Anything a decoder
 // does not recognise is InvalidCursorError, which the routes answer with 400.
-import { sessionIdSchema } from "@agent-platform/contracts";
-import { InvalidCursorError } from "@agent-platform/platform";
+import { sessionIdSchema } from "@werft-ai/contracts";
+import { InvalidCursorError } from "@werft-ai/platform";
 import { SEQUENCE_MAX } from "./control-shared.ts";
 
 // The public SSE `id:` and the worker's append cursor are the same value: the

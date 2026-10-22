@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/runtime-claude-codec",
+  "name": "@werft-ai/runtime-claude-codec",
   "description": "Kiel session runtime: Claude transcript and checkpoint codec",
   "version": "0.0.0",
   "private": true,
@@ -9,8 +9,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@agent-platform/contracts": "workspace:*",
-    "@agent-platform/runtime-core": "workspace:*",
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/runtime-core": "workspace:*",
     "zod": "4.6.5"
   }
 }

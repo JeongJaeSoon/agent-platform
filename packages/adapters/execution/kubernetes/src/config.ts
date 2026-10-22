@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
-import { integerSetting } from "@agent-platform/contracts/settings";
+import { integerSetting } from "@werft-ai/contracts/settings";
 
 export type WorkerObjectStoreAccess = { bucket: string; region: string };
 

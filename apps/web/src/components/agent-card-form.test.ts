@@ -3,7 +3,7 @@ import {
   type AgentCard,
   AGENT_CARD_LANGUAGE_VALUES as CONTRACT_LANGUAGES,
   type ProfileSummary,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   AGENT_CARD_LANGUAGE_VALUES,
   cardFromDraft,

@@ -1,3 +1,4 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Badge,
   Button,
@@ -8,8 +9,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@agent-platform/ui";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+} from "@werft-ai/ui";
 
 const meta = {
   title: "Primitives/Card",

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import * as schema from "@agent-platform/db";
+import { PGlite } from "@electric-sql/pglite";
+import * as schema from "@werft-ai/db";
 import {
   CHECKPOINT_OBJECTS_LOST_REASON,
   checkpoints,
@@ -9,23 +10,22 @@ import {
   hasUncollectedCheckpoint,
   receipts,
   sessions,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 import {
   type CheckpointStore,
   manifestRefFor,
   type WorkspaceBundleVerifier,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
   type GitCommandRunner,
-} from "@agent-platform/storage";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/storage";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import {
   createGitBundle,
   type GitBundleFixture,
-} from "@agent-platform/testkit/git-bundle";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/testkit/git-bundle";
 import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

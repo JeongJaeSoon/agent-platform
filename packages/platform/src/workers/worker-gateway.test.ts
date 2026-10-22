@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   runtimeConfigSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type { ForgeAdapter, ForgeResolver, RepoRef } from "../ports/forge.ts";
 import type {
@@ -321,6 +321,108 @@ describe("WorkerGateway", () => {
         at: expect.any(Date),
       },
     ]);
+  });
+
+  test("a manifest past the transcript limits is recorded on the session before finalize refuses it", async () => {
+    const recorded: unknown[] = [];
+    let committed = 0;
+    const instance = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic(input) {
+          recorded.push(input.pendingReason);
+          return {
+            outcome: "ok",
+            pointer: null,
+            restorable: false,
+            pendingReason: input.pendingReason ?? null,
+          };
+        },
+        async finalizeAtomic() {
+          committed += 1;
+          throw new Error("not reached");
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return {
+            status: "rejected",
+            reason: "the transcript is 9 bytes, over the 8-byte limit",
+            limit: "transcript_too_large",
+          };
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await expect(
+      instance.finalize(principal, {
+        ...scope,
+        turn_id: "1",
+        finalize_key: "f",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "ref",
+          manifest_sha256: "0".repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    expect(recorded).toEqual(["transcript_too_large"]);
+    expect(committed).toBe(0);
+  });
+
+  test("finalize hands the verified transcript size to the commit", async () => {
+    const seen: unknown[] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        async finalizeAtomic(input) {
+          seen.push(input.checkpointTranscriptBytes);
+          return {
+            outcome: "finalized",
+            result: { turnId: "1", status: "completed", checkpointRevision: 1 },
+          };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return { status: "verified", transcriptBytes: 1234 };
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await instance.finalize(principal, {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "f",
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 1,
+        manifest_ref: "ref",
+        manifest_sha256: "0".repeat(64),
+      },
+    });
+    expect(seen).toEqual([1234]);
   });
 
   test("a committed finalize replays without asking the verifier again", async () => {

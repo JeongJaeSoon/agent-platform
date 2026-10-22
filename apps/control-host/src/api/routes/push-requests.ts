@@ -5,8 +5,8 @@ import {
   pushRequestParamsSchema,
   pushRequestSchema,
   sessionIdParamsSchema,
-} from "@agent-platform/contracts";
-import type { PushActor, PushRequestService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { PushActor, PushRequestService } from "@werft-ai/platform";
 import type { Context } from "hono";
 import {
   type ApiEnvironment,

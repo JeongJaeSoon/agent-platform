@@ -1,4 +1,4 @@
-import type { ExecutionState } from "@agent-platform/contracts";
+import type { ExecutionState } from "@werft-ai/contracts";
 import {
   type EnsureExecutionResult,
   type ExecutionBackend,
@@ -13,7 +13,7 @@ import {
   type TerminateExecutionResult,
   type TerminateOptions,
   type WorkspaceRemovalResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   KubernetesApiError,
   KubernetesClient,

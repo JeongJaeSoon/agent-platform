@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { isApiError, unwrap } from "@agent-platform/client";
+import { isApiError, unwrap } from "@werft-ai/client";
 import { fakeClient, json } from "../.storybook/fake-client.ts";
 
 const network = spyOn(globalThis, "fetch");

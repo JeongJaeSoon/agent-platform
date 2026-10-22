@@ -10,7 +10,7 @@ import {
   type SurfaceChannelKind,
   slackNoticeFor,
   slackUserKindOf,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   AgentIdentityStore,
   SlackEventKey,

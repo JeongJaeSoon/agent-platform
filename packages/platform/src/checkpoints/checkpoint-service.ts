@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CheckpointRef } from "@agent-platform/contracts";
+import type { CheckpointRef } from "@werft-ai/contracts";
 import type {
   CheckpointBlockReason,
   CheckpointCodec,
@@ -13,19 +13,23 @@ import type {
   ObjectHead,
   ObjectRef,
   RuntimeFingerprint,
+  TranscriptLimits,
+  TranscriptSizeProblem,
   WorkspaceArtifact,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   DEFAULT_MAX_MANIFEST_BYTES,
   DEFAULT_MAX_MANIFEST_OBJECTS,
   DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   MAX_WORKSPACE_BUNDLE_CHAIN,
   runtimeFor,
+  TRANSCRIPT_LIMITS,
+  transcriptBytes,
   transcriptGenerationOf,
   transcriptParts,
   transcriptSizeProblem,
   workspacePathsProblem,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type {
   CheckpointFence,
@@ -71,7 +75,16 @@ export type ManifestVerdict =
        */
       versionsHeld?: true;
     }
-  | { reason: string; status: "rejected" };
+  | {
+      /**
+       * Set when the transcript is past `TRANSCRIPT_LIMITS`: that is not a
+       * fault of this publish but where the engine session stands, and the
+       * gateway records it on the session.
+       */
+      limit?: TranscriptSizeProblem["reason"];
+      reason: string;
+      status: "rejected";
+    };
 
 /**
  * Every object a session may own lives under this prefix, and nothing else
@@ -234,6 +247,8 @@ export type CheckpointServiceDependencies = {
    */
   maxManifestBytes?: number;
   maxManifestObjects?: number;
+  /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
+  transcriptLimits?: TranscriptLimits;
   /**
    * How many committed revisions below the pointer a restore may try when
    * the pointer's own checkpoint does not verify. Each one tried is read and
@@ -369,6 +384,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   const maxManifestBytes = deps.maxManifestBytes ?? DEFAULT_MAX_MANIFEST_BYTES;
   const maxManifestObjects =
     deps.maxManifestObjects ?? DEFAULT_MAX_MANIFEST_OBJECTS;
+  const transcriptLimits = deps.transcriptLimits ?? TRANSCRIPT_LIMITS;
   const bundleGate = createGate(
     deps.maxConcurrentBundleVerifications ??
       DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
@@ -513,7 +529,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       input.held === true,
     );
     if (bad !== undefined) {
-      return bad.damaged ? damaged(bad.reason) : rejected(bad.reason);
+      if (bad.damaged) return damaged(bad.reason);
+      return bad.limit === undefined
+        ? rejected(bad.reason)
+        : { limit: bad.limit, reason: bad.reason, status: "rejected" };
     }
     if (version !== undefined) {
       input.pinned?.note(checkpoint.manifest_ref, version, size);
@@ -525,7 +544,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     input: Parameters<typeof judgeManifest>[0],
   ): Promise<ManifestVerdict> {
     const verdict = await judgeManifest(input);
-    return verdict.status === "rejected" ? rejected(verdict.reason) : verdict;
+    if (verdict.status !== "rejected") return verdict;
+    return "limit" in verdict && verdict.limit !== undefined
+      ? { limit: verdict.limit, reason: verdict.reason, status: "rejected" }
+      : rejected(verdict.reason);
   }
 
   /**
@@ -582,8 +604,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // bytes to: a transcript over the limit is refused unread.
     const oversized = transcriptSizeProblem(
       transcriptParts(manifest.transcripts),
+      transcriptLimits,
     );
-    if (oversized !== undefined) return refused(oversized);
+    if (oversized !== undefined) {
+      return { ...refused(oversized.detail), limit: oversized.reason };
+    }
     const prefix = sessionObjectPrefix(sessionId);
     for (const ref of [...refs, ...chain]) {
       if (!ref.key.startsWith(prefix) || ref.key.split("/").includes("..")) {
@@ -1425,6 +1450,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         sessionId: input.sessionId,
         turnId: input.turnId,
         versionsHeld: verdict.versionsHeld === true,
+        transcriptBytes: transcriptBytes(
+          transcriptParts(verdict.manifest.transcripts),
+        ),
       });
       switch (result.outcome) {
         case "conflict":
@@ -1650,7 +1678,11 @@ type RestoreRuntime = {
   alternates: readonly string[];
 };
 
-type Problem = { damaged: boolean; reason: string };
+type Problem = {
+  damaged: boolean;
+  limit?: TranscriptSizeProblem["reason"];
+  reason: string;
+};
 
 function broken(reason: string): Problem {
   return { damaged: true, reason };

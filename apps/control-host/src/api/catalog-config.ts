@@ -1,5 +1,9 @@
 import { resolve } from "node:path";
-import { UNATTENDED_PERMISSION_MODES } from "@agent-platform/contracts";
+import {
+  GetSecretValueCommand,
+  SecretsManagerClient,
+} from "@aws-sdk/client-secrets-manager";
+import { UNATTENDED_PERMISSION_MODES } from "@werft-ai/contracts";
 import {
   CatalogCredentialError,
   type CredentialRef,
@@ -9,11 +13,7 @@ import {
   type SessionCatalog,
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
-} from "@agent-platform/platform";
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from "@aws-sdk/client-secrets-manager";
+} from "@werft-ai/platform";
 import { parse as parseYaml } from "yaml";
 
 // The operator's catalog: two YAML files in one directory, read

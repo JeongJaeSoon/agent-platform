@@ -8,7 +8,7 @@ import {
   type SurfaceCeiling,
   scopesForRole,
   type WorkspaceRole,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import type { LinkedSubject } from "../ports/linked-account-store.ts";
 import { createAuthorizationPolicy, type IdentityReader } from "./policy.ts";

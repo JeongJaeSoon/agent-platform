@@ -32,7 +32,7 @@ export const authKo = {
 
   "bootstrap.title": "첫 소유자 만들기",
   "bootstrap.intro":
-    "설치 때 출력된 bootstrap 토큰으로 첫 소유자와 워크스페이스를 만듭니다. 토큰은 한 번만 쓸 수 있고, 소유자가 이미 있으면 로그인 화면으로 안내합니다.",
+    "이 설치를 처음 설정할 때 첫 소유자와 워크스페이스를 만드는 화면입니다. 설치 때 출력된 bootstrap 토큰이 필요하고, 이미 소유자가 있으면 만들어지지 않습니다.",
   "bootstrap.token": "Bootstrap 토큰",
   "bootstrap.email": "소유자 이메일",
   "bootstrap.displayName": "이름",
@@ -47,6 +47,7 @@ export const authKo = {
   "bootstrap.tokenInvalid":
     "Bootstrap 토큰이 맞지 않습니다 — 설치 때 출력된 값을 그대로 넣으세요.",
   "bootstrap.loginLink": "이미 소유자가 있다면 로그인",
+  "bootstrap.ownerExistsLogin": "로그인하기",
 
   "invite.title": "초대 수락",
   "invite.intro":
@@ -119,7 +120,7 @@ export const authEn: Record<keyof typeof authKo, string> = {
 
   "bootstrap.title": "Create the first owner",
   "bootstrap.intro":
-    "Enter the bootstrap token printed during installation to create the first owner and the workspace. The token works only once; if an owner already exists, you are sent to log in.",
+    "Use this screen when you first set up this installation, to create the first owner and the workspace. You need the bootstrap token printed during installation. If an owner already exists, nothing is created.",
   "bootstrap.token": "Bootstrap token",
   "bootstrap.email": "Owner email",
   "bootstrap.displayName": "Name",
@@ -134,6 +135,7 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "bootstrap.tokenInvalid":
     "The bootstrap token is wrong — paste the value printed at install.",
   "bootstrap.loginLink": "Already have an owner? Log in",
+  "bootstrap.ownerExistsLogin": "Log in",
 
   "invite.title": "Accept invite",
   "invite.intro":

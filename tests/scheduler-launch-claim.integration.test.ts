@@ -1,35 +1,35 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { createApiApp } from "@agent-platform/control-host/src/api/app.ts";
-import { createEgressAuthorizer } from "@agent-platform/control-host/src/api/egress-authorizer.ts";
-import { registerWorkerRoutes } from "@agent-platform/control-host/src/api/routes/worker.ts";
-import { main } from "@agent-platform/control-host/src/scheduler/main.ts";
-import * as schema from "@agent-platform/db";
+import { createApiApp } from "@werft-ai/control-host/src/api/app.ts";
+import { createEgressAuthorizer } from "@werft-ai/control-host/src/api/egress-authorizer.ts";
+import { registerWorkerRoutes } from "@werft-ai/control-host/src/api/routes/worker.ts";
+import { main } from "@werft-ai/control-host/src/scheduler/main.ts";
+import * as schema from "@werft-ai/db";
 import {
   attempts,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
   turns,
   workerLaunches,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 import {
   DockerClient,
   LABELS,
   workspaceVolumePrefixFor,
-} from "@agent-platform/execution-local-docker";
-import { removeWorkerNetworks } from "@agent-platform/execution-local-docker/testing";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/execution-local-docker";
+import { removeWorkerNetworks } from "@werft-ai/execution-local-docker/testing";
+import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
   launchNonceFingerprint,
-} from "@agent-platform/platform";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/platform";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

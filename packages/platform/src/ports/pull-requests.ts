@@ -5,7 +5,7 @@ import type {
   PullRequestRefusal,
   PushRequestState,
   ReceiptActor,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 /** What every refused pull request operation answers, and its receipt records. */
 export const PULL_REQUEST_REFUSAL_ERRORS: Record<

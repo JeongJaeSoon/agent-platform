@@ -1,20 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { ProxyLogger } from "@agent-platform/egress-proxy/src/logger.ts";
+import type { ProxyLogger } from "@werft-ai/egress-proxy/src/logger.ts";
 import {
   type EgressProxyServer,
   startEgressProxy,
-} from "@agent-platform/egress-proxy/src/proxy.ts";
-import { ClaudeSdkRuntime } from "@agent-platform/runtime-claude";
+} from "@werft-ai/egress-proxy/src/proxy.ts";
+import { ClaudeSdkRuntime } from "@werft-ai/runtime-claude";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
+} from "@werft-ai/testkit/workspace";
 
 /**
  * The worker container learns its only route off the worker network through

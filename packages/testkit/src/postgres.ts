@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { migrateDatabase } from "@agent-platform/db/migrate";
+import { migrateDatabase } from "@werft-ai/db/migrate";
 import { Pool } from "pg";
 
 export type TempDatabase = {

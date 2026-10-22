@@ -4,47 +4,44 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BootstrapClaimResponse } from "@agent-platform/contracts";
+import { PGlite } from "@electric-sql/pglite";
+import type { BootstrapClaimResponse } from "@werft-ai/contracts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
-} from "@agent-platform/control-host/src/api/egress-authorizer.ts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/control-host/src/api/egress-authorizer.ts";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 import {
   type CredentialProxyServer,
   startCredentialProxy,
-} from "@agent-platform/egress-proxy/src/credential.ts";
-import { createProxyLogger } from "@agent-platform/egress-proxy/src/logger.ts";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/egress-proxy/src/credential.ts";
+import { createProxyLogger } from "@werft-ai/egress-proxy/src/logger.ts";
+import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
   priceProviderUsage,
   type WorkerGateway,
-} from "@agent-platform/platform";
-import {
-  ClaudeSdkRuntime,
-  runtimeEnvironment,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/platform";
+import { ClaudeSdkRuntime, runtimeEnvironment } from "@werft-ai/runtime-claude";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createServedRepository,
   type GitHttpServer,
   startGitHttpServer,
-} from "@agent-platform/testkit/git-http";
+} from "@werft-ai/testkit/git-http";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/testkit/workspace";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

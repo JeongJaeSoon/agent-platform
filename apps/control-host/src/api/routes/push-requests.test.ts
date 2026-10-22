@@ -5,7 +5,7 @@ import {
   type PushRequest,
   pushRequestSchema,
   type SessionScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type CreatePushRequestInput,
   createAuthorizationPolicy,
@@ -15,7 +15,7 @@ import {
   type PushRequestStore,
   type PushSourceResult,
   type SessionCatalog,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPushRequestRoutes } from "./push-requests.ts";

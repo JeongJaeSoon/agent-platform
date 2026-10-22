@@ -102,6 +102,26 @@ describe("ConfirmDialog", () => {
     );
   });
 
+  test("role을 주면 alertdialog로 열리고 이름·설명은 그대로 이어진다", () => {
+    const { baseElement } = render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => {}}
+        role="alertdialog"
+        title="세션을 종료할까요?"
+        consequence="기다리는 메시지와 요청이 취소됩니다."
+        onConfirm={() => {}}
+      />,
+    );
+    expect(baseElement.querySelector("[role='dialog']")).toBeNull();
+    const dialog = baseElement.querySelector("[role='alertdialog']");
+    const labelledBy = dialog?.getAttribute("aria-labelledby");
+    expect(baseElement.querySelector(`#${labelledBy}`)?.textContent).toBe(
+      "세션을 종료할까요?",
+    );
+    expect(dialog?.getAttribute("aria-describedby")).toBeTruthy();
+  });
+
   test("Escape로 닫힌다", async () => {
     const user = await setupUser();
     const { baseElement } = render(<ConfirmHarness />);

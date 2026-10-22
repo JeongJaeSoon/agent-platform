@@ -1,4 +1,4 @@
-import { LOCALES, type Locale } from "@agent-platform/react";
+import { LOCALES, type Locale } from "@werft-ai/react";
 import {
   createContext,
   type ReactNode,

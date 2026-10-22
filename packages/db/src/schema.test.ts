@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 import {
   ADMISSION_STATE_VALUES,
   CREDENTIAL_REF_PATTERN as CONTRACT_CREDENTIAL_REF_PATTERN,
   CREDENTIAL_BINDING_TARGET_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
-} from "@agent-platform/contracts";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/contracts";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {

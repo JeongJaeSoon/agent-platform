@@ -18,7 +18,7 @@ import type {
   SessionShareService,
   TeamService,
   UsageService,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
@@ -27,6 +27,7 @@ import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
@@ -100,6 +101,7 @@ function apiApp() {
       registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerPauseRoutes(router, {} as SessionService);
+      registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerProfileRoutes(router, { profiles: {}, repositories: {} });
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);

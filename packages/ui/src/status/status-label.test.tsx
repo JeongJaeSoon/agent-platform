@@ -4,7 +4,7 @@ import {
   EXECUTION_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   TURN_STATUS_VALUES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 import { setupDom, stubPrefersReducedMotion } from "../test-support/dom.ts";
 import { StatusLabel } from "./status-label.tsx";

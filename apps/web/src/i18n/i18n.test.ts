@@ -6,7 +6,7 @@ import {
   formsKo,
   sessionsEn,
   sessionsKo,
-} from "@agent-platform/react";
+} from "@werft-ai/react";
 import { agentsEn, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysKo } from "./api-keys.ts";
 import { authEn, authKo } from "./auth.ts";

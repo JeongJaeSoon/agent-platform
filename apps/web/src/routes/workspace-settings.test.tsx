@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { setupUser } from "@agent-platform/ui/test-support/dom";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   apiError,
   json,
@@ -139,7 +139,7 @@ describe("워크스페이스 설정", () => {
 
   test("화면의 최대치는 계약의 최대치와 같다", async () => {
     const { AUDIT_RETENTION_MAX_DAYS: contract } = await import(
-      "@agent-platform/contracts"
+      "@werft-ai/contracts"
     );
     const { AUDIT_RETENTION_MAX_DAYS } = await import(
       "./workspace-settings.tsx"

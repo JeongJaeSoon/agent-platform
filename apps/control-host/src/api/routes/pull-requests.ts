@@ -4,8 +4,8 @@ import {
   openPullRequestRequestSchema,
   openPullRequestResponseSchema,
   pushRequestParamsSchema,
-} from "@agent-platform/contracts";
-import type { PullRequestService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { PullRequestService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,

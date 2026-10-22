@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   type ExecutionBackend as ExecutionBackendKind,
   executionBackendSchema,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   ActiveExecution,
   DrainState,
@@ -18,7 +18,7 @@ import type {
   SchedulerDemand,
   SchedulerStore,
   StoredLaunchIntent,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   budgetExceeded,
   DEFAULT_NONCE_TTL_MS,
@@ -26,7 +26,7 @@ import {
   hashWorkerToken,
   launchNonceFingerprint,
   parseExecutionResources,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,

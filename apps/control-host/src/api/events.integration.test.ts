@@ -5,8 +5,8 @@ import {
   SSE_SCHEMA_VERSION,
   sseEventSchema,
   UNREADABLE_EVENT_CODE,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   apiKeys,
   createPostgresSessionControl,
@@ -21,12 +21,12 @@ import {
   sessions,
   turns,
   unassignedSessions,
-} from "@agent-platform/db";
-import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createSessionService,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";

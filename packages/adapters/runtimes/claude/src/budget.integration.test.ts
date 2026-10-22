@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { AgentRun } from "@agent-platform/runtime-core";
+import type { AgentRun } from "@werft-ai/runtime-core";
 import {
   type FakeAnthropicServer,
   type FakeReply,
   startFakeAnthropicServer,
   textReply,
   toolReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
+} from "@werft-ai/testkit/workspace";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 

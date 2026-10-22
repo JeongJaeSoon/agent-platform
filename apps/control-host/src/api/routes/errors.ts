@@ -1,11 +1,5 @@
-import {
-  type ApiErrorCode,
-  idempotencyKeySchema,
-} from "@agent-platform/contracts";
-import {
-  InvalidCursorError,
-  SessionServiceError,
-} from "@agent-platform/platform";
+import { type ApiErrorCode, idempotencyKeySchema } from "@werft-ai/contracts";
+import { InvalidCursorError, SessionServiceError } from "@werft-ai/platform";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
@@ -29,6 +23,7 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   PAUSE_COMMITTING: 409,
   SESSION_STOPPED: 409,
   SESSION_CLOSED: 409,
+  SESSION_CLOSING: 409,
   RECOVERY_REQUIRED: 409,
   TURN_NOT_STARTED: 409,
   TAKEOVER_REQUIRED: 409,

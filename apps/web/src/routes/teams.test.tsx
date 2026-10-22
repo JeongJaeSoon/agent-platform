@@ -6,8 +6,8 @@ import {
   TEAM_LIST_LIMIT,
   type TeamDetail,
   teamDetailSchema,
-} from "@agent-platform/contracts";
-import { setupUser } from "@agent-platform/ui/test-support/dom";
+} from "@werft-ai/contracts";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
@@ -316,7 +316,7 @@ describe("에이전트 관리자", () => {
     const agentsApi = agentServer();
     const teams = teamServer();
     let current = admins();
-    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentsApi.routes,
       ...teams.routes,
       [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, current),
@@ -381,7 +381,7 @@ describe("에이전트 관리자", () => {
       created_by: USER_ID,
       created_at: AT,
     };
-    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentsApi.routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [agent] }),
@@ -402,7 +402,7 @@ describe("에이전트 관리자", () => {
   });
 
   test("모든 에이전트를 관리하는 소유자가 자기 자신을 빼도 권한을 잃는다고 하지 않는다", async () => {
-    renderAt(`/agents/${AGENT_ID}`, {
+    renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, me()),
       [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
@@ -441,7 +441,7 @@ describe("에이전트 관리자", () => {
       ...agent,
       id: crypto.randomUUID(),
     }));
-    renderAt(`/agents/${AGENT_ID}`, {
+    renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentsApi.routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: others }),
@@ -453,7 +453,7 @@ describe("에이전트 관리자", () => {
   });
 
   test("관리 여부를 묻지 못하면 권한 문구가 아니라 실패를 보인다", async () => {
-    renderAt(`/agents/${AGENT_ID}`, {
+    renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () =>
@@ -474,7 +474,7 @@ describe("에이전트 관리자", () => {
   });
 
   test("관리자 목록이 실패하면 권한 문구가 아니라 실패를 보인다", async () => {
-    renderAt(`/agents/${AGENT_ID}`, {
+    renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, me()),
       [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
@@ -490,7 +490,7 @@ describe("에이전트 관리자", () => {
   });
 
   test("관리하지 않는 구성원은 이유만 보고, 관리자 목록을 묻지 않는다", async () => {
-    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
@@ -510,7 +510,7 @@ describe("에이전트 관리자", () => {
         await agentsApi.routes[`GET /v1/agents/${AGENT_ID}`]()
       ).json()) as { agent: unknown }
     ).agent;
-    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentsApi.routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [agent] }),

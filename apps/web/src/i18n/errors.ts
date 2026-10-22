@@ -4,7 +4,7 @@ export const errorsKo = {
   "error.SCOPE_NOT_GRANTABLE":
     "내가 가진 것보다 많은 권한을 key에 줄 수 없습니다.",
   "error.FORBIDDEN": "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
-  "error.BOOTSTRAP_DONE": "이미 소유자가 있습니다 — 로그인하세요.",
+  "error.BOOTSTRAP_DONE": "이미 소유자가 있습니다. 로그인해 주세요.",
   "error.RATE_LIMITED": "시도가 너무 많습니다 — 잠시 뒤 다시 시도하세요.",
   "error.BACKEND_UNAVAILABLE":
     "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
@@ -35,7 +35,7 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.UNAUTHORIZED": "The email or password is wrong.",
   "error.SCOPE_NOT_GRANTABLE": "A key cannot have permissions you do not have.",
   "error.FORBIDDEN": "Not allowed — ask an owner or admin.",
-  "error.BOOTSTRAP_DONE": "An owner already exists — log in instead.",
+  "error.BOOTSTRAP_DONE": "An owner already exists. Please log in.",
   "error.RATE_LIMITED": "Too many attempts — try again shortly.",
   "error.BACKEND_UNAVAILABLE": "The server is unavailable — try again shortly.",
   "error.NETWORK_ERROR": "Could not reach the server — check your connection.",

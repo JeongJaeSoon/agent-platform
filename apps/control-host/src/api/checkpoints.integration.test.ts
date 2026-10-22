@@ -1,50 +1,50 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import * as schema from "@agent-platform/db";
+import {
+  DeleteObjectCommand,
+  PutObjectCommand,
+  PutObjectLegalHoldCommand,
+} from "@aws-sdk/client-s3";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 import {
   type CheckpointService,
   createWorkerGateway,
   manifestRefFor,
   sessionObjectPrefix,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
   digestParts,
-} from "@agent-platform/runtime-claude-codec";
+} from "@werft-ai/runtime-claude-codec";
 import type {
   CheckpointManifest,
   CheckpointObjectStore,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 import {
   createGitBundle,
   type GitBundleFixture,
-} from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/git-bundle";
 import {
   createLocalstackBucket,
   type LocalstackBucket,
   localstackEnabled,
-} from "@agent-platform/testkit/localstack";
+} from "@werft-ai/testkit/localstack";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
-import {
-  DeleteObjectCommand,
-  PutObjectCommand,
-  PutObjectLegalHoldCommand,
-} from "@aws-sdk/client-s3";
+} from "@werft-ai/testkit/postgres";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";

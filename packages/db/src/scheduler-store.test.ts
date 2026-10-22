@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import { launchNonceFingerprint } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import { launchNonceFingerprint } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

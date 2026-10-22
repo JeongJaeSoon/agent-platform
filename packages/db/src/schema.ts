@@ -7,7 +7,7 @@ import {
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -1189,6 +1189,10 @@ export const checkpoints = pgTable(
     versionsHeld: boolean("versions_held").notNull().default(false),
     // CheckpointPointer.parentRevision: what a restore falls back along.
     parentRevision: integer("parent_revision"),
+    // The transcript total the verified manifest pins, which the session
+    // detail judges TRANSCRIPT_LIMIT on. Null for rows committed before it
+    // was recorded.
+    transcriptBytes: bigint("transcript_bytes", { mode: "number" }),
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()

@@ -1,5 +1,5 @@
-import type { TurnStatus } from "@agent-platform/contracts";
-import type { UsageReader } from "@agent-platform/platform";
+import type { TurnStatus } from "@werft-ai/contracts";
+import type { UsageReader } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, not, type SQL, sql } from "drizzle-orm";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";

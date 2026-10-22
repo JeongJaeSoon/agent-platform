@@ -1,5 +1,5 @@
 // Kept so imports from this path keep working; the query keys and options
-// live in @agent-platform/core.
+// live in @werft-ai/core.
 export {
   administeredAgentsQuery,
   agentAdminsQuery,
@@ -17,4 +17,4 @@ export {
   teamQuery,
   teamsQuery,
   viewerQuery,
-} from "@agent-platform/core";
+} from "@werft-ai/core";

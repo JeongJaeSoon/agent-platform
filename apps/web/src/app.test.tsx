@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { setupDom, setupUser } from "@agent-platform/ui/test-support/dom";
+import { setupDom, setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   apiError,
   fakeApi,
@@ -8,14 +8,14 @@ import {
   type Recorded,
 } from "./test-support/fake-api.ts";
 
-const { render, screen, waitFor } = await setupDom();
+const { render, screen, waitFor, within } = await setupDom();
 // After the DOM exists: the router and Testing Library look for it on load.
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
 const { GuardedButton } = await import("./auth/guard.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
 const { createServices } = await import("./services.tsx");
-const { AgentPlatformProvider } = await import("@agent-platform/react");
+const { AgentPlatformProvider } = await import("@werft-ai/react");
 
 type Routes = Parameters<typeof fakeApi>[0];
 
@@ -293,18 +293,24 @@ describe("bootstrap", () => {
     expect(history.location.search).not.toContain("owner");
   });
 
-  test("이미 끝났으면(409) 로그인으로 보낸다", async () => {
+  test("이미 소유자가 있으면(409) 그 자리에서 로그인 링크를 보인다", async () => {
     const { history } = renderAt("/bootstrap", {
       "POST /v1/auth/bootstrap": () =>
-        apiError(409, "BOOTSTRAP_DONE", "Bootstrap already done"),
+        apiError(409, "BOOTSTRAP_DONE", "owner@example.com tttttttt"),
     });
     await fill();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "이미 소유자가 있습니다. 로그인해 주세요.",
+    );
+    expect(alert.textContent).not.toContain("owner@example.com");
+    expect(alert.textContent).not.toContain("tttttttt");
     expect(
-      await screen.findByText(
-        "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
-      ),
-    ).toBeDefined();
-    expect(history.location.pathname).toBe("/login");
+      within(alert)
+        .getByRole("link", { name: "로그인하기" })
+        .getAttribute("href"),
+    ).toBe("/login");
+    expect(history.location.pathname).toBe("/bootstrap");
   });
 
   test("토큰이 틀리면(401) 토큰 문구다", async () => {
@@ -313,9 +319,20 @@ describe("bootstrap", () => {
         apiError(401, "UNAUTHORIZED", "Bootstrap token is invalid"),
     });
     await fill();
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "Bootstrap 토큰이 맞지 않습니다",
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Bootstrap 토큰이 맞지 않습니다");
+    expect(within(alert).queryByRole("link")).toBeNull();
+  });
+
+  test("입력이 틀리면(400) 입력 문구이고 로그인 안내가 없다", async () => {
+    renderAt("/bootstrap", {
+      "POST /v1/auth/bootstrap": () =>
+        apiError(400, "BAD_REQUEST", "Request body is invalid"),
+    });
+    await fill();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("입력을 확인하고 다시 보내세요.");
+    expect(within(alert).queryByRole("link")).toBeNull();
   });
 });
 
@@ -379,9 +396,7 @@ describe("i18n·반응형·키보드", () => {
   test.each([360, 768, 1440])(
     "%ipx에서 shell이 같은 내용으로 그려진다",
     async (width) => {
-      const { setViewport } = await import(
-        "@agent-platform/ui/test-support/dom"
-      );
+      const { setViewport } = await import("@werft-ai/ui/test-support/dom");
       setViewport({ width, height: 800 });
       renderAt("/", meOk);
       expect(

@@ -1,12 +1,23 @@
-import type { CheckpointRef } from "@agent-platform/contracts";
+import type { CheckpointRef } from "@werft-ai/contracts";
+import {
+  type TranscriptSizeProblem,
+  transcriptBytes,
+  transcriptParts,
+} from "@werft-ai/runtime-core";
 import type { ManifestVerdict } from "../checkpoints/checkpoint-service.ts";
 import type { CheckpointFence } from "./checkpoint-store.ts";
 import type { WorkerFence } from "./worker-unit-of-work.ts";
 
 export type CheckpointVerdict =
   // `versionsHeld`: see `ManifestVerdict`; finalize records it on the pointer.
-  | { status: "verified"; versionsHeld?: boolean }
-  | { status: "rejected"; reason: string };
+  // `transcriptBytes`: the manifest's transcript total, recorded on its row.
+  | { status: "verified"; transcriptBytes?: number; versionsHeld?: boolean }
+  // `limit`: see `ManifestVerdict`; the gateway records it on the session.
+  | {
+      limit?: TranscriptSizeProblem["reason"];
+      reason: string;
+      status: "rejected";
+    };
 
 // finalize refuses to promote a checkpoint pointer the verifier has not
 // accepted. The whole fence is passed, not just the session: reading the
@@ -68,11 +79,20 @@ export function serviceCheckpointVerifier(service: {
         },
       });
       if (verdict.status === "rejected") {
-        return { status: "rejected", reason: verdict.reason };
+        return verdict.limit === undefined
+          ? { status: "rejected", reason: verdict.reason }
+          : {
+              limit: verdict.limit,
+              reason: verdict.reason,
+              status: "rejected",
+            };
       }
+      const bytes = transcriptBytes(
+        transcriptParts(verdict.manifest.transcripts),
+      );
       return verdict.versionsHeld === true
-        ? { status: "verified", versionsHeld: true }
-        : { status: "verified" };
+        ? { status: "verified", transcriptBytes: bytes, versionsHeld: true }
+        : { status: "verified", transcriptBytes: bytes };
     },
   };
 }

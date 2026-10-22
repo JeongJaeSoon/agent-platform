@@ -1,5 +1,5 @@
-import { lookupEveryTimeStream } from "@agent-platform/db/pool";
-import type { StructuredLogger } from "@agent-platform/observability";
+import { lookupEveryTimeStream } from "@werft-ai/db/pool";
+import type { StructuredLogger } from "@werft-ai/observability";
 import { Client } from "pg";
 
 // The channel the worker gateway (appendEvents) and PostgresQueue.publish

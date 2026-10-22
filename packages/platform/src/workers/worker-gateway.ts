@@ -28,11 +28,11 @@ import type {
   WorkerReadyRequest,
   WorkerReadyResponse,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   executionBackendSchema,
   MAX_RESTORE_PROFILES,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -1234,6 +1234,7 @@ export function createWorkerGateway(deps: {
       const settled = await work.peekFinalizeAtomic(attempt);
       if (settled.outcome !== "open") return finalizeAnswer(settled);
       let checkpointVersionsHeld = false;
+      let checkpointTranscriptBytes: number | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -1245,6 +1246,17 @@ export function createWorkerGateway(deps: {
           }),
         );
         if (verdict.status === "rejected") {
+          // A transcript past the limits is where the engine session stands,
+          // not a fault of this upload: recorded before the refusal, so the
+          // session takes no new turn whatever the worker reports next.
+          if (verdict.limit !== undefined) {
+            const state = await work.checkpointStateAtomic({
+              fence,
+              now: now(),
+              pendingReason: verdict.limit,
+            });
+            if (state.outcome !== "ok") rejected(state);
+          }
           throw new WorkerGatewayError(
             409,
             "CHECKPOINT_UNAVAILABLE",
@@ -1252,6 +1264,7 @@ export function createWorkerGateway(deps: {
           );
         }
         checkpointVersionsHeld = verdict.versionsHeld === true;
+        checkpointTranscriptBytes = verdict.transcriptBytes;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
@@ -1260,6 +1273,9 @@ export function createWorkerGateway(deps: {
         await work.finalizeAtomic({
           ...attempt,
           checkpointVersionsHeld,
+          ...(checkpointTranscriptBytes === undefined
+            ? {}
+            : { checkpointTranscriptBytes }),
           now: now(),
         }),
       );

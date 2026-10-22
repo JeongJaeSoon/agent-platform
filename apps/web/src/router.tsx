@@ -1,4 +1,3 @@
-import { isApiError } from "@agent-platform/client";
 import {
   createRootRouteWithContext,
   createRoute,
@@ -6,6 +5,7 @@ import {
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
+import { isApiError } from "@werft-ai/client";
 import { meQuery } from "./api/queries.ts";
 import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";

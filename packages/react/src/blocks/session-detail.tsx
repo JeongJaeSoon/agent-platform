@@ -1,9 +1,9 @@
-import { isApiError } from "@agent-platform/client";
+import { isApiError } from "@werft-ai/client";
 import {
   presentTurnEvent,
   type SessionDetail as SessionDetailData,
   type SessionUsageResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   Checkbox,
   Field,
@@ -14,7 +14,7 @@ import {
   Timeline,
   type TimelineEntry,
   turnSummaryText,
-} from "@agent-platform/ui";
+} from "@werft-ai/ui";
 import { type ReactNode, useId, useMemo, useState } from "react";
 import {
   type EventStreamState,

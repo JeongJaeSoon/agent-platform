@@ -8,7 +8,7 @@ import {
   apiErrorResponseSchema,
   createAgentReleaseResponseSchema,
   listAgentsResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type AgentService,
   type AgentStore,
@@ -19,7 +19,7 @@ import {
   createAuthorizationPolicy,
   deriveReleaseId,
   profileFingerprint,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerAgentRoutes } from "./agents.ts";
 

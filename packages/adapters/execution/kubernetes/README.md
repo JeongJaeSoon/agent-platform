@@ -1,4 +1,4 @@
-# @agent-platform/execution-kubernetes
+# @werft-ai/execution-kubernetes
 
 `ExecutionBackend`을 Kubernetes로 구현한 패키지다. launch 하나가 다음 셋을 만든다.
 

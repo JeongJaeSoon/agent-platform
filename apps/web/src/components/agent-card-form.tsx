@@ -1,9 +1,10 @@
-import type { ApiError } from "@agent-platform/client";
+import type { UseQueryResult } from "@tanstack/react-query";
+import type { ApiError } from "@werft-ai/client";
 import type {
   AgentCard,
   ListProfilesResponse,
   ProfileSummary,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   Field,
   FieldDescription,
@@ -17,8 +18,7 @@ import {
   RadioGroup,
   RadioGroupItem,
   Textarea,
-} from "@agent-platform/ui";
-import type { UseQueryResult } from "@tanstack/react-query";
+} from "@werft-ai/ui";
 import { useId } from "react";
 import type { components } from "../api/schema.gen.ts";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";

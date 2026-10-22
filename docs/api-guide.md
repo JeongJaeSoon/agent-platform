@@ -158,6 +158,12 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
 
 **흔한 오류.** 409 `SESSION_PAUSED`나 `RECOVERY_REQUIRED`면 입력을 더 보내지 말고 각각 resume 또는 복구 결정을 먼저 한다. 429면 세션별 queued input 상한을 확인한다.
 
+**긴 세션의 transcript 상한.** checkpoint 하나가 실을 수 있는 transcript는 part 하나와 합계(root와 모든 subagent)에 상한이 있다. 세션이 이 상한에 다가가면 미리 알리고, 넘으면 새 turn을 받지 않는다.
+
+- 마지막으로 커밋된 checkpoint의 transcript가 합계 상한의 80% 이상이면 세션 상세 `attention`이 `{ "code": "TRANSCRIPT_LIMIT", "reason": "transcript_near_limit", "transcript_bytes": …, "limit_bytes": … }`가 된다. 처음 넘는 checkpoint가 커밋될 때 SSE에 `system` 이벤트(`subtype: "transcript_near_limit"`, `transcript_bytes`, `warn_bytes`, `limit_bytes`, `checkpoint_revision`)가 한 번 온다. 아직 막는 것은 없다. 하던 일을 마무리하고 새 세션으로 옮길 때다.
+- 상한을 넘으면 그 turn은 실행된 대로 `completed`로 남지만 새 checkpoint는 없다. `durability.checkpoint_pending_reason`이 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)가 되어 일반 게시 실패 `publish_failed`와 구분된다. `attention.reason`도 같은 값이고 `limit_bytes`는 그 reason이 가리키는 상한이다. 처음 기록될 때 SSE에 `system` 이벤트(`subtype: "transcript_limit_reached"`, `reason`, `limit_bytes`)가 한 번 온다.
+- 이 상태의 세션은 새 메시지를 409 `CHECKPOINT_UNAVAILABLE`로 거절하고, 이미 queue에 들어 있던 입력도 실행하지 않는다. 이전 turn과 마지막 checkpoint는 그대로이고 그 checkpoint가 복원 지점이다. transcript는 같은 engine 세션 안에서 줄지 않으므로 기다려도 풀리지 않는다. 새 세션을 열거나, 세션이 `recovery_required`가 되면 `start_fresh`로 맥락 없이 이어 간다([7절](#7-outcome_unknownrecovery_required-복구-결정)). 이 세션의 close도 409 `CHECKPOINT_UNAVAILABLE`이다. 닫으려면 terminate한 뒤 recovery close를 쓴다.
+
 ## 5. SSE로 진행 보기와 Last-Event-ID 재연결
 
 OpenAPI: [`streamSessionEvents`](api/index.html)
@@ -248,13 +254,73 @@ curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
 
 **흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나, runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
 
+### 세션 끝내기: close·terminate·recovery close
+
+OpenAPI: [`closeSession`](api/index.html), [`terminateSession`](api/index.html), [`decideSessionRecovery`](api/index.html)
+
+세션을 끝내는 길은 셋이다. 일을 마친 세션은 close로 닫는다. terminate와 recovery close는 각각 강제 종료와 복구 포기다. receipt와 이벤트에서 셋이 구분된다.
+
+| | close | terminate | recovery close |
+|---|---|---|---|
+| 경로 | `POST /v1/sessions/{id}/close` | `POST /v1/sessions/{id}/terminate` | `POST /v1/sessions/{id}/recovery-decisions`, `decision: "close"` |
+| 쓰는 때 | 할 일을 마친 세션을 닫는다 | 폭주하거나 멈춰야 하는 실행을 당장 내린다 | 복구할 수 없는 세션을 운영자가 끝낸다 |
+| scope | `sessions:control` | `sessions:control` | `sessions:recover` |
+| 받는 상태 | `active`, `paused`, resume할 수 있는 `stopped` | `closed`만 빼고 전부 | `recovery_required`, `stopping`, resume할 수 없는 `stopped` |
+| 진행 중 turn | 끝까지 돌리고 checkpoint를 확정한다. 강제로 죽이지 않는다 | 실행을 죽인다. turn이 `outcome_unknown`으로 남을 수 있다 | 이미 멈춘 세션이 대상이다 |
+| 대기 입력 | `closed`가 되는 트랜잭션에서 취소(`SESSION_CLOSED`) | 접수 즉시 취소(`SESSION_STOPPED`) | 결정 즉시 취소(`SESSION_CLOSED`) |
+| 결과 상태 | `closing` 뒤 `closed`(되돌릴 수 없음) | `stopping` 뒤 `stopped`(resume 가능) | `closed`(되돌릴 수 없음) |
+| receipt `operation`과 `result` | `close`, `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}` | `terminate`, `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}` | `recovery_decision`, `{resulting_admission_state, checkpoint_revision, resumable}` |
+| 이벤트 | `status` `closing`·`closed`, `system` `subtype: session_closed`(`closed_by: "close"`) | `status` `stopping`·`stopped` | `system` `subtype: recovery_decision`, `decision: "close"` |
+
+close는 pause와 같은 방식으로 drain한다. worker가 붙은 `active` 세션은 `closing`이 되고, 진행 중 turn이 끝나 checkpoint가 확정되고 실행이 사라진 것을 본 뒤 `closed`가 된다. receipt도 그때 `succeeded`가 된다. worker가 없는 세션, `paused`, resume할 수 있는 `stopped`는 요청 안에서 바로 닫힌다. drain이 60초를 넘기면 세션 `attention`에 `CLOSE_BLOCKED`와 이유(`long_turn`, `pending_request`, `mirror_error`, `checkpoint_unavailable`, `execution_pending`)가 보인다. 열린 승인·질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 끝내 닫지 못하면 receipt가 실패하고 세션은 `active`로 돌아간다. 이때 대기 입력은 그대로 남는다. 그 상태에서 빠져나오려면 terminate를 쓴다. 진행 중인 close는 `CONTROL_SUPERSEDED`로 실패한다.
+
+자기 turn 안에서 자기 세션을 close하는 에이전트는 receipt를 기다리지 않는다. drain은 그 turn이 끝나기를 기다리므로, `accepted` 응답이 그 turn이 보는 마지막 답이다. 결과를 push하려면 close가 `succeeded`가 된 뒤 최종 checkpoint로 push를 요청한다. 마지막 turn 안에서 요청한 push는 close가 그 turn의 checkpoint를 확정하므로 승인할 때 `CHECKPOINT_MOVED`로 거절된다. close는 push 요청을 건드리지 않는다.
+
+아래 예시는 별도 세션을 하나 만들어 turn을 마치고 닫는다.
+
+```bash
+close_session=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-close","steps":[],"final":"work is done"}' \
+    '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')")
+CSID=$(echo "$close_session" | jq -r .session_id)
+wait_for "/v1/sessions/$CSID/turns/1" .status completed
+
+CLOSE_KEY=$(uuidgen)
+CLOSE_BODY=$(jq -nc --argjson revision "$(curl -sS "$API/v1/sessions/$CSID" "${AUTH[@]}" | jq .revision)" \
+  '{expected_revision:$revision, reason:"work is done"}')
+close=$(curl -sS "$API/v1/sessions/$CSID/close" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CLOSE_KEY" --data "$CLOSE_BODY")
+CLOSE_RECEIPT=$(echo "$close" | jq -r .receipt_id)
+wait_for "/v1/receipts/$CLOSE_RECEIPT" .status succeeded
+wait_for "/v1/sessions/$CSID" .admission_state closed
+curl -sS "$API/v1/receipts/$CLOSE_RECEIPT" "${AUTH[@]}" \
+  | jq -e '.operation == "close" and .result.resulting_admission_state == "closed" and .result.checkpoint_revision != null'
+
+# The same key and body answer the same receipt.
+curl -sS "$API/v1/sessions/$CSID/close" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CLOSE_KEY" --data "$CLOSE_BODY" \
+  | jq -e --arg receipt "$CLOSE_RECEIPT" '.receipt_id == $receipt'
+CLOSED_STATUS=$(curl -sS -o /tmp/agent-platform-closed.json -w '%{http_code}' \
+  "$API/v1/sessions/$CSID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{"message":"one more"}')
+test "$CLOSED_STATUS" = 409
+jq -e '.error.code == "SESSION_CLOSED"' /tmp/agent-platform-closed.json
+```
+
+**기대 응답.** close는 202와 receipt를 돌려준다. receipt는 실행이 사라진 것을 본 뒤 `succeeded`가 되고, `result.checkpoint_revision`은 세션의 마지막 checkpoint다(turn을 한 번도 돌리지 않은 세션만 null). 그 뒤 메시지·resume·pause·terminate·close·복구 결정은 모두 409 `SESSION_CLOSED`다.
+
+**흔한 오류.** 409 `SESSION_CLOSING`이면 close가 아직 drain 중이다. receipt를 기다린다. 409 `CHECKPOINT_UNAVAILABLE`이면 신뢰할 checkpoint가 마지막 turn을 덮지 않는다. drain할 worker가 없거나, transcript가 상한을 넘어(`transcript_too_large`·`transcript_part_too_large`) drain이 checkpoint를 만들 수 없는 경우다. terminate한 뒤 recovery close를 쓴다. 409 `RECOVERY_REQUIRED`면 세션이 `recovery_required`이거나 resume할 수 없는 `stopped`다. recovery close를 쓴다. 409 `SESSION_PAUSED`(pausing)나 `SESSION_STOPPED`(stopping)면 그 제어가 끝난 뒤 다시 보낸다.
+
+**운영 메모.** worker 쪽 attempt의 `end_reason`은 close로 내려가도 `pause`로 남는다. close와 pause는 서버 로그의 control 결과(`operation: close`)와 receipt로 구분한다. 이 기능을 되돌리기 전에는 `closing` 세션이 없는지 확인하고, 있으면 terminate로 빼낸다(이전 바이너리는 `closing` 세션을 정착시키지 못한다).
+
 ## 7. outcome_unknown·RECOVERY_REQUIRED 복구 결정
 
 OpenAPI: [`decideSessionRecovery`](api/index.html), [`resumeSession`](api/index.html), [`getSessionTurn`](api/index.html)
 
 **목적.** terminate나 worker 상실 뒤 외부 효과를 확정할 수 없는 turn을 운영자가 명시적으로 판정한다. `outcome_unknown`을 성공이나 실패로 추측하지 않는다.
 
-**순서.** 세션의 `admission_state: recovery_required`와 대상 turn의 `outcome_unknown`을 확인한다. 증거에 맞춰 `abandon`, `confirm_completed`, `close`, `start_fresh`, `retry_restore` 중 하나를 선택한다. 여기서는 외부 효과가 없다는 fake 시나리오이므로 `abandon` 뒤 resume한다.
+**순서.** 세션의 `admission_state: recovery_required`와 대상 turn의 `outcome_unknown`을 확인한다. 증거에 맞춰 `abandon`, `confirm_completed`, `close`, `start_fresh`, `retry_restore` 중 하나를 선택한다. 여기의 `close`는 복구를 포기하는 운영자 결정이다. 일을 마친 세션을 닫는 close와의 차이는 [6절의 비교 표](#세션-끝내기-closeterminaterecovery-close)를 본다. 여기서는 외부 효과가 없다는 fake 시나리오이므로 `abandon` 뒤 resume한다.
 
 ```bash
 wait_for "/v1/sessions/$SID" .admission_state recovery_required

@@ -3,7 +3,7 @@ import {
   type AuthorizationRequest,
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
 import type { AcceptSessionInput } from "../ports/session-unit-of-work.ts";
@@ -106,6 +106,7 @@ function setup(
     controls: {
       terminateAtomic: unreached,
       pauseAtomic: unreached,
+      closeAtomic: unreached,
       decideRecoveryAtomic: unreached,
       resumeAtomic: unreached,
       changeProfileAtomic: unreached,

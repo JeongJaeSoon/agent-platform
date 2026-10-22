@@ -8,7 +8,7 @@ import {
   MCP_TOOL_PREFIX,
   type PolicyPins,
   type ToolPolicy,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type CatalogProfile,
   profileFingerprint,

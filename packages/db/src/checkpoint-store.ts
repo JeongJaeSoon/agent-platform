@@ -1,4 +1,4 @@
-import { OPEN_PUSH_REQUEST_STATES } from "@agent-platform/contracts";
+import { OPEN_PUSH_REQUEST_STATES } from "@werft-ai/contracts";
 import type {
   CheckpointCollectionFences,
   CheckpointCollectionStore,
@@ -6,7 +6,7 @@ import type {
   CheckpointStore,
   CommitCheckpointInput,
   CommitCheckpointResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -23,7 +23,7 @@ import {
 } from "drizzle-orm";
 import { ENDED_ATTEMPT_STATES, hasRestorePoint } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
-import { openPauseReceipt } from "./pause-control.ts";
+import { openDrainReceipt } from "./drain.ts";
 import type { Database } from "./queries.ts";
 import { RESTORE_FAILURES_CLEARED } from "./restore-failures.ts";
 import { openResumeReceipt } from "./resume-control.ts";
@@ -134,7 +134,7 @@ export function forgetLostCheckpoints(
           error: LOST_CHECKPOINT_RECEIPT_ERROR,
           updatedAt: now,
         })
-        .where(or(openPauseReceipt(session.id), openResumeReceipt(session.id)));
+        .where(or(openDrainReceipt(session.id), openResumeReceipt(session.id)));
       // Retired the way start_fresh retires a pointer, but with no turn
       // forgiven: every turn that ran is now a context gap, so the claim
       // gate, resume and each recovery decision judge the session as having
@@ -383,6 +383,9 @@ export function createPostgresCheckpointStore(
           turnRowId: null,
           now: input.now,
           versionsHeld: input.versionsHeld === true,
+          ...(input.transcriptBytes === undefined
+            ? {}
+            : { transcriptBytes: input.transcriptBytes }),
         });
         if (advanced.outcome === "committed") {
           return { outcome: "committed", revision: advanced.revision };

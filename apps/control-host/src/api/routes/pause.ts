@@ -2,8 +2,8 @@ import {
   controlAcceptedResponseSchema,
   pauseSessionRequestSchema,
   sessionIdParamsSchema,
-} from "@agent-platform/contracts";
-import type { SessionService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { SessionService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,

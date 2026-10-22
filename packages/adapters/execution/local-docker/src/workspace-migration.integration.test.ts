@@ -3,7 +3,7 @@ import {
   hashWorkerToken,
   type LaunchIntent,
   launchNonceFingerprint,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   LABELS,
   LocalDockerBackend,

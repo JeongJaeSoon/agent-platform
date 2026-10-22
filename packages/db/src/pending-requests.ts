@@ -6,12 +6,12 @@ import {
   type PendingRequest,
   pendingQuestionSchema,
   questionAnswerMismatch,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   AnswerRequestInput,
   AnswerRequestResult,
   PendingRequestStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,

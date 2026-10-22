@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

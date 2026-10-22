@@ -1,11 +1,19 @@
-import type {
-  AgentCard,
-  AgentDetail,
-  AgentRelease,
-  AgentVersion,
-  ProfileSummary,
-} from "@agent-platform/contracts";
-import { apiError, json, USER_ID, WORKSPACE_ID } from "./fake-api.ts";
+import {
+  type AgentCard,
+  type AgentDetail,
+  type AgentRelease,
+  type AgentVersion,
+  CREDENTIAL_REVOKE_NOTICE,
+  type CredentialBindingView,
+  type ProfileSummary,
+} from "@werft-ai/contracts";
+import {
+  apiError,
+  json,
+  RECEIPT_ID,
+  USER_ID,
+  WORKSPACE_ID,
+} from "./fake-api.ts";
 
 export const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
 const VERSION_IDS = [
@@ -24,6 +32,8 @@ export const CARD: AgentCard = {
 };
 
 const sha = (n: number) => n.toString(16).padStart(64, "0");
+const bindingId = (n: number) =>
+  `9e0f1a2b-3c4d-4e5f-8a6b-${n.toString(16).padStart(12, "0")}`;
 
 /**
  * The agents API as one stateful server: two tabs on the same server see
@@ -33,6 +43,7 @@ const sha = (n: number) => n.toString(16).padStart(64, "0");
 export function agentServer() {
   const versions: AgentVersion[] = [version(1, CARD)];
   const releases: AgentRelease[] = [];
+  const bindings: CredentialBindingView[] = [];
   let active: string | null = null;
   let revision = -1;
 
@@ -88,6 +99,36 @@ export function agentServer() {
     },
     [`GET ${path}`]: () => json(200, detail()),
     [`GET ${path}/admins`]: () => json(200, { users: [], teams: [] }),
+    [`GET ${path}/credential-bindings`]: () =>
+      json(200, {
+        items: bindings.filter((b) => !b.revoked_at),
+        revoke_notice: CREDENTIAL_REVOKE_NOTICE,
+      }),
+    [`POST ${path}/credential-bindings`]: async (request: Request) => {
+      const { credential_ref } = (await request.json()) as {
+        credential_ref: string;
+      };
+      const existing = bindings.find(
+        (b) => b.credential_ref === credential_ref && !b.revoked_at,
+      );
+      if (existing)
+        return json(200, {
+          binding: existing,
+          created: false,
+          receipt_id: null,
+        });
+      const binding: CredentialBindingView = {
+        id: bindingId(bindings.length),
+        agent_id: AGENT_ID,
+        credential_ref,
+        bound_by: USER_ID,
+        bound_at: "2026-10-11T02:00:00.000Z",
+        revoked_at: null,
+        running_sessions: 0,
+      };
+      bindings.push(binding);
+      return json(200, { binding, created: true, receipt_id: RECEIPT_ID });
+    },
     [`PATCH ${path}`]: async (request: Request) => {
       const body = (await request.json()) as { card?: AgentCard };
       const card = body.card;
@@ -141,6 +182,25 @@ export function agentServer() {
           "REVISION_CONFLICT",
           "The agent was activated by someone else",
         );
+      const named =
+        versions.find(
+          (v) =>
+            v.id === releases.find((r) => r.id === body.release_id)?.version_id,
+        )?.card.capabilities.credential_refs ?? [];
+      const bound = new Set(
+        bindings.filter((b) => !b.revoked_at).map((b) => b.credential_ref),
+      );
+      const missing = named.filter((ref) => !bound.has(ref));
+      if (missing.length > 0)
+        return json(409, {
+          error: {
+            code: "CREDENTIAL_UNBOUND",
+            message: `Release uses credentials not bound to this agent: ${missing.join(", ")}`,
+            retryable: false,
+            request_id: "req-1",
+            details: { reason_code: "credential_unbound", missing },
+          },
+        });
       const previous = active;
       if (previous === body.release_id)
         return json(200, {
@@ -160,7 +220,24 @@ export function agentServer() {
     },
   };
 
-  return { routes, detail, versions, releases };
+  // The fake routes by exact path, so each id a bind can hand out gets one.
+  for (let n = 0; n < 8; n += 1) {
+    const id = bindingId(n);
+    Object.assign(routes, {
+      [`DELETE ${path}/credential-bindings/${id}`]: () => {
+        const found = bindings.find((b) => b.id === id && !b.revoked_at);
+        if (!found) return apiError(404, "NOT_FOUND", "Resource not found");
+        found.revoked_at = "2026-10-11T03:00:00.000Z";
+        return json(200, {
+          binding: found,
+          revoke_notice: CREDENTIAL_REVOKE_NOTICE,
+          receipt_id: RECEIPT_ID,
+        });
+      },
+    });
+  }
+
+  return { routes, detail, versions, releases, bindings };
 }
 
 function profile(id: string, model: string): ProfileSummary {

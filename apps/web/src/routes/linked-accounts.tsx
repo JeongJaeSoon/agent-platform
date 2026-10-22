@@ -1,14 +1,14 @@
-import { type ApiError, isApiError, unwrap } from "@agent-platform/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   LinkedAccount,
   SlackLinkCallbackResponse,
   StartSlackLinkResponse,
-} from "@agent-platform/contracts";
-import { useAgentPlatform } from "@agent-platform/react";
-import { Button, EmptyState, formatTimestamp } from "@agent-platform/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useId, useRef, useState } from "react";
+} from "@werft-ai/contracts";
+import { useAgentPlatform } from "@werft-ai/react";
+import { Button, EmptyState, formatTimestamp } from "@werft-ai/ui";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { linkedAccountsQuery, queryKeys } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { FormError, NOTICE } from "../components/auth-page.tsx";
@@ -62,6 +62,64 @@ export function LinkedAccountsScreen() {
   const accounts = useQuery(linkedAccountsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const titleId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // The account whose row holds focus, until focus or a press goes elsewhere.
+  // Its row leaving takes focus with it, which fires neither event.
+  const focusedRow = useRef<string | null>(null);
+  const shownIds = useRef<readonly string[]>([]);
+
+  const live =
+    accounts.data?.items.filter((account) => account.status !== "revoked") ??
+    [];
+
+  useEffect(() => {
+    const track = (event: Event) => {
+      const row =
+        event.target instanceof Element
+          ? event.target.closest<HTMLElement>("li[data-account]")
+          : null;
+      focusedRow.current =
+        row && sectionRef.current?.contains(row)
+          ? (row.dataset.account ?? null)
+          : null;
+    };
+    const stop = new AbortController();
+    for (const type of ["focusin", "pointerdown"]) {
+      document.addEventListener(type, track, {
+        capture: true,
+        signal: stop.signal,
+      });
+    }
+    return () => stop.abort();
+  }, []);
+
+  // Focus that fell to the page with its row goes to the nearest row left
+  // below it, else above it, else the heading of the emptied list.
+  useLayoutEffect(() => {
+    // Rows as drawn: a failed reread keeps the data but draws no list.
+    const rows = [
+      ...(sectionRef.current?.querySelectorAll<HTMLElement>(
+        "li[data-account]",
+      ) ?? []),
+    ];
+    const ids = rows.map((row) => row.dataset.account ?? "");
+    const before = shownIds.current;
+    shownIds.current = ids;
+    const gone = focusedRow.current;
+    if (!gone || ids.includes(gone)) return;
+    focusedRow.current = null;
+    if (document.activeElement !== document.body) return;
+    const at = before.indexOf(gone);
+    const next = [
+      ...before.slice(at + 1),
+      ...before.slice(0, Math.max(at, 0)).reverse(),
+    ].find((id) => ids.includes(id));
+    (next
+      ? rows[ids.indexOf(next)]?.querySelector("button")
+      : headingRef.current
+    )?.focus();
+  });
 
   const start = useMutation<StartSlackLinkResponse, ApiError>({
     mutationFn: () => unwrap(client.POST("/v1/linked-accounts/slack/start")),
@@ -89,23 +147,23 @@ export function LinkedAccountsScreen() {
       setOutcome({ kind: "error", text: linkRefusal(t, error, role) }),
   });
 
-  const live =
-    accounts.data?.items.filter((account) => account.status !== "revoked") ??
-    [];
+  const notice = outcome?.kind === "notice" ? outcome.text : null;
 
   return (
     <div className={PAGE}>
       <h1 className={TITLE}>{t("linked.title")}</h1>
       <p className={HINT}>{t("linked.intro")}</p>
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <output className={NOTICE}>{outcome.text}</output>
-        )
-      ) : null}
-      <section className={SECTION} aria-labelledby={titleId}>
-        <h2 id={titleId} className={SECTION_TITLE}>
+      {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
+      {/* Always mounted, so a screen reader hears the notice when it
+          changes; out of the flow while empty. */}
+      <output className={notice ? NOTICE : "sr-only"}>{notice}</output>
+      <section ref={sectionRef} className={SECTION} aria-labelledby={titleId}>
+        <h2
+          ref={headingRef}
+          id={titleId}
+          tabIndex={-1}
+          className={`${SECTION_TITLE} outline-none`}
+        >
           {t("linked.slack")}
         </h2>
         {accounts.isPending ? (
@@ -163,6 +221,7 @@ function SlackAccounts({
       {accounts.map((account) => (
         <li
           key={account.id}
+          data-account={account.id}
           className="flex flex-col items-start gap-1 border-b py-3 sm:flex-row sm:items-center sm:gap-3"
         >
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -184,8 +243,13 @@ function SlackAccounts({
             type="button"
             variant="outline"
             size="sm"
-            disabled={unlinking === account.id}
-            onClick={() => onUnlink(account)}
+            // Not `disabled` while it runs: Chrome takes focus off a disabled
+            // button, and a refused unlink would leave the keyboard lost.
+            aria-disabled={unlinking === account.id || undefined}
+            className="aria-disabled:opacity-50"
+            onClick={() => {
+              if (unlinking !== account.id) onUnlink(account);
+            }}
           >
             {t("linked.unlink")}
           </Button>

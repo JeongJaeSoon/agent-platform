@@ -1,9 +1,9 @@
-import { STORAGE_ACCOUNTED_CONTENT_VALUES } from "@agent-platform/contracts";
+import { STORAGE_ACCOUNTED_CONTENT_VALUES } from "@werft-ai/contracts";
 import {
   integerSetting,
   positiveNumberSetting,
   settingProblems,
-} from "@agent-platform/contracts/settings";
+} from "@werft-ai/contracts/settings";
 
 /**
  * The limits an installation runs under. Every control process

@@ -8,7 +8,7 @@ import type {
   PauseBlockedReason,
   WorkerEvent,
   WorkspaceRepository,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 
@@ -296,6 +296,7 @@ export type FinalizeInput = {
   tokenLimit: number | null;
   // The verifier's verdict on `checkpoint`, never the worker's say.
   checkpointVersionsHeld?: boolean;
+  checkpointTranscriptBytes?: number;
 };
 export type FinalizeOutcome = {
   turnId: string;

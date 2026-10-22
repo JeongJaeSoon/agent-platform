@@ -8,7 +8,7 @@ import type {
   MarkStaleResult,
   Principal,
   UnlinkAccountResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { actorStillMember, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";

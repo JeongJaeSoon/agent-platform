@@ -18,7 +18,7 @@ export interface ConfirmDialogProps {
   /**
    * What actually happens if they go through with it — stated in the user's
    * own terms. Required, because a confirmation without a consequence is a
-   * speed bump, not a decision (Kollegium v1 §12.4).
+   * speed bump, not a decision.
    */
   readonly consequence: ReactNode;
   readonly onConfirm: () => void;
@@ -31,6 +31,11 @@ export interface ConfirmDialogProps {
   readonly busy?: boolean | undefined;
   readonly confirmDisabled?: boolean | undefined;
   readonly tone?: "default" | "danger" | undefined;
+  /**
+   * `alertdialog` when the dialog interrupts a flow to demand a decision,
+   * such as before ending something that is running.
+   */
+  readonly role?: "dialog" | "alertdialog" | undefined;
   /** Extra controls between the consequence and the buttons. */
   readonly children?: ReactNode | undefined;
   readonly className?: string | undefined;
@@ -47,6 +52,7 @@ export function ConfirmDialog({
   busy = false,
   confirmDisabled = false,
   tone = "default",
+  role = "dialog",
   children,
   className,
 }: ConfirmDialogProps): JSX.Element {
@@ -104,6 +110,7 @@ export function ConfirmDialog({
           `translate` would stack on `.ap-dialog`'s `transform`, and the
           title and description would shrink to shadcn's type scale. */}
       <DialogContent
+        role={role}
         overlayClassName="ap-dialog__overlay"
         data-ap-dialog={instanceId}
         className={cn("ap-dialog translate-x-0 translate-y-0", className)}

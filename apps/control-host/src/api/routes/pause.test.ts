@@ -1,14 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import {
-  type ApiErrorCode,
-  apiErrorResponseSchema,
-} from "@agent-platform/contracts";
+import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createSessionService,
   type PauseSessionResult,
   type SessionControl,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPauseRoutes } from "./pause.ts";
 
@@ -40,6 +37,7 @@ function pause(
     controls: {
       terminateAtomic: notReached,
       pauseAtomic,
+      closeAtomic: notReached,
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
       changeProfileAtomic: notReached,

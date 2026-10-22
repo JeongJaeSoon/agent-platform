@@ -4,7 +4,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   unwrap,
-} from "@agent-platform/client";
+} from "@werft-ai/client";
 import {
   authMeResponseSchema,
   DISPLAY_NAME_MAX as CONTRACT_DISPLAY_NAME_MAX,
@@ -13,7 +13,7 @@ import {
   PASSWORD_MIN_LENGTH as CONTRACT_PASSWORD_MIN_LENGTH,
   WORKSPACE_ROLE_VALUES as CONTRACT_ROLE_VALUES,
   inviteTokenSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import {
   DISPLAY_NAME_MAX,

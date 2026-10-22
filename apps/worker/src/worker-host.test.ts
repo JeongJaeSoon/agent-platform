@@ -8,17 +8,14 @@ import {
   type ReleaseRequest,
   type RuntimeConfig,
   TURN_BUDGET_EXCEEDED_REASON,
-} from "@agent-platform/contracts";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/contracts";
+import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import {
   type AgentRun,
   type CheckpointPreparation,
   type NativeSdkMessage,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";

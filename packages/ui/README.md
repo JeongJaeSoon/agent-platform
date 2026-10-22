@@ -1,4 +1,4 @@
-# @agent-platform/ui
+# @werft-ai/ui
 
 웹 콘솔(I1)·받은편지함(I2)·연결(I3)·기억(I4) 화면이 공유하는 표현 계층이다.
 정본은 Obsidian `Project/agent-platform/interface/02 UX 설계` §4(상태 표현)·§6(반응형·접근성)·§8(컴포넌트 인벤토리)·§9(카피 톤).
@@ -8,7 +8,7 @@
 이 패키지는 **서버가 준 상태를 그리는 일만 한다**(옛 Kollegium v1 §12.4).
 
 - fetch·권한 판정·상태 전이 정책을 넣지 않는다. URL도 만들지 않는다(`href`는 화면이 준다).
-- 런타임 의존성은 `react`·`react-dom`·`@agent-platform/contracts`(타입 전용)와 shadcn/ui가 쓰는
+- 런타임 의존성은 `react`·`react-dom`·`@werft-ai/contracts`(타입 전용)와 shadcn/ui가 쓰는
   `@radix-ui/react-dialog`·`@radix-ui/react-slot`·`class-variance-authority`·`clsx`·`tailwind-merge`뿐이다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
 - `src/package.test.ts`가 이 경계를 검사한다. 새 의존성을 넣으려면 그 테스트를 먼저 고쳐야 한다.
@@ -42,7 +42,7 @@ Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커�
 `apps/web`(94S-158)에서 한 줄로 이어 붙인다:
 
 ```css
-@import "@agent-platform/ui/styles.css"; /* tokens.css를 함께 가져온다 */
+@import "@werft-ai/ui/styles.css"; /* tokens.css를 함께 가져온다 */
 @theme inline {
   --color-canvas: var(--ap-color-canvas);
   --color-surface: var(--ap-color-surface);

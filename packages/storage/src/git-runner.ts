@@ -3,7 +3,7 @@ import {
   type GitResourceLimits,
   gitCommand,
   killProcessGroup,
-} from "@agent-platform/system";
+} from "@werft-ai/system";
 
 export type { GitResourceLimits };
 

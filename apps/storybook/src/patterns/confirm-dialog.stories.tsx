@@ -1,5 +1,5 @@
-import { ConfirmDialog } from "@agent-platform/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ConfirmDialog } from "@werft-ai/ui";
 import { fn } from "storybook/test";
 
 const meta = {
@@ -28,6 +28,14 @@ export const Danger: Story = {
     title: "세션을 종료할까요?",
     consequence: "종료한 세션은 다시 열 수 없습니다.",
     confirmLabel: "종료",
+  },
+};
+
+/** Interrupts a running flow, so screen readers announce it as an alert. */
+export const AlertDialog: Story = {
+  args: {
+    ...Danger.args,
+    role: "alertdialog",
   },
 };
 

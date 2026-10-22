@@ -1,4 +1,4 @@
-import type { StructuredLogger } from "@agent-platform/observability";
+import type { StructuredLogger } from "@werft-ai/observability";
 import { REQUEST_DEADLINE_MS } from "./deadline.ts";
 import type { ReadinessProbe } from "./readiness.ts";
 

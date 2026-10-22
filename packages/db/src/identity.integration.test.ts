@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { Pool } from "pg";
 import { migrateDatabase, recordAppliedMigrations } from "./migrate.ts";
 import { expectedMigrations } from "./migration-head.ts";
@@ -203,8 +203,8 @@ integration("0100 identity migration on PostgreSQL", () => {
       const logger = createLogger({ sinks: [sink] });
       const first = await migrateDatabase(database.url, { logger });
       const second = await migrateDatabase(database.url, { logger });
-      expect(first).toEqual({ adopted: 0, applied: 48, total: 57 });
-      expect(second).toEqual({ adopted: 0, applied: 0, total: 57 });
+      expect(first).toEqual({ adopted: 0, applied: 50, total: 59 });
+      expect(second).toEqual({ adopted: 0, applied: 0, total: 59 });
       expect(sink.records.map(({ message }) => message)).toEqual([
         "db.migrate.applied",
         "db.migrate.noop",

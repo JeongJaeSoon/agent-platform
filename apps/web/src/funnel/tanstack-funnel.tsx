@@ -1,10 +1,10 @@
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   createFunnel,
   type FunnelReset,
   type FunnelRouter,
-} from "@agent-platform/react";
-import { Button } from "@agent-platform/ui";
-import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+} from "@werft-ai/react";
+import { Button } from "@werft-ai/ui";
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n/i18n.tsx";
 

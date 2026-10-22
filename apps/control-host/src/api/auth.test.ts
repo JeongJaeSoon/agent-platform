@@ -9,8 +9,8 @@ import {
   loginResponseSchema,
   passwordResetResponseSchema,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   BootstrapDoneError,
   type BootstrapInput,
@@ -23,7 +23,7 @@ import {
   type IssuePasswordResetInput,
   type IssuePasswordResetResult,
   type ResolvedWebSession,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
 import {
   apiKeyPrincipal,

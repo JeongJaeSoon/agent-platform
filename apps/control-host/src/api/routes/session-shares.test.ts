@@ -9,12 +9,12 @@ import {
   type SessionShareView,
   setSessionShareResponseSchema,
   terminateSessionResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type SessionService,
   SessionServiceError,
   type SessionShareService,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionShareRoutes } from "./session-shares.ts";
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { queryKeys } from "@agent-platform/core";
-import { setupUser } from "@agent-platform/ui/test-support/dom";
+import { queryKeys } from "@werft-ai/core";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { THEME_STORAGE_KEY } from "../components/theme.ts";
 import { json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness, WAITING_SESSIONS } from "../test-support/render-app.tsx";
@@ -91,7 +91,7 @@ describe("app shell", () => {
         }),
     });
     const link = await screen.findByRole("link", {
-      name: "세션 답변 대기 2건",
+      name: "세션 답변 대기 2개",
     });
     expect(link.getAttribute("href")).toBe("/sessions");
     expect(
@@ -112,7 +112,7 @@ describe("app shell", () => {
           next_cursor: null,
         }),
     });
-    await screen.findByRole("link", { name: "세션 답변 대기 1건" });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
     // What a session's status event invalidates.
     await services.queryClient.invalidateQueries({
       queryKey: queryKeys.waitingSessions,
@@ -130,7 +130,7 @@ describe("app shell", () => {
         json(200, { items: [waiting(FIRST)], next_cursor: "next-1" }),
     });
     const link = await screen.findByRole("link", {
-      name: "세션 답변 대기 1건 이상",
+      name: "세션 답변 대기 1개 이상",
     });
     expect(link.textContent).toContain("1+");
   });

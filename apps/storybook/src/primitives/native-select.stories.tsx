@@ -1,3 +1,4 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Field,
   FieldDescription,
@@ -5,8 +6,7 @@ import {
   NativeSelect,
   NativeSelectOptGroup,
   NativeSelectOption,
-} from "@agent-platform/ui";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+} from "@werft-ai/ui";
 
 const meta = {
   title: "Primitives/NativeSelect",

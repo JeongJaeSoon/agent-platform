@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
 import { PGlite } from "@electric-sql/pglite";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

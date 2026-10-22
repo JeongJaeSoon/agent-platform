@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as schema from "@agent-platform/db";
+import * as schema from "@werft-ai/db";
 import {
   queueMessages,
   sessions,
   turns,
   unassignedSessions,
   workers,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

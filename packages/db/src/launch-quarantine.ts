@@ -1,5 +1,5 @@
-import type { ApiErrorCode } from "@agent-platform/contracts";
-import type { ExecutionRef } from "@agent-platform/platform";
+import type { ApiErrorCode } from "@werft-ai/contracts";
+import type { ExecutionRef } from "@werft-ai/platform";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { INPUT_RECEIPT_OPERATIONS } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
