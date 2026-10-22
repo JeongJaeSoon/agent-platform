@@ -64,6 +64,7 @@
 | 실제 SDK에서 mirror 내용과 로컬 transcript 일치, pinned checkpoint에서 resume | `packages/adapters/runtimes/claude/src/runtime.integration.test.ts` (`transcript mirror against the actual SDK`) |
 | 실제 SDK에서 `mirror_error`가 `result`보다 먼저 오고 checkpoint를 막음 | 같은 파일, `a mirror that keeps rejecting is reported before the turn's result, which still succeeds` |
 | 실제 SDK에서 timeout 뒤 늦게 반영된 write를 한 번만 복원 | 같은 파일, `restores once the entries of appends that timed out but still landed` |
+| 실제 SDK에서 append가 끝나지 않으면 `result`를 내지 않고, 그 상태로 프로세스를 끝내면 남는 transcript가 없음 | 같은 파일, `a run killed while its mirror append hangs leaves no result and nothing to checkpoint` |
 | 실제 SDK에서 store에 없는 session resume이 모델 호출 없이 실패 | 같은 파일, `a resume the store holds nothing for fails without reaching the model` |
 | tool·background writer가 끝나기 전 checkpoint 거절 | 같은 파일, `checkpoint quiescence against the actual SDK` |
 | `mirror_error`가 있으면 checkpoint 거절 | `packages/adapters/runtimes/claude/src/turn-ledger.test.ts` |
