@@ -6,7 +6,10 @@ import {
   expect,
   test,
 } from "bun:test";
-import type { WorkerScope } from "@werft-ai/contracts";
+import {
+  UNATTENDED_PERMISSION_MODES,
+  type WorkerScope,
+} from "@werft-ai/contracts";
 import {
   createWorkerGateway,
   type WorkerGateway,
@@ -38,6 +41,10 @@ import {
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+
+const RECOVERY_MODES = ["default", ...UNATTENDED_PERMISSION_MODES] as const;
+const profileFor = (mode: (typeof RECOVERY_MODES)[number]) =>
+  mode === "default" ? "claude-coding-v1" : `claude-${mode}`;
 
 // A legacy pod taking an unowned session: the claimant the orphan
 // reconciler hands the session back to.
@@ -297,29 +304,32 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: {
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
+        profiles: Object.fromEntries(
+          RECOVERY_MODES.map((mode) => [
+            profileFor(mode),
+            {
+              runtime_kind: "claude_agent_sdk",
+              runtime_version: "0.3.270",
+              model: "claude-sonnet-5",
+              tools: ["Read", "Edit", "Bash"],
+              permission_mode: mode,
+              provider: {
+                kind: "litellm",
+                endpoint: "https://litellm.invalid",
+                auth: {
+                  kind: "api_key",
+                  value: "catalog-provider-key",
+                  ref: { value_env: "PROVIDER_KEY" },
+                },
               },
             },
-          },
-        },
+          ]),
+        ),
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
+            profiles: RECOVERY_MODES.map(profileFor),
           },
         },
       },
@@ -343,7 +353,10 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     await database.drop();
   }, 60_000);
 
-  async function bound(name: string) {
+  async function bound(
+    name: string,
+    profileId: string = profileFor("default"),
+  ) {
     const partition = `${name}-${crypto.randomUUID()}`;
     const accepted = await createPostgresSessionUnitOfWork(
       db,
@@ -352,7 +365,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      profileId,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -500,54 +513,59 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     ).toHaveLength(1);
   });
 
-  test("lease expired after delivery: the turn ends outcome_unknown and the session waits for recovery", async () => {
-    const b = await bound("after");
-    const next = await gateway.nextInput(b.principal, b.scope);
-    expect(next.input?.turn_id).toBe("1");
-    await sleep(LEASE_TTL_MS + 100);
+  // permission_mode reaches only the engine: an unattended session's lost
+  // turn goes to an operator exactly as an attended one's does.
+  for (const mode of RECOVERY_MODES) {
+    test(`lease expired after delivery (${mode}): the turn ends outcome_unknown and the session waits for recovery`, async () => {
+      const b = await bound("after", profileFor(mode));
+      expect(b.claimed.runtime_config.permission_mode).toBe(mode);
+      const next = await gateway.nextInput(b.principal, b.scope);
+      expect(next.input?.turn_id).toBe("1");
+      await sleep(LEASE_TTL_MS + 100);
 
-    expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([
-      expect.objectContaining({ action: "fenced", sessionId: b.sessionId }),
-    ]);
-    // Still undecided until the execution is confirmed gone.
-    const [open] = await db
-      .select({ id: turns.id, status: turns.status })
-      .from(turns)
-      .where(eq(turns.sessionId, b.sessionId));
-    expect(open?.status).toBe("running");
-    if (!open) throw new Error("turn missing");
-    // A request the lost worker raised and nobody can answer any more.
-    await db.insert(pendingRequests).values({
-      requestId: `req-${crypto.randomUUID()}`,
-      sessionId: b.sessionId,
-      turnId: open.id,
-      attemptId: b.claimed.attempt_id,
-      kind: "permission",
-      payload: {},
-      inputHash: "h",
-      expiresAt: new Date(Date.now() + 60_000),
+      expect(await reconcileExpiredLeases(db, { now: clock })).toEqual([
+        expect.objectContaining({ action: "fenced", sessionId: b.sessionId }),
+      ]);
+      // Still undecided until the execution is confirmed gone.
+      const [open] = await db
+        .select({ id: turns.id, status: turns.status })
+        .from(turns)
+        .where(eq(turns.sessionId, b.sessionId));
+      expect(open?.status).toBe("running");
+      if (!open) throw new Error("turn missing");
+      // A request the lost worker raised and nobody can answer any more.
+      await db.insert(pendingRequests).values({
+        requestId: `req-${crypto.randomUUID()}`,
+        sessionId: b.sessionId,
+        turnId: open.id,
+        attemptId: b.claimed.attempt_id,
+        kind: "permission",
+        payload: {},
+        inputHash: "h",
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      await gateway.confirmExecutionGone(b.executionId);
+      const [request] = await db
+        .select({ resolvedAt: pendingRequests.resolvedAt })
+        .from(pendingRequests)
+        .where(eq(pendingRequests.sessionId, b.sessionId));
+      expect(request?.resolvedAt).not.toBeNull();
+      const [turn] = await db
+        .select({ status: turns.status, outcomeUnknown: turns.outcomeUnknown })
+        .from(turns)
+        .where(eq(turns.sessionId, b.sessionId));
+      expect(turn).toEqual({ status: "outcome_unknown", outcomeUnknown: true });
+      const session = await sessionRow(b.sessionId);
+      expect(session.admissionState).toBe("recovery_required");
+      expect(
+        await db
+          .select()
+          .from(unassignedSessions)
+          .where(eq(unassignedSessions.sessionId, b.sessionId)),
+      ).toHaveLength(0);
     });
-
-    await gateway.confirmExecutionGone(b.executionId);
-    const [request] = await db
-      .select({ resolvedAt: pendingRequests.resolvedAt })
-      .from(pendingRequests)
-      .where(eq(pendingRequests.sessionId, b.sessionId));
-    expect(request?.resolvedAt).not.toBeNull();
-    const [turn] = await db
-      .select({ status: turns.status, outcomeUnknown: turns.outcomeUnknown })
-      .from(turns)
-      .where(eq(turns.sessionId, b.sessionId));
-    expect(turn).toEqual({ status: "outcome_unknown", outcomeUnknown: true });
-    const session = await sessionRow(b.sessionId);
-    expect(session.admissionState).toBe("recovery_required");
-    expect(
-      await db
-        .select()
-        .from(unassignedSessions)
-        .where(eq(unassignedSessions.sessionId, b.sessionId)),
-    ).toHaveLength(0);
-  });
+  }
 
   test(
     "a heartbeat that lands first keeps the lease; an attempt already released is only closed",
