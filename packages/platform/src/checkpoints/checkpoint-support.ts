@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import type { CheckpointManifest, ObjectRef } from "@werft-ai/runtime-core";
+import {
+  type CheckpointManifest,
+  type ObjectRef,
+  storedOutputs,
+} from "@werft-ai/runtime-core";
 
 import {
   CHECKPOINT_ROOT_PARENT,
@@ -96,6 +100,9 @@ export function keepSet() {
         // wrote them; this one keeps them for as long as it is kept.
         ...chainOf(manifest.workspace),
         ...manifest.workspace.untracked,
+        // An output a later checkpoint inherited stays in the directory of
+        // the one that uploaded it, kept for as long as either is.
+        ...storedOutputs(manifest.outputs),
       ]) {
         add(ref.key, trusted ? ref.version : undefined);
       }

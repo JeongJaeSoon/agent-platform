@@ -11,6 +11,7 @@ export {
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
   runtimeFor,
+  storedOutputs,
   TRANSCRIPT_LIMITS,
   TRANSCRIPT_MIRROR_DIRECTORY,
   transcriptBytes,
