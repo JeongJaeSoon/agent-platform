@@ -787,65 +787,33 @@ describe("transcript mirror against the actual SDK", () => {
     }
   }, 60_000);
 
-  test("a run killed while its mirror append hangs leaves no result and nothing to checkpoint", async () => {
-    isolated = await createIsolatedWorkspace({ prefix: "mirror-hang-" });
-    const { home, workspace } = isolated;
-    server = startFakeAnthropicServer(() => textReply("BLOCKED_APPEND_RESULT"));
-    const mirror = new ClaudeSessionStore({
-      generation: 1,
-      objects: createMemoryCheckpointObjectStore(),
-      prefix: "sessions/mirror/hang",
-    });
-    const spawnedPids: number[] = [];
-    const exitedPids: number[] = [];
-    let appendStarted: (() => void) | undefined;
-    const blocked = new Promise<void>((resolve) => {
-      appendStarted = resolve;
-    });
-    const run = new ClaudeSdkRuntime(
-      { endpoints: [server.url], models: ["claude-sonnet-4-5"] },
-      {
-        onSpawn: (pid) => spawnedPids.push(pid),
-        onExit: (pid) => exitedPids.push(pid),
-      },
-    ).start(
-      {
-        ...mirrorProbeConfig(server.url, home, workspace),
-        sessionStore: {
-          append: () => {
-            appendStarted?.();
-            return new Promise<never>(() => {});
-          },
-          listSubkeys: (key) => mirror.listSubkeys(key),
-          load: (key) => mirror.load(key),
-        },
-      },
-      denyEveryTool,
-    );
-    const frames: AgentFrame[] = [];
-    const consume = (async () => {
-      for await (const frame of run) frames.push(frame);
-    })();
-    run.send({ message: "block the mirror", uuid: crypto.randomUUID() });
-    await withTimeout(blocked, 20_000, "The SDK never appended");
-    await waitFor(() => server?.requests.length === 1, 10_000);
-    // Long enough for the reply to have been turned into a result, were the
-    // SDK not holding it behind the pending flush.
-    await Bun.sleep(500);
-    expect(
-      frames.some(({ envelope: { message } }) => message.type === "result"),
-    ).toBe(false);
+  test("holds the turn's result until a pending mirror append lands", async () => {
+    const held = await startHeldMirrorRun("mirror-held-");
+    try {
+      await held.replied();
+      expect(held.resultSeen()).toBe(false);
+      held.release();
+      await waitFor(held.resultSeen, 20_000);
+      expect(await held.run.prepareCheckpoint()).toMatchObject({
+        status: "ready",
+      });
+    } finally {
+      await held.kill();
+    }
+  }, 40_000);
 
-    // The process is what a kill ends. The run's own iterator stays pending
-    // behind the append, which runs in this process and never returns.
-    run.abort();
-    expect(spawnedPids).toHaveLength(1);
-    await waitFor(() => exitedPids.length === 1, 5_000);
-    void consume;
-    expect(
-      frames.some(({ envelope: { message } }) => message.type === "result"),
-    ).toBe(false);
-    expect(await mirror.captureTranscripts(sessionIdOf(frames))).toBeNull();
+  test("a run killed while its mirror append hangs leaves no result to checkpoint", async () => {
+    const held = await startHeldMirrorRun("mirror-hang-");
+    try {
+      await held.replied();
+      expect(held.resultSeen()).toBe(false);
+    } finally {
+      await held.kill();
+    }
+    expect(held.resultSeen()).toBe(false);
+    expect(await held.run.prepareCheckpoint()).toMatchObject({
+      status: "rejected",
+    });
   }, 40_000);
 
   test("a resume the store holds nothing for fails without reaching the model", async () => {
@@ -930,6 +898,83 @@ function mirrorProbeConfig(endpoint: string, home: string, workspace: string) {
     },
     settingSources: ["project"] as ["project"],
     tools: [],
+  };
+}
+
+/**
+ * A run whose every mirror append waits until `release()`, then lands in a
+ * real store. `replied()` settles once the model's answer reached the engine,
+ * the point past which only the pending flush stands between it and a result.
+ */
+async function startHeldMirrorRun(prefix: string) {
+  isolated = await createIsolatedWorkspace({ prefix });
+  const { home, workspace } = isolated;
+  const fake = startFakeAnthropicServer(() => textReply("HELD_APPEND_RESULT"));
+  server = fake;
+  const mirror = new ClaudeSessionStore({
+    generation: 1,
+    objects: createMemoryCheckpointObjectStore(),
+    prefix: `sessions/mirror/${prefix}`,
+  });
+  const gate = Promise.withResolvers<void>();
+  const appending = Promise.withResolvers<void>();
+  const spawnedPids: number[] = [];
+  const exitedPids: number[] = [];
+  const run = new ClaudeSdkRuntime(
+    { endpoints: [fake.url], models: ["claude-sonnet-4-5"] },
+    {
+      onSpawn: (pid) => spawnedPids.push(pid),
+      onExit: (pid) => exitedPids.push(pid),
+    },
+  ).start(
+    {
+      ...mirrorProbeConfig(fake.url, home, workspace),
+      sessionStore: {
+        append: async (key, entries) => {
+          appending.resolve();
+          await gate.promise;
+          await mirror.append(key, entries);
+        },
+        listSubkeys: (key) => mirror.listSubkeys(key),
+        load: (key) => mirror.load(key),
+      },
+    },
+    denyEveryTool,
+  );
+  const frames: AgentFrame[] = [];
+  const consume = (async () => {
+    for await (const frame of run) frames.push(frame);
+  })();
+  // Ended by the kill, never awaited: its rejection is expected.
+  consume.catch(() => {});
+  run.send({ message: "hold the mirror", uuid: crypto.randomUUID() });
+  const isResult = ({ envelope: { message } }: AgentFrame) =>
+    message.type === "result";
+  return {
+    run,
+    release: () => gate.resolve(),
+    resultSeen: () => frames.some(isResult),
+    replied: async () => {
+      await withTimeout(appending.promise, 20_000, "The SDK never appended");
+      await waitFor(
+        () =>
+          frames.some(
+            ({ envelope: { message } }) =>
+              message.type === "assistant" &&
+              JSON.stringify(message).includes("HELD_APPEND_RESULT"),
+          ),
+        20_000,
+      );
+      // Slack for a result the SDK did not hold back to surface.
+      await Bun.sleep(300);
+    },
+    // The process is what a kill ends. When the append never lands, the
+    // run's iterator stays pending behind it: the append runs in this process.
+    kill: async () => {
+      run.abort();
+      await waitFor(() => exitedPids.length === spawnedPids.length, 5_000);
+      expect(spawnedPids).toHaveLength(1);
+    },
   };
 }
 
