@@ -105,8 +105,9 @@ export const workspaceRepositorySchema = z
     access: egressTokenAuthSchema.optional(),
   })
   .strict();
+// Null for a session accepted without a repository.
 export const workspaceDescriptorSchema = z
-  .object({ repository: workspaceRepositorySchema })
+  .object({ repository: workspaceRepositorySchema.nullable() })
   .strict();
 
 // Who the session acts for: its owner partition (`AuthorizationContext.
@@ -249,8 +250,8 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     permission_mode: response.runtime_config.permission_mode,
     provider_kind: response.runtime_config.provider.kind,
     claude_md: response.runtime_config.project_settings?.claude_md === true,
-    repository_id: response.workspace.repository.id,
-    branch: response.workspace.repository.branch,
+    repository_id: response.workspace.repository?.id ?? null,
+    branch: response.workspace.repository?.branch ?? null,
     owner_scope: response.principal.owner_scope,
     restore_revision: response.restore?.revision ?? null,
     restore_models:

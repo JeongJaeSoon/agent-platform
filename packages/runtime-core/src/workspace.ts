@@ -69,8 +69,11 @@ export function planWorkspacePreparation(input: {
   readonly restore: CheckpointRef | null;
   readonly observed: WorkspaceObservation;
 }): WorkspacePlan {
-  const { url, branch } = input.workspace.repository;
   if (input.restore) return { action: "restore", checkpoint: input.restore };
+  if (input.workspace.repository === null) {
+    return { action: "refuse", reason: "the session has no repository" };
+  }
+  const { url, branch } = input.workspace.repository;
   const observed = input.observed;
   switch (observed.kind) {
     case "empty":
