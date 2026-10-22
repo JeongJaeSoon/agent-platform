@@ -54,6 +54,26 @@ body {
   overflow-wrap: break-word;
 }
 
+/* Japanese has no spaces, so keep-all would leave a whole sentence unbroken
+   and push the page sideways; it wraps between characters instead. */
+:lang(ja) body {
+  word-break: normal;
+}
+
+/* Pretendard carries the kana and a few hundred kanji but not the rest, so a
+   single Japanese word mixed its faces. A Japanese system face goes first;
+   Hangul still falls through to Pretendard. Nothing more is downloaded. */
+:lang(ja) {
+  --ap-font-sans:
+    Geist, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI",
+    "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Noto Sans JP",
+    "Pretendard Variable", Pretendard, system-ui, sans-serif;
+}
+
+[lang="ja"] {
+  font-family: var(--ap-font-sans);
+}
+
 *,
 *::before,
 *::after {

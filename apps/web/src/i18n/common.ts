@@ -16,6 +16,7 @@ export const commonKo = {
   "nav.teams": "팀",
   "nav.linkedAccounts": "연동 계정",
   "nav.apiKeys": "API key",
+  "nav.preferences": "언어·테마",
   "nav.workspace": "워크스페이스 설정",
   "nav.agents": "에이전트",
 
@@ -81,6 +82,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "nav.teams": "Teams",
   "nav.linkedAccounts": "Linked accounts",
   "nav.apiKeys": "API keys",
+  "nav.preferences": "Language & theme",
   "nav.workspace": "Workspace settings",
   "nav.agents": "Agents",
 
@@ -127,4 +129,72 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "permission.workspace.manage": "workspace settings",
   "permission.session.control": "session control",
   "permission.account.link": "account linking",
+};
+
+export const commonJa: Record<keyof typeof commonKo, string> = {
+  "common.appName": "Agent Platform",
+  "common.retry": "再試行",
+  "common.logout": "ログアウト",
+  "common.loggingOut": "ログアウト中…",
+  "common.logoutFailed":
+    "ログアウトできませんでした。ログインしたままの状態です。",
+  "common.language": "言語",
+  "common.skipToContent": "本文へスキップ",
+  "common.done": "完了",
+  "common.pending": "未完了",
+  "common.cancel": "キャンセル",
+
+  "nav.label": "メインメニュー",
+  "nav.home": "ホーム",
+  "nav.members": "メンバー",
+  "nav.teams": "チーム",
+  "nav.linkedAccounts": "連携アカウント",
+  "nav.apiKeys": "API キー",
+  "nav.preferences": "言語・テーマ",
+  "nav.workspace": "ワークスペース設定",
+  "nav.agents": "エージェント",
+
+  "role.owner": "オーナー",
+  "role.admin": "管理者",
+  "role.member": "メンバー",
+
+  "status.loading.title": "読み込み中です",
+  "status.checkingLogin.title": "ログイン状態を確認しています",
+  "status.notFound.title": "ページが見つかりません",
+  "status.notFound.body": "アドレスが変更されたか、存在しないページです。",
+  "status.notFound.action": "ホームへ",
+  "status.loadFailed": "読み込めませんでした",
+  "status.loginRequired.title": "ログインが必要です",
+  "status.loginRequired.body":
+    "ログインすると、開こうとしていたページに戻ります。",
+  "status.loginRequired.action": "ログイン画面へ",
+  "status.forbidden.title": "このページを表示する権限がありません",
+  "status.forbidden.body":
+    "必要な場合は、ワークスペースのオーナーまたは管理者に権限を依頼してください。",
+  "status.bootstrapRequired.title": "オーナーがまだいません",
+  "status.bootstrapRequired.body":
+    "インストール時に出力された bootstrap トークンで、最初のオーナーを作成してください。",
+  "status.bootstrapRequired.action": "最初のオーナーを作成",
+  "status.error.title": "問題が発生しました",
+
+  "field.slugFormat":
+    "英小文字・数字・ハイフン（-）のみ使用でき、英小文字か数字で始めてください。例: my-team",
+
+  "guard.missingScope": "この操作には {scope} の権限が必要です。",
+  "guard.checking": "権限を確認しています。",
+  "guard.missingPermission": "この操作には「{permission}」の権限が必要です。",
+  "guard.missingPermissionAs":
+    "この操作には「{permission}」の権限が必要です。現在のロール: {role}。",
+
+  "permission.member.manage": "メンバー管理",
+  "permission.team.manage": "チーム管理",
+  "permission.agent.create": "エージェント作成",
+  "permission.agent.manage": "エージェント管理",
+  "permission.agent.admin.manage": "エージェント管理者の指定",
+  "permission.api_key.manage": "サービスキーの発行",
+  "permission.api_key.manage_own": "個人キーの発行",
+  "permission.audit_retention.manage": "監査ログ保存期間の変更",
+  "permission.workspace.manage": "ワークスペース設定の変更",
+  "permission.session.control": "セッション操作",
+  "permission.account.link": "アカウント連携",
 };

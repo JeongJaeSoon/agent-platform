@@ -51,7 +51,7 @@ describe("app shell", () => {
     ).toEqual([
       ["홈", "세션", "에이전트"],
       ["구성원", "팀", "워크스페이스 설정"],
-      ["연동 계정", "API key"],
+      ["연동 계정", "API key", "언어·테마"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
@@ -178,6 +178,7 @@ describe("app shell", () => {
     });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
 
     const user = await setupUser();
     await user.click(trigger);
@@ -193,6 +194,11 @@ describe("app shell", () => {
         .getByRole("menuitem", { name: "API key" })
         .getAttribute("href"),
     ).toBe("/settings/api-keys");
+    expect(
+      within(menu)
+        .getByRole("menuitem", { name: "내 설정" })
+        .getAttribute("href"),
+    ).toBe("/settings/preferences");
 
     await user.click(
       within(menu).getByRole("menuitemradio", { name: "어둡게" }),
@@ -211,6 +217,11 @@ describe("app shell", () => {
 
     await user.click(within(menu).getByRole("menuitem", { name: "언어" }));
     const languages = screen.getByRole("menu", { name: "언어" });
+    expect(
+      within(languages)
+        .getAllByRole("menuitemradio")
+        .map((item) => item.textContent),
+    ).toEqual(["한국어", "日本語", "English"]);
     await user.click(
       within(languages).getByRole("menuitemradio", { name: "English" }),
     );
@@ -240,6 +251,8 @@ describe("app shell", () => {
     expect(document.activeElement?.textContent).toBe("내 설정");
     await user.keyboard("{ArrowDown}{ArrowRight}");
     expect(document.activeElement?.textContent).toBe("한국어");
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement?.textContent).toBe("日本語");
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement?.textContent).toBe("English");
     await user.keyboard("{Escape}");

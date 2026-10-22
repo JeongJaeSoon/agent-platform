@@ -43,7 +43,7 @@ describe.serial("Agent SDK process lifecycle", () => {
           ? toolReply(
               "Bash",
               { command: `printf changed > ${JSON.stringify(outputPath)}` },
-              `toolu_94s91_${termination.toLowerCase()}`,
+              `toolu_sdkcompat_${termination.toLowerCase()}`,
             )
           : textReply("resume observed the interrupted approval"),
       );
@@ -102,11 +102,11 @@ describe.serial("Agent SDK process lifecycle", () => {
       expect(await exists(outputPath)).toBe(false);
       const transcript = await readTranscripts(context);
       const pendingToolPersisted = transcript.includes(
-        `toolu_94s91_${termination.toLowerCase()}`,
+        `toolu_sdkcompat_${termination.toLowerCase()}`,
       );
       if (termination !== "SIGKILL") {
         expect(transcript).toContain(
-          `toolu_94s91_${termination.toLowerCase()}`,
+          `toolu_sdkcompat_${termination.toLowerCase()}`,
         );
       }
       const results = messages
@@ -173,14 +173,14 @@ describe.serial("Agent SDK process lifecycle", () => {
       index === 0
         ? toolsReply([
             {
-              id: "toolu_94s91_deferred_first",
+              id: "toolu_sdkcompat_deferred_first",
               input: {
                 command: `printf first > ${JSON.stringify(firstPath)}`,
               },
               name: "Bash",
             },
             {
-              id: "toolu_94s91_deferred_second",
+              id: "toolu_sdkcompat_deferred_second",
               input: {
                 command: `printf second > ${JSON.stringify(secondPath)}`,
               },
@@ -219,8 +219,8 @@ describe.serial("Agent SDK process lifecycle", () => {
     );
 
     expect(hookToolIds.sort()).toEqual([
-      "toolu_94s91_deferred_first",
-      "toolu_94s91_deferred_second",
+      "toolu_sdkcompat_deferred_first",
+      "toolu_sdkcompat_deferred_second",
     ]);
     expect(await exists(firstPath)).toBe(false);
     expect(await exists(secondPath)).toBe(false);
@@ -233,7 +233,7 @@ describe.serial("Agent SDK process lifecycle", () => {
       }),
     );
     expect(JSON.stringify(server.requests[0])).toContain(
-      "APPEND_SENTINEL_94S_91",
+      "APPEND_SENTINEL_SDK_COMPAT",
     );
 
     const resumed = await runSdkQuery(

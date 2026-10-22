@@ -1,44 +1,72 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   flowEn,
+  flowJa,
   flowKo,
   formsEn,
+  formsJa,
   formsKo,
   sessionsEn,
+  sessionsJa,
   sessionsKo,
 } from "@werft-ai/react";
-import { agentsEn, agentsKo } from "./agents.ts";
-import { apiKeysEn, apiKeysKo } from "./api-keys.ts";
-import { authEn, authKo } from "./auth.ts";
-import { commonEn, commonKo } from "./common.ts";
+import { agentsEn, agentsJa, agentsKo } from "./agents.ts";
+import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
+import { authEn, authJa, authKo } from "./auth.ts";
+import { commonEn, commonJa, commonKo } from "./common.ts";
 import { en } from "./en.ts";
-import { errorsEn, errorsKo } from "./errors.ts";
-import { homeEn, homeKo } from "./home.ts";
+import { errorsEn, errorsJa, errorsKo } from "./errors.ts";
+import { homeEn, homeJa, homeKo } from "./home.ts";
 import {
   errorKey,
   initialLocale,
+  LOCALE_NAMES,
   LOCALE_STORAGE_KEY,
+  LOCALES,
   translate,
 } from "./i18n.tsx";
+import { ja } from "./ja.ts";
 import { ko } from "./ko.ts";
-import { linkedEn, linkedKo } from "./linked.ts";
-import { membersEn, membersKo } from "./members.ts";
-import { modelsEn, modelsKo } from "./models.ts";
-import { shellEn, shellKo } from "./shell.ts";
-import { teamsEn, teamsKo } from "./teams.ts";
-import { workspaceEn, workspaceKo } from "./workspace.ts";
+import { linkedEn, linkedJa, linkedKo } from "./linked.ts";
+import { membersEn, membersJa, membersKo } from "./members.ts";
+import { modelsEn, modelsJa, modelsKo } from "./models.ts";
+import { preferencesEn, preferencesJa, preferencesKo } from "./preferences.ts";
+import { shellEn, shellJa, shellKo } from "./shell.ts";
+import { teamsEn, teamsJa, teamsKo } from "./teams.ts";
+import { workspaceEn, workspaceJa, workspaceKo } from "./workspace.ts";
+
+const catalogs = { ko, ja, en } as const;
+const variables = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort();
 
 describe("i18n", () => {
   test("every locale has exactly the Korean keys", () => {
-    expect(Object.keys(en).sort()).toEqual(Object.keys(ko).sort());
+    for (const locale of LOCALES) {
+      expect(Object.keys(catalogs[locale]).sort()).toEqual(
+        Object.keys(ko).sort(),
+      );
+    }
+  });
+
+  test("every message is written and keeps the Korean variables", () => {
+    for (const locale of LOCALES) {
+      for (const [key, text] of Object.entries(ko)) {
+        const translated = catalogs[locale][key as keyof typeof ko];
+        expect(translated.trim()).not.toBe("");
+        expect(variables(translated)).toEqual(variables(text));
+      }
+    }
+  });
+
+  test("each language is named in its own words", () => {
+    expect(LOCALE_NAMES).toEqual({ ko: "한국어", ja: "日本語", en: "English" });
   });
 
   // A key in two area files would silently win by spread order.
   test("no key is defined in two area files", () => {
     const count = (areas: object[]) =>
       areas.reduce((sum, area) => sum + Object.keys(area).length, 0);
-    expect(
-      count([
+    const areas = {
+      ko: [
         commonKo,
         shellKo,
         authKo,
@@ -52,12 +80,29 @@ describe("i18n", () => {
         linkedKo,
         apiKeysKo,
         workspaceKo,
+        preferencesKo,
         errorsKo,
         formsKo,
-      ]),
-    ).toBe(Object.keys(ko).length);
-    expect(
-      count([
+      ],
+      ja: [
+        commonJa,
+        shellJa,
+        authJa,
+        homeJa,
+        membersJa,
+        teamsJa,
+        agentsJa,
+        modelsJa,
+        sessionsJa,
+        flowJa,
+        linkedJa,
+        apiKeysJa,
+        workspaceJa,
+        preferencesJa,
+        errorsJa,
+        formsJa,
+      ],
+      en: [
         commonEn,
         shellEn,
         authEn,
@@ -71,10 +116,14 @@ describe("i18n", () => {
         linkedEn,
         apiKeysEn,
         workspaceEn,
+        preferencesEn,
         errorsEn,
         formsEn,
-      ]),
-    ).toBe(Object.keys(en).length);
+      ],
+    };
+    for (const locale of LOCALES) {
+      expect(count(areas[locale])).toBe(Object.keys(catalogs[locale]).length);
+    }
   });
 
   test("keys follow <area>.<element>", () => {
@@ -86,6 +135,9 @@ describe("i18n", () => {
   test("variables are filled; an unknown one is left as written", () => {
     expect(translate("ko", "bootstrap.passwordHint", { min: 12 })).toBe(
       "12자 이상",
+    );
+    expect(translate("ja", "bootstrap.passwordHint", { min: 12 })).toBe(
+      "12文字以上",
     );
     expect(translate("en", "bootstrap.passwordHint")).toBe(
       "At least {min} characters",
@@ -101,16 +153,25 @@ describe("i18n", () => {
   describe("initial locale", () => {
     const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
     const storage = new Map<string, string>();
-    const setEnvironment = (language: string, stored?: string) => {
+    const setEnvironment = (
+      languages: readonly string[],
+      stored?: string,
+      storageThrows = false,
+    ) => {
       storage.clear();
       if (stored) storage.set(LOCALE_STORAGE_KEY, stored);
       Object.defineProperty(globalThis, "navigator", {
         configurable: true,
-        value: { language },
+        value: { language: languages[0] ?? "", languages },
       });
       Object.defineProperty(globalThis, "localStorage", {
         configurable: true,
-        value: { getItem: (key: string) => storage.get(key) ?? null },
+        value: {
+          getItem: (key: string) => {
+            if (storageThrows) throw new Error("SecurityError");
+            return storage.get(key) ?? null;
+          },
+        },
       });
     };
     afterEach(() => {
@@ -118,20 +179,34 @@ describe("i18n", () => {
       Reflect.deleteProperty(globalThis, "localStorage");
     });
 
-    test("Korean unless the browser asks for English", () => {
-      setEnvironment("ko-KR");
+    test("the first browser language the console speaks", () => {
+      setEnvironment(["ko-KR"]);
       expect(initialLocale()).toBe("ko");
-      setEnvironment("ja-JP");
-      expect(initialLocale()).toBe("ko");
-      setEnvironment("en-US");
+      setEnvironment(["ja-JP"]);
+      expect(initialLocale()).toBe("ja");
+      setEnvironment(["en-US"]);
+      expect(initialLocale()).toBe("en");
+      setEnvironment(["fr-FR", "ja", "en-US"]);
+      expect(initialLocale()).toBe("ja");
+    });
+
+    test("English when no browser language is spoken here", () => {
+      setEnvironment(["fr-FR", "de"]);
+      expect(initialLocale()).toBe("en");
+      setEnvironment([]);
       expect(initialLocale()).toBe("en");
     });
 
     test("a stored choice wins over the browser", () => {
-      setEnvironment("en-US", "ko");
+      setEnvironment(["en-US"], "ja");
+      expect(initialLocale()).toBe("ja");
+      setEnvironment(["ko-KR"], "fr");
       expect(initialLocale()).toBe("ko");
-      setEnvironment("ko-KR", "fr");
-      expect(initialLocale()).toBe("ko");
+    });
+
+    test("blocked storage still falls back to the browser", () => {
+      setEnvironment(["ja-JP"], "ko", true);
+      expect(initialLocale()).toBe("ja");
     });
   });
 });

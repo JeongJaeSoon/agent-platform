@@ -17,10 +17,15 @@ const OPTIONS = {
   hourCycle: "h23",
 } as const satisfies Intl.DateTimeFormatOptions;
 
-export type TimestampLocale = "ko" | "en";
+export type TimestampLocale = "ko" | "ja" | "en";
 
 const PARTS: Record<TimestampLocale, Intl.DateTimeFormat> = {
   ko: new Intl.DateTimeFormat("ko-KR", {
+    ...OPTIONS,
+    month: "2-digit",
+    day: "2-digit",
+  }),
+  ja: new Intl.DateTimeFormat("ja-JP", {
     ...OPTIONS,
     month: "2-digit",
     day: "2-digit",
@@ -47,7 +52,13 @@ export function formatTimestamp(
   const at = (type: Intl.DateTimeFormatPartTypes): string =>
     parts.get(type) ?? "";
 
-  return locale === "en"
-    ? `${at("month")} ${at("day")}, ${at("year")}, ${at("hour")}:${at("minute")}`
-    : `${at("year")}. ${at("month")}. ${at("day")}. ${at("hour")}:${at("minute")}`;
+  const time = `${at("hour")}:${at("minute")}`;
+  switch (locale) {
+    case "en":
+      return `${at("month")} ${at("day")}, ${at("year")}, ${time}`;
+    case "ja":
+      return `${at("year")}/${at("month")}/${at("day")} ${time}`;
+    default:
+      return `${at("year")}. ${at("month")}. ${at("day")}. ${time}`;
+  }
 }

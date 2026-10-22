@@ -7,12 +7,13 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useCan, useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import {
   isMessageKey,
+  LOCALE_NAMES,
   LOCALES,
   type MessageKey,
   useI18n,
 } from "../i18n/i18n.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
-import { chooseTheme, storedTheme, THEMES, type Theme } from "./theme.ts";
+import { chooseTheme, THEMES, useTheme } from "./theme.ts";
 
 type NavPath =
   | "/"
@@ -22,7 +23,8 @@ type NavPath =
   | "/teams"
   | "/settings/workspace"
   | "/settings/linked-accounts"
-  | "/settings/api-keys";
+  | "/settings/api-keys"
+  | "/settings/preferences";
 
 export interface NavItem {
   readonly to: NavPath;
@@ -65,6 +67,7 @@ export function useNavGroups(): readonly NavGroup[] {
       items: [
         { to: "/settings/linked-accounts", label: "nav.linkedAccounts" },
         { to: "/settings/api-keys", label: "nav.apiKeys" },
+        { to: "/settings/preferences", label: "nav.preferences" },
       ],
     },
   ];
@@ -323,7 +326,7 @@ function UserMenu({
   const role = useRole();
   const roleKey = `role.${role}`;
   const roleLabel = role && isMessageKey(roleKey) ? t(roleKey) : undefined;
-  const [theme, setTheme] = useState<Theme>(storedTheme);
+  const theme = useTheme();
   const [open, setOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const triggerId = useId();
@@ -414,7 +417,7 @@ function UserMenu({
             </p>
           ) : null}
           <Link
-            to="/settings/linked-accounts"
+            to="/settings/preferences"
             role="menuitem"
             data-menu="account"
             tabIndex={-1}
@@ -475,7 +478,7 @@ function UserMenu({
                       closeLanguage();
                     }}
                   >
-                    {value === "ko" ? "한국어" : "English"}
+                    <span lang={value}>{LOCALE_NAMES[value]}</span>
                     {locale === value ? (
                       <Icon name="check" className="ml-auto size-3.5" />
                     ) : null}
@@ -505,10 +508,7 @@ function UserMenu({
                 aria-checked={theme === value}
                 tabIndex={-1}
                 className={MENU_ITEM}
-                onClick={() => {
-                  setTheme(value);
-                  chooseTheme(value);
-                }}
+                onClick={() => chooseTheme(value)}
               >
                 <Icon name={value} className={MENU_ICON} />
                 {t(`shell.theme.${value}`)}

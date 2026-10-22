@@ -5,8 +5,9 @@ inputs:
   cache-scope:
     description: >-
       Which set of lockfiles this job installs. `root` covers bun.lock alone;
-      `spikes` covers bun.lock plus every spikes/*/bun.lock. The scope picks the
-      cache key, so a key never promises more than its writer installed.
+      `agent-sdk-compat` covers bun.lock plus scripts/agent-sdk-compat/bun.lock.
+      The scope picks the cache key, so a key never promises more than its
+      writer installed.
     default: root
   save-cache:
     description: >-
@@ -28,11 +29,11 @@ runs:
       env:
         ROOT_KEY: bun-root-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock') }}
         SCOPE: ${{ inputs.cache-scope }}
-        SPIKES_KEY: bun-spikes-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock', 'spikes/*/bun.lock') }}
+        COMPAT_KEY: bun-agent-sdk-compat-${{ runner.os }}-${{ runner.arch }}-1.3.14-${{ hashFiles('bun.lock', 'scripts/agent-sdk-compat/bun.lock') }}
       run: |
-        if [ "$SCOPE" = spikes ]; then
-          echo "cache=$SPIKES_KEY" >>"$GITHUB_OUTPUT"
-          echo "restore=bun-spikes-${{ runner.os }}-${{ runner.arch }}-1.3.14-" >>"$GITHUB_OUTPUT"
+        if [ "$SCOPE" = agent-sdk-compat ]; then
+          echo "cache=$COMPAT_KEY" >>"$GITHUB_OUTPUT"
+          echo "restore=bun-agent-sdk-compat-${{ runner.os }}-${{ runner.arch }}-1.3.14-" >>"$GITHUB_OUTPUT"
         else
           echo "cache=$ROOT_KEY" >>"$GITHUB_OUTPUT"
           echo "restore=bun-root-${{ runner.os }}-${{ runner.arch }}-1.3.14-" >>"$GITHUB_OUTPUT"

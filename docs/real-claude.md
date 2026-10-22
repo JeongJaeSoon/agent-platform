@@ -12,7 +12,7 @@
 ## 기본 스택이 쓰는 것
 
 - API가 `config/`의 카탈로그를 읽는다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 카탈로그에는 fake를 가리키는 profile이 없다. fake 카탈로그(`config/fake-model/`)는 `--fake-model` overlay를 얹을 때만 읽는다.
-- key는 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)에서 **API 컨테이너에만** 이름으로 전달된다(`infra/compose.local.yml`). 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다([94S-252](https://linear.app/94soon/issue/94S-252)).
+- key는 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)에서 **API 컨테이너에만** 이름으로 전달된다(`infra/compose.local.yml`). 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
 - 상한: `infra/compose.real-model.yml`이 기본으로 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. 올리려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
 
 `ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있으면 두 명령 모두 Docker를 건드리기 전에 exit 2로 끝난다. fake로 대신 뜨지 않는다. key 없이 띄우려면 `--fake-model`을 명시한다.
@@ -127,7 +127,7 @@ allow_until_done 1
 
 대화 흐름을 보려면 다른 터미널에서 이벤트 스트림을 연다(Ctrl-C로 닫는다): `curl -sSN "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY"`.
 
-커밋 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다([94S-423](https://linear.app/94soon/issue/94S-423)). 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. worker에서는 push를 지원하지 않으므로 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `Initial commit`만 남는다. 커밋은 worker의 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다.
+커밋 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다. 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. worker에서는 push를 지원하지 않으므로 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `Initial commit`만 남는다. 커밋은 worker의 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다.
 
 **4. pause → resume 뒤 이어서 대화.** turn이 끝나 세션이 `idle`이 되면 quickstart ⑦·⑧과 같이 멈췄다 되살린다. 새 worker가 checkpoint에서 저장소와 Claude Code 세션을 복원하므로 앞의 대화를 기억한다.
 
@@ -159,7 +159,7 @@ scripts/local.sh down
 
 ## 자율 모드 세션
 
-승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [operations.md](operations.md#자율-모드-bypasspermissionsauto-94s-621)에 있다. 저장소의 `config/`에는 그런 profile이 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다.
+승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [operations.md](operations.md)의 '자율 모드' 절에 있다. 저장소의 `config/`에는 그런 profile이 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다.
 
 ```yaml
   claude-coding-real-unattended:
@@ -201,7 +201,7 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 - B는 보내는 메시지만큼 든다. 위 예시(turn 두 개)는 A와 비슷한 규모다.
 - 상한은 기본 세션당 1달러다(위 [상한](#기본-스택이-쓰는-것)대로 올릴 수 있다). SDK가 호출이 끝날 때마다 누적 비용을 확인하므로 마지막 호출 하나만큼은 넘을 수 있다. 넘으면 그 turn이 `budget_exceeded`로 실패한다. B에서는 새 세션을 만들면 다시 1달러가 생긴다.
 
-실제로 든 비용은 A는 `test.log`의 `cost_usd`, B는 세션의 `usage`에 있다. 둘 다 egress proxy가 계측한 usage를 플랫폼 가격표로 환산한 추정치다(94S-409). 청구액은 Console에서 확인한다.
+실제로 든 비용은 A는 `test.log`의 `cost_usd`, B는 세션의 `usage`에 있다. 둘 다 egress proxy가 계측한 usage를 플랫폼 가격표로 환산한 추정치다. 청구액은 Console에서 확인한다.
 
 ## 막혔을 때
 
