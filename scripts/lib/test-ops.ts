@@ -245,7 +245,7 @@ export async function checkRender(
     if (endpoint !== undefined)
       problems.push("api AWS_ENDPOINT_URL must be unset: the store is AWS S3");
     // The object store route calls the virtual-hosted name, or the regional
-    // one for a bucket name with a dot (docs/operator/api-server.md).
+    // one for a bucket name with a dot (docs/operator/execution.md).
     const s3Host = bucket.includes(".")
       ? `s3.${region}.amazonaws.com:443`
       : `${bucket}.s3.${region}.amazonaws.com:443`;
