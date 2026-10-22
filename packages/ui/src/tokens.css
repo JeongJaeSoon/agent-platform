@@ -70,9 +70,9 @@
   --ap-tone-caution-bg: #fbefd6;
   --ap-tone-caution-border: #ecd39a;
 
-  --ap-tone-danger-fg: #a12a21;
-  --ap-tone-danger-bg: #fae6e3;
-  --ap-tone-danger-border: #eebfb8;
+  --ap-tone-danger-fg: #c4262b;
+  --ap-tone-danger-bg: #fdecec;
+  --ap-tone-danger-border: #f7c4c4;
 
   --ap-tone-unknown-fg: #7a5200;
   --ap-tone-unknown-bg: #fbefd6;
@@ -164,53 +164,58 @@
   --ring: var(--ap-color-focus-ring);
 }
 
+/*
+ * Dark follows Geist: a near-black canvas, cards and edges one or two grey
+ * steps up, and each tone a saturated foreground over a very dark background
+ * of the same hue, so red reads as red rather than brown.
+ */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --ap-color-canvas: #0a0a0a;
-    --ap-color-surface: #171717;
-    --ap-color-surface-sunken: #262626;
-    --ap-color-rail: #171717;
-    --ap-color-rail-foreground: #fafafa;
+    --ap-color-surface: #111111;
+    --ap-color-surface-sunken: #1a1a1a;
+    --ap-color-rail: #111111;
+    --ap-color-rail-foreground: #ededed;
     --ap-color-rail-muted-foreground: #a1a1a1;
 
-    --ap-color-border: #262626;
-    --ap-color-border-strong: #404040;
+    --ap-color-border: #2e2e2e;
+    --ap-color-border-strong: #454545;
     --ap-color-border-input: #737373;
-    --ap-color-foreground: #fafafa;
+    --ap-color-foreground: #ededed;
     --ap-color-muted-foreground: #a1a1a1;
 
-    --ap-color-accent: #e5e5e5;
-    --ap-color-accent-hover: #d4d4d4;
-    --ap-color-accent-foreground: #171717;
+    --ap-color-accent: #ededed;
+    --ap-color-accent-hover: #cccccc;
+    --ap-color-accent-foreground: #0a0a0a;
     --ap-color-focus-ring: #737373;
 
     --ap-tone-neutral-fg: #d4d4d4;
-    --ap-tone-neutral-bg: #262626;
-    --ap-tone-neutral-border: #404040;
+    --ap-tone-neutral-bg: #1f1f1f;
+    --ap-tone-neutral-border: #454545;
 
-    --ap-tone-progress-fg: #9cc6e8;
-    --ap-tone-progress-bg: #1a2836;
-    --ap-tone-progress-border: #2d4358;
+    --ap-tone-progress-fg: #52a8ff;
+    --ap-tone-progress-bg: #0d1b2e;
+    --ap-tone-progress-border: #163a66;
 
-    --ap-tone-attention-fg: #e5bd6a;
-    --ap-tone-attention-bg: #2c2415;
-    --ap-tone-attention-border: #4a3b1c;
+    --ap-tone-attention-fg: #ffb224;
+    --ap-tone-attention-bg: #291c06;
+    --ap-tone-attention-border: #533a12;
 
-    --ap-tone-caution-fg: #e5bd6a;
-    --ap-tone-caution-bg: #2c2415;
-    --ap-tone-caution-border: #4a3b1c;
+    --ap-tone-caution-fg: #ffb224;
+    --ap-tone-caution-bg: #291c06;
+    --ap-tone-caution-border: #533a12;
 
-    --ap-tone-danger-fg: #ef9f95;
-    --ap-tone-danger-bg: #331d1a;
-    --ap-tone-danger-border: #582e28;
+    --ap-tone-danger-fg: #ff6166;
+    --ap-tone-danger-bg: #2a1215;
+    --ap-tone-danger-border: #6b2329;
 
-    --ap-tone-unknown-fg: #e5bd6a;
-    --ap-tone-unknown-bg: #2c2415;
-    --ap-tone-unknown-border: #4a3b1c;
+    --ap-tone-unknown-fg: #ffb224;
+    --ap-tone-unknown-bg: #291c06;
+    --ap-tone-unknown-border: #533a12;
 
     --ap-tone-positive-fg: #d4d4d4;
-    --ap-tone-positive-bg: #262626;
-    --ap-tone-positive-border: #404040;
+    --ap-tone-positive-bg: #1f1f1f;
+    --ap-tone-positive-border: #454545;
 
     --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
     --ap-shadow-md: 0 2px 8px rgb(0 0 0 / 0.45);
@@ -227,50 +232,50 @@
   color-scheme: dark;
 
   --ap-color-canvas: #0a0a0a;
-  --ap-color-surface: #171717;
-  --ap-color-surface-sunken: #262626;
-  --ap-color-rail: #171717;
-  --ap-color-rail-foreground: #fafafa;
+  --ap-color-surface: #111111;
+  --ap-color-surface-sunken: #1a1a1a;
+  --ap-color-rail: #111111;
+  --ap-color-rail-foreground: #ededed;
   --ap-color-rail-muted-foreground: #a1a1a1;
 
-  --ap-color-border: #262626;
-  --ap-color-border-strong: #404040;
+  --ap-color-border: #2e2e2e;
+  --ap-color-border-strong: #454545;
   --ap-color-border-input: #737373;
-  --ap-color-foreground: #fafafa;
+  --ap-color-foreground: #ededed;
   --ap-color-muted-foreground: #a1a1a1;
 
-  --ap-color-accent: #e5e5e5;
-  --ap-color-accent-hover: #d4d4d4;
-  --ap-color-accent-foreground: #171717;
+  --ap-color-accent: #ededed;
+  --ap-color-accent-hover: #cccccc;
+  --ap-color-accent-foreground: #0a0a0a;
   --ap-color-focus-ring: #737373;
 
   --ap-tone-neutral-fg: #d4d4d4;
-  --ap-tone-neutral-bg: #262626;
-  --ap-tone-neutral-border: #404040;
+  --ap-tone-neutral-bg: #1f1f1f;
+  --ap-tone-neutral-border: #454545;
 
-  --ap-tone-progress-fg: #9cc6e8;
-  --ap-tone-progress-bg: #1a2836;
-  --ap-tone-progress-border: #2d4358;
+  --ap-tone-progress-fg: #52a8ff;
+  --ap-tone-progress-bg: #0d1b2e;
+  --ap-tone-progress-border: #163a66;
 
-  --ap-tone-attention-fg: #e5bd6a;
-  --ap-tone-attention-bg: #2c2415;
-  --ap-tone-attention-border: #4a3b1c;
+  --ap-tone-attention-fg: #ffb224;
+  --ap-tone-attention-bg: #291c06;
+  --ap-tone-attention-border: #533a12;
 
-  --ap-tone-caution-fg: #e5bd6a;
-  --ap-tone-caution-bg: #2c2415;
-  --ap-tone-caution-border: #4a3b1c;
+  --ap-tone-caution-fg: #ffb224;
+  --ap-tone-caution-bg: #291c06;
+  --ap-tone-caution-border: #533a12;
 
-  --ap-tone-danger-fg: #ef9f95;
-  --ap-tone-danger-bg: #331d1a;
-  --ap-tone-danger-border: #582e28;
+  --ap-tone-danger-fg: #ff6166;
+  --ap-tone-danger-bg: #2a1215;
+  --ap-tone-danger-border: #6b2329;
 
-  --ap-tone-unknown-fg: #e5bd6a;
-  --ap-tone-unknown-bg: #2c2415;
-  --ap-tone-unknown-border: #4a3b1c;
+  --ap-tone-unknown-fg: #ffb224;
+  --ap-tone-unknown-bg: #291c06;
+  --ap-tone-unknown-border: #533a12;
 
   --ap-tone-positive-fg: #d4d4d4;
-  --ap-tone-positive-bg: #262626;
-  --ap-tone-positive-border: #404040;
+  --ap-tone-positive-bg: #1f1f1f;
+  --ap-tone-positive-border: #454545;
 
   --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --ap-shadow-md: 0 2px 8px rgb(0 0 0 / 0.45);
