@@ -9,6 +9,7 @@ import type { MessageKey } from "./ko.ts";
 import { linkedJa } from "./linked.ts";
 import { membersJa } from "./members.ts";
 import { modelsJa } from "./models.ts";
+import { preferencesJa } from "./preferences.ts";
 import { shellJa } from "./shell.ts";
 import { teamsJa } from "./teams.ts";
 import { workspaceJa } from "./workspace.ts";
@@ -27,6 +28,7 @@ export const ja: Record<MessageKey, string> = {
   ...linkedJa,
   ...apiKeysJa,
   ...workspaceJa,
+  ...preferencesJa,
   ...errorsJa,
   ...formsJa,
 };

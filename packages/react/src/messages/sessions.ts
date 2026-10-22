@@ -198,7 +198,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
 
   "sessions.status.queued": "Queued",
   "sessions.status.running": "Working",
-  "sessions.status.needs_input": "Waiting for an answer",
+  "sessions.status.needs_input": "Needs answer",
   "sessions.status.idle": "Idle",
   "sessions.status.failed": "Failed",
   "sessions.status.stopped": "Stopped",
@@ -518,7 +518,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.init": "セッション開始",
   "session.event.vcsChanged": "作業ツリーの変更",
   "session.event.thinkingTokens": "思考中（{count}）",
-  "session.event.thought": "思考済み",
+  "session.event.thought": "思考内容",
   "session.event.toolResult": "{tool}の結果",
   "session.event.toolResult.unknown": "ツール結果",
   "session.event.toolResult.ok": "成功",

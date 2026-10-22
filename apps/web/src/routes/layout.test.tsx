@@ -51,7 +51,7 @@ describe("app shell", () => {
     ).toEqual([
       ["홈", "세션", "에이전트"],
       ["구성원", "팀", "워크스페이스 설정"],
-      ["연동 계정", "API key"],
+      ["연동 계정", "API key", "언어·테마"],
     ]);
     expect(groups[0]?.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(nav).getByRole("group", { name: "업무" })).toBeDefined();
@@ -162,14 +162,15 @@ describe("app shell", () => {
     expect(link.textContent).toBe("세션");
   });
 
-  test("the user menu holds language, theme and logout, once", async () => {
+  test("the user menu holds theme and logout; the language lives in preferences", async () => {
     renderAt("/", signedIn);
     const menu = await screen.findByRole("region", { name: "사용자 메뉴" });
     expect(within(menu).getByText("owner@example.com")).toBeDefined();
     expect(
       within(menu).getByRole("button", { name: "로그아웃" }),
     ).toBeDefined();
-    expect(screen.getAllByLabelText("언어")).toHaveLength(1);
+    expect(screen.queryAllByLabelText("언어")).toHaveLength(0);
+    expect(screen.getByRole("link", { name: "언어·테마" })).toBeDefined();
 
     const user = await setupUser();
     await user.selectOptions(within(menu).getByLabelText("테마"), "dark");

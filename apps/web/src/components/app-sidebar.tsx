@@ -11,16 +11,10 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useId } from "react";
 import { useCan, useHasPermission, useMe } from "../auth/guard.tsx";
-import {
-  LOCALE_NAMES,
-  LOCALES,
-  type Locale,
-  type MessageKey,
-  useI18n,
-} from "../i18n/i18n.tsx";
-import { chooseTheme, storedTheme, THEMES, type Theme } from "./theme.ts";
+import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import { chooseTheme, THEMES, type Theme, useTheme } from "./theme.ts";
 
 type NavPath =
   | "/"
@@ -30,7 +24,8 @@ type NavPath =
   | "/teams"
   | "/settings/workspace"
   | "/settings/linked-accounts"
-  | "/settings/api-keys";
+  | "/settings/api-keys"
+  | "/settings/preferences";
 
 export interface NavItem {
   readonly to: NavPath;
@@ -73,6 +68,7 @@ export function useNavGroups(): readonly NavGroup[] {
       items: [
         { to: "/settings/linked-accounts", label: "nav.linkedAccounts" },
         { to: "/settings/api-keys", label: "nav.apiKeys" },
+        { to: "/settings/preferences", label: "nav.preferences" },
       ],
     },
   ];
@@ -217,9 +213,9 @@ function UserMenu({
 }: {
   readonly logout: { readonly pending: boolean; readonly run: () => void };
 }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const me = useMe();
-  const [theme, setTheme] = useState<Theme>(storedTheme);
+  const theme = useTheme();
   return (
     <section
       aria-label={t("shell.account")}
@@ -237,34 +233,13 @@ function UserMenu({
       ) : null}
       <Field orientation="horizontal" className="justify-between gap-2">
         <FieldLabel className="text-rail-muted-foreground text-caption">
-          {t("common.language")}
-        </FieldLabel>
-        <NativeSelect
-          size="sm"
-          className={ON_RAIL}
-          value={locale}
-          onChange={(event) => setLocale(event.target.value as Locale)}
-        >
-          {LOCALES.map((value) => (
-            <NativeSelectOption key={value} value={value}>
-              {LOCALE_NAMES[value]}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      </Field>
-      <Field orientation="horizontal" className="justify-between gap-2">
-        <FieldLabel className="text-rail-muted-foreground text-caption">
           {t("shell.theme")}
         </FieldLabel>
         <NativeSelect
           size="sm"
           className={ON_RAIL}
           value={theme}
-          onChange={(event) => {
-            const next = event.target.value as Theme;
-            setTheme(next);
-            chooseTheme(next);
-          }}
+          onChange={(event) => chooseTheme(event.target.value as Theme)}
         >
           {THEMES.map((value) => (
             <NativeSelectOption key={value} value={value}>
