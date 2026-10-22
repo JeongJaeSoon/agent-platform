@@ -127,10 +127,12 @@ describe("에이전트 상세 탭", () => {
     expect(
       await within(panel).findByText(/아직 켜지지 않았습니다/),
     ).toBeDefined();
-    await user.click(
-      within(panel).getByRole("button", { name: "배포 탭으로" }),
-    );
+    within(panel).getByRole("button", { name: "배포 탭으로" }).focus();
+    await user.keyboard("{Enter}");
     await waitFor(() => expect(selected()).toBe("배포"));
+    // The button's panel is hidden now; the keyboard stays on the tab.
+    const releaseTab = screen.getByRole("tab", { name: "배포" });
+    expect(document.activeElement === releaseTab).toBe(true);
   });
 
   test("관리하지 않는 구성원에게 관리자 탭은 이유만 보이고 편집 행동이 없다", async () => {

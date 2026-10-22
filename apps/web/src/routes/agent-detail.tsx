@@ -276,12 +276,17 @@ function AgentView({
     tabIndex: name === tab ? 0 : -1,
     className: PANEL,
   });
+  const releaseTab = useRef<HTMLButtonElement>(null);
+  // The button sits in the panel it hides, so the keyboard moves to the tab.
   const toRelease = (
     <Button
       type="button"
       variant="outline"
       className="self-start"
-      onClick={() => openTab("release")}
+      onClick={() => {
+        openTab("release");
+        releaseTab.current?.focus();
+      }}
     >
       {t("agent.tabs.toRelease")}
     </Button>
@@ -310,7 +315,11 @@ function AgentView({
       <Tabs value={tab} onValueChange={(next) => openTab(next as AgentTab)}>
         <TabsList variant="line" aria-label={t("agent.tabs.label")}>
           {AGENT_TABS.map((name) => (
-            <TabsTrigger key={name} value={name}>
+            <TabsTrigger
+              key={name}
+              value={name}
+              ref={name === "release" ? releaseTab : undefined}
+            >
               {tabLabel(name)}
             </TabsTrigger>
           ))}
