@@ -324,7 +324,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Members",
     description:
-      "Invite people, change member roles and issue password reset links. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
+      "Invite people, change member roles and issue password reset links. Owners and admins, from a browser session; only an owner grants or changes the owner role or issues a password reset link.",
   },
   {
     name: "Teams",
