@@ -26,23 +26,25 @@ describe.serial("tenant SDK filesystem and credential isolation", () => {
     contexts.push(tenantA, tenantB);
     await writeFile(
       join(tenantA.workspace, "CLAUDE.md"),
-      "TENANT_A_PROJECT_SENTINEL_94S_91",
+      "TENANT_A_PROJECT_SENTINEL_SDK_COMPAT",
     );
     await writeFile(
       join(tenantB.workspace, "CLAUDE.md"),
-      "TENANT_B_PROJECT_SENTINEL_94S_91",
+      "TENANT_B_PROJECT_SENTINEL_SDK_COMPAT",
     );
     await writeFile(
       join(tenantB.root, "CLAUDE.md"),
-      "PARENT_DIRECTORY_SENTINEL_94S_91",
+      "PARENT_DIRECTORY_SENTINEL_SDK_COMPAT",
     );
     await writeFile(
       join(tenantA.claudeHome, "settings.json"),
-      JSON.stringify({ env: { SENTINEL: "TENANT_A_SETTING_SENTINEL_94S_91" } }),
+      JSON.stringify({
+        env: { SENTINEL: "TENANT_A_SETTING_SENTINEL_SDK_COMPAT" },
+      }),
     );
     await writeFile(
       join(tenantA.claudeHome, ".credentials.json"),
-      JSON.stringify({ marker: "TENANT_A_CREDENTIAL_SENTINEL_94S_91" }),
+      JSON.stringify({ marker: "TENANT_A_CREDENTIAL_SENTINEL_SDK_COMPAT" }),
     );
     const foreignMemory = join(
       tenantA.claudeHome,
@@ -53,11 +55,11 @@ describe.serial("tenant SDK filesystem and credential isolation", () => {
     await mkdir(foreignMemory, { recursive: true });
     await writeFile(
       join(foreignMemory, "MEMORY.md"),
-      "TENANT_A_MEMORY_SENTINEL_94S_91",
+      "TENANT_A_MEMORY_SENTINEL_SDK_COMPAT",
     );
     server = startFakeAnthropicServer(() => textReply("tenant B complete"));
     const priorCredential = process.env.ANTHROPIC_AUTH_TOKEN;
-    process.env.ANTHROPIC_AUTH_TOKEN = "HOST_CREDENTIAL_SENTINEL_94S_91";
+    process.env.ANTHROPIC_AUTH_TOKEN = "HOST_CREDENTIAL_SENTINEL_SDK_COMPAT";
 
     try {
       await runSdkQuery(tenantB, server.url, "Reply briefly.", { maxTurns: 1 });
@@ -68,15 +70,15 @@ describe.serial("tenant SDK filesystem and credential isolation", () => {
     }
 
     const request = JSON.stringify(server.requests[0]);
-    expect(request).toContain("TENANT_B_PROJECT_SENTINEL_94S_91");
-    expect(request).toContain("PARENT_DIRECTORY_SENTINEL_94S_91");
-    expect(request).toContain("APPEND_SENTINEL_94S_91");
+    expect(request).toContain("TENANT_B_PROJECT_SENTINEL_SDK_COMPAT");
+    expect(request).toContain("PARENT_DIRECTORY_SENTINEL_SDK_COMPAT");
+    expect(request).toContain("APPEND_SENTINEL_SDK_COMPAT");
     for (const sentinel of [
-      "TENANT_A_PROJECT_SENTINEL_94S_91",
-      "TENANT_A_SETTING_SENTINEL_94S_91",
-      "TENANT_A_CREDENTIAL_SENTINEL_94S_91",
-      "TENANT_A_MEMORY_SENTINEL_94S_91",
-      "HOST_CREDENTIAL_SENTINEL_94S_91",
+      "TENANT_A_PROJECT_SENTINEL_SDK_COMPAT",
+      "TENANT_A_SETTING_SENTINEL_SDK_COMPAT",
+      "TENANT_A_CREDENTIAL_SENTINEL_SDK_COMPAT",
+      "TENANT_A_MEMORY_SENTINEL_SDK_COMPAT",
+      "HOST_CREDENTIAL_SENTINEL_SDK_COMPAT",
     ]) {
       expect(request).not.toContain(sentinel);
     }
