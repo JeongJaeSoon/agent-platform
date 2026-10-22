@@ -828,4 +828,34 @@ describe("a session without a repository, from init through a lost volume", () =
       expect(await git(root, "status", "--porcelain")).toBe(" A a.txt\n");
     },
   );
+
+  test("leaves an unmerged path unmerged, so the capture still refuses it", async () => {
+    await init(root);
+    await writeFile(join(root, "a.txt"), "base\n");
+    await git(root, "add", "a.txt");
+    await git(root, "commit", "--quiet", "-m", "base");
+    await git(root, "checkout", "--quiet", "-b", "side");
+    await writeFile(join(root, "a.txt"), "side\n");
+    await git(root, "commit", "--quiet", "-am", "side");
+    await git(root, "checkout", "--quiet", "main");
+    await writeFile(join(root, "a.txt"), "main\n");
+    await git(root, "commit", "--quiet", "-am", "main");
+    await git(root, "merge", "side").catch(() => undefined);
+    await writeFile(join(root, "new.txt"), "new\n");
+    const unmerged = await git(root, "ls-files", "--stage", "a.txt");
+
+    const result = await captureWorkspace({
+      root,
+      bundlePath: join(scratch, "unmerged.bundle"),
+      signal,
+      markNewFiles: true,
+    });
+
+    expect(result).toMatchObject({ status: "refused" });
+    expect(await git(root, "ls-files", "--stage", "a.txt")).toBe(unmerged);
+    expect(unmerged.trim().split("\n")).toHaveLength(3);
+    expect(await git(root, "status", "--porcelain", "new.txt")).toBe(
+      " A new.txt\n",
+    );
+  });
 });

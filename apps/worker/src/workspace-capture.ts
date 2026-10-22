@@ -304,9 +304,11 @@ export async function captureWorkspace(
 }
 
 /**
- * `git add --intent-to-add --all` in the workspace's own index, under the
- * capture's settings and limits, its filter drivers emptied. A `.git` that
- * is no directory is left for the capture to refuse.
+ * Marks the untracked, unignored paths intent-to-add in the workspace's own
+ * index, under the capture's settings and limits, its filter drivers
+ * emptied. Only those: `add --all` would also stage tracked paths, turning an
+ * unmerged path into a resolved one the capture no longer refuses. A `.git`
+ * that is no directory is left for the capture to refuse.
  */
 async function markNewFiles(
   root: string,
@@ -317,24 +319,48 @@ async function markNewFiles(
   const found = await lstat(gitDirectory).catch(() => null);
   if (found?.isDirectory() !== true) return undefined;
   const neutralized: Array<[string, string]> = [];
-  const workspace: Git = (args) =>
-    runGit(args, {
-      cwd: root,
-      extra: {
-        config: CHECKPOINT_GIT_CONFIG,
-        env: { GIT_DIR: gitDirectory, GIT_WORK_TREE: root },
-      },
-      limits: checkpointGitLimits(limits),
-      network: null,
-      overrides: neutralized,
-      redact: (text) => text,
-      signal,
-    });
-  neutralized.push(...(await filterOverrides(workspace)));
-  const marked = await workspace(["add", "--intent-to-add", "--all"]);
-  return marked.code === 0
-    ? undefined
-    : `new files cannot be marked intent-to-add: ${lastLine(marked)}`;
+  const options = {
+    cwd: root,
+    extra: {
+      config: CHECKPOINT_GIT_CONFIG,
+      env: { GIT_DIR: gitDirectory, GIT_WORK_TREE: root },
+    },
+    limits: checkpointGitLimits(limits),
+    network: null,
+    overrides: neutralized,
+    redact: (text: string) => text,
+    signal,
+  };
+  neutralized.push(...(await filterOverrides((args) => runGit(args, options))));
+  const listed = await runGitBytes(
+    ["ls-files", "-z", "--others", "--exclude-standard"],
+    { ...options, maxStdoutBytes: OUTPUT_LIMIT_BYTES },
+  );
+  if (listed.code !== 0) {
+    return `new files cannot be listed: ${lastLine({ ...listed, stdout: "" })}`;
+  }
+  if (listed.stdout.byteLength === 0) return undefined;
+  const scratch = await workerScratch(root, "mark");
+  if (scratch === undefined) return undefined;
+  try {
+    const paths = join(scratch, "paths");
+    await writeFile(paths, listed.stdout);
+    const marked = await runGit(
+      [
+        "--literal-pathspecs",
+        "add",
+        "--intent-to-add",
+        `--pathspec-from-file=${paths}`,
+        "--pathspec-file-nul",
+      ],
+      options,
+    );
+    return marked.code === 0
+      ? undefined
+      : `new files cannot be marked intent-to-add: ${lastLine(marked)}`;
+  } finally {
+    await rm(scratch, { force: true, recursive: true });
+  }
 }
 
 async function captureWorkspaceOnce(
