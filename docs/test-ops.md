@@ -34,7 +34,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 ### LocalStack의 한계
 
 - **LocalStack은 S3를 메모리에만 둔다.** LocalStack 컨테이너나 Docker, 호스트가 재시작되면 checkpoint object가 모두 사라진다. DB와 Gitea는 volume에 있으므로 남는다.
-- 그러면 DB에는 미수거 checkpoint가 있는데 bucket에는 object version이 하나도 없는 상태가 된다. 이때 API가 기동을 거부한다([94S-422](https://linear.app/94soon/issue/94S-422) 가드, 로그 `Checkpoint bucket claude-sessions holds no object version, …`). 로그의 `scripts/local.sh reset` 안내는 로컬 스택용이고, test-ops에서는 아래 "재시작"의 `reseed`나 `reset`으로 푼다.
+- 그러면 DB에는 미수거 checkpoint가 있는데 bucket에는 object version이 하나도 없는 상태가 된다. 이때 API가 기동을 거부한다(로그 `Checkpoint bucket claude-sessions holds no object version, …`). 로그의 `scripts/local.sh reset` 안내는 로컬 스택용이고, test-ops에서는 아래 "재시작"의 `reseed`나 `reset`으로 푼다.
 - 복구할 수 있는 것은 마지막 백업까지다. 백업 뒤에 생긴 checkpoint가 있으면 `reseed`가 거부하므로 `reset`밖에 없다. 초기화하면 세션·checkpoint·API key·Gitea 저장소가 모두 지워진다.
 - 그래서 **장기 보관이 필요한 세션을 두지 않는다.** 사용자에게도 언제든 초기화될 수 있는 환경이라고 알린다.
 
@@ -74,7 +74,7 @@ Object Lock을 켜면 versioning도 함께 켜진다.
 
 ### API용 IAM 사용자
 
-자격 증명은 API 컨테이너에만 간다. worker는 egress proxy의 object store route를 지나며, 그 요청은 API가 세션 prefix 범위로 서명한다([94S-251](https://linear.app/94soon/issue/94S-251)). 복원 훈련도 같은 자격 증명으로 훈련용 bucket에 쓰므로 `<bucket>-drill-*`까지 허용한다.
+자격 증명은 API 컨테이너에만 간다. worker는 egress proxy의 object store route를 지나며, 그 요청은 API가 세션 prefix 범위로 서명한다. 복원 훈련도 같은 자격 증명으로 훈련용 bucket에 쓰므로 `<bucket>-drill-*`까지 허용한다.
 
 ```json
 {
@@ -213,7 +213,7 @@ manifest는 JSON 파일 하나다. 예시는 `infra/test-ops.release.example.jso
 
 이미지 digest는 `v*` tag push로 돈 Images workflow(`.github/workflows/images.yml`)가 ghcr.io에 올린 값이다. run의 `staged-digest-*` artifact나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/agent-platform-worker:<tag>`로 읽는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
 
-`v*` tag가 아직 없으면(첫 release 전) ghcr.io에 받을 이미지가 없다. 그때는 `source_commit`의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 manifest에 적는다. 인수 리허설([94S-434](https://linear.app/94soon/issue/94S-434))은 호스트 loopback의 registry(`127.0.0.1:5000`)로 이렇게 했다.
+`v*` tag가 아직 없으면(첫 release 전) ghcr.io에 받을 이미지가 없다. 그때는 `source_commit`의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 manifest에 적는다. 인수 리허설은 호스트 loopback의 registry(`127.0.0.1:5000`)로 이렇게 했다.
 
 ```bash
 R=<registry>   # 예: 127.0.0.1:5000
@@ -323,7 +323,7 @@ scripts/test-ops.sh upgrade release-new.json
 
 `upgrade`는 새 manifest로 preflight를 돈 뒤 다음 규칙을 따른다.
 
-- **worker 이미지가 바뀌면 `scripts/verify-restore.sh --image <새 이미지>`의 restore plan으로 현재 checkpoint를 검사한다.** engine·SDK·CLI·profile digest가 모두 같아 호환되는 세션은 승인 없이 이어진다. `INCOMPATIBLE_CHECKPOINT`인 세션만 영향 목록에 올려 거부하고, id를 `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`에 적는다. 종료 코드는 3이다. 검사를 끝까지 돌릴 수 없거나 불호환 외 실패가 하나라도 섞이면 fail-closed로 `collected_at IS NULL`인 checkpoint의 세션을 모두 영향 목록에 올리고 그 사실을 로그에 남긴다([94S-387](https://linear.app/94soon/issue/94S-387)).
+- **worker 이미지가 바뀌면 `scripts/verify-restore.sh --image <새 이미지>`의 restore plan으로 현재 checkpoint를 검사한다.** engine·SDK·CLI·profile digest가 모두 같아 호환되는 세션은 승인 없이 이어진다. `INCOMPATIBLE_CHECKPOINT`인 세션만 영향 목록에 올려 거부하고, id를 `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`에 적는다. 종료 코드는 3이다. 검사를 끝까지 돌릴 수 없거나 불호환 외 실패가 하나라도 섞이면 fail-closed로 `collected_at IS NULL`인 checkpoint의 세션을 모두 영향 목록에 올리고 그 사실을 로그에 남긴다.
 - 목록을 검토하고 사용자에게 알린 뒤, 정확히 그 id들을 담은 파일로 다시 부른다.
 
   ```bash
