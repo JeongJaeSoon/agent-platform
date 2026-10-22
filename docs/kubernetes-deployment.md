@@ -40,7 +40,7 @@ chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값
 
 ## 설치 순서
 
-설계 문서(비공개, epic [94S-622](https://linear.app/94soon/issue/94S-622)가 가리킨다) §2.7의 순서는 Secret → 이미지 digest → migrate → 제어 영역이다. chart에서는 Secret과 schema만 앞서야 하고, 나머지는 Helm이 hook으로 맞춘다.
+설치 순서는 Secret → 이미지 digest → migrate → 제어 영역이다. chart에서는 Secret과 schema만 앞서야 하고, 나머지는 Helm이 hook으로 맞춘다.
 
 1. ExternalSecret(사용할 때, hook weight -10)이 Secret을 쓴다.
 2. migrate Job(hook weight 0)이 schema를 올린다. 실패하면 Helm이 멈추고 Deployment는 바뀌지 않는다.
@@ -178,10 +178,10 @@ helm -n agent-platform rollback agent-platform <revision> --wait --timeout 10m
 | 3. 전용 S3 | 같다. 정적 key 대신 IRSA(위 "AWS 값 넣기") |
 | 4. release·설정 봉인 | 이미지 digest와 카탈로그를 설치별 values 파일 하나에 둔다 |
 | 5. 설치와 첫 사용 | "설치 순서", "health 확인", "API key" 절 |
-| 6. 백업·복원 | RDS·S3 기능([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)). 실제 훈련은 [94S-527](https://linear.app/94soon/issue/94S-527) |
+| 6. 백업·복원 | RDS·S3 기능([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)) |
 | 7. 업그레이드·롤백 | "업그레이드와 롤백" 절 |
 | 8. 물리 재부팅 | node가 바뀌어도 Deployment가 다시 띄운다. EBS PVC는 AZ에 묶이므로 worker가 같은 AZ의 node에 다시 붙는지는 EKS에서 확인한다(**AWS 전용**) |
-| 9. Day 1 운영 | 같은 점검. 명령은 `kubectl exec`·`bun run *:k8s`로 바꾼다. Datadog의 Kubernetes 구성은 [94S-528](https://linear.app/94soon/issue/94S-528) |
+| 9. Day 1 운영 | 같은 점검. 명령은 `kubectl exec`·`bun run *:k8s`로 바꾼다 |
 | 10. 증거 | 같다. `helm history`, `kubectl get job,deploy,pods`, `/readyz` 출력을 남긴다 |
 
 ## 제거
