@@ -458,8 +458,6 @@ integration("a session whose pair left the catalog, end to end", () => {
     const general = { profile_id: "general" };
     const runs = await create(after, "no repository", general);
     const stale = await create(after, "no repository, edited since", general);
-    // What an operator editing the general profile looks like from the
-    // session's side: the row keeps the settings it was created with.
     await db
       .update(schema.sessions)
       .set({ profileFingerprint: "0".repeat(64) })

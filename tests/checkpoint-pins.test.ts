@@ -991,8 +991,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(() => sessionClaim(edited, resolved)).toThrow(
       `profile ${PROFILE_ID} has other settings in the catalog than the session was created with`,
     );
-    // A repository session's claim keeps the shape its digests were made
-    // from: no workspace.
     expect(claim).not.toHaveProperty("workspace");
   });
 
@@ -1019,11 +1017,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     };
     const claim = sessionClaim(session, withGeneral);
     expect(claim.workspace).toEqual({ repository: null });
-    // No repository, so no CLAUDE.md, whatever the optional profile allows.
     expect(claim.runtime_config).not.toHaveProperty("project_settings");
-    // The digest the worker stamps such a session's checkpoints with is
-    // the one with its workspace; without it the image would answer a
-    // repository session's digest and every plan would be incompatible.
     const { workspace: _workspace, ...asRepository } = claim;
     expect(imageClaimFingerprint(claim).profileSha256).not.toBe(
       imageClaimFingerprint(asRepository).profileSha256,
@@ -1039,7 +1033,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       withGeneral,
     );
     expect(earlier?.[1]).toEqual(claim);
-    // A profile that needs a repository never ran such a session.
     expect(() =>
       sessionClaim(
         {

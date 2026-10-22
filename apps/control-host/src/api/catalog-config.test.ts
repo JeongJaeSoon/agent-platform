@@ -338,7 +338,6 @@ describe("readCatalogConfig", () => {
         await readCatalogConfig(join(DEFAULT_CONFIG_DIR, dir)),
         () => "placeholder-credential-value",
       );
-      // A profile added since has no sessions to fail.
       const pinned = Object.keys(expected).map((id) => {
         const profile = catalog.profiles[id];
         if (profile === undefined) throw new Error(`${dir}: no profile ${id}`);
@@ -361,11 +360,12 @@ describe("readCatalogConfig", () => {
       () => "placeholder-credential-value",
     );
     const general = catalog.profiles.general;
-    if (general === undefined) throw new Error("no general profile");
+    const coding = catalog.profiles["claude-coding-local"];
+    if (general === undefined || coding === undefined) {
+      throw new Error("fake-model catalog lacks a profile");
+    }
     expect(repositoryModeOf(general)).toBe("none");
     expect(general.tools).not.toContain("Bash");
-    expect(general.provider).toEqual(
-      catalog.profiles["claude-coding-local"]?.provider,
-    );
+    expect(general.provider).toEqual(coding.provider);
   });
 });

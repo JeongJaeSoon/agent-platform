@@ -731,8 +731,7 @@ function replayableBinding(
 }
 
 // A row of mode repository with no repository id predates the catalog and
-// matches nothing: the SQL tuple holds a NULL. A row of mode none matches
-// only a pair without a repository, by profile alone. The same predicate as
+// matches nothing: the SQL tuple holds a NULL. The same predicate as
 // runnablePairOf.
 export function runnableCondition(all: readonly RunnablePair[]): SQL {
   const withRepository = all.filter(
@@ -1043,7 +1042,6 @@ async function issueCredentials(
       binding: bindings.provider,
       expiresAt,
     },
-    // A session without a repository has no repository route to reach.
     ...(bindings.repository === null
       ? []
       : [

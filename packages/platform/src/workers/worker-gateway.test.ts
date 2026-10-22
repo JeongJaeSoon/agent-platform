@@ -843,7 +843,6 @@ describe("WorkerGateway", () => {
       ownerScope: "owner-a",
       repository: null,
       restore: null,
-      // Its profile was changed from the optional one.
       restoreProfiles: [
         {
           profileId: "optional",
@@ -897,8 +896,6 @@ describe("WorkerGateway", () => {
       "project_settings",
     );
     expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
-    // The optional and none profiles run without a repository too, by
-    // profile and fingerprint alone; the required one only with its own.
     expect(runnable[0]).toEqual([
       expect.objectContaining({ profileId: "required", repositoryId: "app" }),
       expect.objectContaining({ profileId: "optional", repositoryId: "app" }),
@@ -928,8 +925,6 @@ describe("WorkerGateway", () => {
       repository: null,
       object_store: "sessions/s-1/",
     });
-    // An optional profile allows CLAUDE.md; a session that chose no
-    // repository still runs without it.
     const optionalClaim = await claimWith({
       ...binding,
       profileId: "optional",

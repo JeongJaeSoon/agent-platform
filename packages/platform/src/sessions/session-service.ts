@@ -304,8 +304,6 @@ export function createSessionService(deps: {
   };
   const now = deps.now ?? (() => new Date());
 
-  // A row from before the catalog has a repository mode but no repository
-  // id; it runs as nothing.
   function runOf(
     record: Pick<SessionDetailRecord, "repository_mode" | "repository_id">,
     profileId: string,
@@ -313,7 +311,8 @@ export function createSessionService(deps: {
     if (record.repository_mode === "none") {
       return allowedRun(catalog, profileId, null);
     }
-    return record.repository_id === null
+    const predatesCatalog = record.repository_id === null;
+    return predatesCatalog
       ? null
       : allowedRun(catalog, profileId, record.repository_id);
   }

@@ -444,12 +444,6 @@ export function createWorkerGateway(deps: {
   const pollIntervalMs =
     deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
-  // Only sessions this host can actually run are claimable. Letting a
-  // session whose profile left the catalog start anyway would hand it a
-  // guessed runtime, and the worker would run the wrong agent or crash-loop
-  // through a queue slot. It waits for a host that knows the profile — as
-  // the session was created with it — and that still lets it run
-  // against the session's repository.
   // One pair per model the profile offers, its default first: a row
   // from before the pin binds to the first pair that matches it.
   function fingerprintsOf(profile: CatalogProfile): string[] {
@@ -458,6 +452,12 @@ export function createWorkerGateway(deps: {
       return runs ? [profileFingerprint(runs)] : [];
     });
   }
+  // Only sessions this host can actually run are claimable. Letting a
+  // session whose profile left the catalog start anyway would hand it a
+  // guessed runtime, and the worker would run the wrong agent or crash-loop
+  // through a queue slot. It waits for a host that knows the profile — as
+  // the session was created with it — and that still lets it run
+  // against the session's repository, or without one.
   const runnable: RunnablePair[] = [
     ...Object.entries(catalog.repositories).flatMap(
       ([repositoryId, repository]) =>
@@ -562,8 +562,7 @@ export function createWorkerGateway(deps: {
 
   // What each egress token is held to, taken from the catalog at the moment
   // the claim binds the session. Only a runnable pair is ever claimed, so
-  // its entries exist here; a session without a repository gets no
-  // repository binding.
+  // its entries exist here.
   function egressBindingsOf(
     session: Parameters<EgressIssue["bindingsOf"]>[0],
   ): ReturnType<EgressIssue["bindingsOf"]> {

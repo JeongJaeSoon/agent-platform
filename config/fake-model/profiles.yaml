@@ -24,8 +24,6 @@ profiles:
         secret_id: agent-platform/local/fake-messages
     project_settings:
       claude_md: true
-  # Work that needs no repository: sessions of it start in an empty
-  # workspace, and without Bash the engine has no shell to reach git with.
   general:
     runtime_kind: claude_agent_sdk
     runtime_version: "0.3.270"

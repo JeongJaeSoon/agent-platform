@@ -1317,7 +1317,6 @@ integration("sessions API on PostgreSQL", () => {
       code: "UNSUPPORTED_CAPABILITY",
       message: "Profile general runs without a repository: omit repository_id",
     });
-    // An explicit null is not an omission.
     const nulled = await create(crypto.randomUUID(), {
       profile_id: "general",
       repository_id: null,
@@ -1338,7 +1337,7 @@ integration("sessions API on PostgreSQL", () => {
       return row;
     };
     const without = {
-      repositoryMode: "none",
+      repositoryMode: "none" as const,
       repositoryId: null,
       repoUrl: null,
       branch: null,
@@ -1371,8 +1370,6 @@ integration("sessions API on PostgreSQL", () => {
       branch: "main",
     });
 
-    // The detail says nothing of the row's mode, and no worker is
-    // missing for it.
     const read = await app.request(`/v1/sessions/${general}`, {
       headers: { "X-Owner-Id": owner },
     });
@@ -1414,8 +1411,6 @@ integration("sessions API on PostgreSQL", () => {
       });
 
     expect((await detail()).attention).toBeNull();
-    // A profile that needs a repository cannot take over a session that
-    // has none.
     const refused = await changeTo(
       "claude-coding-v1",
       (await detail()).revision,
@@ -1446,8 +1441,6 @@ integration("sessions API on PostgreSQL", () => {
     });
     expect((await detail()).attention).toBeNull();
 
-    // A profile the catalog now defines with other settings than the
-    // session was pinned to is a mismatch, repository or not.
     await db
       .update(sessions)
       .set({ profileFingerprint: "0".repeat(64) })

@@ -119,8 +119,6 @@ describe("runnable judgement", () => {
   }
 
   test("a pair without a repository matches a row of mode none by profile, never a pre-catalog one", async () => {
-    // Rows without a repository: the pair's own, another profile, and
-    // every fingerprint a row can carry.
     const none = [null, fingerprint("a"), fingerprint("b"), "x"].flatMap(
       (print) =>
         ["profile-a", "profile-z"].map((profileId) => ({
@@ -155,7 +153,6 @@ describe("runnable judgement", () => {
       )
         .map((row) => row.id)
         .sort();
-    // Its own fingerprint and none, as for a pair with a repository.
     const expected = none
       .filter(
         (row) =>
@@ -167,12 +164,9 @@ describe("runnable judgement", () => {
       .sort();
     expect(pick([without])).toEqual(expected);
     expect(await inSql([without])).toEqual(expected);
-    // Beside the repository pairs it adds those rows and nothing else: the
-    // pre-catalog rows of profile-a (repository_id null) stay unmatched.
     const both = [...RUNNABLE, without];
     expect(pick(both)).toEqual([...pick(RUNNABLE), ...expected].sort());
     expect(await inSql(both)).toEqual(pick(both));
-    // A repository pair never matches a row without a repository.
     expect(pick(RUNNABLE).some((id) => none.some((row) => row.id === id))).toBe(
       false,
     );

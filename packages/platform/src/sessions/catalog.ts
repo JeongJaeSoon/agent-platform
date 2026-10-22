@@ -306,7 +306,6 @@ export const sessionCatalogConfigSchema = z
   })
   .strict()
   .superRefine((config, ctx) => {
-    // An install that only runs sessions without a repository lists none.
     if (
       Object.keys(config.repositories).length === 0 &&
       Object.values(config.profiles).every(

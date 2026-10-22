@@ -1640,8 +1640,6 @@ integration("worker gateway on PostgreSQL", () => {
       tools: ["Read", "Write"],
       repository: "none" as const,
     };
-    // The coding profile may run without a repository too, so a pair
-    // without one names it: the old row must still not match it.
     const host = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: {

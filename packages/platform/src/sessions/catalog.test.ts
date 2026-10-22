@@ -845,7 +845,6 @@ describe("allowedRun", () => {
       repository.url,
     );
     expect(allowedRun(catalog, "optional", "app")).not.toBeNull();
-    // A none profile is never listed under a repository.
     expect(allowedRun(catalog, "none", "app")).toBeNull();
   });
 });
