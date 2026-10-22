@@ -26,7 +26,7 @@ export default async function Page(props: Props) {
     return (
       <DocsPage full>
         <DocsTitle>{page.data.title}</DocsTitle>
-        <DocsDescription>{page.data.description}</DocsDescription>
+        {/* The operation repeats its description, rendered as Markdown. */}
         <DocsBody>
           <OpenAPIPage {...page.data.getOpenAPIPageProps()} />
         </DocsBody>
