@@ -1,3 +1,5 @@
+/* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
+/* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import type {
   AdmissionState,
   SessionStatus,
@@ -6,7 +8,6 @@ import type {
 import type { JSX, ReactNode } from "react";
 
 import { cn } from "../lib/cn.ts";
-import { Badge } from "../primitives/badge.tsx";
 import {
   formatTimestamp,
   type TimestampLocale,
@@ -46,11 +47,6 @@ export interface SessionRowProps {
   readonly className?: string | undefined;
 }
 
-/** Enough of a UUID to tell sessions apart in a narrow list. */
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
-
 export function SessionRow({
   session,
   renderLink,
@@ -59,63 +55,70 @@ export function SessionRow({
   className,
 }: SessionRowProps): JSX.Element {
   const { runtime } = session;
+  const timestamp = (
+    <>
+      <span className="sr-only">
+        {session.last_event_at ? messages.lastEvent : messages.created}{" "}
+      </span>
+      <time dateTime={session.last_event_at ?? session.created_at}>
+        {formatTimestamp(session.last_event_at ?? session.created_at, locale)}
+      </time>
+    </>
+  );
   return (
     <div
+      role="row"
       data-slot="session-row"
       data-status={session.status}
       className={cn(
-        "flex min-w-0 flex-col gap-2 rounded-md border bg-card p-3 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4",
+        "relative grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_120px_136px] items-center gap-4 border-b px-4 py-2 text-control last:border-b-0 @[820px]:grid-cols-[minmax(0,2fr)_120px_120px_minmax(0,2fr)_minmax(72px,1fr)]",
         className,
       )}
     >
-      {renderLink({
-        children: shortId(session.id),
-        "aria-label": session.id,
-        title: session.id,
-        className:
-          "rounded-sm font-medium font-mono underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50",
-      })}
-      <span className="flex flex-wrap gap-2">
+      <span role="cell" className="min-w-0 truncate font-mono text-caption">
+        {renderLink({
+          children: session.id,
+          "aria-label": session.id,
+          title: session.id,
+          className:
+            "after:absolute after:inset-0 after:rounded-sm outline-none hover:underline focus-visible:underline focus-visible:after:ring-2 focus-visible:after:ring-ring",
+        })}
+        <span className="mt-1 block text-left font-sans text-muted-foreground text-caption @[480px]:hidden">
+          {timestamp}
+        </span>
+      </span>
+      <span role="cell">
         <SessionStatusLabel
           status={session.status}
           label={messages.status(session.status)}
           axisLabel={messages.statusAxis}
         />
+      </span>
+      <span role="cell" className="hidden @[820px]:block">
         <StatusLabel
           axis="admission"
           state={session.admission_state}
           label={messages.admission(session.admission_state)}
           axisLabel={messages.admissionAxis}
         />
-        {session.queued_turn_count > 0 ? (
-          <Badge variant="outline">
-            {messages.queuedTurns(session.queued_turn_count)}
-          </Badge>
-        ) : null}
       </span>
-      <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere] sm:flex-1">
+      <span
+        role="cell"
+        className="hidden min-w-0 truncate text-muted-foreground @[820px]:block"
+      >
         <span className="sr-only">{messages.runtime}: </span>
         {runtime
           ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
           : messages.none}
+        {session.queued_turn_count > 0
+          ? ` · ${messages.queuedTurns(session.queued_turn_count)}`
+          : null}
       </span>
-      <span className="flex flex-col text-muted-foreground text-xs sm:items-end">
-        <span>
-          {messages.lastEvent}{" "}
-          {session.last_event_at ? (
-            <time dateTime={session.last_event_at}>
-              {formatTimestamp(session.last_event_at, locale)}
-            </time>
-          ) : (
-            messages.none
-          )}
-        </span>
-        <span>
-          {messages.created}{" "}
-          <time dateTime={session.created_at}>
-            {formatTimestamp(session.created_at, locale)}
-          </time>
-        </span>
+      <span
+        role="cell"
+        className="hidden text-right text-muted-foreground text-caption @[480px]:block"
+      >
+        {timestamp}
       </span>
     </div>
   );

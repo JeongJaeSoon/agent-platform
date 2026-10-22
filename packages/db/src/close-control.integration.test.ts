@@ -683,6 +683,126 @@ integration("close on PostgreSQL", () => {
     });
   });
 
+  // A session whose first turn checkpointed and whose second ran past the
+  // transcript limits; the worker that ran it is still bound.
+  async function exhausted(
+    name: string,
+    reason: "transcript_too_large" | "transcript_part_too_large",
+  ) {
+    const session = await newSession(name);
+    const worker = await claim(session);
+    await finalize(worker, await deliver(worker), 0);
+    expect((await append(session, "second input")).outcome).toBe("accepted");
+    const turn = await deliver(worker);
+    const { kind: _kind, ...fence } = worker.principal as Extract<
+      WorkerPrincipal,
+      { kind: "session" }
+    >;
+    const state = await createPostgresWorkerUnitOfWork(
+      db,
+    ).checkpointStateAtomic({ fence, now: new Date(), pendingReason: reason });
+    expect(state).toMatchObject({ outcome: "ok", pendingReason: reason });
+    return { session, worker, turn };
+  }
+
+  async function closeReceipts(session: Session) {
+    return db
+      .select({ status: receipts.status, error: receipts.error })
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.ownerId, session.ownerId),
+          eq(receipts.operation, "close"),
+        ),
+      );
+  }
+
+  test("a transcript past the limits refuses the close as checkpoint_unavailable, with its worker bound or gone, and leaves the session active", async () => {
+    for (const reason of [
+      "transcript_too_large",
+      "transcript_part_too_large",
+    ] as const) {
+      const live = await exhausted(`live-${reason}`, reason);
+      await finalize(live.worker, live.turn, null);
+      const before = await sessionRow(live.session.sessionId);
+      expect(await close(live.session, before.revision)).toEqual({
+        outcome: "checkpoint_unavailable",
+      });
+      const after = await sessionRow(live.session.sessionId);
+      expect(after.admissionState).toBe("active");
+      expect(after.revision).toBe(before.revision);
+      expect(await closeReceipts(live.session)).toEqual([]);
+      // The way out the guide names: terminate, then recovery close.
+      expect((await terminate(live.session)).outcome).toBe("accepted");
+      await gateway.confirmExecutionGone(live.worker.executionId);
+      const stopped = await sessionRow(live.session.sessionId);
+      expect(stopped.admissionState).toBe("stopped");
+      expect(await close(live.session, stopped.revision)).toEqual({
+        outcome: "recovery_required",
+      });
+      expect((await recoveryClose(live.session)).outcome).toBe("accepted");
+      expect((await sessionRow(live.session.sessionId)).admissionState).toBe(
+        "closed",
+      );
+
+      const gone = await exhausted(`gone-${reason}`, reason);
+      await finalize(gone.worker, gone.turn, null);
+      await gateway.release(gone.worker.principal, {
+        ...gone.worker.scope,
+        reason: "idle",
+      });
+      // Released, so no drainer, but the execution is not seen gone yet.
+      const released = await sessionRow(gone.session.sessionId);
+      expect(released.admissionState).toBe("active");
+      expect(await close(gone.session, released.revision)).toEqual({
+        outcome: "checkpoint_unavailable",
+      });
+      expect(await closeReceipts(gone.session)).toEqual([]);
+      // Once it is, the uncovered turn hands the session to recovery.
+      await gateway.confirmExecutionGone(gone.worker.executionId);
+      const idle = await sessionRow(gone.session.sessionId);
+      expect(idle.admissionState).toBe("recovery_required");
+      expect(await close(gone.session, idle.revision)).toEqual({
+        outcome: "recovery_required",
+      });
+      expect(await closeReceipts(gone.session)).toEqual([]);
+    }
+  });
+
+  test("a turn that runs past the transcript limits after the close was accepted fails the close to recovery once its execution is gone", async () => {
+    const session = await newSession("exhausts-closing");
+    const worker = await claim(session);
+    await finalize(worker, await deliver(worker), 0);
+    expect((await append(session, "second input")).outcome).toBe("accepted");
+    const turn = await deliver(worker);
+    const response = await accepted(session);
+    expect((await sessionRow(session.sessionId)).admissionState).toBe(
+      "closing",
+    );
+    const { kind: _kind, ...fence } = worker.principal as Extract<
+      WorkerPrincipal,
+      { kind: "session" }
+    >;
+    await createPostgresWorkerUnitOfWork(db).checkpointStateAtomic({
+      fence,
+      now: new Date(),
+      pendingReason: "transcript_too_large",
+    });
+    await finalize(worker, turn, null);
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: "SIGTERM",
+    });
+    await gateway.confirmExecutionGone(worker.executionId);
+    expect((await sessionRow(session.sessionId)).admissionState).toBe(
+      "recovery_required",
+    );
+    expect(await receiptRow(response.receipt_id)).toMatchObject({
+      status: "failed",
+      error: { code: "RECOVERY_REQUIRED" },
+    });
+  });
+
   test("paused, a resumable stopped and an idle active close at once; recovery states and a session with nothing to show are refused", async () => {
     const paused = await idleCovered("paused");
     expect((await pause(paused)).outcome).toBe("accepted");

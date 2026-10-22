@@ -1,7 +1,9 @@
 import {
+  type Dispatch,
   type FormEvent,
   type JSX,
   type KeyboardEvent,
+  type SetStateAction,
   useId,
   useState,
 } from "react";
@@ -45,6 +47,12 @@ export interface ComposerProps {
   readonly queued?: readonly ComposerQueuedMessage[] | undefined;
   readonly placeholder?: string | undefined;
   readonly className?: string | undefined;
+  /**
+   * The draft held by the screen, so it outlives the composer when the
+   * screen moves it. Without these the composer keeps its own.
+   */
+  readonly value?: string | undefined;
+  readonly onValueChange?: Dispatch<SetStateAction<string>> | undefined;
 }
 
 export function Composer({
@@ -57,8 +65,12 @@ export function Composer({
   queued = [],
   placeholder,
   className,
+  value,
+  onValueChange,
 }: ComposerProps): JSX.Element {
-  const [text, setText] = useState("");
+  const [ownText, setOwnText] = useState("");
+  const text = value ?? ownText;
+  const setText = onValueChange ?? setOwnText;
   // Locks out a second send of the same text before `onSend` settles, even
   // when the screen does not pass `pending`.
   const [sending, setSending] = useState(false);

@@ -480,12 +480,21 @@ jobs:
       # nothing is downloaded here.
       - name: Every story, with the a11y check
         run: bun run --cwd apps/storybook test:stories
+      # Assembled on every run so a PR proves the layout the deploy will get.
+      # docs/api/index.html embeds the spec and loads ./scalar.js beside it;
+      # openapi.json rides along as the downloadable copy.
+      - name: Pages site
+        run: |
+          mkdir -p _site/api
+          cp .github/pages/index.html _site/
+          cp -R apps/storybook/dist _site/storybook
+          cp docs/api/index.html docs/api/scalar.js docs/openapi.json _site/api/
       - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: apps/storybook/dist
+          path: _site
 
-  # Publishes the build above to GitHub Pages. Main pushes only: a PR or a
+  # Publishes the site assembled above to GitHub Pages. Main pushes only: a PR or a
   # feature-branch run never deploys, and is the only job here that may write
   # to Pages. Gated on the PAGES_ENABLED repo variable: with Pages off,
   # deploy-pages answers 404 and turns main red.

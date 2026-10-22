@@ -19,19 +19,20 @@ describe("StatusLabel", () => {
   test("축이 다르면 같은 화면에서 서로 다른 라벨로 그려진다", () => {
     const { getByText } = render(
       <>
-        <StatusLabel axis="admission" state="pausing" />
-        <StatusLabel axis="turn" state="running" />
+        <StatusLabel axis="admission" state="paused" />
+        <StatusLabel axis="turn" state="needs_input" />
       </>,
     );
 
-    const admission = getByText("일시정지 중").closest(".ap-status");
-    const turn = getByText("작업 중").closest(".ap-status");
+    const admission = getByText("일시정지됨").closest(".ap-status");
+    const turn = getByText("답변 대기").closest(".ap-status");
 
     expect(admission?.getAttribute("data-axis")).toBe("admission");
     expect(turn?.getAttribute("data-axis")).toBe("turn");
     // Different axes must not collapse into one badge (§4.1).
     expect(admission?.getAttribute("data-tone")).toBe("caution");
-    expect(turn?.getAttribute("data-tone")).toBe("progress");
+    expect(turn?.getAttribute("data-tone")).toBe("attention");
+    expect(admission?.querySelector("svg")).not.toBeNull();
     expect(admission?.querySelector("svg")?.innerHTML).not.toBe(
       turn?.querySelector("svg")?.innerHTML,
     );
@@ -98,19 +99,18 @@ describe("StatusLabel", () => {
     expect(queryByText("갱신 지연")).toBeNull();
   });
 
-  test("prefers-reduced-motion이면 스피너를 돌리지 않는다", () => {
+  test("prefers-reduced-motion이면 스피너 대신 축 아이콘을 둔다", () => {
     const restore = stubPrefersReducedMotion(true);
     try {
       const { container } = render(<StatusLabel axis="turn" state="running" />);
-      const spinner = container.querySelector(".ap-status__spinner");
-      expect(spinner).not.toBeNull();
-      expect(spinner?.getAttribute("data-animated")).toBeNull();
+      expect(container.querySelector(".ap-status__spinner")).toBeNull();
+      expect(container.querySelectorAll(".ap-status__icon")).toHaveLength(1);
     } finally {
       restore();
     }
   });
 
-  test("모션 허용이면 스피너가 돈다", () => {
+  test("모션 허용이면 스피너가 축 아이콘 자리를 대신한다", () => {
     const restore = stubPrefersReducedMotion(false);
     try {
       const { container } = render(<StatusLabel axis="turn" state="running" />);
@@ -119,6 +119,20 @@ describe("StatusLabel", () => {
           .querySelector(".ap-status__spinner")
           ?.getAttribute("data-animated"),
       ).toBe("true");
+      expect(container.querySelector(".ap-status__icon")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  test("멈춘 상태는 축 아이콘만 둔다", () => {
+    const restore = stubPrefersReducedMotion(false);
+    try {
+      const { container } = render(
+        <StatusLabel axis="turn" state="completed" />,
+      );
+      expect(container.querySelector(".ap-status__spinner")).toBeNull();
+      expect(container.querySelectorAll(".ap-status__icon")).toHaveLength(1);
     } finally {
       restore();
     }

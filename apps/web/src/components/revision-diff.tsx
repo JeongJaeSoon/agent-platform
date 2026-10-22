@@ -46,6 +46,11 @@ export function diffLines(before: string, after: string): DiffLine[] {
 }
 
 const MARK = { same: " ", added: "+", removed: "-" } as const;
+const LINE = {
+  same: "block",
+  added: "block bg-[var(--ap-tone-progress-bg)]",
+  removed: "block bg-[var(--ap-tone-danger-bg)] line-through",
+} as const;
 
 /** Two revisions of the same document, side by side as one annotated text. */
 export function RevisionDiff({
@@ -66,25 +71,25 @@ export function RevisionDiff({
   );
   const changed = lines.some((line) => line.kind !== "same");
   return (
-    <figure className="web-diff">
-      <figcaption>
+    <figure className="m-0 flex min-w-0 flex-col gap-2">
+      <figcaption className="text-muted-foreground text-sm">
         {t("diff.caption", { before: beforeLabel, after: afterLabel })}
       </figcaption>
       {changed ? (
-        <pre className="web-diff__body">
+        <pre className="m-0 overflow-x-auto rounded-md border p-3 font-mono text-xs">
           {lines.map((line, index) => (
             <span
               // Lines repeat, so position is the only stable identity here.
               // biome-ignore lint/suspicious/noArrayIndexKey: see above
               key={index}
-              className="web-diff__line"
+              className={LINE[line.kind]}
               data-kind={line.kind}
             >
-              <span className="web-diff__mark" aria-hidden="true">
+              <span className="inline-block w-[1.5ch]" aria-hidden="true">
                 {MARK[line.kind]}
               </span>
               {line.kind === "same" ? null : (
-                <span className="web-sr-only">
+                <span className="sr-only">
                   {t(line.kind === "added" ? "diff.added" : "diff.removed")}
                 </span>
               )}
@@ -94,7 +99,7 @@ export function RevisionDiff({
           ))}
         </pre>
       ) : (
-        <p className="web-page__empty">{t("diff.same")}</p>
+        <p className="m-0 text-muted-foreground">{t("diff.same")}</p>
       )}
     </figure>
   );

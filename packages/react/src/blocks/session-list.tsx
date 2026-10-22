@@ -1,4 +1,9 @@
-import { Button, SessionRow, type SessionRowMessages } from "@werft-ai/ui";
+import {
+  Button,
+  SessionRow,
+  type SessionRowMessages,
+  SessionTable,
+} from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { useAgentPlatform } from "../provider.tsx";
 import { useSessions } from "../sessions.ts";
@@ -39,23 +44,29 @@ export function SessionList({ loading, renderError }: SessionListProps) {
   };
   return (
     <div className="flex flex-col items-start gap-3">
-      <ul
-        aria-label={t("sessions.tableLabel")}
-        className="m-0 flex w-full list-none flex-col gap-2 p-0"
+      <SessionTable
+        label={t("sessions.tableLabel")}
+        messages={{
+          id: t("sessions.column.id"),
+          status: t("sessions.column.status"),
+          admission: t("sessions.column.admission"),
+          runtime: t("sessions.column.runtime"),
+          lastEvent: t("sessions.column.lastEvent"),
+          created: t("sessions.column.created"),
+        }}
       >
         {items.map((session) => (
-          <li key={session.id}>
-            <SessionRow
-              session={session}
-              messages={messages}
-              locale={locale}
-              renderLink={(link) =>
-                renderLink({ to: "session", id: session.id, ...link })
-              }
-            />
-          </li>
+          <SessionRow
+            key={session.id}
+            session={session}
+            messages={messages}
+            locale={locale}
+            renderLink={(link) =>
+              renderLink({ to: "session", id: session.id, ...link })
+            }
+          />
         ))}
-      </ul>
+      </SessionTable>
       {sessions.error
         ? renderError(
             sessions.error,
@@ -69,6 +80,7 @@ export function SessionList({ loading, renderError }: SessionListProps) {
         <Button
           type="button"
           variant="outline"
+          size="sm"
           disabled={sessions.isFetchingNextPage}
           onClick={() => sessions.fetchNextPage()}
         >

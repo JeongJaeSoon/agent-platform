@@ -139,6 +139,11 @@ export const CLOSE_BLOCKED_REASON_VALUES = [
   "execution_pending",
 ] as const;
 export const closeBlockedReasonSchema = z.enum(CLOSE_BLOCKED_REASON_VALUES);
+export const TRANSCRIPT_LIMIT_REASON_VALUES = [
+  "transcript_near_limit",
+  "transcript_too_large",
+  "transcript_part_too_large",
+] as const;
 export const sessionAttentionSchema = z.discriminatedUnion("code", [
   z.object({
     code: z.literal("PAUSE_BLOCKED"),
@@ -198,6 +203,20 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     reason: z.string().min(1),
     failures: z.number().int().positive(),
     retry_at: timestampSchema.nullable(),
+  }),
+  // The session's checkpoint transcript is near the limit one checkpoint
+  // may carry (transcript_near_limit: the last committed checkpoint is at
+  // 80% of it or more), or past it (transcript_too_large, or
+  // transcript_part_too_large for a single part). Past it the session takes
+  // no new turn: completed turns and the last checkpoint stay, and
+  // start_fresh or a new session goes on from there. transcript_bytes is the
+  // last committed checkpoint's total; limit_bytes is the limit the reason
+  // names (the part limit for transcript_part_too_large).
+  z.object({
+    code: z.literal("TRANSCRIPT_LIMIT"),
+    reason: z.enum(TRANSCRIPT_LIMIT_REASON_VALUES),
+    transcript_bytes: z.number().int().nonnegative().nullable(),
+    limit_bytes: z.number().int().positive(),
   }),
 ]);
 export const sessionDurabilitySchema = z.object({

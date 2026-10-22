@@ -55,15 +55,17 @@ export function ApprovalInbox({
     const { items, next_cursor } = waiting.data;
     body =
       items.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-sm">{t("inbox.empty")}</p>
+        <p className="m-0 text-muted-foreground text-body">
+          {t("inbox.empty")}
+        </p>
       ) : (
         <>
-          <p className="m-0 text-sm">
+          <p className="m-0 text-caption text-muted-foreground">
             {t(next_cursor === null ? "inbox.count" : "inbox.countMore", {
               count: items.length,
             })}
           </p>
-          <ul className="m-0 flex list-none flex-col gap-4 p-0">
+          <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[820px]:grid-cols-2">
             {items.map((session) => (
               <WaitingSession
                 key={session.id}
@@ -78,12 +80,15 @@ export function ApprovalInbox({
       );
   }
   return (
-    <section className="flex flex-col gap-3" aria-labelledby={titleId}>
+    <section
+      className="@container flex min-w-0 flex-col gap-3"
+      aria-labelledby={titleId}
+    >
       <h2
         id={titleId}
         ref={titleRef}
         tabIndex={-1}
-        className="m-0 font-semibold text-lg"
+        className="m-0 font-semibold text-body"
       >
         {t("inbox.title")}
       </h2>
@@ -106,8 +111,8 @@ function WaitingSession({
   const queryClient = useQueryClient();
   const pending = usePendingRequests(session.id, true);
   return (
-    <li className="flex flex-col gap-2 rounded-lg border p-3">
-      <p className="m-0 text-sm [overflow-wrap:anywhere]">
+    <li className="flex min-w-0 flex-col gap-2 [&_[data-slot=approval-card]]:h-full [&_[data-slot=question-card]]:h-full [&_ul]:grid [&_ul]:auto-rows-fr [&_ul]:flex-1 [&>div]:flex-1">
+      <p className="m-0 font-mono text-caption [overflow-wrap:anywhere]">
         {renderLink({
           to: "session",
           id: session.id,

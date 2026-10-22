@@ -1228,12 +1228,46 @@ describe("Claude session store merging parts, the edges", () => {
       },
     ]);
 
-    await expect(mirror.captureTranscripts(sessionId)).rejects.toBeInstanceOf(
-      TranscriptTooLarge,
-    );
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toMatchObject({
+      name: "TranscriptTooLarge",
+      reason: "transcript_part_too_large",
+    });
     expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
       [],
     );
+  });
+
+  test("sizes what a capture would pin without merging, and judges it by the limits it was given", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects,
+      prefix,
+      transcriptLimits: limits,
+    });
+    await appendParts(mirror, 600);
+    await mirror.append({ ...root, subpath: "subagents/agent-1" }, [
+      entry("s1", "sub"),
+    ]);
+
+    const sizes = await mirror.transcriptSizes(sessionId);
+    if (sizes === null) throw new Error("expected a root transcript");
+    expect(sizes).toHaveLength(601);
+    expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
+      [],
+    );
+    const total = sizes.reduce((sum, part) => sum + part.bytes, 0);
+    expect(await mirror.transcriptSizes("session-none")).toBeNull();
+
+    limits.totalBytes = total - 1;
+    const refused = mirror.captureTranscripts(sessionId);
+    await expect(refused).rejects.toBeInstanceOf(TranscriptTooLarge);
+    await expect(refused).rejects.toMatchObject({
+      reason: "transcript_too_large",
+    });
+    limits.totalBytes = total;
+    expect(await mirror.captureTranscripts(sessionId)).not.toBeNull();
   });
 });
 

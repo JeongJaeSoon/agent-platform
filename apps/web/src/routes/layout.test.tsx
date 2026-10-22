@@ -78,7 +78,9 @@ describe("app shell", () => {
   test("lists and forms take different widths", async () => {
     renderAt("/", signedIn);
     await screen.findByRole("heading", { name: "Acme" });
-    expect(document.getElementById("main")?.className).toContain("max-w-6xl");
+    expect(document.getElementById("main")?.className).toContain(
+      "max-w-[var(--ap-layout-content-width)]",
+    );
   });
 
   test("the sessions item counts the sessions waiting for an answer", async () => {

@@ -20,6 +20,7 @@ const catalog: SessionCatalog = {
       model: "qwen3-coder",
       tools: ["Read"],
       permission_mode: "default",
+      repository: "none",
       provider: {
         kind: "litellm",
         endpoint: "http://litellm.internal:4000",
@@ -90,6 +91,7 @@ test("lists every profile by id with the model, and nothing of the provider", as
         runtime_kind: "claude_agent_sdk",
         runtime_version: "0.3.270",
         billing: "metered",
+        repository_mode: "required",
       },
       {
         id: "zeta-local",
@@ -98,6 +100,7 @@ test("lists every profile by id with the model, and nothing of the provider", as
         runtime_kind: "claude_agent_sdk",
         runtime_version: "0.3.270",
         billing: "none",
+        repository_mode: "none",
       },
     ],
   });

@@ -76,6 +76,7 @@ describe("QuestionCard", () => {
     await user.keyboard(" ");
     await user.tab();
     await user.keyboard("  zig  ");
+    await user.tab();
     await user.keyboard("{Enter}");
     expect(onSubmit).toHaveBeenCalledWith([
       { question_id: "q_color", selected_option_ids: ["blue"] },

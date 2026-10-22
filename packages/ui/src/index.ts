@@ -122,6 +122,10 @@ export {
   type SessionStatusLabelProps,
 } from "./session/session-status-label.tsx";
 export {
+  SessionTable,
+  type SessionTableProps,
+} from "./session/session-table.tsx";
+export {
   StageIndicator,
   type StageIndicatorProps,
 } from "./session/stage-indicator.tsx";

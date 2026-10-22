@@ -2348,6 +2348,47 @@
                       "retry_at"
                     ],
                     "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "const": "TRANSCRIPT_LIMIT"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "transcript_near_limit",
+                          "transcript_too_large",
+                          "transcript_part_too_large"
+                        ]
+                      },
+                      "transcript_bytes": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "limit_bytes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason",
+                      "transcript_bytes",
+                      "limit_bytes"
+                    ],
+                    "additionalProperties": false
                   }
                 ]
               },
@@ -6395,6 +6436,14 @@
                     "metered",
                     "none"
                   ]
+                },
+                "repository_mode": {
+                  "type": "string",
+                  "enum": [
+                    "required",
+                    "optional",
+                    "none"
+                  ]
                 }
               },
               "required": [
@@ -6403,7 +6452,8 @@
                 "tools",
                 "runtime_kind",
                 "runtime_version",
-                "billing"
+                "billing",
+                "repository_mode"
               ],
               "additionalProperties": false
             }
@@ -33012,7 +33062,7 @@
           "Limits & receipts"
         ],
         "summary": "The runtime profiles this installation can run",
-        "description": "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs. The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -33052,7 +33102,8 @@
                       ],
                       "runtime_kind": "claude_agent_sdk",
                       "runtime_version": "0.3.270",
-                      "billing": "metered"
+                      "billing": "metered",
+                      "repository_mode": "required"
                     }
                   ]
                 },
