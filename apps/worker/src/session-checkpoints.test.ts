@@ -9,6 +9,7 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -131,6 +132,11 @@ function harness(
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     claudeConfigDir?: string;
     transcriptLimits?: { partBytes: number; totalBytes: number };
+    outputLimits?: {
+      maxFileBytes: number;
+      maxFiles: number;
+      maxTotalBytes: number;
+    };
   } = {},
 ) {
   const gateway = options.gateway ?? new FakeWorkerGateway();
@@ -168,6 +174,9 @@ function harness(
     ...(options.transcriptLimits === undefined
       ? {}
       : { transcriptLimits: options.transcriptLimits }),
+    ...(options.outputLimits === undefined
+      ? {}
+      : { outputLimits: options.outputLimits }),
   });
   return { errors, gateway, infos, logger, objects, port, warnings };
 }
@@ -1219,6 +1228,110 @@ describe("unchanged untracked files", () => {
       untracked_unchanged: 0,
       untracked_uploads: 1,
     });
+  });
+});
+
+describe.skipIf(!existsSync("/proc/self/fd"))("files under out/", () => {
+  test("are indexed into outputs: a symlink and an escape left out, an oversized file listed as too large, one upload per digest", async () => {
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const putImmutable = objects.putImmutable.bind(objects);
+    const writes: string[] = [];
+    objects.putImmutable = async (key, body, options) => {
+      writes.push(key);
+      return putImmutable(key, body, options);
+    };
+    // Ignored by git, so what is indexed cannot have come from the capture's
+    // untracked files.
+    await writeFile(join(workspace, ".git", "info", "exclude"), "out/\n");
+    await mkdir(join(workspace, "out", "tables"), { recursive: true });
+    await writeFile(join(workspace, "out", "report.md"), "# 보고서\n");
+    await writeFile(join(workspace, "out", "copy.md"), "# 보고서\n");
+    await writeFile(join(workspace, "out", "tables", "q3.csv"), "a,b\n1,2\n");
+    await writeFile(join(workspace, "out", "video.mp4"), "x".repeat(64));
+    await writeFile(join(scratch, "secret.txt"), "worker credentials\n");
+    await symlink("report.md", join(workspace, "out", "latest.md"));
+    await symlink("../../secret.txt", join(workspace, "out", "escape.txt"));
+    const h = harness({
+      objects,
+      outputLimits: { maxFileBytes: 32, maxFiles: 100, maxTotalBytes: 1024 },
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    const turn = { scope: scopeOf(claim), recheck: async () => ready };
+    const manifestOf = async (ref: CheckpointRef | null) => {
+      if (ref === null) {
+        throw new Error(
+          `checkpoint was not published: ${JSON.stringify(h.warnings)}`,
+        );
+      }
+      const bytes = await objects.get(ref.manifest_ref, ref.manifest_version);
+      if (bytes === undefined) throw new Error("manifest missing");
+      const directory = ref.manifest_ref.slice(
+        0,
+        ref.manifest_ref.lastIndexOf("/") + 1,
+      );
+      return {
+        directory,
+        manifest: claudeCheckpointCodec.decode(bytes),
+        ref,
+      };
+    };
+    const report = new TextEncoder().encode("# 보고서\n");
+
+    const first = await manifestOf(await h.port.capture(ready, turn));
+
+    const reportKey = `${first.directory}outputs/${sha256(report)}`;
+    expect(first.manifest.outputs).toEqual([
+      expect.objectContaining({
+        bytes: report.byteLength,
+        key: reportKey,
+        path: "out/copy.md",
+        sha256: sha256(report),
+        version: expect.any(String),
+      }),
+      expect.objectContaining({ key: reportKey, path: "out/report.md" }),
+      expect.objectContaining({
+        bytes: 8,
+        path: "out/tables/q3.csv",
+        sha256: sha256(new TextEncoder().encode("a,b\n1,2\n")),
+      }),
+      { bytes: 64, omitted: "too_large", path: "out/video.mp4" },
+    ]);
+    expect(
+      writes.filter((key) => key.startsWith(`${first.directory}outputs/`)),
+    ).toEqual([reportKey, expect.stringContaining("outputs/")]);
+    expect(await objects.get(reportKey)).toEqual(report);
+
+    h.gateway.checkpointRevision = first.ref.revision;
+    const second = await manifestOf(await h.port.capture(ready, turn));
+
+    expect(second.manifest.outputs).toEqual(first.manifest.outputs);
+    expect(writes.filter((key) => key.includes("/outputs/"))).toHaveLength(2);
+    expect(
+      h.infos.filter(({ event }) => event === "worker.checkpoint.published")[1]
+        ?.fields,
+    ).toMatchObject({
+      outputs: 4,
+      outputs_too_large: 1,
+      outputs_inherited: 3,
+      outputs_uploads: 0,
+    });
+  });
+
+  test("a workspace without out/ writes a manifest without outputs", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    const bytes =
+      ref === null ? undefined : await h.objects.get(ref.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+
+    expect("outputs" in claudeCheckpointCodec.decode(bytes)).toBe(false);
   });
 });
 
@@ -2454,4 +2567,51 @@ describe("SessionCheckpoints for a session without a repository", () => {
       await readFile(join(workspace, ".git", "info", "exclude"), "utf8"),
     ).toBe("node_modules/\n.venv/\n__pycache__/\n.cache/\n");
   });
+
+  test.skipIf(!existsSync("/proc/self/fd"))(
+    "indexes out/ beside the bundle, which carries the symlink the index leaves out",
+    async () => {
+      await rm(workspace, { force: true, recursive: true });
+      await new GitWorkspace(workspace).prepare({
+        descriptor: { repository: null },
+        restore: null,
+        signal: neverStopped(),
+      });
+      const objects = createMemoryCheckpointObjectStore({ versioned: true });
+      const h = harness({
+        gateway: new FakeWorkerGateway({ workspace: { repository: null } }),
+        objects,
+        outputLimits: { maxFileBytes: 16, maxFiles: 10, maxTotalBytes: 64 },
+      });
+      const { claim, mirror } = await opened(h);
+      await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+      await mkdir(join(workspace, "out"));
+      await writeFile(join(workspace, "out", "report.md"), "report\n");
+      await writeFile(join(workspace, "out", "big.bin"), "x".repeat(32));
+      await symlink("report.md", join(workspace, "out", "latest.md"));
+
+      const ref = await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      });
+      if (ref === null) {
+        throw new Error(`nothing published: ${JSON.stringify(h.warnings)}`);
+      }
+      const bytes = await objects.get(ref.manifest_ref, ref.manifest_version);
+      if (bytes === undefined) throw new Error("manifest missing");
+      const manifest = claudeCheckpointCodec.decode(bytes);
+      const report = new TextEncoder().encode("report\n");
+
+      expect(manifest.workspace.untracked).toEqual([]);
+      expect(manifest.outputs).toEqual([
+        { bytes: 32, omitted: "too_large", path: "out/big.bin" },
+        expect.objectContaining({
+          bytes: report.byteLength,
+          key: `${ref.manifest_ref.slice(0, ref.manifest_ref.lastIndexOf("/") + 1)}outputs/${sha256(report)}`,
+          path: "out/report.md",
+          sha256: sha256(report),
+        }),
+      ]);
+    },
+  );
 });

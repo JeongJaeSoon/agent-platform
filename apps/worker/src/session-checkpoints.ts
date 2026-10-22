@@ -42,6 +42,8 @@ import {
   type RuntimeFingerprint,
   restoreCwdRefusal,
   runtimeFor,
+  type StoredOutput,
+  storedOutputs,
   TRANSCRIPT_LIMITS,
   TRANSCRIPT_MIRROR_DIRECTORY,
   type TranscriptLimits,
@@ -85,6 +87,12 @@ import {
   type WorkspaceCaptureLimits,
   type WorkspaceCaptureResult,
 } from "./workspace-capture.ts";
+import {
+  indexOutputs,
+  OUTPUT_DIRECTORY,
+  type OutputIndex,
+  type OutputLimits,
+} from "./workspace-outputs.ts";
 
 const UPLOAD_CONCURRENCY = 8;
 /** Objects a restore downloads at once, each streamed and verified to disk. */
@@ -133,6 +141,8 @@ export type SessionCheckpointsOptions = {
     markNewFiles?: boolean;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
+  /** `DEFAULT_OUTPUT_LIMITS` unless a test sets smaller ones. */
+  outputLimits?: OutputLimits;
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
   transcriptLimits?: TranscriptLimits;
   now?: () => Date;
@@ -162,6 +172,7 @@ type BundleChain = {
 
 type PublishedCheckpoint = BundleChain & {
   untracked: readonly WorkspaceArtifact[];
+  outputs: readonly StoredOutput[];
 };
 
 /**
@@ -560,6 +571,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           links: [...bases, manifest.workspace.bundle],
           tips: staged.tips,
           untracked: manifest.workspace.untracked.map(pinned),
+          // As the manifest names them: finalize lets the next one inherit
+          // exactly that ref, and the restore plan does not carry them.
+          outputs: storedOutputs(manifest.outputs),
         },
       };
       restored = true;
@@ -1113,6 +1127,56 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       ),
     );
 
+    // Inherited by digest from the checkpoint this one builds on, whatever
+    // its bundle chain did, since finalize vouches for that pointer's refs.
+    const parent =
+      bound.committed?.revision === request.revision - 1
+        ? bound.committed
+        : undefined;
+    const earlierOutputs = new Map(
+      parent?.outputs
+        .filter((ref) => ref.version !== undefined)
+        .map((ref) => [ref.sha256, ref]),
+    );
+    const uploadedOutputs = new Map<string, ObjectRef>();
+    let outputsInherited = 0;
+    // A workspace without out/ publishes and logs exactly what it did before.
+    const hasOutputs = await lstat(
+      join(this.#options.workspaceRoot, OUTPUT_DIRECTORY),
+    ).then(
+      () => true,
+      () => false,
+    );
+    const indexed: OutputIndex = !hasOutputs
+      ? { dropped: 0, outputs: [] }
+      : await timer.time("outputs", () =>
+          indexOutputs({
+            workspaceRoot: this.#options.workspaceRoot,
+            ...(this.#options.outputLimits === undefined
+              ? {}
+              : { limits: this.#options.outputLimits }),
+            store: async ({ bytes, path }) => {
+              const digest = sha256(bytes);
+              const earlier = earlierOutputs.get(digest);
+              if (earlier !== undefined && earlier.bytes === bytes.byteLength) {
+                outputsInherited += 1;
+                timer.reused(1);
+                const { path: _path, ...ref } = earlier;
+                return { ...ref, path };
+              }
+              let ref = uploadedOutputs.get(digest);
+              if (ref === undefined) {
+                ref = refOf(`${directory}outputs/${digest}`, bytes);
+                await upload(ref.key, bytes);
+                ref = versioned(ref);
+                uploadedOutputs.set(digest, ref);
+              }
+              return { ...ref, path };
+            },
+          }),
+        );
+    const outputs = indexed.outputs;
+
     const transcripts = await timer.time("transcript", () =>
       bound.store
         .captureTranscripts(preparation.checkpoint.resume)
@@ -1154,6 +1218,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       1 +
       bases.length +
       untracked.length +
+      storedOutputs(outputs).length +
       transcripts.root.parts.length +
       Object.values(transcripts.subagents).reduce(
         (total, revision) => total + revision.parts.length,
@@ -1169,6 +1234,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       createdAt: (this.#options.now?.() ?? new Date()).toISOString(),
       cwd: this.#options.workspaceRoot,
       engine: preparation.checkpoint.engine,
+      ...(outputs.length === 0 ? {} : { outputs }),
       resume: preparation.checkpoint.resume,
       revision: request.revision,
       runtime: bound.runtime,
@@ -1210,6 +1276,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...capture.bundle.tips,
       ],
       untracked: manifest.workspace.untracked,
+      outputs: storedOutputs(outputs),
     };
     this.#options.logger.info("worker.checkpoint.published", {
       revision: request.revision,
@@ -1223,6 +1290,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       untracked_changed: untracked.length - unchanged,
       untracked_unchanged: unchanged,
       untracked_uploads: distinct.size,
+      ...(hasOutputs
+        ? {
+            outputs: outputs.length,
+            outputs_too_large: outputs.length - storedOutputs(outputs).length,
+            outputs_dropped: indexed.dropped,
+            outputs_inherited: outputsInherited,
+            outputs_uploads: uploadedOutputs.size,
+            ...(indexed.refused === undefined
+              ? {}
+              : { outputs_refused: indexed.refused }),
+          }
+        : {}),
       manifest_bytes: encoded.bytes.byteLength,
       bundle_bytes: bundle.bytes,
       base_bundles: bases.length,
