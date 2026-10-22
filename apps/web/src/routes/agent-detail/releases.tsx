@@ -7,13 +7,34 @@ import type {
   ProfileSummary,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
-import { formatTimestamp } from "@werft-ai/ui";
+import {
+  Badge,
+  Button,
+  cn,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  formatTimestamp,
+  NativeSelect,
+  NativeSelectOption,
+} from "@werft-ai/ui";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
+import { NOTICE } from "../../components/auth-page.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
+import {
+  FORM_INLINE,
+  LIST,
+  LIST_ITEM,
+  MUTED,
+  PRIMARY,
+  SECONDARY,
+  SECTION,
+  SECTION_TITLE,
+} from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 export function Releases({
@@ -98,61 +119,63 @@ export function Releases({
   };
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("agent.releases.title")}</h2>
-      <p className="web-page__empty">{t("agent.releases.intro")}</p>
-      <form className="web-form web-form--inline" onSubmit={submit}>
-        <VersionSelect
-          label={t("agent.releases.version")}
-          versions={[...detail.versions].sort(
-            (a, b) => b.version_no - a.version_no,
-          )}
-          value={versionId}
-          onChange={onPick}
-        />
-        {profiles.isPending ? (
-          <p className="web-page__empty">
-            {t("agent.releases.profilesLoading")}
-          </p>
-        ) : profiles.error ? (
-          <p className="web-form__error" role="alert">
-            {t("agent.releases.profilesFailed", {
-              reason: t(errorKey((profiles.error as ApiError).code)),
-            })}
-          </p>
-        ) : (
-          <ProfileSelect
-            label={t("agent.releases.profile")}
-            hint={t("agent.releases.profileHint")}
-            profiles={items}
-            cardModel={cardModel}
-            value={profile}
-            onChange={setProfile}
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("agent.releases.title")}
+      </h2>
+      <p className={MUTED}>{t("agent.releases.intro")}</p>
+      <form className="flex flex-col items-start gap-3" onSubmit={submit}>
+        <div className={FORM_INLINE}>
+          <VersionSelect
+            label={t("agent.releases.version")}
+            versions={[...detail.versions].sort(
+              (a, b) => b.version_no - a.version_no,
+            )}
+            value={versionId}
+            onChange={onPick}
           />
-        )}
+          {profiles.isPending ? (
+            <p className={MUTED}>{t("agent.releases.profilesLoading")}</p>
+          ) : profiles.error ? (
+            <p className="m-0 text-destructive text-sm" role="alert">
+              {t("agent.releases.profilesFailed", {
+                reason: t(errorKey((profiles.error as ApiError).code)),
+              })}
+            </p>
+          ) : (
+            <ProfileSelect
+              label={t("agent.releases.profile")}
+              hint={t("agent.releases.profileHint")}
+              profiles={items}
+              cardModel={cardModel}
+              value={profile}
+              onChange={setProfile}
+            />
+          )}
+        </div>
         {mismatch ? (
-          <output className="web-notice">
+          <output className={NOTICE}>
             {t("agent.releases.modelMismatch", {
               card: cardModel,
               profile: profileModel,
             })}
           </output>
         ) : null}
-        <button
+        <Button
           type="submit"
-          className="ap-button"
+          variant="outline"
           disabled={release.isPending || versionId === "" || profile === ""}
         >
           {release.isPending
             ? t("agent.releases.creating")
             : t("agent.releases.create")}
-        </button>
+        </Button>
       </form>
       {result}
       {ordered.length === 0 ? (
-        <p className="web-page__empty">{t("agent.releases.empty")}</p>
+        <p className={MUTED}>{t("agent.releases.empty")}</p>
       ) : (
-        <ul className="web-list">
+        <ul className={LIST}>
           {ordered.map((item) => {
             const active = item.id === detail.agent.active_release_id;
             const label = t("agent.releaseLabel", {
@@ -160,10 +183,17 @@ export function Releases({
               profile: item.runtime_profile_id,
             });
             return (
-              <li key={item.id} className="web-list__item" data-active={active}>
-                <span>
-                  <span className="web-table__primary">{label}</span>
-                  <span className="web-table__secondary">
+              <li
+                key={item.id}
+                className={cn(
+                  LIST_ITEM,
+                  active && "border-[var(--ap-tone-positive-border)]",
+                )}
+                data-active={active}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className={PRIMARY}>{label}</span>
+                  <span className={SECONDARY}>
                     {formatTimestamp(item.created_at, locale)} ·{" "}
                     {item.approved_at
                       ? t("agent.releases.approved", {
@@ -173,13 +203,12 @@ export function Releases({
                   </span>
                 </span>
                 {active ? (
-                  <span className="web-badge" data-tone="ok">
-                    {t("agent.releases.active")}
-                  </span>
+                  <Badge>{t("agent.releases.active")}</Badge>
                 ) : (
-                  <button
+                  <Button
                     type="button"
-                    className="ap-button"
+                    variant="outline"
+                    size="sm"
                     disabled={activating !== undefined}
                     aria-label={t("agent.releases.activateFor", {
                       release: label,
@@ -189,7 +218,7 @@ export function Releases({
                     {activating === item.id
                       ? t("agent.releases.activating")
                       : t("agent.releases.activate")}
-                  </button>
+                  </Button>
                 )}
               </li>
             );
@@ -216,37 +245,27 @@ function ProfileSelect({
   readonly onChange: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const hintId = useId();
-  const unlistedId = useId();
   return (
-    <div className="web-field">
-      <label className="web-field">
-        <span>{label}</span>
-        <select
-          className="ap-input"
-          required
-          value={value}
-          aria-describedby={`${hintId} ${unlistedId}`}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          {profiles.map((profile) => (
-            <option key={profile.id} value={profile.id}>
-              {t(
-                cardModel !== undefined && profile.model !== cardModel
-                  ? "agent.releases.profileOptionMismatch"
-                  : "agent.releases.profileOption",
-                { profile: profile.id, model: profile.model },
-              )}
-            </option>
-          ))}
-        </select>
-      </label>
-      <span id={hintId} className="web-field__hint">
-        {hint}
-      </span>
-      <span id={unlistedId} className="web-field__hint">
-        {t("agent.releases.profileUnlisted")}
-      </span>
-    </div>
+    <Field className="w-auto max-w-full">
+      <FieldLabel>{label}</FieldLabel>
+      <NativeSelect
+        required
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {profiles.map((profile) => (
+          <NativeSelectOption key={profile.id} value={profile.id}>
+            {t(
+              cardModel !== undefined && profile.model !== cardModel
+                ? "agent.releases.profileOptionMismatch"
+                : "agent.releases.profileOption",
+              { profile: profile.id, model: profile.model },
+            )}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <FieldDescription>{hint}</FieldDescription>
+      <FieldDescription>{t("agent.releases.profileUnlisted")}</FieldDescription>
+    </Field>
   );
 }
