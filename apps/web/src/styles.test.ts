@@ -8,14 +8,14 @@ import { describe, expect, test } from "bun:test";
 const css = await Bun.file(`${import.meta.dir}/styles.css`).text();
 
 describe("styles.css", () => {
-  test("connects the packages/ui tokens to Tailwind through @theme inline", () => {
-    expect(css).toContain('@import "tailwindcss";');
-    expect(css).toContain('@import "@werft-ai/ui/styles.css";');
-    const theme = css.match(/@theme inline \{([^}]*)\}/)?.[1] ?? "";
-    const mappings = [...theme.matchAll(/--([\w-]+):\s*var\(--ap-([\w-]+)\)/g)];
-    expect(mappings.length).toBeGreaterThan(10);
-    for (const [, name] of mappings)
-      expect(name?.startsWith("ap-")).toBe(false);
+  test("takes the Tailwind theme from packages/ui instead of its own", () => {
+    const imports = [...css.matchAll(/@import "([^"]+)";/g)].map(([, p]) => p);
+    expect(imports).toEqual([
+      "tailwindcss",
+      "@werft-ai/ui/styles.css",
+      "@werft-ai/ui/theme.css",
+    ]);
+    expect(css).not.toContain("@theme");
   });
 
   test("Japanese wraps between characters, not only at spaces", () => {
