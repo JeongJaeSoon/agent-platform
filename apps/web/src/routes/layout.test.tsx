@@ -211,6 +211,17 @@ describe("app shell", () => {
     ).toBeDefined();
   });
 
+  test("following a link in the account menu puts focus on the page", async () => {
+    const { history } = renderAt("/", signedIn);
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    await user.click(within(region).getByRole("button", { name: /Owner/ }));
+    await user.click(screen.getByRole("menuitem", { name: "API key" }));
+    expect(history.location.pathname).toBe("/settings/api-keys");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement?.id).toBe("main");
+  });
+
   test("the account menu works from the keyboard", async () => {
     renderAt("/", signedIn);
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });

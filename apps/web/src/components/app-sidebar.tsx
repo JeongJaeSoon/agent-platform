@@ -11,6 +11,7 @@ import {
   type MessageKey,
   useI18n,
 } from "../i18n/i18n.tsx";
+import { MAIN_CONTENT_ID } from "./main.tsx";
 import { chooseTheme, storedTheme, THEMES, type Theme } from "./theme.ts";
 
 type NavPath =
@@ -353,6 +354,13 @@ function UserMenu({
     (items.find((item) => item.dataset.locale === locale) ?? items[0])?.focus();
   }, [languageOpen, locale]);
 
+  // The followed item goes away with the menu; focus lands on the page.
+  const followLink = () => {
+    setOpen(false);
+    onNavigate();
+    document.getElementById(MAIN_CONTENT_ID)?.focus();
+  };
+
   const closeLanguage = () => {
     setLanguageOpen(false);
     languageItemRef.current?.focus();
@@ -411,10 +419,7 @@ function UserMenu({
             data-menu="account"
             tabIndex={-1}
             className={MENU_ITEM}
-            onClick={() => {
-              setOpen(false);
-              onNavigate();
-            }}
+            onClick={followLink}
           >
             <Icon name="settings" className={MENU_ICON} />
             {t("shell.group.personal")}
@@ -520,10 +525,7 @@ function UserMenu({
             data-menu="account"
             tabIndex={-1}
             className={MENU_ITEM}
-            onClick={() => {
-              setOpen(false);
-              onNavigate();
-            }}
+            onClick={followLink}
           >
             <Icon name="key" className={MENU_ICON} />
             {t("nav.apiKeys")}
