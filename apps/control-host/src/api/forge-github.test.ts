@@ -198,9 +198,11 @@ describe("GitHub App forge", () => {
     try {
       const { forge } = appForge();
       await forge.getRepository(repo);
-      const agents = calls.mock.calls.map(([, init]) =>
-        new Headers(init?.headers).get("user-agent"),
-      );
+      // Another file's unrestored fetch spy can be the one returned here, so
+      // only requests to this fake GitHub count.
+      const agents = calls.mock.calls
+        .filter(([url]) => String(url).startsWith(github.origin))
+        .map(([, init]) => new Headers(init?.headers).get("user-agent"));
       expect(agents.length).toBeGreaterThan(0);
       for (const agent of agents) expect(agent).toStartWith("Werft ");
     } finally {
