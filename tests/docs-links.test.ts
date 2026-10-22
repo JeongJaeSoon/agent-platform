@@ -321,13 +321,8 @@ describe("Markdown relative links", () => {
     ).toEqual(["z.md"]);
   });
 
-  // Not yet rewritten to describe only current behavior.
-  const TICKET_EXEMPT = ["docs/operations.md"];
-
   test("none names a ticket", () => {
-    const files = trackedMarkdown().filter(
-      (file) => !TICKET_EXEMPT.includes(file),
-    );
+    const files = trackedMarkdown();
     const found = files.flatMap((file) =>
       readFileSync(join(root, file), "utf8")
         .split("\n")
