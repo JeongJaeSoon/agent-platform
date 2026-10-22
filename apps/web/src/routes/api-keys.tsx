@@ -327,7 +327,7 @@ function KeyScreenNav({ current }: { readonly current: ApiKeyKind }) {
           to={SCREEN[kind].list}
           aria-current={kind === current ? "page" : undefined}
           className={cn(
-            "-mb-px border-transparent border-b-2 px-3 py-2 text-muted-foreground text-sm no-underline",
+            "-mb-px border-transparent border-b-2 px-3 py-2 text-muted-foreground text-sm no-underline!",
             "hover:text-foreground",
             "aria-[current=page]:border-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground",
           )}
@@ -453,9 +453,9 @@ function KeyIdMeta({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-1">
+    <span className="inline-flex min-w-0 items-center gap-1">
       <span>{t("apiKeys.idLabel")}</span>
-      <code className="font-mono text-foreground [overflow-wrap:anywhere]">
+      <code className="min-w-0 font-mono text-foreground [overflow-wrap:anywhere]">
         {id}
       </code>
       <CopyButton
@@ -588,7 +588,7 @@ function KeyList({
           return (
             <li
               key={key.id}
-              className="flex min-h-12 items-center gap-3 border-b px-4 py-3 last:border-b-0"
+              className="flex min-h-12 flex-col items-start gap-2 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-3"
               data-revoked={key.revoked_at !== null}
             >
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -604,17 +604,15 @@ function KeyList({
                 <div
                   className={cn(
                     META,
-                    "flex flex-wrap items-center gap-x-2 leading-4",
+                    "flex flex-wrap items-center gap-x-3 gap-y-1 leading-4",
                   )}
                 >
                   <KeyIdMeta id={key.id} />
-                  <span aria-hidden="true">·</span>
                   <span>
                     {t("apiKeys.createdAt", {
                       at: formatTimestamp(key.created_at, locale),
                     })}
                   </span>
-                  <span aria-hidden="true">·</span>
                   <ExpiryMeta
                     expiresAt={key.expires_at}
                     revokedAt={key.revoked_at}
@@ -777,7 +775,7 @@ function NewKeyScreen({ kind }: { readonly kind: ApiKeyKind }) {
         <div className={cn(HEAD_RULE, "flex flex-col items-start gap-2")}>
           <Link
             to={screen.list}
-            className="inline-flex items-center gap-1 text-muted-foreground text-sm no-underline hover:text-foreground"
+            className="inline-flex items-center gap-1 text-muted-foreground text-sm no-underline! hover:text-foreground"
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
             {t(screen.title)}
@@ -867,7 +865,11 @@ function IssuedSecret({
         {t("apiKeys.keyId", { id: issued.key.id })}
       </p>
       <div>
-        <Link to={listTo} className={buttonVariants({ variant: "outline" })}>
+        <Link
+          to={listTo}
+          data-slot="button"
+          className={buttonVariants({ variant: "outline" })}
+        >
           {t("apiKeys.toList")}
         </Link>
       </div>
@@ -934,7 +936,11 @@ function FormFoot({
       >
         {t("apiKeys.generate")}
       </ReasonButton>
-      <Link to={listTo} className={buttonVariants({ variant: "outline" })}>
+      <Link
+        to={listTo}
+        data-slot="button"
+        className={buttonVariants({ variant: "outline" })}
+      >
         {t("common.cancel")}
       </Link>
     </div>
