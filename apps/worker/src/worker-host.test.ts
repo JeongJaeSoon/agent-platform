@@ -1471,7 +1471,7 @@ describe("WorkerHost before the engine starts", () => {
           committedClaudeMd: () => null,
           instructionsCommit: () => null,
           async prepare({ descriptor }) {
-            order.push(`prepare ${descriptor.repository.branch}`);
+            order.push(`prepare ${descriptor.repository?.branch}`);
             expect(runtime.inputs).toHaveLength(0);
             return "clone";
           },
@@ -1562,6 +1562,39 @@ describe("WorkerHost before the engine starts", () => {
     expect(gateway.releases).toHaveLength(1);
     // A failure: the session counts it against its startups.
     expect(gateway.releases[0]).not.toHaveProperty("stop_kind");
+  });
+
+  test("refuses a claim without a repository before preparing anything, and logs why", async () => {
+    const gateway = new FakeWorkerGateway({ workspace: { repository: null } });
+    const prepared: string[] = [];
+    const logged: string[] = [];
+    const { host, launched } = harness([{ type: "await-input" }], {
+      gateway,
+      logger: {
+        info: (event, fields) => logged.push(event, JSON.stringify(fields)),
+        warn: (event, fields) => logged.push(event, JSON.stringify(fields)),
+        error: (event, fields) => logged.push(event, JSON.stringify(fields)),
+      },
+      workspace: {
+        committedClaudeMd: () => null,
+        instructionsCommit: () => null,
+        async prepare() {
+          prepared.push("prepare");
+          return "clone";
+        },
+      },
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary).toMatchObject({ outcome: "failed", turns: [] });
+    expect(summary.reason).toContain("no repository");
+    expect(prepared).toEqual([]);
+    expect(launched).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+    const failed = logged.indexOf("worker.failed");
+    expect(failed).toBeGreaterThan(-1);
+    expect(logged[failed + 1]).toContain("no repository");
   });
 
   test("a drain during preparation aborts it and releases, with no engine", async () => {

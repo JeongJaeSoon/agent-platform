@@ -188,7 +188,7 @@ export function createPostgresSessionUnitOfWork(
         }
         if (input.credentialsUnbound) return { outcome: "credential_unbound" };
 
-        if (!input.repository) {
+        if (input.repository === null || input.repository === "none") {
           return { outcome: "unsupported" };
         }
         if (!(await actorStillMember(tx, input.principal))) {

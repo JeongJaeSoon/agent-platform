@@ -1,0 +1,4 @@
+ALTER TABLE "sessions" ALTER COLUMN "repo_url" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "sessions" ALTER COLUMN "branch" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "sessions" ADD COLUMN "repository_mode" text DEFAULT 'repository' NOT NULL;--> statement-breakpoint
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_repository_mode_check" CHECK (("sessions"."repository_mode" = 'repository' AND "sessions"."repo_url" IS NOT NULL AND "sessions"."branch" IS NOT NULL) OR ("sessions"."repository_mode" = 'none' AND "sessions"."repository_id" IS NULL AND "sessions"."repo_url" IS NULL AND "sessions"."branch" IS NULL));

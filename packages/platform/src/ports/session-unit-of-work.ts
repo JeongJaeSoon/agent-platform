@@ -34,7 +34,9 @@ export type AcceptSessionInput = {
   profileId: string;
   // null when the catalog no longer lists the profile/repository: a replay
   // of an earlier acceptance must still succeed, a new request must not.
-  repository: { id: string; url: string; branch: string } | null;
+  // "none" when the profile is allowed to run without one; accepting such a
+  // session is not supported yet.
+  repository: { id: string; url: string; branch: string } | "none" | null;
   // The profile's fingerprint under the catalog that allowed the pair, which
   // every claim of the session is then held to. Left out, the row
   // is pinned by its first claim, as one from before the column is.
@@ -95,9 +97,9 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   provider_tokens: number;
   // What the claim matches against the catalog, so the service can say the
   // catalog no longer allows it. Never exposed: the URL may embed
-  // a credential.
-  repo_url: string;
-  branch: string;
+  // a credential. Null for a session accepted without a repository.
+  repo_url: string | null;
+  branch: string | null;
   profile_fingerprint: string | null;
 };
 

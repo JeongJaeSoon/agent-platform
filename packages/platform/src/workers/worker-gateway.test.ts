@@ -703,7 +703,7 @@ describe("WorkerGateway", () => {
       hashWorkerToken(claimed.runtime_config.provider.auth.token),
     );
     expect(egress.repositoryHash).toEqual(
-      hashWorkerToken(claimed.workspace.repository.access?.token ?? ""),
+      hashWorkerToken(claimed.workspace.repository?.access?.token ?? ""),
     );
     expect(egress.objectStoreHash).toEqual(
       hashWorkerToken(claimed.object_store.access.token),
