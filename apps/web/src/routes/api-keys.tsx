@@ -718,13 +718,15 @@ function ExpiryField({
   return (
     <Field>
       <FieldLabel>{t("apiKeys.expires")}</FieldLabel>
-      <Input
-        type="date"
-        className="w-auto self-start"
-        min={today()}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <div>
+        <Input
+          type="date"
+          className="w-auto"
+          min={today()}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </div>
       <FieldDescription>{t("apiKeys.expiresHint")}</FieldDescription>
     </Field>
   );
