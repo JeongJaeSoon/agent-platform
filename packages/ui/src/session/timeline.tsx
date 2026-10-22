@@ -2,7 +2,6 @@ import type { TurnEventPart, TurnEventPresentation } from "@werft-ai/contracts";
 import type { JSX } from "react";
 
 import { cn } from "../lib/cn.ts";
-import { Badge } from "../primitives/badge.tsx";
 import {
   formatTimestamp,
   type TimestampLocale,
@@ -97,13 +96,13 @@ export function Timeline({
   return (
     <div data-slot="timeline" className={cn("flex flex-col gap-2", className)}>
       {state === "open" ? null : (
-        <output className="rounded-md bg-muted px-3 py-2 text-muted-foreground text-sm">
+        <output className="rounded-md bg-muted px-3 py-2 text-muted-foreground text-body">
           {state === "connecting" ? messages.connecting : messages.closed}
         </output>
       )}
       {rows.length === 0 ? (
         state === "open" ? (
-          <p className="text-muted-foreground text-sm">{messages.empty}</p>
+          <p className="text-muted-foreground text-body">{messages.empty}</p>
         ) : null
       ) : (
         <ol aria-label={messages.label} className="flex flex-col">
@@ -137,38 +136,63 @@ function TimelineItem({
   const error = presentation.error === true;
   const summary = turnSummaryText(presentation.summary, formatMessage);
   const summaryClass = cn(
-    "min-w-0 text-sm [overflow-wrap:anywhere]",
+    "min-w-0 text-body [overflow-wrap:anywhere]",
     error && "text-destructive",
   );
   return (
     <li
       data-error={error || undefined}
-      className="flex flex-col gap-1 border-b py-2 last:border-b-0 sm:grid sm:grid-cols-[8rem_minmax(0,1fr)_auto] sm:items-baseline sm:gap-3"
+      className="grid grid-cols-[24px_minmax(0,1fr)] gap-3 border-b py-3 last:border-b-0"
     >
-      <Badge
-        variant={error ? "destructive" : "secondary"}
-        className="justify-self-start"
+      <span
+        aria-hidden="true"
+        className={cn(
+          "flex size-6 items-center justify-center rounded-full bg-muted text-body",
+          error &&
+            "bg-[var(--ap-tone-danger-bg)] text-[var(--ap-tone-danger-fg)]",
+        )}
       >
-        {formatMessage(presentation.label)}
-      </Badge>
-      {presentation.detail ? (
-        <details className="min-w-0">
-          <summary className={cn(summaryClass, "cursor-pointer")}>
-            {summary}
-          </summary>
-          <p className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs [overflow-wrap:anywhere]">
-            {presentation.detail}
-          </p>
-        </details>
-      ) : (
-        <span className={summaryClass}>{summary}</span>
-      )}
-      <span className="shrink-0 text-muted-foreground text-xs">
-        <time dateTime={row.occurredAt}>
-          {formatTimestamp(row.occurredAt, locale)}
-        </time>
-        {row.turnId ? ` · ${messages.turn(row.turnId)}` : null}
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="9" />
+          {error ? (
+            <path d="M12 7v6m0 4h.01" />
+          ) : (
+            <circle cx="12" cy="12" r="2" />
+          )}
+        </svg>
       </span>
+      <div className="min-w-0">
+        <div className="mb-1 flex flex-wrap items-baseline gap-2 text-control font-medium">
+          <span>{formatMessage(presentation.label)}</span>
+          <span className="text-muted-foreground text-caption font-normal">
+            <time dateTime={row.occurredAt}>
+              {formatTimestamp(row.occurredAt, locale)}
+            </time>
+            {row.turnId ? ` · ${messages.turn(row.turnId)}` : null}
+          </span>
+        </div>
+        {presentation.detail ? (
+          <details className="min-w-0">
+            <summary className={cn(summaryClass, "cursor-pointer")}>
+              {summary}
+            </summary>
+            <p className="mt-2 whitespace-pre-wrap rounded-md bg-muted px-2.5 py-2 font-mono text-caption [overflow-wrap:anywhere]">
+              {presentation.detail}
+            </p>
+          </details>
+        ) : (
+          <span className={summaryClass}>{summary}</span>
+        )}
+      </div>
     </li>
   );
 }

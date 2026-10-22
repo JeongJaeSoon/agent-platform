@@ -133,6 +133,15 @@
 
   /* Layout: the 768px reading column of 02 UX 설계 §6. */
   --ap-layout-reading-width: 48rem;
+  --ap-layout-sidebar-width: 14.75rem;
+  --ap-layout-content-width: 78rem;
+  --ap-layout-detail-panel-width: 21.25rem;
+  --ap-control-height: 2rem;
+  --ap-control-height-sm: 1.75rem;
+  --ap-text-title: 1.25rem;
+  --ap-leading-title: 1.75rem;
+  --ap-text-number: 1.5rem;
+  --ap-leading-number: 2rem;
 }
 
 /*

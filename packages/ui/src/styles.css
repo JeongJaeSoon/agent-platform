@@ -74,13 +74,14 @@
   align-items: center;
   gap: var(--ap-space-1);
   max-width: 100%;
-  padding: var(--ap-space-1) var(--ap-space-2);
+  min-height: 1.25rem;
+  padding: 0 var(--ap-space-2);
   border: 1px solid var(--ap-tone-border);
   border-radius: var(--ap-radius-pill);
   background: var(--ap-tone-bg);
   color: var(--ap-tone-fg);
   font-family: var(--ap-font-sans);
-  font-size: var(--ap-text-label);
+  font-size: var(--ap-text-xs);
   font-weight: var(--ap-weight-medium);
   line-height: var(--ap-leading-tight);
   /* Korean micro labels must never be uppercased (argo 러너명 왜곡 교훈, §6). */

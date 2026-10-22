@@ -17,6 +17,7 @@ describe("Button", () => {
     const button = getByRole("button", { name: "삭제" });
     expect(button.className).toContain("bg-destructive");
     expect(button.className).toContain("text-destructive-foreground");
+    expect(button.className).toContain("text-control");
   });
 
   test("호출자 className이 같은 축의 variant 유틸리티를 이긴다", () => {

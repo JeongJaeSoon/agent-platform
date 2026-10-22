@@ -48,8 +48,8 @@ function OutcomeLine({
       tabIndex={-1}
       className={
         outcome?.kind === "error"
-          ? "m-0 text-destructive text-sm"
-          : "m-0 text-muted-foreground text-sm"
+          ? "m-0 text-destructive text-body"
+          : "m-0 text-muted-foreground text-body"
       }
     >
       {outcome?.text}
@@ -65,7 +65,7 @@ export function focusLost(node: Element | null): boolean {
 
 function Reason({ id, text }: { readonly id?: string; readonly text: string }) {
   return (
-    <p id={id} className="m-0 text-muted-foreground text-sm">
+    <p id={id} className="m-0 text-muted-foreground text-body">
       {text}
     </p>
   );
@@ -101,10 +101,12 @@ export function PendingAnswers({
   unavailable,
   refusal,
   onAnswered,
+  showEmpty = true,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly items: readonly PendingRequest[];
   readonly onAnswered?: () => void;
+  readonly showEmpty?: boolean;
 }) {
   const { t, locale } = useBlockText();
   const answer = useAnswer(sessionId);
@@ -178,9 +180,11 @@ export function PendingAnswers({
       <OutcomeLine ref={noticeRef} outcome={shownHere ? outcome : null} />
       {reason === undefined ? null : <Reason text={reason} />}
       {items.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-sm">
-          {t("session.pending.empty")}
-        </p>
+        showEmpty ? (
+          <p className="m-0 text-muted-foreground text-body">
+            {t("session.pending.empty")}
+          </p>
+        ) : null
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {items.map((request) => (
@@ -381,7 +385,7 @@ export function SessionControls({
   return (
     <>
       {actions.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-sm">
+        <p className="m-0 text-muted-foreground text-body">
           {t("session.control.none")}
         </p>
       ) : (
@@ -396,6 +400,7 @@ export function SessionControls({
               // Not `disabled` while a command runs: Chrome takes focus off a
               // disabled button, and the keyboard would lose its place.
               aria-disabled={control.isPending || undefined}
+              size="sm"
               className="aria-disabled:opacity-50"
               aria-describedby={reason === undefined ? undefined : reasonId}
               onClick={() => {

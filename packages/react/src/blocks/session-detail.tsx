@@ -11,11 +11,22 @@ import {
   formatTimestamp,
   SessionStatusLabel,
   StatusLabel,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Timeline,
   type TimelineEntry,
   turnSummaryText,
 } from "@werft-ai/ui";
-import { type ReactNode, useId, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   type EventStreamState,
   type SessionEventFrame,
@@ -34,29 +45,34 @@ import { useBlockText } from "./text.ts";
 
 export interface SessionDetailProps extends SessionActionProps {
   readonly id: string;
+  readonly back?: ReactNode;
   /** Shown until the session arrives. */
   readonly loading: ReactNode;
   /** The host's words for a read that failed, with the way to ask again. */
   readonly renderError: (error: unknown, retry: () => void) => ReactNode;
-  /** Drawn under the overview: what the host lets the reader change. */
+  /** What the host lets the reader change in the operations panel. */
   readonly controls?: (session: SessionDetailData) => ReactNode;
 }
 
 export function SessionDetail({
   id,
+  back,
   loading,
   renderError,
   controls,
   unavailable,
   refusal,
 }: SessionDetailProps) {
-  const { t } = useBlockText();
+  const { t, locale } = useBlockText();
   const session = useSession(id);
+  const [tab, setTab] = useState("timeline");
+  const [debug, setDebug] = useState(false);
   const lostAccess =
     isApiError(session.error, "NOT_FOUND") ||
     isApiError(session.error, "FORBIDDEN");
   const detail = lostAccess ? undefined : session.data;
   const readable = detail !== undefined;
+  const { wrapperRef, narrow } = useDetailWidth(readable);
   const usage = useSessionUsage(id, readable);
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
@@ -72,42 +88,173 @@ export function SessionDetail({
     }
     return renderError(session.error, () => void session.refetch());
   }
-  return (
-    <div className="flex flex-col gap-6">
-      <Overview session={detail} />
+  const hasPending =
+    !pending.isPending &&
+    !pending.error &&
+    (pending.data?.items.length ?? 0) > 0;
+  const composer = (
+    <SessionComposer
+      session={detail}
+      unavailable={unavailable}
+      refusal={refusal}
+    />
+  );
+  const body = (
+    <Tabs
+      value={tab}
+      onValueChange={setTab}
+      className="min-w-0 gap-4"
+      key="body"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b">
+        <TabsList
+          variant="line"
+          aria-label={t("session.tabs.label")}
+          className="h-9 p-0"
+        >
+          <TabsTrigger
+            value="timeline"
+            className="h-9 px-3 text-control after:bottom-0"
+          >
+            {t("session.tabs.timeline")}
+          </TabsTrigger>
+          <TabsTrigger
+            value="info"
+            className="h-9 px-3 text-control after:bottom-0"
+          >
+            {t("session.tabs.info")}
+          </TabsTrigger>
+        </TabsList>
+        {tab === "timeline" ? (
+          <Field orientation="horizontal" className="w-auto gap-2 text-caption">
+            <Checkbox
+              checked={debug}
+              onCheckedChange={(checked) => setDebug(checked === true)}
+            />
+            <FieldLabel className="text-caption">
+              {t("session.events.debug")}
+            </FieldLabel>
+          </Field>
+        ) : null}
+      </div>
+      <TabsContent value="timeline" className="flex flex-col gap-4">
+        <div className="min-w-0 rounded-lg border bg-card">
+          <Events events={events.events} state={events.state} debug={debug} />
+        </div>
+        {hasPending ? composer : null}
+      </TabsContent>
+      <TabsContent value="info">
+        <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+          <Overview session={detail} />
+          {usage.data ? <Usage usage={usage.data} /> : null}
+        </div>
+      </TabsContent>
+    </Tabs>
+  );
+  const panel = (
+    <aside
+      key="panel"
+      aria-label={t("session.panel")}
+      className="flex min-w-0 flex-col gap-4"
+    >
+      {pending.data ? (
+        <PendingAnswers
+          sessionId={id}
+          items={pending.data.items}
+          showEmpty={false}
+          unavailable={unavailable}
+          refusal={refusal}
+        />
+      ) : pending.error ? (
+        renderError(pending.error, () => void pending.refetch())
+      ) : null}
+      {!hasPending ? (
+        <Section title={t("session.pending.emptyTitle")}>
+          <p className="m-0 text-caption text-muted-foreground">
+            {t("session.pending.empty")}
+          </p>
+          {composer}
+        </Section>
+      ) : null}
+      {usage.data ? (
+        <Usage usage={usage.data} compact />
+      ) : usage.error ? (
+        renderError(usage.error, () => void usage.refetch())
+      ) : null}
       <Section title={t("session.control")}>
         <SessionControls
           session={detail}
           unavailable={unavailable}
           refusal={refusal}
         />
+        {controls?.(detail)}
       </Section>
-      {controls?.(detail)}
-      {pending.data ? (
-        <Section title={t("session.pending")}>
-          <PendingAnswers
-            sessionId={id}
-            items={pending.data.items}
-            unavailable={unavailable}
-            refusal={refusal}
-          />
-        </Section>
-      ) : pending.error ? (
-        renderError(pending.error, () => void pending.refetch())
-      ) : null}
-      {usage.data ? (
-        <Usage usage={usage.data} />
-      ) : usage.error ? (
-        renderError(usage.error, () => void usage.refetch())
-      ) : null}
-      <Events events={events.events} state={events.state} />
-      <SessionComposer
-        session={detail}
-        unavailable={unavailable}
-        refusal={refusal}
-      />
+    </aside>
+  );
+  return (
+    <div className="flex min-w-0 flex-col gap-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="m-0 font-mono font-semibold text-title [overflow-wrap:anywhere]">
+              {id}
+            </h1>
+            <SessionStatusLabel
+              status={detail.status}
+              label={t(`sessions.status.${detail.status}`)}
+              axisLabel={t("sessions.column.status")}
+            />
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 text-muted-foreground text-control">
+            <span className="[overflow-wrap:anywhere]">
+              {detail.runtime
+                ? `${detail.runtime.profile_id} · ${detail.runtime.kind} ${detail.runtime.version}`
+                : t("sessions.none")}
+            </span>
+            <span>
+              {t("session.currentTurn")}:{" "}
+              {detail.current_turn_id ?? t("sessions.none")}
+            </span>
+            <span>
+              {t("session.updated")}:{" "}
+              {formatTimestamp(detail.updated_at, locale)}
+            </span>
+          </div>
+        </div>
+        {back}
+      </header>
+      <div
+        ref={wrapperRef}
+        data-slot="session-detail-layout"
+        className={
+          narrow
+            ? "grid min-w-0 grid-cols-1 items-start gap-6"
+            : "grid min-w-0 grid-cols-[minmax(0,1fr)_var(--ap-layout-detail-panel-width)] items-start gap-6"
+        }
+      >
+        {narrow ? [panel, body] : [body, panel]}
+      </div>
     </div>
   );
+}
+
+function useDetailWidth(readable: boolean) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (
+      !readable ||
+      typeof ResizeObserver === "undefined" ||
+      !wrapperRef.current
+    )
+      return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setNarrow(entry.contentRect.width < 900);
+    });
+    observer.observe(wrapperRef.current);
+    return () => observer.disconnect();
+  }, [readable]);
+  return { wrapperRef, narrow };
 }
 
 function Section({
@@ -119,8 +266,11 @@ function Section({
 }) {
   const titleId = useId();
   return (
-    <section className="flex flex-col gap-3" aria-labelledby={titleId}>
-      <h2 id={titleId} className="m-0 font-semibold text-lg">
+    <section
+      className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4"
+      aria-labelledby={titleId}
+    >
+      <h2 id={titleId} className="m-0 font-semibold text-body leading-5">
         {title}
       </h2>
       {children}
@@ -130,9 +280,21 @@ function Section({
 
 type Fact = readonly [label: string, value: ReactNode];
 
-function Facts({ rows }: { readonly rows: readonly (Fact | null)[] }) {
+function Facts({
+  rows,
+  compact = false,
+}: {
+  readonly rows: readonly (Fact | null)[];
+  readonly compact?: boolean;
+}) {
   return (
-    <dl className="m-0 grid grid-cols-[minmax(7rem,max-content)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+    <dl
+      className={
+        compact
+          ? "m-0 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-4 gap-y-1 text-control [&_dt]:min-h-6 [&_dd]:text-right"
+          : "m-0 grid grid-cols-[140px_minmax(0,1fr)] gap-x-4 gap-y-3 text-control"
+      }
+    >
       {rows.map((row) =>
         row ? (
           <div key={row[0]} className="contents">
@@ -149,61 +311,66 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
   const { t, locale } = useBlockText();
   const { attention, runtime } = session;
   return (
-    <Section title={t("session.overview")}>
-      <Facts
-        rows={[
-          [
-            t("sessions.column.status"),
-            <SessionStatusLabel
-              key="status"
-              status={session.status}
-              label={t(`sessions.status.${session.status}`)}
-              axisLabel={t("sessions.column.status")}
-            />,
-          ],
-          [
-            t("sessions.column.admission"),
-            <StatusLabel
-              key="admission"
-              axis="admission"
-              state={session.admission_state}
-              label={t(`sessions.admission.${session.admission_state}`)}
-              axisLabel={t("sessions.column.admission")}
-            />,
-          ],
-          [
-            t("sessions.column.runtime"),
-            runtime
-              ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
-              : t("sessions.none"),
-          ],
-          [
-            t("session.currentTurn"),
-            session.current_turn_id ?? t("sessions.none"),
-          ],
-          [t("session.queuedTurns"), session.queued_turn_count],
-          [t("session.updated"), formatTimestamp(session.updated_at, locale)],
-          attention
-            ? [
-                t("session.attention"),
-                <span key="attention">
-                  <code>{attention.code}</code>
-                  {"reason" in attention ? ` ${attention.reason}` : null}
-                </span>,
-              ]
-            : null,
-        ]}
-      />
-    </Section>
+    <Facts
+      rows={[
+        [
+          t("sessions.column.status"),
+          <SessionStatusLabel
+            key="status"
+            status={session.status}
+            label={t(`sessions.status.${session.status}`)}
+            axisLabel={t("sessions.column.status")}
+          />,
+        ],
+        [
+          t("sessions.column.admission"),
+          <StatusLabel
+            key="admission"
+            axis="admission"
+            state={session.admission_state}
+            label={t(`sessions.admission.${session.admission_state}`)}
+            axisLabel={t("sessions.column.admission")}
+          />,
+        ],
+        [
+          t("sessions.column.runtime"),
+          runtime
+            ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
+            : t("sessions.none"),
+        ],
+        [
+          t("session.currentTurn"),
+          session.current_turn_id ?? t("sessions.none"),
+        ],
+        [t("session.queuedTurns"), session.queued_turn_count],
+        [t("session.updated"), formatTimestamp(session.updated_at, locale)],
+        attention
+          ? [
+              t("session.attention"),
+              <span key="attention">
+                <code>{attention.code}</code>
+                {"reason" in attention ? ` ${attention.reason}` : null}
+              </span>,
+            ]
+          : null,
+      ]}
+    />
   );
 }
 
-function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
+function Usage({
+  usage,
+  compact = false,
+}: {
+  readonly usage: SessionUsageResponse;
+  readonly compact?: boolean;
+}) {
   const { t } = useBlockText();
   const { cost } = usage;
-  return (
-    <Section title={t("session.usage")}>
+  const content = (
+    <>
       <Facts
+        compact={compact}
         rows={[
           [
             t("session.usage.amount"),
@@ -223,37 +390,47 @@ function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
               )}
             </span>,
           ],
-          [
-            t("session.usage.costLimit"),
-            usage.cost_limit_usd === null
-              ? t("session.usage.noLimit")
-              : `$${usage.cost_limit_usd}`,
-          ],
+          compact
+            ? null
+            : [
+                t("session.usage.costLimit"),
+                usage.cost_limit_usd === null
+                  ? t("session.usage.noLimit")
+                  : `$${usage.cost_limit_usd}`,
+              ],
           [t("session.usage.tokens"), usage.token_count],
-          [
-            t("session.usage.tokenLimit"),
-            usage.token_limit ?? t("session.usage.noLimit"),
-          ],
+          compact
+            ? null
+            : [
+                t("session.usage.tokenLimit"),
+                usage.token_limit ?? t("session.usage.noLimit"),
+              ],
         ]}
       />
       {usage.budget_exceeded ? (
-        <output className="rounded-md border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-sm">
+        <output className="rounded-md border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
           {t("session.usage.budgetExceeded")}
         </output>
       ) : null}
-    </Section>
+    </>
+  );
+  return compact ? (
+    <Section title={t("session.usage")}>{content}</Section>
+  ) : (
+    content
   );
 }
 
 function Events({
   events,
   state,
+  debug,
 }: {
   readonly events: readonly SessionEventFrame[];
   readonly state: EventStreamState;
+  readonly debug: boolean;
 }) {
   const { t, formatMessage, locale } = useBlockText();
-  const [debug, setDebug] = useState(false);
   const entries = useMemo(
     () =>
       events.map(
@@ -272,19 +449,12 @@ function Events({
     .filter((_, index) => events[index]?.payload.event === "status")
     .at(-1);
   return (
-    <Section title={t("session.events")}>
+    <div className="px-4">
       <output className="sr-only">
         {latestStatus
           ? turnSummaryText(latestStatus.presentation.summary, formatMessage)
           : null}
       </output>
-      <Field orientation="horizontal">
-        <Checkbox
-          checked={debug}
-          onCheckedChange={(checked) => setDebug(checked === true)}
-        />
-        <FieldLabel>{t("session.events.debug")}</FieldLabel>
-      </Field>
       <Timeline
         entries={entries}
         formatMessage={formatMessage}
@@ -299,6 +469,6 @@ function Events({
         showDebug={debug}
         locale={locale}
       />
-    </Section>
+    </div>
   );
 }

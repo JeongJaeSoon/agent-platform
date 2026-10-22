@@ -1,3 +1,5 @@
+/* biome-ignore-all lint/a11y/useSemanticElements: container-responsive columns use a div-grid table. */
+/* biome-ignore-all lint/a11y/useFocusableInteractive: static table rows delegate keyboard navigation to their cell links. */
 import { Button, SessionRow, type SessionRowMessages } from "@werft-ai/ui";
 import type { ReactNode } from "react";
 import { useAgentPlatform } from "../provider.tsx";
@@ -39,23 +41,42 @@ export function SessionList({ loading, renderError }: SessionListProps) {
   };
   return (
     <div className="flex flex-col items-start gap-3">
-      <ul
+      <div
+        role="table"
         aria-label={t("sessions.tableLabel")}
-        className="m-0 flex w-full list-none flex-col gap-2 p-0"
+        className="@container m-0 w-full overflow-hidden rounded-lg border bg-card p-0"
       >
+        <div
+          role="row"
+          className="grid min-h-9 grid-cols-[minmax(0,1fr)_120px] items-center gap-4 border-b bg-surface-sunken px-4 text-muted-foreground text-caption font-medium @[820px]:grid-cols-[minmax(0,2fr)_120px_120px_minmax(0,2fr)_minmax(72px,1fr)]"
+        >
+          <span role="columnheader">{t("sessions.column.id")}</span>
+          <span role="columnheader">{t("sessions.column.status")}</span>
+          <span role="columnheader" className="hidden @[820px]:block">
+            {t("sessions.column.admission")}
+          </span>
+          <span role="columnheader" className="hidden @[820px]:block">
+            {t("sessions.column.runtime")}
+          </span>
+          <span
+            role="columnheader"
+            className="hidden text-right @[820px]:block"
+          >
+            {t("sessions.column.lastEvent")} / {t("sessions.column.created")}
+          </span>
+        </div>
         {items.map((session) => (
-          <li key={session.id}>
-            <SessionRow
-              session={session}
-              messages={messages}
-              locale={locale}
-              renderLink={(link) =>
-                renderLink({ to: "session", id: session.id, ...link })
-              }
-            />
-          </li>
+          <SessionRow
+            key={session.id}
+            session={session}
+            messages={messages}
+            locale={locale}
+            renderLink={(link) =>
+              renderLink({ to: "session", id: session.id, ...link })
+            }
+          />
         ))}
-      </ul>
+      </div>
       {sessions.error
         ? renderError(
             sessions.error,
@@ -69,6 +90,7 @@ export function SessionList({ loading, renderError }: SessionListProps) {
         <Button
           type="button"
           variant="outline"
+          size="sm"
           disabled={sessions.isFetchingNextPage}
           onClick={() => sessions.fetchNextPage()}
         >
