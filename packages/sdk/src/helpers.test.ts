@@ -270,4 +270,26 @@ describe("waitForReceipt and waitForPushRequest", () => {
     expect(push.state).toBe("pushed");
     expect(api.seen[0]?.path).toBe("/v1/sessions/s1/push-requests/pr1");
   });
+
+  test("the next poll waits out a Retry-After the request itself would not wait for", async () => {
+    const at: number[] = [];
+    const api = fakeApi(() => {
+      at.push(Date.now());
+      return at.length === 1
+        ? apiError(
+            429,
+            "RATE_LIMITED",
+            { retryable: true },
+            { "retry-after": "1" },
+          )
+        : json(200, { id: "r1", operation: "close", status: "succeeded" });
+    });
+    const receipt = await waitForReceipt(
+      werft(api.fetch, { maxRetryDelayMs: 10 }),
+      "r1",
+      { pollIntervalMs: 5 },
+    );
+    expect(receipt.status).toBe("succeeded");
+    expect((at[1] ?? 0) - (at[0] ?? 0)).toBeGreaterThanOrEqual(990);
+  });
 });

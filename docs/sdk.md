@@ -48,6 +48,7 @@ API key scope가 `sessions:*`인 operation을 모두 감싼다. 요청·응답 �
   - 연결 실패·timeout과 본문 없는 502·504는 GET과 Idempotency-Key가 있는 명령만 다시 보낸다. key가 없는 `openPullRequest`·`commentPullRequest`는 서버가 이미 실행했을 수 있어 다시 보내지 않는다.
 - 재시도하지 않는 경우: 409 전부, 500, 그 밖의 4xx.
 - 기다리는 시간: `Retry-After`가 있으면 그 값을 쓴다. 60초(`maxRetryDelayMs`)를 넘으면 기다리지 않고 바로 실패하고, 오류의 `retryAfterMs`에 그 값을 싣는다. 없으면 `min(0.5초·2^n, 8초, maxRetryDelayMs)` 안에서 무작위로 기다린다.
+- `waitForTurn`·`waitForReceipt`·`waitForPushRequest`는 재시도할 수 있는 읽기 실패를 다음 확인으로 넘긴다. 그 오류에 `Retry-After`가 있으면 다음 확인은 그 시간이 지난 뒤이고, 이벤트가 와도 앞당기지 않는다.
 - key가 필요한 명령은 호출마다 key를 하나 만들고, 그 호출의 모든 재시도에 같은 key를 보낸다. 같은 key로 다시 보내면 서버가 명령을 한 번만 실행한다.
 - `sessions.requests.answer`의 기본 key는 `answer:<request_id>`다. 요청 하나에는 답이 하나뿐이다.
 - 프로세스를 다시 띄운 뒤 이어서 재시도하려면 오류의 `idempotencyKey`를 저장해 두었다가 `{ idempotencyKey }`로 넘긴다.

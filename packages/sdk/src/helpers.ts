@@ -1,5 +1,10 @@
 import type { Werft } from "./client.ts";
-import { AbortedError, isApiError, TurnBlockedError } from "./core/errors.ts";
+import {
+  AbortedError,
+  APIError,
+  isApiError,
+  TurnBlockedError,
+} from "./core/errors.ts";
 import { isTransient } from "./core/request.ts";
 import type {
   AnswerAccepted,
@@ -180,17 +185,25 @@ export interface WaitForTurnOptions {
 /** A wait that the timer, an event or the signal ends, whichever comes first. */
 function waker(signal: AbortSignal | undefined) {
   let pending = false;
+  let holdMs = 0;
   let wakeNow: (() => void) | undefined;
   return {
     wake() {
       if (wakeNow) wakeNow();
       else pending = true;
     },
+    /** The server's Retry-After: the next nap lasts at least this, and no event cuts it short. */
+    holdOff(ms: number) {
+      holdMs = Math.max(holdMs, ms);
+    },
     nap(ms: number): Promise<void> {
-      if (pending || signal?.aborted) {
+      const hold = holdMs;
+      holdMs = 0;
+      if (signal?.aborted || (pending && hold === 0)) {
         pending = false;
         return Promise.resolve();
       }
+      pending = false;
       return new Promise((resolve) => {
         const done = () => {
           clearTimeout(timer);
@@ -198,21 +211,26 @@ function waker(signal: AbortSignal | undefined) {
           wakeNow = undefined;
           resolve();
         };
-        const timer = setTimeout(done, ms);
+        const timer = setTimeout(done, Math.max(ms, hold));
         signal?.addEventListener("abort", done, { once: true });
-        wakeNow = done;
+        if (hold === 0) wakeNow = done;
       });
     },
   };
 }
 
 /** Retryable failures wait for the next poll; any other ends the wait. */
-async function orNull<T>(read: Promise<T>): Promise<T | null> {
+async function orNull<T>(
+  read: Promise<T>,
+  timer: ReturnType<typeof waker>,
+): Promise<T | null> {
   try {
     return await read;
   } catch (error) {
-    if (isTransient(error)) return null;
-    throw error;
+    if (!isTransient(error)) throw error;
+    if (error instanceof APIError && error.retryAfterMs !== undefined)
+      timer.holdOff(error.retryAfterMs);
+    return null;
   }
 }
 
@@ -260,12 +278,14 @@ export async function waitForTurn(
       aborted(signal);
       const turn = await orNull(
         client.sessions.turns.get(sessionId, turnId, optionsOf(signal)),
+        timer,
       );
       if (turn && ended(turn)) return turn;
 
       if (options.onRequest) {
         const requests = await orNull(
           client.sessions.requests.list(sessionId, optionsOf(signal)),
+          timer,
         );
         for (const request of [...(requests ?? [])].sort(oldestFirst)) {
           if (handed.has(request.request_id)) continue;
@@ -283,12 +303,14 @@ export async function waitForTurn(
 
       const session = await orNull(
         client.sessions.get(sessionId, optionsOf(signal)),
+        timer,
       );
       if (turn && session && BLOCKED_ADMISSION.has(session.admission_state)) {
         // The turn may have ended between the two reads, and the session
         // with it: a close or a stop ends the session right after its turn.
         const again = await orNull(
           client.sessions.turns.get(sessionId, turnId, optionsOf(signal)),
+          timer,
         );
         if (again && ended(again)) return again;
         if (again) throw new TurnBlockedError(session.admission_state);
@@ -312,6 +334,7 @@ export async function waitForReceipt(
     aborted(signal);
     const receipt = await orNull(
       client.receipts.get(receiptId, optionsOf(signal)),
+      timer,
     );
     if (receipt && receipt.status !== "accepted") return receipt;
     await timer.nap(options.pollIntervalMs ?? 1_000);
@@ -335,6 +358,7 @@ export async function waitForPushRequest(
         pushRequestId,
         optionsOf(signal),
       ),
+      timer,
     );
     if (push && !OPEN_PUSH.has(push.state)) return push;
     await timer.nap(options.pollIntervalMs ?? 2_000);
