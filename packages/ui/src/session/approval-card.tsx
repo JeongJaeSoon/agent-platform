@@ -1,4 +1,5 @@
 import type { PendingRequest } from "@werft-ai/contracts";
+import { Hourglass } from "lucide-react";
 import {
   type FormEvent,
   type JSX,
@@ -112,16 +113,11 @@ export function ApprovalCard({
       {...within}
     >
       <div className="flex items-center gap-2">
-        <svg
+        <Hourglass
           className="size-4 shrink-0"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth={1.5}
           aria-hidden="true"
-        >
-          <path d="M6 3h12M6 21h12M8 3v4l8 10v4M16 3v4L8 17v4" />
-        </svg>
+        />
         {/* Not a heading: the level depends on the screen around the card. */}
         <p
           id={titleId}

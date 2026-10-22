@@ -149,6 +149,11 @@ export const sessionsKo = {
     "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
   "session.events.debug": "내부 이벤트도 보기",
   "session.events.turn": "turn {turn}",
+  "session.events.kind.agent": "에이전트",
+  "session.events.kind.tool": "도구",
+  "session.events.kind.request": "답을 기다리는 요청",
+  "session.events.kind.error": "오류",
+  "session.events.kind.system": "시스템",
 
   "session.event.kind.status": "상태",
   "session.event.kind.system": "시스템",
@@ -324,6 +329,11 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The event connection ended. Reload the page to reconnect.",
   "session.events.debug": "Show internal events",
   "session.events.turn": "turn {turn}",
+  "session.events.kind.agent": "Agent",
+  "session.events.kind.tool": "Tool",
+  "session.events.kind.request": "Request waiting for an answer",
+  "session.events.kind.error": "Error",
+  "session.events.kind.system": "System",
 
   "session.event.kind.status": "Status",
   "session.event.kind.system": "System",

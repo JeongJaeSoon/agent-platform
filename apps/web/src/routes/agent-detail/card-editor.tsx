@@ -7,6 +7,7 @@ import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { profilesQuery, queryKeys } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
+  AGENT_FORM,
   AgentCardFields,
   type CardDraft,
   cardFromDraft,
@@ -131,7 +132,7 @@ export function CardEditor({
           </Button>
         </div>
       ) : null}
-      <form className="flex max-w-2xl flex-col gap-4" onSubmit={submit}>
+      <form className={AGENT_FORM} onSubmit={submit}>
         <Field>
           <FieldLabel>{t("agents.name")}</FieldLabel>
           <Input

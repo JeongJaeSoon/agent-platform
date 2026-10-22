@@ -4,7 +4,7 @@ import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
 import { json, me, memberMe } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
@@ -120,19 +120,33 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement?.contains(saved)).toBe(true);
   });
 
-  test("개요는 아직 켜지지 않았다고 하고 배포 탭으로 잇는다", async () => {
+  test("요약 패널은 아직 켜지지 않았다고 하고 배포 탭으로 잇는다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const user = await setupUser();
-    const panel = await screen.findByRole("tabpanel");
+    const panel = await screen.findByRole("complementary", {
+      name: "에이전트 요약",
+    });
     expect(
       await within(panel).findByText(/아직 켜지지 않았습니다/),
     ).toBeDefined();
     within(panel).getByRole("button", { name: "배포 탭으로" }).focus();
     await user.keyboard("{Enter}");
     await waitFor(() => expect(selected()).toBe("배포"));
-    // The button's panel is hidden now; the keyboard stays on the tab.
+    // The keyboard goes on to the tab it opened.
     const releaseTab = screen.getByRole("tab", { name: "배포" });
     expect(document.activeElement === releaseTab).toBe(true);
+  });
+
+  test("개요 탭은 최신 카드의 역할·모델·도구를 읽기 전용으로 보인다", async () => {
+    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const panel = await screen.findByRole("tabpanel");
+    const value = (term: string) =>
+      within(panel).getByText(term, { selector: "dt" }).nextElementSibling
+        ?.textContent;
+    await waitFor(() => expect(value("역할")).toBe("결제 문의 담당"));
+    expect(value("모델")).toBe("claude-sonnet-5");
+    expect(value("쓸 수 있는 도구")).toBe("프로필이 허용하는 도구 전부");
+    expect(within(panel).queryByRole("textbox")).toBeNull();
   });
 
   test("관리하지 않는 구성원에게 관리자 탭은 이유만 보이고 편집 행동이 없다", async () => {
@@ -155,5 +169,46 @@ describe("에이전트 상세 탭", () => {
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
     ).toEqual(["Overview", "Card", "Release", "Admins"]);
+  });
+
+  test("좁으면 요약 패널이 탭 위로 오고 DOM 순서도 그렇다", async () => {
+    const original = globalThis.ResizeObserver;
+    let resize: ResizeObserverCallback | undefined;
+    class Observer {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = Observer as unknown as typeof ResizeObserver;
+    try {
+      renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+      await screen.findByRole("complementary", { name: "에이전트 요약" });
+      const order = () =>
+        [
+          ...(document.querySelector('[data-slot="agent-detail-layout"]')
+            ?.children ?? []),
+        ].map((child) => child.tagName);
+      expect(order()).toEqual(["DIV", "ASIDE"]);
+      await waitFor(() => expect(resize).toBeDefined());
+      act(() =>
+        resize?.(
+          [{ contentRect: { width: 390 } } as ResizeObserverEntry],
+          {} as ResizeObserver,
+        ),
+      );
+      expect(order()).toEqual(["ASIDE", "DIV"]);
+      act(() =>
+        resize?.(
+          [{ contentRect: { width: 1000 } } as ResizeObserverEntry],
+          {} as ResizeObserver,
+        ),
+      );
+      expect(order()).toEqual(["DIV", "ASIDE"]);
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
   });
 });

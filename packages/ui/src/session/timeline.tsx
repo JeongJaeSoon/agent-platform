@@ -1,4 +1,12 @@
 import type { TurnEventPart, TurnEventPresentation } from "@werft-ai/contracts";
+import {
+  Bot,
+  CircleAlert,
+  CircleDot,
+  Hourglass,
+  type LucideIcon,
+  Wrench,
+} from "lucide-react";
 import type { JSX } from "react";
 
 import { cn } from "../lib/cn.ts";
@@ -16,6 +24,9 @@ export interface TimelineEntry {
   readonly presentation: TurnEventPresentation;
 }
 
+/** Who or what an event came from; each has its own icon. */
+export type TimelineKind = "agent" | "tool" | "request" | "error" | "system";
+
 export interface TimelineMessages {
   /** Names the list for screen readers. */
   readonly label: string;
@@ -23,7 +34,47 @@ export interface TimelineMessages {
   readonly connecting: string;
   readonly closed: string;
   readonly turn: (turnId: string) => string;
+  /** Names each icon; without it the icons stay hidden from screen readers. */
+  readonly kind?: ((kind: TimelineKind) => string) | undefined;
 }
+
+export function timelineKind(
+  presentation: TurnEventPresentation,
+): TimelineKind {
+  if (presentation.error) return "error";
+  switch (presentation.label.key) {
+    case "session.event.kind.assistant":
+    case "session.event.kind.thinking":
+      return "agent";
+    case "session.event.kind.toolUse":
+    case "session.event.kind.toolResult":
+      return "tool";
+    case "session.event.kind.permission":
+    case "session.event.kind.question":
+      return "request";
+    case "session.event.kind.error":
+      return "error";
+    default:
+      return "system";
+  }
+}
+
+const KIND_TONE = {
+  agent: "bg-[var(--ap-tone-progress-bg)] text-[var(--ap-tone-progress-fg)]",
+  tool: "bg-muted text-foreground",
+  request:
+    "bg-[var(--ap-tone-attention-bg)] text-[var(--ap-tone-attention-fg)]",
+  error: "bg-[var(--ap-tone-danger-bg)] text-[var(--ap-tone-danger-fg)]",
+  system: "bg-muted text-muted-foreground",
+} as const satisfies Record<TimelineKind, string>;
+
+const KIND_ICON = {
+  agent: Bot,
+  tool: Wrench,
+  request: Hourglass,
+  error: CircleAlert,
+  system: CircleDot,
+} as const satisfies Record<TimelineKind, LucideIcon>;
 
 export interface TimelineProps {
   readonly entries: readonly TimelineEntry[];
@@ -134,6 +185,9 @@ function TimelineItem({
 }): JSX.Element {
   const { presentation } = row;
   const error = presentation.error === true;
+  const kind = timelineKind(presentation);
+  const kindName = messages.kind?.(kind);
+  const Icon = KIND_ICON[kind];
   const summary = turnSummaryText(presentation.summary, formatMessage);
   const summaryClass = cn(
     "min-w-0 text-body [overflow-wrap:anywhere]",
@@ -142,33 +196,19 @@ function TimelineItem({
   return (
     <li
       data-error={error || undefined}
+      data-kind={kind}
       className="grid grid-cols-[24px_minmax(0,1fr)] gap-3 border-b py-3 last:border-b-0"
     >
       <span
-        aria-hidden="true"
+        {...(kindName
+          ? { role: "img", "aria-label": kindName }
+          : { "aria-hidden": true })}
         className={cn(
-          "flex size-6 items-center justify-center rounded-full bg-muted text-body",
-          error &&
-            "bg-[var(--ap-tone-danger-bg)] text-[var(--ap-tone-danger-fg)]",
+          "flex size-6 items-center justify-center rounded-full",
+          KIND_TONE[kind],
         )}
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="9" />
-          {error ? (
-            <path d="M12 7v6m0 4h.01" />
-          ) : (
-            <circle cx="12" cy="12" r="2" />
-          )}
-        </svg>
+        <Icon size={14} strokeWidth={1.5} aria-hidden="true" />
       </span>
       <div className="min-w-0">
         <div className="mb-1 flex flex-wrap items-baseline gap-2 text-control font-medium">

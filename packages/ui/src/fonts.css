@@ -1,0 +1,25 @@
+/*
+ * Self-hosted faces for --ap-font-sans and --ap-font-mono; nothing loads from
+ * a CDN. Geist is vendored from Vercel's `geist` package (its Next.js peer
+ * dependency is why it is not installed); Hangul falls through to Pretendard's
+ * dynamic subset, which the browser fetches per unicode-range. Licences sit
+ * beside the files in ./fonts/.
+ */
+
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/geist/Geist-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/geist/GeistMono-Variable.woff2") format("woff2");
+}
