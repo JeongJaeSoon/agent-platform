@@ -99,7 +99,7 @@ WORKERS="$(docker ps -q --filter "label=${LABEL}")" \
 [ -z "$WORKERS" ] || WRITERS="$WRITERS $(printf '%s\n' "$WORKERS" | grep -c .) worker container(s) of ${WORKERS_OF}"
 if [ -n "$WRITERS" ]; then
   [ "$ALLOW_RUNNING_WRITERS" = 1 ] \
-    || die "writers are running:${WRITERS}; stop them first (docs/backup-restore.md) or pass --allow-running-writers"
+    || die "writers are running:${WRITERS}; stop them first (docs/operator/backup-restore.md) or pass --allow-running-writers"
   log "backup: warning — writers are running:${WRITERS}; a checkpoint committed during the backup may be missing its objects"
 fi
 

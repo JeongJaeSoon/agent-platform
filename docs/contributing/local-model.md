@@ -1,6 +1,6 @@
 # 로컬 모델(Ollama·LiteLLM)로 확인하기
 
-[real-model e2e](real-claude.md#a-명령-하나로-real-model-e2e)와 같은 시나리오(세션 생성 → tool로 commit → 두 번째 turn → pause와 checkpoint → 새 worker에서 재개)를 Anthropic API 대신 이 컴퓨터의 Ollama 모델로 돌린다. 유료 호출이 없어 key 없이 몇 번이고 돌릴 수 있다.
+[real-model e2e](../real-claude.md#a-명령-하나로-real-model-e2e)와 같은 시나리오(세션 생성 → tool로 commit → 두 번째 turn → pause와 checkpoint → 새 worker에서 재개)를 Anthropic API 대신 이 컴퓨터의 Ollama 모델로 돌린다. 유료 호출이 없어 key 없이 몇 번이고 돌릴 수 있다.
 
 ```sh
 tests/e2e/run.sh --local-model
@@ -8,7 +8,7 @@ tests/e2e/run.sh --local-model
 
 ## 준비물
 
-- [quickstart 0장](quickstart.md#0-준비물)과 같은 Docker·bun.
+- [quickstart 0장](../quickstart.md#0-준비물)과 같은 Docker·bun.
 - `127.0.0.1:11434`에서 도는 Ollama와 `gemma4:26b-mlx` 모델. 다른 모델을 쓰려면 `config/local-model/profiles.yaml`의 `model`과 `infra/local-model/litellm.yaml`의 `model`을 함께 바꾼다.
 - Docker를 건드리기 전에 다음 중 하나면 exit 2로 끝난다. Ollama가 응답하지 않을 때, 두 경로가 부르는 모델(위의 두 파일에서 읽는다)이 `/api/tags`에 없을 때(`ollama pull <모델>`을 안내한다), 셸에 `LITELLM_MASTER_KEY`가 없는데 `openssl rand`로 만들지 못할 때.
 
