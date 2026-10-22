@@ -3,25 +3,16 @@ import type {
   ControlAcceptedResponse,
   PauseBlockedReason,
   PauseReceiptResult,
-  SessionAttention,
 } from "@werft-ai/contracts";
 import type { PauseSessionInput, PauseSessionResult } from "@werft-ai/platform";
-import {
-  and,
-  count,
-  eq,
-  inArray,
-  isNull,
-  lte,
-  notInArray,
-  sql,
-} from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { contextCoverage } from "./context-gap.ts";
 import {
   controlClock,
   findIdempotent,
   hasRestorePoint,
   type IdempotencyScope,
+  liveDrainer,
   lockIdempotencyScope,
   lockSessionForControl,
   OPEN_TURN_STATUSES,
@@ -29,11 +20,10 @@ import {
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
-import { dbNow, fromDbNow } from "./db-clock.ts";
+import { dbNow } from "./db-clock.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
-  attempts,
   executions,
   idempotencyKeys,
   pendingRequests,
@@ -58,7 +48,8 @@ type SessionRow = typeof sessions.$inferSelect;
 /**
  * Why the session cannot be called paused yet, or null when it can: no turn
  * is open, and a trusted committed checkpoint exists that was taken at or
- * after the last turn that ran.
+ * after the last turn that ran. A close (`closing`) needs no restore point
+ * for a session that never ran a turn: nothing will be restored.
  */
 export async function pauseBlocker(
   tx: Database,
@@ -70,6 +61,7 @@ export async function pauseBlocker(
     | "checkpointPendingReason"
     | "contextResetCheckpointRevision"
   >,
+  options: { closing?: boolean } = {},
 ): Promise<PauseBlockedReason | null> {
   // A dropped mirror batch outranks everything: no amount of waiting makes
   // this run's transcript restorable.
@@ -109,7 +101,12 @@ export async function pauseBlocker(
   // PAUSE_BLOCKED gets no reason of its own for it.
   // A start_fresh watermark does not count here: a pause needs a checkpoint
   // to resume from, not a gap an operator already accepted.
-  if (!hasRestorePoint(session)) return "checkpoint_unavailable";
+  if (!hasRestorePoint(session)) {
+    return options.closing &&
+      (await contextCoverage(tx, session)).lastRanTurn === null
+      ? null
+      : "checkpoint_unavailable";
+  }
   // After a fallback restore it is the earlier revision the session runs
   // on that has to cover the last turn, not the damaged pointer.
   const { lastRanTurn, checkpointedTurn } = await contextCoverage(
@@ -159,39 +156,6 @@ export function openPauseReceipt(sessionId: string) {
     eq(receipts.status, "accepted"),
     sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
   );
-}
-
-/**
- * PAUSE_BLOCKED once the drain deadline has passed with the pause still
- * short of its safe boundary. Worked out on read from the same facts the
- * pause is settled on, so it cannot disagree with them or outlive them.
- */
-export async function pauseAttention(
-  db: Database,
-  session: Pick<
-    SessionRow,
-    | "id"
-    | "admissionState"
-    | "checkpointRevision"
-    | "checkpointFallbackRevision"
-    | "checkpointPendingReason"
-    | "contextResetCheckpointRevision"
-  >,
-): Promise<SessionAttention | null> {
-  if (session.admissionState !== "pausing") return null;
-  const [overdue] = await db
-    .select({ id: receipts.id })
-    .from(receipts)
-    .where(
-      and(
-        openPauseReceipt(session.id),
-        lte(receipts.createdAt, fromDbNow(-PAUSE_DRAIN_DEADLINE_MS)),
-      ),
-    )
-    .limit(1);
-  if (!overdue) return null;
-  const reason = await pauseBlocker(db, session);
-  return reason === null ? null : { code: "PAUSE_BLOCKED", reason };
 }
 
 /**
@@ -255,28 +219,7 @@ export function pauseAtomic(
       return { outcome: "unsupported" };
     }
 
-    // Only a claimed attempt still holding the binding can drain. A launch
-    // reserved and not yet claimed never will be now — claims take active
-    // sessions only — and an attempt that ended is on its way out anyway.
-    const drainer =
-      session.executionId === null
-        ? undefined
-        : (
-            await tx
-              .select({ id: attempts.id })
-              .from(workerLaunches)
-              .innerJoin(
-                attempts,
-                eq(attempts.id, workerLaunches.claimedAttemptId),
-              )
-              .where(
-                and(
-                  eq(workerLaunches.executionId, session.executionId),
-                  notInArray(attempts.state, ["exited", "lost"]),
-                ),
-              )
-              .limit(1)
-          )[0];
+    const drainer = await liveDrainer(tx, session.executionId);
     const bound = session.executionId !== null;
     if (drainer === undefined) {
       // Nothing will run again before a resume, so the checkpoint there is

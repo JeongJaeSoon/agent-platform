@@ -1,0 +1,1 @@
+ALTER TYPE "public"."admission_state" ADD VALUE 'closing' BEFORE 'closed';

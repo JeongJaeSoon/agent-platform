@@ -253,6 +253,13 @@ export function PendingAnswers({
 
 type ControlAction = SessionControl["action"];
 
+// On the way to a state that takes different commands.
+const MOVING: ReadonlySet<SessionDetailData["admission_state"]> = new Set([
+  "pausing",
+  "resuming",
+  "stopping",
+]);
+
 /**
  * The commands an admission state takes. Recovery decisions are their own
  * screen; a closed or stopping session takes nothing here.
@@ -268,6 +275,7 @@ function actionsFor(session: SessionDetailData): readonly ControlAction[] {
       return ["resume", "terminate"];
     case "resuming":
     case "recovery_required":
+    case "closing":
       return ["terminate"];
     case "stopped":
       return ["resume"];
@@ -315,23 +323,41 @@ export function SessionControls({
   const outcomeRef = useRef<HTMLOutputElement>(null);
   // The commands drawn when one ran; a pause swaps its button for resume.
   const ranOn = useRef<string | null>(null);
+  // Focus sits on the outcome line only until a command other than
+  // terminate is drawn again.
+  const parked = useRef(false);
+  const moving = MOVING.has(session.admission_state);
 
   // A command's button may leave with the new state, taking focus with it:
   // hand the keyboard to what the session takes now, until the state the
-  // command made has arrived or the command was refused. Each accepted
-  // command changes what the session takes.
+  // command made has settled or the command was refused. Never to terminate:
+  // while resuming it is the only button, and Enter would open its dialog.
   useLayoutEffect(() => {
     if (ranOn.current === null) return;
-    if (focusLost(outcomeRef.current)) {
+    const line = outcomeRef.current;
+    if (
+      focusLost(line) ||
+      (parked.current && line?.ownerDocument.activeElement === line)
+    ) {
       const next = groupRef.current?.querySelector<HTMLElement>(
-        "button:not(:disabled)",
+        "button:not(:disabled):not([data-action='terminate'])",
       );
-      (next ?? outcomeRef.current)?.focus();
+      if (next) {
+        next.focus();
+        parked.current = false;
+      } else if (!parked.current) {
+        line?.focus();
+        parked.current = true;
+      }
     }
-    if (control.isError || (control.isSuccess && actionSet !== ranOn.current)) {
+    if (
+      control.isError ||
+      (control.isSuccess && actionSet !== ranOn.current && !moving)
+    ) {
       ranOn.current = null;
+      parked.current = false;
     }
-  }, [actionSet, control.isError, control.isSuccess]);
+  }, [actionSet, control.isError, control.isSuccess, moving]);
 
   // The confirm dialog gives focus back to what was focused last outside it,
   // and the terminate button that opened it may be gone by now; the outcome
@@ -364,6 +390,7 @@ export function SessionControls({
             <Button
               key={action}
               type="button"
+              data-action={action}
               variant={action === "terminate" ? "destructive" : "outline"}
               disabled={reason !== undefined}
               // Not `disabled` while a command runs: Chrome takes focus off a
@@ -394,6 +421,7 @@ export function SessionControls({
         confirmLabel={t("session.control.terminate.confirm")}
         cancelLabel={t("session.control.cancel")}
         tone="danger"
+        role="alertdialog"
         busy={control.isPending}
         onConfirm={() => run("terminate")}
       />
@@ -414,9 +442,41 @@ export function SessionComposer({
   const reason =
     unavailable?.send ??
     (inactive ? t("session.composer.inactive") : undefined);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLOutputElement>(null);
+
+  // The send button turns off while sending and Chrome drops focus to the
+  // page: give it back to the field, or to the notice if the field is off.
+  // Not when the reader pointed or tabbed elsewhere meanwhile, even at blank
+  // page, which leaves focus on <body> just the same.
+  const keepFocus = async (sending: Promise<void>) => {
+    const root = rootRef.current;
+    const page = root?.ownerDocument;
+    let movedOn = false;
+    const away = (event: Event) => {
+      if (!root?.contains(event.target as Node)) movedOn = true;
+    };
+    page?.addEventListener("pointerdown", away, true);
+    page?.addEventListener("focusin", away, true);
+    let refusal: ApiError | null = null;
+    try {
+      await sending;
+    } catch (error) {
+      refusal = error as ApiError;
+    } finally {
+      page?.removeEventListener("pointerdown", away, true);
+      page?.removeEventListener("focusin", away, true);
+    }
+    const field = root?.querySelector<HTMLElement>("textarea:not(:disabled)");
+    // A refusal shows under the field; with the field off (the session
+    // stopped meanwhile) it shows on the notice, where focus goes.
+    if (refusal && !field) setNotice({ kind: "error", text: refused(refusal) });
+    if (!movedOn && focusLost(root)) (field ?? noticeRef.current)?.focus();
+    if (refusal) throw refusal;
+  };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div ref={rootRef} className="flex flex-col gap-2">
       <Composer
         messages={{
           label: t("session.composer.label"),
@@ -427,17 +487,24 @@ export function SessionComposer({
         disabled={reason !== undefined}
         disabledReason={reason}
         pending={send.isPending}
-        error={send.error ? refused(send.error) : undefined}
-        onSend={async (message) => {
+        error={
+          send.error && notice?.kind !== "error"
+            ? refused(send.error)
+            : undefined
+        }
+        onSend={(message) => {
           setNotice(null);
-          const accepted = await send.mutateAsync({ message });
-          setNotice({
-            kind: "notice",
-            text: t("session.composer.sent", { turn: accepted.turn_id }),
-          });
+          return keepFocus(
+            send.mutateAsync({ message }).then((accepted) => {
+              setNotice({
+                kind: "notice",
+                text: t("session.composer.sent", { turn: accepted.turn_id }),
+              });
+            }),
+          );
         }}
       />
-      <OutcomeLine outcome={notice} />
+      <OutcomeLine ref={noticeRef} outcome={notice} />
     </div>
   );
 }

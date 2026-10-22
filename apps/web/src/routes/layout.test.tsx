@@ -91,7 +91,7 @@ describe("app shell", () => {
         }),
     });
     const link = await screen.findByRole("link", {
-      name: "세션 답변 대기 2건",
+      name: "세션 답변 대기 2개",
     });
     expect(link.getAttribute("href")).toBe("/sessions");
     expect(
@@ -112,7 +112,7 @@ describe("app shell", () => {
           next_cursor: null,
         }),
     });
-    await screen.findByRole("link", { name: "세션 답변 대기 1건" });
+    await screen.findByRole("link", { name: "세션 답변 대기 1개" });
     // What a session's status event invalidates.
     await services.queryClient.invalidateQueries({
       queryKey: queryKeys.waitingSessions,
@@ -130,7 +130,7 @@ describe("app shell", () => {
         json(200, { items: [waiting(FIRST)], next_cursor: "next-1" }),
     });
     const link = await screen.findByRole("link", {
-      name: "세션 답변 대기 1건 이상",
+      name: "세션 답변 대기 1개 이상",
     });
     expect(link.textContent).toContain("1+");
   });

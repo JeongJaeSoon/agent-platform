@@ -1,0 +1,28 @@
+# Example collector: Grafana LGTM (Loki, Grafana, Tempo, Prometheus in the
+# grafana/otel-lgtm image) behind an OpenTelemetry Collector, as its own
+# compose project, apart from the Werft stack. For trying the OTLP export on
+# one machine, not a production setup. Every published port is on loopback.
+#
+#   docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml up -d --wait
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.163.1
+    command: ["--config=/etc/otelcol/collector.yaml"]
+    volumes:
+      - ./collector.yaml:/etc/otelcol/collector.yaml:ro
+    ports:
+      - "127.0.0.1:26318:4318"
+    depends_on:
+      - lgtm
+
+  lgtm:
+    image: grafana/otel-lgtm:0.37.0
+    restart: unless-stopped
+    environment:
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    ports:
+      - "127.0.0.1:26000:3000"

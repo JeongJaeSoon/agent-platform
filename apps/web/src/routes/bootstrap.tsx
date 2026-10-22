@@ -72,7 +72,7 @@ const EMPTY: Form = {
 };
 
 // No public read says whether bootstrap is done, so this screen learns it
-// from the answer: 409 BOOTSTRAP_DONE sends the reader to log in.
+// from the answer: 409 BOOTSTRAP_DONE points the reader to log in.
 export function BootstrapScreen() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -89,11 +89,6 @@ export function BootstrapScreen() {
         // History state, not the URL: the address stays free of the email.
         state: (prev) => ({ ...prev, loginEmail: form.email }),
       }),
-    onError: async (error) => {
-      if (error.code === "BOOTSTRAP_DONE") {
-        await navigate({ to: "/login", search: { notice: "bootstrap_done" } });
-      }
-    },
   });
 
   const submit = (event: FormEvent) => {
@@ -141,7 +136,19 @@ export function BootstrapScreen() {
             </Field>
           );
         })}
-        {errorText ? <FormError>{errorText}</FormError> : null}
+        {errorText ? (
+          <FormError>
+            {errorText}
+            {create.error?.code === "BOOTSTRAP_DONE" ? (
+              <>
+                {" "}
+                <Link className={LINK} to="/login">
+                  {t("bootstrap.ownerExistsLogin")}
+                </Link>
+              </>
+            ) : null}
+          </FormError>
+        ) : null}
         <Button type="submit" disabled={create.isPending}>
           {create.isPending ? t("bootstrap.submitting") : t("bootstrap.submit")}
         </Button>

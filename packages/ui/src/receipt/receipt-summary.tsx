@@ -17,6 +17,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   answer: "답변 제출",
   interrupt: "중단 요청",
   pause: "일시정지 요청",
+  close: "보관 요청",
   terminate: "종료 요청",
   resume: "재개 요청",
   recovery_decision: "복구 결정",

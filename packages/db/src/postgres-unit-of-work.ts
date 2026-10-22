@@ -39,6 +39,7 @@ import {
   InvalidCursorError,
   projectDurability,
   storedPendingReasonHoldsWork,
+  transcriptLimitAttention,
 } from "@werft-ai/platform";
 import {
   and,
@@ -71,9 +72,9 @@ import {
   encodeSessionCursor,
   encodeTurnCursor,
 } from "./cursors.ts";
+import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import { admitInput } from "./input-limits.ts";
-import { pauseAttention } from "./pause-control.ts";
 import {
   actionableOfSession,
   actionableOfTurn,
@@ -735,13 +736,17 @@ export function createPostgresSessionReader(
             );
           // The turn the *pointer's* checkpoint closed, not the newest
           // checkpoint row: the two agree only while nothing is committing.
+          // A turn-less checkpoint closed none but still has its size.
           const [checkpoint] =
             row.checkpointRevision === null
               ? []
               : await tx
-                  .select({ sequence: turns.sequence })
+                  .select({
+                    sequence: turns.sequence,
+                    transcriptBytes: checkpoints.transcriptBytes,
+                  })
                   .from(checkpoints)
-                  .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+                  .leftJoin(turns, eq(turns.id, checkpoints.turnId))
                   .where(
                     and(
                       eq(checkpoints.sessionId, sessionId),
@@ -760,9 +765,19 @@ export function createPostgresSessionReader(
             checkpoint_revision: row.checkpointRevision,
             pending_request_count: read.pendingCount,
             attention:
-              (await pauseAttention(tx, row)) ??
+              (await drainAttention(tx, row)) ??
               (await contextGapAttention(tx, row)) ??
-              startupFailedAttention(row),
+              startupFailedAttention(row) ??
+              transcriptLimitAttention(
+                row.checkpointPendingReason,
+                // A pointer start_fresh retired says nothing about the
+                // engine session running now.
+                row.contextResetCheckpointRevision !== null &&
+                  row.checkpointRevision !== null &&
+                  row.checkpointRevision <= row.contextResetCheckpointRevision
+                  ? null
+                  : (checkpoint?.transcriptBytes ?? null),
+              ),
             cost_usd: row.costUsd,
             provider_tokens: row.providerTokens,
             repo_url: row.repoUrl,

@@ -57,7 +57,7 @@ export {
 const RECOVERY_DECISION = "recovery_decision";
 // Control receipts a close supersedes: whichever of these is still open
 // was waiting on an outcome the close makes irrelevant.
-const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume", "pause"];
+const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume", "pause", "close"];
 
 type SessionRow = typeof sessions.$inferSelect;
 
@@ -104,7 +104,7 @@ async function closableByRecovery(
  * checkpoint — a resume would bring the session back without it
  * and nobody would be told. start_fresh is the way on for one that cannot.
  */
-async function resumableFromStopped(
+export async function resumableFromStopped(
   tx: Database,
   session: Pick<
     SessionRow,
@@ -193,7 +193,7 @@ async function writeReceipt(
   return { receipt_id: receiptId, receipt_status: "succeeded" };
 }
 
-async function cancelQueuedInput(
+export async function cancelQueuedInput(
   tx: Database,
   input: {
     sessionId: string;

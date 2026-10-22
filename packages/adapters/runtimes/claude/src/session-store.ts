@@ -16,10 +16,13 @@ import {
   type CheckpointTranscripts,
   type ObjectRef,
   type PutImmutableResult,
+  TRANSCRIPT_LIMITS,
   type TranscriptEntry,
   type TranscriptKey,
+  type TranscriptLimits,
   type TranscriptMirror,
   type TranscriptRevision,
+  type TranscriptSizeProblem,
   transcriptGenerationDirectory,
   transcriptSizeProblem,
 } from "@werft-ai/runtime-core";
@@ -44,9 +47,11 @@ const MERGED_PART_BYTES = 4 * 1024 * 1024;
  * carries (`MAX_TRANSCRIPT_BYTES`), before anything was merged or written.
  */
 export class TranscriptTooLarge extends Error {
-  constructor(reason: string) {
-    super(reason);
+  readonly reason: TranscriptSizeProblem["reason"];
+  constructor(problem: TranscriptSizeProblem) {
+    super(problem.detail);
     this.name = "TranscriptTooLarge";
+    this.reason = problem.reason;
   }
 }
 
@@ -68,6 +73,8 @@ export type ClaudeSessionStoreOptions = {
   readonly generation: number;
   /** Absent for a session that has never been checkpointed. */
   readonly inherit?: TranscriptInheritance;
+  /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
+  readonly transcriptLimits?: TranscriptLimits;
 };
 
 /**
@@ -108,6 +115,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
   /** `<prefix>/generation-<n>`: everything this store writes starts here. */
   readonly #prefix: string;
   readonly #inherit: Inheritance | undefined;
+  readonly #limits: TranscriptLimits;
   /**
    * Per transcript (`""` for the root), what a capture pins ahead of this
    * generation's own parts once a merge replaced the adopted ones, and which
@@ -189,6 +197,7 @@ export class ClaudeSessionStore implements TranscriptMirror {
         ? undefined
         : inheritance(options.inherit, this.#namespace, generation);
     this.revisionScoped = this.#inherit !== undefined;
+    this.#limits = options.transcriptLimits ?? TRANSCRIPT_LIMITS;
     // Started now rather than on first use, so two stores a host opens
     // together for one generation both find it empty. Every operation awaits
     // it; the catch only keeps a store nobody used from reporting an
@@ -511,44 +520,13 @@ export class ClaudeSessionStore implements TranscriptMirror {
   async captureTranscripts(
     sessionId: string,
   ): Promise<CheckpointTranscripts | null> {
-    await this.#opened;
-    this.#bind(sessionId);
-    await Promise.all(this.#writes.values());
-    const own = new Map<string, string[]>();
-    const projectKeys = new Set<string>();
-    for (const objectKey of await this.#generationKeys()) {
-      const location = locate(objectKey.slice(this.#namespace.length));
-      if (location?.sessionId !== sessionId || location.merged) continue;
-      projectKeys.add(location.projectKey);
-      const lane = own.get(location.lane);
-      if (lane === undefined) own.set(location.lane, [objectKey]);
-      else lane.push(objectKey);
-    }
-    if (projectKeys.size > 1) {
-      throw new Error(
-        `Engine session ${sessionId} is mirrored under more than one project key: ${[...projectKeys].sort().join(", ")}`,
-      );
-    }
-    const pinned = this.#inherit?.parts ?? new Map<string, never>();
-    const lanes = [...new Set([...pinned.keys(), ...own.keys()])].sort();
-    if (!lanes.includes("")) return null;
-    const views = new Map(
-      lanes.map((lane) => [
-        lane,
-        this.#view(lane, (own.get(lane) ?? []).sort()),
-      ]),
-    );
-    let total = 0;
-    const sizes: Array<{ bytes: number; key: string }> = [];
-    for (const view of views.values()) {
-      total += view.base.length + view.own.length;
-      sizes.push(...view.base);
-      for (const key of view.own) {
-        sizes.push({ bytes: await this.#sizeOf(key), key });
-      }
-    }
-    const oversized = transcriptSizeProblem(sizes);
+    const found = await this.#lanes(sessionId);
+    if (found === null) return null;
+    const { lanes, projectKeys, views } = found;
+    const sizes = await this.#partSizes(views);
+    const oversized = transcriptSizeProblem(sizes, this.#limits);
     if (oversized !== undefined) throw new TranscriptTooLarge(oversized);
+    const total = sizes.length;
     const revisions = new Map<string, TranscriptRevision>();
     for (const lane of lanes) {
       let { base, own: mine } = views.get(lane) as LaneView;
@@ -585,6 +563,67 @@ export class ClaudeSessionStore implements TranscriptMirror {
     const { "": root, ...subagents } = Object.fromEntries(revisions);
     if (root === undefined) return null;
     return { root, subagents };
+  }
+
+  /**
+   * The size of every part a capture of `sessionId` would pin, worked out
+   * the way `captureTranscripts` does but without merging or writing
+   * anything, so a publisher can refuse a transcript past the limits before
+   * it uploads a byte. null when there is no root transcript.
+   */
+  async transcriptSizes(
+    sessionId: string,
+  ): Promise<Array<{ bytes: number; key: string }> | null> {
+    const lanes = await this.#lanes(sessionId);
+    return lanes === null ? null : this.#partSizes(lanes.views);
+  }
+
+  async #lanes(sessionId: string): Promise<{
+    lanes: string[];
+    projectKeys: Set<string>;
+    views: Map<string, LaneView>;
+  } | null> {
+    await this.#opened;
+    this.#bind(sessionId);
+    await Promise.all(this.#writes.values());
+    const own = new Map<string, string[]>();
+    const projectKeys = new Set<string>();
+    for (const objectKey of await this.#generationKeys()) {
+      const location = locate(objectKey.slice(this.#namespace.length));
+      if (location?.sessionId !== sessionId || location.merged) continue;
+      projectKeys.add(location.projectKey);
+      const lane = own.get(location.lane);
+      if (lane === undefined) own.set(location.lane, [objectKey]);
+      else lane.push(objectKey);
+    }
+    if (projectKeys.size > 1) {
+      throw new Error(
+        `Engine session ${sessionId} is mirrored under more than one project key: ${[...projectKeys].sort().join(", ")}`,
+      );
+    }
+    const pinned = this.#inherit?.parts ?? new Map<string, never>();
+    const lanes = [...new Set([...pinned.keys(), ...own.keys()])].sort();
+    if (!lanes.includes("")) return null;
+    const views = new Map(
+      lanes.map((lane) => [
+        lane,
+        this.#view(lane, (own.get(lane) ?? []).sort()),
+      ]),
+    );
+    return { lanes, projectKeys, views };
+  }
+
+  async #partSizes(
+    views: ReadonlyMap<string, LaneView>,
+  ): Promise<Array<{ bytes: number; key: string }>> {
+    const sizes: Array<{ bytes: number; key: string }> = [];
+    for (const view of views.values()) {
+      sizes.push(...view.base);
+      for (const key of view.own) {
+        sizes.push({ bytes: await this.#sizeOf(key), key });
+      }
+    }
+    return sizes;
   }
 
   async #generationKeys(): Promise<string[]> {

@@ -2,7 +2,7 @@ import type { ReceiptActor } from "@werft-ai/contracts";
 import {
   type Principal,
   type SessionBudget,
-  storedPendingReasonHoldsWork,
+  storedPendingReasonBlocks,
 } from "@werft-ai/platform";
 import {
   and,
@@ -12,11 +12,13 @@ import {
   isNull,
   lt,
   min,
+  notInArray,
   type SQL,
   sql,
 } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  attempts,
   idempotencyKeys,
   memberships,
   receipts,
@@ -227,10 +229,23 @@ export class BindingMoved extends Error {
   }
 }
 
+// drizzle wraps the driver's error, so the code may sit on its cause.
+function isDeadlock(error: unknown): boolean {
+  for (let e = error; typeof e === "object" && e !== null; ) {
+    if ((e as { code?: unknown }).code === "40P01") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * Runs `work` in a transaction, restarting it when the session's binding
- * moved under it (see lockSessionForControl). Three attempts is plenty: a
- * binding moves once per launch, and launches are seconds apart.
+ * moved under it (see lockSessionForControl) or PostgreSQL chose it as a
+ * deadlock victim. A worker claim locks the dispatch signal before the
+ * session, and the control paths that clear the signal hold the session
+ * first; the victim's transaction is rolled back whole, so running it again
+ * is safe. Three attempts is plenty: a binding moves once per launch, and
+ * launches are seconds apart.
  */
 export async function transactionWithBindingRetry<T>(
   db: Database,
@@ -240,9 +255,35 @@ export async function transactionWithBindingRetry<T>(
     try {
       return await db.transaction((tx) => work(tx, attempt));
     } catch (error) {
-      if (!(error instanceof BindingMoved) || attempt >= 3) throw error;
+      const retryable = error instanceof BindingMoved || isDeadlock(error);
+      if (!retryable || attempt >= 3) throw error;
     }
   }
+}
+
+/**
+ * The claimed attempt still holding the binding, if any: only it can drain
+ * for a pause or close. A launch reserved and not yet claimed never will be
+ * now — claims take active sessions only — and an attempt that ended is on
+ * its way out anyway.
+ */
+export async function liveDrainer(
+  tx: Database,
+  executionId: string | null,
+): Promise<{ id: string } | undefined> {
+  if (executionId === null) return undefined;
+  const [drainer] = await tx
+    .select({ id: attempts.id })
+    .from(workerLaunches)
+    .innerJoin(attempts, eq(attempts.id, workerLaunches.claimedAttemptId))
+    .where(
+      and(
+        eq(workerLaunches.executionId, executionId),
+        notInArray(attempts.state, ["exited", "lost"]),
+      ),
+    )
+    .limit(1);
+  return drainer;
 }
 
 /**
@@ -334,7 +375,7 @@ export function hasRestorePoint<
 >(session: T): session is T & { checkpointRevision: number } {
   return (
     session.checkpointRevision !== null &&
-    !storedPendingReasonHoldsWork(session.checkpointPendingReason) &&
+    !storedPendingReasonBlocks(session.checkpointPendingReason) &&
     (session.contextResetCheckpointRevision === null ||
       session.checkpointRevision > session.contextResetCheckpointRevision)
   );
