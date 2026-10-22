@@ -793,14 +793,14 @@ describe("transcript mirror against the actual SDK", () => {
       await held.replied();
       expect(held.resultSeen()).toBe(false);
       held.release();
-      await waitFor(held.resultSeen, 20_000);
+      await waitFor(held.resultSeen, 10_000);
       expect(await held.run.prepareCheckpoint()).toMatchObject({
         status: "ready",
       });
     } finally {
       await held.kill();
     }
-  }, 40_000);
+  }, 60_000);
 
   test("a run killed while its mirror append hangs leaves no result to checkpoint", async () => {
     const held = await startHeldMirrorRun("mirror-hang-");
@@ -814,7 +814,7 @@ describe("transcript mirror against the actual SDK", () => {
     expect(await held.run.prepareCheckpoint()).toMatchObject({
       status: "rejected",
     });
-  }, 40_000);
+  }, 60_000);
 
   test("a resume the store holds nothing for fails without reaching the model", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "mirror-missing-" });
@@ -906,6 +906,8 @@ function mirrorProbeConfig(endpoint: string, home: string, workspace: string) {
  * real store. `replied()` settles once the model's answer reached the engine,
  * the point past which only the pending flush stands between it and a result.
  */
+const HELD_RESULT_WINDOW_MS = 2_000;
+
 async function startHeldMirrorRun(prefix: string) {
   isolated = await createIsolatedWorkspace({ prefix });
   const { home, workspace } = isolated;
@@ -942,12 +944,18 @@ async function startHeldMirrorRun(prefix: string) {
     denyEveryTool,
   );
   const frames: AgentFrame[] = [];
-  const consume = (async () => {
-    for await (const frame of run) frames.push(frame);
-  })();
-  // Ended by the kill, never awaited: its rejection is expected.
-  consume.catch(() => {});
-  run.send({ message: "hold the mirror", uuid: crypto.randomUUID() });
+  try {
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    // Ended by the kill, never awaited: its rejection is expected.
+    consume.catch(() => {});
+    run.send({ message: "hold the mirror", uuid: crypto.randomUUID() });
+  } catch (error) {
+    // The caller's `finally` is not reached yet; stop the process here.
+    run.abort();
+    throw error;
+  }
   const isResult = ({ envelope: { message } }: AgentFrame) =>
     message.type === "result";
   return {
@@ -955,7 +963,7 @@ async function startHeldMirrorRun(prefix: string) {
     release: () => gate.resolve(),
     resultSeen: () => frames.some(isResult),
     replied: async () => {
-      await withTimeout(appending.promise, 20_000, "The SDK never appended");
+      await withTimeout(appending.promise, 10_000, "The SDK never appended");
       await waitFor(
         () =>
           frames.some(
@@ -963,10 +971,11 @@ async function startHeldMirrorRun(prefix: string) {
               message.type === "assistant" &&
               JSON.stringify(message).includes("HELD_APPEND_RESULT"),
           ),
-        20_000,
+        10_000,
       );
-      // Slack for a result the SDK did not hold back to surface.
-      await Bun.sleep(300);
+      // With nothing held, the result follows this reply within milliseconds;
+      // a result still absent after this long is one the flush is holding.
+      await Bun.sleep(HELD_RESULT_WINDOW_MS);
     },
     // The process is what a kill ends. When the append never lands, the
     // run's iterator stays pending behind it: the append runs in this process.
