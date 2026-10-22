@@ -642,7 +642,357 @@ describe("transcript mirror against the actual SDK", () => {
     expect(restored).toContain("TURN_TWO_RESUMED");
     expect(restored).not.toContain("ZOMBIE_SUFFIX");
   }, 60_000);
+
+  test("a mirror that keeps rejecting is reported before the turn's result, which still succeeds", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "mirror-reject-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer(() => textReply("MIRROR_FAILURE_RESULT"));
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: "sessions/mirror/reject",
+    });
+    let attempts = 0;
+    const run = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    }).start(
+      {
+        ...mirrorProbeConfig(server.url, home, workspace),
+        sessionStore: {
+          append: async () => {
+            attempts += 1;
+            throw new Error("injected append failure");
+          },
+          listSubkeys: (key) => mirror.listSubkeys(key),
+          load: (key) => mirror.load(key),
+        },
+      },
+      denyEveryTool,
+    );
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({
+      message: "finish despite the mirror",
+      uuid: crypto.randomUUID(),
+    });
+    run.finishInput();
+    await withTimeout(consume, 30_000, "Rejecting mirror run did not settle");
+
+    const sequence = frames.map(({ envelope: { message } }) =>
+      message.type === "system" || message.type === "result"
+        ? `${message.type}:${String(message.subtype)}`
+        : message.type,
+    );
+    // The SDK flushes the pending batch before it hands over the result, so the
+    // host learns of the loss in time to hold that turn's checkpoint back.
+    const mirrorError = sequence.indexOf("system:mirror_error");
+    expect(attempts).toBeGreaterThanOrEqual(3);
+    expect(mirrorError).toBeGreaterThanOrEqual(0);
+    expect(mirrorError).toBeLessThan(sequence.indexOf("result:success"));
+    expect(await run.prepareCheckpoint()).toMatchObject({
+      reason: "mirror_error",
+      status: "rejected",
+    });
+  }, 40_000);
+
+  test("restores once the entries of appends that timed out but still landed", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "mirror-timeout-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer(() => textReply("MIRROR_TIMEOUT_RESULT"));
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: "sessions/mirror/timeout",
+    });
+    const mirrored: TranscriptKey[] = [];
+    const lateWrites: Promise<void>[] = [];
+    const sent: Array<Record<string, unknown>> = [];
+    const run = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    }).start(
+      {
+        ...mirrorProbeConfig(server.url, home, workspace),
+        sessionStore: {
+          // The write reaches the store after the SDK has already given up on
+          // it and retried, as an S3 PUT whose answer timed out would.
+          append: async (key, entries) => {
+            mirrored.push(key);
+            if (key.subpath === undefined) {
+              sent.push(
+                ...(JSON.parse(JSON.stringify(entries)) as typeof sent),
+              );
+            }
+            const late = Bun.sleep(150).then(() => mirror.append(key, entries));
+            lateWrites.push(late);
+            await Promise.race([
+              late,
+              Bun.sleep(25).then(() => {
+                throw new Error("injected append timeout");
+              }),
+            ]);
+          },
+          listSubkeys: (key) => mirror.listSubkeys(key),
+          load: (key) => mirror.load(key),
+        },
+      },
+      denyEveryTool,
+    );
+    const frames: AgentFrame[] = [];
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    run.send({
+      message: "finish after an ambiguous append timeout",
+      uuid: crypto.randomUUID(),
+    });
+    run.finishInput();
+    await withTimeout(consume, 30_000, "Timing-out mirror run did not settle");
+    await withTimeout(
+      Promise.all(lateWrites),
+      15_000,
+      "Late writes did not land",
+    );
+
+    expect(
+      frames.some(
+        ({ envelope: { message } }) =>
+          message.type === "system" && message.subtype === "mirror_error",
+      ),
+    ).toBe(true);
+    const rootKey = mirrored.find((key) => key.subpath === undefined);
+    if (rootKey === undefined) throw new Error("The SDK mirrored nothing");
+    const revision = await mirror.captureRevision(rootKey);
+    if (revision === null) throw new Error("expected a revision");
+    for (const entries of [
+      (await mirror.load(rootKey)) ?? [],
+      await mirror.loadRevision(revision),
+    ]) {
+      const uuids = entries.flatMap((entry) =>
+        typeof entry.uuid === "string" ? [entry.uuid] : [],
+      );
+      expect(new Set(uuids).size).toBe(uuids.length);
+      // Every entry the SDK sent, each once: a lost entry fails here too.
+      expect(byUuid(entries)).toEqual(byUuid(sent));
+      // Every retry landed, so the store holds each entry more than once.
+      expect(
+        sent.filter((entry) => typeof entry.uuid === "string").length,
+      ).toBeGreaterThan(uuids.length);
+      expect(JSON.stringify(entries)).toContain(
+        "finish after an ambiguous append timeout",
+      );
+    }
+  }, 60_000);
+
+  test("holds the turn's result until a pending mirror append lands", async () => {
+    const held = await startHeldMirrorRun("mirror-held-");
+    try {
+      await held.replied();
+      expect(held.resultSeen()).toBe(false);
+      held.release();
+      await waitFor(held.resultSeen, 10_000);
+      expect(await held.run.prepareCheckpoint()).toMatchObject({
+        status: "ready",
+      });
+    } finally {
+      await held.kill();
+    }
+  }, 60_000);
+
+  test("a run killed while its mirror append hangs leaves no result to checkpoint", async () => {
+    const held = await startHeldMirrorRun("mirror-hang-");
+    try {
+      await held.replied();
+      expect(held.resultSeen()).toBe(false);
+    } finally {
+      await held.kill();
+    }
+    expect(held.resultSeen()).toBe(false);
+    expect(await held.run.prepareCheckpoint()).toMatchObject({
+      status: "rejected",
+    });
+  }, 60_000);
+
+  test("a resume the store holds nothing for fails without reaching the model", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "mirror-missing-" });
+    const { home, workspace } = isolated;
+    server = startFakeAnthropicServer(() => textReply("MUST_NOT_RUN"));
+    const missing = new ClaudeSessionStore({
+      generation: 1,
+      objects: createMemoryCheckpointObjectStore(),
+      prefix: "sessions/mirror/missing",
+    });
+    const run = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    }).start(
+      {
+        ...mirrorProbeConfig(server.url, home, workspace),
+        mode: "resume",
+        resume: crypto.randomUUID(),
+        // Answers `load` with null, as a store that materialized the resumed
+        // transcript onto the engine's disk does, except nothing is on disk:
+        // the engine falls back to a local transcript that does not exist.
+        sessionStore: {
+          append: (key, entries) => missing.append(key, entries),
+          listSubkeys: (key) => missing.listSubkeys(key),
+          load: (key) => missing.load(key),
+          revisionScoped: true,
+        },
+      },
+      denyEveryTool,
+    );
+    const frames: AgentFrame[] = [];
+    const settled = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    run.send({
+      message: "resume a missing session",
+      uuid: crypto.randomUUID(),
+    });
+    run.finishInput();
+    const failure = await withTimeout(
+      settled,
+      30_000,
+      "Missing resume did not settle",
+    );
+
+    // Not a quiet new session: the engine refuses, and no turn is billed.
+    expect(String(failure)).toContain("No conversation found");
+    expect(
+      frames
+        .filter(({ envelope: { message } }) => message.type === "result")
+        .map(({ envelope: { message } }) => message),
+    ).toEqual([
+      expect.objectContaining({
+        is_error: true,
+        num_turns: 0,
+        subtype: "error_during_execution",
+      }),
+    ]);
+    expect(server.requests).toHaveLength(0);
+  }, 40_000);
 });
+
+/** The smallest new-session config the transcript mirror probes above share. */
+function mirrorProbeConfig(endpoint: string, home: string, workspace: string) {
+  return {
+    claudeConfigDir: home,
+    correlationId: "actual-mirror-probe",
+    cwd: workspace,
+    home,
+    maxTurns: 1,
+    mode: "new" as const,
+    model: "claude-sonnet-4-5",
+    profile: {
+      kind: "anthropic" as const,
+      endpoint,
+      auth: { kind: "api_key" as const, value: "placeholder-local" },
+      principal: { ownerScope: "owner-a" },
+    },
+    settingSources: ["project"] as ["project"],
+    tools: [],
+  };
+}
+
+/**
+ * A run whose every mirror append waits until `release()`, then lands in a
+ * real store. `replied()` settles once the model's answer reached the engine,
+ * the point past which only the pending flush stands between it and a result.
+ */
+const HELD_RESULT_WINDOW_MS = 2_000;
+
+async function startHeldMirrorRun(prefix: string) {
+  isolated = await createIsolatedWorkspace({ prefix });
+  const { home, workspace } = isolated;
+  const fake = startFakeAnthropicServer(() => textReply("HELD_APPEND_RESULT"));
+  server = fake;
+  const mirror = new ClaudeSessionStore({
+    generation: 1,
+    objects: createMemoryCheckpointObjectStore(),
+    prefix: `sessions/mirror/${prefix}`,
+  });
+  const gate = Promise.withResolvers<void>();
+  const appending = Promise.withResolvers<void>();
+  const spawnedPids: number[] = [];
+  const exitedPids: number[] = [];
+  const run = new ClaudeSdkRuntime(
+    { endpoints: [fake.url], models: ["claude-sonnet-4-5"] },
+    {
+      onSpawn: (pid) => spawnedPids.push(pid),
+      onExit: (pid) => exitedPids.push(pid),
+    },
+  ).start(
+    {
+      ...mirrorProbeConfig(fake.url, home, workspace),
+      sessionStore: {
+        append: async (key, entries) => {
+          appending.resolve();
+          await gate.promise;
+          await mirror.append(key, entries);
+        },
+        listSubkeys: (key) => mirror.listSubkeys(key),
+        load: (key) => mirror.load(key),
+      },
+    },
+    denyEveryTool,
+  );
+  const frames: AgentFrame[] = [];
+  try {
+    const consume = (async () => {
+      for await (const frame of run) frames.push(frame);
+    })();
+    // Ended by the kill, never awaited: its rejection is expected.
+    consume.catch(() => {});
+    run.send({ message: "hold the mirror", uuid: crypto.randomUUID() });
+  } catch (error) {
+    // The caller's `finally` is not reached yet; stop the process here.
+    run.abort();
+    throw error;
+  }
+  const isResult = ({ envelope: { message } }: AgentFrame) =>
+    message.type === "result";
+  return {
+    run,
+    release: () => gate.resolve(),
+    resultSeen: () => frames.some(isResult),
+    replied: async () => {
+      await withTimeout(appending.promise, 10_000, "The SDK never appended");
+      await waitFor(
+        () =>
+          frames.some(
+            ({ envelope: { message } }) =>
+              message.type === "assistant" &&
+              JSON.stringify(message).includes("HELD_APPEND_RESULT"),
+          ),
+        10_000,
+      );
+      // With nothing held, the result follows this reply within milliseconds;
+      // a result still absent after this long is one the flush is holding.
+      await Bun.sleep(HELD_RESULT_WINDOW_MS);
+    },
+    // The process is what a kill ends. When the append never lands, the
+    // run's iterator stays pending behind it: the append runs in this process.
+    kill: async () => {
+      run.abort();
+      await waitFor(() => exitedPids.length === spawnedPids.length, 5_000);
+      expect(spawnedPids).toHaveLength(1);
+    },
+  };
+}
+
+const denyEveryTool = {
+  onPermission: async () => ({
+    behavior: "deny" as const,
+    message: "No tools expected",
+  }),
+};
 
 describe("resumed history against the actual SDK", () => {
   test("a checkpoint resume holds exactly the inputs the engine loaded", async () => {

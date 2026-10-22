@@ -436,6 +436,118 @@ describe("GitWorkspace", () => {
   });
 });
 
+describe("GitWorkspace without a repository", () => {
+  const none: WorkspaceDescriptor = { repository: null };
+
+  test("makes a local git with no origin and one empty commit by a fixed identity", async () => {
+    await rm(root, { recursive: true });
+    const workspace = new GitWorkspace(root);
+
+    expect(
+      await workspace.prepare({
+        descriptor: none,
+        restore: null,
+        signal: new AbortController().signal,
+      }),
+    ).toBe("init");
+
+    expect(git(["remote"], root)).toBe("");
+    expect(git(["symbolic-ref", "--short", "HEAD"], root)).toBe("main");
+    expect(git(["log", "--format=%an <%ae>|%cn <%ce>|%s"], root)).toBe(
+      "Werft workspace <workspace@werft.invalid>|Werft workspace <workspace@werft.invalid>|Werft: empty workspace",
+    );
+    expect(git(["ls-tree", "-r", "HEAD"], root)).toBe("");
+    expect(await Bun.file(join(root, ".git", "info", "exclude")).text()).toBe(
+      "node_modules/\n.venv/\n__pycache__/\n.cache/\n",
+    );
+    // No template: no sample hooks or description for the engine to find.
+    expect((await readdir(join(root, ".git"))).sort()).not.toContain("hooks");
+    expect(workspace.committedClaudeMd()).toBeNull();
+    expect(workspace.instructionsCommit()).toBeNull();
+  });
+
+  test("keeps the local git a previous attempt left, with its work, and fetches nothing", async () => {
+    await prepare(none);
+    const head = git(["rev-parse", "HEAD"], root);
+    await mkdir(join(root, "out"));
+    await writeFile(join(root, "out", "report.md"), "draft\n");
+    // A killed worker's scratch, which counts against the volume.
+    await mkdir(join(root, ".git", "agent-platform-capture-AbC123"));
+
+    expect(await prepare(none)).toBe("keep");
+    expect(git(["rev-parse", "HEAD"], root)).toBe(head);
+    expect(await Bun.file(join(root, "out", "report.md")).text()).toBe(
+      "draft\n",
+    );
+    expect(await readdir(join(root, ".git"))).not.toContain(
+      "agent-platform-capture-AbC123",
+    );
+  });
+
+  test("leaves a committed checkpoint to the restorer, whatever the volume holds", async () => {
+    git(["init", "--quiet", root], scratch);
+    await writeFile(join(root, "stray.txt"), "?\n");
+
+    expect(
+      await new GitWorkspace(root).prepare({
+        descriptor: none,
+        restore: {
+          revision: 0,
+          manifest_ref: "sessions/x/manifest-0.json",
+          manifest_sha256: "a".repeat(64),
+        },
+        signal: new AbortController().signal,
+      }),
+    ).toBe("restore");
+    expect((await readdir(root)).sort()).toEqual([".git", "stray.txt"]);
+  });
+
+  test("refuses an init that never made its commit, and leaves it in place", async () => {
+    git(["init", "--quiet", root], scratch);
+    await writeFile(join(root, "notes.txt"), "only here\n");
+
+    await expect(prepare(none)).rejects.toThrow(
+      "local git has no commit: its init never finished",
+    );
+    expect((await readdir(root)).sort()).toEqual([".git", "notes.txt"]);
+  });
+
+  test("refuses a corrupt local git, a .git that is a file, an origin or stray files, and deletes none of them", async () => {
+    await prepare(none);
+    await writeFile(join(root, "a.txt"), "a\n");
+    git(["add", "a.txt"], root);
+    git(["commit", "--quiet", "-m", "a"], root);
+    const tree = git(["rev-parse", "HEAD^{tree}"], root);
+    await rm(join(root, ".git", "objects", tree.slice(0, 2), tree.slice(2)));
+    await expect(prepare(none)).rejects.toThrow(
+      "local git is incomplete or corrupt and exists nowhere else",
+    );
+    expect(await Bun.file(join(root, "a.txt")).text()).toBe("a\n");
+
+    await rm(root, { recursive: true });
+    await prepare(none);
+    git(["remote", "add", "origin", origin], root);
+    await expect(prepare(none)).rejects.toThrow(
+      "checkout has an origin, but the session has no repository",
+    );
+
+    await rm(root, { recursive: true });
+    await mkdir(root);
+    await writeFile(
+      join(root, ".git"),
+      `gitdir: ${join(scratch, "elsewhere")}\n`,
+    );
+    await expect(prepare(none)).rejects.toThrow();
+    expect(await readdir(root)).toEqual([".git"]);
+
+    await rm(root, { recursive: true });
+    await mkdir(root);
+    await writeFile(join(root, "stray.txt"), "?\n");
+    await expect(prepare(none)).rejects.toThrow("not a git checkout");
+    expect(await readdir(root)).toEqual(["stray.txt"]);
+  });
+});
+
 describe("GitWorkspace.committedClaudeMd", () => {
   /** Commits to origin's main, as the repository's authors would. */
   async function publish(
