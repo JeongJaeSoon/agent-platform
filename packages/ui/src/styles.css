@@ -135,6 +135,13 @@
   animation: ap-spin 900ms linear infinite;
 }
 
+/* Same box as the axis icon whose slot it takes, so the text holds still. */
+.ap-status__spinner {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+}
+
 @keyframes ap-spin {
   to {
     transform: rotate(360deg);
