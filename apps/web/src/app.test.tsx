@@ -120,7 +120,10 @@ describe("workspace shell", () => {
       "POST /v1/auth/logout": () => new Response(null, { status: 204 }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Owner 소유자" }),
+    );
+    await user.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
     const [logout] = callsTo(api.calls, "/v1/auth/logout");
@@ -134,7 +137,10 @@ describe("workspace shell", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "Storage is unavailable"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Owner 소유자" }),
+    );
+    await user.click(screen.getByRole("button", { name: "로그아웃" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "로그아웃하지 못해 아직 로그인된 상태입니다.",
     );
@@ -149,7 +155,10 @@ describe("workspace shell", () => {
         apiError(401, "UNAUTHORIZED", "Authentication is required"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "로그아웃" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Owner 소유자" }),
+    );
+    await user.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
   });
@@ -402,7 +411,9 @@ describe("i18n·반응형·키보드", () => {
       expect(
         await screen.findByRole("heading", { name: "Acme" }),
       ).toBeDefined();
-      expect(screen.getByRole("button", { name: "로그아웃" })).toBeDefined();
+      expect(
+        screen.getByRole("button", { name: "Owner 소유자" }),
+      ).toBeDefined();
       expect(window.innerWidth).toBe(width);
     },
   );

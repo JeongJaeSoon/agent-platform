@@ -11,9 +11,10 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
-import { useCan, useHasPermission, useMe } from "../auth/guard.tsx";
+import { useEffect, useId, useRef, useState } from "react";
+import { useCan, useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import {
+  isMessageKey,
   LOCALES,
   type Locale,
   type MessageKey,
@@ -147,9 +148,11 @@ export function AppSidebar({
       id={id}
       data-slot="app-sidebar"
       data-open={openBelowMd}
-      className="hidden flex-col gap-6 bg-rail px-2 py-3 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:overflow-y-auto"
+      // Only the nav scrolls, so the user block stays in view at any height;
+      // below md the open menu is capped to the screen under the header.
+      className="hidden max-h-[calc(100dvh-3.25rem)] flex-col gap-6 bg-rail px-2 py-3 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none"
     >
-      <div className="hidden px-2 md:block">
+      <div className="hidden shrink-0 px-2 md:block">
         <p className="m-0 font-semibold">{t("common.appName")}</p>
         {me?.workspace ? (
           <p className="m-0 text-rail-muted-foreground text-body [overflow-wrap:anywhere]">
@@ -157,7 +160,10 @@ export function AppSidebar({
           </p>
         ) : null}
       </div>
-      <nav aria-label={t("nav.label")} className="flex flex-col gap-3">
+      <nav
+        aria-label={t("nav.label")}
+        className="-mx-2 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2"
+      >
         {groups.map((group) => (
           <NavSection key={group.label} group={group} onNavigate={onNavigate} />
         ))}
@@ -211,6 +217,12 @@ function NavSection({
 // colour back: inherited, the rail's light text vanished on a light card.
 const ON_RAIL = "text-card-foreground";
 
+// By code point, so a name starting with an emoji or a surrogate pair is not
+// cut in half.
+function initial(name: string) {
+  return Array.from(name.trim())[0]?.toUpperCase() ?? "";
+}
+
 function UserMenu({
   logout,
 }: {
@@ -218,70 +230,127 @@ function UserMenu({
 }) {
   const { t, locale, setLocale } = useI18n();
   const me = useMe();
+  const role = useRole();
+  const roleKey = `role.${role}`;
   const [theme, setTheme] = useState<Theme>(storedTheme);
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!sectionRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [open]);
+
   return (
     <section
+      ref={sectionRef}
       aria-label={t("shell.account")}
-      className="mt-auto flex flex-col gap-3 border-rail-foreground/15 border-t px-2 pt-4"
+      className="relative shrink-0 border-rail-foreground/15 border-t pt-2"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || !open) return;
+        setOpen(false);
+        triggerRef.current?.focus();
+      }}
     >
-      {me?.user ? (
-        <div className="min-w-0">
-          <p className="m-0 font-medium text-body [overflow-wrap:anywhere]">
-            {me.user.display_name}
-          </p>
-          <p className="m-0 text-rail-muted-foreground text-caption [overflow-wrap:anywhere]">
-            {me.user.email}
-          </p>
-        </div>
-      ) : null}
-      <Field orientation="horizontal" className="justify-between gap-2">
-        <FieldLabel className="text-rail-muted-foreground text-caption">
-          {t("common.language")}
-        </FieldLabel>
-        <NativeSelect
-          size="sm"
-          className={ON_RAIL}
-          value={locale}
-          onChange={(event) => setLocale(event.target.value as Locale)}
-        >
-          {LOCALES.map((value) => (
-            <NativeSelectOption key={value} value={value}>
-              {value === "ko" ? "한국어" : "English"}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      </Field>
-      <Field orientation="horizontal" className="justify-between gap-2">
-        <FieldLabel className="text-rail-muted-foreground text-caption">
-          {t("shell.theme")}
-        </FieldLabel>
-        <NativeSelect
-          size="sm"
-          className={ON_RAIL}
-          value={theme}
-          onChange={(event) => {
-            const next = event.target.value as Theme;
-            setTheme(next);
-            chooseTheme(next);
-          }}
-        >
-          {THEMES.map((value) => (
-            <NativeSelectOption key={value} value={value}>
-              {t(`shell.theme.${value}`)}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      </Field>
-      <Button
+      <button
+        ref={triggerRef}
         type="button"
-        variant="outline"
-        size="sm"
-        className="border-rail-muted-foreground bg-transparent text-rail-foreground hover:bg-rail-foreground/10 hover:text-rail-foreground"
-        disabled={logout.pending}
-        onClick={logout.run}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-rail-foreground/10"
       >
-        {logout.pending ? t("common.loggingOut") : t("common.logout")}
-      </Button>
+        <span
+          aria-hidden="true"
+          className="grid size-7 shrink-0 place-items-center rounded-full bg-rail-foreground/15 font-semibold text-caption"
+        >
+          {initial(me?.user?.display_name ?? me?.workspace?.name ?? "")}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate font-medium text-body">
+            {me?.user?.display_name ?? t("shell.account")}
+          </span>
+          {role && isMessageKey(roleKey) ? (
+            <span className="truncate text-rail-muted-foreground text-caption">
+              {t(roleKey)}
+            </span>
+          ) : null}
+        </span>
+      </button>
+      <div
+        id={panelId}
+        hidden={!open}
+        className="absolute inset-x-0 bottom-full z-10 mb-2 flex flex-col gap-3 rounded-md border border-rail-foreground/15 bg-rail p-3 shadow-lg"
+      >
+        {me?.user || me?.workspace ? (
+          <div className="min-w-0">
+            {me.user ? (
+              <p className="m-0 text-caption [overflow-wrap:anywhere]">
+                {me.user.email}
+              </p>
+            ) : null}
+            {me.workspace ? (
+              <p className="m-0 text-rail-muted-foreground text-caption [overflow-wrap:anywhere]">
+                {me.workspace.name}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <Field orientation="horizontal" className="justify-between gap-2">
+          <FieldLabel className="text-rail-muted-foreground text-caption">
+            {t("common.language")}
+          </FieldLabel>
+          <NativeSelect
+            size="sm"
+            className={ON_RAIL}
+            value={locale}
+            onChange={(event) => setLocale(event.target.value as Locale)}
+          >
+            {LOCALES.map((value) => (
+              <NativeSelectOption key={value} value={value}>
+                {value === "ko" ? "한국어" : "English"}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Field orientation="horizontal" className="justify-between gap-2">
+          <FieldLabel className="text-rail-muted-foreground text-caption">
+            {t("shell.theme")}
+          </FieldLabel>
+          <NativeSelect
+            size="sm"
+            className={ON_RAIL}
+            value={theme}
+            onChange={(event) => {
+              const next = event.target.value as Theme;
+              setTheme(next);
+              chooseTheme(next);
+            }}
+          >
+            {THEMES.map((value) => (
+              <NativeSelectOption key={value} value={value}>
+                {t(`shell.theme.${value}`)}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="border-rail-muted-foreground bg-transparent text-rail-foreground hover:bg-rail-foreground/10 hover:text-rail-foreground"
+          disabled={logout.pending}
+          onClick={logout.run}
+        >
+          {logout.pending ? t("common.loggingOut") : t("common.logout")}
+        </Button>
+      </div>
     </section>
   );
 }

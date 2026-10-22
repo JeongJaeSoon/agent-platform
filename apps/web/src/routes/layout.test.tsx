@@ -165,18 +165,40 @@ describe("app shell", () => {
   test("the user menu holds language, theme and logout, once", async () => {
     renderAt("/", signedIn);
     const menu = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const trigger = within(menu).getByRole("button", { name: "Owner 소유자" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(within(menu).queryByRole("button", { name: "로그아웃" })).toBeNull();
+
+    const user = await setupUser();
+    await user.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(within(menu).getByText("owner@example.com")).toBeDefined();
     expect(
       within(menu).getByRole("button", { name: "로그아웃" }),
     ).toBeDefined();
     expect(screen.getAllByLabelText("언어")).toHaveLength(1);
 
-    const user = await setupUser();
     await user.selectOptions(within(menu).getByLabelText("테마"), "dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
     await user.selectOptions(within(menu).getByLabelText("테마"), "system");
     expect(document.documentElement.dataset.theme).toBeUndefined();
+  });
+
+  test("Escape or a click outside closes the user menu", async () => {
+    renderAt("/", signedIn);
+    const menu = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const trigger = within(menu).getByRole("button", { name: /Owner/ });
+    const user = await setupUser();
+    await user.click(trigger);
+    await user.click(within(menu).getByLabelText("테마"));
+    await user.keyboard("{Escape}");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement === trigger).toBe(true);
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("link", { name: "팀" }));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("a stored theme applies on the next load", async () => {
