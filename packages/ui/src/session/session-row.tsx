@@ -15,6 +15,15 @@ import {
 import { StatusLabel } from "../status/status-label.tsx";
 import { SessionStatusLabel } from "./session-status-label.tsx";
 
+/**
+ * Shared by the header row and every session row, which are separate grids.
+ * From 480px the state columns fit their longest label on one line: "Waiting
+ * for an answer" and "Needs recovery" in English. Narrower, the id needs the
+ * room more and a long label wraps.
+ */
+export const SESSION_COLUMNS =
+  "grid grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_160px_136px] @[820px]:grid-cols-[minmax(0,5fr)_160px_136px_minmax(0,3fr)_minmax(120px,2fr)]";
+
 export interface SessionRowMessages {
   readonly status: (status: SessionStatus) => string;
   readonly admission: (state: AdmissionState) => string;
@@ -71,7 +80,8 @@ export function SessionRow({
       data-slot="session-row"
       data-status={session.status}
       className={cn(
-        "relative grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_120px_136px] items-center gap-4 border-b px-4 py-2 text-control last:border-b-0 @[820px]:grid-cols-[minmax(0,2fr)_120px_120px_minmax(0,2fr)_minmax(72px,1fr)]",
+        SESSION_COLUMNS,
+        "relative min-h-[var(--ap-row-min-height)] min-w-0 items-center gap-4 border-b px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control last:border-b-0",
         className,
       )}
     >
@@ -83,19 +93,23 @@ export function SessionRow({
           className:
             "after:absolute after:inset-0 after:rounded-sm outline-none hover:underline focus-visible:underline focus-visible:after:ring-2 focus-visible:after:ring-ring",
         })}
-        <span className="mt-1 block text-left font-sans text-muted-foreground text-caption @[480px]:hidden">
+        <span className="mt-[var(--ap-row-line-gap)] block text-left font-sans text-muted-foreground text-caption @[480px]:hidden">
           {timestamp}
         </span>
       </span>
-      <span role="cell">
+      {/* flex, not a line box: an inline badge would sit on the baseline and
+          make the row 1–2px taller than its padding says. */}
+      <span role="cell" className="flex">
         <SessionStatusLabel
+          className="@[480px]:whitespace-nowrap"
           status={session.status}
           label={messages.status(session.status)}
           axisLabel={messages.statusAxis}
         />
       </span>
-      <span role="cell" className="hidden @[820px]:block">
+      <span role="cell" className="hidden @[820px]:flex">
         <StatusLabel
+          className="whitespace-nowrap"
           axis="admission"
           state={session.admission_state}
           label={messages.admission(session.admission_state)}

@@ -21,7 +21,9 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  useDetailLayout,
 } from "@werft-ai/ui";
+import { ArrowLeft } from "lucide-react";
 import { useRef, useState } from "react";
 import { agentQuery, queryKeys } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
@@ -38,7 +40,7 @@ import {
   CredentialUnbound,
   unboundRefs,
 } from "./agent-detail/credentials.tsx";
-import { Overview } from "./agent-detail/overview.tsx";
+import { CardSummary, Overview } from "./agent-detail/overview.tsx";
 import {
   type Place,
   type Placed,
@@ -51,7 +53,7 @@ import { latestVersion } from "./agent-detail/versions.tsx";
 import { agentRefusal } from "./agents.tsx";
 
 const PAGE = "flex flex-col gap-6";
-const TITLE = "m-0 font-semibold text-xl";
+const TITLE = "m-0 font-semibold text-title";
 const PANEL = "flex flex-col gap-8 pt-4";
 
 export const AGENT_TABS = ["overview", "card", "release", "admins"] as const;
@@ -191,6 +193,7 @@ function AgentView({
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
+  const layout = useDetailLayout();
   const role = useRole();
   const [conflict, setConflict] = useState<Conflict | null>(null);
   // The names the last refused activation found unbound.
@@ -269,7 +272,7 @@ function AgentView({
   const tabLabel = (name: AgentTab) => t(`agent.tabs.${name}`);
   // Every panel stays mounted, so leaving a tab never drops an unsaved card;
   // Radix leaves a force-mounted panel visible and in the tab order.
-  const panel = (name: AgentTab) => ({
+  const tabPanel = (name: AgentTab) => ({
     value: name,
     forceMount: true as const,
     hidden: name !== tab,
@@ -277,7 +280,7 @@ function AgentView({
     className: PANEL,
   });
   const releaseTab = useRef<HTMLButtonElement>(null);
-  // The button sits in the panel it hides, so the keyboard moves to the tab.
+  // The tab it opens is where the keyboard goes next, not this button.
   const toRelease = (
     <Button
       type="button"
@@ -292,156 +295,196 @@ function AgentView({
     </Button>
   );
 
-  return (
-    <div className={PAGE}>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className={cn(TITLE, "[overflow-wrap:anywhere]")}>{agent.name}</h1>
-        <Badge variant={agent.active_release_id ? "default" : "outline"}>
-          {agent.active_release_id
-            ? t(`agents.status.${agent.status}`)
-            : t("agents.state.notReleased")}
-        </Badge>
-      </div>
-      <p className={cn(MUTED, "text-sm [overflow-wrap:anywhere]")}>
-        {t("agents.slugLine", { slug: agent.slug })}
-        {/* Without one, the badge already says so. */}
-        {agent.active_release_id
-          ? ` · ${t("agent.activeRelease", {
-              release: releaseLabel(agent.active_release_id),
-            })}`
-          : null}
-      </p>
-      <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
-      <Tabs value={tab} onValueChange={(next) => openTab(next as AgentTab)}>
-        <TabsList variant="line" aria-label={t("agent.tabs.label")}>
+  const panel = (
+    <aside
+      key="panel"
+      aria-label={t("agent.panel.label")}
+      className="flex min-w-0 flex-col gap-4"
+    >
+      <Overview detail={detail} releaseLabel={releaseLabel}>
+        {toRelease}
+      </Overview>
+    </aside>
+  );
+  const body = (
+    <Tabs
+      key="body"
+      value={tab}
+      onValueChange={(next) => openTab(next as AgentTab)}
+      className="min-w-0"
+    >
+      <div className="border-b">
+        <TabsList
+          variant="line"
+          aria-label={t("agent.tabs.label")}
+          className="h-9 p-0"
+        >
           {AGENT_TABS.map((name) => (
             <TabsTrigger
               key={name}
               value={name}
               ref={name === "release" ? releaseTab : undefined}
+              className="h-9 px-3 text-control after:bottom-0"
             >
               {tabLabel(name)}
             </TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent {...panel("overview")}>
-          <Overview detail={detail} releaseLabel={releaseLabel}>
-            {toRelease}
-          </Overview>
-        </TabsContent>
-        <TabsContent {...panel("card")}>
-          <CardEditor
-            detail={detail}
-            result={
-              <>
-                <PlacedOutcome placed={placed} at="card" />
-                {placed?.at === "card" && placed.outcome.kind === "notice"
-                  ? toRelease
-                  : null}
-              </>
-            }
-            onOutcome={outcomeAt("card")}
-            onSaved={setReleaseVersion}
-          />
-          <VersionHistory
-            key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
-            detail={detail}
-          />
-        </TabsContent>
-        <TabsContent {...panel("release")}>
-          <Credentials
-            detail={detail}
-            missing={unbound ?? []}
-            titleRef={credentialsTitle}
-            result={<PlacedOutcome placed={placed} at="credentials" />}
-            onOutcome={outcomeAt("credentials")}
-          />
-          <Releases
-            detail={detail}
-            picked={releaseVersion}
-            onPick={setReleaseVersion}
-            versionNo={versionNo}
-            result={
-              <>
-                <PlacedOutcome placed={placed} at="releases" />
-                <TakesFocus on={unbound}>
-                  {unbound ? (
-                    <CredentialUnbound
-                      missing={unbound}
-                      onGo={() => credentialsTitle.current?.focus()}
-                    />
-                  ) : null}
-                </TakesFocus>
-                <TakesFocus on={conflict}>
-                  {conflict ? (
-                    <section
-                      className={ALERT}
-                      data-status="conflict"
-                      role="alert"
-                    >
-                      <h3 className={ALERT_TITLE}>
-                        {t("agent.conflict.title")}
-                      </h3>
-                      <p className="m-0">
-                        {reloaded
-                          ? t("agent.conflict.reloaded", {
-                              seen: releaseLabel(conflict.seenActiveReleaseId),
-                              now: releaseLabel(agent.active_release_id),
-                            })
-                          : t("agent.conflict.body")}
-                      </p>
-                      {reloaded ? (
-                        <RevisionDiff
-                          before={
-                            detail.versions.find(
-                              (v) => v.id === seenRelease?.version_id,
-                            )?.card ?? null
-                          }
-                          after={
-                            detail.active_release
-                              ? (detail.versions.find(
-                                  (v) =>
-                                    v.id === detail.active_release?.version_id,
-                                )?.card ?? null)
-                              : null
-                          }
-                          beforeLabel={releaseLabel(
-                            conflict.seenActiveReleaseId,
-                          )}
-                          afterLabel={releaseLabel(agent.active_release_id)}
-                        />
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={onReload}
-                        >
-                          {t("agent.conflict.reload")}
-                        </Button>
-                      )}
-                    </section>
-                  ) : null}
-                </TakesFocus>
-              </>
-            }
-            onOutcome={onOutcome}
-            activating={
-              activate.isPending ? activate.variables?.release.id : undefined
-            }
-            onActivate={(release) =>
-              activate.mutate({
-                release,
-                expected: agent.activation_revision,
-                seenActive: agent.active_release_id,
-              })
-            }
-          />
-        </TabsContent>
-        <TabsContent {...panel("admins")}>
-          <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
-          <PlacedOutcome placed={placed} at="admins" />
-        </TabsContent>
-      </Tabs>
+      </div>
+      <TabsContent {...tabPanel("overview")}>
+        <CardSummary detail={detail} />
+      </TabsContent>
+      <TabsContent {...tabPanel("card")}>
+        <CardEditor
+          detail={detail}
+          result={
+            <>
+              <PlacedOutcome placed={placed} at="card" />
+              {placed?.at === "card" && placed.outcome.kind === "notice"
+                ? toRelease
+                : null}
+            </>
+          }
+          onOutcome={outcomeAt("card")}
+          onSaved={setReleaseVersion}
+        />
+        <VersionHistory
+          key={`${latestVersion(detail)?.id}:${agent.active_release_id}`}
+          detail={detail}
+        />
+      </TabsContent>
+      <TabsContent {...tabPanel("release")}>
+        <Credentials
+          detail={detail}
+          missing={unbound ?? []}
+          titleRef={credentialsTitle}
+          result={<PlacedOutcome placed={placed} at="credentials" />}
+          onOutcome={outcomeAt("credentials")}
+        />
+        <Releases
+          detail={detail}
+          picked={releaseVersion}
+          onPick={setReleaseVersion}
+          versionNo={versionNo}
+          result={
+            <>
+              <PlacedOutcome placed={placed} at="releases" />
+              <TakesFocus on={unbound}>
+                {unbound ? (
+                  <CredentialUnbound
+                    missing={unbound}
+                    onGo={() => credentialsTitle.current?.focus()}
+                  />
+                ) : null}
+              </TakesFocus>
+              <TakesFocus on={conflict}>
+                {conflict ? (
+                  <section
+                    className={ALERT}
+                    data-status="conflict"
+                    role="alert"
+                  >
+                    <h3 className={ALERT_TITLE}>{t("agent.conflict.title")}</h3>
+                    <p className="m-0">
+                      {reloaded
+                        ? t("agent.conflict.reloaded", {
+                            seen: releaseLabel(conflict.seenActiveReleaseId),
+                            now: releaseLabel(agent.active_release_id),
+                          })
+                        : t("agent.conflict.body")}
+                    </p>
+                    {reloaded ? (
+                      <RevisionDiff
+                        before={
+                          detail.versions.find(
+                            (v) => v.id === seenRelease?.version_id,
+                          )?.card ?? null
+                        }
+                        after={
+                          detail.active_release
+                            ? (detail.versions.find(
+                                (v) =>
+                                  v.id === detail.active_release?.version_id,
+                              )?.card ?? null)
+                            : null
+                        }
+                        beforeLabel={releaseLabel(conflict.seenActiveReleaseId)}
+                        afterLabel={releaseLabel(agent.active_release_id)}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={onReload}
+                      >
+                        {t("agent.conflict.reload")}
+                      </Button>
+                    )}
+                  </section>
+                ) : null}
+              </TakesFocus>
+            </>
+          }
+          onOutcome={onOutcome}
+          activating={
+            activate.isPending ? activate.variables?.release.id : undefined
+          }
+          onActivate={(release) =>
+            activate.mutate({
+              release,
+              expected: agent.activation_revision,
+              seenActive: agent.active_release_id,
+            })
+          }
+        />
+      </TabsContent>
+      <TabsContent {...tabPanel("admins")}>
+        <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
+        <PlacedOutcome placed={placed} at="admins" />
+      </TabsContent>
+    </Tabs>
+  );
+
+  return (
+    <div className={PAGE}>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className={cn(TITLE, "[overflow-wrap:anywhere]")}>
+              {agent.name}
+            </h1>
+            <Badge variant={agent.active_release_id ? "default" : "outline"}>
+              {agent.active_release_id
+                ? t(`agents.status.${agent.status}`)
+                : t("agents.state.notReleased")}
+            </Badge>
+          </div>
+          <p className={cn(MUTED, "text-control [overflow-wrap:anywhere]")}>
+            {t("agents.slugLine", { slug: agent.slug })}
+            {/* Without one, the badge already says so. */}
+            {agent.active_release_id
+              ? ` · ${t("agent.activeRelease", {
+                  release: releaseLabel(agent.active_release_id),
+                })}`
+              : null}
+          </p>
+        </div>
+        <Link
+          to="/agents"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          <ArrowLeft className="size-3.5" aria-hidden="true" />
+          {t("agent.back")}
+        </Link>
+      </header>
+      <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
+      <div
+        ref={layout.ref}
+        data-slot="agent-detail-layout"
+        className={layout.className}
+      >
+        {layout.narrow ? [panel, body] : [body, panel]}
+      </div>
     </div>
   );
 }

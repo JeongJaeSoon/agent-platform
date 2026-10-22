@@ -145,7 +145,7 @@ log "restore: db.sql applied ($(psql_in "$INTO" -Atc "SELECT count(*) FROM sessi
 # Every object gets a new VersionId here, and the checkpoints name the old
 # ones. The manifests those rows name are left out of the sync and written
 # once, re-pinned to the new versions, by `checkpoint_pins repin` below
-# (docs/backup-restore.md, "checkpoint 객체의 version").
+# (docs/operator/backup-restore.md, "checkpoint 객체의 version").
 MANIFEST_KEYS="$(psql_in "$INTO" -Atc "SELECT DISTINCT manifest_ref FROM checkpoints WHERE collected_at IS NULL ORDER BY 1")"
 SKIP_KEYS="$(mktemp)"
 trap 'rm -f "$SKIP_KEYS"; docker network rm "$LOCK" >/dev/null 2>&1 || true' EXIT

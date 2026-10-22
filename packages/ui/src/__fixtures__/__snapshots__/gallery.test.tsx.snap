@@ -7,8 +7,8 @@ exports[`컴포넌트 갤러리 360px 1`] = `
     <h3>admission</h3>
     <div class="gallery__row">
       <span class="ap-status" data-axis="admission" data-state="active" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -21,8 +21,8 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-status__text">일시정지 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -41,16 +41,16 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-status__text">종료 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="stopped" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">종료됨</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="recovery_required" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -63,8 +63,8 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-status__text">보관 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -76,8 +76,8 @@ exports[`컴포넌트 갤러리 360px 1`] = `
     <h3>turn</h3>
     <div class="gallery__row">
       <span class="ap-status" data-axis="turn" data-state="queued" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
@@ -90,48 +90,48 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-status__text">작업 중</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="needs_input" data-tone="attention">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">답변 대기</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="completed" data-tone="positive">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">완료</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">실패</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="interrupted" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">중단됨</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="cancelled" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">취소됨</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="outcome_unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
@@ -149,24 +149,36 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-status__text">접수됨</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="succeeded" data-tone="positive">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
         <span class="ap-status__text">확정됨</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
         <span class="ap-status__text">실패</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -190,8 +202,8 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-status__text">실행 중</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
@@ -204,16 +216,16 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-status__text">정리 중</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="terminated" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
         <span class="ap-status__text">정리됨</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
@@ -231,16 +243,16 @@ exports[`컴포넌트 갤러리 360px 1`] = `
       <span class="ap-status__stale" title="마지막으로 확인한 값입니다">갱신 지연</span>
     </span>
     <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
-      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-        <rect x="2" y="2" width="10" height="10" rx="3">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+        <rect width="18" height="18" x="3" y="3" rx="2">
         </rect>
       </svg>
       <span class="ap-visually-hidden">세션: </span>
       <span class="ap-status__text">관리자가 세웠습니다</span>
     </span>
     <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
-      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-        <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
         </path>
       </svg>
       <span class="ap-visually-hidden">실행: </span>
@@ -290,8 +302,12 @@ exports[`컴포넌트 갤러리 360px 1`] = `
     <div class="ap-receipt__head">
       <span class="ap-receipt__operation">종료 요청</span>
       <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -313,8 +329,12 @@ exports[`컴포넌트 갤러리 360px 1`] = `
     <div class="ap-receipt__head">
       <span class="ap-receipt__operation">답변 제출</span>
       <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -424,8 +444,8 @@ exports[`컴포넌트 갤러리 768px 1`] = `
     <h3>admission</h3>
     <div class="gallery__row">
       <span class="ap-status" data-axis="admission" data-state="active" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -438,8 +458,8 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-status__text">일시정지 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -458,16 +478,16 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-status__text">종료 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="stopped" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">종료됨</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="recovery_required" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -480,8 +500,8 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-status__text">보관 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -493,8 +513,8 @@ exports[`컴포넌트 갤러리 768px 1`] = `
     <h3>turn</h3>
     <div class="gallery__row">
       <span class="ap-status" data-axis="turn" data-state="queued" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
@@ -507,48 +527,48 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-status__text">작업 중</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="needs_input" data-tone="attention">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">답변 대기</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="completed" data-tone="positive">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">완료</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">실패</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="interrupted" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">중단됨</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="cancelled" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">취소됨</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="outcome_unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
@@ -566,24 +586,36 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-status__text">접수됨</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="succeeded" data-tone="positive">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
         <span class="ap-status__text">확정됨</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
         <span class="ap-status__text">실패</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -607,8 +639,8 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-status__text">실행 중</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
@@ -621,16 +653,16 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-status__text">정리 중</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="terminated" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
         <span class="ap-status__text">정리됨</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
@@ -648,16 +680,16 @@ exports[`컴포넌트 갤러리 768px 1`] = `
       <span class="ap-status__stale" title="마지막으로 확인한 값입니다">갱신 지연</span>
     </span>
     <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
-      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-        <rect x="2" y="2" width="10" height="10" rx="3">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+        <rect width="18" height="18" x="3" y="3" rx="2">
         </rect>
       </svg>
       <span class="ap-visually-hidden">세션: </span>
       <span class="ap-status__text">관리자가 세웠습니다</span>
     </span>
     <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
-      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-        <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
         </path>
       </svg>
       <span class="ap-visually-hidden">실행: </span>
@@ -707,8 +739,12 @@ exports[`컴포넌트 갤러리 768px 1`] = `
     <div class="ap-receipt__head">
       <span class="ap-receipt__operation">종료 요청</span>
       <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -730,8 +766,12 @@ exports[`컴포넌트 갤러리 768px 1`] = `
     <div class="ap-receipt__head">
       <span class="ap-receipt__operation">답변 제출</span>
       <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -841,8 +881,8 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
     <h3>admission</h3>
     <div class="gallery__row">
       <span class="ap-status" data-axis="admission" data-state="active" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -855,8 +895,8 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-status__text">일시정지 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -875,16 +915,16 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-status__text">종료 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="stopped" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">종료됨</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="recovery_required" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -897,8 +937,8 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-status__text">보관 중</span>
       </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="10" height="10" rx="3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+          <rect width="18" height="18" x="3" y="3" rx="2">
           </rect>
         </svg>
         <span class="ap-visually-hidden">세션: </span>
@@ -910,8 +950,8 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
     <h3>turn</h3>
     <div class="gallery__row">
       <span class="ap-status" data-axis="turn" data-state="queued" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
@@ -924,48 +964,48 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-status__text">작업 중</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="needs_input" data-tone="attention">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">답변 대기</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="completed" data-tone="positive">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">완료</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">실패</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="interrupted" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">중단됨</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="cancelled" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
         <span class="ap-status__text">취소됨</span>
       </span>
       <span class="ap-status" data-axis="turn" data-state="outcome_unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M4.5 2.5 11 7l-6.5 4.5Z" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z">
           </path>
         </svg>
         <span class="ap-visually-hidden">턴: </span>
@@ -983,24 +1023,36 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-status__text">접수됨</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="succeeded" data-tone="positive">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
         <span class="ap-status__text">확정됨</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
         <span class="ap-status__text">실패</span>
       </span>
       <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -1024,8 +1076,8 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-status__text">실행 중</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
@@ -1038,16 +1090,16 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-status__text">정리 중</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="terminated" data-tone="neutral">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
         <span class="ap-status__text">정리됨</span>
       </span>
       <span class="ap-status" data-axis="execution" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
           </path>
         </svg>
         <span class="ap-visually-hidden">실행: </span>
@@ -1065,16 +1117,16 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
       <span class="ap-status__stale" title="마지막으로 확인한 값입니다">갱신 지연</span>
     </span>
     <span class="ap-status" data-axis="admission" data-state="paused" data-tone="caution">
-      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-        <rect x="2" y="2" width="10" height="10" rx="3">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square ap-status__icon" aria-hidden="true" focusable="false">
+        <rect width="18" height="18" x="3" y="3" rx="2">
         </rect>
       </svg>
       <span class="ap-visually-hidden">세션: </span>
       <span class="ap-status__text">관리자가 세웠습니다</span>
     </span>
     <span class="ap-status" data-axis="execution" data-state="suspended" data-tone="caution">
-      <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-        <path d="M7 2 11.9 4.75v5.5L7 13 2.1 10.25v-5.5Z">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-hexagon ap-status__icon" aria-hidden="true" focusable="false">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
         </path>
       </svg>
       <span class="ap-visually-hidden">실행: </span>
@@ -1124,8 +1176,12 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
     <div class="ap-receipt__head">
       <span class="ap-receipt__operation">종료 요청</span>
       <span class="ap-status" data-axis="receipt" data-state="unknown" data-tone="unknown">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>
@@ -1147,8 +1203,12 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
     <div class="ap-receipt__head">
       <span class="ap-receipt__operation">답변 제출</span>
       <span class="ap-status" data-axis="receipt" data-state="failed" data-tone="danger">
-        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M3.5 2h7v10l-1.75-1.2L7 12l-1.75-1.2L3.5 12Z">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt ap-status__icon" aria-hidden="true" focusable="false">
+          <path d="M12 17V7">
+          </path>
+          <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8">
+          </path>
+          <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z">
           </path>
         </svg>
         <span class="ap-visually-hidden">접수: </span>

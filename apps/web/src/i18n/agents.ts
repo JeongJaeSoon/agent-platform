@@ -1,6 +1,11 @@
 export const agentsKo = {
   "agents.title": "에이전트",
   "agents.new": "새 에이전트",
+  "agents.intro":
+    "에이전트는 카드·배포 판·관리자를 가진 작업자입니다. 관리자는 그 에이전트 세션의 요청에 답합니다.",
+  "agents.column.agent": "에이전트",
+  "agents.column.state": "상태",
+  "agents.column.updated": "수정",
   "agents.listWithheld":
     "전체 에이전트 목록은 소유자와 관리자만 봅니다. 새 에이전트를 만들면 아래 '내가 관리하는 에이전트'에 나옵니다.",
   "agent.notFound.title": "에이전트를 찾을 수 없습니다",
@@ -161,6 +166,10 @@ export const agentsKo = {
   "agent.tabs.release": "배포",
   "agent.tabs.admins": "관리자",
   "agent.tabs.toRelease": "배포 탭으로",
+  "agent.back": "에이전트 목록",
+  "agent.panel.label": "에이전트 요약",
+  "agent.panel.summary": "요약",
+  "agent.panel.none": "없음",
   "agent.overview.active": "활성 release",
   "agent.overview.latest": "최신 version",
   "agent.overview.notActive":
@@ -204,6 +213,11 @@ export const agentsKo = {
 export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.title": "Agents",
   "agents.new": "New agent",
+  "agents.intro":
+    "An agent is a worker with a card, a release and admins. Its admins answer the requests from its sessions.",
+  "agents.column.agent": "Agent",
+  "agents.column.state": "State",
+  "agents.column.updated": "Updated",
   "agents.listWithheld":
     "Only owners and admins see every agent. An agent you create appears under 'Agents you administer' below.",
   "agent.notFound.title": "Agent not found",
@@ -361,6 +375,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.release": "Release",
   "agent.tabs.admins": "Admins",
   "agent.tabs.toRelease": "Go to the Release tab",
+  "agent.back": "Agents",
+  "agent.panel.label": "Agent summary",
+  "agent.panel.summary": "Summary",
+  "agent.panel.none": "None",
   "agent.overview.active": "Active release",
   "agent.overview.latest": "Latest version",
   "agent.overview.notActive":
@@ -604,4 +622,13 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.mine.empty":
     "管理者に指定されているエージェントはまだありません。",
   "agentAdmins.mine.truncated": "最初の {count}件を表示しています。",
+  "agents.intro":
+    "エージェントは、カード・リリース・管理者を持つ作業者です。管理者はそのエージェントのセッションからのリクエストに回答します。",
+  "agents.column.agent": "エージェント",
+  "agents.column.state": "状態",
+  "agents.column.updated": "更新",
+  "agent.back": "エージェント一覧",
+  "agent.panel.label": "エージェントの概要",
+  "agent.panel.summary": "概要",
+  "agent.panel.none": "なし",
 };

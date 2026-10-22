@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import {
   type JSX,
   type KeyboardEvent,
@@ -172,19 +173,7 @@ function StepIndicator({
       )}
     >
       {state === "complete" ? (
-        <svg
-          className="size-3.5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
+        <Check className="size-3.5" strokeWidth={2} aria-hidden="true" />
       ) : (
         number
       )}

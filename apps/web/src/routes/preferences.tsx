@@ -27,10 +27,8 @@ export function PreferencesScreen() {
   const theme = useTheme();
   return (
     <div className="flex flex-col">
-      <h1 className="m-0 mb-4 border-b pb-4 font-semibold text-xl">
-        {t("preferences.title")}
-      </h1>
-      <p className="m-0 mb-6 text-muted-foreground text-body">
+      <h1 className="m-0 font-semibold text-xl">{t("nav.preferences")}</h1>
+      <p className="m-0 mt-1 mb-6 text-muted-foreground text-body">
         {t("preferences.lead")}
       </p>
       <div className="flex flex-col gap-4">

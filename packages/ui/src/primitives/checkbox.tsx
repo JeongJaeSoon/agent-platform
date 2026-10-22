@@ -1,4 +1,5 @@
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
+import { Check } from "lucide-react";
 import type { ComponentProps, JSX } from "react";
 
 import { cn } from "../lib/cn.ts";
@@ -28,19 +29,7 @@ export function Checkbox({
         data-slot="checkbox-indicator"
         className="grid place-content-center text-current transition-none"
       >
-        <svg
-          className="size-3.5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
+        <Check className="size-3.5" strokeWidth={2} aria-hidden="true" />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );

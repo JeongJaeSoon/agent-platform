@@ -79,8 +79,14 @@ function LocaleSwitch() {
   );
 }
 
-function usesReadingColumn(pathname: string) {
-  return pathname === "/agents/new" || pathname.startsWith("/settings/");
+/** One width per screen, which every block on it shares. */
+function contentWidth(pathname: string) {
+  if (pathname === "/agents/new")
+    return "max-w-[var(--ap-layout-reading-width)]";
+  if (pathname.startsWith("/settings/")) {
+    return "max-w-[var(--ap-layout-settings-width)]";
+  }
+  return "max-w-[var(--ap-layout-content-width)]";
 }
 
 export function AuthedLayout() {
@@ -187,9 +193,7 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
     <Main
       className={cn(
         "web-shell__main mx-auto flex w-full min-w-0 flex-col p-4 md:col-start-2 md:row-start-2 md:px-6 md:py-6",
-        usesReadingColumn(usePathname())
-          ? "max-w-[var(--ap-layout-reading-width)]"
-          : "max-w-[var(--ap-layout-content-width)]",
+        contentWidth(usePathname()),
       )}
     >
       {children}

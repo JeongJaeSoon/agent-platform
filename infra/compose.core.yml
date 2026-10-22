@@ -42,7 +42,7 @@ x-egress-ports:
 # (tests/images.test.ts).
 #
 # Published ports are loopback only, and only for what a process on this
-# host uses (docs/development.md): nothing here is meant for another machine,
+# host uses (docs/contributing/development.md): nothing here is meant for another machine,
 # and the postgres credentials are local defaults.
 services:
   postgres:
@@ -184,7 +184,7 @@ services:
   # `apps` profile: the sessions API and the scheduler.
   # `docker compose --profile apps up -d --build`.
   # Every value below has a working default. The local layer also reads a
-  # ../.env when present and never writes it (docs/development.md); no other
+  # ../.env when present and never writes it (docs/contributing/development.md); no other
   # installation picks up a checkout's .env.
   api:
     image: ${API_IMAGE:-agent-platform-control-host:dev}

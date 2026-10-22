@@ -18,15 +18,9 @@ import {
   Timeline,
   type TimelineEntry,
   turnSummaryText,
+  useDetailLayout,
 } from "@werft-ai/ui";
-import {
-  type ReactNode,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import {
   type EventStreamState,
   type SessionEventFrame,
@@ -78,7 +72,7 @@ export function SessionDetail({
     isApiError(session.error, "FORBIDDEN");
   const detail = lostAccess ? undefined : session.data;
   const readable = detail !== undefined;
-  const { wrapperRef, narrow } = useDetailWidth(readable);
+  const layout = useDetailLayout(readable);
   const usage = useSessionUsage(id, readable);
   const pending = usePendingRequests(id, readable);
   const events = useSessionEvents(id, readable);
@@ -163,7 +157,15 @@ export function SessionDetail({
     <aside
       key="panel"
       aria-label={t("session.panel")}
-      className="flex min-w-0 flex-col gap-4"
+      // Stacked above the body, the cards keep about the panel's width side
+      // by side instead of stretching a question across the whole page. With
+      // nothing to show, the answers block keeps its live region mounted but
+      // leaves the grid, so it does not hold an empty cell.
+      className={
+        layout.narrow
+          ? "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,var(--ap-layout-detail-panel-width)),1fr))] items-start gap-4 [&>[data-slot=pending-answers]:not(:has(li,p,output:not(:empty)))]:absolute"
+          : "flex min-w-0 flex-col gap-4"
+      }
     >
       {pending.data ? (
         <PendingAnswers
@@ -241,37 +243,14 @@ export function SessionDetail({
         {back}
       </header>
       <div
-        ref={wrapperRef}
+        ref={layout.ref}
         data-slot="session-detail-layout"
-        className={
-          narrow
-            ? "grid min-w-0 grid-cols-1 items-start gap-6"
-            : "grid min-w-0 grid-cols-[minmax(0,1fr)_var(--ap-layout-detail-panel-width)] items-start gap-6"
-        }
+        className={layout.className}
       >
-        {narrow ? [panel, body] : [body, panel]}
+        {layout.narrow ? [panel, body] : [body, panel]}
       </div>
     </div>
   );
-}
-
-function useDetailWidth(readable: boolean) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    if (
-      !readable ||
-      typeof ResizeObserver === "undefined" ||
-      !wrapperRef.current
-    )
-      return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setNarrow(entry.contentRect.width < 900);
-    });
-    observer.observe(wrapperRef.current);
-    return () => observer.disconnect();
-  }, [readable]);
-  return { wrapperRef, narrow };
 }
 
 function Section({
@@ -481,6 +460,7 @@ function Events({
           connecting: t("session.events.connecting"),
           closed: t("session.events.closed"),
           turn: (turn) => t("session.events.turn", { turn }),
+          kind: (kind) => t(`session.events.kind.${kind}`),
         }}
         state={state}
         showDebug={debug}

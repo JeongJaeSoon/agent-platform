@@ -15,6 +15,7 @@ import { FormError, NOTICE } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { RowLines, RowList, RowListItem } from "../components/table.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
 
@@ -217,14 +218,14 @@ function SlackAccounts({
     return <EmptyState title={t("linked.none")} />;
   }
   return (
-    <ul className="m-0 flex list-none flex-col p-0">
+    <RowList variant="joined">
       {accounts.map((account) => (
-        <li
+        <RowListItem
           key={account.id}
           data-account={account.id}
-          className="flex flex-col items-start gap-1 border-b py-3 sm:flex-row sm:items-center sm:gap-3"
+          className="flex-col items-start sm:flex-row sm:items-center"
         >
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <RowLines>
             <span className={PRIMARY}>
               {t("linked.slackAccount", {
                 user: account.external_user_id,
@@ -238,7 +239,7 @@ function SlackAccounts({
                     at: formatTimestamp(account.verified_at, locale),
                   })}
             </span>
-          </span>
+          </RowLines>
           <Button
             type="button"
             variant="outline"
@@ -253,9 +254,9 @@ function SlackAccounts({
           >
             {t("linked.unlink")}
           </Button>
-        </li>
+        </RowListItem>
       ))}
-    </ul>
+    </RowList>
   );
 }
 

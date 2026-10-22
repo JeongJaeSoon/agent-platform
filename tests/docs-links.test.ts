@@ -192,7 +192,7 @@ describe("Operator settings", () => {
   });
 
   test("every value compose or a script takes from the shell is in docs/", () => {
-    const docs = scan("docs/*.md")
+    const docs = scan("docs/**/*.md")
       .map((file) => readFileSync(join(root, file), "utf8"))
       .join("\n");
     const names = shellSettings();

@@ -184,7 +184,11 @@ export function PendingAnswers({
       !items.some((request) => request.request_id === outcome.requestId));
 
   return (
-    <div ref={listRef} className="flex flex-col gap-2">
+    <div
+      ref={listRef}
+      data-slot="pending-answers"
+      className="flex flex-col gap-2"
+    >
       <OutcomeLine ref={noticeRef} outcome={shownHere ? outcome : null} />
       {reason === undefined ? null : <Reason text={reason} />}
       {items.length === 0 ? (

@@ -42,7 +42,7 @@
 # config/local-model, whose two profiles call Ollama directly and through a
 # LiteLLM proxy (infra/compose.local-model.yml), and the suite runs once on
 # each. Needs Ollama on localhost:11434 with gemma4:26b-mlx pulled; nothing
-# is paid. docs/local-model.md says what it shows and what it does not.
+# is paid. docs/contributing/local-model.md says what it shows and what it does not.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"

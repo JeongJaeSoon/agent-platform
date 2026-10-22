@@ -783,7 +783,7 @@ jobs:
 
   # Research harnesses, pinned to the SDK and LiteLLM versions under
   # investigation. Their failures have never been a product regression, so they
-  # report without blocking the run; see docs/ci.md.
+  # report without blocking the run; see docs/contributing/ci.md.
   #
   # Deliberately NOT a required status check, for three reasons
   #   1. It does not run on pull_request, so a required `spikes` context would

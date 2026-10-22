@@ -1,5 +1,4 @@
 export const preferencesKo = {
-  "preferences.title": "내 설정",
   "preferences.lead":
     "이 콘솔을 어떻게 보여 줄지 정합니다. 나에게만 적용됩니다.",
   "preferences.languageHint":
@@ -19,7 +18,6 @@ export const preferencesKo = {
 };
 
 export const preferencesEn: Record<keyof typeof preferencesKo, string> = {
-  "preferences.title": "My settings",
   "preferences.lead": "How this console looks to you. Applies only to you.",
   "preferences.languageHint":
     "The language for menus and guidance text. What you type stays as is.",
@@ -38,7 +36,6 @@ export const preferencesEn: Record<keyof typeof preferencesKo, string> = {
 };
 
 export const preferencesJa: Record<keyof typeof preferencesKo, string> = {
-  "preferences.title": "個人設定",
   "preferences.lead":
     "このコンソールの表示方法を決めます。自分にだけ適用されます。",
   "preferences.languageHint":

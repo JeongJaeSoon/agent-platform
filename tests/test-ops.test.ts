@@ -257,7 +257,7 @@ describe("scripts/test-ops.sh", () => {
     expect(result.stderr).toContain("no release is deployed");
   });
 
-  // The provider key rotation in docs/test-ops.md: the deployed release again,
+  // The provider key rotation in docs/operator/test-ops.md: the deployed release again,
   // worker unchanged, so nothing is approved ( found it dying under
   // `set -u` and leaving pending.json behind).
   test("upgrade to the same worker image needs no approval", async () => {

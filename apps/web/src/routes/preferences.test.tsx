@@ -18,7 +18,7 @@ describe("preferences", () => {
   test("language and theme are labelled radio groups, each language in its own words", async () => {
     renderAt("/settings/preferences", signedIn);
     expect(
-      await screen.findByRole("heading", { level: 1, name: "내 설정" }),
+      await screen.findByRole("heading", { level: 1, name: "언어·테마" }),
     ).toBeDefined();
     const language = screen.getByRole("radiogroup", { name: "언어" });
     expect(
@@ -53,11 +53,11 @@ describe("preferences", () => {
     const user = await setupUser();
     const start = (await screen.findByRole("heading", { level: 1 }))
       .textContent;
-    expect(start).not.toBe("個人設定");
+    expect(start).not.toBe("言語・テーマ");
 
     await user.click(screen.getByRole("radio", { name: /日本語/ }));
     expect(
-      await screen.findByRole("heading", { level: 1, name: "個人設定" }),
+      await screen.findByRole("heading", { level: 1, name: "言語・テーマ" }),
     ).toBeDefined();
     expect(document.documentElement.lang).toBe("ja");
     expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("ja");
@@ -65,7 +65,7 @@ describe("preferences", () => {
     cleanup();
     renderAt("/settings/preferences", signedIn, null);
     expect(
-      await screen.findByRole("heading", { level: 1, name: "個人設定" }),
+      await screen.findByRole("heading", { level: 1, name: "言語・テーマ" }),
     ).toBeDefined();
     expect(
       screen
@@ -75,7 +75,10 @@ describe("preferences", () => {
 
     await user.click(screen.getByRole("radio", { name: /English/ }));
     expect(
-      await screen.findByRole("heading", { level: 1, name: "My settings" }),
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
     ).toBeDefined();
     cleanup();
     renderAt("/", signedIn, null);
