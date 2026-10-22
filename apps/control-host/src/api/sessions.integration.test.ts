@@ -1380,6 +1380,83 @@ integration("sessions API on PostgreSQL", () => {
     expect(text).not.toContain("repository_mode");
   }, 60_000);
 
+  test("a create without a repository replays, even after the catalog stops allowing it", async () => {
+    const message = "Summarize the meeting notes.";
+    const narrowed = createApiApp({
+      authMode: "none",
+      registerRoutes: (router) =>
+        registerSessionRoutes(
+          router,
+          createSessionService({
+            limits: {
+              queuedInputLimitPerSession: 1_000,
+              storageLimitBytes: 1e15,
+              sessionCostLimitUsd: 1_000,
+              sessionTokenLimit: null,
+            },
+            authorization: createAuthorizationPolicy(),
+            inputs: createPostgresSessionUnitOfWork(db),
+            controls: createPostgresSessionControl(db),
+            reader: createPostgresSessionReader(db),
+            catalog: {
+              profiles: {
+                "claude-coding-v1": coding,
+                "claude-coding-optional": coding,
+              },
+              repositories: catalog.repositories,
+            },
+          }),
+        ),
+    });
+    const receiptCount = async () =>
+      (
+        await db
+          .select({ n: count() })
+          .from(receipts)
+          .where(eq(receipts.ownerId, owner))
+      )[0]?.n;
+
+    for (const profileId of ["general", "claude-coding-optional"]) {
+      const key = crypto.randomUUID();
+      const payload = { profile_id: profileId, message };
+      const first = await create(key, payload);
+      expect(first.status).toBe(201);
+      const created = createSessionResponseSchema.parse(await first.json());
+      const receiptsBefore = await receiptCount();
+
+      const replay = await create(key, payload);
+      expect(replay.status).toBe(201);
+      expect(await replay.json()).toEqual(created);
+
+      const later = await narrowed.request("/v1/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Owner-Id": owner,
+          "Idempotency-Key": key,
+        },
+        body: JSON.stringify(payload),
+      });
+      expect(later.status).toBe(201);
+      expect(await later.json()).toEqual(created);
+
+      const conflict = await create(key, {
+        ...payload,
+        repository_id: "sample-app",
+      });
+      expect(conflict.status).toBe(409);
+      expect((await conflict.json()).error.code).toBe("IDEMPOTENCY_CONFLICT");
+
+      expect(await rowsFor(created.session_id)).toEqual({
+        sessions: 1,
+        turns: 1,
+        queue: 1,
+        unassigned: 1,
+      });
+      expect(await receiptCount()).toBe(receiptsBefore);
+    }
+  }, 60_000);
+
   test("a session without a repository is judged by its profile alone: CATALOG_MISMATCH and profile changes", async () => {
     const response = await create(crypto.randomUUID(), {
       profile_id: "general",
