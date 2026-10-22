@@ -319,7 +319,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Admin",
     description:
-      "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. Owners and admins, signed in; only an owner decides recovery. Listing, audit reads and takeovers refuse an API key. Stopping and recovery also take an API key holding `sessions:control` or `sessions:recover`, but only for sessions the key can already see.",
+      "See and stop every session of the workspace, read a session outside its share with an audited reason, decide recovery for any session, and take over the sessions of members who were offboarded. Owners and admins, signed in; only an owner decides recovery. Every operation here refuses an API key except the recovery decision, which also takes a key holding `sessions:recover`, but only for sessions the key can already see.",
   },
   {
     name: "Members",

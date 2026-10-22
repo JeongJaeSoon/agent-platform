@@ -30,7 +30,7 @@ There are two ways to call the API, and they are not interchangeable:
 - **Servers and scripts** send an API key as an HTTP bearer token, \`Bearer <key>\` (\`bearerApiKey\`). The key is limited to the scopes it was issued with, and it never needs the CSRF header.
 - **The web console** uses the browser session cookie that \`POST /v1/auth/login\` sets (\`cookieSession\`). What it may do follows the user's workspace role, and every request other than GET must send \`X-Requested-With: ${CSRF_HEADER_VALUE}\` and must not be cross-site (\`Sec-Fetch-Site\`, \`Origin\`); otherwise it answers \`403 FORBIDDEN\`.
 
-An API key cannot manage agents, members, teams or API keys, list every session of the workspace, read a session outside its share or take a session over: those operations answer it \`403 FORBIDDEN\`, whatever its scopes. A missing, malformed, unknown or revoked credential answers \`401 UNAUTHORIZED\`. \`/healthz\`, \`/readyz\`, \`/v1/openapi.json\`, \`/v1/auth/bootstrap\` and \`/v1/auth/login\` take no credential.
+An API key cannot manage agents, members, teams or API keys, list or stop sessions through the administration operations, read a session outside its share or take a session over: those operations answer it \`403 FORBIDDEN\`, whatever its scopes. A missing, malformed, unknown or revoked credential answers \`401 UNAUTHORIZED\`. \`/healthz\`, \`/readyz\`, \`/v1/openapi.json\`, \`/v1/auth/bootstrap\` and \`/v1/auth/login\` take no credential.
 
 ## Scopes
 
