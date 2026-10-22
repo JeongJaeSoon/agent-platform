@@ -12,6 +12,7 @@ import {
   profileWithModel,
   providerUpstreamOf,
   repositoryBinding,
+  repositoryModeOf,
   repositoryUpstreamOf,
   resolveSessionCatalog,
   runtimeProviderOf,
@@ -636,6 +637,60 @@ describe("billing", () => {
   test("an unknown value is refused", () => {
     expect(() => load(billed("free", "http://litellm:4000"))).toThrow(
       /profiles\.p\.provider\.billing/,
+    );
+  });
+});
+
+describe("repository mode", () => {
+  const withMode = (repository: string, extra: object = {}) => ({
+    ...configured,
+    ...extra,
+    repository,
+  });
+
+  test("omitted or written out, required is the same profile; the others are kept", () => {
+    const omitted = load(config()).profiles.p as CatalogProfile;
+    expect(omitted).not.toHaveProperty("repository");
+    expect(repositoryModeOf(omitted)).toBe("required");
+    expect(load(config(withMode("required"))).profiles.p).toEqual(omitted);
+    const optional = load(config(withMode("optional"))).profiles
+      .p as CatalogProfile;
+    expect(repositoryModeOf(optional)).toBe("optional");
+    expect(profileFingerprint(optional)).not.toBe(profileFingerprint(omitted));
+    expect(() => load(config(withMode("sometimes")))).toThrow(
+      /^profiles\.p\.repository: /,
+    );
+  });
+
+  test("a none profile cannot let a repository CLAUDE.md in; optional can", () => {
+    const claudeMd = { project_settings: { claude_md: true } };
+    expect(() =>
+      load({
+        profiles: { p: configured, q: withMode("none", claudeMd) },
+        repositories: { app: repository },
+      }),
+    ).toThrow(
+      /^profiles\.q\.project_settings\.claude_md: a profile with repository none has no repository CLAUDE\.md to read$/,
+    );
+    expect(
+      load(config(withMode("optional", claudeMd))).profiles.p?.project_settings,
+    ).toEqual({ claude_md: true });
+  });
+
+  test("a none profile is listed by no repository, so no pair allows it", () => {
+    const catalog = load({
+      profiles: { p: configured, q: withMode("none") },
+      repositories: { app: repository },
+    });
+    expect(repositoryModeOf(catalog.profiles.q as CatalogProfile)).toBe("none");
+    expect(allowedPair(catalog, "q", "app")).toBeNull();
+    expect(() =>
+      load({
+        profiles: { p: configured, q: withMode("none") },
+        repositories: { app: { ...repository, profiles: ["p", "q"] } },
+      }),
+    ).toThrow(
+      /^repositories\.app\.profiles\.1: names profile q, whose repository is none$/,
     );
   });
 });

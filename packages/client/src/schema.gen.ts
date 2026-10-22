@@ -1748,7 +1748,7 @@ export interface paths {
         };
         /**
          * The runtime profiles this installation can run
-         * @description Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs. The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.
+         * @description Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -3101,6 +3101,8 @@ export interface components {
                 runtime_version: string;
                 /** @enum {string} */
                 billing: "metered" | "none";
+                /** @enum {string} */
+                repository_mode: "required" | "optional" | "none";
             }[];
         };
         AgentDetail: {
@@ -14582,7 +14584,8 @@ export interface operations {
                      *           ],
                      *           "runtime_kind": "claude_agent_sdk",
                      *           "runtime_version": "0.3.270",
-                     *           "billing": "metered"
+                     *           "billing": "metered",
+                     *           "repository_mode": "required"
                      *         }
                      *       ]
                      *     }

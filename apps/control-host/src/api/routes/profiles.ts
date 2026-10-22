@@ -2,7 +2,11 @@ import {
   type ListProfilesResponse,
   listProfilesResponseSchema,
 } from "@werft-ai/contracts";
-import { isUnmetered, type SessionCatalog } from "@werft-ai/platform";
+import {
+  isUnmetered,
+  repositoryModeOf,
+  type SessionCatalog,
+} from "@werft-ai/platform";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
 
 /** Picked field by field: a profile also holds its provider credential. */
@@ -17,6 +21,7 @@ export function listProfiles(catalog: SessionCatalog): ListProfilesResponse {
         runtime_kind: profile.runtime_kind,
         runtime_version: profile.runtime_version,
         billing: isUnmetered(profile) ? "none" : "metered",
+        repository_mode: repositoryModeOf(profile),
       })),
   };
 }
