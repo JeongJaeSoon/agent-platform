@@ -4,7 +4,7 @@
 
 ## 준비물
 
-저장소 루트에서 Bun 1.3.14와 Git을 사용한다. 실서비스 의존 검증에는 Docker와 Compose도 필요하다. 아래 [진입점](#e2egate와-과거-soak-도구-진입점)의 스크립트는 Docker Engine 28 이상에서 돈다.
+저장소 루트에서 Bun 1.3.14와 Git을 사용한다. 실서비스 의존 검증에는 Docker와 Compose도 필요하다. 아래 [진입점](#e2egatesoak-도구-진입점)의 스크립트는 Docker Engine 28 이상에서 돈다.
 
 ## `bun run check`
 
@@ -50,23 +50,21 @@ compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, ho
 
 API를 로컬 인증 비활성 모드로 띄울 때만 `X-Owner-Id`를 사용할 수 있다. 이 모드는 기동 시 경고를 출력하며 기본값이 아니다.
 
-## e2e·gate와 과거 soak 도구 진입점
+## e2e·gate·soak 도구 진입점
 
 `quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
 
-soak 도구는 2026-09-27에 종료한 94S-135 판정의 재현·조사용으로 남아 있으며 현재 알파 gate가 아니다. 결과와 남은 검증 범위는 [과거 알파 부하 검증 결과](soak.md)에 있다.
-
 | 명령 | 확인하는 것 | CI | 더 읽을 곳 |
 |---|---|---|---|
-| `tests/e2e/run.sh` | fake 모델(`infra/compose.fake-model.yml`)로 알파 경로 전체(생성 → 이벤트 → 권한 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume)와 pause 경계 케이스 | `e2e` job | [quickstart.md § 4](quickstart.md#4-명령-하나로-자동-검증) |
+| `tests/e2e/run.sh` | fake 모델(`infra/compose.fake-model.yml`)로 세션 경로 전체(생성 → 이벤트 → 권한 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume)와 pause 경계 케이스 | `e2e` job | [quickstart.md § 4](quickstart.md#4-명령-하나로-자동-검증) |
 | `tests/e2e/quickstart.sh` | `docs/quickstart.md`의 `bash` 블록을 그대로 실행하고 `jq -e` 줄을 단언한다. **기본 project(`agent-platform`)와 그 데이터를 지운다** | `quickstart` job | [quickstart.md § 4](quickstart.md#4-명령-하나로-자동-검증) |
-| `tests/e2e/run.sh --real-model` | 실제 Claude로 알파 경로 한 번. 실행자의 `ANTHROPIC_API_KEY`가 필요하고 유료다 | 없음 | [real-claude.md](real-claude.md) |
+| `tests/e2e/run.sh --real-model` | 실제 Claude로 세션 경로 한 번. 실행자의 `ANTHROPIC_API_KEY`가 필요하고 유료다 | 없음 | [real-claude.md](real-claude.md) |
 | `tests/e2e/run.sh --local-model` | 같은 경로를 이 컴퓨터의 Ollama 모델로, 직접과 LiteLLM 경유 두 번. Ollama가 필요하고 무료다 | 없음 | [local-model.md](local-model.md) |
 | `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | 없음 | [backup-restore.md § 실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인-94s-324) |
 | `tests/e2e/db-restart.sh` | Postgres가 새 주소로 재시작한 뒤 API가 따라붙는지(`/readyz`, 요청 pool, 이벤트 listener) | 없음 | 스크립트 머리 주석 |
 | `scripts/d2-gate/run.sh` | D2 gate(94S-247의 A–E, 94S-320의 R1–R2, 94S-117의 H1–H5) | `D2 gate` workflow(nightly, required 아님) | [ci.md § D2 gate](ci.md#d2-gate-nightly-94s-404) |
-| `scripts/soak/rc.sh <rc-sha>` | 과거 RC 판정 흐름 재현: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |
-| `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | 과거 soak 스택이나 campaign을 재현한다 | 없음 | [과거 soak 결과](soak.md), 스크립트 머리 주석 |
+| `scripts/soak/rc.sh <rc-sha>` | RC 판정 흐름: D2 gate → 이미지 기록 → 장애·경합 campaign → 24시간 soak | 없음 | 스크립트 머리 주석 |
+| `scripts/soak/stack.sh up\|reset\|down\|logs`, `scripts/soak/campaign.sh [campaign-id …]` | soak 스택이나 campaign을 띄운다 | 없음 | 스크립트 머리 주석 |
 | `bun scripts/bun-http-stall/client.ts` | Bun `node:http` 클라이언트가 동시 keep-alive 응답 body 도중에 멈추는지(94S-441). S3 client가 이 경로로 읽으므로 Bun을 올릴 때 다시 잰다. `node`가 필요하다 | 없음(수동) | 스크립트 머리 주석 |
 
 ## 테스트·스크립트 배치
