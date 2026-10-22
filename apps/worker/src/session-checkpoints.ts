@@ -130,6 +130,7 @@ export type SessionCheckpointsOptions = {
     limits?: WorkspaceCaptureLimits;
     instructions?: InstructionsPin;
     base?: BundleBase;
+    markNewFiles?: boolean;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
@@ -511,12 +512,11 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       );
 
       signal.throwIfAborted();
-      if (claim.workspace.repository === null) {
-        throw new Error("A session without a repository cannot be restored");
-      }
+      const { repository } = claim.workspace;
       const tree = await restoreCheckpointTree({
         keep: spool,
-        origin: storableRepositoryUrl(claim.workspace.repository.url),
+        origin:
+          repository === null ? null : storableRepositoryUrl(repository.url),
         root: workspaceRoot,
         signal,
         staged,
@@ -1040,6 +1040,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           ...(bound.instructions === undefined
             ? {}
             : { instructions: bound.instructions }),
+          ...(bound.claim.workspace.repository === null
+            ? { markNewFiles: true }
+            : {}),
           ...(previous === undefined
             ? {}
             : {

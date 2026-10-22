@@ -15,7 +15,12 @@ import {
   agentSearch,
 } from "./routes/agent-detail.tsx";
 import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
-import { ApiKeysScreen } from "./routes/api-keys.tsx";
+import {
+  ApiKeysScreen,
+  NewApiKeyScreen,
+  NewServiceKeyScreen,
+  ServiceKeysScreen,
+} from "./routes/api-keys.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
 import {
   GoogleCallbackScreen,
@@ -160,6 +165,24 @@ const apiKeys = createRoute({
   component: ApiKeysScreen,
 });
 
+const newApiKey = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys/new",
+  component: NewApiKeyScreen,
+});
+
+const serviceKeys = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys/service",
+  component: ServiceKeysScreen,
+});
+
+const newServiceKey = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/api-keys/service/new",
+  component: NewServiceKeyScreen,
+});
+
 const workspaceSettings = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace",
@@ -204,6 +227,9 @@ const routeTree = root.addChildren([
     linkedAccounts,
     slackLink,
     apiKeys,
+    newApiKey,
+    serviceKeys,
+    newServiceKey,
     workspaceSettings,
   ]),
 ]);

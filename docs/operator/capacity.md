@@ -131,6 +131,6 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 ## 관련 문서
 
-- [operations.md § scheduler·worker 컨테이너·egress 설정](operations.md#schedulerworker-컨테이너egress-설정): `WORKER_MEMORY_MB` 등 환경 변수
-- [operations.md § worker workspace의 상한과 회수](operations.md#worker-workspace의-상한과-회수): workspace quota
+- [operations.md § scheduler·worker 컨테이너·egress 설정](../operations.md#schedulerworker-컨테이너egress-설정): `WORKER_MEMORY_MB` 등 환경 변수
+- [operations.md § worker workspace의 상한과 회수](../operations.md#worker-workspace의-상한과-회수): workspace quota
 - [kubernetes-deployment.md](kubernetes-deployment.md): chart 설치와 업그레이드

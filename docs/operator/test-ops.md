@@ -1,6 +1,6 @@
 # test-ops 운영 runbook
 
-test-ops는 여러 사람이 함께 쓰는 상시 설치다. Linux 호스트 한 대에서 compose로 돈다. checkpoint object는 기본으로 같은 호스트의 LocalStack에 두고, 설정 하나로 AWS S3(도쿄)로 바꾼다(아래 "object store"). 배포·업그레이드·키 발급·백업·복원 훈련·재시작 복구는 모두 `scripts/test-ops.sh` 하나로 한다. 이 문서는 운영자용 절차다. 각 구성 요소가 어떻게 동작하는지는 [operations.md](operations.md), 백업 번들의 형식과 검사는 [backup-restore.md](backup-restore.md)를 본다.
+test-ops는 여러 사람이 함께 쓰는 상시 설치다. Linux 호스트 한 대에서 compose로 돈다. checkpoint object는 기본으로 같은 호스트의 LocalStack에 두고, 설정 하나로 AWS S3(도쿄)로 바꾼다(아래 "object store"). 배포·업그레이드·키 발급·백업·복원 훈련·재시작 복구는 모두 `scripts/test-ops.sh` 하나로 한다. 이 문서는 운영자용 절차다. 각 구성 요소가 어떻게 동작하는지는 [operations.md](../operations.md), 백업 번들의 형식과 검사는 [backup-restore.md](backup-restore.md)를 본다.
 
 Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 하는 명령은 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
 
@@ -146,7 +146,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 | `S3_BUCKET` | 위 bucket 이름 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | 위 IAM 사용자의 key. API에만 간다 |
 
-`BOOTSTRAP_TOKEN`은 요구하지 않지만 넣는 것을 권한다. 웹 콘솔의 첫 owner를 만드는 토큰(32~256자 무작위 값)이고 API에만 간다. 넣지 않으면 API가 기동할 때 하나를 만들어 api 컨테이너 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력하고, 첫 owner가 생길 때까지 `docker logs`를 읽을 수 있는 누구나 그 값으로 bootstrap할 수 있다. 예시 파일처럼 줄을 주석으로 두면 이 자동 생성 경로를 쓴다. 주석을 풀고 값을 비우면 API가 기동하지 않는다. 첫 owner가 생긴 뒤에는 이 값이 다시 통과하지 않으므로 env 파일에 남겨 둬도 된다([운영 참고](operations.md)의 웹 콘솔·계정 복구 문단).
+`BOOTSTRAP_TOKEN`은 요구하지 않지만 넣는 것을 권한다. 웹 콘솔의 첫 owner를 만드는 토큰(32~256자 무작위 값)이고 API에만 간다. 넣지 않으면 API가 기동할 때 하나를 만들어 api 컨테이너 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력하고, 첫 owner가 생길 때까지 `docker logs`를 읽을 수 있는 누구나 그 값으로 bootstrap할 수 있다. 예시 파일처럼 줄을 주석으로 두면 이 자동 생성 경로를 쓴다. 주석을 풀고 값을 비우면 API가 기동하지 않는다. 첫 owner가 생긴 뒤에는 이 값이 다시 통과하지 않으므로 env 파일에 남겨 둬도 된다([운영 참고](../operations.md)의 웹 콘솔·계정 복구 문단).
 
 `compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`, `SESSION_COST_LIMIT_USD` 등)은 넣지 않으면 core 기본값을 쓴다.
 
@@ -296,7 +296,7 @@ scripts/test-ops.sh key create <owner_id> \
 scripts/test-ops.sh key revoke <key_id>
 ```
 
-scope는 [quickstart](quickstart.md#1-clone과-기동)와 같다. `sessions:approve`가 없으면 권한 요청에 답하지 못해(403) `permission_mode: default` 세션이 첫 파일 변경에서 멈추고, `sessions:control`이 없으면 interrupt·pause·resume·terminate를, `sessions:recover`가 없으면 복구 결정을 못 한다.
+scope는 [quickstart](../quickstart.md#1-clone과-기동)와 같다. `sessions:approve`가 없으면 권한 요청에 답하지 못해(403) `permission_mode: default` 세션이 첫 파일 변경에서 멈추고, `sessions:control`이 없으면 interrupt·pause·resume·terminate를, `sessions:recover`가 없으면 복구 결정을 못 한다.
 
 평문 key는 사용자에게 직접 전하고 저장하지 않는다. 퇴사나 분실 때는 `revoke`한다. 세션 실행 권한 회수(`grants.ts`)와 카탈로그 권한(`catalog-authority.ts`)은 API 컨테이너 안에서 부른다. 인자는 각 파일의 usage를 따른다.
 

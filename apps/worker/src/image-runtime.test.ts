@@ -49,4 +49,21 @@ describe("imageRuntimeOf", () => {
     expect(profiles.good).toHaveProperty("profileSha256");
     expect(() => imageRuntimeOf([])).toThrow("keyed by session id");
   });
+
+  test("a claim that names no repository gets that session's digest, one that names one the same as without", () => {
+    const repository = {
+      id: "sample-app",
+      url: "https://example.invalid/team/app.git",
+      branch: "main",
+    };
+    const { profiles } = imageRuntimeOf({
+      bare: claim,
+      none: { ...claim, workspace: { repository: null } },
+      repo: { ...claim, workspace: { repository } },
+    });
+
+    expect(profiles.repo).toEqual(profiles.bare);
+    expect(profiles.none).toHaveProperty("profileSha256");
+    expect(profiles.none).not.toEqual(profiles.bare);
+  });
 });
