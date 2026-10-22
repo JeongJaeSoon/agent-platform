@@ -123,7 +123,7 @@ describe("workspace shell", () => {
     await user.click(
       await screen.findByRole("button", { name: "Owner 소유자" }),
     );
-    await user.click(screen.getByRole("button", { name: "로그아웃" }));
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
     const [logout] = callsTo(api.calls, "/v1/auth/logout");
@@ -140,7 +140,7 @@ describe("workspace shell", () => {
     await user.click(
       await screen.findByRole("button", { name: "Owner 소유자" }),
     );
-    await user.click(screen.getByRole("button", { name: "로그아웃" }));
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "로그아웃하지 못해 아직 로그인된 상태입니다.",
     );
@@ -158,7 +158,7 @@ describe("workspace shell", () => {
     await user.click(
       await screen.findByRole("button", { name: "Owner 소유자" }),
     );
-    await user.click(screen.getByRole("button", { name: "로그아웃" }));
+    await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
   });

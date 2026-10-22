@@ -162,38 +162,74 @@ describe("app shell", () => {
     expect(link.textContent).toBe("세션");
   });
 
-  test("the user menu holds language, theme and logout, once", async () => {
+  test("the account menu holds settings, language, theme, keys and logout", async () => {
     renderAt("/", signedIn);
-    const menu = await screen.findByRole("region", { name: "사용자 메뉴" });
-    const trigger = within(menu).getByRole("button", { name: "Owner 소유자" });
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const trigger = within(region).getByRole("button", {
+      name: "Owner 소유자",
+    });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(within(menu).queryByRole("button", { name: "로그아웃" })).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
 
     const user = await setupUser();
     await user.click(trigger);
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const menu = screen.getByRole("menu", { name: "Owner 소유자" });
     expect(within(menu).getByText("owner@example.com")).toBeDefined();
     expect(
-      within(menu).getByRole("button", { name: "로그아웃" }),
-    ).toBeDefined();
-    expect(screen.getAllByLabelText("언어")).toHaveLength(1);
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["내 설정", "언어", "API key", "로그아웃"]);
+    expect(
+      within(menu)
+        .getByRole("menuitem", { name: "API key" })
+        .getAttribute("href"),
+    ).toBe("/settings/api-keys");
 
-    await user.selectOptions(within(menu).getByLabelText("테마"), "dark");
+    await user.click(
+      within(menu).getByRole("menuitemradio", { name: "어둡게" }),
+    );
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
-    await user.selectOptions(within(menu).getByLabelText("테마"), "system");
+    expect(
+      within(menu)
+        .getByRole("menuitemradio", { name: "어둡게" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    await user.click(
+      within(menu).getByRole("menuitemradio", { name: "시스템 설정" }),
+    );
     expect(document.documentElement.dataset.theme).toBeUndefined();
+
+    await user.click(within(menu).getByRole("menuitem", { name: "언어" }));
+    const languages = screen.getByRole("menu", { name: "언어" });
+    await user.click(
+      within(languages).getByRole("menuitemradio", { name: "English" }),
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: "Language" }),
+    ).toBeDefined();
   });
 
-  test("Escape or a click outside closes the user menu", async () => {
+  test("the account menu works from the keyboard", async () => {
     renderAt("/", signedIn);
-    const menu = await screen.findByRole("region", { name: "사용자 메뉴" });
-    const trigger = within(menu).getByRole("button", { name: /Owner/ });
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const trigger = within(region).getByRole("button", { name: /Owner/ });
     const user = await setupUser();
-    await user.click(trigger);
-    await user.click(within(menu).getByLabelText("테마"));
+    trigger.focus();
+    await user.keyboard("{ArrowUp}");
+    expect(document.activeElement?.textContent).toBe("내 설정");
+    await user.keyboard("{ArrowDown}{ArrowRight}");
+    expect(document.activeElement?.textContent).toBe("한국어");
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement?.textContent).toBe("English");
     await user.keyboard("{Escape}");
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("menu", { name: "언어" })).toBeNull();
+    expect(document.activeElement?.textContent).toBe("언어");
+    await user.keyboard("{End}");
+    expect(document.activeElement?.textContent).toBe("로그아웃");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement === trigger).toBe(true);
 
     await user.click(trigger);
