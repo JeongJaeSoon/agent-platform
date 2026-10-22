@@ -1,0 +1,5 @@
+{
+  "title": "에이전트",
+  "defaultOpen": true,
+  "pages": ["create", "instructions-and-roles", "run-profiles", "permissions"]
+}

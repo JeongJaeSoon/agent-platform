@@ -32,6 +32,6 @@ bun run --filter @werft-ai/storybook build   # 정적 빌드: apps/storybook/dis
 bun run --filter @werft-ai/storybook test:stories  # 모든 스토리를 Chrome에서 그리고 a11y(axe) 위반이 있으면 실패
 ```
 
-Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다.
+Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, API 레퍼런스를 `/api/`에 모은다. main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다.
 
 라이선스는 [LICENSE](LICENSE)를 따른다. 이 저장소는 source-available이며 오픈소스가 아니다. 소스는 읽고 검토할 수 있게 공개돼 있지만, 사용·실행·복제·수정·재배포에는 저작권자의 사전 서면 허가가 필요하다.

@@ -1,0 +1,36 @@
+@import "tailwindcss";
+/* tokens.css and the self-hosted fonts, as the web console takes them. */
+@import "@werft-ai/ui/styles.css";
+@import "fumadocs-ui/css/shadcn.css";
+@import "fumadocs-ui/css/preset.css";
+@import "fumadocs-openapi/css/preset.css";
+
+/*
+ * Colours and type come from the console's tokens: shadcn.css maps Fumadocs'
+ * --color-fd-* onto the shadcn names tokens.css defines, and the few names
+ * shadcn.css leaves out are mapped here.
+ */
+:root {
+  --sidebar: var(--ap-color-canvas);
+  --sidebar-foreground: var(--ap-color-foreground);
+  --sidebar-border: var(--ap-color-border);
+  --sidebar-accent: var(--ap-tone-neutral-bg);
+  --sidebar-accent-foreground: var(--ap-color-foreground);
+  --sidebar-ring: var(--ap-color-focus-ring);
+  --sidebar-primary-foreground: var(--ap-color-accent-foreground);
+  --color-fd-overlay: var(--ap-color-overlay);
+}
+
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@theme inline {
+  --font-sans: var(--ap-font-sans);
+  --font-mono: var(--ap-font-mono);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  font-family: var(--ap-font-sans);
+}
