@@ -15,7 +15,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, spikes, storybook]
+        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, storybook]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -245,6 +245,7 @@ jobs:
               - packages/testkit/src/fake-github.
               - packages/testkit/src/scripted-messages.
               - packages/testkit/src/workspace.
+              - tests/agent-sdk-compat/
               - tests/architecture.
               - tests/ci-images.
               - tests/ci-services.
@@ -781,12 +782,12 @@ jobs:
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
 
-  # Research harnesses, pinned to the SDK and LiteLLM versions under
-  # investigation. Their failures have never been a product regression, so they
-  # report without blocking the run; see docs/contributing/ci.md.
+  # The Agent SDK and LiteLLM compatibility harness, with its own lockfile.
+  # Its failures have never been a product regression, so it reports without
+  # blocking the run; see docs/contributing/ci.md.
   #
   # Deliberately NOT a required status check, for three reasons
-  #   1. It does not run on pull_request, so a required `spikes` context would
+  #   1. It does not run on pull_request, so a required `agent-sdk-compat` context would
   #      leave every PR waiting for a status that never arrives.
   # 2. Running it on every PR commit would bring back the cost
   #      removed: this is the most expensive job (python, uv,
@@ -794,20 +795,20 @@ jobs:
   #   3. It already runs on every main push, so a regression is caught within
   #      one commit of merging; gating PRs adds nothing. The gap that remained
   #      was nobody noticing, which the issue step at the end closes.
-  spikes:
+  agent-sdk-compat:
     needs: check
     # The job writes issues; nothing else in this workflow may.
     permissions:
       contents: read
       issues: write
-    # Because a spike failure never blocks anything, running it on every PR
+    # Because a harness failure never blocks anything, running it on every PR
     # commit buys no signal the main-push run does not already give. It stays on
-    # main pushes and on demand (`-f only=spikes`), which is also how a PR that
-    # actually touches spikes/ gets its answer.
+    # main pushes and on demand (`-f only=agent-sdk-compat`), which is also how
+    # a PR that actually touches scripts/agent-sdk-compat/ gets its answer.
     if: >-
       !cancelled() && needs.check.result != 'failure'
       && github.event_name != 'pull_request'
-      && contains(fromJSON('["all","spikes"]'), github.event.inputs.only || 'all')
+      && contains(fromJSON('["all","agent-sdk-compat"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     continue-on-error: true
@@ -815,39 +816,39 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
         with:
-          cache-scope: spikes
+          cache-scope: agent-sdk-compat
           save-cache: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-      # The 94s-91 harness imports packages/testkit by relative path, so it needs
-      # the root workspace installed as well as its own lockfile.
+      # The harness imports packages/testkit by relative path, so it needs the
+      # root workspace installed as well as its own lockfile.
       - run: bun install --frozen-lockfile
-      - run: bun install --cwd spikes/94s-91 --frozen-lockfile
+      - run: bun install --cwd scripts/agent-sdk-compat --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
-      - run: bun run --cwd spikes/94s-91 probe:version
+      - run: bun run --cwd scripts/agent-sdk-compat probe:version
       # No retry wrapper. This job is `continue-on-error`, so a failure never
       # blocks a merge and a retry buys no safety — it only squares the odds of
       # a flake being seen at all, which is how cause stayed hidden
       # for 233 runs. Let a failure show on its first occurrence.
-      - id: spike-91
-        name: spikes/94s-91 check
-        run: bun run --cwd spikes/94s-91 check
+      - id: harness
+        name: agent-sdk-compat check
+        run: bun run --cwd scripts/agent-sdk-compat check
       # continue-on-error leaves the run green, so whoever reads only the run
-      # conclusion never learns a spike broke. State the outcome on the summary
-      # page on every run that was not cancelled.
+      # conclusion never learns the harness broke. State the outcome on the
+      # summary page on every run that was not cancelled.
       - if: '!cancelled()'
-        name: Report spike outcome
+        name: Report harness outcome
         env:
-          SPIKE_91: ${{ steps.spike-91.outcome }}
+          HARNESS: ${{ steps.harness.outcome }}
         run: |
           {
-            echo "### spikes (non-blocking)"
+            echo "### agent-sdk-compat (non-blocking)"
             echo
             echo "| suite | outcome |"
             echo "| --- | --- |"
-            echo "| spikes/94s-91 | ${SPIKE_91} |"
+            echo "| scripts/agent-sdk-compat | ${HARNESS} |"
             echo
             echo "This job never fails the run. A \`failure\` above still needs a look."
           } >>"$GITHUB_STEP_SUMMARY"
@@ -864,23 +865,23 @@ jobs:
       # conclusion afterwards and reports a failed run no issue names yet.
       - if: >-
           !cancelled()
-          && steps.spike-91.outcome != 'success'
-        name: Open or update the spike failure issue
+          && steps.harness.outcome != 'success'
+        name: Open or update the agent-sdk-compat failure issue
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          SPIKE_91: ${{ steps.spike-91.outcome }}
+          HARNESS: ${{ steps.harness.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           {
-            echo "<!-- ci-spikes-failure -->"
-            echo "\`spikes\` failed on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo "<!-- ci-agent-sdk-compat-failure -->"
+            echo "\`agent-sdk-compat\` failed on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
             echo
             echo "| suite | outcome |"
             echo "| --- | --- |"
-            echo "| spikes/94s-91 | ${SPIKE_91} |"
+            echo "| scripts/agent-sdk-compat | ${HARNESS} |"
             echo
             echo "The run itself is green (\`continue-on-error\`). Close this issue once the failure is understood; the next failure reopens a new one."
           } >body.md
-          .github/scripts/upsert-ci-issue.sh ci-spikes-failure \
-            "CI: spikes failed (non-blocking job)" body.md
+          .github/scripts/upsert-ci-issue.sh ci-agent-sdk-compat-failure \
+            "CI: agent-sdk-compat failed (non-blocking job)" body.md

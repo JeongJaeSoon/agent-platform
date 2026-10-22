@@ -19,14 +19,13 @@
 |---|---|
 | `apps` | 배포 단위 셋(control-host·worker·egress-proxy). 앱마다 `Dockerfile`이 있고 이미지 하나가 된다. 앱끼리는 import하지 않는다 |
 | `packages` | 앱이 조립하는 workspace 라이브러리. 아래 표에 패키지마다 한 줄씩 있다 |
-| `spikes` | workspace 밖의 독립 설치 단위. [`spikes/94s-91`](../../spikes/94s-91/README.md)은 SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. 실제 LiteLLM proxy를 거친 SDK 왕복은 여기서만 확인한다. CI `spikes` job은 main push와 수동 실행에서만 돌고 run을 막지 않는다([ci.md](ci.md)) |
 | `tests` | 패키지 하나로 닫히지 않는 테스트: 여러 앱·패키지를 엮는 흐름, 저장소·CI·`scripts`를 검사하는 테스트, 스택 전체 harness(`tests/e2e`, `tests/d2-gate`), `scripts/soak` 판정 함수의 단위 테스트(`tests/soak`) |
-| `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), Kubernetes 설치의 운영자 CLI(`k8s-api.sh`), gate와 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 개발용 fixture(`scripts/dev`), `THIRD_PARTY_NOTICES.md` 생성기(`third-party-notices.ts`), 수동 재현기(`scripts/bun-http-stall`) |
+| `scripts` | 운영자와 개발자가 직접 실행하는 도구: 백업·복원(`backup.sh`·`restore.sh`·`verify-restore.sh`), 로컬 스택(`local.sh`), test-ops(`test-ops.sh`), Kubernetes 설치의 운영자 CLI(`k8s-api.sh`), gate와 soak 실행기(`scripts/d2-gate`·`scripts/soak`), 공용 구현(`scripts/lib`), 개발용 fixture(`scripts/dev`), `THIRD_PARTY_NOTICES.md` 생성기(`third-party-notices.ts`), 수동 재현기(`scripts/bun-http-stall`), Agent SDK·LiteLLM 호환 harness([`scripts/agent-sdk-compat`](../../scripts/agent-sdk-compat/README.md)). 호환 harness는 workspace 밖의 독립 설치 단위로 자기 lockfile에 SDK를 고정하고, 실제 LiteLLM proxy를 거친 SDK 왕복은 여기서만 확인한다. CI `agent-sdk-compat` job이 main push와 수동 실행에서만 돌리고 run을 막지 않는다([ci.md](ci.md)) |
 | `.github` | CI 전용. workflow(`workflows`), composite action(`actions/bun-setup`), workflow만 부르는 helper(`.github/scripts`). 운영자가 부르는 도구는 여기가 아니라 `scripts`에 둔다 |
 | `infra` | compose layer(`compose.core.yml`·`compose.local.yml`·`compose.test-ops*.yml`·`compose.real-model.yml`·`compose.fake-model.yml`·`compose.datadog.yml`)와 진입 파일 `docker-compose.yml`, 복원용 layer `docker-compose.restore.yml`, 컨테이너 초기화 스크립트(`infra/gitea`·`infra/localstack`), Datadog 설정(`infra/datadog`) |
 | `deploy` | Kubernetes 배포: Helm chart(`deploy/helm/agent-platform`)와 그 렌더 검사(`deploy/helm/render-check.ts`), 로컬 kind 확인(`deploy/kind/up.sh`). chart의 NetworkPolicy가 worker Pod의 바깥 연결을 egress proxy 하나로 묶는다. worker Pod는 DNS도 쓰지 않고 proxy 주소를 hosts 파일로 받는다. 설치 절차는 [kubernetes-deployment.md](../operator/kubernetes-deployment.md) |
 | `config` | API가 읽는 로컬 기본 카탈로그(`profiles.yaml`·`repositories.yaml`). 실제 Messages API를 실행자의 `ANTHROPIC_API_KEY`로 부른다. compose가 `/app/config`로 mount한다. `config/fake-model`은 compose `fake-messages`를 부르는 카탈로그로, `--fake-model` overlay(`infra/compose.fake-model.yml`)를 얹은 실행(quickstart, 무료 e2e·복원 확인)이 쓴다 |
-| `docs` | 독자별 문서. 색인은 [docs/README.md](../README.md)다. 사용자 문서(quickstart·API 가이드)는 `docs` 바로 아래, 운영자 문서는 `docs/operator`, 기여자 문서는 `docs/contributing`에 둔다. 생성된 `openapi.json`과 API가 `/docs`로 서빙하는 참조 페이지(`docs/api`)도 여기 있다 |
+| `docs` | 독자별 문서. 색인은 [docs/README.md](../README.md)다. 사용자 문서(quickstart·API 가이드)는 `docs` 바로 아래, 운영자 문서는 `docs/operator`, 기여자 문서는 `docs/contributing`에, 설계 결정 기록은 `docs/contributing/decisions`에 둔다. 생성된 `openapi.json`과 API가 `/docs`로 서빙하는 참조 페이지(`docs/api`)도 여기 있다 |
 
 ### 패키지와 앱
 
@@ -82,12 +81,12 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 `@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 M0 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. profile의 endpoint·model 설정은 [operations.md § 운영자 카탈로그](../operations.md#운영자-카탈로그-agent-profile--repository)에 있다.
 
-검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. spikes의 transport gate는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 제품 경로(빌드한 이미지의 worker·scheduler·API)는 `tests/e2e`가 확인한다. 각 명령은 [development.md](development.md)에 있다.
+검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 현재 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 호환 harness(`scripts/agent-sdk-compat`)의 transport suite는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 제품 경로(빌드한 이미지의 worker·scheduler·API)는 `tests/e2e`가 확인한다. 각 명령은 [development.md](development.md)에 있다.
 
 ## 설계 이력과 추가 참고
 
 내부 package scope는 `@werft-ai/*`이다. 이 문서는 저장소의 현재 구현을 따라간다. 아래는 추가 참고이고, 이 문서를 읽는 데 필요하지 않다.
 
-- SDK gate: process-level 조사 harness와 검증 범위는 [`spikes/94s-91`](../../spikes/94s-91/README.md)에 둔다.
+- SDK 버전: 채택 버전을 고정하는 방식, 운영 제약, 호환 harness가 지키는 계약은 [결정 기록](decisions/agent-sdk.md)에 있다.
 - 저장 backend 선택: SessionStore를 채택한 이유와 그 계약을 지키는 제품 테스트는 [결정 기록](decisions/session-store.md)에 있다.
 - 인터페이스·협업 트랙(웹 콘솔·Dispatch·Slack·기억·루틴): Kiel 실행 경로는 바꾸지 않고 그 위에 올린다.

@@ -7,7 +7,7 @@ import {
   isolatedSdkEnv,
 } from "../../../packages/testkit/src/workspace.ts";
 
-// The fake Messages API lives in packages/testkit; this spike is not a
+// The fake Messages API lives in packages/testkit; this harness is not a
 // workspace member (own bun.lock), so it reaches the module by relative path.
 export {
   type AnthropicRequest,
@@ -51,7 +51,7 @@ export function deadline(ms: number): {
 }
 
 export async function createProbeContext(): Promise<ProbeContext> {
-  const isolated = await createIsolatedWorkspace({ prefix: "94s-91-sdk-" });
+  const isolated = await createIsolatedWorkspace({ prefix: "sdk-compat-" });
   return {
     claudeHome: isolated.home,
     dispose: isolated.dispose,
@@ -120,7 +120,7 @@ export function sdkOptions(
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
-      append: "APPEND_SENTINEL_94S_91",
+      append: "APPEND_SENTINEL_SDK_COMPAT",
     },
     ...overrides,
   };

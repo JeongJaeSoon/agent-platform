@@ -42,13 +42,13 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     server = startFakeAnthropicServer(() => textReply("contract passed"));
     await writeFile(
       join(context.workspace, "CLAUDE.md"),
-      "PROJECT_INSTRUCTION_SENTINEL_94S_91",
+      "PROJECT_INSTRUCTION_SENTINEL_SDK_COMPAT",
     );
     const rulesDirectory = join(context.workspace, ".claude", "rules");
     await mkdir(rulesDirectory, { recursive: true });
     await writeFile(
       join(rulesDirectory, "contract-rule.md"),
-      "PROJECT_RULE_SENTINEL_94S_91",
+      "PROJECT_RULE_SENTINEL_SDK_COMPAT",
     );
 
     const messages = await runSdkQuery(context, server.url, "Reply briefly.", {
@@ -56,9 +56,9 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     });
     const request = JSON.stringify(server.requests[0]);
 
-    expect(request).toContain("PROJECT_INSTRUCTION_SENTINEL_94S_91");
-    expect(request).toContain("PROJECT_RULE_SENTINEL_94S_91");
-    expect(request).toContain("APPEND_SENTINEL_94S_91");
+    expect(request).toContain("PROJECT_INSTRUCTION_SENTINEL_SDK_COMPAT");
+    expect(request).toContain("PROJECT_RULE_SENTINEL_SDK_COMPAT");
+    expect(request).toContain("APPEND_SENTINEL_SDK_COMPAT");
     expect(server.requests[0]?.path).toBe("/v1/messages?beta=true");
     expect(messageTypes(messages)).toEqual(["system", "assistant", "result"]);
     expect(JSON.stringify(messages)).toContain("contract passed");
@@ -71,23 +71,32 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     await mkdir(commandsDirectory, { recursive: true });
     await writeFile(
       join(commandsDirectory, "contract-command.md"),
-      "CUSTOM_COMMAND_SENTINEL_94S_91 arguments=$ARGUMENTS",
+      "CUSTOM_COMMAND_SENTINEL_SDK_COMPAT arguments=$ARGUMENTS",
     );
 
-    await runSdkQuery(context, server.url, "/contract-command payload-94s-91", {
-      maxTurns: 1,
-    });
+    await runSdkQuery(
+      context,
+      server.url,
+      "/contract-command payload-sdk-compat",
+      {
+        maxTurns: 1,
+      },
+    );
 
     const request = JSON.stringify(server.requests[0]?.body.messages);
-    expect(request).toContain("CUSTOM_COMMAND_SENTINEL_94S_91");
-    expect(request).toContain("payload-94s-91");
+    expect(request).toContain("CUSTOM_COMMAND_SENTINEL_SDK_COMPAT");
+    expect(request).toContain("payload-sdk-compat");
   }, 30_000);
 
   test("invokes a project skill through the native Skill tool", async () => {
     context = await createProbeContext();
     server = startFakeAnthropicServer((_request, index) =>
       index === 0
-        ? toolReply("Skill", { skill: "contract-skill" }, "toolu_94s91_skill")
+        ? toolReply(
+            "Skill",
+            { skill: "contract-skill" },
+            "toolu_sdkcompat_skill",
+          )
         : textReply("skill complete"),
     );
     const skillDirectory = join(
@@ -104,7 +113,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         "name: contract-skill",
         "description: Contract probe skill",
         "---",
-        "SKILL_SENTINEL_94S_91",
+        "SKILL_SENTINEL_SDK_COMPAT",
       ].join("\n"),
     );
 
@@ -113,7 +122,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     });
 
     expect(JSON.stringify(server.requests[1]?.body.messages)).toContain(
-      "SKILL_SENTINEL_94S_91",
+      "SKILL_SENTINEL_SDK_COMPAT",
     );
   }, 30_000);
 
@@ -123,8 +132,8 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
       index === 0
         ? toolReply(
             "mcp__contract__echo",
-            { value: "mcp-input-94s-91" },
-            "toolu_94s91_mcp",
+            { value: "mcp-input-sdk-compat" },
+            "toolu_sdkcompat_mcp",
           )
         : textReply("mcp complete"),
     );
@@ -140,7 +149,9 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
           async ({ value }) => {
             calls.push(value);
             return {
-              content: [{ type: "text", text: `MCP_SENTINEL_94S_91:${value}` }],
+              content: [
+                { type: "text", text: `MCP_SENTINEL_SDK_COMPAT:${value}` },
+              ],
             };
           },
         ),
@@ -152,9 +163,9 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
       mcpServers: { contract: mcpServer },
     });
 
-    expect(calls).toEqual(["mcp-input-94s-91"]);
+    expect(calls).toEqual(["mcp-input-sdk-compat"]);
     expect(JSON.stringify(server.requests[1]?.body.messages)).toContain(
-      "MCP_SENTINEL_94S_91:mcp-input-94s-91",
+      "MCP_SENTINEL_SDK_COMPAT:mcp-input-sdk-compat",
     );
   }, 30_000);
 
@@ -174,19 +185,19 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     );
     await writeFile(
       join(pluginRoot, "commands", "probe.md"),
-      "PLUGIN_COMMAND_SENTINEL_94S_91 arguments=$ARGUMENTS",
+      "PLUGIN_COMMAND_SENTINEL_SDK_COMPAT arguments=$ARGUMENTS",
     );
 
     await runSdkQuery(
       context,
       server.url,
-      "/contract-plugin:probe plugin-payload-94s-91",
+      "/contract-plugin:probe plugin-payload-sdk-compat",
       { maxTurns: 1, plugins: [{ path: pluginRoot, type: "local" }] },
     );
 
     const request = JSON.stringify(server.requests[0]?.body.messages);
-    expect(request).toContain("PLUGIN_COMMAND_SENTINEL_94S_91");
-    expect(request).toContain("plugin-payload-94s-91");
+    expect(request).toContain("PLUGIN_COMMAND_SENTINEL_SDK_COMPAT");
+    expect(request).toContain("plugin-payload-sdk-compat");
   }, 30_000);
 
   test("invokes a configured subagent and returns its result", async () => {
@@ -197,14 +208,14 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
           "Agent",
           {
             description: "Run the SDK gate subagent",
-            prompt: "SUBAGENT_TASK_SENTINEL_94S_91",
+            prompt: "SUBAGENT_TASK_SENTINEL_SDK_COMPAT",
             subagent_type: "contract-subagent",
           },
-          "toolu_94s91_agent",
+          "toolu_sdkcompat_agent",
         );
       }
       return index === 1
-        ? textReply("SUBAGENT_RESULT_SENTINEL_94S_91")
+        ? textReply("SUBAGENT_RESULT_SENTINEL_SDK_COMPAT")
         : textReply("subagent complete");
     });
 
@@ -212,7 +223,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
       agents: {
         "contract-subagent": {
           description: "SDK gate subagent",
-          prompt: "SUBAGENT_PROMPT_SENTINEL_94S_91",
+          prompt: "SUBAGENT_PROMPT_SENTINEL_SDK_COMPAT",
           tools: [],
         },
       },
@@ -222,9 +233,9 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
 
     const requests = JSON.stringify(server.requests);
     expect(server.requests.length).toBeGreaterThanOrEqual(3);
-    expect(requests).toContain("SUBAGENT_TASK_SENTINEL_94S_91");
-    expect(requests).toContain("SUBAGENT_PROMPT_SENTINEL_94S_91");
-    expect(requests).toContain("SUBAGENT_RESULT_SENTINEL_94S_91");
+    expect(requests).toContain("SUBAGENT_TASK_SENTINEL_SDK_COMPAT");
+    expect(requests).toContain("SUBAGENT_PROMPT_SENTINEL_SDK_COMPAT");
+    expect(requests).toContain("SUBAGENT_RESULT_SENTINEL_SDK_COMPAT");
   }, 30_000);
 
   test("keeps concurrent AskUserQuestion answers bound to their tool IDs", async () => {
@@ -242,12 +253,12 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
       index === 0
         ? toolsReply([
             {
-              id: "toolu_94s91_question_alpha",
+              id: "toolu_sdkcompat_question_alpha",
               input: { questions: [question("alpha")] },
               name: "AskUserQuestion",
             },
             {
-              id: "toolu_94s91_question_beta",
+              id: "toolu_sdkcompat_question_beta",
               input: { questions: [question("beta")] },
               name: "AskUserQuestion",
             },
@@ -299,14 +310,14 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(maximumActiveCallbacks).toBe(2);
     expect(callbackAnswers).toEqual(
       new Map([
-        ["toolu_94s91_question_alpha", "alpha custom response"],
-        ["toolu_94s91_question_beta", "beta-one"],
+        ["toolu_sdkcompat_question_alpha", "alpha custom response"],
+        ["toolu_sdkcompat_question_beta", "beta-one"],
       ]),
     );
     const followUp = JSON.stringify(server.requests[1]?.body.messages);
-    expect(followUp).toContain("toolu_94s91_question_alpha");
+    expect(followUp).toContain("toolu_sdkcompat_question_alpha");
     expect(followUp).toContain("alpha custom response");
-    expect(followUp).toContain("toolu_94s91_question_beta");
+    expect(followUp).toContain("toolu_sdkcompat_question_beta");
     expect(followUp).toContain("beta-one");
   }, 30_000);
 
@@ -318,12 +329,12 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         return toolReply(
           "Bash",
           { command: `printf once >> ${JSON.stringify(outputPath)}` },
-          "toolu_94s91_resume_once",
+          "toolu_sdkcompat_resume_once",
         );
       }
       return index === 1
-        ? textReply("FIRST_TURN_COMPLETE_94S_91")
-        : textReply("RESUMED_TURN_COMPLETE_94S_91");
+        ? textReply("FIRST_TURN_COMPLETE_SDK_COMPAT")
+        : textReply("RESUMED_TURN_COMPLETE_SDK_COMPAT");
     });
 
     const firstMessages = await runSdkQuery(
@@ -349,10 +360,10 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
 
     expect(await readFile(outputPath, "utf8")).toBe("once");
     expect(JSON.stringify(server.requests.at(-1)?.body.messages)).toContain(
-      "FIRST_TURN_COMPLETE_94S_91",
+      "FIRST_TURN_COMPLETE_SDK_COMPAT",
     );
     expect(JSON.stringify(resumedMessages)).toContain(
-      "RESUMED_TURN_COMPLETE_94S_91",
+      "RESUMED_TURN_COMPLETE_SDK_COMPAT",
     );
   }, 30_000);
 
@@ -364,7 +375,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf 'once\\n' >> ${JSON.stringify(outputPath)}` },
-            `toolu_94s91_repeated_${index}`,
+            `toolu_sdkcompat_repeated_${index}`,
           )
         : textReply(`turn ${index} complete`),
     );
@@ -419,9 +430,9 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
       if (index === 0) {
         firstRequestStarted.resolve();
         await Bun.sleep(500);
-        return textReply("INTERRUPTED_RESPONSE_MUST_NOT_SURFACE_94S_91");
+        return textReply("INTERRUPTED_RESPONSE_MUST_NOT_SURFACE_SDK_COMPAT");
       }
-      return textReply("FOLLOW_UP_RESPONSE_94S_91");
+      return textReply("FOLLOW_UP_RESPONSE_SDK_COMPAT");
     });
     const firstUuid = crypto.randomUUID();
     const followUpUuid = crypto.randomUUID();
@@ -449,9 +460,9 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(receipt?.still_queued).toEqual([]);
     const serialized = JSON.stringify(messages);
     expect(serialized).not.toContain(
-      "INTERRUPTED_RESPONSE_MUST_NOT_SURFACE_94S_91",
+      "INTERRUPTED_RESPONSE_MUST_NOT_SURFACE_SDK_COMPAT",
     );
-    expect(serialized).toContain("FOLLOW_UP_RESPONSE_94S_91");
+    expect(serialized).toContain("FOLLOW_UP_RESPONSE_SDK_COMPAT");
     expect(serialized).toContain(firstUuid);
     expect(serialized).toContain(followUpUuid);
   }, 30_000);
@@ -464,7 +475,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf allowed > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_allowed",
+            "toolu_sdkcompat_allowed",
           )
         : textReply("tool complete"),
     );
@@ -514,15 +525,15 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(callbacks).toContainEqual({
       event: "canUseTool",
       requestId: expect.any(String),
-      toolUseId: "toolu_94s91_allowed",
+      toolUseId: "toolu_sdkcompat_allowed",
     });
     expect(callbacks).toContainEqual({
       event: "PreToolUse",
-      toolUseId: "toolu_94s91_allowed",
+      toolUseId: "toolu_sdkcompat_allowed",
     });
     expect(callbacks).toContainEqual({
       event: "PostToolUse",
-      toolUseId: "toolu_94s91_allowed",
+      toolUseId: "toolu_sdkcompat_allowed",
     });
     expect(JSON.stringify(server.requests[1]?.body.messages)).toContain(
       "tool_result",
@@ -538,7 +549,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf rule > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_rule",
+            "toolu_sdkcompat_rule",
           )
         : textReply("tool complete"),
     );
@@ -567,7 +578,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf denied > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_project_deny",
+            "toolu_sdkcompat_project_deny",
           )
         : textReply("deny complete"),
     );
@@ -595,7 +606,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf allowed > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_project_allow",
+            "toolu_sdkcompat_project_allow",
           )
         : textReply("allow complete"),
     );
@@ -625,7 +636,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf denied > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_project_ask",
+            "toolu_sdkcompat_project_ask",
           )
         : textReply("ask complete"),
     );
@@ -654,7 +665,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Write",
             { content: "accepted", file_path: outputPath },
-            "toolu_94s91_accept_edits",
+            "toolu_sdkcompat_accept_edits",
           )
         : textReply("write complete"),
     );
@@ -681,7 +692,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf blocked > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_plan",
+            "toolu_sdkcompat_plan",
           )
         : textReply("plan denial observed"),
     );
@@ -711,7 +722,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf denied > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_plan_no_host",
+            "toolu_sdkcompat_plan_no_host",
           )
         : textReply("plan denial observed"),
     );
@@ -736,7 +747,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         ? toolReply(
             "Bash",
             { command: `printf denied > ${JSON.stringify(outputPath)}` },
-            "toolu_94s91_dontask",
+            "toolu_sdkcompat_dontask",
           )
         : textReply("denial observed"),
     );

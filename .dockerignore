@@ -13,7 +13,7 @@ docs/*
 docs/api/*
 !docs/api/index.html
 !docs/api/scalar.js
-spikes
+scripts/agent-sdk-compat
 tests
 infra
 **/*.test.ts

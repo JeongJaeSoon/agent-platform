@@ -1,17 +1,10 @@
-# 94S-91 Agent SDK 호환성 게이트
+# Agent SDK·LiteLLM 호환 harness
 
-SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. CI `spikes` job은 main push와 수동 실행에서만 이 harness를 돌린다([docs/contributing/ci.md](../../docs/contributing/ci.md)).
+SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. 실제 Agent SDK가 실제 번들 Claude Code child process를 실행하고, local fake Anthropic upstream과 실제 LiteLLM proxy를 거쳐 왕복하는지 process 수준에서 확인한다. 채택 버전, 운영 제약, 버전을 고정하는 방식은 [결정 기록](../../docs/contributing/decisions/agent-sdk.md)에 있다.
 
-## 결론
+workspace 밖의 독립 설치 단위다. 자기 `bun.lock`으로 SDK를 고정하고, `packages/testkit`은 상대 경로로 import한다. CI `agent-sdk-compat` job이 main push와 수동 실행에서만 돌린다([docs/contributing/ci.md](../../docs/contributing/ci.md)). 이 harness의 SDK 버전이 제품과 같은지는 `tests/agent-sdk-compat/sdk-version.test.ts`가 검사한다.
 
-`@anthropic-ai/claude-agent-sdk@0.3.270`과 번들 Claude Code `2.1.270`을 로컬 worker 기반으로 채택한다. Anthropic 전송은 LiteLLM `1.100.1`의 `/v1/messages` 경로를 사용한다. 이 디렉터리는 실제 SDK가 실제 Claude Code child process를 실행하고 로컬 fake Anthropic upstream 및 실제 LiteLLM proxy와 왕복하는 process-level 계약 harness다.
-
-두 가지 운영 제약을 함께 고정한다.
-
-1. 외부 승인 대기는 SDK `defer` 또는 중단 후 `resume`에 맡기지 않는다. worker process와 `canUseTool` callback을 유지하고, 기한이 지나면 deny한 뒤 새 turn으로 재시도한다.
-2. `HOME`, `CLAUDE_CONFIG_DIR`, `settingSources` 격리만으로 상위 `CLAUDE.md` 탐색을 막을 수 없다. tenant workspace의 전체 상위 경로를 tenant 전용 clean mount로 제공해야 한다.
-
-실제 Anthropic 계정, credential, 과금 호출은 사용하지 않는다. paid smoke는 별도 승인 대상이다.
+실제 Anthropic 계정, credential, 과금 호출은 쓰지 않는다. paid smoke는 별도 승인 대상이다.
 
 ## 고정 버전과 실행 환경
 
@@ -28,14 +21,17 @@ SDK·LiteLLM 버전을 올릴 때 돌리는 호환 harness다. CI `spikes` job�
 
 ## 실행
 
+저장소 루트에서 실행한다.
+
 ```bash
-bun install --cwd spikes/94s-91 --frozen-lockfile
+bun install --frozen-lockfile
+bun install --cwd scripts/agent-sdk-compat --frozen-lockfile
 uv tool install 'litellm[proxy]==1.100.1'
-bun run --cwd spikes/94s-91 probe:version
-bun run --cwd spikes/94s-91 check
+bun run --cwd scripts/agent-sdk-compat probe:version
+bun run --cwd scripts/agent-sdk-compat check
 ```
 
-검사는 loopback HTTP server와 child process 실행 권한이 필요하다. 외부 네트워크는 최초 의존성 설치 외에는 필요하지 않다.
+`check`는 typecheck, contract suite(`test:contract`), LiteLLM transport suite(`test:transport`)를 차례로 돌린다. `test:contract`는 LiteLLM 없이도 돈다. 검사는 loopback HTTP server와 child process 실행 권한이 필요하다. 외부 네트워크는 최초 의존성 설치 외에는 필요하지 않다.
 
 ## SDK와 project 확장 계약
 
@@ -108,4 +104,4 @@ native init의 cwd, tool inventory, backend error detail은 공개하지 않는�
 
 ## 보안 및 범위
 
-테스트는 placeholder credential만 사용하고 로그나 public SSE에 credential, host path, native error detail을 노출하지 않는다. paid Claude smoke는 이 게이트의 필수 조건이 아니며 별도 승인과 비용 통제 후 수행한다.
+테스트는 placeholder credential만 사용하고 로그나 public SSE에 credential, host path, native error detail을 노출하지 않는다. paid Claude smoke는 이 harness의 필수 조건이 아니며 별도 승인과 비용 통제 후 수행한다.
