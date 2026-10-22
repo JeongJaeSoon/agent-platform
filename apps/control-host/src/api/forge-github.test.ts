@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -191,6 +191,21 @@ describe("GitHub App forge", () => {
       defaultBranch: "main",
       private: true,
     });
+  });
+
+  test("names itself Werft in the User-Agent", async () => {
+    const calls = spyOn(globalThis, "fetch");
+    try {
+      const { forge } = appForge();
+      await forge.getRepository(repo);
+      const agents = calls.mock.calls.map(([, init]) =>
+        new Headers(init?.headers).get("user-agent"),
+      );
+      expect(agents.length).toBeGreaterThan(0);
+      for (const agent of agents) expect(agent).toStartWith("Werft ");
+    } finally {
+      calls.mockRestore();
+    }
   });
 });
 
