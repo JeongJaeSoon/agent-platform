@@ -5,6 +5,7 @@ import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
+  CheckpointOutput,
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
@@ -1064,7 +1065,7 @@ describe("outputs", () => {
     return { ...ref, path };
   }
 
-  function withOutputs(outputs: CheckpointManifest["outputs"]) {
+  function withOutputs(outputs: readonly CheckpointOutput[]) {
     return (candidate: CheckpointManifest): CheckpointManifest => ({
       ...candidate,
       outputs,
