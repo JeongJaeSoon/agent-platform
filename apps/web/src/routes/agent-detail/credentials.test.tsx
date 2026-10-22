@@ -7,7 +7,7 @@ import { appHarness } from "../../test-support/render-app.tsx";
 const { renderAt, screen, waitFor, within } = await appHarness();
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
-const DETAIL = `/agents/${AGENT_ID}`;
+const DETAIL = `/agents/${AGENT_ID}?tab=release`;
 const PROFILE = "claude-coding-local";
 const BINDINGS = `/v1/agents/${AGENT_ID}/credential-bindings`;
 
@@ -118,9 +118,9 @@ describe("자격 연결 단계", () => {
         apiError(403, "FORBIDDEN", "This principal does not hold it"),
     });
     const section = await step();
-    expect((await within(section).findByText(/에이전트 관리/)).className).toBe(
-      "web-guarded__reason",
-    );
+    // A reason to read, not a failure to retry.
+    const reason = await within(section).findByText(/에이전트 관리/);
+    expect(reason.closest('[role="alert"]')).toBeNull();
     expect(within(section).queryByRole("button")).toBeNull();
   });
 

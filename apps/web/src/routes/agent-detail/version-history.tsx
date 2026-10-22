@@ -3,6 +3,15 @@ import { formatTimestamp } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
+import {
+  FORM_INLINE,
+  LIST,
+  LIST_ITEM,
+  PRIMARY,
+  SECONDARY,
+  SECTION,
+  SECTION_TITLE,
+} from "./classes.ts";
 import { VersionSelect } from "./versions.tsx";
 
 export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
@@ -24,13 +33,15 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
     t("agent.versionLabel", { version: version.version_no });
 
   return (
-    <section className="web-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{t("agent.versions.title")}</h2>
-      <ul className="web-list">
+    <section className={SECTION} aria-labelledby={titleId}>
+      <h2 id={titleId} className={SECTION_TITLE}>
+        {t("agent.versions.title")}
+      </h2>
+      <ul className={LIST}>
         {ordered.map((version) => (
-          <li key={version.id} className="web-list__item">
-            <span className="web-table__primary">{label(version)}</span>
-            <span className="web-table__secondary">
+          <li key={version.id} className={LIST_ITEM}>
+            <span className={PRIMARY}>{label(version)}</span>
+            <span className={SECONDARY}>
               {formatTimestamp(version.created_at, locale)}
               {version.id === activeVersionId
                 ? ` · ${t("agent.versions.active")}`
@@ -41,7 +52,7 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
       </ul>
       {ordered.length > 1 ? (
         <>
-          <div className="web-form web-form--inline">
+          <div className={FORM_INLINE}>
             <VersionSelect
               label={t("agent.versions.before")}
               versions={ordered}

@@ -1,4 +1,10 @@
 import type { AgentDetail, AgentVersion } from "@werft-ai/contracts";
+import {
+  Field,
+  FieldLabel,
+  NativeSelect,
+  NativeSelectOption,
+} from "@werft-ai/ui";
 import { useI18n } from "../../i18n/i18n.tsx";
 
 export const latestVersion = (detail: AgentDetail) =>
@@ -21,19 +27,18 @@ export function VersionSelect({
 }) {
   const { t } = useI18n();
   return (
-    <label className="web-field">
-      <span>{label}</span>
-      <select
-        className="ap-input"
+    <Field className="w-auto">
+      <FieldLabel>{label}</FieldLabel>
+      <NativeSelect
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
         {versions.map((version) => (
-          <option key={version.id} value={version.id}>
+          <NativeSelectOption key={version.id} value={version.id}>
             {t("agent.versionLabel", { version: version.version_no })}
-          </option>
+          </NativeSelectOption>
         ))}
-      </select>
-    </label>
+      </NativeSelect>
+    </Field>
   );
 }
