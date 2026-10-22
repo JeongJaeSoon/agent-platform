@@ -11,8 +11,8 @@ import {
   FieldLegend,
   FieldSet,
 } from "../primitives/field.tsx";
-import { Input } from "../primitives/input.tsx";
 import { RadioGroup, RadioGroupItem } from "../primitives/radio-group.tsx";
+import { Textarea } from "../primitives/textarea.tsx";
 import {
   formatTimestamp,
   type TimestampLocale,
@@ -121,27 +121,37 @@ export function QuestionCard({
       data-slot="question-card"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 text-sm",
+        "flex min-w-0 flex-col gap-3 rounded-lg border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
         className,
       )}
       {...within}
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <svg
+          className="size-4 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          aria-hidden="true"
+        >
+          <path d="M6 3h12M6 21h12M8 3v4l8 10v4M16 3v4L8 17v4" />
+        </svg>
         {/* Not a heading: the level depends on the screen around the card. */}
-        <p id={titleId} className="font-medium">
+        <p id={titleId} className="font-semibold text-body">
           {messages.title}
         </p>
         <p
           ref={noticeRef}
           tabIndex={expired ? -1 : undefined}
-          className="text-muted-foreground text-xs"
+          className="ml-auto text-right text-muted-foreground text-caption"
         >
           {expired
             ? messages.expired
             : messages.expires(formatTimestamp(request.expires_at, locale))}
         </p>
       </div>
-      <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
+      <form className="flex flex-col gap-3" onSubmit={submit} noValidate>
         {request.questions.map((question) => (
           <QuestionFields
             key={question.question_id}
@@ -161,7 +171,7 @@ export function QuestionCard({
         {expired ? null : (
           <Button
             type="submit"
-            className="self-start"
+            className="w-full"
             disabled={pending || disabled}
           >
             {messages.submit}
@@ -194,14 +204,18 @@ function QuestionFields({
       <FieldLegend
         id={legendId}
         variant="label"
-        className="mb-0 [overflow-wrap:anywhere]"
+        className="mb-3 text-body [overflow-wrap:anywhere]"
       >
         {question.prompt}
       </FieldLegend>
       {options.length === 0 ? null : question.multi_select ? (
         <div className="flex flex-col gap-2">
           {options.map((option) => (
-            <Field key={option.option_id} orientation="horizontal">
+            <Field
+              key={option.option_id}
+              orientation="horizontal"
+              className="min-h-8 text-control"
+            >
               <Checkbox
                 disabled={disabled}
                 checked={draft.selected.includes(option.option_id)}
@@ -216,7 +230,7 @@ function QuestionFields({
                   })
                 }
               />
-              <FieldLabel>{option.label}</FieldLabel>
+              <FieldLabel className="text-control">{option.label}</FieldLabel>
             </Field>
           ))}
         </div>
@@ -229,9 +243,13 @@ function QuestionFields({
           onValueChange={(value) => onChange({ selected: [value] })}
         >
           {options.map((option) => (
-            <Field key={option.option_id} orientation="horizontal">
+            <Field
+              key={option.option_id}
+              orientation="horizontal"
+              className="min-h-8 text-control"
+            >
               <RadioGroupItem value={option.option_id} />
-              <FieldLabel>{option.label}</FieldLabel>
+              <FieldLabel className="text-control">{option.label}</FieldLabel>
             </Field>
           ))}
         </RadioGroup>
@@ -239,7 +257,7 @@ function QuestionFields({
       {question.allow_free_text ? (
         <Field>
           <FieldLabel>{freeTextLabel}</FieldLabel>
-          <Input
+          <Textarea
             disabled={disabled}
             value={draft.text}
             onChange={(event) => onChange({ text: event.target.value })}

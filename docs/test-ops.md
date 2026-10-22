@@ -1,6 +1,6 @@
 # test-ops 운영 runbook
 
-test-ops는 내부 알파 인원이 함께 쓰는 상시 설치다. Linux 호스트 한 대에서 compose로 돈다. checkpoint object는 기본으로 같은 호스트의 LocalStack에 두고, 설정 하나로 AWS S3(도쿄)로 바꾼다(아래 "object store"). 배포·업그레이드·키 발급·백업·복원 훈련·재시작 복구는 모두 `scripts/test-ops.sh` 하나로 한다. 이 문서는 운영자용 절차다. 각 구성 요소가 어떻게 동작하는지는 [operations.md](operations.md), 백업 번들의 형식과 검사는 [backup-restore.md](backup-restore.md)를 본다.
+test-ops는 여러 사람이 함께 쓰는 상시 설치다. Linux 호스트 한 대에서 compose로 돈다. checkpoint object는 기본으로 같은 호스트의 LocalStack에 두고, 설정 하나로 AWS S3(도쿄)로 바꾼다(아래 "object store"). 배포·업그레이드·키 발급·백업·복원 훈련·재시작 복구는 모두 `scripts/test-ops.sh` 하나로 한다. 이 문서는 운영자용 절차다. 각 구성 요소가 어떻게 동작하는지는 [operations.md](operations.md), 백업 번들의 형식과 검사는 [backup-restore.md](backup-restore.md)를 본다.
 
 Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 하는 명령은 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
 
@@ -16,7 +16,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 지키는 규칙은 다음과 같다.
 
-- **공개하지 않는다.** compose는 포트를 모두 `127.0.0.1`에만 연다. 사람은 SSH 터널이나 VPN으로 들어온다. 외부 사용자에게는 열지 않는다(알파는 내부 인원 한정, [94S-376](https://linear.app/94soon/issue/94S-376)).
+- **포트는 loopback에만 연다.** compose는 포트를 모두 `127.0.0.1`에만 연다. 사람은 SSH 터널이나 VPN으로 들어온다.
 - **설정은 저장소 밖 env 파일 하나에 둔다.** 스크립트는 그 파일을 `docker compose --env-file`로만 넘기고 셸에서 `source`하지 않는다. compose를 부를 때 호출 셸의 환경도 넘기지 않는다. 셸에 남은 `AWS_*` 같은 값이 env 파일보다 우선하는 일을 막기 위해서다.
 - **release는 digest로 고정한다.** 이미지는 가변 tag로 부르지 않는다.
 
@@ -29,7 +29,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | `localstack`(기본) | 같은 호스트의 LocalStack. 로컬 스택과 같은 이미지·초기화 스크립트이고, bucket은 `claude-sessions`다 | `infra/compose.test-ops.localstack.yml` |
 | `s3` | AWS S3 bucket. 아래 "AWS 준비"를 따른다 | `infra/compose.test-ops.s3.yml` |
 
-`deploy`가 고른 값을 상태 디렉터리의 `installation` 파일에 적고, 그 뒤 명령은 이 값을 쓴다. 배포된 설치의 저장소를 바꾸는 것은 `reset` 뒤 새 `deploy`다. 세션은 옮겨지지 않는다. 실 AWS 계정으로 `s3` 경로를 검증하는 일은 외부 공개 전 게이트인 [94S-303](https://linear.app/94soon/issue/94S-303)에서 한다.
+`deploy`가 고른 값을 상태 디렉터리의 `installation` 파일에 적고, 그 뒤 명령은 이 값을 쓴다. 배포된 설치의 저장소를 바꾸는 것은 `reset` 뒤 새 `deploy`다. 세션은 옮겨지지 않는다.
 
 ### LocalStack의 한계
 
@@ -306,7 +306,7 @@ docker exec agent-platform-test-ops-api-1 bun run apps/control-host/src/api/gran
 
 ## provider key
 
-test-ops는 운영자의 Anthropic key 하나를 모든 세션이 같이 쓴다. [94S-376](https://linear.app/94soon/issue/94S-376) 결정상 내부 알파에서만 허용된다. 외부 사용자에게 test-ops를 열려면 BYOK가 먼저 있어야 한다.
+test-ops는 운영자의 Anthropic key 하나를 모든 세션이 같이 쓴다.
 
 - key는 env 파일의 `ANTHROPIC_API_KEY`에만 둔다. compose는 이 값을 API 컨테이너에만 넘기고, 카탈로그는 `value_env`로 이름만 가리킨다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
 - 비용은 세션별 `SESSION_COST_LIMIT_USD`(기본 25)로 막는다. Anthropic 콘솔에도 월 한도를 건다.
@@ -436,4 +436,4 @@ scripts/test-ops.sh status
 - scheduler: `Workspace quota preflight failed; …`, `Network isolation preflight failed; …`, `Database connection lost; …`, `Worker workspaces have no disk or inode quota`(quota가 꺼진 채 떴다는 뜻이다)
 - checkpoint GC: `Checkpoint GC failed for a session`
 
-OpenTelemetry 지표는 알파 뒤다. 알파의 관측은 위 상태 파일, DB 쿼리, 구조화 로그이며, 선택형 Datadog Agent·초기 monitor·계측 공백의 정본은 [monitoring-datadog.md](monitoring-datadog.md)다.
+OpenTelemetry 지표는 아직 없다. 관측은 위 상태 파일, DB 쿼리, 구조화 로그이며, 선택형 Datadog Agent·초기 monitor·계측 공백의 정본은 [monitoring-datadog.md](monitoring-datadog.md)다.

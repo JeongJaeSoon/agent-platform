@@ -50,14 +50,17 @@ export function StatusLabel<A extends StatusAxis>({
       data-tone={descriptor.tone}
       data-stale={stale || undefined}
     >
-      <AxisIcon axis={axis} />
-      {descriptor.inFlight ? (
+      {/* One icon slot: a moving state's spinner takes the axis icon's place,
+          so the axis reads from the label and the hidden axis name. */}
+      {descriptor.inFlight && !reducedMotion ? (
         <span
           className="ap-status__spinner"
-          data-animated={reducedMotion ? undefined : "true"}
+          data-animated="true"
           aria-hidden="true"
         />
-      ) : null}
+      ) : (
+        <AxisIcon axis={axis} />
+      )}
       <span className="ap-visually-hidden">
         {axisLabel ?? STATUS_AXIS_LABEL[axis]}:{" "}
       </span>

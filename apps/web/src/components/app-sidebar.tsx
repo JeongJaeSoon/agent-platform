@@ -147,17 +147,17 @@ export function AppSidebar({
       id={id}
       data-slot="app-sidebar"
       data-open={openBelowMd}
-      className="hidden flex-col gap-6 bg-rail px-3 py-4 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:overflow-y-auto"
+      className="hidden flex-col gap-6 bg-rail px-2 py-3 text-rail-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:overflow-y-auto"
     >
       <div className="hidden px-2 md:block">
         <p className="m-0 font-semibold">{t("common.appName")}</p>
         {me?.workspace ? (
-          <p className="m-0 text-rail-muted-foreground text-sm [overflow-wrap:anywhere]">
+          <p className="m-0 text-rail-muted-foreground text-body [overflow-wrap:anywhere]">
             {me.workspace.name}
           </p>
         ) : null}
       </div>
-      <nav aria-label={t("nav.label")} className="flex flex-col gap-5">
+      <nav aria-label={t("nav.label")} className="flex flex-col gap-3">
         {groups.map((group) => (
           <NavSection key={group.label} group={group} onNavigate={onNavigate} />
         ))}
@@ -183,7 +183,7 @@ function NavSection({
     <div role="group" aria-labelledby={headingId} className="flex flex-col">
       <p
         id={headingId}
-        className="m-0 mb-1 px-2 text-rail-muted-foreground text-xs"
+        className="m-0 px-2 pt-3 pb-1 text-rail-muted-foreground text-caption"
       >
         {t(group.label)}
       </p>
@@ -194,7 +194,7 @@ function NavSection({
           activeOptions={{ exact: item.to === "/" }}
           onClick={onNavigate}
           className={cn(
-            "flex min-h-9 items-center gap-2 rounded-md px-2 py-1.5 text-rail-muted-foreground text-sm no-underline",
+            "flex h-8 items-center gap-2 rounded-md px-2 text-rail-muted-foreground text-control no-underline",
             "hover:bg-rail-foreground/10 hover:text-rail-foreground",
             "data-[status=active]:bg-rail-foreground/10 data-[status=active]:font-semibold data-[status=active]:text-rail-foreground",
           )}
@@ -226,16 +226,16 @@ function UserMenu({
     >
       {me?.user ? (
         <div className="min-w-0">
-          <p className="m-0 font-medium text-sm [overflow-wrap:anywhere]">
+          <p className="m-0 font-medium text-body [overflow-wrap:anywhere]">
             {me.user.display_name}
           </p>
-          <p className="m-0 text-rail-muted-foreground text-xs [overflow-wrap:anywhere]">
+          <p className="m-0 text-rail-muted-foreground text-caption [overflow-wrap:anywhere]">
             {me.user.email}
           </p>
         </div>
       ) : null}
       <Field orientation="horizontal" className="justify-between gap-2">
-        <FieldLabel className="text-rail-muted-foreground text-xs">
+        <FieldLabel className="text-rail-muted-foreground text-caption">
           {t("common.language")}
         </FieldLabel>
         <NativeSelect
@@ -252,7 +252,7 @@ function UserMenu({
         </NativeSelect>
       </Field>
       <Field orientation="horizontal" className="justify-between gap-2">
-        <FieldLabel className="text-rail-muted-foreground text-xs">
+        <FieldLabel className="text-rail-muted-foreground text-caption">
           {t("shell.theme")}
         </FieldLabel>
         <NativeSelect

@@ -13,12 +13,10 @@ not run as-is is ```sh or ```text.
 
 이 문서의 `bash` 블록은 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다. `jq -e`로 시작하는 줄은 `true`를 출력해야 한다. `false`가 나오면 그 단계가 기대와 다르게 끝난 것이고, CI에서는 그 자리에서 실패한다. 같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돈다.
 
-## 대상: 신뢰된 내부 인원 한정
-
-private alpha는 **신뢰된 내부 인원만** 쓴다. 다음은 알려진 제약이다.
+## 알려진 제약
 
 - 워커 안에서 실행되는 코드(에이전트의 tool 실행, prompt injection으로 들어온 명령 포함)는 attempt가 살아 있는 동안 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 그리고 자기 세션 prefix 안의 object를 부를 수 있다. provider key, 저장소 credential, object store credential 값 자체는 worker에 가지 않는다([94S-252](https://linear.app/94soon/issue/94S-252), [94S-251](https://linear.app/94soon/issue/94S-251)).
-- 모든 세션이 운영자의 provider key 하나를 같이 쓴다. 외부 사용자에게 열기 전에 사용자마다 자기 key를 등록하는 BYOK가 있어야 한다([94S-376](https://linear.app/94soon/issue/94S-376)).
+- 모든 세션이 운영자의 provider key 하나를 같이 쓴다.
 
 ## 0. 준비물
 
@@ -142,7 +140,7 @@ grep -A1 '^event: question' /tmp/quickstart-events.txt
 
 `curl: (28) Operation timed out after 5… milliseconds`는 정상이다. 이벤트 스트림은 서버가 닫지 않으므로 `--max-time 5`가 5초 뒤에 끊은 것이고, `|| true`가 있어 다음 줄은 그대로 실행된다. ⑧에서도 같은 메시지가 나온다.
 
-SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment keepalive). 사람이 볼 때는 `--max-time` 없이 열어 두고 Ctrl-C로 닫는다. 연결이 끊기면 backoff 뒤 마지막으로 완전히 받은 이벤트의 `id`를 `Last-Event-ID` 헤더로 보내 재연결한다. 서버는 그 이벤트 **다음**부터 재생한다. `410 CURSOR_EXPIRED`는 cursor가 보존 범위 밖이라는 뜻이므로 세션·turn 상태를 다시 읽어 동기화해야 한다. 알파는 이벤트를 지우지 않아 410을 내지 않지만 클라이언트 계약에는 미리 포함한다.
+SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment keepalive). 사람이 볼 때는 `--max-time` 없이 열어 두고 Ctrl-C로 닫는다. 연결이 끊기면 backoff 뒤 마지막으로 완전히 받은 이벤트의 `id`를 `Last-Event-ID` 헤더로 보내 재연결한다. 서버는 그 이벤트 **다음**부터 재생한다. `410 CURSOR_EXPIRED`는 cursor가 보존 범위 밖이라는 뜻이므로 세션·turn 상태를 다시 읽어 동기화해야 한다. 지금 서버는 이벤트를 지우지 않아 410을 내지 않지만 클라이언트 계약에는 미리 포함한다.
 
 이벤트 이름은 `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error`다. `result` 이벤트의 `data.session_id`는 플랫폼 세션 id가 아니라 **engine(Claude Code) 세션 id**이며 durable 완료 판정이 아니다. turn 조회(`GET /v1/sessions/{id}/turns/{turn_id}`)의 `status`가 `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown` 중 하나일 때만 terminal로 판정한다. `completed`는 engine이 turn을 정상 종료했다는 뜻이고 요청한 일을 다 했다는 뜻은 아니다([api-guide 4절](api-guide.md#4-메시지-보내기와-turn-상태-보기)).
 
@@ -288,7 +286,7 @@ bun install
 
 | 명령 | 확인하는 것 | 성공 표시 |
 |---|---|---|
-| `tests/e2e/run.sh` | 알파 경로 전체(3장과 같은 흐름 + pause 경계 케이스). CI `e2e` job과 같다 | 끝의 `tests:` 줄이 `skip=0 fail=0`이고 exit 0 |
+| `tests/e2e/run.sh` | 세션 경로 전체(3장과 같은 흐름 + pause 경계 케이스). CI `e2e` job과 같다 | 끝의 `tests:` 줄이 `skip=0 fail=0`이고 exit 0 |
 | `tests/e2e/quickstart.sh` | 이 문서의 `bash` 블록을 순서대로 한 `bash -euo pipefail`에서 실행한다. `jq -e` 줄 하나라도 `false`면 실패다. CI `quickstart` job과 같다. 1장 스택이 없을 때만 돌린다(아래 경고) | `== quickstart: every block ran` |
 | `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 전부 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | exit 0. 비교표는 `RR_OUT/record.txt` |
 
@@ -326,7 +324,7 @@ get "/v1/sessions/$SID/usage" | jq .
 
 ### 백업 → 복원 → 검증 (수동)
 
-백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [내부 알파 실서버 배포의 백업·복원 기준](alpha-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
+백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [단일 서버 배포의 백업·복원 기준](server-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
 
 ## 7. 정리
 

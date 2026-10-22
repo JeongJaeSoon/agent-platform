@@ -106,20 +106,33 @@ export function ApprovalCard({
       data-slot="approval-card"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 text-sm",
+        "flex min-w-0 flex-col gap-3 rounded-lg border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
         className,
       )}
       {...within}
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <svg
+          className="size-4 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          aria-hidden="true"
+        >
+          <path d="M6 3h12M6 21h12M8 3v4l8 10v4M16 3v4L8 17v4" />
+        </svg>
         {/* Not a heading: the level depends on the screen around the card. */}
-        <p id={titleId} className="font-medium [overflow-wrap:anywhere]">
+        <p
+          id={titleId}
+          className="font-semibold text-body [overflow-wrap:anywhere]"
+        >
           {messages.title(request.tool)}
         </p>
         <p
           ref={noticeRef}
           tabIndex={expired ? -1 : undefined}
-          className="text-muted-foreground text-xs"
+          className="ml-auto text-right text-muted-foreground text-caption"
         >
           {expired
             ? messages.expired
@@ -127,10 +140,10 @@ export function ApprovalCard({
         </p>
       </div>
       <details>
-        <summary className="cursor-pointer text-muted-foreground text-xs">
+        <summary className="cursor-pointer text-muted-foreground text-caption">
           {messages.input}
         </summary>
-        <pre className="mt-2 max-h-60 overflow-auto rounded-md bg-muted p-2 text-xs">
+        <pre className="mt-2 max-h-60 overflow-auto rounded-md bg-card p-2 font-mono text-caption">
           {inputText(request.input)}
         </pre>
       </details>
@@ -169,10 +182,16 @@ export function ApprovalCard({
         </form>
       ) : (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={blocked} onClick={onAllow}>
+          <Button
+            className="flex-1"
+            type="button"
+            disabled={blocked}
+            onClick={onAllow}
+          >
             {messages.allow}
           </Button>
           <Button
+            className="flex-1"
             ref={denyRef}
             type="button"
             variant="outline"

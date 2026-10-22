@@ -195,7 +195,8 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | gopd | 1.2.0 | MIT | worker |
 | has-symbols | 1.1.0 | MIT | worker |
 | hasown | 2.0.4 | MIT | worker |
-| hono | 4.13.7 | MIT | control-host, worker |
+| hono | 4.13.11 | MIT | control-host, worker |
+| hono | 4.13.7 | MIT | worker |
 | http-errors | 2.0.1 | MIT | worker |
 | iconv-lite | 0.7.3 | MIT | worker |
 | inherits | 2.0.4 | ISC | worker |

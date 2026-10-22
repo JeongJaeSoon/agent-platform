@@ -74,13 +74,14 @@
   align-items: center;
   gap: var(--ap-space-1);
   max-width: 100%;
-  padding: var(--ap-space-1) var(--ap-space-2);
+  min-height: 1.25rem;
+  padding: 0 var(--ap-space-2);
   border: 1px solid var(--ap-tone-border);
   border-radius: var(--ap-radius-pill);
   background: var(--ap-tone-bg);
   color: var(--ap-tone-fg);
   font-family: var(--ap-font-sans);
-  font-size: var(--ap-text-label);
+  font-size: var(--ap-text-xs);
   font-weight: var(--ap-weight-medium);
   line-height: var(--ap-leading-tight);
   /* Korean micro labels must never be uppercased (argo 러너명 왜곡 교훈, §6). */
@@ -133,6 +134,13 @@
 .ap-status__spinner[data-animated="true"],
 .ap-button__spinner {
   animation: ap-spin 900ms linear infinite;
+}
+
+/* Same box as the axis icon whose slot it takes, so the text holds still. */
+.ap-status__spinner {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
 }
 
 @keyframes ap-spin {
@@ -208,7 +216,7 @@
   gap: var(--ap-space-1);
   margin: 0;
   padding: var(--ap-space-2) var(--ap-space-3);
-  border-left: 3px solid var(--ap-tone-danger-border);
+  border: 1px solid var(--ap-tone-danger-border);
   border-radius: var(--ap-radius-sm);
   background: var(--ap-tone-danger-bg);
   color: var(--ap-tone-danger-fg);
@@ -296,12 +304,12 @@
   text-align: center;
 }
 
-/* Loud on purpose, so it can never be mistaken for the empty state. */
+/* Loud on purpose, so it can never be mistaken for the empty state: the red
+   fill, the "!" mark and the red title carry that, not a heavier edge. */
 .ap-state--error {
   align-items: flex-start;
   padding: var(--ap-space-4);
   border: 1px solid var(--ap-tone-danger-border);
-  border-left: 4px solid var(--ap-tone-danger-fg);
   background: var(--ap-tone-danger-bg);
   color: var(--ap-tone-danger-fg);
   text-align: left;
@@ -435,10 +443,6 @@
   font-size: var(--ap-text-base);
   line-height: var(--ap-leading-normal);
   animation: ap-dialog-in var(--ap-motion-normal) var(--ap-motion-ease);
-}
-
-.ap-dialog[data-tone="danger"] {
-  border-top: 4px solid var(--ap-tone-danger-fg);
 }
 
 .ap-dialog__title {

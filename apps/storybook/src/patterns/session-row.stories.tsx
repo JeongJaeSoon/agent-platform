@@ -1,12 +1,26 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SessionRow, Skeleton } from "@werft-ai/ui";
+import { SessionRow, SessionTable, Skeleton } from "@werft-ai/ui";
 
 import { SESSION, SESSION_ROW_MESSAGES } from "./session-fixtures.ts";
+
+const TABLE_MESSAGES = {
+  id: "Session ID",
+  status: SESSION_ROW_MESSAGES.statusAxis,
+  admission: SESSION_ROW_MESSAGES.admissionAxis,
+  runtime: SESSION_ROW_MESSAGES.runtime,
+  lastEvent: SESSION_ROW_MESSAGES.lastEvent,
+  created: SESSION_ROW_MESSAGES.created,
+};
 
 const meta = {
   title: "Patterns/Session/SessionRow",
   globals: { locale: "en" },
   component: SessionRow,
+  render: (args) => (
+    <SessionTable label="Sessions" messages={TABLE_MESSAGES}>
+      <SessionRow {...args} />
+    </SessionTable>
+  ),
   args: {
     session: SESSION,
     renderLink: (link) => <a href={`/sessions/${SESSION.id}`} {...link} />,
@@ -61,10 +75,12 @@ export const Failed: Story = {
 export const States: Story = {
   render: (args) => (
     <div className="flex flex-col gap-3">
-      <SessionRow {...args} />
-      <SessionRow {...args} {...Empty.args} />
+      <SessionTable label="Sessions" messages={TABLE_MESSAGES}>
+        <SessionRow {...args} />
+        <SessionRow {...args} {...Empty.args} />
+        <SessionRow {...args} {...Failed.args} />
+      </SessionTable>
       <LoadingRow />
-      <SessionRow {...args} {...Failed.args} />
     </div>
   ),
 };

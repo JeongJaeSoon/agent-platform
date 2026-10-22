@@ -9,7 +9,7 @@ import { cn } from "../lib/cn.ts";
  * names a category; a status with meaning (running, paused…) is StatusLabel.
  */
 export const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:size-3",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap h-5 rounded-full border px-2 font-medium text-caption transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:size-3",
   {
     variants: {
       variant: {

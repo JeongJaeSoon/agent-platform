@@ -42,9 +42,10 @@ function DestructiveHarness({
     <DestructiveActionDialog
       open={open}
       onOpenChange={setOpen}
-      title="에이전트를 해고할까요?"
+      title="에이전트를 보관할까요?"
       consequence="카드와 release가 비활성화되고, 진행 중인 세션은 종료됩니다."
       resourceName="결제 담당"
+      confirmLabel="보관"
       onConfirm={onConfirm}
     />
   );
@@ -56,7 +57,7 @@ function OwnedHarness({ destructive = false }: { destructive?: boolean }) {
   const props = {
     open,
     onOpenChange: setOpen,
-    title: "에이전트를 해고할까요?",
+    title: "에이전트를 보관할까요?",
     consequence: "카드와 release가 비활성화됩니다.",
     onConfirm: () => {},
   };
@@ -71,7 +72,11 @@ function OwnedHarness({ destructive = false }: { destructive?: boolean }) {
         밖에서 닫기
       </button>
       {destructive ? (
-        <DestructiveActionDialog {...props} resourceName="결제 담당" />
+        <DestructiveActionDialog
+          {...props}
+          resourceName="결제 담당"
+          confirmLabel="보관"
+        />
       ) : (
         <ConfirmDialog {...props} />
       )}
@@ -295,7 +300,7 @@ describe("DestructiveActionDialog", () => {
       <DestructiveHarness onConfirm={() => calls.push("confirm")} />,
     );
 
-    const confirm = getByText("삭제").closest("button") as HTMLButtonElement;
+    const confirm = getByText("보관").closest("button") as HTMLButtonElement;
     const input = baseElement.querySelector("input") as HTMLInputElement;
 
     expect(confirm.disabled).toBe(true);
@@ -355,7 +360,7 @@ describe("DestructiveActionDialog", () => {
     );
     await waitFor(() => {
       expect(
-        (getByText("삭제").closest("button") as HTMLButtonElement).disabled,
+        (getByText("보관").closest("button") as HTMLButtonElement).disabled,
       ).toBe(false);
     });
 
@@ -371,7 +376,7 @@ describe("DestructiveActionDialog", () => {
       "",
     );
     expect(
-      (getByText("삭제").closest("button") as HTMLButtonElement).disabled,
+      (getByText("보관").closest("button") as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 

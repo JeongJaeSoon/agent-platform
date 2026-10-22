@@ -38,6 +38,11 @@ export const sessionsKo = {
   "sessions.admission.closing": "보관 중",
   "sessions.admission.closed": "보관됨",
 
+  "session.tabs.label": "세션 상세",
+  "session.tabs.timeline": "진행",
+  "session.tabs.info": "정보",
+  "session.panel": "답변과 승인",
+  "session.pending.emptyTitle": "기다리는 요청 없음",
   "session.back": "세션 목록",
   "session.notFound":
     "이 세션을 찾을 수 없습니다. 지워졌거나 볼 권한이 없는 세션입니다.",
@@ -62,7 +67,7 @@ export const sessionsKo = {
   "session.profile.unknown":
     "지금 프로필이 카탈로그에 없어 다른 프로필로 바꿀 수 없습니다.",
 
-  "session.usage": "비용",
+  "session.usage": "사용량",
   "session.usage.amount": "누적 비용",
   "session.usage.unmetered": "과금 없음",
   "session.usage.incomplete": "진행 중인 turn이 있어 아직 확정되지 않았습니다",
@@ -105,7 +110,7 @@ export const sessionsKo = {
   "session.control.sent":
     "요청을 보냈습니다. 바뀐 상태는 위 '상태'에 보입니다.",
 
-  "session.composer.label": "메시지",
+  "session.composer.label": "다음 지시",
   "session.composer.send": "보내기",
   "session.composer.hint":
     "Ctrl+Enter(⌘+Enter)로도 보냅니다. 지금 turn이 끝나면 다음 turn으로 이어집니다.",
@@ -208,6 +213,11 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.admission.closing": "Archiving",
   "sessions.admission.closed": "Archived",
 
+  "session.tabs.label": "Session detail",
+  "session.tabs.timeline": "Timeline",
+  "session.tabs.info": "Info",
+  "session.panel": "Answers and approvals",
+  "session.pending.emptyTitle": "No pending requests",
   "session.back": "All sessions",
   "session.notFound":
     "This session cannot be found. It was removed, or you may not see it.",
@@ -232,7 +242,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.profile.unknown":
     "The current profile is not in the catalog, so the session cannot change profiles.",
 
-  "session.usage": "Cost",
+  "session.usage": "Usage",
   "session.usage.amount": "Spent so far",
   "session.usage.unmetered": "Not billed",
   "session.usage.incomplete": "Not final while a turn is still running",
@@ -275,7 +285,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.control.sent":
     "Request sent. The new state shows under Status above.",
 
-  "session.composer.label": "Message",
+  "session.composer.label": "Next instruction",
   "session.composer.send": "Send",
   "session.composer.hint":
     "Ctrl+Enter (⌘+Enter) sends too. It runs as the next turn once this one ends.",

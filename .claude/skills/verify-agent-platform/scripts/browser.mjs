@@ -8,15 +8,18 @@
 //   browser.mjs <run> start | stop
 //   browser.mjs <run> open <path|url>            prints path and title
 //   browser.mjs <run> login <who> | accept <who>  web-user.mjs credentials, typed, never printed
+//   browser.mjs <run> bootstrap <who>            /bootstrap form from state.env's token and users/<who>
 //   browser.mjs <run> shot <name> [full]         evidence/<name>.png, prints scrollWidth/innerWidth
 //   browser.mjs <run> blockshot <path> <url pattern> <name>   that request fails (error state)
 //   browser.mjs <run> slowshot <path> <name> [ms]  2.5 s latency, capture mid-load (loading state)
 //   browser.mjs <run> click <text|css> | type <css|@N> <text> | select <css|@N> <value>
+//   browser.mjs <run> press <text|css> [Key]      focus it, then a real key (Enter): click leaves focus where it was
 //   browser.mjs <run> key <Key> [count] | eval <expr>   @N: the Nth field in <main>, from 0
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
 // from the environment, e.g. W=390 THEME=dark browser.mjs <run> shot home-390-dark.
 import { execFileSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -271,6 +274,26 @@ async function submit() {
   await settle();
 }
 const userFile = (who) => join(run, "users", who);
+// The same element click and press pick: exact text, then partial, then CSS.
+const target = (want) => `(() => { const want = ${JSON.stringify(want)};
+  const all = [...document.querySelectorAll('button, a, [role=button], [role=tab], summary, label')];
+  let el = all.find((b) => b.textContent.trim() === want) || all.find((b) => b.textContent.trim().includes(want));
+  if (!el) { try { el = document.querySelector(want); } catch {} }
+  return el; })()`;
+const KEY_CODES = { Tab: 9, Enter: 13, Escape: 27, " ": 32 };
+async function pressKey(key) {
+  const base = { key, code: key, windowsVirtualKeyCode: KEY_CODES[key] ?? 0 };
+  await send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    ...base,
+    ...(key === "Enter" ? { text: "\r" } : {}),
+  });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
+}
+const focused = () =>
+  evaluate(`(() => { const a = document.activeElement; if (!a) return null; const s = getComputedStyle(a);
+    return { tag: a.tagName, name: (a.getAttribute('aria-label') || a.innerText || a.getAttribute('name') || '').slice(0, 50).replace(/\\s+/g, ' '),
+      outline: s.outlineStyle + ' ' + s.outlineWidth }; })()`);
 
 await send("Page.enable");
 await send("Runtime.enable");
@@ -312,6 +335,40 @@ switch (cmd) {
     await fill("input[name=name]", `Verify ${args[0]}`);
     await submit();
     console.log(`accept ${args[0]} -> ${await here()}`);
+    break;
+  }
+  case "bootstrap": {
+    // Like web-user.mjs bootstrap: the first use makes users/<who>; a later
+    // one reuses it, so a second submit shows the 409 screen.
+    const file = userFile(args[0]);
+    if (!existsSync(file)) {
+      mkdirSync(join(run, "users"), { recursive: true, mode: 0o700 });
+      writeFileSync(
+        file,
+        JSON.stringify({
+          email: `${args[0]}@example.test`,
+          password: randomBytes(16).toString("hex"),
+        }),
+        { mode: 0o600, flag: "wx" },
+      );
+    }
+    const c = JSON.parse(readFileSync(file, "utf8"));
+    await navigate("/bootstrap");
+    await fill("input[name=bootstrap_token]", state.VERIFY_BOOTSTRAP_TOKEN);
+    await fill("input[name=email]", c.email);
+    await fill(
+      "input[name=display_name]",
+      `Verify ${args[0][0].toUpperCase()}${args[0].slice(1)}`,
+    );
+    await fill("input[name=password]", c.password);
+    await fill("input[name=workspace_name]", "Verify");
+    await fill("input[name=workspace_slug]", "verify");
+    await submit();
+    console.log(
+      `bootstrap ${args[0]} -> ${await here()} | ${await evaluate(
+        "(document.querySelector('form [role=alert]')?.innerText ?? '').replace(/\\s+/g, ' ')",
+      )}`,
+    );
     break;
   }
   case "shot": {
@@ -362,15 +419,33 @@ switch (cmd) {
     break;
   }
   case "click": {
-    const want = JSON.stringify(args[0]);
-    const r = await evaluate(`(() => { const want = ${want};
-      const all = [...document.querySelectorAll('button, a, [role=button], [role=tab], summary, label')];
-      let el = all.find((b) => b.textContent.trim() === want) || all.find((b) => b.textContent.trim().includes(want));
-      if (!el) { try { el = document.querySelector(want); } catch {} }
+    const r = await evaluate(`(() => { const el = ${target(args[0])};
       if (!el) return 'not found';
       el.click(); return 'clicked ' + el.tagName + ' ' + el.textContent.trim().slice(0, 40); })()`);
     await settle();
     console.log(r, "->", await here());
+    break;
+  }
+  case "press": {
+    const r = await evaluate(`(() => { const el = ${target(args[0])};
+      if (!el) return 'not found';
+      el.focus();
+      // A disabled, hidden or unfocusable match would send the key to whatever held focus.
+      if (document.activeElement !== el) return 'not focusable ' + el.tagName + ' ' + el.textContent.trim().slice(0, 40);
+      return 'focused ' + el.tagName + ' ' + el.textContent.trim().slice(0, 40); })()`);
+    if (!r.startsWith("focused")) {
+      console.log(r);
+      break;
+    }
+    await pressKey(args[1] ?? "Enter");
+    await settle();
+    console.log(
+      r,
+      "->",
+      await here(),
+      "| focus",
+      JSON.stringify(await focused()),
+    );
     break;
   }
   case "type":
@@ -389,30 +464,10 @@ switch (cmd) {
     break;
   }
   case "key": {
-    const key = args[0];
-    const codes = { Tab: 9, Enter: 13, Escape: 27, " ": 32 };
     for (let i = 0; i < Number(args[1] ?? 1); i++) {
-      await send("Input.dispatchKeyEvent", {
-        type: "keyDown",
-        key,
-        code: key,
-        windowsVirtualKeyCode: codes[key] ?? 0,
-        ...(key === "Enter" ? { text: "\r" } : {}),
-      });
-      await send("Input.dispatchKeyEvent", {
-        type: "keyUp",
-        key,
-        code: key,
-        windowsVirtualKeyCode: codes[key] ?? 0,
-      });
+      await pressKey(args[0]);
       await sleep(120);
-      console.log(
-        JSON.stringify(
-          await evaluate(`(() => { const a = document.activeElement; if (!a) return null; const s = getComputedStyle(a);
-            return { tag: a.tagName, name: (a.getAttribute('aria-label') || a.innerText || a.getAttribute('name') || '').slice(0, 50).replace(/\\s+/g, ' '),
-              outline: s.outlineStyle + ' ' + s.outlineWidth }; })()`),
-        ),
-      );
+      console.log(JSON.stringify(await focused()));
     }
     break;
   }

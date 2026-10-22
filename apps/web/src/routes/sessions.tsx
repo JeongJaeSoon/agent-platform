@@ -39,7 +39,7 @@ function loadError(error: unknown, onRetry: () => void) {
 }
 
 const PAGE = "flex flex-col gap-6";
-const TITLE = "m-0 font-semibold text-xl";
+const TITLE = "m-0 font-semibold text-title";
 
 export function SessionsScreen() {
   const { t } = useI18n();
@@ -48,7 +48,9 @@ export function SessionsScreen() {
     <div className={PAGE}>
       <div className="flex flex-col gap-1">
         <h1 className={TITLE}>{t("sessions.title")}</h1>
-        <p className="m-0 text-muted-foreground">{t("sessions.intro")}</p>
+        <p className="m-0 text-muted-foreground text-control">
+          {t("sessions.intro")}
+        </p>
       </div>
       <ApprovalInbox
         loading={<StatusScreen kind="loading" />}
@@ -84,20 +86,15 @@ export function SessionDetailScreen() {
   const unavailable = useUnavailable();
   return (
     <div className={PAGE}>
-      <div className="flex flex-col gap-2">
-        <p className="m-0">
+      <SessionDetail
+        back={
           <Link
             to="/sessions"
-            className="text-primary underline underline-offset-2"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
           >
             ← {t("session.back")}
           </Link>
-        </p>
-        <h1 className={`${TITLE} [overflow-wrap:anywhere]`}>
-          <code>{id}</code>
-        </h1>
-      </div>
-      <SessionDetail
+        }
         id={id}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
@@ -173,7 +170,7 @@ function SessionProfile({ session }: { readonly session: SessionDetailData }) {
 
   return (
     <section className="flex flex-col gap-3" aria-labelledby={titleId}>
-      <h2 id={titleId} className="m-0 font-semibold text-lg">
+      <h2 id={titleId} className="m-0 font-semibold text-body">
         {t("session.profile")}
       </h2>
       <OutcomeLine outcome={outcome} />
@@ -182,12 +179,12 @@ function SessionProfile({ session }: { readonly session: SessionDetailData }) {
       ) : profiles.error ? (
         loadError(profiles.error, () => void profiles.refetch())
       ) : choices.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-sm">
+        <p className="m-0 text-muted-foreground text-body">
           {current ? t("session.profile.none") : t("session.profile.unknown")}
         </p>
       ) : (
         <form className="flex flex-col items-start gap-3" onSubmit={submit}>
-          <Field className="max-w-md">
+          <Field className="w-full [&_[data-slot=native-select-wrapper]]:w-full">
             <FieldLabel>{t("session.profile.next")}</FieldLabel>
             <NativeSelect
               value={target}
