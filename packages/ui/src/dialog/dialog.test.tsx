@@ -42,7 +42,7 @@ function DestructiveHarness({
     <DestructiveActionDialog
       open={open}
       onOpenChange={setOpen}
-      title="에이전트를 해고할까요?"
+      title="에이전트를 보관할까요?"
       consequence="카드와 release가 비활성화되고, 진행 중인 세션은 종료됩니다."
       resourceName="결제 담당"
       onConfirm={onConfirm}
@@ -56,7 +56,7 @@ function OwnedHarness({ destructive = false }: { destructive?: boolean }) {
   const props = {
     open,
     onOpenChange: setOpen,
-    title: "에이전트를 해고할까요?",
+    title: "에이전트를 보관할까요?",
     consequence: "카드와 release가 비활성화됩니다.",
     onConfirm: () => {},
   };

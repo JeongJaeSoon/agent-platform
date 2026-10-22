@@ -437,10 +437,6 @@
   animation: ap-dialog-in var(--ap-motion-normal) var(--ap-motion-ease);
 }
 
-.ap-dialog[data-tone="danger"] {
-  border-top: 4px solid var(--ap-tone-danger-fg);
-}
-
 .ap-dialog__title {
   margin: 0;
   font-size: var(--ap-text-xl);
