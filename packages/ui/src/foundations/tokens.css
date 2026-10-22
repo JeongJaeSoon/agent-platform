@@ -31,8 +31,12 @@
      *
      * Console v35: the sidebar sits on `sidebar`, the main column and its
      * cards on one `surface`. `canvas` is the main background's old name.
+     * A sidebar nav row takes `sidebar-hover` under the pointer and
+     * `sidebar-accent` when it is the current page.
      */
     --ap-color-sidebar: #fafafa;
+    --ap-color-sidebar-hover: #f2f2f2;
+    --ap-color-sidebar-accent: #ebebeb;
     --ap-color-surface: #ffffff;
     --ap-color-canvas: var(--ap-color-surface);
     --ap-color-surface-sunken: #f5f5f5;
@@ -214,6 +218,8 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --ap-color-sidebar: #000000;
+      --ap-color-sidebar-hover: #1a1a1a;
+      --ap-color-sidebar-accent: #232323;
       --ap-color-surface: #0a0a0a;
       --ap-color-surface-sunken: #1a1a1a;
       --ap-color-rail: #111111;
@@ -277,6 +283,8 @@
     color-scheme: dark;
 
     --ap-color-sidebar: #000000;
+    --ap-color-sidebar-hover: #1a1a1a;
+    --ap-color-sidebar-accent: #232323;
     --ap-color-surface: #0a0a0a;
     --ap-color-surface-sunken: #1a1a1a;
     --ap-color-rail: #111111;

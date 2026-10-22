@@ -47,6 +47,8 @@
   /* Tokens with no shadcn name. */
   --color-canvas: var(--ap-color-canvas);
   --color-sidebar: var(--ap-color-sidebar);
+  --color-sidebar-hover: var(--ap-color-sidebar-hover);
+  --color-sidebar-accent: var(--ap-color-sidebar-accent);
   --color-surface: var(--ap-color-surface);
   --color-subtle-foreground: var(--ap-color-subtle-foreground);
   --color-surface-sunken: var(--ap-color-surface-sunken);

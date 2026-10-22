@@ -48,7 +48,7 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 다크는 시스템 설정(`prefers-color-scheme`)과 수동 전환(`:root[data-theme="dark"]`) 양쪽으로 온다.
 
 값은 콘솔 디자인 캔버스 v35 규칙표를 따른다. 간격은 4·8·12·16·24·32, 글자는 12·13·14·20·24, 반경은 컨트롤 6·카드 8·pill,
-그림자는 떠 있는 요소용 `--ap-shadow-pop` 하나다. 바탕은 사이드바 `--ap-color-sidebar`와 메인·카드 `--ap-color-surface` 둘이다.
+그림자는 떠 있는 요소용 `--ap-shadow-pop` 하나다. 바탕은 사이드바 `--ap-color-sidebar`와 메인·카드 `--ap-color-surface` 둘이다. 사이드바 nav 행은 hover에 `bg-sidebar-hover`, 현재 페이지에 `bg-sidebar-accent`를 쓴다.
 값이 다른 토큰을 가리키는(`var(--ap-…)`) 이름은 apps/web이 옮겨 갈 때까지 둔 옛 이름이니 새 코드에서 쓰지 않는다.
 
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
