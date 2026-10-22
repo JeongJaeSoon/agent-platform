@@ -12,7 +12,7 @@ const REWRITES: [string, string][] = [
   ["@agent-platform\\/", "@werft-ai\\/"],
 ];
 // Broader than REWRITES so a form the rewrite misses still fails the check.
-// The worker's git identity (noreply@agent-platform.invalid) is a mail domain, not the scope.
+// The Gitea test account (agent@agent-platform.invalid) is a mail domain, not the scope.
 const RESIDUAL = /@agent-platform(?!\.invalid)/;
 
 // Without `line` the whole file is skipped; with it, only lines containing that text.

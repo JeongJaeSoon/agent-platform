@@ -3713,7 +3713,7 @@ export interface operations {
                      * @example {
                      *       "openapi": "3.1.0",
                      *       "info": {
-                     *         "title": "Agent Platform API",
+                     *         "title": "Werft API",
                      *         "version": "0.1.0-alpha"
                      *       }
                      *     }
