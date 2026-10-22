@@ -1,0 +1,19 @@
+{
+  "name": "@werft-ai/sdk",
+  "description": "Werft TypeScript SDK for servers and scripts: sessions, turns, events, approvals and push over an API key",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@werft-ai/client": "workspace:*"
+  },
+  "devDependencies": {
+    "@werft-ai/contracts": "workspace:*"
+  }
+}
