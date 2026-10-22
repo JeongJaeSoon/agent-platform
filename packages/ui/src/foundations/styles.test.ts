@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 
 const TOKENS = await Bun.file(`${import.meta.dir}/tokens.css`).text();
 const STYLES = await Bun.file(`${import.meta.dir}/styles.css`).text();
+const THEME = await Bun.file(`${import.meta.dir}/theme.css`).text();
 
 const NARROWEST_VIEWPORT_PX = 360;
 const ROOT_FONT_SIZE_PX = 16;
@@ -33,13 +34,17 @@ function parse(css: string): Declaration[] {
 
   for (const character of stripComments(css)) {
     if (character === "{") {
-      stack.push(buffer.trim());
+      // Drop the `@import`/`@layer` statements that precede the first block.
+      stack.push(buffer.slice(buffer.lastIndexOf(";") + 1).trim());
       buffer = "";
       continue;
     }
     if (character === "}") {
       const selector = stack.pop() ?? "";
-      const atRules = stack.filter((entry) => entry.startsWith("@"));
+      // Every rule sits in the `ap` layer; only the at-rules inside it matter.
+      const atRules = stack.filter(
+        (entry) => entry.startsWith("@") && entry !== "@layer ap",
+      );
       for (const entry of buffer.split(";")) {
         const [property, ...rest] = entry.split(":");
         if (!property?.trim() || rest.length === 0) continue;
@@ -140,6 +145,63 @@ function topLevelArguments(value: string): string[] {
   args.push(buffer.trim());
   return args;
 }
+
+/** What is left after the `@import`/`@layer` statements and the `ap` block. */
+function outsideApLayer(css: string): string {
+  const body = stripComments(css)
+    .replace(/@(import|layer)[^{;]*;/g, "")
+    .trim();
+  if (!body.startsWith("@layer ap {")) return body;
+  let depth = 0;
+  for (const [index, character] of [...body].entries()) {
+    if (character === "{") depth += 1;
+    if (character === "}") depth -= 1;
+    if (character === "}" && depth === 0) return body.slice(index + 1).trim();
+  }
+  return body;
+}
+
+describe("이름공간", () => {
+  test("키트 규칙은 모두 ap layer 안에 있다", () => {
+    expect(outsideApLayer(TOKENS)).toBe("");
+    expect(outsideApLayer(STYLES)).toBe("");
+  });
+
+  test("theme.css의 Tailwind 키는 모두 --ap- 토큰을 가리킨다", () => {
+    const keys = parse(THEME).filter((d) => d.selector === "@theme inline");
+    expect(keys.length).toBeGreaterThan(40);
+    const loose = keys.filter(
+      (d) =>
+        d.property.startsWith("--ap-") ||
+        !/^(var\(--ap-[\w-]+\)|-?[\d.]+rem)$/.test(d.value),
+    );
+    expect(loose.map((d) => `${d.property}: ${d.value}`)).toEqual([]);
+  });
+
+  test("theme.css는 --ap- 밖의 변수를 읽지 않는다", () => {
+    // A rule reading a Tailwind theme key makes Tailwind emit that key on
+    // `:root`, outside the namespace.
+    const reads = parse(THEME).flatMap((d) =>
+      [...d.value.matchAll(/var\(\s*(--[\w-]+)/g)].map(([, name]) => name),
+    );
+    expect(reads.length).toBeGreaterThan(40);
+    expect(reads.filter((name) => !name?.startsWith("--ap-"))).toEqual([]);
+  });
+
+  test("ap layer가 Tailwind layer 뒤에 온다", () => {
+    expect(stripComments(TOKENS)).toContain(
+      "@layer theme, base, components, utilities, ap;",
+    );
+  });
+
+  test("키트가 선언하는 커스텀 프로퍼티는 모두 --ap- 접두사를 단다", () => {
+    const unprefixed = [...tokenDeclarations, ...styleDeclarations]
+      .filter((d) => d.property.startsWith("--"))
+      .filter((d) => !d.property.startsWith("--ap-"))
+      .map((d) => `${d.selector} { ${d.property} }`);
+    expect(unprefixed).toEqual([]);
+  });
+});
 
 describe("tokens.css", () => {
   test("본문 색이 앉을 수 있는 모든 바탕에서 AA를 넘는다", () => {
@@ -249,7 +311,11 @@ describe("tokens.css", () => {
         ),
       ],
     ];
-    expect(TOKENS).toContain("--input: var(--ap-color-border-input);");
+    // Matched by suffix: Tailwind scans this file, and the full theme key
+    // written out here would be emitted into apps/web's CSS.
+    expect(parse(THEME).find((d) => d.property.endsWith("-input"))?.value).toBe(
+      "var(--ap-color-border-input)",
+    );
     const ratios = themes.flatMap(([theme, palette]) =>
       ["--ap-color-surface", "--ap-color-canvas"].map((surface) => {
         const border = palette.get("--ap-color-border-input") ?? "";
