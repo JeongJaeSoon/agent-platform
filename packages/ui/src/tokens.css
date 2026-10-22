@@ -191,7 +191,7 @@
 
     --ap-tone-neutral-fg: #d4d4d4;
     --ap-tone-neutral-bg: #1f1f1f;
-    --ap-tone-neutral-border: #2e2e2e;
+    --ap-tone-neutral-border: #454545;
 
     --ap-tone-progress-fg: #52a8ff;
     --ap-tone-progress-bg: #0d1b2e;
@@ -215,7 +215,7 @@
 
     --ap-tone-positive-fg: #d4d4d4;
     --ap-tone-positive-bg: #1f1f1f;
-    --ap-tone-positive-border: #2e2e2e;
+    --ap-tone-positive-border: #454545;
 
     --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
     --ap-shadow-md: 0 2px 8px rgb(0 0 0 / 0.45);
@@ -251,7 +251,7 @@
 
   --ap-tone-neutral-fg: #d4d4d4;
   --ap-tone-neutral-bg: #1f1f1f;
-  --ap-tone-neutral-border: #2e2e2e;
+  --ap-tone-neutral-border: #454545;
 
   --ap-tone-progress-fg: #52a8ff;
   --ap-tone-progress-bg: #0d1b2e;
@@ -275,7 +275,7 @@
 
   --ap-tone-positive-fg: #d4d4d4;
   --ap-tone-positive-bg: #1f1f1f;
-  --ap-tone-positive-border: #2e2e2e;
+  --ap-tone-positive-border: #454545;
 
   --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --ap-shadow-md: 0 2px 8px rgb(0 0 0 / 0.45);
