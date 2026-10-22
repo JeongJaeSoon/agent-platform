@@ -1,0 +1,9 @@
+{
+  "title": "레퍼런스",
+  "pages": [
+    "index",
+    "http-api",
+    "external:[HTTP API (Scalar)](/api/)",
+    "external:[UI 컴포넌트 (Storybook)](/storybook/)"
+  ]
+}
