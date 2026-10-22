@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/control-host",
+  "name": "@werft-ai/control-host",
   "description": "Kiel session runtime: control host (api, scheduler and reconciler roles) serving the public /v1 API and the worker gateway",
   "version": "0.0.0",
   "private": true,
@@ -16,14 +16,14 @@
     "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },
   "dependencies": {
-    "@agent-platform/contracts": "workspace:*",
-    "@agent-platform/db": "workspace:*",
-    "@agent-platform/execution-kubernetes": "workspace:*",
-    "@agent-platform/execution-local-docker": "workspace:*",
-    "@agent-platform/observability": "workspace:*",
-    "@agent-platform/platform": "workspace:*",
-    "@agent-platform/runtime-claude-codec": "workspace:*",
-    "@agent-platform/storage": "workspace:*",
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/db": "workspace:*",
+    "@werft-ai/execution-kubernetes": "workspace:*",
+    "@werft-ai/execution-local-docker": "workspace:*",
+    "@werft-ai/observability": "workspace:*",
+    "@werft-ai/platform": "workspace:*",
+    "@werft-ai/runtime-claude-codec": "workspace:*",
+    "@werft-ai/storage": "workspace:*",
     "@aws-sdk/client-secrets-manager": "^3.888.0",
     "@hono/zod-openapi": "1.6.3",
     "@octokit/auth-app": "8.3.1",
@@ -32,14 +32,14 @@
     "@octokit/plugin-throttling": "11.0.5",
     "@octokit/request": "10.0.16",
     "drizzle-orm": "0.45.2",
-    "hono": "4.13.7",
+    "hono": "4.13.11",
     "pg": "8.16.3",
     "yaml": "^2.9.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@scalar/api-reference": "1.72.1",
-    "@agent-platform/testkit": "workspace:*",
+    "@werft-ai/testkit": "workspace:*",
     "@electric-sql/pglite": "0.3.10",
     "@types/pg": "8.15.5"
   }

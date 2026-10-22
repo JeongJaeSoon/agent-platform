@@ -8,33 +8,33 @@ import type {
   RegisterPendingResponse,
   RuntimeConfig,
   WorkspaceDescriptor,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type CheckpointPointer,
   type CheckpointStore,
   createCheckpointService,
   restorePlanOnWire,
-} from "@agent-platform/platform";
-import { claudeCheckpointCodec } from "@agent-platform/runtime-claude";
-import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
+} from "@werft-ai/platform";
+import { claudeCheckpointCodec } from "@werft-ai/runtime-claude";
+import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 import {
   createGitWorkspaceBundleVerifier,
   scopedCheckpointObjectStore,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
   toolReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
+} from "@werft-ai/testkit/workspace";
 
 import {
   claudeClaimFingerprint,

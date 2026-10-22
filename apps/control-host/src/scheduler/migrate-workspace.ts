@@ -1,12 +1,12 @@
-import * as schema from "@agent-platform/db";
-import { createPostgresSchedulerStore } from "@agent-platform/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
+import * as schema from "@werft-ai/db";
+import { createPostgresSchedulerStore } from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import {
   DEFAULT_MIGRATION_HELPER_IMAGE,
   LocalDockerBackend,
   WorkspaceMigrator,
-} from "@agent-platform/execution-local-docker";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/execution-local-docker";
+import { createLogger } from "@werft-ai/observability";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { schedulerConfigFromEnv } from "./config.ts";

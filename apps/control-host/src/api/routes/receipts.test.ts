@@ -3,12 +3,12 @@ import {
   apiErrorResponseSchema,
   getReceiptResponseSchema,
   type Receipt,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   type SessionReader,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerReceiptRoutes } from "./receipts.ts";
 
@@ -37,7 +37,7 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     catalog: { profiles: {}, repositories: {} },
     inputs: {
       acceptInputAtomic: async () => {
@@ -54,10 +54,16 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       pauseAtomic: async () => {
         throw new Error("not reached");
       },
+      closeAtomic: async () => {
+        throw new Error("not reached");
+      },
       decideRecoveryAtomic: async () => {
         throw new Error("not reached");
       },
       resumeAtomic: async () => {
+        throw new Error("not reached");
+      },
+      changeProfileAtomic: async () => {
         throw new Error("not reached");
       },
     },

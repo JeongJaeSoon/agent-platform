@@ -1,13 +1,10 @@
-import {
-  type SessionEvent,
-  sessionEventSchema,
-} from "@agent-platform/contracts";
+import { type SessionEvent, sessionEventSchema } from "@werft-ai/contracts";
 
 import type {
   AgentFrame,
   NativeEnvelope,
   NativeSdkMessage,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 

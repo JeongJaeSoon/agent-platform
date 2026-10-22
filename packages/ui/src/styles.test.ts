@@ -232,6 +232,45 @@ describe("tokens.css", () => {
     expect(failures).toEqual([]);
   });
 
+  test("입력 칸 테두리가 surface·canvas에서 3:1을 넘는다", () => {
+    const themes: [string, Map<string, string>][] = [
+      [
+        "light",
+        paletteOf((d) => d.selector === ":root" && d.atRules.length === 0),
+      ],
+      [
+        "dark(수동)",
+        paletteOf((d) => d.selector === ':root[data-theme="dark"]'),
+      ],
+      [
+        "dark(시스템)",
+        paletteOf((d) =>
+          d.atRules.includes("@media (prefers-color-scheme: dark)"),
+        ),
+      ],
+    ];
+    expect(TOKENS).toContain("--input: var(--ap-color-border-input);");
+    const ratios = themes.flatMap(([theme, palette]) =>
+      ["--ap-color-surface", "--ap-color-canvas"].map((surface) => {
+        const border = palette.get("--ap-color-border-input") ?? "";
+        const ratio = contrast(border, palette.get(surface) ?? "");
+        return `${theme} ${surface} ${ratio >= 3 ? "ok" : ratio.toFixed(2)}`;
+      }),
+    );
+    expect(ratios.filter((line) => !line.endsWith("ok"))).toEqual([]);
+  });
+
+  test("테마마다 color-scheme을 선언해 native 컨트롤도 따라간다", () => {
+    const schemes = tokenDeclarations
+      .filter((d) => d.property === "color-scheme")
+      .map((d) => `${d.selector} ${d.value}`);
+    expect(schemes).toEqual([
+      ":root light dark",
+      ':root[data-theme="light"] light',
+      ':root[data-theme="dark"] dark',
+    ]);
+  });
+
   test("색 토큰이 라이트·다크 양쪽에 모두 있다", () => {
     const light = new Set(
       customProperties((d) => d.selector === ":root" && d.atRules.length === 0),
@@ -396,6 +435,40 @@ describe("styles.css", () => {
   test("reduced-motion 블록이 파일 맨 뒤에 온다", () => {
     const last = styleDeclarations.at(-1);
     expect(last?.atRules).toContain(REDUCED_MOTION);
+  });
+
+  test("한쪽 면만 굵게 그은 강조선이 없다", () => {
+    // Spinner arcs (`border-top-color: transparent`) are a shape, not an accent.
+    const KEYWORD_PX: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
+    const widthsPx = (value: string): number[] =>
+      [
+        ...value.matchAll(
+          /(?<![\w.-])(\d*\.?\d+)(px|rem|em)?(?![\w.%-])|\b(thin|medium|thick)\b/g,
+        ),
+      ].map(([, n, unit, keyword]) =>
+        keyword
+          ? (KEYWORD_PX[keyword] ?? 0)
+          : Number(n) * (unit === "px" || !unit ? 1 : ROOT_FONT_SIZE_PX),
+      );
+    const accents = styleDeclarations.filter((d) => {
+      if (d.property === "border-width") {
+        return new Set(widthsPx(d.value)).size > 1;
+      }
+      if (
+        !/^border-(top|right|bottom|left|inline|block)(-(start|end))?(-width)?$/.test(
+          d.property,
+        )
+      ) {
+        return false;
+      }
+      if (/^(0|none|hidden)$/.test(d.value)) return false;
+      const widths = widthsPx(d.value);
+      // A side drawn without a width falls back to `medium`.
+      return (widths.length === 0 ? [3] : widths).some((px) => px > 1);
+    });
+    expect(
+      accents.map((d) => `${d.selector} { ${d.property}: ${d.value} }`),
+    ).toEqual([]);
   });
 
   test("!important로 캐스케이드를 뒤집지 않는다", () => {

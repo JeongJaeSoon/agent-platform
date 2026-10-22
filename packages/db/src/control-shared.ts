@@ -1,14 +1,30 @@
+import type { ReceiptActor } from "@werft-ai/contracts";
 import {
+  type Principal,
   type SessionBudget,
-  storedPendingReasonHoldsWork,
-} from "@agent-platform/platform";
-import { and, eq, inArray, lt, min, type SQL, sql } from "drizzle-orm";
+  storedPendingReasonBlocks,
+} from "@werft-ai/platform";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  min,
+  notInArray,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  attempts,
   idempotencyKeys,
+  memberships,
   receipts,
   sessions,
   turns,
+  users,
   workerLaunches,
 } from "./schema.ts";
 
@@ -53,7 +69,98 @@ export type IdempotencyScope = {
   operation: string;
   resource: string;
   key: string;
+  actor: ReceiptActor | null;
+  requestId: string | null;
 };
+
+/**
+ * The actor's user row, before any membership: accepting takes it in that
+ * order, and an invite's invited_by key check would otherwise wait on it
+ * while holding the membership. A share lock rather than a key share, so an
+ * account disable either waits for this write or is seen by it — re-checked
+ * after a membership lock wait, a joined user row is the old snapshot's.
+ */
+export async function lockActorAccount(tx: Database, userId: string) {
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .for("share");
+}
+
+/**
+ * Several people's user rows, then their memberships of `workspaceId`, each
+ * in user_id order as a suspension and a role change take them, so a write
+ * that reads the actor and the person it acts on queues behind those
+ * instead of deadlocking them.
+ */
+export async function lockPeople(
+  tx: Database,
+  workspaceId: string,
+  userIds: readonly string[],
+) {
+  const ids = [...new Set(userIds)];
+  await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.id, ids))
+    .orderBy(asc(users.id))
+    .for("share");
+  return tx
+    .select({
+      userId: memberships.userId,
+      role: memberships.role,
+      live: sql<boolean>`${memberships.disabledAt} is null and ${users.disabledAt} is null`,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, workspaceId),
+        inArray(memberships.userId, ids),
+      ),
+    )
+    .orderBy(asc(memberships.userId))
+    .for("share", { of: memberships });
+}
+
+// Authorization read the membership before this transaction opened. The share
+// locks make an offboarding or a suspension that commits since then either
+// wait for this write (and see what it wrote) or be seen here. Take them
+// before any session row lock: user, membership, session.
+export async function actorStillMember(
+  tx: Database,
+  principal: Principal,
+): Promise<boolean> {
+  const actor = principal.actor;
+  if (!actor?.userId || !actor.workspaceId) return true;
+  await lockActorAccount(tx, actor.userId);
+  const live = await tx
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, actor.workspaceId),
+        eq(memberships.userId, actor.userId),
+        isNull(memberships.disabledAt),
+        isNull(users.disabledAt),
+      ),
+    )
+    .limit(1)
+    .for("share", { of: memberships });
+  return live.length > 0;
+}
+
+export function receiptActorOf(principal: Principal): ReceiptActor | null {
+  const actor = principal.actor;
+  if (!actor) return null;
+  return {
+    principal: actor.principal,
+    actor_user_id: actor.userId,
+    agent_id: null,
+  };
+}
 
 export type ControlStageMeasure = <T>(
   stage: string,
@@ -122,10 +229,23 @@ export class BindingMoved extends Error {
   }
 }
 
+// drizzle wraps the driver's error, so the code may sit on its cause.
+function isDeadlock(error: unknown): boolean {
+  for (let e = error; typeof e === "object" && e !== null; ) {
+    if ((e as { code?: unknown }).code === "40P01") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * Runs `work` in a transaction, restarting it when the session's binding
- * moved under it (see lockSessionForControl). Three attempts is plenty: a
- * binding moves once per launch, and launches are seconds apart.
+ * moved under it (see lockSessionForControl) or PostgreSQL chose it as a
+ * deadlock victim. A worker claim locks the dispatch signal before the
+ * session, and the control paths that clear the signal hold the session
+ * first; the victim's transaction is rolled back whole, so running it again
+ * is safe. Three attempts is plenty: a binding moves once per launch, and
+ * launches are seconds apart.
  */
 export async function transactionWithBindingRetry<T>(
   db: Database,
@@ -135,9 +255,35 @@ export async function transactionWithBindingRetry<T>(
     try {
       return await db.transaction((tx) => work(tx, attempt));
     } catch (error) {
-      if (!(error instanceof BindingMoved) || attempt >= 3) throw error;
+      const retryable = error instanceof BindingMoved || isDeadlock(error);
+      if (!retryable || attempt >= 3) throw error;
     }
   }
+}
+
+/**
+ * The claimed attempt still holding the binding, if any: only it can drain
+ * for a pause or close. A launch reserved and not yet claimed never will be
+ * now — claims take active sessions only — and an attempt that ended is on
+ * its way out anyway.
+ */
+export async function liveDrainer(
+  tx: Database,
+  executionId: string | null,
+): Promise<{ id: string } | undefined> {
+  if (executionId === null) return undefined;
+  const [drainer] = await tx
+    .select({ id: attempts.id })
+    .from(workerLaunches)
+    .innerJoin(attempts, eq(attempts.id, workerLaunches.claimedAttemptId))
+    .where(
+      and(
+        eq(workerLaunches.executionId, executionId),
+        notInArray(attempts.state, ["exited", "lost"]),
+      ),
+    )
+    .limit(1);
+  return drainer;
 }
 
 /**
@@ -229,7 +375,7 @@ export function hasRestorePoint<
 >(session: T): session is T & { checkpointRevision: number } {
   return (
     session.checkpointRevision !== null &&
-    !storedPendingReasonHoldsWork(session.checkpointPendingReason) &&
+    !storedPendingReasonBlocks(session.checkpointPendingReason) &&
     (session.contextResetCheckpointRevision === null ||
       session.checkpointRevision > session.contextResetCheckpointRevision)
   );

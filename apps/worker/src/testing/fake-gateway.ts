@@ -32,8 +32,8 @@ import {
   type WorkerReadyRequest,
   type WorkerReadyResponse,
   type WorkspaceDescriptor,
-} from "@agent-platform/contracts";
-import { WorkerGatewayRequestError } from "@agent-platform/runtime-core";
+} from "@werft-ai/contracts";
+import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 
 import type { WorkerGatewaySession } from "../worker-host.ts";
 

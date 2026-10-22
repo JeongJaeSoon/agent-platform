@@ -732,6 +732,13 @@ export function startCredentialProxy(
       signal,
     );
     if (!decision.allowed) {
+      if (decision.failure === "unresolved") {
+        logger.warn("Credential route lookup failed", {
+          ...fields,
+          reason: decision.reason,
+        });
+        return reply(502, decision.reason, route.purpose);
+      }
       logger.warn("Credential route denied", {
         ...fields,
         reason: decision.reason,

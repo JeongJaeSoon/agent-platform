@@ -5,7 +5,8 @@ import {
   agentReleaseIdSchema,
   agentVersionIdSchema,
   canonicalJson,
-  revisionSchema,
+  INT4_MAX,
+  receiptIdSchema,
   sha256HexSchema,
   timestampSchema,
   userIdSchema,
@@ -25,6 +26,47 @@ export const agentSlugSchema = z
   .regex(/^[a-z0-9][a-z0-9-]*$/, "must be lowercase kebab-case");
 export const toolNameSchema = z.string().min(1).max(128);
 
+/**
+ * The name of a credential held outside Werft — a secret store entry, a
+ * remote MCP server connection — never its value (design 4.4).
+ */
+export const CREDENTIAL_REF_PATTERN = "^[a-z0-9][a-z0-9._:/-]{0,127}$";
+export const credentialRefSchema = z
+  .string()
+  .regex(
+    new RegExp(CREDENTIAL_REF_PATTERN),
+    "must be a lowercase credential name, not a value",
+  );
+export const CREDENTIAL_BINDING_TARGET_VALUES = [
+  "agent",
+  "agent_identity",
+] as const;
+
+/** What happens when the agent calls a tool. Kiel evaluates it per call (D9). */
+export const TOOL_POLICY_VALUES = ["allow", "ask", "deny"] as const;
+export const toolPolicySchema = z.enum(TOOL_POLICY_VALUES);
+
+/** Remote MCP server tools are named `mcp__<server>__<tool>` by the SDK. */
+export const MCP_TOOL_PREFIX = "mcp__";
+
+export const toolPolicyDefaultsSchema = z
+  .object({ builtin: toolPolicySchema, mcp: toolPolicySchema })
+  .strict();
+
+/** Same defaults as Managed Agents (D12). */
+export const DEFAULT_TOOL_POLICY = {
+  builtin: "allow",
+  mcp: "ask",
+} as const satisfies z.infer<typeof toolPolicyDefaultsSchema>;
+
+/** A card's say over its tools; anything left out takes the default. */
+export const cardToolPolicySchema = z
+  .object({
+    default: toolPolicyDefaultsSchema.partial().strict().optional(),
+    per_tool: z.record(toolNameSchema, toolPolicySchema).optional(),
+  })
+  .strict();
+
 export const agentRuleSchema = z
   .object({
     id: z.string().min(1).max(64),
@@ -37,16 +79,34 @@ export const agentCapabilitiesSchema = z
   .object({
     /** `null` = every tool the runtime profile allows, `[]` = none. */
     tools: z.array(toolNameSchema).nullable(),
-    /** Names resolved against the runtime profile's MCP allowlist. */
-    mcp: z.array(toolNameSchema).nullable(),
+    /** Always null: a worker's `runtime_config` carries no MCP servers. */
+    mcp: z.null(),
     /** Server-enforced denials, not prose in the instructions. */
     forbidden: z.array(toolNameSchema).default([]),
+    /**
+     * Optional, with no default, so a card written before it existed keeps
+     * its content hash. Changing it makes a new version, hence a new release.
+     */
+    tool_policy: cardToolPolicySchema.optional(),
+    /**
+     * The credentials the agent runs with, by name. Optional for the same
+     * reason as `tool_policy`. Each must be bound to the agent before a
+     * release of this version activates or starts a session (D11).
+     */
+    credential_refs: z
+      .array(credentialRefSchema)
+      .max(32)
+      .refine(
+        (refs) => new Set(refs).size === refs.length,
+        "credential_refs must not repeat a name",
+      )
+      .optional(),
   })
   .strict();
 
 /**
  * The card a person writes: role, instructions, model and capability range
- * (03 §4.1). `name`/`team` live on the agent row, not here, so renaming an
+ * (03 §4.1). `name` lives on the agent row, not here, so renaming an
  * agent does not mint a new immutable version.
  *
  * `.strict()` is what enforces "a card holds no secrets": there is
@@ -66,31 +126,32 @@ export const agentCardSchema = z
   })
   .strict();
 
+/** `-1` until the first activation, which is why it is not a `revision`. */
+export const activationRevisionSchema = z.number().int().min(-1).max(INT4_MAX);
+
 export const agentSchema = z
   .object({
     id: agentIdSchema,
     workspace_id: workspaceIdSchema,
     slug: agentSlugSchema,
     name: z.string().min(1).max(120),
-    /** A card grouping string, never an authorization subject. */
-    team: z.string().min(1).max(120).nullable(),
     status: agentStatusSchema,
     active_release_id: agentReleaseIdSchema.nullable(),
-    activation_revision: revisionSchema,
+    activation_revision: activationRevisionSchema,
     created_by: userIdSchema.nullable(),
     created_at: timestampSchema,
     updated_at: timestampSchema,
   })
   .strict();
 
-/** Insert-only. `card_hash` is sha256 over the canonical JSON of the card. */
+/** Insert-only. `content_sha256` is sha256 over the canonical JSON of the card. */
 export const agentVersionSchema = z
   .object({
     id: agentVersionIdSchema,
     agent_id: agentIdSchema,
-    number: z.number().int().positive(),
+    version_no: z.number().int().positive(),
     card: agentCardSchema,
-    card_hash: sha256HexSchema,
+    content_sha256: sha256HexSchema,
     created_by: userIdSchema.nullable(),
     created_at: timestampSchema,
   })
@@ -219,37 +280,79 @@ export const runtimeConfigSnapshotSchema = z
   });
 
 /**
+ * The tool policy a release runs under, resolved: `per_tool` names every
+ * effective tool, plus any MCP tool the card named. `default.mcp` covers the
+ * MCP tools a remote server only reveals at run time.
+ *
+ * `tools` is absent only on a release stored before policies existed
+ * (`{}`); every release created now carries it.
+ */
+export const policyPinsSchema = z
+  .object({
+    tools: z
+      .object({
+        default: toolPolicyDefaultsSchema,
+        per_tool: z.record(toolNameSchema, toolPolicySchema),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+/**
  * A version pinned to the runtime settings it was released against.
  *
  * The resolved config travels with the release so a profile edit cannot
- * change an in-flight session; a fingerprint mismatch at start is refused and
- * asks for a re-release instead.
+ * change an in-flight session; a digest mismatch at start is refused and
+ * asks for a re-release instead. Everything but `created_by`, `approved_by`
+ * and the timestamps goes into the release id.
  */
 export const agentReleaseSchema = z
   .object({
     id: agentReleaseIdSchema,
     agent_id: agentIdSchema,
     version_id: agentVersionIdSchema,
+    card_sha256: sha256HexSchema,
     runtime_profile_id: z.string().min(1).max(128),
-    runtime_profile_fingerprint: z.string().min(1).max(128),
+    profile_digest: z.string().min(1).max(128),
     runtime_config_snapshot: runtimeConfigSnapshotSchema,
     effective_tools: effectiveToolsSchema,
+    policy_pins: policyPinsSchema,
+    created_by: userIdSchema.nullable(),
     created_at: timestampSchema,
+    /** Set by the first activation, never by creating the release. */
+    approved_by: userIdSchema.nullable(),
+    approved_at: timestampSchema.nullable(),
   })
   .strict();
 
+export const agentIdParamsSchema = z.object({ id: agentIdSchema });
+
+export const agentDetailSchema = z
+  .object({
+    agent: agentSchema,
+    versions: z.array(agentVersionSchema),
+    releases: z.array(agentReleaseSchema),
+    active_release: agentReleaseSchema.nullable(),
+  })
+  .strict();
+export const listAgentsResponseSchema = z
+  .object({ items: z.array(agentSchema) })
+  .strict();
+
+/** Creates the agent and its first version; nothing is released. */
 export const createAgentRequestSchema = z
   .object({
     slug: agentSlugSchema,
     name: z.string().min(1).max(120),
-    team: z.string().min(1).max(120).optional(),
+    card: agentCardSchema,
   })
   .strict();
+/** A `card` adds a version unless it equals one the agent already has. */
 export const updateAgentRequestSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
-    team: z.string().min(1).max(120).nullable().optional(),
-    status: agentStatusSchema.optional(),
+    card: agentCardSchema.optional(),
   })
   .strict()
   .refine(
@@ -262,7 +365,6 @@ export const draftAgentRequestSchema = z
   .object({
     prompt: z.string().min(1).max(4_000),
     name: z.string().min(1).max(120).optional(),
-    team: z.string().min(1).max(120).optional(),
   })
   .strict();
 export const draftAgentResponseSchema = z
@@ -273,22 +375,31 @@ export const draftAgentResponseSchema = z
   })
   .strict();
 
-export const createAgentVersionRequestSchema = z
-  .object({ card: agentCardSchema })
-  .strict();
-
-/** CAS: a stale `expected_activation_revision` answers 409 with the current one. */
-export const activateAgentRequestSchema = z
+export const createAgentReleaseRequestSchema = z
   .object({
     version_id: agentVersionIdSchema,
     runtime_profile_id: z.string().min(1).max(128),
-    expected_activation_revision: revisionSchema,
   })
   .strict();
-export const activateAgentResponseSchema = z
+/** `created: false` when the same content was released before. */
+export const createAgentReleaseResponseSchema = z
+  .object({ release: agentReleaseSchema, created: z.boolean() })
+  .strict();
+
+/** CAS: a stale `expected_revision` answers 409 REVISION_CONFLICT. */
+export const activateAgentRequestSchema = z
   .object({
     release_id: agentReleaseIdSchema,
-    activation_revision: revisionSchema,
+    expected_revision: activationRevisionSchema,
+  })
+  .strict();
+/** `receipt_id` is null when the release was already active (a no-op). */
+export const activateAgentResponseSchema = z
+  .object({
+    active_release_id: agentReleaseIdSchema,
+    previous_release_id: agentReleaseIdSchema.nullable(),
+    activation_revision: activationRevisionSchema,
+    receipt_id: receiptIdSchema.nullable(),
   })
   .strict();
 
@@ -315,8 +426,16 @@ export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>;
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;
 export type DraftAgentRequest = z.infer<typeof draftAgentRequestSchema>;
 export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
-export type CreateAgentVersionRequest = z.infer<
-  typeof createAgentVersionRequestSchema
+export type AgentDetail = z.infer<typeof agentDetailSchema>;
+export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
+export type PolicyPins = z.infer<typeof policyPinsSchema>;
+export type ToolPolicy = z.infer<typeof toolPolicySchema>;
+export type CardToolPolicy = z.infer<typeof cardToolPolicySchema>;
+export type CreateAgentReleaseRequest = z.infer<
+  typeof createAgentReleaseRequestSchema
+>;
+export type CreateAgentReleaseResponse = z.infer<
+  typeof createAgentReleaseResponseSchema
 >;
 export type ActivateAgentRequest = z.infer<typeof activateAgentRequestSchema>;
 export type ActivateAgentResponse = z.infer<typeof activateAgentResponseSchema>;

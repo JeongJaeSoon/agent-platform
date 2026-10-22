@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 import {
   type EnsureExecutionResult,
   type ExecutionBackend,
@@ -8,8 +9,7 @@ import {
   type LaunchIntent,
   runScheduler,
   type SchedulerLogger,
-} from "@agent-platform/platform";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/platform";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

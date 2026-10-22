@@ -12,6 +12,7 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "./auth.ts";
 import {
+  auditRetentionRequestSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   inviteSchema,
@@ -43,12 +44,28 @@ describe("workspace", () => {
       kill_switch: false,
       daily_cost_limit_usd: null,
       idle_pause_minutes: 30,
+      audit_retention_days: 90,
+      slack_guest_enabled: false,
     });
     expect(
       workspaceSchema.safeParse({ ...workspace, slug: "Acme" }).success,
     ).toBe(false);
     expect(
       workspaceSettingsSchema.safeParse({ idle_pause_minutes: 0 }).success,
+    ).toBe(false);
+  });
+
+  test("keeps audit rows at least 30 days, whole days only", () => {
+    const days = (value: unknown) =>
+      auditRetentionRequestSchema.safeParse({ audit_retention_days: value })
+        .success;
+    expect(days(30)).toBe(true);
+    expect(days(3650)).toBe(true);
+    expect(days(29)).toBe(false);
+    expect(days(30.5)).toBe(false);
+    expect(days(3651)).toBe(false);
+    expect(
+      workspaceSettingsSchema.safeParse({ audit_retention_days: 29 }).success,
     ).toBe(false);
   });
 
@@ -84,6 +101,9 @@ describe("workspace", () => {
       true,
     );
     expect(updateMemberRequestSchema.safeParse({ role: "admin" }).success).toBe(
+      true,
+    );
+    expect(updateMemberRequestSchema.safeParse({ role: "guest" }).success).toBe(
       false,
     );
   });
@@ -193,9 +213,14 @@ describe("auth requests", () => {
         remember: true,
       }).success,
     ).toBe(false);
-    expect(acceptInviteRequestSchema.safeParse({}).success).toBe(true);
+    const token = `apv_${"a".repeat(43)}`;
+    expect(acceptInviteRequestSchema.safeParse({ token }).success).toBe(false);
+    expect(
+      acceptInviteRequestSchema.safeParse({ password: PASSWORD }).success,
+    ).toBe(false);
     expect(
       acceptInviteRequestSchema.safeParse({
+        token,
         password: PASSWORD,
         display_name: "Invitee",
       }).success,
@@ -224,6 +249,7 @@ describe("auth requests", () => {
         created_at: AT,
       },
       scopes: ["sessions:read"],
+      permissions: ["member.manage"],
     };
     expect(authMeResponseSchema.safeParse(me).success).toBe(true);
     expect(
@@ -273,6 +299,7 @@ describe("auth requests", () => {
         created_at: AT,
       },
       scopes: ["sessions:read", "sessions:control"],
+      permissions: [],
     };
     expect(authMeResponseSchema.safeParse(me).success).toBe(false);
     expect(authMeResponseSchema.safeParse({ ...me, scopes: [] }).success).toBe(
@@ -301,6 +328,7 @@ describe("auth requests", () => {
       user: { id: USER_ID, email: "owner@example.com", display_name: "Owner" },
       workspace,
       scopes: ["sessions:read"],
+      permissions: ["team.manage"],
     };
     expect(authMeResponseSchema.safeParse(me).success).toBe(true);
     expect(
@@ -331,8 +359,17 @@ describe("auth requests", () => {
       user: null,
       workspace: null,
       scopes: [],
+      permissions: [],
     };
     expect(authMeResponseSchema.safeParse(keyMe).success).toBe(true);
+    expect(
+      authMeResponseSchema.safeParse({ ...keyMe, permissions: ["team.manage"] })
+        .success,
+    ).toBe(false);
+    expect(
+      authMeResponseSchema.safeParse({ ...me, permissions: ["not.an.action"] })
+        .success,
+    ).toBe(false);
     expect(
       authMeResponseSchema.safeParse({ ...keyMe, workspace }).success,
     ).toBe(false);

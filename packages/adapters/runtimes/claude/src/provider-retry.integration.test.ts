@@ -8,11 +8,11 @@ import {
   serverError,
   startFakeAnthropicServer,
   textReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
+} from "@werft-ai/testkit/workspace";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 
 let isolated: IsolatedWorkspace | undefined;

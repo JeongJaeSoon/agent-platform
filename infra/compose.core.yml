@@ -231,12 +231,29 @@ services:
       # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
       AUTH_MODE: ${AUTH_MODE:-api-key}
+      # The first owner's bootstrap token (docs/operations.md). No value, not
+      # `:-`: unset, the API mints one and prints it to stderr; an empty value
+      # stops it from starting.
+      BOOTSTRAP_TOKEN:
+      # Google sign-in (docs/operations.md "Google 로그인"); unset is off.
+      GOOGLE_OIDC_CLIENT_ID: ${GOOGLE_OIDC_CLIENT_ID:-}
+      GOOGLE_OIDC_CLIENT_SECRET: ${GOOGLE_OIDC_CLIENT_SECRET:-}
+      GOOGLE_OIDC_REDIRECT_URI: ${GOOGLE_OIDC_REDIRECT_URI:-}
+      GOOGLE_OIDC_ISSUER: ${GOOGLE_OIDC_ISSUER:-}
+      GOOGLE_OIDC_ALLOWED_DOMAINS: ${GOOGLE_OIDC_ALLOWED_DOMAINS:-}
+      GOOGLE_OIDC_JIT: ${GOOGLE_OIDC_JIT:-}
       <<: *installation-limits
       # Read by the API alone: every lease it grants carries its deadline
       # into the database, and the reconciler refuses to start with its own.
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
+      # Sign in with Slack, for linking a person's Slack account
+      # (docs/operations.md). Unset keeps linking off; the three are set
+      # together. SLACK_OIDC_ISSUER is for a mock IdP only.
+      SLACK_OIDC_CLIENT_ID: ${SLACK_OIDC_CLIENT_ID:-}
+      SLACK_OIDC_CLIENT_SECRET: ${SLACK_OIDC_CLIENT_SECRET:-}
+      SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       # The egress proxy's authorizer. Not published and not on
       # any worker allowlist: only the proxy, on this compose network, calls
       # it. Without both the API starts, and every worker's provider and
@@ -366,7 +383,7 @@ services:
       EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: ${EXECUTION_WORKSPACE_GC_MIN_AGE_SEC:-3600}
       EXECUTION_WORKSPACE_STOPPED_TTL_SEC: ${EXECUTION_WORKSPACE_STOPPED_TTL_SEC:-86400}
       WORKER_CPUS: ${WORKER_CPUS:-1}
-      WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-2048}
+      WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-4608}
       # The bucket and region the scheduler names to each worker. No key and
       # no endpoint: workers reach the object store through the proxy's
       # object store route, signed by the API.

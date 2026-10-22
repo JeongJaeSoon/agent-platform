@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import {
   type CheckpointCollectionStore,
   type CheckpointFence,
   type CheckpointPointer,
@@ -10,25 +15,20 @@ import {
   manifestRefFor,
   sessionObjectPrefix,
   structuralBundleVerifier,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type {
   CheckpointCodec,
   CheckpointManifest,
   CheckpointObjectStore,
   ObjectRef,
   RuntimeFingerprint,
-} from "@agent-platform/runtime-core";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/runtime-core";
+import { createGitBundle } from "@werft-ai/testkit/git-bundle";
 import {
   type LocalstackBucket,
   localstackEnabled,
   withLocalstackBucket,
-} from "@agent-platform/testkit/localstack";
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
+} from "@werft-ai/testkit/localstack";
 
 import {
   createCheckpointObjectCollector,

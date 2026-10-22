@@ -26,7 +26,7 @@ const lockText = `{
     "right": ["right@2.1.0", "", {}, "sha512-b"],
     "a/right": ["right@1.4.0", "", {}, "sha512-c"],
     "@scope/pkg": ["@scope/pkg@3.0.0", "", {}, "sha512-d"],
-    "@agent-platform/storage": ["@agent-platform/storage@workspace:packages/storage"],
+    "@werft-ai/storage": ["@werft-ai/storage@workspace:packages/storage"],
   },
 }`;
 

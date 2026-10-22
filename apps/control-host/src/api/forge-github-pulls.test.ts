@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { ForgeCredentialError } from "@agent-platform/platform";
-import { type FakeGitHub, startFakeGitHub } from "@agent-platform/testkit";
+import { ForgeCredentialError } from "@werft-ai/platform";
+import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { createGitHubForge, RATE_LIMIT_RETRIES } from "./forge-github.ts";
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });

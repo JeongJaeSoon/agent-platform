@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   type ExecutionBackend as ExecutionBackendKind,
   executionBackendSchema,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   ActiveExecution,
   DrainState,
@@ -18,7 +18,7 @@ import type {
   SchedulerDemand,
   SchedulerStore,
   StoredLaunchIntent,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   budgetExceeded,
   DEFAULT_NONCE_TTL_MS,
@@ -26,7 +26,7 @@ import {
   hashWorkerToken,
   launchNonceFingerprint,
   parseExecutionResources,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -229,6 +229,7 @@ export function createPostgresSchedulerStore(
           and(
             inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
             isNull(sessions.executionRevokedAt),
+            isNull(sessions.takeoverRequiredAt),
             // Before the LIMIT, so a backlog of spent sessions cannot crowd
             // out the ones that can still run, nor sessions waiting out a
             // restore backoff.
@@ -276,6 +277,7 @@ export function createPostgresSchedulerStore(
             costUsd: sessions.costUsd,
             providerTokens: sessions.providerTokens,
             executionRevokedAt: sessions.executionRevokedAt,
+            takeoverRequiredAt: sessions.takeoverRequiredAt,
             partition: sessions.partition,
             restoreRetryAt: sessions.restoreRetryAt,
           })
@@ -287,6 +289,7 @@ export function createPostgresSchedulerStore(
           !session ||
           !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
           session.executionRevokedAt !== null ||
+          session.takeoverRequiredAt !== null ||
           (session.restoreRetryAt !== null &&
             session.restoreRetryAt > (await dbNow(tx)))
         ) {

@@ -4,9 +4,9 @@ import type {
   PostSessionAnswerRequest,
   RegisterPendingRequest,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createPendingRequestService,
   createWorkerGateway,
   payloadHash,
@@ -15,15 +15,17 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
+import { testCaller } from "@werft-ai/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresDecisionLog } from "./authz-decisions.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
 import { reconcileExpiredLeases } from "./lease-reconcile.ts";
@@ -36,6 +38,7 @@ import {
 import * as schema from "./schema.ts";
 import {
   attempts,
+  authzDecisions,
   events,
   pendingRequests,
   queueMessages,
@@ -134,7 +137,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = gatewayWith();
     service = createPendingRequestService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       store: createPostgresPendingRequests(db),
     });
   }, 60_000);
@@ -201,7 +204,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   // A session whose first turn is running on a worker.
   async function runningSession() {
     const partition = partitionFor("pending");
-    const owner = { ownerId: `owner-${crypto.randomUUID()}` };
+    const owner = testCaller(`owner-${crypto.randomUUID()}`);
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -249,7 +252,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   }
 
   function answer(
-    owner: { ownerId: string },
+    owner: ReturnType<typeof testCaller>,
     sessionId: string,
     body: PostSessionAnswerRequest,
     key = crypto.randomUUID(),
@@ -318,12 +321,12 @@ integration("pending requests and answers on PostgreSQL", () => {
 
     expect(
       await failure(
-        service.listPendingRequests({ ownerId: "someone-else" }, sessionId),
+        service.listPendingRequests(testCaller("someone-else"), sessionId),
       ),
     ).toBe("NOT_FOUND");
     expect(
       await failure(
-        answer({ ownerId: "someone-else" }, sessionId, {
+        answer(testCaller("someone-else"), sessionId, {
           request_id: tool.requestId,
           kind: "permission",
           decision: "allow",
@@ -380,6 +383,7 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(await answer(owner, sessionId, body, key)).toEqual({
       receipt_id: accepted.receipt_id,
       receipt_status: "succeeded",
+      approval: accepted.approval,
     });
     expect(
       await failure(
@@ -394,6 +398,95 @@ integration("pending requests and answers on PostgreSQL", () => {
     // A new key on an answered request is too late.
     expect(await failure(answer(owner, sessionId, body))).toBe(
       "REQUEST_EXPIRED",
+    );
+  });
+
+  test("an approval leaves one decision row and a receipt under the same request id", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const { requestId } = await register(worker, permission());
+    const audited = createPendingRequestService({
+      authorization: createAuthorizationPolicy({
+        decisions: createPostgresDecisionLog(db),
+      }),
+      store: createPostgresPendingRequests(db),
+    });
+    // The person behind a key, answering from the web console.
+    const approver = {
+      ...owner,
+      subject: { ...owner.subject, surface: { kind: "web" as const } },
+      actor: {
+        principal: { kind: "api_key" as const, id: owner.ownerId },
+        userId: crypto.randomUUID(),
+        workspaceId: null,
+        apiKeyId: owner.ownerId,
+      },
+    };
+    const approvalKey = crypto.randomUUID();
+    // No reason: a denial's reason is optional.
+    const approvalBody = {
+      request_id: requestId,
+      kind: "permission" as const,
+      decision: "deny" as const,
+    };
+    const accepted = await audited.answer(approver, sessionId, {
+      idempotencyKey: approvalKey,
+      body: approvalBody,
+    });
+    const rows = await db
+      .select()
+      .from(authzDecisions)
+      .where(eq(authzDecisions.requestId, owner.requestId));
+    expect(rows).toHaveLength(1);
+    const [approval] = await db
+      .select({
+        answeredBy: pendingRequests.answeredBy,
+        answerSurface: pendingRequests.answerSurface,
+        answerDecisionId: pendingRequests.answerDecisionId,
+      })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, requestId));
+    expect(approval).toEqual({
+      answeredBy: {
+        principal: { kind: "api_key", id: owner.ownerId },
+        actor_user_id: approver.actor.userId,
+        agent_id: null,
+      },
+      answerSurface: "web",
+      answerDecisionId: rows[0]?.id ?? "missing",
+    });
+    expect(accepted.approval).toEqual({
+      answered_by: {
+        principal: { kind: "api_key", id: owner.ownerId },
+        actor_user_id: approver.actor.userId,
+        agent_id: null,
+      },
+      surface: "web",
+      decision_id: rows[0]?.id ?? "missing",
+    });
+    const replayed = await audited.answer(approver, sessionId, {
+      idempotencyKey: approvalKey,
+      body: approvalBody,
+    });
+    expect(replayed.approval).toEqual(accepted.approval);
+    // A surface without the decision that admitted it is not a record.
+    const orphaned = await db
+      .update(pendingRequests)
+      .set({ answerDecisionId: null })
+      .where(eq(pendingRequests.requestId, requestId))
+      .then(
+        () => "accepted",
+        (error: { cause?: Error }) => String(error.cause?.message ?? error),
+      );
+    expect(orphaned).toMatch(/pending_requests_approval_check/);
+    expect(rows[0]).toMatchObject({
+      action: "session.approve",
+      resourceKind: "session",
+      resourceId: sessionId,
+      outcome: "allow",
+      reasonCode: "ok",
+    });
+    expect((await receiptOf(accepted.receipt_id))?.requestId).toBe(
+      owner.requestId,
     );
   });
 
@@ -736,10 +829,19 @@ integration("pending requests and answers on PostgreSQL", () => {
     const turnList = await reader.listTurns(owner.ownerId, sessionId, {
       limit: 10,
     });
-    const listed = await reader.listSessions(owner.ownerId, { limit: 10 });
+    const listed = await reader.listSessions(
+      owner.ownerId,
+      { limit: 10 },
+      { userId: null, apiKeyId: null },
+    );
     const filtered = async (status: "needs_input" | "running") =>
-      (await reader.listSessions(owner.ownerId, { limit: 10, status })).items
-        .length;
+      (
+        await reader.listSessions(
+          owner.ownerId,
+          { limit: 10, status },
+          { userId: null, apiKeyId: null },
+        )
+      ).items.length;
     const [stored] = await db
       .select({ session: sessions.status, turn: turns.status })
       .from(sessions)

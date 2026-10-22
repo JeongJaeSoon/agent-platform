@@ -1,17 +1,32 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { digestParts } from "@agent-platform/runtime-claude-codec";
 import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { digestParts } from "@werft-ai/runtime-claude-codec";
+import {
+  type CheckpointTranscripts,
   MAX_TRANSCRIPT_PART_BYTES,
   type TranscriptEntry,
   type TranscriptRevision,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 import {
   ClaudeSessionStore,
+  PublishRollbackFailed,
+  publishRestoredSession,
   type TranscriptInheritance,
   TranscriptTooLarge,
 } from "./session-store.ts";
@@ -715,7 +730,7 @@ describe("Claude session store across execution generations", () => {
     );
   });
 
-  test("verifies every adopted part up front, then loads from what it checked", async () => {
+  test("verifies every adopted part up front, holding none of them", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const first = launch(objects, 1);
     await first.append(root, [entry("a", "first")]);
@@ -726,11 +741,15 @@ describe("Claude session store across execution generations", () => {
     objects.resetReads();
     await second.verifyInherited();
     expect(objects.reads()).toHaveLength(2);
+    // Counted, so a capture does not fetch them again.
     objects.resetReads();
+    await second.captureTranscripts(sessionId);
+    expect(objects.reads()).toEqual([]);
+    // But not held: a load reads them anew.
     expect(await second.load(subagent)).toEqual([entry("b", "subagent")]);
     expect(
       objects.reads().filter((read) => read.includes("generation-0000000001")),
-    ).toEqual([]);
+    ).toHaveLength(1);
 
     const pinned = inherited.transcripts.subagents["agents/reviewer"]?.parts[0];
     if (pinned === undefined) throw new Error("expected a subagent part");
@@ -1209,12 +1228,46 @@ describe("Claude session store merging parts, the edges", () => {
       },
     ]);
 
-    await expect(mirror.captureTranscripts(sessionId)).rejects.toBeInstanceOf(
-      TranscriptTooLarge,
-    );
+    await expect(mirror.captureTranscripts(sessionId)).rejects.toMatchObject({
+      name: "TranscriptTooLarge",
+      reason: "transcript_part_too_large",
+    });
     expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
       [],
     );
+  });
+
+  test("sizes what a capture would pin without merging, and judges it by the limits it was given", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const limits = { partBytes: 1 << 20, totalBytes: 1 << 20 };
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects,
+      prefix,
+      transcriptLimits: limits,
+    });
+    await appendParts(mirror, 600);
+    await mirror.append({ ...root, subpath: "subagents/agent-1" }, [
+      entry("s1", "sub"),
+    ]);
+
+    const sizes = await mirror.transcriptSizes(sessionId);
+    if (sizes === null) throw new Error("expected a root transcript");
+    expect(sizes).toHaveLength(601);
+    expect(objects.keys().filter((key) => key.includes("/merged-"))).toEqual(
+      [],
+    );
+    const total = sizes.reduce((sum, part) => sum + part.bytes, 0);
+    expect(await mirror.transcriptSizes("session-none")).toBeNull();
+
+    limits.totalBytes = total - 1;
+    const refused = mirror.captureTranscripts(sessionId);
+    await expect(refused).rejects.toBeInstanceOf(TranscriptTooLarge);
+    await expect(refused).rejects.toMatchObject({
+      reason: "transcript_too_large",
+    });
+    limits.totalBytes = total;
+    expect(await mirror.captureTranscripts(sessionId)).not.toBeNull();
   });
 });
 
@@ -1335,5 +1388,269 @@ describe("Claude session store counting entries across captures", () => {
         /Conflicting transcript entry uuid: same/,
       );
     }
+  });
+});
+
+describe("Claude session store writing a resumed transcript to disk", () => {
+  const subagent = { ...root, subpath: "subagents/agent-1" };
+  const metadata = { type: "agent_metadata", agentType: "reviewer" };
+
+  async function adopted(objects: MemoryCheckpointObjectStore) {
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    await first.append(root, [entry("a", "first")]);
+    // A retried batch, stored twice, and a uuid-less frame.
+    await first.append(root, [entry("b", "second")]);
+    await first.append(root, [entry("b", "second")]);
+    await first.append(root, [{ type: "title", title: "t" }]);
+    await first.append(subagent, [entry("s", "subagent"), metadata]);
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    return new ClaudeSessionStore({
+      generation: 2,
+      inherit: { sessionId, transcripts },
+      objects,
+      prefix,
+    });
+  }
+
+  async function lines(path: string): Promise<unknown[]> {
+    return (await readFile(path, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  }
+
+  test("lays the session out as the SDK does, each entry as load returned it", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const loaded = await adopted(objects);
+    const expectedRoot = await loaded.load(root);
+    const expectedSubagent = await loaded.load(subagent);
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      const second = new ClaudeSessionStore({
+        generation: 3,
+        inherit: {
+          sessionId,
+          transcripts: (await loaded.captureTranscripts(
+            sessionId,
+          )) as CheckpointTranscripts,
+        },
+        objects,
+        prefix,
+      });
+      await second.materialize(projects);
+
+      const session = join(projects, projectKey);
+      expect(await lines(join(session, `${sessionId}.jsonl`))).toEqual(
+        expectedRoot as TranscriptEntry[],
+      );
+      expect(
+        await lines(join(session, sessionId, `${subagent.subpath}.jsonl`)),
+      ).toEqual(
+        (expectedSubagent as TranscriptEntry[]).filter(
+          (item) => item.type !== "agent_metadata",
+        ),
+      );
+      expect(
+        JSON.parse(
+          await readFile(
+            join(session, sessionId, `${subagent.subpath}.meta.json`),
+            "utf8",
+          ),
+        ),
+      ).toEqual({ agentType: "reviewer" });
+      // Published whole: no staging directory is left beside it.
+      expect(await readdir(projects)).toEqual([projectKey]);
+      expect(
+        (await stat(join(session, `${sessionId}.jsonl`))).mode & 0o777,
+      ).toBe(0o600);
+
+      // The engine reads the disk; the store hands it nothing, and the
+      // history is what it would have handed over.
+      expect(await second.load(root)).toBeNull();
+      expect([...(second.resumedEntryIds() ?? [])].sort()).toEqual(["a", "b"]);
+      await expect(
+        second.load({ ...root, projectKey: "-elsewhere" }),
+      ).rejects.toThrow(/restored under project key/);
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("holds every part to its digest, and publishes nothing when one fails", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const second = await adopted(objects);
+    const transcripts = await second.captureTranscripts(sessionId);
+    const pinned = transcripts?.subagents[subagent.subpath]?.parts[0];
+    if (pinned === undefined) throw new Error("expected a subagent part");
+    const { key: damaged } = pinned;
+    await objects.put(damaged, new TextEncoder().encode('{"type":"x"}\n'));
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      await expect(second.materialize(projects)).rejects.toThrow(
+        /Inherited transcript part changed/,
+      );
+      expect(await readdir(projects)).toEqual([]);
+      expect(second.resumedEntryIds()).toBeUndefined();
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("a capture after it fetches none of what it wrote", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const second = await adopted(objects);
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      await second.verifyInherited();
+      await second.materialize(projects);
+      objects.resetReads();
+      await second.append(root, [entry("c", "third")]);
+      const captured = await second.captureTranscripts(sessionId);
+      expect(objects.reads()).toEqual([]);
+      expect(captured?.root.entryCount).toBe(4);
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("writes parts of several MiB back to back, each once", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const big = (uuid: string) => entry(uuid, "x".repeat(3 * 1024 * 1024));
+    await first.append(root, [big("a"), big("b")]);
+    await first.append(root, [big("c")]);
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    const second = new ClaudeSessionStore({
+      generation: 2,
+      inherit: { sessionId, transcripts },
+      objects,
+      prefix,
+    });
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      await second.materialize(projects);
+      const file = join(projects, projectKey, `${sessionId}.jsonl`);
+      expect((await stat(file)).size).toBe(
+        transcripts.root.parts.reduce((total, part) => total + part.bytes, 0),
+      );
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  test("replaces a transcript already under the project key", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const loaded = await adopted(objects);
+    const expectedRoot = await loaded.load(root);
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      const stale = join(projects, projectKey, sessionId);
+      await mkdir(stale, { recursive: true });
+      await writeFile(join(stale, "stale.jsonl"), "{}\n");
+      await writeFile(join(projects, projectKey, `${sessionId}.jsonl`), "{}\n");
+      await writeFile(join(projects, projectKey, "other.jsonl"), "{}\n");
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const second = new ClaudeSessionStore({
+          generation: 3 + attempt,
+          inherit: {
+            sessionId,
+            transcripts: (await loaded.captureTranscripts(
+              sessionId,
+            )) as CheckpointTranscripts,
+          },
+          objects,
+          prefix,
+        });
+        await second.materialize(projects);
+      }
+      const session = join(projects, projectKey);
+      expect(await lines(join(session, `${sessionId}.jsonl`))).toEqual(
+        expectedRoot as TranscriptEntry[],
+      );
+      expect(
+        (await readdir(join(session, sessionId, "subagents"))).sort(),
+      ).toEqual(["agent-1.jsonl", "agent-1.meta.json"]);
+      expect(await readdir(join(session, sessionId))).toEqual(["subagents"]);
+      expect(await readFile(join(session, "other.jsonl"), "utf8")).toBe("{}\n");
+      expect(await readdir(projects)).toEqual([projectKey]);
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
+  async function occupied() {
+    const directory = await mkdtemp(join(tmpdir(), "publish-"));
+    const target = join(directory, "target");
+    const session = join(directory, "session");
+    const aside = join(directory, "aside");
+    for (const [root, body] of [
+      [target, "old"],
+      [session, "new"],
+    ] as const) {
+      await mkdir(join(root, sessionId, "subagents"), { recursive: true });
+      await writeFile(join(root, `${sessionId}.jsonl`), `${body}\n`);
+      await writeFile(join(root, sessionId, "subagents", `${body}.jsonl`), "");
+    }
+    await writeFile(join(target, "other.jsonl"), "other\n");
+    return { aside, directory, session, target };
+  }
+
+  async function holdsOld(root: string) {
+    expect(await readFile(join(root, `${sessionId}.jsonl`), "utf8")).toBe(
+      "old\n",
+    );
+    expect(await readdir(join(root, sessionId, "subagents"))).toEqual([
+      "old.jsonl",
+    ]);
+  }
+
+  test("puts back what a failed publish replaced", async () => {
+    const { aside, directory, session, target } = await occupied();
+    try {
+      await expect(
+        publishRestoredSession(session, target, sessionId, aside, (from, to) =>
+          from.startsWith(session) && to.endsWith(".jsonl")
+            ? Promise.reject(new Error("disk full"))
+            : rename(from, to),
+        ),
+      ).rejects.toThrow("disk full");
+      await holdsOld(target);
+      expect(await readFile(join(target, "other.jsonl"), "utf8")).toBe(
+        "other\n",
+      );
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps what it replaced aside when putting it back fails too", async () => {
+    const { aside, directory, session, target } = await occupied();
+    try {
+      const failed = await publishRestoredSession(
+        session,
+        target,
+        sessionId,
+        aside,
+        (from, to) =>
+          (from.startsWith(session) && to.endsWith(".jsonl")) ||
+          from.startsWith(aside)
+            ? Promise.reject(new Error("disk full"))
+            : rename(from, to),
+      ).catch((error: unknown) => error);
+      expect(failed).toBeInstanceOf(PublishRollbackFailed);
+      expect((failed as PublishRollbackFailed).kept).toBe(aside);
+      await holdsOld(aside);
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  test("only a store that adopted a checkpoint materializes", async () => {
+    const { mirror } = store();
+    await expect(mirror.materialize(tmpdir())).rejects.toThrow(
+      /adopted a checkpoint/,
+    );
   });
 });

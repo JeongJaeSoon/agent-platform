@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/94s-91-sdk-gate",
+  "name": "@werft-ai/94s-91-sdk-gate",
   "private": true,
   "type": "module",
   "scripts": {

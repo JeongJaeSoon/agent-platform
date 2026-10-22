@@ -6,14 +6,14 @@
  * runtime's configuration (the profile fingerprint) stays in the adapter.
  */
 import { createHash } from "node:crypto";
-import { canonicalJsonOfJson } from "@agent-platform/contracts";
+import { canonicalJsonOfJson } from "@werft-ai/contracts";
 import type {
   CheckpointCodec,
   CheckpointManifest,
   CompatibilityMismatch,
   CompatibilityVerdict,
   RuntimeFingerprint,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import { z } from "zod";
 
 import { digestParts } from "./transcript-digest.ts";

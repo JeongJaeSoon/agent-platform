@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createLogger } from "@agent-platform/observability";
+import { createLogger } from "@werft-ai/observability";
 import { createApiPool, createProbePool } from "./pool.ts";
 
 const url =

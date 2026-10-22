@@ -3,14 +3,14 @@ import {
   type ApiErrorCode,
   apiErrorResponseSchema,
   listPendingRequestsResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type AnswerRequestInput,
   type AnswerRequestResult,
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createPendingRequestService,
   type PendingRequestStore,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPendingRoutes } from "./pending.ts";
 
@@ -20,7 +20,7 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 
 function app(overrides: Partial<PendingRequestStore> = {}) {
   const service = createPendingRequestService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     store: {
       listOpen: async () => null,
       answerAtomic: async () => {
@@ -112,6 +112,11 @@ describe("pending-request routes", () => {
       response: {
         receipt_id: "019a0000-0000-7000-8000-000000000001",
         receipt_status: "accepted",
+        approval: {
+          answered_by: null,
+          surface: "api",
+          decision_id: "019a0000-0000-7000-8000-0000000000d1",
+        },
       },
     });
     const settled = await response;
@@ -119,13 +124,23 @@ describe("pending-request routes", () => {
     expect(await settled.json()).toEqual({
       receipt_id: "019a0000-0000-7000-8000-000000000001",
       receipt_status: "accepted",
+      approval: {
+        answered_by: null,
+        surface: "api",
+        decision_id: "019a0000-0000-7000-8000-0000000000d1",
+      },
     });
     expect(seen[0]).toMatchObject({
       principal: { ownerId: "owner-a" },
       sessionId: SESSION,
       idempotencyKey: "key-1",
       answer: { request_id: "req_1", kind: "permission", decision: "allow" },
+      approval: { surface: "api" },
     });
+    // The id of the session.approve decision that admitted this answer.
+    expect(seen[0]?.approval.decisionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   test("POST maps each refusal to its status and code", async () => {
@@ -151,16 +166,21 @@ describe("pending-request routes", () => {
       status: 400,
       code: "BAD_REQUEST",
     });
-    // A denial without a reason gives the model nothing to act on.
-    expect(
-      await errorOf(
-        answer(accepted, {
-          request_id: "req_1",
-          kind: "permission",
-          decision: "deny",
-        }).response,
-      ),
-    ).toEqual({ status: 400, code: "BAD_REQUEST" });
+    // A reason is optional, a denial included: it reaches the store as is.
+    const unexplained = answer(accepted, {
+      request_id: "req_1",
+      kind: "permission",
+      decision: "deny",
+    });
+    expect(await errorOf(unexplained.response)).toEqual({
+      status: 404,
+      code: "NOT_FOUND",
+    });
+    expect(unexplained.seen[0]?.answer).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      decision: "deny",
+    });
     const oversized = answer(accepted, {
       request_id: "req_1",
       kind: "permission",

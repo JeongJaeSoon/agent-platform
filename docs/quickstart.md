@@ -13,12 +13,10 @@ not run as-is is ```sh or ```text.
 
 이 문서의 `bash` 블록은 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다. `jq -e`로 시작하는 줄은 `true`를 출력해야 한다. `false`가 나오면 그 단계가 기대와 다르게 끝난 것이고, CI에서는 그 자리에서 실패한다. 같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돈다.
 
-## 대상: 신뢰된 내부 인원 한정
-
-private alpha는 **신뢰된 내부 인원만** 쓴다. 다음은 알려진 제약이다.
+## 알려진 제약
 
 - 워커 안에서 실행되는 코드(에이전트의 tool 실행, prompt injection으로 들어온 명령 포함)는 attempt가 살아 있는 동안 그 attempt의 egress token으로 proxy를 거쳐 provider와 저장소, 그리고 자기 세션 prefix 안의 object를 부를 수 있다. provider key, 저장소 credential, object store credential 값 자체는 worker에 가지 않는다([94S-252](https://linear.app/94soon/issue/94S-252), [94S-251](https://linear.app/94soon/issue/94S-251)).
-- 모든 세션이 운영자의 provider key 하나를 같이 쓴다. 외부 사용자에게 열기 전에 사용자마다 자기 key를 등록하는 BYOK가 있어야 한다([94S-376](https://linear.app/94soon/issue/94S-376)).
+- 모든 세션이 운영자의 provider key 하나를 같이 쓴다.
 
 ## 0. 준비물
 
@@ -78,7 +76,7 @@ scripts/local.sh status
 
 코드를 새로 pull했으면 `scripts/local.sh up --fake-model`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
-**로컬 설치는 휘발성이다.** LocalStack은 S3를 메모리에만 두므로 `docker compose down`이나 Docker 재시작 한 번에 checkpoint 객체가 모두 사라진다. postgres는 volume에 남아 그 객체를 가리키는 행을 그대로 갖고 있으므로, GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 그 상태로 다시 띄울 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 스택을 내릴 때는 `scripts/local.sh down`(데이터까지 삭제)을, 처음부터 다시 할 때는 `scripts/local.sh reset --fake-model`을 쓴다(7장).
+**로컬 설치는 휘발성이다.** LocalStack은 S3를 메모리에만 두므로 `docker compose down`이나 Docker 재시작 한 번에 checkpoint 객체가 모두 사라진다. postgres는 volume에 남아 그 객체를 가리키는 행을 그대로 갖고 있으므로, GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 그 상태로 다시 띄울 때 API가 기동을 거부한다([8장](#8-막혔을-때)). 스택을 내릴 때는 `scripts/local.sh down`(데이터까지 삭제)을, 처음부터 다시 할 때는 `scripts/local.sh reset --fake-model`을 쓴다(7장). 재부팅 뒤 계정과 key를 남긴 채 다시 띄우는 절차도 7장에 있다.
 
 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다(6장).
 
@@ -142,7 +140,7 @@ grep -A1 '^event: question' /tmp/quickstart-events.txt
 
 `curl: (28) Operation timed out after 5… milliseconds`는 정상이다. 이벤트 스트림은 서버가 닫지 않으므로 `--max-time 5`가 5초 뒤에 끊은 것이고, `|| true`가 있어 다음 줄은 그대로 실행된다. ⑧에서도 같은 메시지가 나온다.
 
-SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment keepalive). 사람이 볼 때는 `--max-time` 없이 열어 두고 Ctrl-C로 닫는다. 연결이 끊기면 backoff 뒤 마지막으로 완전히 받은 이벤트의 `id`를 `Last-Event-ID` 헤더로 보내 재연결한다. 서버는 그 이벤트 **다음**부터 재생한다. `410 CURSOR_EXPIRED`는 cursor가 보존 범위 밖이라는 뜻이므로 세션·turn 상태를 다시 읽어 동기화해야 한다. 알파는 이벤트를 지우지 않아 410을 내지 않지만 클라이언트 계약에는 미리 포함한다.
+SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment keepalive). 사람이 볼 때는 `--max-time` 없이 열어 두고 Ctrl-C로 닫는다. 연결이 끊기면 backoff 뒤 마지막으로 완전히 받은 이벤트의 `id`를 `Last-Event-ID` 헤더로 보내 재연결한다. 서버는 그 이벤트 **다음**부터 재생한다. `410 CURSOR_EXPIRED`는 cursor가 보존 범위 밖이라는 뜻이므로 세션·turn 상태를 다시 읽어 동기화해야 한다. 지금 서버는 이벤트를 지우지 않아 410을 내지 않지만 클라이언트 계약에는 미리 포함한다.
 
 이벤트 이름은 `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error`다. `result` 이벤트의 `data.session_id`는 플랫폼 세션 id가 아니라 **engine(Claude Code) 세션 id**이며 durable 완료 판정이 아니다. turn 조회(`GET /v1/sessions/{id}/turns/{turn_id}`)의 `status`가 `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown` 중 하나일 때만 terminal로 판정한다. `completed`는 engine이 turn을 정상 종료했다는 뜻이고 요청한 일을 다 했다는 뜻은 아니다([api-guide 4절](api-guide.md#4-메시지-보내기와-turn-상태-보기)).
 
@@ -288,7 +286,7 @@ bun install
 
 | 명령 | 확인하는 것 | 성공 표시 |
 |---|---|---|
-| `tests/e2e/run.sh` | 알파 경로 전체(3장과 같은 흐름 + pause 경계 케이스). CI `e2e` job과 같다 | 끝의 `tests:` 줄이 `skip=0 fail=0`이고 exit 0 |
+| `tests/e2e/run.sh` | 세션 경로 전체(3장과 같은 흐름 + pause 경계 케이스). CI `e2e` job과 같다 | 끝의 `tests:` 줄이 `skip=0 fail=0`이고 exit 0 |
 | `tests/e2e/quickstart.sh` | 이 문서의 `bash` 블록을 순서대로 한 `bash -euo pipefail`에서 실행한다. `jq -e` 줄 하나라도 `false`면 실패다. CI `quickstart` job과 같다. 1장 스택이 없을 때만 돌린다(아래 경고) | `== quickstart: every block ran` |
 | `tests/e2e/restore-resume.sh` | 세션 두 turn → pause → 백업 → 원본 전부 삭제 → 새 project에 복원·검증 → resume해서 같은 Claude 세션으로 이어지는지 | exit 0. 비교표는 `RR_OUT/record.txt` |
 
@@ -326,7 +324,7 @@ get "/v1/sessions/$SID/usage" | jq .
 
 ### 백업 → 복원 → 검증 (수동)
 
-백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [내부 알파 실서버 배포의 백업·복원 기준](alpha-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
+백업·복원의 정본 절차, writer 중지 순서, 새 project 복원, 검증과 정리는 [백업과 복원](backup-restore.md#로컬에서-끝까지-돌려-보기)에 있다. 실서버에서는 이 로컬 예시 대신 [단일 서버 배포의 백업·복원 기준](server-deployment.md#6-백업과-복원-기준을-운영한다)을 따른다.
 
 ## 7. 정리
 
@@ -338,6 +336,22 @@ scripts/local.sh down
 
 데이터를 남긴 채 내리는 방법은 없다. LocalStack이 S3를 메모리에만 두기 때문에 `docker compose down`으로 내리면 postgres에는 세션이 남지만 그 checkpoint 객체는 사라진다. GC가 아직 거두지 않은 checkpoint가 하나라도 남아 있으면 다시 올릴 때 API가 기동을 거부한다([8장](#8-막혔을-때)).
 
+### 재부팅이나 Docker 재시작 뒤
+
+호스트나 Docker가 재시작하면 LocalStack의 S3만 비고 postgres는 남는다. 이때 `scripts/local.sh up`은 위의 기동 거부로 끝난다. 계정·워크스페이스·API key·Gitea 저장소를 남기고 잃은 checkpoint만 포기하려면 다음 순서로 다시 띄운다.
+
+```bash
+scripts/local.sh forget-lost-checkpoints   # 잃은 checkpoint를 포기하고 그 세션을 출력한다
+scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 없이
+```
+
+`forget-lost-checkpoints`는 API가 거부하는 그 상태, 즉 bucket에 object version이 하나도 없는데 DB에 미회수 checkpoint가 남은 경우에만 동작한다. bucket에 버전이 하나라도 있으면 아무것도 바꾸지 않고 실패한다. 동작하면 남은 checkpoint를 모두 회수된 것(`collected_at`)으로 표시하고 잃은 세션 수와 ID를 출력한다.
+
+- `recovery_required <id>`: 그 checkpoint에서 복원될, 닫히지 않은 세션이다. pause·resume·stop 도중이었거나 이미 `recovery_required`였던 세션도 포함하며, 열려 있던 pause·resume receipt는 실패로 끝난다. 잃은 pointer는 `start_fresh`가 하듯 retire되지만 어느 turn의 문맥도 버린 것으로 치지 않는다. 그래서 세션 상세는 `admission_state: "recovery_required"`이다. worker에 전달돼 끝난 turn(`completed`·`failed`·`interrupted`)이 있으면 `attention`은 `CONTEXT_GAP`(`checkpointed_turn_id: null`)이고, 그런 turn이 없으면 `attention`은 null이다. 이벤트 스트림에는 system `checkpoint_objects_lost`와 `reason: "checkpoint_objects_lost"`인 status가 남는다. resume과 새 메시지는 409 `RECOVERY_REQUIRED`로 거부되고, 아무 일도 없었던 것처럼 새로 시작하지 않는다. 다른 복구 결정으로 `stopped`가 된 뒤의 resume도 409 `CHECKPOINT_UNAVAILABLE`이다. 대기 중인 입력은 남는다. 이전 문맥 없이 이어 가려면 복구 결정 `start_fresh`, 끝내려면 `close`를 보낸다([api-guide 7절](api-guide.md#7-outcome_unknownrecovery_required-복구-결정)). 복원할 checkpoint가 없으므로 `retry_restore`는 거부된다.
+- `unchanged <id>`: 이미 닫혔거나 `start_fresh`로 checkpoint를 버려 복원할 것이 없는 세션이다.
+
+잃은 checkpoint가 없으면 `No checkpoint is missing from the bucket`만 출력하고 끝난다. 세션까지 모두 지우고 새로 하려면 여전히 `scripts/local.sh reset --fake-model`이다.
+
 ## 8. 막혔을 때
 
 | 증상 | 원인과 조치 |
@@ -345,7 +359,7 @@ scripts/local.sh down
 | `local.sh up`이 `Docker Engine … is too old`로 끝나거나, scheduler가 재시작을 반복하고 로그에 `GatewayModeUnsupportedError`가 있다 | Docker Engine이 28 미만이다. 엔진을 올린다 |
 | `local.sh up`이 `up needs ANTHROPIC_API_KEY exported or in .env`로 끝난다 | 옵션 없는 `up`은 실제 Claude를 쓴다. 이 문서대로 key 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 key를 준다 |
 | `local.sh up`이 `127.0.0.1 port(s) … already in use`로 끝나거나 `bind: address already in use`가 나온다 | 0장의 포트 중 하나를 다른 프로세스나 다른 스택이 쓰고 있다. 0장의 `lsof` 루프로 찾는다 |
-| API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | `docker compose down`이나 Docker 재시작으로 LocalStack의 S3 객체만 사라지고 postgres의 checkpoint 행은 남았다. `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이)으로 모두 지우고 새로 띄운다(세션도 지워진다) |
+| API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | `docker compose down`이나 Docker 재시작으로 LocalStack의 S3 객체만 사라지고 postgres의 checkpoint 행은 남았다. 계정과 key를 남기려면 `scripts/local.sh forget-lost-checkpoints` 뒤 `up`([7장](#재부팅이나-docker-재시작-뒤), 잃은 checkpoint의 세션은 `recovery_required`), 모두 지우고 새로 띄우려면 `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이, 세션도 지워진다) |
 | scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다([94S-385](https://linear.app/94soon/issue/94S-385)). 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |
 | zsh에서 `readyz`나 다른 URL이 `NOT_FOUND`이고 `Could not resolve host: echo`가 함께 뜬다 | oh-my-zsh의 `url-quote-magic`이 URL 뒤에 붙여 넣은 `;` 앞에 `\`를 넣었다. 명령을 보면 `readyz\;`로 되어 있고, 요청은 `/readyz;`로 가며 `echo`는 curl의 호스트 이름이 된다. URL을 따옴표로 감싸도 막히지 않는다. 스택 문제가 아니다. 이 문서의 명령처럼 줄바꿈은 `curl -sS -w '\n' http://127.0.0.1:3000/readyz`로 붙인다. 이 동작을 아예 끄려면 `~/.zshrc`에서 `DISABLE_MAGIC_FUNCTIONS="true"`의 주석을 풀고 새 셸을 연다 |
 | `readyz`가 503 `NOT_READY`다 | DB나 migration이 아직 준비되지 않았다. `docker compose --profile apps ps -a`에서 `migrate`가 `Exited (0)`인지 보고 `docker compose logs api migrate`를 확인한다 |

@@ -3,15 +3,15 @@ import {
   apiErrorResponseSchema,
   SSE_SCHEMA_VERSION,
   type SseEvent,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
   type ReadEventsQuery,
   type SessionControl,
   type SessionReader,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import type { SessionEventWakeup } from "../session-notifier.ts";
 import { registerEventRoutes } from "./events.ts";
@@ -26,10 +26,16 @@ const unusedControls: SessionControl = {
   pauseAtomic: async () => {
     throw new Error("not reached");
   },
+  closeAtomic: async () => {
+    throw new Error("not reached");
+  },
   decideRecoveryAtomic: async () => {
     throw new Error("not reached");
   },
   resumeAtomic: async () => {
+    throw new Error("not reached");
+  },
+  changeProfileAtomic: async () => {
     throw new Error("not reached");
   },
 };
@@ -40,6 +46,9 @@ const KEY = {
   id: "key-a",
   ownerId: OWNER,
   workspaceId: null,
+  kind: "service" as const,
+  createdByUserId: null,
+  creatorRole: null,
   scopes: ["sessions:read" as const],
 };
 
@@ -154,7 +163,7 @@ function harness(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     controls: unusedControls,
     catalog: { profiles: {}, repositories: {} },
     inputs: {
@@ -379,6 +388,23 @@ describe("GET /v1/sessions/{id}/events", () => {
     await frames.cancel();
   });
 
+  test("a share narrowed while a page is in flight stops the page", async () => {
+    const { app, store, wakeup } = harness({ keepaliveMs: 5_000 });
+    store.append(event(1), event(2), event(3));
+    // The narrowing commits while the first page is being read: from then on
+    // the session is out of this caller's sight.
+    store.onRead = (query) => {
+      if (query.after === undefined) {
+        wakeup.notify();
+        store.owner = "someone-else";
+      }
+    };
+    const response = await open(app);
+    expect(response.status).toBe(200);
+    const frames = new FrameReader(response);
+    expect(await frames.ended()).toBe(true);
+  });
+
   test("a revoked credential ends a stream that is still replaying", async () => {
     const store = new FakeStore();
     const wakeup = new FakeWakeup();
@@ -393,7 +419,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -495,7 +521,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -549,7 +575,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -605,7 +631,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -668,7 +694,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -737,7 +763,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -815,7 +841,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {
@@ -907,7 +933,7 @@ describe("GET /v1/sessions/{id}/events", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       controls: unusedControls,
       catalog: { profiles: {}, repositories: {} },
       inputs: {

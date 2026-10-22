@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import type { CheckpointRef } from "@agent-platform/contracts";
+import type { CheckpointRef } from "@werft-ai/contracts";
 import type {
   CheckpointCodec,
   CheckpointManifest,
@@ -8,12 +8,12 @@ import type {
   ObjectRef,
   RuntimeFingerprint,
   WorkspaceArtifact,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
-import { createGitBundle } from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/checkpoint-objects";
+import { createGitBundle } from "@werft-ai/testkit/git-bundle";
 
 import type {
   CheckpointFence,
@@ -485,7 +485,7 @@ describe("finalize trusts what a held pointer already proved", () => {
         fence,
         turnId: "turn-1",
       }),
-    ).toEqual({ status: "verified", versionsHeld: true });
+    ).toMatchObject({ status: "verified", versionsHeld: true });
     const fresh = [
       ...added.map((ref) => ref.key),
       manifest.workspace.bundle.key,

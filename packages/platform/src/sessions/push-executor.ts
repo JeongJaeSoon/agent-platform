@@ -5,7 +5,7 @@ import {
   PUSH_BRANCH_PREFIX,
   type PushRefusal,
   pushBranchFor,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { PushBundlesResult } from "../checkpoints/checkpoint-service.ts";
 import type { ForgeResolver } from "../ports/forge.ts";
 import { repoRefOf } from "../ports/forge.ts";

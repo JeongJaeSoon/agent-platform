@@ -1,7 +1,7 @@
 import {
   postSessionAnswerRequestSchema,
   sessionMessageSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { eq } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { queueMessages, sessions, unassignedSessions } from "./schema.ts";

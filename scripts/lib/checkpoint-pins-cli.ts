@@ -13,18 +13,18 @@
  * when capture or repin refuses, 5 when a plan check fails.
  */
 
-import * as schema from "@agent-platform/db";
-import { createPostgresCheckpointStore } from "@agent-platform/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger } from "@agent-platform/observability";
-import { resolveSessionCatalog } from "@agent-platform/platform";
-import { claudeCheckpointCodec } from "@agent-platform/runtime-claude-codec";
-import type { RuntimeFingerprint } from "@agent-platform/runtime-core";
+import * as schema from "@werft-ai/db";
+import { createPostgresCheckpointStore } from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger } from "@werft-ai/observability";
+import { resolveSessionCatalog } from "@werft-ai/platform";
+import { claudeCheckpointCodec } from "@werft-ai/runtime-claude-codec";
+import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
   describeBucketProtection,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { readCatalogConfig } from "../../apps/control-host/src/api/catalog-config.ts";
 import {
@@ -34,11 +34,13 @@ import {
   createApiCheckpointService,
 } from "../../apps/control-host/src/api/checkpoints.ts";
 import {
+  alternateDigests,
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
   captureCheckpointObjects,
   describeMismatches,
+  earlierProfileClaims,
   type ImageRuntime,
   parseImageRuntime,
   planRepin,
@@ -234,6 +236,24 @@ async function plans(
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
   );
+  // The profiles each session's restorable checkpoints were made under other
+  // than its own, newest first, as a claim offers them
+  // (worker-unit-of-work.ts withRestoreProfiles).
+  const { rows: earlier } = await pool.query<{
+    profile_fingerprint: string;
+    profile_id: string;
+    session_id: string;
+  }>(
+    `SELECT c.session_id, c.profile_id, c.profile_fingerprint
+     FROM checkpoints c JOIN sessions s ON s.id = c.session_id
+     WHERE c.revision <= s.checkpoint_revision
+       AND c.profile_id IS NOT NULL AND c.profile_fingerprint IS NOT NULL
+       AND (c.profile_id, c.profile_fingerprint)
+           IS DISTINCT FROM (s.profile_id, s.profile_fingerprint)
+     GROUP BY c.session_id, c.profile_id, c.profile_fingerprint
+     ORDER BY c.session_id, max(c.revision) DESC`,
+  );
+  const earlierKeys = new Map<string, string[]>();
   const claimErrors = new Map<string, string>();
   let imageRuntime: ImageRuntime | undefined;
   if (image !== undefined) {
@@ -260,6 +280,23 @@ async function plans(
       } catch (error) {
         claimErrors.set(pointer.id, (error as Error).message);
       }
+    }
+    for (const pointer of pointers) {
+      const made = earlierProfileClaims(
+        { id: pointer.id, ownerId: pointer.owner_id },
+        earlier
+          .filter((row) => row.session_id === pointer.id)
+          .map((row) => ({
+            profileId: row.profile_id,
+            profileFingerprint: row.profile_fingerprint,
+          })),
+        catalog,
+      );
+      for (const [key, claim] of made) claims[key] = claim;
+      earlierKeys.set(
+        pointer.id,
+        made.map(([key]) => key),
+      );
     }
     imageRuntime = await readImageRuntime(image.name, claims);
   }
@@ -300,8 +337,15 @@ async function plans(
       fail(`${tag}: ${(error as Error).message}`);
       continue;
     }
+    const alternates =
+      imageRuntime === undefined
+        ? []
+        : alternateDigests(imageRuntime, earlierKeys.get(pointer.id) ?? []);
     const result = await service.getRestorePlan({
       runtime,
+      ...(alternates.length === 0
+        ? {}
+        : { alternateProfileSha256s: alternates }),
       sessionId: pointer.id,
     });
     if (result.status === "incompatible") {

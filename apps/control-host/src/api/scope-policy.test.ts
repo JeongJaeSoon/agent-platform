@@ -1,20 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import {
-  SESSION_SCOPE_VALUES,
-  type SessionScope,
-} from "@agent-platform/contracts";
+import { SESSION_SCOPE_VALUES, type SessionScope } from "@werft-ai/contracts";
 import type {
   IdentityStore,
   InterruptService,
   PendingRequestService,
   PushRequestService,
   SessionService,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { hashApiKey } from "./keys.ts";
 import { API_ROUTE_SCOPES } from "./openapi.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
+import { registerCloseRoutes } from "./routes/close.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
@@ -53,6 +51,9 @@ function appWithKey(scopes: readonly SessionScope[], calls: string[]) {
               id: "key-1",
               ownerId: "owner-a",
               workspaceId: null,
+              kind: "service" as const,
+              createdByUserId: null,
+              creatorRole: null,
               scopes: [...scopes],
             }
           : null;
@@ -70,6 +71,7 @@ function appWithKey(scopes: readonly SessionScope[], calls: string[]) {
       registerPushRequestRoutes(router, recorder<PushRequestService>(calls));
       registerInterruptRoutes(router, recorder<InterruptService>(calls));
       registerPauseRoutes(router, sessions);
+      registerCloseRoutes(router, sessions);
       registerEventRoutes(router, sessions, {
         wakeup: { wait: async () => {} },
       });

@@ -5,8 +5,9 @@ import {
   openPullRequestResponseSchema,
   type PullRequest,
   type SessionScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
+  createAuthorizationPolicy,
   createPullRequestService,
   type ForgeAdapter,
   ForgeCredentialError,
@@ -14,7 +15,7 @@ import {
   type PullRequestSource,
   repositoryBinding,
   type SessionCatalog,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPullRequestRoutes } from "./pull-requests.ts";
@@ -95,6 +96,7 @@ function app(
     },
   };
   const service = createPullRequestService({
+    authorization: createAuthorizationPolicy(),
     catalog: CATALOG,
     forges: () => forge,
     redact: (line) => line,
@@ -141,6 +143,9 @@ function app(
               id: `key-${token}`,
               ownerId: "owner-a",
               workspaceId: null,
+              kind: "service" as const,
+              createdByUserId: null,
+              creatorRole: null,
               scopes: [...(KEYS[token] ?? [])],
             }
           : null;

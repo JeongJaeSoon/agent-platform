@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ReceiptResourceTarget } from "@agent-platform/contracts";
-import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+import type { ReceiptResourceTarget } from "@werft-ai/contracts";
+import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -138,7 +138,11 @@ integration("session reader on PostgreSQL", () => {
     expect((await reader.getSession(OWNER, sessionId))?.last_event_at).toBe(
       at.toISOString(),
     );
-    const listed = await reader.listSessions(OWNER, { limit: 100 });
+    const listed = await reader.listSessions(
+      OWNER,
+      { limit: 100 },
+      { userId: null, apiKeyId: null },
+    );
     expect(
       listed.items.find((item) => item.id === sessionId)?.last_event_at,
     ).toBe(at.toISOString());

@@ -1,5 +1,5 @@
-import { RequestDeadline, runWithDeadline } from "@agent-platform/db/pool";
-import type { StructuredLogger } from "@agent-platform/observability";
+import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type { Context, Next } from "hono";
 import type { ApiEnvironment } from "./app.ts";
 

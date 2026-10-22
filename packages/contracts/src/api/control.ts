@@ -23,8 +23,17 @@ export const pauseSessionRequestSchema = z
   })
   .strict();
 export const terminateSessionRequestSchema = pauseSessionRequestSchema;
+export const closeSessionRequestSchema = pauseSessionRequestSchema;
 export const resumeSessionRequestSchema = z
   .object({ expected_revision: revisionSchema })
+  .strict();
+// The session runs `profile_id` from its next turn on; the turn running now,
+// if any, finishes on the profile it started with.
+export const changeSessionProfileRequestSchema = z
+  .object({
+    expected_revision: revisionSchema,
+    profile_id: z.string().min(1),
+  })
   .strict();
 const recoveryDecisionBase = {
   expected_revision: revisionSchema,
@@ -92,6 +101,14 @@ export const pauseReceiptResultSchema = z.object({
   checkpoint_revision: revisionSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
 });
+// What a close settles with once the session is closed. checkpoint_revision
+// is null only for a session that never ran a turn; cancelled_turn_count is
+// the queued input the close cancelled.
+export const closeReceiptResultSchema = z.object({
+  resulting_admission_state: z.literal("closed"),
+  checkpoint_revision: revisionSchema.nullable(),
+  cancelled_turn_count: z.number().int().nonnegative(),
+});
 // What a resume commits. From `stopped` it is written at acceptance and the
 // next worker restores this revision. From `paused` it is written once the
 // new worker reports that it restored it. A resume that cancels a pause
@@ -102,6 +119,13 @@ export const resumeReceiptResultSchema = z.object({
   queued_turn_count: z.number().int().nonnegative(),
 });
 
+// What a profile change settled with. Equal ids: the session already ran
+// that profile and nothing changed.
+export const changeProfileReceiptResultSchema = z.object({
+  previous_profile_id: z.string().min(1).nullable(),
+  profile_id: z.string().min(1),
+});
+
 export type RecoveryDecision = z.infer<typeof recoveryDecisionSchema>;
 export type InterruptSessionRequest = z.infer<
   typeof interruptSessionRequestSchema
@@ -110,7 +134,14 @@ export type PauseSessionRequest = z.infer<typeof pauseSessionRequestSchema>;
 export type TerminateSessionRequest = z.infer<
   typeof terminateSessionRequestSchema
 >;
+export type CloseSessionRequest = z.infer<typeof closeSessionRequestSchema>;
 export type ResumeSessionRequest = z.infer<typeof resumeSessionRequestSchema>;
+export type ChangeSessionProfileRequest = z.infer<
+  typeof changeSessionProfileRequestSchema
+>;
+export type ChangeProfileReceiptResult = z.infer<
+  typeof changeProfileReceiptResultSchema
+>;
 export type RecoveryDecisionRequest = z.infer<
   typeof recoveryDecisionRequestSchema
 >;
@@ -127,4 +158,5 @@ export type RecoveryDecisionResult = z.infer<
   typeof recoveryDecisionResultSchema
 >;
 export type PauseReceiptResult = z.infer<typeof pauseReceiptResultSchema>;
+export type CloseReceiptResult = z.infer<typeof closeReceiptResultSchema>;
 export type ResumeReceiptResult = z.infer<typeof resumeReceiptResultSchema>;

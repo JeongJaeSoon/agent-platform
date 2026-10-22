@@ -4,30 +4,39 @@ import {
   SESSION_SCOPE_VALUES,
   type SessionScope,
   sessionScopeSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
+  type ApiKeyKind,
   type ApiKeyRecord,
   type ApiKeyRevocation,
   createApiKey,
   type Database,
   findApiKey,
+  findLiveRole,
+  findWorkspace,
   revokeApiKey,
-} from "@agent-platform/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger } from "@werft-ai/observability";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 export interface ApiKeyStore {
   find(keyHash: Uint8Array): Promise<ApiKeyRecord | null>;
 }
 
+export type NewApiKey = {
+  id: string;
+  ownerId: string;
+  keyHash: Uint8Array;
+  scopes: readonly SessionScope[];
+  workspaceId?: string;
+  kind?: ApiKeyKind;
+  createdByUserId?: string;
+};
+
 export interface ApiKeyWriter {
-  create(input: {
-    id: string;
-    ownerId: string;
-    keyHash: Uint8Array;
-    scopes: readonly SessionScope[];
-  }): Promise<void>;
+  create(input: NewApiKey): Promise<void>;
   revoke(keyId: string): Promise<ApiKeyRevocation>;
 }
 
@@ -46,12 +55,7 @@ export class DatabaseApiKeyStore implements ApiKeyStore, ApiKeyWriter {
     return findApiKey(this.db, keyHash);
   }
 
-  async create(input: {
-    id: string;
-    ownerId: string;
-    keyHash: Uint8Array;
-    scopes: readonly SessionScope[];
-  }): Promise<void> {
+  async create(input: NewApiKey): Promise<void> {
     await createApiKey(this.db, input);
   }
 
@@ -84,12 +88,21 @@ export function parseScopes(value: string): SessionScope[] {
   return SESSION_SCOPE_VALUES.filter((scope) => words.includes(scope));
 }
 
+export type KeyIssue =
+  | { ownerId: string; scopes: readonly SessionScope[] }
+  | {
+      workspaceId: string;
+      scopes: readonly SessionScope[];
+      personalFor?: string;
+    };
+
 export async function issueApiKey(
   writer: Pick<ApiKeyWriter, "create">,
-  input: { ownerId: string; scopes: readonly SessionScope[] },
+  input: KeyIssue,
   generate: () => string = generateApiKey,
 ): Promise<{ keyId: string; plaintext: string }> {
-  const normalizedOwnerId = input.ownerId.trim();
+  const ownerId = "workspaceId" in input ? input.workspaceId : input.ownerId;
+  const normalizedOwnerId = ownerId.trim();
   if (!normalizedOwnerId) {
     throw new Error("owner_id must not be empty");
   }
@@ -103,25 +116,44 @@ export async function issueApiKey(
     ownerId: normalizedOwnerId,
     keyHash: hashApiKey(plaintext),
     scopes: input.scopes,
+    ...("workspaceId" in input
+      ? {
+          workspaceId: normalizedOwnerId,
+          ...(input.personalFor === undefined
+            ? {}
+            : {
+                kind: "personal" as const,
+                createdByUserId: input.personalFor,
+              }),
+        }
+      : {}),
   });
   return { keyId, plaintext };
 }
 
 const USAGE = `Usage: bun run apps/control-host/src/api/keys.ts create <owner_id> --scopes <scope>[,<scope>...]
+       bun run apps/control-host/src/api/keys.ts create --workspace <workspace_id> --scopes <scope>[,<scope>...] [--personal <user_id>]
        bun run apps/control-host/src/api/keys.ts revoke <key_id>
 Scopes: ${SESSION_SCOPE_VALUES.join(", ")}`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type KeysCommand =
-  | { command: "create"; ownerId: string; scopes: SessionScope[] }
+  | ({ command: "create" } & (
+      | { ownerId: string; scopes: SessionScope[] }
+      | { workspaceId: string; scopes: SessionScope[]; personalFor?: string }
+    ))
   | { command: "revoke"; keyId: string };
 
 function parseStrict(argv: string[]) {
   try {
     return parseArgs({
       args: argv,
-      options: { scopes: { type: "string" } },
+      options: {
+        scopes: { type: "string" },
+        workspace: { type: "string" },
+        personal: { type: "string" },
+      },
       allowPositionals: true,
       strict: true,
     });
@@ -132,14 +164,39 @@ function parseStrict(argv: string[]) {
   }
 }
 
+function uuidOption(value: string, name: string): string {
+  if (!UUID.test(value)) throw new Error(`${name} must be a UUID\n${USAGE}`);
+  return value.toLowerCase();
+}
+
 export function parseKeysCommand(argv: string[]): KeysCommand {
   const parsed = parseStrict(argv);
   const [command, target, ...extra] = parsed.positionals;
+  const { workspace, personal } = parsed.values;
+  if (command === "create" && workspace !== undefined) {
+    if (target !== undefined) throw new Error(USAGE);
+    if (parsed.values.scopes === undefined) {
+      throw new Error(`--scopes is required\n${USAGE}`);
+    }
+    return {
+      command: "create",
+      workspaceId: uuidOption(workspace, "--workspace"),
+      scopes: parseScopes(parsed.values.scopes),
+      ...(personal === undefined
+        ? {}
+        : { personalFor: uuidOption(personal, "--personal") }),
+    };
+  }
+  if (personal !== undefined) {
+    throw new Error(`--personal needs --workspace\n${USAGE}`);
+  }
   if (!target || extra.length > 0) {
     throw new Error(USAGE);
   }
   if (command === "revoke") {
-    if (parsed.values.scopes !== undefined) throw new Error(USAGE);
+    if (parsed.values.scopes !== undefined || workspace !== undefined) {
+      throw new Error(USAGE);
+    }
     // Checked here: a malformed id would reach the uuid column as a 22P02.
     if (!UUID.test(target)) {
       throw new Error(`key_id must be a UUID\n${USAGE}`);
@@ -185,6 +242,25 @@ async function main(): Promise<void> {
         `${result.outcome} ${command.keyId} owner=${result.ownerId} revoked_at=${result.revokedAt.toISOString()}`,
       );
       return;
+    }
+    if ("workspaceId" in command) {
+      const db = drizzle(pool, { schema });
+      if (!(await findWorkspace(db, command.workspaceId))) {
+        console.error(`Workspace ${command.workspaceId} not found`);
+        process.exitCode = 1;
+        return;
+      }
+      if (
+        command.personalFor !== undefined &&
+        (await findLiveRole(db, command.personalFor, command.workspaceId)) ===
+          null
+      ) {
+        console.error(
+          `User ${command.personalFor} is not a live member of workspace ${command.workspaceId}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
     }
     const issued = await issueApiKey(store, command);
     // stdout carries the plaintext alone so scripts can capture it; the id,

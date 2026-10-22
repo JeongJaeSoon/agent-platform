@@ -4,8 +4,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as schema from "@agent-platform/db";
-import { apiKeys } from "@agent-platform/db";
+import * as schema from "@werft-ai/db";
+import {
+  apiKeys,
+  createPostgresSessionUnitOfWork,
+  createPostgresWorkerUnitOfWork,
+  sessions,
+} from "@werft-ai/db";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -315,6 +321,10 @@ integration("API server on PostgreSQL", () => {
   }, 60_000);
 
   afterAll(async () => {
+    await db
+      .update(sessions)
+      .set({ createdByApiKeyId: null })
+      .where(eq(sessions.ownerId, ownerId));
     await db.delete(apiKeys).where(eq(apiKeys.ownerId, ownerId));
     await pool.end();
     await rm(root, { recursive: true, force: true });
@@ -663,6 +673,183 @@ integration("API server on PostgreSQL", () => {
         held?.close();
         await blocker.query("ROLLBACK").catch(() => {});
         blocker.release();
+        if (exitCode === undefined) {
+          server.kill("SIGKILL");
+          await server.exited;
+        }
+      }
+      const logs = `${await stdout.text}${await serverStderr}`;
+      expect(exitCode, logs).toBe(0);
+      expect(logs).toContain("In-flight requests drained");
+      expect(logs).not.toContain("Drain deadline passed");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "SIGTERM answers an open next-input long poll at once instead of draining it",
+    async () => {
+      // Its own repository, so the claim below cannot take a session another
+      // suite queued in the shared database.
+      const repositoryId = `long-poll-${crypto.randomUUID()}`;
+      const gateway = createWorkerGateway({
+        work: createPostgresWorkerUnitOfWork(db),
+        catalog: {
+          profiles: {
+            coding: {
+              runtime_kind: "claude_agent_sdk",
+              runtime_version: "0.3.270",
+              model: "claude-sonnet-5",
+              tools: ["Read"],
+              permission_mode: "default",
+              provider: {
+                kind: "anthropic",
+                endpoint: "https://api.anthropic.invalid",
+                auth: {
+                  kind: "api_key",
+                  value: PROVIDER_KEY,
+                  ref: { value_env: "INTEGRATION_PROVIDER_KEY" },
+                },
+              },
+            },
+          },
+          repositories: {
+            [repositoryId]: {
+              url: "https://git.example.invalid/team/app.git",
+              branch: "main",
+              profiles: ["coding"],
+            },
+          },
+        },
+        checkpoints: acceptAllCheckpoints,
+        options: {
+          sessionCostLimitUsd: 25,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      });
+      const accepted = await createPostgresSessionUnitOfWork(
+        db,
+      ).acceptInputAtomic({
+        limits: { queuedInputLimitPerSession: 20, storageLimitBytes: 1e9 },
+        principal: { ownerId },
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: "hash",
+        profileId: "coding",
+        repository: {
+          id: repositoryId,
+          url: "https://git.example.invalid/team/app.git",
+          branch: "main",
+        },
+        message: "first turn",
+      });
+      if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+      const executionId = crypto.randomUUID();
+      const launch = await gateway.registerLaunch({
+        executionId,
+        generation: 1,
+        backend: "local_docker",
+      });
+      if (launch.nonce === null) throw new Error("launch already registered");
+      const claimed = await gateway.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: executionId,
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: launch.nonce },
+        },
+      );
+      const principal = {
+        kind: "session",
+        attemptId: claimed.attempt_id,
+        sessionId: claimed.session_id,
+        leaseEpoch: claimed.lease_epoch,
+        executionGeneration: claimed.execution_generation,
+        authRevision: claimed.auth_revision,
+      } as const;
+      const scope = {
+        session_id: claimed.session_id,
+        turn_id: null,
+        attempt_id: claimed.attempt_id,
+        lease_epoch: claimed.lease_epoch,
+        execution_generation: claimed.execution_generation,
+        auth_revision: claimed.auth_revision,
+      };
+      const first = await gateway.nextInput(principal, scope);
+      if (!first.input) throw new Error("no input delivered");
+      await gateway.finalize(principal, {
+        ...scope,
+        turn_id: first.input.turn_id,
+        finalize_key: "fin-1",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      });
+
+      const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
+        cwd: `${import.meta.dir}/../..`,
+        env: {
+          ...process.env,
+          AUTH_MODE: "api-key",
+          CHECKPOINT_OBJECT_STORE: "disabled",
+          DATABASE_URL: databaseUrl,
+          EXECUTION_SLOT_LIMIT: "10",
+          MAX_TURN_SECONDS: "3600",
+          PROVIDER_MAX_RETRIES: "2",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          SESSION_COST_LIMIT_USD: "25",
+          STORAGE_LIMIT_BYTES: "1073741824",
+          PORT: "0",
+          PLATFORM_CONFIG_DIR: await configDir(root, "long-poll"),
+          INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = serverStdout(server.stdout);
+      const serverStderr = new Response(server.stderr).text();
+      const waitMs = 20_000;
+      let exitCode: number | undefined;
+      try {
+        const { port } = await waitForServer(server, stdout, serverStderr, {
+          path: "/healthz",
+          headers: {},
+        });
+        const poll = fetch(
+          `http://127.0.0.1:${port}/internal/worker/next-input`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${claimed.session_credential}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ...scope, wait_ms: waitMs }),
+          },
+        );
+        let settled = false;
+        const settle = () => {
+          settled = true;
+        };
+        poll.then(settle, settle);
+        await Bun.sleep(2_000);
+        expect(settled).toBe(false);
+
+        const signalledAt = Date.now();
+        server.kill("SIGTERM");
+        const answered = await poll;
+        const answeredAfter = Date.now() - signalledAt;
+        expect(answered.status).toBe(200);
+        expect(await answered.json()).toMatchObject({ input: null });
+        exitCode = await server.exited;
+        const exitedAfter = Date.now() - signalledAt;
+        expect(answeredAfter).toBeLessThan(2_000);
+        expect(exitedAfter).toBeLessThan(waitMs / 2);
+      } finally {
         if (exitCode === undefined) {
           server.kill("SIGKILL");
           await server.exited;

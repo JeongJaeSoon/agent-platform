@@ -7,7 +7,7 @@
  * package has to render in bare jsdom/browser too. apps/web (I0-9) re-exposes
  * them to Tailwind in one place:
  *
- *   @import "@agent-platform/ui/tokens.css";
+ *   @import "@werft-ai/ui/tokens.css";
  *   @theme inline { --color-canvas: var(--ap-color-canvas); ... }
  *
  * The `--ap-` prefix is what keeps that mapping from being circular. If Tailwind
@@ -15,56 +15,72 @@
  */
 
 :root {
-  /* Surfaces — argo "linen": warm paper canvas, white cards, dark rail. */
-  --ap-color-canvas: #f4f1ec;
+  /* Native controls (a select's open list, scrollbars) follow the theme too. */
+  color-scheme: light dark;
+
+  /*
+   * Surfaces and accent follow shadcn/ui's neutral base colour (white canvas,
+   * near-black primary) with a dark neutral rail. Where shadcn's value fails
+   * WCAG AA here, the value is darkened instead: muted-foreground (#737373
+   * drops under 4.5:1 on the tone backgrounds), border-input and focus-ring
+   * (#e5e5e5 and #a1a1a1 are under 3:1 on white).
+   */
+  --ap-color-canvas: #ffffff;
   --ap-color-surface: #ffffff;
-  --ap-color-surface-sunken: #ebe6de;
-  --ap-color-rail: #22201c;
-  --ap-color-rail-foreground: #e7e2d9;
-  --ap-color-rail-muted-foreground: #9c948a;
+  --ap-color-surface-sunken: #f5f5f5;
+  --ap-color-rail: #171717;
+  --ap-color-rail-foreground: #fafafa;
+  --ap-color-rail-muted-foreground: #a1a1a1;
 
-  --ap-color-border: #e0dace;
-  --ap-color-border-strong: #c7bfb0;
-  --ap-color-foreground: #1b1915;
-  --ap-color-muted-foreground: #6a6358;
+  --ap-color-border: #e5e5e5;
+  --ap-color-border-strong: #d4d4d4;
+  /* A control's edge is how it is found (WCAG 1.4.11): 3:1 on surface and
+     canvas, which border-strong is not. */
+  --ap-color-border-input: #8a8a8a;
+  --ap-color-foreground: #0a0a0a;
+  --ap-color-muted-foreground: #666666;
 
-  /* Restrained accent: used for focus and the single primary action. */
-  --ap-color-accent: #2f6b5c;
-  --ap-color-accent-hover: #27594c;
-  --ap-color-accent-foreground: #ffffff;
-  --ap-color-focus-ring: #2f6b5c;
+  /* Used for focus and the single primary action. */
+  --ap-color-accent: #171717;
+  --ap-color-accent-hover: #2e2e2e;
+  --ap-color-accent-foreground: #fafafa;
+  --ap-color-focus-ring: #737373;
 
   /*
    * Status tones. A tone is a meaning, not a colour name: components pick a
-   * tone from the state vocabulary, never a hex value.
+   * tone from the state vocabulary, never a hex value. Only progress, caution
+   * and danger carry a hue. attention (waiting on a person) and unknown
+   * (outcome not confirmed) both ask the reader to look, so they share
+   * caution's values; positive is neutral, because a finished state needs no
+   * signal.
    */
-  --ap-tone-neutral-fg: #4f4a42;
-  --ap-tone-neutral-bg: #eeeae2;
-  --ap-tone-neutral-border: #d8d1c4;
+  --ap-tone-neutral-fg: #404040;
+  --ap-tone-neutral-bg: #f5f5f5;
+  --ap-tone-neutral-border: #e5e5e5;
 
   --ap-tone-progress-fg: #1f4f7a;
   --ap-tone-progress-bg: #e4eef7;
   --ap-tone-progress-border: #b8d3e8;
 
-  --ap-tone-attention-fg: #6b3fa0;
-  --ap-tone-attention-bg: #efe7fa;
-  --ap-tone-attention-border: #d3c1ee;
+  --ap-tone-attention-fg: #7a5200;
+  --ap-tone-attention-bg: #fbefd6;
+  --ap-tone-attention-border: #ecd39a;
 
   --ap-tone-caution-fg: #7a5200;
   --ap-tone-caution-bg: #fbefd6;
   --ap-tone-caution-border: #ecd39a;
 
-  --ap-tone-danger-fg: #a12a21;
-  --ap-tone-danger-bg: #fae6e3;
-  --ap-tone-danger-border: #eebfb8;
+  --ap-tone-danger-fg: #c4262b;
+  --ap-tone-danger-bg: #fdecec;
+  --ap-tone-danger-border: #f7c4c4;
 
-  --ap-tone-unknown-fg: #8a4a15;
-  --ap-tone-unknown-bg: #fbe9d9;
-  --ap-tone-unknown-border: #eec9a6;
+  --ap-tone-unknown-fg: #7a5200;
+  --ap-tone-unknown-bg: #fbefd6;
+  --ap-tone-unknown-border: #ecd39a;
 
-  --ap-tone-positive-fg: #2a6a3f;
-  --ap-tone-positive-bg: #e3f1e6;
-  --ap-tone-positive-border: #b7dcc0;
+  --ap-tone-positive-fg: #404040;
+  --ap-tone-positive-bg: #f5f5f5;
+  --ap-tone-positive-border: #e5e5e5;
 
   /* Typography — Korean operational copy reads at 16px/1.7, not 14px/1.4. */
   --ap-font-sans:
@@ -102,10 +118,10 @@
   --ap-radius-lg: 0.75rem;
   --ap-radius-pill: 999px;
 
-  --ap-shadow-sm: 0 1px 2px rgb(27 25 21 / 0.06);
-  --ap-shadow-md: 0 2px 8px rgb(27 25 21 / 0.08);
-  --ap-shadow-lg: 0 12px 32px rgb(27 25 21 / 0.18);
-  --ap-color-overlay: rgb(27 25 21 / 0.45);
+  --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --ap-shadow-md: 0 2px 8px rgb(0 0 0 / 0.08);
+  --ap-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.18);
+  --ap-color-overlay: rgb(0 0 0 / 0.5);
 
   /*
    * Motion. Every animated rule reads these, so the reduced-motion block below
@@ -117,54 +133,98 @@
 
   /* Layout: the 768px reading column of 02 UX 설계 §6. */
   --ap-layout-reading-width: 48rem;
+  --ap-layout-sidebar-width: 14.75rem;
+  --ap-layout-content-width: 78rem;
+  --ap-layout-detail-panel-width: 21.25rem;
+  --ap-control-height: 2rem;
+  --ap-control-height-sm: 1.75rem;
+  --ap-text-title: 1.25rem;
+  --ap-leading-title: 1.75rem;
+  --ap-text-number: 1.5rem;
+  --ap-leading-number: 2rem;
 }
 
+/*
+ * shadcn/ui's semantic names, pointing at the tokens above. They hold no
+ * colour of their own, so the dark blocks below need no copy: each var()
+ * resolves against whichever theme is active. shadcn's `accent` is a quiet
+ * hover surface; the strong colour is `primary`.
+ */
+:root {
+  --background: var(--ap-color-canvas);
+  --foreground: var(--ap-color-foreground);
+  --card: var(--ap-color-surface);
+  --card-foreground: var(--ap-color-foreground);
+  --popover: var(--ap-color-surface);
+  --popover-foreground: var(--ap-color-foreground);
+  --primary: var(--ap-color-accent);
+  --primary-hover: var(--ap-color-accent-hover);
+  --primary-foreground: var(--ap-color-accent-foreground);
+  --secondary: var(--ap-tone-neutral-bg);
+  --secondary-foreground: var(--ap-tone-neutral-fg);
+  --muted: var(--ap-color-surface-sunken);
+  --muted-foreground: var(--ap-color-muted-foreground);
+  --accent: var(--ap-tone-neutral-bg);
+  --accent-foreground: var(--ap-color-foreground);
+  --destructive: var(--ap-tone-danger-fg);
+  --destructive-foreground: var(--ap-color-surface);
+  --border: var(--ap-color-border);
+  --input: var(--ap-color-border-input);
+  --ring: var(--ap-color-focus-ring);
+}
+
+/*
+ * Dark follows Geist: a near-black canvas, cards and edges one or two grey
+ * steps up, and each tone a saturated foreground over a very dark background
+ * of the same hue, so red reads as red rather than brown.
+ */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ap-color-canvas: #141311;
-    --ap-color-surface: #1c1a17;
-    --ap-color-surface-sunken: #121110;
-    --ap-color-rail: #0e0d0c;
-    --ap-color-rail-foreground: #e7e2d9;
-    --ap-color-rail-muted-foreground: #8b8479;
+    --ap-color-canvas: #0a0a0a;
+    --ap-color-surface: #111111;
+    --ap-color-surface-sunken: #1a1a1a;
+    --ap-color-rail: #111111;
+    --ap-color-rail-foreground: #ededed;
+    --ap-color-rail-muted-foreground: #a1a1a1;
 
-    --ap-color-border: #2e2b26;
-    --ap-color-border-strong: #453f37;
-    --ap-color-foreground: #ece7df;
-    --ap-color-muted-foreground: #a49c90;
+    --ap-color-border: #2e2e2e;
+    --ap-color-border-strong: #454545;
+    --ap-color-border-input: #737373;
+    --ap-color-foreground: #ededed;
+    --ap-color-muted-foreground: #a1a1a1;
 
-    --ap-color-accent: #6fb3a0;
-    --ap-color-accent-hover: #86c4b2;
-    --ap-color-accent-foreground: #10201c;
-    --ap-color-focus-ring: #86c4b2;
+    --ap-color-accent: #ededed;
+    --ap-color-accent-hover: #cccccc;
+    --ap-color-accent-foreground: #0a0a0a;
+    --ap-color-focus-ring: #737373;
 
-    --ap-tone-neutral-fg: #cec7bb;
-    --ap-tone-neutral-bg: #26241f;
-    --ap-tone-neutral-border: #3b372f;
+    --ap-tone-neutral-fg: #d4d4d4;
+    --ap-tone-neutral-bg: #1f1f1f;
+    --ap-tone-neutral-border: #454545;
 
-    --ap-tone-progress-fg: #9cc6e8;
-    --ap-tone-progress-bg: #1a2836;
-    --ap-tone-progress-border: #2d4358;
+    --ap-tone-progress-fg: #52a8ff;
+    --ap-tone-progress-bg: #0d1b2e;
+    --ap-tone-progress-border: #163a66;
 
-    --ap-tone-attention-fg: #c4a9ea;
-    --ap-tone-attention-bg: #262036;
-    --ap-tone-attention-border: #3e3357;
+    --ap-tone-attention-fg: #ffb224;
+    --ap-tone-attention-bg: #291c06;
+    --ap-tone-attention-border: #533a12;
 
-    --ap-tone-caution-fg: #e5bd6a;
-    --ap-tone-caution-bg: #2c2415;
-    --ap-tone-caution-border: #4a3b1c;
+    --ap-tone-caution-fg: #ffb224;
+    --ap-tone-caution-bg: #291c06;
+    --ap-tone-caution-border: #533a12;
 
-    --ap-tone-danger-fg: #ef9f95;
-    --ap-tone-danger-bg: #331d1a;
-    --ap-tone-danger-border: #582e28;
+    --ap-tone-danger-fg: #ff6166;
+    --ap-tone-danger-bg: #2a1215;
+    --ap-tone-danger-border: #6b2329;
 
-    --ap-tone-unknown-fg: #e8ad79;
-    --ap-tone-unknown-bg: #2f2117;
-    --ap-tone-unknown-border: #523622;
+    --ap-tone-unknown-fg: #ffb224;
+    --ap-tone-unknown-bg: #291c06;
+    --ap-tone-unknown-border: #533a12;
 
-    --ap-tone-positive-fg: #8fcda1;
-    --ap-tone-positive-bg: #17271b;
-    --ap-tone-positive-border: #2a422f;
+    --ap-tone-positive-fg: #d4d4d4;
+    --ap-tone-positive-bg: #1f1f1f;
+    --ap-tone-positive-border: #454545;
 
     --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
     --ap-shadow-md: 0 2px 8px rgb(0 0 0 / 0.45);
@@ -173,51 +233,58 @@
   }
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 :root[data-theme="dark"] {
-  --ap-color-canvas: #141311;
-  --ap-color-surface: #1c1a17;
-  --ap-color-surface-sunken: #121110;
-  --ap-color-rail: #0e0d0c;
-  --ap-color-rail-foreground: #e7e2d9;
-  --ap-color-rail-muted-foreground: #8b8479;
+  color-scheme: dark;
 
-  --ap-color-border: #2e2b26;
-  --ap-color-border-strong: #453f37;
-  --ap-color-foreground: #ece7df;
-  --ap-color-muted-foreground: #a49c90;
+  --ap-color-canvas: #0a0a0a;
+  --ap-color-surface: #111111;
+  --ap-color-surface-sunken: #1a1a1a;
+  --ap-color-rail: #111111;
+  --ap-color-rail-foreground: #ededed;
+  --ap-color-rail-muted-foreground: #a1a1a1;
 
-  --ap-color-accent: #6fb3a0;
-  --ap-color-accent-hover: #86c4b2;
-  --ap-color-accent-foreground: #10201c;
-  --ap-color-focus-ring: #86c4b2;
+  --ap-color-border: #2e2e2e;
+  --ap-color-border-strong: #454545;
+  --ap-color-border-input: #737373;
+  --ap-color-foreground: #ededed;
+  --ap-color-muted-foreground: #a1a1a1;
 
-  --ap-tone-neutral-fg: #cec7bb;
-  --ap-tone-neutral-bg: #26241f;
-  --ap-tone-neutral-border: #3b372f;
+  --ap-color-accent: #ededed;
+  --ap-color-accent-hover: #cccccc;
+  --ap-color-accent-foreground: #0a0a0a;
+  --ap-color-focus-ring: #737373;
 
-  --ap-tone-progress-fg: #9cc6e8;
-  --ap-tone-progress-bg: #1a2836;
-  --ap-tone-progress-border: #2d4358;
+  --ap-tone-neutral-fg: #d4d4d4;
+  --ap-tone-neutral-bg: #1f1f1f;
+  --ap-tone-neutral-border: #454545;
 
-  --ap-tone-attention-fg: #c4a9ea;
-  --ap-tone-attention-bg: #262036;
-  --ap-tone-attention-border: #3e3357;
+  --ap-tone-progress-fg: #52a8ff;
+  --ap-tone-progress-bg: #0d1b2e;
+  --ap-tone-progress-border: #163a66;
 
-  --ap-tone-caution-fg: #e5bd6a;
-  --ap-tone-caution-bg: #2c2415;
-  --ap-tone-caution-border: #4a3b1c;
+  --ap-tone-attention-fg: #ffb224;
+  --ap-tone-attention-bg: #291c06;
+  --ap-tone-attention-border: #533a12;
 
-  --ap-tone-danger-fg: #ef9f95;
-  --ap-tone-danger-bg: #331d1a;
-  --ap-tone-danger-border: #582e28;
+  --ap-tone-caution-fg: #ffb224;
+  --ap-tone-caution-bg: #291c06;
+  --ap-tone-caution-border: #533a12;
 
-  --ap-tone-unknown-fg: #e8ad79;
-  --ap-tone-unknown-bg: #2f2117;
-  --ap-tone-unknown-border: #523622;
+  --ap-tone-danger-fg: #ff6166;
+  --ap-tone-danger-bg: #2a1215;
+  --ap-tone-danger-border: #6b2329;
 
-  --ap-tone-positive-fg: #8fcda1;
-  --ap-tone-positive-bg: #17271b;
-  --ap-tone-positive-border: #2a422f;
+  --ap-tone-unknown-fg: #ffb224;
+  --ap-tone-unknown-bg: #291c06;
+  --ap-tone-unknown-border: #533a12;
+
+  --ap-tone-positive-fg: #d4d4d4;
+  --ap-tone-positive-bg: #1f1f1f;
+  --ap-tone-positive-border: #454545;
 
   --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --ap-shadow-md: 0 2px 8px rgb(0 0 0 / 0.45);

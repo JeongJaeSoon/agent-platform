@@ -10,7 +10,8 @@ export type RuntimeCheckpoint = {
  * the session's pending reason, so it has to be stable and machine-readable;
  * `detail` carries the human wording. `publish_failed` is never a run's
  * verdict: the publisher reports it when a ready run's checkpoint could not be
- * written.
+ * written. Nor are `transcript_too_large` and `transcript_part_too_large`: the
+ * publisher, or finalize, finds the transcript past `TRANSCRIPT_LIMITS`.
  */
 export type CheckpointBlockReason =
   | "background_writer"
@@ -19,6 +20,8 @@ export type CheckpointBlockReason =
   | "no_engine_session"
   | "publish_failed"
   | "tool_in_flight"
+  | "transcript_part_too_large"
+  | "transcript_too_large"
   | "turn_in_flight";
 
 export type ReadyCheckpoint = {

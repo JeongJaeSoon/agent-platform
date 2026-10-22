@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   runtimeConfigSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type { ForgeAdapter, ForgeResolver, RepoRef } from "../ports/forge.ts";
 import type {
@@ -179,6 +179,57 @@ describe("WorkerGateway", () => {
     expect(slept).toEqual([]);
   });
 
+  test("nextInput stops waiting once stopWaiting aborts and answers with no input", async () => {
+    const stop = new AbortController();
+    let calls = 0;
+    const slept: number[] = [];
+    let at = new Date("2026-09-22T00:00:00.000Z");
+    const instance = createWorkerGateway({
+      work: work({
+        async nextInputAtomic(input) {
+          calls += 1;
+          if (calls === 2) stop.abort();
+          return {
+            outcome: "ok",
+            input: null,
+            leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+        maxWaitMs: 25_000,
+        pollIntervalMs: 100,
+        stopWaiting: stop.signal,
+        now: () => at,
+        sleep: async (ms: number) => {
+          slept.push(ms);
+          at = new Date(at.getTime() + ms);
+        },
+      },
+    });
+    const response = await instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    expect(response).toEqual({
+      input: null,
+      lease_expires_at: "2026-09-22T00:00:30.100Z",
+    });
+    expect(calls).toBe(2);
+    expect(slept).toEqual([100]);
+
+    calls = 0;
+    slept.length = 0;
+    await instance.nextInput(principal, { ...scope, wait_ms: 20_000 });
+    expect(calls).toBe(1);
+    expect(slept).toEqual([]);
+  });
+
   test("fence rejections map to 409 LEASE_EXPIRED / STALE_EPOCH", async () => {
     const { instance } = gateway({
       async heartbeatAtomic() {
@@ -270,6 +321,108 @@ describe("WorkerGateway", () => {
         at: expect.any(Date),
       },
     ]);
+  });
+
+  test("a manifest past the transcript limits is recorded on the session before finalize refuses it", async () => {
+    const recorded: unknown[] = [];
+    let committed = 0;
+    const instance = createWorkerGateway({
+      work: work({
+        async checkpointStateAtomic(input) {
+          recorded.push(input.pendingReason);
+          return {
+            outcome: "ok",
+            pointer: null,
+            restorable: false,
+            pendingReason: input.pendingReason ?? null,
+          };
+        },
+        async finalizeAtomic() {
+          committed += 1;
+          throw new Error("not reached");
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return {
+            status: "rejected",
+            reason: "the transcript is 9 bytes, over the 8-byte limit",
+            limit: "transcript_too_large",
+          };
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await expect(
+      instance.finalize(principal, {
+        ...scope,
+        turn_id: "1",
+        finalize_key: "f",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "ref",
+          manifest_sha256: "0".repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    expect(recorded).toEqual(["transcript_too_large"]);
+    expect(committed).toBe(0);
+  });
+
+  test("finalize hands the verified transcript size to the commit", async () => {
+    const seen: unknown[] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        async finalizeAtomic(input) {
+          seen.push(input.checkpointTranscriptBytes);
+          return {
+            outcome: "finalized",
+            result: { turnId: "1", status: "completed", checkpointRevision: 1 },
+          };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return { status: "verified", transcriptBytes: 1234 };
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await instance.finalize(principal, {
+      ...scope,
+      turn_id: "1",
+      finalize_key: "f",
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 1,
+        manifest_ref: "ref",
+        manifest_sha256: "0".repeat(64),
+      },
+    });
+    expect(seen).toEqual([1234]);
   });
 
   test("a committed finalize replays without asking the verifier again", async () => {
@@ -420,6 +573,7 @@ describe("WorkerGateway", () => {
         branch: "release",
       },
       restore: null,
+      restoreProfiles: [],
       costUsd: 250.5,
       providerTokens: 0,
     };
@@ -1922,6 +2076,7 @@ describe("unmetered sessions", () => {
                 branch: "main",
               },
               restore: null,
+              restoreProfiles: [],
               costUsd: 0.25,
               providerTokens: 0,
             },
