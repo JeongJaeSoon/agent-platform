@@ -85,3 +85,47 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.removeMemberConsequence":
     "They stay in the workspace, but can no longer manage agents through this team. Adding them again restores it.",
 };
+
+export const teamsJa: Record<keyof typeof teamsKo, string> = {
+  "teams.title": "チーム",
+  "teams.intro":
+    "チームはメンバーのグループです。チームをエージェントの管理者に指定すると、チームのメンバー全員がそのエージェントを管理できます。",
+  "teams.name": "チーム名",
+  "teams.create": "チームを作成",
+  "teams.creating": "作成中…",
+  "teams.created": "チーム「{name}」を作成しました。",
+  "teams.nameTaken":
+    "同じ名前のチームがすでにあります。別の名前を入力してください。",
+  "teams.listTitle": "チーム一覧",
+  "teams.empty": "チームはまだありません。",
+  "teams.memberCount": "メンバー {count}人",
+  "teams.mine.title": "所属チーム",
+  "teams.mine.intro":
+    "オーナーまたは管理者が追加したチームです。チームがエージェントの管理者に指定されると、そのエージェントを管理できます。",
+  "teams.mine.empty": "所属しているチームはまだありません。",
+  "teams.back": "← チーム一覧",
+  "teams.settings": "チーム設定",
+  "teams.rename": "名前を変更",
+  "teams.renamed": "チーム名を「{name}」に変更しました。",
+  "teams.delete": "チームを削除",
+  "teams.deleteHint":
+    "チームを削除すると、このチームが管理者になっているエージェントからも外れます。",
+  "teams.deleteTitle": "チーム「{name}」を削除しますか？",
+  "teams.deleteConsequence":
+    "メンバーはワークスペースに残りますが、このチームを通じて管理していたエージェントは管理できなくなります。",
+  "teams.members": "チームメンバー",
+  "teams.addHint": "追加すると、承諾なしですぐにメンバーになります。",
+  "teams.pickMember": "追加する人",
+  "teams.pickPlaceholder": "人を選択",
+  "teams.addMember": "メンバーを追加",
+  "teams.noCandidates": "追加できる有効なメンバーがいません。",
+  "teams.memberAdded": "{name}さんをチームに追加しました。",
+  "teams.memberRemoved": "{name}さんをチームから外しました。",
+  "teams.noMembers": "メンバーはまだいません。",
+  "teams.addedAt": "{at}に追加",
+  "teams.removeMember": "外す",
+  "teams.removeMemberFor": "{name}さんをチームから外す",
+  "teams.removeMemberTitle": "{name}さんをチーム「{team}」から外しますか？",
+  "teams.removeMemberConsequence":
+    "ワークスペースには残りますが、このチームを通じて管理していたエージェントは管理できなくなります。再び追加すると元に戻ります。",
+};

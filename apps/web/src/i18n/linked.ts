@@ -37,3 +37,24 @@ export const linkedEn: Record<keyof typeof linkedKo, string> = {
   "linked.cancelled": "Slack linking was not completed — try again.",
   "linked.back": "Back to linked accounts",
 };
+
+export const linkedJa: Record<keyof typeof linkedKo, string> = {
+  "linked.title": "連携アカウント",
+  "linked.intro":
+    "Slack アカウントを連携すると、Slack でエージェントに依頼したリクエストに自分の権限が使われます。Slack のトークンは保存しません。",
+  "linked.slack": "Slack",
+  "linked.none": "連携している Slack アカウントはありません。",
+  "linked.connect": "Slack アカウントを連携",
+  "linked.starting": "Slack に移動しています…",
+  "linked.slackAccount": "Slack ユーザー {user}（ワークスペース {team}）",
+  "linked.verified": "{at}に確認",
+  "linked.stale":
+    "Slack でこのアカウントが無効化されたため、このアカウントからのリクエストはあなたと紐付けられません。連携を解除してから、もう一度連携してください。",
+  "linked.unlink": "連携を解除",
+  "linked.unlinked": "Slack アカウントの連携を解除しました。",
+  "linked.unavailable":
+    "この環境では Slack アカウント連携を利用できません。運用担当者にお問い合わせください。",
+  "linked.cancelled":
+    "Slack 連携が完了しませんでした。もう一度お試しください。",
+  "linked.back": "連携アカウントへ戻る",
+};

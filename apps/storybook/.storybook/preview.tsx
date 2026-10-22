@@ -2,6 +2,7 @@ import type { Decorator, Preview } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AgentPlatformProvider,
+  LOCALES,
   type Locale,
   type RenderLink,
 } from "@werft-ai/react";
@@ -51,7 +52,9 @@ function Platform({
 
 /** A story names its requests in `parameters.api`; see fake-client.ts. */
 const withPlatform: Decorator = (Story, { globals, parameters }) => {
-  const locale: Locale = globals.locale === "en" ? "en" : "ko";
+  const locale: Locale = LOCALES.includes(globals.locale)
+    ? globals.locale
+    : "ko";
   document.documentElement.lang = locale;
   return (
     <Platform locale={locale} routes={parameters.api as FakeRoutes | undefined}>
@@ -70,6 +73,7 @@ const preview: Preview = {
         icon: "globe",
         items: [
           { value: "ko", title: "한국어" },
+          { value: "ja", title: "日本語" },
           { value: "en", title: "English" },
         ],
         dynamicTitle: true,

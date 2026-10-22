@@ -30,6 +30,16 @@ const HOST = {
       send: "메시지 보내기 권한이 있어야 할 수 있습니다.",
     },
   },
+  ja: {
+    loading: "読み込み中",
+    failed: "読み込めませんでした。",
+    retry: "再試行",
+    unavailable: {
+      answer: "回答するには sessions:approve の権限が必要です。",
+      control: "この操作には sessions:control の権限が必要です。",
+      send: "この操作には sessions:write の権限が必要です。",
+    },
+  },
   en: {
     loading: "Loading",
     failed: "The read failed.",
@@ -46,7 +56,9 @@ type Host = (typeof HOST)["ko"];
 type Globals = { readonly globals: { readonly locale?: string } };
 
 const hostFor = ({ globals }: Globals): Host =>
-  globals.locale === "en" ? HOST.en : HOST.ko;
+  globals.locale === "en" || globals.locale === "ja"
+    ? HOST[globals.locale]
+    : HOST.ko;
 
 const shared = (host: Host) => ({
   loading: <Skeleton lines={3} label={host.loading} />,
@@ -328,7 +340,8 @@ export const DetailMobile: Story = {
 };
 
 // The stories above follow the toolbar's Language (한국어 by default); these
-// pin English so both catalogs are in the sidebar and in the a11y run.
+// pin English and Japanese so every catalog is in the sidebar and in the a11y
+// run.
 export const DetailEnglish: Story = {
   ...Detail,
   name: "Detail (English)",
@@ -351,4 +364,28 @@ export const ListEnglish: Story = {
   ...List,
   name: "List (English)",
   globals: { locale: "en" },
+};
+
+export const DetailJapanese: Story = {
+  ...Detail,
+  name: "Detail (日本語)",
+  globals: { locale: "ja" },
+};
+
+export const DetailJapaneseMobile: Story = {
+  ...DetailMobile,
+  name: "Detail mobile (日本語)",
+  globals: { ...DetailMobile.globals, locale: "ja" },
+};
+
+export const InboxJapanese: Story = {
+  ...Inbox,
+  name: "Inbox (日本語)",
+  globals: { locale: "ja" },
+};
+
+export const ListJapanese: Story = {
+  ...List,
+  name: "List (日本語)",
+  globals: { locale: "ja" },
 };

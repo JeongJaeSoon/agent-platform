@@ -23,3 +23,16 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
     "The console cannot start a session yet. Sessions started through the API show up in the session list.",
   "home.checklist.unknown": "Unknown",
 };
+
+export const homeJa: Record<keyof typeof homeKo, string> = {
+  "home.title": "ワークスペース",
+  "home.signedInAs": "{name}（{email}）でログインしています",
+  "home.checklist.title": "はじめに",
+  "home.checklist.admin": "オーナーアカウントを作成",
+  "home.checklist.invite": "メンバーを招待",
+  "home.checklist.agent": "エージェントを準備",
+  "home.checklist.session": "最初のセッションを確認",
+  "home.checklist.sessionHint":
+    "Web コンソールからはまだセッションを開始できません。API で開始したセッションがセッション一覧に表示されます。",
+  "home.checklist.unknown": "確認できません",
+};

@@ -138,3 +138,75 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invites.revoked": "The invite for {email} is revoked.",
   "members.withheld": "Workspace owners and admins invite and manage members.",
 };
+
+export const membersJa: Record<keyof typeof membersKo, string> = {
+  "members.title": "メンバー",
+  "members.listTitle": "メンバー一覧",
+  "members.empty": "メンバーはまだいません。",
+  "members.column.name": "名前",
+  "members.column.role": "ロール",
+  "members.column.state": "状態",
+  "members.column.actions": "管理",
+  "members.tableLabel": "メンバー一覧表",
+  "members.state.active": "有効",
+  "members.state.disabled": "無効",
+  "members.enableHint":
+    "再び参加させるには、招待し直さずに再有効化してください。",
+  "members.roleFor": "{name}のロール",
+  "members.roleChanged": "{name}のロールを{role}に変更しました。",
+  "members.roleChangeTitle": "{name}のロールを{role}に変更しますか？",
+  "members.roleChangeConsequence":
+    "変更するとすぐに、この人ができる操作が新しいロールに合わせて変わります。",
+  "members.roleChangeOwnerConsequence":
+    "オーナーはワークスペース設定や、ほかのオーナーのロールまで変更できます。オーナーのロールを外せるのはオーナーのみです。",
+  "members.roleChangeConfirm": "ロールを変更",
+  "members.disableSelf": "自分自身は無効化できません。",
+  "members.disableLastOwner":
+    "唯一のオーナーは無効化できません。先にほかの人をオーナーにしてください。",
+  "members.disable": "無効化",
+  "members.disableFor": "{name}を無効化",
+  "members.disableTitle": "{name}のアカウントを無効化しますか？",
+  "members.disableConsequence":
+    "この人の Web ログインと個人 API キーはすぐに使えなくなり、この人が開始したセッションはオーナーが引き継ぐまで停止します。再有効化しても、切断されたログインとキーは元に戻りません。",
+  "members.disabled": "{name}のアカウントを無効化しました。",
+  "members.enable": "再有効化",
+  "members.enabled":
+    "{name}のアカウントを再有効化しました。再びログインできます。",
+  "members.invite.title": "招待",
+  "members.invite.email": "メールアドレス",
+  "members.invite.role": "ロール",
+  "members.invite.submit": "招待リンクを作成",
+  "members.invite.submitting": "作成中…",
+  "members.invite.disabledHint":
+    "{name}は無効化されたメンバーです。招待し直さずに、一覧から再有効化してください。Google ログインのみで利用していたアカウントにはパスワードがないため、招待を承諾できません。",
+  "members.invite.link": "招待リンク",
+  "members.invite.linkOnce":
+    "このリンクは今回のみ表示されます。{expires}まで使えます。招待する人に直接伝えてください。",
+  "members.invite.copy": "リンクをコピー",
+  "members.invite.copied": "招待リンクをコピーしました。",
+  "members.invite.copyFailed":
+    "招待リンクをコピーできませんでした。リンク欄を選択して手動でコピーしてください。",
+  "members.invite.description":
+    "招待する人のメールアドレスとロールを指定すると、一度だけ表示される招待リンクを作成します。",
+  "members.invite.steps": "招待のステップ",
+  "members.invite.step.details": "招待する人",
+  "members.invite.step.link": "招待リンク",
+  "members.invite.again": "ほかの人を招待",
+  "members.invite.close": "閉じる",
+  "members.invite.leave.title": "リンクをコピーせずに閉じますか？",
+  "members.invite.leave.consequence":
+    "この招待リンクは再表示できません。あとでリンクが必要になった場合は、保留中の招待を取り消して新しく作成してください。",
+  "members.invite.leave.confirm": "コピーせずに閉じる",
+  "members.invite.leave.cancel": "リンクに戻る",
+  "members.invites.title": "保留中の招待",
+  "members.invites.empty": "保留中の招待はありません。",
+  "members.invites.expires": "{expires}まで",
+  "members.invites.revoke": "取り消し",
+  "members.invites.revokeFor": "{email}への招待を取り消し",
+  "members.invites.revokeTitle": "{email}への招待を取り消しますか？",
+  "members.invites.revokeConsequence":
+    "送信したリンクからは参加できなくなります。再度招待するには、新しいリンクを作成して送ってください。",
+  "members.invites.revoked": "{email}への招待を取り消しました。",
+  "members.withheld":
+    "メンバーの招待と管理は、ワークスペースのオーナーまたは管理者が行います。",
+};

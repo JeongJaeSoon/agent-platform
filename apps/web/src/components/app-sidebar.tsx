@@ -14,6 +14,7 @@ import {
 import { useId, useState } from "react";
 import { useCan, useHasPermission, useMe } from "../auth/guard.tsx";
 import {
+  LOCALE_NAMES,
   LOCALES,
   type Locale,
   type MessageKey,
@@ -246,7 +247,7 @@ function UserMenu({
         >
           {LOCALES.map((value) => (
             <NativeSelectOption key={value} value={value}>
-              {value === "ko" ? "한국어" : "English"}
+              {LOCALE_NAMES[value]}
             </NativeSelectOption>
           ))}
         </NativeSelect>
