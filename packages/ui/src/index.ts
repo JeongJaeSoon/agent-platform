@@ -17,6 +17,10 @@ export { ERROR_GUIDANCE, guidanceFor } from "./feedback/error-guidance.ts";
 export { ErrorState, type ErrorStateProps } from "./feedback/error-state.tsx";
 export { Skeleton, type SkeletonProps } from "./feedback/skeleton.tsx";
 export { cn } from "./lib/cn.ts";
+export {
+  DETAIL_NARROW_WIDTH,
+  useDetailLayout,
+} from "./lib/use-detail-layout.ts";
 export { useReducedMotion } from "./lib/use-reduced-motion.ts";
 export {
   Badge,
@@ -132,8 +136,10 @@ export {
 export {
   Timeline,
   type TimelineEntry,
+  type TimelineKind,
   type TimelineMessages,
   type TimelineProps,
+  timelineKind,
 } from "./session/timeline.tsx";
 export {
   type FormatTurnMessage,
