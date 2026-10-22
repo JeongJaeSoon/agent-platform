@@ -5,22 +5,67 @@ import { dirname, join } from "node:path";
 const root = join(import.meta.dir, "..");
 
 // Inline links and images `[text](target)` and reference definitions
-// `[label]: target`. Fenced blocks and code spans are dropped first: a
-// snippet showing Markdown is not a link.
+// `[label]: target`. Fenced blocks, HTML comments and code spans are dropped
+// first: a snippet showing Markdown is not a link.
 const INLINE = /!?\[(?:[^[\]]|\[[^\]]*\])*\]\(\s*(<[^>]*>|[^)\s]+)/g;
 const REFERENCE = /^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/gm;
+const FENCE = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm;
+const COMMENT = /<!--[\s\S]*?-->/g;
+// One left-to-right pass, so a backtick inside a comment cannot pair with
+// one after it and hide the links in between.
+const COMMENT_OR_CODE = /<!--[\s\S]*?-->|(`+)[\s\S]*?\1/g;
 
-function relativeTargets(markdown: string): string[] {
-  const prose = markdown
-    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, "")
-    .replace(/(`+)[\s\S]*?\1/g, "");
+interface Link {
+  path: string;
+  anchor: string;
+}
+
+function relativeLinks(markdown: string): Link[] {
+  const prose = markdown.replace(FENCE, "").replace(COMMENT_OR_CODE, "");
   const targets = [...prose.matchAll(INLINE), ...prose.matchAll(REFERENCE)].map(
     (match) => (match[1] ?? "").replace(/^<|>$/g, ""),
   );
   return targets
-    .filter((target) => !/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(target))
-    .map((target) => decodeURIComponent(target.replace(/[#?].*$/, "")))
+    .filter((target) => !/^([a-z][a-z0-9+.-]*:|\/)/i.test(target))
+    .map((target) => {
+      const [, path = "", anchor = ""] =
+        /^([^#?]*)(?:\?[^#]*)?(?:#(.*))?$/.exec(target) ?? [];
+      return {
+        path: decodeURIComponent(path),
+        anchor: decodeURIComponent(anchor),
+      };
+    });
+}
+
+function relativeTargets(markdown: string): string[] {
+  return relativeLinks(markdown)
+    .map((link) => link.path)
     .filter((path) => path !== "");
+}
+
+// GitHub's heading id: markup and punctuation dropped, spaces to hyphens.
+// Symbols such as the circled digit in "② 이벤트 관찰" go too.
+function slug(heading: string): string {
+  return heading
+    .replace(/<[^>]+>/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{Nd}\p{Nl}\p{Mn}_ -]/gu, "")
+    .replace(/ /g, "-");
+}
+
+function headingAnchors(markdown: string): Set<string> {
+  const prose = markdown.replace(FENCE, "").replace(COMMENT, "");
+  const seen = new Map<string, number>();
+  const anchors = new Set<string>();
+  for (const match of prose.matchAll(/^ {0,3}#{1,6}\s+(.*?)\s*#*\s*$/gm)) {
+    const base = slug(match[1] ?? "");
+    const count = seen.get(base) ?? 0;
+    anchors.add(count === 0 ? base : `${base}-${count}`);
+    seen.set(base, count + 1);
+  }
+  return anchors;
 }
 
 function trackedMarkdown(): string[] {
@@ -51,6 +96,62 @@ describe("Markdown relative links", () => {
     expect(broken).toEqual([]);
   });
 
+  test("every anchor names a heading in the file it points to", () => {
+    const anchorsOf = new Map<string, Set<string>>();
+    const broken = trackedMarkdown().flatMap((file) =>
+      relativeLinks(readFileSync(join(root, file), "utf8"))
+        .filter((link) => link.anchor !== "")
+        .map((link) => ({
+          ...link,
+          target: link.path === "" ? file : join(dirname(file), link.path),
+        }))
+        .filter(
+          ({ target }) =>
+            target.endsWith(".md") && existsSync(join(root, target)),
+        )
+        .filter(({ target, anchor }) => {
+          let anchors = anchorsOf.get(target);
+          if (!anchors) {
+            anchors = headingAnchors(readFileSync(join(root, target), "utf8"));
+            anchorsOf.set(target, anchors);
+          }
+          return !anchors.has(anchor.toLowerCase());
+        })
+        .map(({ path, anchor }) => `${file} -> ${path}#${anchor}`),
+    );
+    expect(anchorsOf.size).toBeGreaterThan(0);
+    expect(broken).toEqual([]);
+  });
+
+  test("headings get GitHub's anchors", () => {
+    const page = [
+      "# Quickstart — 로컬 스택과 curl로 세션 한 바퀴",
+      "## ② 이벤트 관찰",
+      "## `events` 표",
+      "### workers·control-host 롤백 (v2.1)",
+      "## [링크](x.md) 제목 ##",
+      "## 반복",
+      "## 반복",
+      "```",
+      "## fenced",
+      "```",
+      "<!--",
+      "## commented",
+      "-->",
+    ].join("\n");
+    expect([...headingAnchors(page)].sort()).toEqual(
+      [
+        "quickstart--로컬-스택과-curl로-세션-한-바퀴",
+        "-이벤트-관찰",
+        "events-표",
+        "workerscontrol-host-롤백-v21",
+        "링크-제목",
+        "반복",
+        "반복-1",
+      ].sort(),
+    );
+  });
+
   test("the parser keeps relative paths and drops the rest", () => {
     const page = [
       "[a](docs/a.md) [b](../b.md#part) ![c](img/c%20d.png)",
@@ -62,11 +163,15 @@ describe("Markdown relative links", () => {
       "[fenced](not-a-link-either.md)",
       "```",
       "[ref]: ./ref.md",
+      "<!-- a ```bash block and one `tick -->",
+      "[after comment](c.md) `[code](still-not.md)`",
+      "<!-- [commented](not-a-link-at-all.md) -->",
     ].join("\n");
     expect(relativeTargets(page).sort()).toEqual(
       [
         "../b.md",
         "./ref.md",
+        "c.md",
         "docs/a.md",
         "e f.md",
         "img/c d.png",
@@ -74,6 +179,29 @@ describe("Markdown relative links", () => {
         "x#y.md",
       ].sort(),
     );
+    expect(relativeLinks(page).filter((link) => link.anchor !== "")).toEqual([
+      { path: "../b.md", anchor: "part" },
+      { path: "", anchor: "here" },
+      { path: "x#y.md", anchor: "frag" },
+    ]);
+  });
+
+  // Not yet rewritten to describe only current behavior.
+  const TICKET_EXEMPT = ["docs/operations.md"];
+
+  test("none names a ticket", () => {
+    const files = trackedMarkdown().filter(
+      (file) => !TICKET_EXEMPT.includes(file),
+    );
+    const found = files.flatMap((file) =>
+      readFileSync(join(root, file), "utf8")
+        .split("\n")
+        .flatMap((line, index) =>
+          /\b94S-\d+/.test(line) ? [`${file}:${index + 1}`] : [],
+        ),
+    );
+    expect(files.length).toBeGreaterThan(0);
+    expect(found).toEqual([]);
   });
 
   test("every generated API HTML asset exists", () => {
