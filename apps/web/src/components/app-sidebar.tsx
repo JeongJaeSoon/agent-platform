@@ -162,7 +162,8 @@ export function AppSidebar({
       </div>
       <nav
         aria-label={t("nav.label")}
-        className="-mx-2 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2"
+        // The rail is dark in both themes; a light scrollbar glared on it.
+        className="-mx-2 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 [color-scheme:dark]"
       >
         {groups.map((group) => (
           <NavSection key={group.label} group={group} onNavigate={onNavigate} />
