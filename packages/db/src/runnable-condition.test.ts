@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { HEARTBEAT_STATES, type RunnablePair } from "@werft-ai/platform";
+import {
+  HEARTBEAT_STATES,
+  type RepositoryPair,
+  type RunnablePair,
+} from "@werft-ai/platform";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "./schema.ts";
@@ -16,7 +20,7 @@ import {
 // refuses is either never claimed or claimed against the catalog.
 
 const fingerprint = (c: string) => `sha256:${c.repeat(64)}`;
-const RUNNABLE: RunnablePair[] = [
+const RUNNABLE: RepositoryPair[] = [
   {
     profileId: "profile-a",
     profileFingerprint: fingerprint("a"),
@@ -113,6 +117,57 @@ describe("runnable judgement", () => {
       expect(inJs).toHaveLength(runnable.length * 2);
     });
   }
+
+  test("a pair without a repository matches no row yet, a pre-catalog one or a repository-less one", async () => {
+    await db.insert(sessions).values({
+      id: crypto.randomUUID(),
+      ownerId: "owner-a",
+      profileId: "profile-a",
+      profileFingerprint: fingerprint("a"),
+      repositoryMode: "none",
+      repositoryId: null,
+      repoUrl: null,
+      branch: null,
+    });
+    const runnable: RunnablePair[] = [
+      ...RUNNABLE,
+      {
+        profileId: "profile-a",
+        profileFingerprint: fingerprint("a"),
+        repositoryId: null,
+      },
+    ];
+    const all = await db.select().from(sessions);
+    const pick = (pairs: readonly RunnablePair[]) =>
+      all
+        .filter((row) => runnablePairOf(row, pairs) !== undefined)
+        .map((row) => row.id)
+        .sort();
+    const inSql = (
+      await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(runnableCondition(runnable))
+    )
+      .map((row) => row.id)
+      .sort();
+    expect(pick(runnable)).toEqual(pick(RUNNABLE));
+    expect(inSql).toEqual(pick(RUNNABLE));
+    expect(
+      await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(
+          runnableCondition([
+            {
+              profileId: "profile-a",
+              profileFingerprint: fingerprint("a"),
+              repositoryId: null,
+            },
+          ]),
+        ),
+    ).toEqual([]);
+  });
 });
 
 test("a heartbeat can report exactly the phases the attempt state advances through, in that order", () => {

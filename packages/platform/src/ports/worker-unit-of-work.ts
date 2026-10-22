@@ -60,7 +60,8 @@ export type WorkerBinding = {
   // it to the worker as the checkpoint principal.
   ownerScope: string;
   // As fixed when the session was accepted; the catalog is not consulted.
-  repository: WorkspaceRepository;
+  // Null for a session accepted without a repository.
+  repository: WorkspaceRepository | null;
   restore: CheckpointRef | null;
   // The profiles the session's checkpoints up to `restore` were committed
   // under, where the rows record one; more than the session's own once its
@@ -84,13 +85,23 @@ export type WorkerBinding = {
 // whose settings changed must not run a session created under the old ones
 // its fingerprint here must equal the one the session was
 // accepted with.
-export type RunnablePair = {
+export type RepositoryPair = {
   profileId: string;
   profileFingerprint: string;
   repositoryId: string;
   url: string;
   branch: string;
 };
+
+export type RunnablePair =
+  | RepositoryPair
+  // A profile this host may run without a repository. It never matches a
+  // row whose repository_id is null only because it predates the catalog.
+  | {
+      profileId: string;
+      profileFingerprint: string;
+      repositoryId: null;
+    };
 
 export type ClaimInput = {
   runnable: RunnablePair[];
@@ -150,7 +161,7 @@ export type EgressAuthorization =
       attemptId: string;
       binding: string;
       profileId: string | null;
-      repository: { id: string | null; url: string; branch: string };
+      repository: { id: string | null; url: string; branch: string } | null;
       // What the session has spent as of this answer.
       costUsd: number;
       providerTokens: number;

@@ -18,7 +18,7 @@ checkpoint object의 삭제는 chart의 checkpoint GC CronJob(`checkpointGc.sche
 - hold가 걸리기 전의 object(worker가 올렸고 finalize가 아직 검증 중인 것)나 GC가 hold를 푼 version을 lifecycle이 먼저 지운다. finalize가 실패하거나, GC가 행을 표시하기 전에 object가 사라진다.
 - hold가 걸린 version은 lifecycle이 지우지 못한다. 저장량은 lifecycle로 줄지 않고 GC로만 준다(operations.md의 "한계: checkpoint 바이트").
 
-RDS 스냅샷은 그 시점의 pointer를 담는다. 스냅샷 뒤에 GC가 지운 revision을 그 스냅샷의 pointer가 가리킬 수 있다. 스냅샷 보존 기간과 GC 주기를 어떻게 맞출지, 실제 복원 절차는 실제 RDS·S3로 하는 복원 훈련 [94S-527](https://linear.app/94soon/issue/94S-527)에서 정한다(보류: AWS 리소스가 생긴 뒤 재개).
+RDS 스냅샷은 그 시점의 pointer를 담는다. 스냅샷 뒤에 GC가 지운 revision을 그 스냅샷의 pointer가 가리킬 수 있다. 스냅샷 보존 기간과 GC 주기를 어떻게 맞출지, 실제 복원 절차는 실제 RDS·S3로 하는 복원 훈련에서 정한다(보류: AWS 리소스가 생긴 뒤 재개).
 
 ## object store 고르기
 
@@ -63,7 +63,7 @@ backup-20260923T101500Z/
 | `version` | 백업 형식 버전(현재 1). restore는 같은 값만 받는다 |
 | `source` | compose project 이름, 백업을 만든 checkout commit과 dirty 여부 |
 | `schema.applied[]` | DB의 `drizzle.__drizzle_migrations` 행(`hash`, `when`) 순서대로. `head_tag`는 마지막 행에 해당하는 journal tag |
-| `images.<service>` | 실행 중인 컨테이너의 image·image id·registry digest. api/worker/scheduler 컨테이너가 없으면 `status: "not_built"`로 남긴다(94S-125 이미지 뒤 채워짐). 나중에 만든 이미지를 이 값에 소급 기록하지 않는다 |
+| `images.<service>` | 실행 중인 컨테이너의 image·image id·registry digest. api/worker/scheduler 컨테이너가 없으면 `status: "not_built"`로 남긴다. 나중에 만든 이미지를 이 값에 소급 기록하지 않는다 |
 | `objects` | `store`(`localstack`·`env`), bucket 이름, `endpoint`(백업이 읽은 주소, AWS S3면 빈 문자열), object 수. restore는 이 bucket 이름을 대상으로 받지 않는다 |
 | `repos` | bundle로 담은 repo와 빈 repo(ref가 없어 bundle 불가) 각각의 이름·symbolic HEAD. 복원 시 HEAD를 그대로 되돌리고 임시 origin은 제거한다 |
 
@@ -71,9 +71,9 @@ backup-20260923T101500Z/
 
 - 로컬 compose 설치의 LocalStack S3는 휘발성이다. `docker compose down`이나 Docker 재시작 뒤에는 checkpoint 객체가 사라지고 DB 행만 남아 백업이 실패한다(API도 기동을 거부한다). 백업은 스택을 내리기 전에 받는다. 이미 잃었으면 `scripts/local.sh reset`(fake 모델 스택이면 `reset --fake-model`)으로 새로 시작한다. `scripts/local.sh down`은 데이터까지 지운다.
 - `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
-- checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`, 94S-281)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
+- checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - object 복사(`object-store-cli.ts download`)는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.
-  - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. incremental checkpoint(94S-227)의 `workspace.baseBundles`도 ref다. base bundle은 앞 checkpoint의 디렉터리에 있지만, 그 checkpoint가 GC로 빠졌어도 이 checkpoint의 ref로서 백업된다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
+  - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. incremental checkpoint의 `workspace.baseBundles`도 ref다. base bundle은 앞 checkpoint의 디렉터리에 있지만, 그 checkpoint가 GC로 빠졌어도 이 checkpoint의 ref로서 백업된다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
   - sha256과 크기를 대조한다.
   - `objects/<key>`가 고정된 바이트와 다르거나 없으면 고정된 바이트로 바꾸고 경고한다. 커밋 뒤 덮어쓰기나 delete marker가 있어도 백업이 손상본을 담지 않게 하려는 것이다.
 - 다음 경우에는 백업이 실패한다(exit 1).
@@ -134,7 +134,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 1. `manifest_ref`를 **`manifest_version`으로** 내려받아 sha256 = `manifest_sha256`인지 본다. 행의 `versions_held`는 true여야 한다.
 2. manifest 안의 transcript part(root·subagent), untracked 파일, workspace bundle 사슬(`workspace.baseBundles`와 `workspace.bundle`)을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조한다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다.
 3. 1과 2의 모든 version에 대해 HEAD의 `ObjectLockLegalHoldStatus`가 `ON`인지 본다.
-4. 행마다 빈 bare 저장소를 새로 만들고, bundle 사슬을 `baseBundles`의 오래된 것부터 `workspace.bundle`까지 순서대로 `git bundle verify`한 뒤 fetch해 쌓는다. incremental bundle은 앞 bundle이 가진 커밋을 전제로 하므로 혼자서는 verify되지 않는다. 마지막 bundle의 `refs/checkpoint/worktree`를 커밋까지 벗겨 `workspace.gitCommit`과 같은지 확인한다. 복원이 checkout하는 것이 이 ref다. 앞 checkpoint 뒤 바뀐 것이 없는 capture는 앞 bundle이 가진 커밋 위에 annotated tag만 싣기 때문에, bundle 헤더에는 커밋 대신 tag가 나온다(94S-374). 순서가 틀리거나 한 고리가 빠지면 FAIL이다(`unbundle_chain`, `scripts/lib/backup-lib.sh`). finalize와 워커 복원이 bundle ref에 적용하는 규칙 전체는 runtime-core의 `checkpointBundleRefs`에 있다. 스크립트는 그 가운데 worktree 부분만 본다(94S-391).
+4. 행마다 빈 bare 저장소를 새로 만들고, bundle 사슬을 `baseBundles`의 오래된 것부터 `workspace.bundle`까지 순서대로 `git bundle verify`한 뒤 fetch해 쌓는다. incremental bundle은 앞 bundle이 가진 커밋을 전제로 하므로 혼자서는 verify되지 않는다. 마지막 bundle의 `refs/checkpoint/worktree`를 커밋까지 벗겨 `workspace.gitCommit`과 같은지 확인한다. 복원이 checkout하는 것이 이 ref다. 앞 checkpoint 뒤 바뀐 것이 없는 capture는 앞 bundle이 가진 커밋 위에 annotated tag만 싣기 때문에, bundle 헤더에는 커밋 대신 tag가 나온다. 순서가 틀리거나 한 고리가 빠지면 FAIL이다(`unbundle_chain`, `scripts/lib/backup-lib.sh`). finalize와 워커 복원이 bundle ref에 적용하는 규칙 전체는 runtime-core의 `checkpointBundleRefs`에 있다. 스크립트는 그 가운데 worktree 부분만 본다.
 
 `sessions.checkpoint_revision`과 같은 행은 `pointer`로 표시된다. pointer가 가리키는 revision에 `checkpoints` 행이 없으면 그 자체로 FAIL이다. manifest의 `sessionId`·`revision`도 행과 같아야 한다.
 
@@ -143,7 +143,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 마지막으로 `checkpoint-pins-cli.ts plans`가 복원본의 API가 할 일을 그대로 한다.
 
 - `describeBucketProtection` 결과를 출력하고 API의 `locked` 기동 검사(`assertCheckpointBucketProtection`)와 bucket 기본 암호화 검사(`assertCheckpointBucketEncryption`, SSE-S3)를 통과하는지 본다. `repin`도 객체를 쓰기 전에 같은 암호화 검사를 한다.
-- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다(94S-452). 먼저 pointer마다 API가 줄 claim의 digest 입력(`principal`=`sessions.owner_id`, `runtime_config`=`--config-dir` catalog의 `sessions.profile_id` profile)을 다시 만든다. catalog가 세션의 profile·repository 쌍(`profile_id`·`repository_id`·`repo_url`·`branch`)을 더 이상 허용하지 않거나 profile 설정이 `sessions.profile_fingerprint`와 다르면 실제 claim도 이 세션을 받지 않으므로 `FAIL <session>@<rev> plan: no claim for the target image: …`다. 그다음 `docker run --rm -i --network none --entrypoint bun <image> run apps/worker/src/image-runtime.ts`에 claim을 stdin으로 넣어, 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)와 그 이미지가 claim으로 계산한 profile digest를 받는다. 복원은 manifest의 값과 이 값이 모두 같아야 하므로, 다른 버전으로 봉인되었거나 digest 계산 방식이 바뀐 이미지 앞의 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`(또는 `profileSha256 … → …`)가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. `image-runtime.ts`가 없는 이미지(94S-452 이전)는 읽지 못하므로 검사 전체가 멈춘다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
+- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다. 먼저 pointer마다 API가 줄 claim의 digest 입력(`principal`=`sessions.owner_id`, `runtime_config`=`--config-dir` catalog의 `sessions.profile_id` profile)을 다시 만든다. catalog가 세션의 profile·repository 쌍(`profile_id`·`repository_id`·`repo_url`·`branch`)을 더 이상 허용하지 않거나 profile 설정이 `sessions.profile_fingerprint`와 다르면 실제 claim도 이 세션을 받지 않으므로 `FAIL <session>@<rev> plan: no claim for the target image: …`다. 그다음 `docker run --rm -i --network none --entrypoint bun <image> run apps/worker/src/image-runtime.ts`에 claim을 stdin으로 넣어, 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)와 그 이미지가 claim으로 계산한 profile digest를 받는다. 복원은 manifest의 값과 이 값이 모두 같아야 하므로, 다른 버전으로 봉인되었거나 digest 계산 방식이 바뀐 이미지 앞의 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`(또는 `profileSha256 … → …`)가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. `image-runtime.ts`가 없는 이미지는 읽지 못하므로 검사 전체가 멈춘다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
 - plan의 manifest와 모든 object를 plan이 가리키는 version으로 읽고, hold가 걸려 있는지 본다.
 
 하나라도 실패하면 exit 5.
@@ -153,9 +153,9 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 - **resume이 같은 native session으로 이어짐** — 새 worker가 복원한 checkpoint에서 같은 Claude session을 이어 가는지 본다.
 - **worker image digest** — `manifest.json`의 `images.worker`가 checkpoint를 만든 worker의 image와 같은지 본다.
 
-## checkpoint 객체의 version: 복원 뒤 재고정 (94S-282)
+## checkpoint 객체의 version: 복원 뒤 재고정
 
-checkpoint manifest와 pointer는 S3 object **version**을 가리킨다(94S-229). 복원된 bucket에서는 모든 객체가 새 VersionId를 받으므로, 백업 시점의 version을 그대로 가리키는 manifest는 복원본에서 읽을 수 없다.
+checkpoint manifest와 pointer는 S3 object **version**을 가리킨다. 복원된 bucket에서는 모든 객체가 새 VersionId를 받으므로, 백업 시점의 version을 그대로 가리키는 manifest는 복원본에서 읽을 수 없다.
 
 **선택: 복원 뒤 재고정(re-pin).** VersionId를 유지하는 replication은 쓰지 않는다. 근거는 다음과 같다.
 
@@ -173,7 +173,7 @@ checkpoint manifest와 pointer는 S3 object **version**을 가리킨다(94S-229)
 
 재고정 뒤 복원본의 API는 기본값 `locked`로 뜬다. `unversioned`는 versioning이 꺼진 bucket에서만 쓴다.
 
-## 실스택에서 복원 뒤 재개 확인 (94S-324)
+## 실스택에서 복원 뒤 재개 확인
 
 ```bash
 tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2e/restore-resume.sh
@@ -201,7 +201,7 @@ engine session id는 manifest의 `resume`에만 있다. `sessions.claude_session
 
 ## 로컬에서 끝까지 돌려 보기
 
-위 e2e는 worker가 실제로 커밋한 checkpoint로 돈다(94S-246). 세션을 돌리지 않은 설치에서 스크립트만 시험할 때는 `scripts/dev/seed-checkpoint.ts`를 쓴다. 이 스크립트는 워커와 같은 계약으로 세션 하나와 커밋된 checkpoint 하나를 어느 설치에든 심는다. 이 checkpoint는 locked finalize가 남기는 모양이다. 모든 ref와 `manifest_version`이 version을 싣고, 모든 version에 hold가 걸려 있으며, `versions_held=true`다. 그래서 bucket은 versioning과 Object Lock이 켜져 있어야 한다(compose 기본값).
+위 e2e는 worker가 실제로 커밋한 checkpoint로 돈다. 세션을 돌리지 않은 설치에서 스크립트만 시험할 때는 `scripts/dev/seed-checkpoint.ts`를 쓴다. 이 스크립트는 워커와 같은 계약으로 세션 하나와 커밋된 checkpoint 하나를 어느 설치에든 심는다. 이 checkpoint는 locked finalize가 남기는 모양이다. 모든 ref와 `manifest_version`이 version을 싣고, 모든 version에 hold가 걸려 있으며, `versions_held=true`다. 그래서 bucket은 versioning과 Object Lock이 켜져 있어야 한다(compose 기본값).
 
 ```bash
 # 1. 원본 설치(예: agent-platform 프로젝트)에 fixture 심기

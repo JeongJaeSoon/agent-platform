@@ -5,13 +5,13 @@ workspace 멤버 초대·관리, 팀, Slack 계정 연동, 권한별 API key와 
 ## Sub-features
 
 - `a-member-lifecycle` owner 웹 로그인 → 초대 → 수락·로그인 → 역할 변경(admin 포함. admin은 owner 역할을 주거나 owner를 바꾸지 못해 `403 OWNER_PROTECTED`, 마지막 owner는 내리거나 비활성하지 못해 `409 LAST_OWNER`) → 비활성화하면 그 사람의 cookie와 개인 key는 401, 그 사람이 발급한 서비스 key는 계속 200 → 재활성화해도 끊긴 cookie·개인 key는 돌아오지 않고 다시 로그인한다.
-- `b-teams` 팀 생성 → 구성원 추가·제거(수락 없이, 그 사람을 대상으로 한 receipt가 알림 기록) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리하고, 팀에서 빠지거나 팀이 지워지면 다음 요청부터 403. owner·admin만 팀을 바꾼다(94S-582).
-- `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정(94S-577). 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
-- `c-slack-decision` 연결한 사람만 Slack에서 쓴다(94S-579): 멘션·승인 버튼의 판정(`authorizeSlackInput`), 거절 안내 문구, guest 사용 설정(`POST /v1/workspaces/{id}/slack-guest`), Slack Connect 거절, 요약 상한 채널의 `redact`. Slack 채널(이벤트 수신)이 없어 판정은 api 컨테이너에서 함수로 부른다.
+- `b-teams` 팀 생성 → 구성원 추가·제거(수락 없이, 그 사람을 대상으로 한 receipt가 알림 기록) → 팀을 에이전트 관리자로 지정 → 팀원은 그 에이전트를 관리하고, 팀에서 빠지거나 팀이 지워지면 다음 요청부터 403. owner·admin만 팀을 바꾼다.
+- `c-slack-signin` Sign in with Slack 연결·목록·해제와 처리 시점 재판정. 실제 Slack 동의는 사람이 하고(`docs/operations.md` § Slack 계정 연결의 확인 절차), 자동 확인은 mock IdP로 한다.
+- `c-slack-decision` 연결한 사람만 Slack에서 쓴다: 멘션·승인 버튼의 판정(`authorizeSlackInput`), 거절 안내 문구, guest 사용 설정(`POST /v1/workspaces/{id}/slack-guest`), Slack Connect 거절, 요약 상한 채널의 `redact`. Slack 채널(이벤트 수신)이 없어 판정은 api 컨테이너에서 함수로 부른다.
 - `d-scoped-keys` member는 개인 key만, owner·admin은 서비스 key, 에이전트 관리자(그 에이전트를 만든 사람)는 그 에이전트 전용 서비스 key를 `POST /v1/api-keys`로 발급한다. 권한이 없으면 403과 `details.reason_code`. 에이전트 전용 key는 그 에이전트의 세션만 만들고 읽는다. 발급자의 지금 scope를 넘는 key는 403 `SCOPE_NOT_GRANTABLE`. API key로는 발급하지 못한다. 발급자를 내보내면 개인 key는 멈추고 서비스 key는 계속 동작한다.
-- `f-credential-bindings` 에이전트 관리자가 card의 `credential_refs` 이름을 그 에이전트에 연결(`POST /v1/agents/{id}/credential-bindings`)해야 활성화가 된다. 해제하면 실행 중 세션은 그대로 두고(`running_sessions`, `revoke_notice`) 다음 세션 생성이 `409 CREDENTIAL_UNBOUND`(안내 문구·관리자·`mailto:` 링크)다(94S-581).
-- `g-agent-identity` 에이전트를 자기 Slack 앱 설치에 연결·목록·회수하고(94S-578), Slack 이벤트의 `(app_id, team_id)`가 그 에이전트로 정해지는지, 회수 뒤·다른 앱의 이벤트는 버려지는지. Slack ingress(94S-179)가 없어 해석은 api 컨테이너에서 함수로 부른다.
-- `e-authz-audit` 위 행동이 `authz_decisions`에 남고(감사 보존 기본 90일·하한 30일), 세션 공유 범위(`private`·`people`·`team`·`workspace`) 밖이면 owner·admin도 목록·상세·SSE가 `404`, 범위를 좁히면 열린 SSE가 끊기고, owner·admin은 사유를 단 감사 열람(읽기만)·관리 목록(메타데이터만)·관리 종료로만 범위 밖을 다룬다(94S-584). DM 기본 "나만"은 DM 세션 경로가 없어 아직 없음.
+- `f-credential-bindings` 에이전트 관리자가 card의 `credential_refs` 이름을 그 에이전트에 연결(`POST /v1/agents/{id}/credential-bindings`)해야 활성화가 된다. 해제하면 실행 중 세션은 그대로 두고(`running_sessions`, `revoke_notice`) 다음 세션 생성이 `409 CREDENTIAL_UNBOUND`(안내 문구·관리자·`mailto:` 링크)다.
+- `g-agent-identity` 에이전트를 자기 Slack 앱 설치에 연결·목록·회수하고, Slack 이벤트의 `(app_id, team_id)`가 그 에이전트로 정해지는지, 회수 뒤·다른 앱의 이벤트는 버려지는지. Slack ingress가 없어 해석은 api 컨테이너에서 함수로 부른다.
+- `e-authz-audit` 위 행동이 `authz_decisions`에 남고(감사 보존 기본 90일·하한 30일), 세션 공유 범위(`private`·`people`·`team`·`workspace`) 밖이면 owner·admin도 목록·상세·SSE가 `404`, 범위를 좁히면 열린 SSE가 끊기고, owner·admin은 사유를 단 감사 열람(읽기만)·관리 목록(메타데이터만)·관리 종료로만 범위 밖을 다룬다. DM 기본 "나만"은 DM 세션 경로가 없어 아직 없음.
 
 ## How to get to it (user POV)
 
@@ -81,7 +81,7 @@ Preconditions:
   ```
 
   기대: callback `201`과 `receipt_id`, 목록에 `active` 한 줄, 해제 `200`(`receipt_status: succeeded`) 뒤 목록이 비고 DB는 `revoked | unlinked | 2`. `mock_team=T0OTHER`를 붙인 authorize URL로 다시 하면 `409 LINK_TEAM_MISMATCH`. 해제 뒤 `resolveLinkedSubject`는 `{"status":"unlinked"}`다. 대기 중이던 입력의 처리 시점 재판정(`createDatabaseIdentityReader(db).reread`에 `linked_account: {id, revision}`)도 `unlinked`로 거절한다. Slack 입력(M9) 전까지는 사용자 경로가 없어 위처럼 api 컨테이너에서 부른다. 초대(`POST /v1/invites`)·수락한 member가 같은 방법으로 연결한 뒤 owner가 `POST /v1/members/{user_id}/disable`로 비활성화하면 receipt `result.revoked_linked_accounts`가 `1`이고 DB 행은 `revoked | offboarded`다. 2026-10-11 run `20261011-184057-50543`에서 이 순서대로 확인했다.
-- **c. 멘션·승인 판정.** 위 c처럼 mock overlay로 띄운다. owner bootstrap·login, member 초대·수락(d의 1), 설치 행(c), owner가 에이전트(`research`→`AID`)를 만들고 `POST /v1/agents/$AID/identities '{"provider":"slack_bot","app_id":"A0VERIFY","team_id":"T0MOCK","credential_ref":"slack/research-bot-token"}'`로 그 앱을 연결한다. owner가 d의 2처럼 다른 에이전트(`finance`→`BID`)도 만들고, 두 에이전트의 release(`REL`·`BREL`)로 owner cookie로 세션을 만든다. `POST /v1/sessions`는 `Idempotency-Key`가 필요한데 `ap_web`은 붙이지 않으니 curl로 부른다: `curl -sS -w '\n%{http_code}\n' -X POST "$API/v1/sessions" -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -H "Cookie: $(cat "$VERIFY_RUN/cookie")" -d "{\"profile_id\":\"claude-coding-local\",\"repository_id\":\"sample-app\",\"message\":\"verify\",\"agent_release_id\":\"$REL\"}"` → `201`, 세션 id를 `S`(`BREL`로 만든 것은 `OS`)로 둔다. Slack 판정은 세션이 어느 에이전트 것인지 다시 읽으므로 실제 세션이어야 한다. member가 위 c의 시작·callback으로 `U0MOCK`을 연결한다(`LAID` = `linked_account.id`). 판정은 Slack 채널이 할 호출을 그대로 한다. 채널 상한은 binding 테이블(94S-177) 전까지 입력으로 넘긴다.
+- **c. 멘션·승인 판정.** 위 c처럼 mock overlay로 띄운다. owner bootstrap·login, member 초대·수락(d의 1), 설치 행(c), owner가 에이전트(`research`→`AID`)를 만들고 `POST /v1/agents/$AID/identities '{"provider":"slack_bot","app_id":"A0VERIFY","team_id":"T0MOCK","credential_ref":"slack/research-bot-token"}'`로 그 앱을 연결한다. owner가 d의 2처럼 다른 에이전트(`finance`→`BID`)도 만들고, 두 에이전트의 release(`REL`·`BREL`)로 owner cookie로 세션을 만든다. `POST /v1/sessions`는 `Idempotency-Key`가 필요한데 `ap_web`은 붙이지 않으니 curl로 부른다: `curl -sS -w '\n%{http_code}\n' -X POST "$API/v1/sessions" -H 'x-requested-with: agent-platform-web' -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -H "Cookie: $(cat "$VERIFY_RUN/cookie")" -d "{\"profile_id\":\"claude-coding-local\",\"repository_id\":\"sample-app\",\"message\":\"verify\",\"agent_release_id\":\"$REL\"}"` → `201`, 세션 id를 `S`(`BREL`로 만든 것은 `OS`)로 둔다. Slack 판정은 세션이 어느 에이전트 것인지 다시 읽으므로 실제 세션이어야 한다. member가 위 c의 시작·callback으로 `U0MOCK`을 연결한다(`LAID` = `linked_account.id`). 판정은 Slack 채널이 할 호출을 그대로 한다. 채널 상한은 binding 테이블이 생기기 전까지 입력으로 넘긴다.
 
   ```sh
   DECIDE='import { Pool } from "pg"; import { drizzle } from "drizzle-orm/node-postgres"; import * as schema from "@werft-ai/db"; import * as platform from "@werft-ai/platform";
@@ -189,7 +189,7 @@ Preconditions:
 - d의 8은 판정이 `allow`인 채로 거절된다. 권한(`api_key.manage`)은 있고 scope만 넘친 것이라, 판정 행은 `allow`이고 응답은 `SCOPE_NOT_GRANTABLE`이다.
 - 에이전트 전용 key는 receipt를 읽지 못한다. receipt 조회는 세션을 가리키지 않아 에이전트를 확인할 수 없기 때문이다.
 - 에이전트 관리자는 에이전트를 만든 사람(과 0142 backfill), 그리고 `POST /v1/agents/{id}/admins`로 지정한 사람·팀이다.
-- b: 팀 목록·상세(`GET /v1/teams`)는 owner·admin만 본다. member는 `GET /v1/my-teams`로 자기가 든 팀의 `id`·`name`만 본다(다른 팀원 없음, 94S-619). 추가 알림은 아직 receipt 기록뿐이다(Slack 알림 없음).
+- b: 팀 목록·상세(`GET /v1/teams`)는 owner·admin만 본다. member는 `GET /v1/my-teams`로 자기가 든 팀의 `id`·`name`만 본다(다른 팀원 없음). 추가 알림은 아직 receipt 기록뿐이다(Slack 알림 없음).
 - f: 본문 검증(`400`)은 판정보다 먼저라 판정 행을 남기지 않는다. 해제한 연결을 다시 `DELETE`하면 `404`다.
 - g: 연결은 확인된(`verified`) 설치에만 된다. `registerSlackInstallation`만 하고 `verifySlackInstallation`을 빠뜨리면 `409 SLACK_NOT_INSTALLED`, 해석은 `installation_unverified`다. 같은 team·app을 다른 bot으로 다시 확인하면 연결은 남아 있어도 해석은 `bot_mismatch`다.
 - e: 감사 열람 사유가 없으면 본문 검증(`400`)에서 끝나 판정 행이 없다. 판정의 `justification_required`(`403`)는 사유 없는 인수(`POST /v1/sessions/{id}/takeover` 빈 본문)에서 본다. member의 감사 열람은 범위 밖이면 `404`, 범위 안이면 `403` `role`이다.

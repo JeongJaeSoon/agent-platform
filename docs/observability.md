@@ -132,6 +132,10 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 `infra/observability/`에 수집기 예제가 두 개 있다. 둘 다 Werft 스택과 따로 뜨는 compose project이고, 앞에 OpenTelemetry Collector를 하나씩 두어 표준 OTLP/HTTP를 받는다. 한 컴퓨터에서 OTLP 내보내기를 확인하는 용도이고, 운영 권장 구성이 아니다. 어느 수집기를 쓰고 어떻게 운영할지는 운영자가 정한다.
 
+**지금 볼 수 있는 범위.** main의 Werft는 아직 OTel 트레이스를 내보내지 않는다. Werft 세션을 실행해도 수집기에는 trace가 생기지 않는다. 이 절로 확인할 수 있는 것은 예제 수집기가 OTLP trace를 받아 화면에 보여 주는 데까지이고, 보내는 trace는 `send-test-span.sh`가 만든 가짜 span이다. 실제 세션 trace는 [94S-729](https://linear.app/94soon/issue/94S-729)~[94S-737](https://linear.app/94soon/issue/94S-737)(T1~T9)이 worker span과 OTLP 내보내기를 구현한 뒤에 보인다. 그때는 [Werft 쪽 설정](#werft-쪽-설정-계획)의 `OTEL_EXPORTER_OTLP_ENDPOINT`를 아래 collector 주소로 두고, 테스트 span 대신 세션을 실행한다.
+
+순서는 [띄우기](#띄우고-내리기) → [테스트 span 보내기](#테스트-span-보내기) → [화면에서 찾기](#화면에서-찾기) → [내리기](#띄우고-내리기)다. 예제 하나만 써도 된다.
+
 | 예제 | 디렉터리 | OTLP/HTTP 받는 곳 | 화면 | 받는 신호 |
 |---|---|---|---|---|
 | Langfuse | `infra/observability/langfuse/` | `http://127.0.0.1:25318` | `http://localhost:25000` | 트레이스 |
@@ -194,7 +198,7 @@ LANGFUSE_PUBLIC_KEY='<public key>' LANGFUSE_SECRET_KEY='<secret key>' \
 
 ### 화면에서 찾기
 
-**Langfuse.** `http://localhost:25000` → Tracing에서 trace id로 찾는다. 세션 단위로 보려면 Sessions에서 `session_id`를 찾는다. 예제의 테스트 span으로 Langfuse 4.66.0에서 확인한 매핑은 다음과 같다.
+**Langfuse.** `http://localhost:25000`에 [예제 계정](#langfuse-프로젝트-키-만들기)으로 로그인하고 Tracing에서 trace id로 찾는다. 바로 열려면 `http://localhost:25000/project/werft-local/traces/<trace_id>`로 간다. 세션 단위로 보려면 Sessions에서 `session_id`를 찾는다. 예제의 테스트 span으로 Langfuse 4.66.0에서 확인한 매핑은 다음과 같다.
 
 | span 속성 | Langfuse 화면 |
 |---|---|

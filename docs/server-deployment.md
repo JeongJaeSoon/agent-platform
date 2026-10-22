@@ -119,7 +119,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 - 알림: 명령의 non-zero exit, 서비스를 다시 열지 못한 경우, 26시간 동안 새 성공본이 없는 경우를 실패로 경보한다.
 - 복원 훈련: 한 달에 한 번, 그리고 업그레이드 뒤 첫 백업마다 [restore drill](test-ops.md#복원-훈련)을 `--keep`으로 실행한다. 출력된 drill project, 검증 로그와 loopback 포트를 기록하고 검사한 뒤, 출력된 명령으로 그 project만 지운다. S3 drill bucket은 같은 정본 절의 마지막 문단대로 legal hold, object version과 delete marker를 정리한 뒤 삭제한다.
 
-`restore-drill`은 postgres·object store·Gitea까지만 복원하고 API endpoint를 띄우지 않으므로, 이 결과를 세션 연속성 증거로 쓰지 않는다. [실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인-94s-324)은 synthetic project와 fake provider를 쓰는 제품 검증이며, 실운영 backup·provider transcript·paused 세션의 복구 증거가 아니다. 현재 도구만으로 그 실운영 연속성을 안전하게 검사할 수 없으므로 배포 증거에는 `UNVERIFIED`와 도구 공백을 기록하고, 별도 절차가 마련되기 전까지 복원 훈련을 `partial`로 판정한다.
+`restore-drill`은 postgres·object store·Gitea까지만 복원하고 API endpoint를 띄우지 않으므로, 이 결과를 세션 연속성 증거로 쓰지 않는다. [실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인)은 synthetic project와 fake provider를 쓰는 제품 검증이며, 실운영 backup·provider transcript·paused 세션의 복구 증거가 아니다. 현재 도구만으로 그 실운영 연속성을 안전하게 검사할 수 없으므로 배포 증거에는 `UNVERIFIED`와 도구 공백을 기록하고, 별도 절차가 마련되기 전까지 복원 훈련을 `partial`로 판정한다.
 
 ## 7. 업그레이드와 롤백을 연습한다
 
@@ -156,7 +156,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 
 - [ ] 시작, 1시간 뒤, 업무 종료 전에 `scripts/test-ops.sh status` 결과를 확인한다.
 - [ ] API·scheduler·reconciler 구조화 로그와 디스크·inode·quota를 확인한다.
-- [ ] [Datadog 모니터링 지침](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/monitoring-datadog.md)의 readyz, Docker 로그, host/disk monitor를 적용한다([94S-486](https://linear.app/94soon/issue/94S-486)). 그 문서가 아직 배포 release에 없다면 [test-ops 감시 지점](test-ops.md#감시-지점)을 임시 기준으로 사용하고 미적용 사실을 evidence에 적는다.
+- [ ] [Datadog 모니터링 지침](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/monitoring-datadog.md)의 readyz, Docker 로그, host/disk monitor를 적용한다. 그 문서가 아직 배포 release에 없다면 [test-ops 감시 지점](test-ops.md#감시-지점)을 임시 기준으로 사용하고 미적용 사실을 evidence에 적는다.
 - [ ] backup 자동 실행과 실패 알림을 시험하되 운영 backup을 삭제하지 않는다.
 - [ ] 사용자별 API key 전달과 폐기 연락 경로를 확인한다.
 - [ ] provider usage와 실제 비용을 확인하고 세션 상한과 Anthropic 월 상한을 기록한다.

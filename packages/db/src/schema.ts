@@ -569,8 +569,15 @@ export const sessions = pgTable(
     id: uuid().primaryKey(),
     claudeSessionId: text("claude_session_id"),
     ownerId: text("owner_id").notNull(),
-    repoUrl: text("repo_url").notNull(),
-    branch: text().notNull(),
+    // 'none' marks a session accepted without a repository. A null
+    // repository_id alone cannot say that: it already means a row from
+    // before the catalog, which no pair matches.
+    repositoryMode: text("repository_mode", { enum: ["repository", "none"] })
+      .notNull()
+      .default("repository"),
+    // Null exactly when repository_mode is 'none'.
+    repoUrl: text("repo_url"),
+    branch: text(),
     status: sessionStatus().notNull().default("queued"),
     admissionState: admissionState("admission_state")
       .notNull()
@@ -718,6 +725,10 @@ export const sessions = pgTable(
     check(
       "sessions_execution_revoked_check",
       sql`(${table.executionRevokedAt} IS NULL) = (${table.executionRevokedReason} IS NULL)`,
+    ),
+    check(
+      "sessions_repository_mode_check",
+      sql`(${table.repositoryMode} = 'repository' AND ${table.repoUrl} IS NOT NULL AND ${table.branch} IS NOT NULL) OR (${table.repositoryMode} = 'none' AND ${table.repositoryId} IS NULL AND ${table.repoUrl} IS NULL AND ${table.branch} IS NULL)`,
     ),
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)

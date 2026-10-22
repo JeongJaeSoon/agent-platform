@@ -80,6 +80,10 @@ select:focus-visible,
 [data-slot="app-sidebar"] :focus-visible {
   outline-color: var(--ap-color-rail-foreground);
 }
+/* The account menu is a light card over the rail: back to the usual ring. */
+[data-slot="app-sidebar"] [role="menu"] :focus-visible {
+  outline-color: var(--ap-color-focus-ring);
+}
 
 .web-auth {
   width: 100%;

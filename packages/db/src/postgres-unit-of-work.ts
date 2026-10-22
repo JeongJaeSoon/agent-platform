@@ -204,7 +204,7 @@ export function createPostgresSessionUnitOfWork(
           return unbound(input.agentReleaseId);
         }
 
-        if (!input.repository) {
+        if (input.repository === null || input.repository === "none") {
           return { outcome: "unsupported" };
         }
         if (!(await actorStillMember(tx, input.principal))) {

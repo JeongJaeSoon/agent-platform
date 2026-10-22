@@ -41,6 +41,24 @@ describe("planWorkspacePreparation", () => {
     ).toEqual({ action: "restore", checkpoint });
   });
 
+  test("a session without a repository is refused unless it restores a checkpoint", () => {
+    const repositoryless = { repository: null };
+    expect(
+      planWorkspacePreparation({
+        workspace: repositoryless,
+        restore: null,
+        observed: { kind: "empty" },
+      }),
+    ).toEqual({ action: "refuse", reason: "the session has no repository" });
+    expect(
+      planWorkspacePreparation({
+        workspace: repositoryless,
+        restore: checkpoint,
+        observed: { kind: "empty" },
+      }),
+    ).toEqual({ action: "restore", checkpoint });
+  });
+
   test("an empty root is cloned from the descriptor", () => {
     expect(plan({ kind: "empty" })).toEqual({
       action: "clone",

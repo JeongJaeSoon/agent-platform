@@ -1,5 +1,5 @@
 {
-  "id": "d61765cf-467b-49fe-8565-b61fb210a09b",
+  "id": "d8f1413b-2d55-41c3-a749-a5c9e5ad1a26",
   "prevId": "3d84446a-ae96-4ac3-862d-9b6cecb3e036",
   "version": "7",
   "dialect": "postgresql",
@@ -4789,17 +4789,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "repository_mode": {
+          "name": "repository_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'repository'"
+        },
         "repo_url": {
           "name": "repo_url",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "branch": {
           "name": "branch",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "status": {
           "name": "status",
@@ -5230,6 +5237,10 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
+        },
+        "sessions_repository_mode_check": {
+          "name": "sessions_repository_mode_check",
+          "value": "(\"sessions\".\"repository_mode\" = 'repository' AND \"sessions\".\"repo_url\" IS NOT NULL AND \"sessions\".\"branch\" IS NOT NULL) OR (\"sessions\".\"repository_mode\" = 'none' AND \"sessions\".\"repository_id\" IS NULL AND \"sessions\".\"repo_url\" IS NULL AND \"sessions\".\"branch\" IS NULL)"
         }
       },
       "isRLSEnabled": false
@@ -5820,7 +5831,7 @@
       "checkConstraints": {
         "worker_credentials_purpose_check": {
           "name": "worker_credentials_purpose_check",
-          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store', 'mcp')"
+          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store')"
         },
         "worker_credentials_binding_check": {
           "name": "worker_credentials_binding_check",

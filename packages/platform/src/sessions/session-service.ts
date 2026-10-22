@@ -305,8 +305,8 @@ export function createSessionService(deps: {
   function catalogAllows(record: {
     profile_id: string | null;
     repository_id: string | null;
-    repo_url: string;
-    branch: string;
+    repo_url: string | null;
+    branch: string | null;
     profile_fingerprint: string | null;
   }): boolean {
     const pair =

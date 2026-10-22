@@ -418,8 +418,15 @@
     {
       "idx": 150,
       "version": "7",
-      "when": 1792685947016,
-      "tag": "0150_worker_credentials_mcp",
+      "when": 1792685519228,
+      "tag": "0150_session_repository_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1792693135067,
+      "tag": "0151_worker_credentials_mcp",
       "breakpoints": true
     }
   ]

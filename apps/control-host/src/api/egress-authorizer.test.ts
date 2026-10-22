@@ -159,7 +159,7 @@ describe("egress authorizer", () => {
       },
     });
     const repository = await ask({
-      token: claim.workspace.repository.access?.token,
+      token: claim.workspace.repository?.access?.token,
       purpose: "repository",
     });
     expect(repository.status).toBe(200);
@@ -534,7 +534,7 @@ describe("the object store route's answers", () => {
   test("each token opens its own route and no other", async () => {
     const claim = await claimed();
     const target = `/claude-sessions/sessions/${claim.session_id}/x`;
-    const repository = claim.workspace.repository.access;
+    const repository = claim.workspace.repository?.access;
     if (repository === undefined) throw new Error("no repository token");
     for (const token of [
       claim.runtime_config.provider.auth.token,

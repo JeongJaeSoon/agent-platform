@@ -11,7 +11,7 @@
 
 ## scheduler RBAC
 
-worker namespace 하나에만 거는 `Role`이다. 어댑터가 실제로 부르는 동사만 담았고, chart(94S-526)가 이 목록 그대로 Role을 만든다.
+worker namespace 하나에만 거는 `Role`이다. 어댑터가 실제로 부르는 동사만 담았고, chart가 이 목록 그대로 Role을 만든다.
 
 | resource | verbs | 쓰는 곳 |
 | --- | --- | --- |

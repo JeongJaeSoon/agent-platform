@@ -45,6 +45,7 @@ import {
   type RegisterLaunchInput,
   type ReleaseInput,
   type ReleaseResult,
+  type RepositoryPair,
   type ResolvedCredential,
   type RestoreBaseInput,
   type RestoreBaseResult,
@@ -654,6 +655,24 @@ export async function readCheckpointPointer(
   };
 }
 
+function sessionRepositoryOf(
+  session: Pick<
+    SessionRow,
+    "id" | "repositoryMode" | "repositoryId" | "repoUrl" | "branch"
+  >,
+): { id: string | null; url: string; branch: string } | null {
+  if (session.repositoryMode === "none") return null;
+  // sessions_repository_mode_check rules this out.
+  if (session.repoUrl === null || session.branch === null) {
+    throw new Error(`Session ${session.id} has a repository but no URL`);
+  }
+  return {
+    id: session.repositoryId,
+    url: session.repoUrl,
+    branch: session.branch,
+  };
+}
+
 type RunnableFields = Pick<
   SessionRow,
   "profileId" | "profileFingerprint" | "repositoryId" | "repoUrl" | "branch"
@@ -661,6 +680,7 @@ type RunnableFields = Pick<
 
 function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
   return (
+    pair.repositoryId !== null &&
     pair.profileId === session.profileId &&
     pair.repositoryId === session.repositoryId &&
     pair.url === session.repoUrl &&
@@ -706,8 +726,12 @@ function replayableBinding(
 }
 
 // A row with no repository id predates the catalog and matches nothing.
-// The same predicate as runnablePairOf.
-export function runnableCondition(runnable: readonly RunnablePair[]): SQL {
+// No session is claimed without a repository yet, so a pair without one
+// matches nothing either. The same predicate as runnablePairOf.
+export function runnableCondition(all: readonly RunnablePair[]): SQL {
+  const runnable = all.filter(
+    (pair): pair is RepositoryPair => pair.repositoryId !== null,
+  );
   if (runnable.length === 0) return sql`false`;
   const pairs = sql.join(
     runnable.map(
@@ -910,11 +934,7 @@ async function bindingOf(
     profileFingerprint: session.profileFingerprint,
     unmetered: session.unmetered,
     ownerScope: session.ownerId,
-    repository: {
-      id: session.repositoryId,
-      url: session.repoUrl,
-      branch: session.branch,
-    },
+    repository: sessionRepositoryOf(session),
     ...(await withRestoreProfiles(
       tx,
       session.id,
@@ -1448,11 +1468,7 @@ export function createPostgresWorkerUnitOfWork(
           // The profile the attempt claimed: a change on the session since
           // reaches the next attempt, not the turn this one is running.
           profileId: fenced.attempt.profileId ?? fenced.session.profileId,
-          repository: {
-            id: fenced.session.repositoryId,
-            url: fenced.session.repoUrl,
-            branch: fenced.session.branch,
-          },
+          repository: sessionRepositoryOf(fenced.session),
           costUsd: fenced.session.costUsd,
           providerTokens: fenced.session.providerTokens,
         };

@@ -897,7 +897,7 @@ export function createWorkerGateway(deps: {
               mcpToken,
             ),
             workspace: {
-              repository: {
+              repository: binding.repository && {
                 ...binding.repository,
                 access: { kind: "egress_token", token: repositoryToken },
               },
@@ -1019,6 +1019,7 @@ export function createWorkerGateway(deps: {
         }
         return grant(providerUpstreamOf(profile));
       }
+      if (result.repository === null) moved("session's repository");
       const { id, url, branch } = result.repository;
       const pair =
         id !== null && result.profileId !== null
