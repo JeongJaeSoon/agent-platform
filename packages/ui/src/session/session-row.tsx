@@ -55,13 +55,23 @@ export function SessionRow({
   className,
 }: SessionRowProps): JSX.Element {
   const { runtime } = session;
+  const timestamp = (
+    <>
+      <span className="sr-only">
+        {session.last_event_at ? messages.lastEvent : messages.created}{" "}
+      </span>
+      <time dateTime={session.last_event_at ?? session.created_at}>
+        {formatTimestamp(session.last_event_at ?? session.created_at, locale)}
+      </time>
+    </>
+  );
   return (
     <div
       role="row"
       data-slot="session-row"
       data-status={session.status}
       className={cn(
-        "relative grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_120px] items-center gap-4 border-b px-4 py-2 text-control last:border-b-0 @[820px]:grid-cols-[minmax(0,2fr)_120px_120px_minmax(0,2fr)_minmax(72px,1fr)]",
+        "relative grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_120px] @[480px]:grid-cols-[minmax(0,1fr)_120px_136px] items-center gap-4 border-b px-4 py-2 text-control last:border-b-0 @[820px]:grid-cols-[minmax(0,2fr)_120px_120px_minmax(0,2fr)_minmax(72px,1fr)]",
         className,
       )}
     >
@@ -73,6 +83,9 @@ export function SessionRow({
           className:
             "after:absolute after:inset-0 after:rounded-sm outline-none hover:underline focus-visible:underline focus-visible:after:ring-2 focus-visible:after:ring-ring",
         })}
+        <span className="mt-1 block text-left font-sans text-muted-foreground text-caption @[480px]:hidden">
+          {timestamp}
+        </span>
       </span>
       <span role="cell">
         <SessionStatusLabel
@@ -103,14 +116,9 @@ export function SessionRow({
       </span>
       <span
         role="cell"
-        className="col-span-2 text-right text-muted-foreground text-caption @[820px]:col-span-1"
+        className="hidden text-right text-muted-foreground text-caption @[480px]:block"
       >
-        <span className="sr-only">
-          {session.last_event_at ? messages.lastEvent : messages.created}{" "}
-        </span>
-        <time dateTime={session.last_event_at ?? session.created_at}>
-          {formatTimestamp(session.last_event_at ?? session.created_at, locale)}
-        </time>
+        {timestamp}
       </span>
     </div>
   );
