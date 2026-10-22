@@ -7,19 +7,24 @@ import { Glob } from "bun";
  * uses any export of button.tsx covers button.tsx.
  */
 
-const UI_INDEX = `${import.meta.dir}/../../../packages/ui/src/index.ts`;
+const UI_SRC = `${import.meta.dir}/../../../packages/ui/src`;
+// The root index names the domain modules itself and re-exports each layer's
+// index, so every one of them is read.
+const UI_INDEXES = ["", "foundations/", "primitives/", "patterns/"];
 
 async function componentModules(): Promise<Map<string, string[]>> {
-  const index = await Bun.file(UI_INDEX).text();
   const modules = new Map<string, string[]>();
-  for (const match of index.matchAll(
-    /export\s*\{([^}]*)\}\s*from\s*"\.\/([^"]+\.tsx)"/g,
-  )) {
-    const names = (match[1] ?? "")
-      .split(",")
-      .map((name) => name.trim())
-      .filter((name) => /^[A-Z]/.test(name));
-    modules.set(match[2] ?? "", names);
+  for (const dir of UI_INDEXES) {
+    const index = await Bun.file(`${UI_SRC}/${dir}index.ts`).text();
+    for (const match of index.matchAll(
+      /export\s*\{([^}]*)\}\s*from\s*"\.\/([^"]+\.tsx)"/g,
+    )) {
+      const names = (match[1] ?? "")
+        .split(",")
+        .map((name) => name.trim())
+        .filter((name) => /^[A-Z]/.test(name));
+      modules.set(`${dir}${match[2] ?? ""}`, names);
+    }
   }
   return modules;
 }

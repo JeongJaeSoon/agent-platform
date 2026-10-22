@@ -8,7 +8,7 @@
 
 - fetch·권한 판정·상태 전이 정책을 넣지 않는다. URL도 만들지 않는다(`href`는 화면이 준다).
 - 런타임 의존성은 `react`·`react-dom`·`@werft-ai/contracts`(타입 전용)와 shadcn/ui가 쓰는
-  `@radix-ui/react-dialog`·`@radix-ui/react-slot`·`class-variance-authority`·`clsx`·`tailwind-merge`뿐이다.
+  `@radix-ui/react-checkbox`·`@radix-ui/react-dialog`·`@radix-ui/react-radio-group`·`@radix-ui/react-slot`·`@radix-ui/react-tabs`·`class-variance-authority`·`clsx`·`tailwind-merge`뿐이다.
 - Radix는 `src/primitives/` 안에서만 import한다. Dialog 구현이 둘이 되지 않게 하려는 것이다.
 - `src/package.test.ts`가 이 경계를 검사한다. 새 의존성을 넣으려면 그 테스트를 먼저 고쳐야 한다.
   worker 이미지는 모든 workspace의 dependencies를 설치하므로, 새 의존성은 `bun scripts/third-party-notices.ts`로
@@ -18,14 +18,14 @@
 
 `src/primitives/`는 shadcn/ui(new-york, Radix 판, Tailwind 4) 항목을 복사해 들인 것이다. 설정은 `components.json`에 있다.
 새 항목을 들일 때는 이 디렉터리에서 `bunx shadcn@<버전> add <이름>`으로 받은 뒤, 이 저장소 규칙에 맞게
-import를 상대 경로(`../lib/cn.ts`)로 바꾸고 `index.ts`로 내보낸다.
+import를 상대 경로(`../foundations/cn.ts`)로 바꾸고 `src/primitives/index.ts`로 내보낸다.
 upstream과 다른 점은 각 파일 머리 주석에 적었다. 공통으로 `dark:` variant를 쓰지 않는다. 다크는 토큰이 바꾸고,
 Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이다.
 
 - **색.** shadcn 의미 변수(`--primary`·`--border`·`--ring`…)는 `tokens.css`에서 `--ap-*`를 가리킨다. 값을 따로 갖지 않으므로
   다크 블록에 다시 적지 않는다. shadcn의 `accent`는 hover용 조용한 바탕이고, 우리 브랜드 색은 `primary`다.
   상태 색처럼 도메인 전용 색은 `--ap-tone-*`을 직접 쓴다.
-- **Tailwind 연결.** `src/theme.css`가 의미 변수를 `@theme inline`으로 유틸리티(`bg-primary` 등)에 잇는다. 쓰는 쪽 CSS는
+- **Tailwind 연결.** `src/foundations/theme.css`가 의미 변수를 `@theme inline`으로 유틸리티(`bg-primary` 등)에 잇는다. 쓰는 쪽 CSS는
   `tailwindcss`·`styles.css`·`theme.css` 순으로 import하고 `@source`로 이 패키지의 `src`를 스캔해야 한다
   (`apps/web/src/styles.css`가 예다). Tailwind 없이 쓰면 primitive는 모양 없이 그려진다.
 - **BEM과 함께.** `styles.css`의 `ap-*` 규칙은 layer 밖에 있어 Tailwind 유틸리티를 이긴다. `ConfirmDialog`는 이 성질로
@@ -33,7 +33,7 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 
 ## 토큰
 
-색·간격·타이포·radius·shadow·모션은 `src/tokens.css` **한 곳**에만 있다. 라이트가 기본이고,
+색·간격·타이포·radius·shadow·모션은 `src/foundations/tokens.css` **한 곳**에만 있다. 라이트가 기본이고,
 다크는 시스템 설정(`prefers-color-scheme`)과 수동 전환(`:root[data-theme="dark"]`) 양쪽으로 온다.
 
 Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커스텀 프로퍼티를 쓴다.
@@ -53,15 +53,17 @@ Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커�
 
 ## 들어 있는 것
 
-| 컴포넌트 | 하는 일 |
-|---|---|
-| `StatusLabel` | admission·turn·receipt·execution **네 축**을 각각의 문구·색·아이콘으로. 한 배지로 합치지 않는다(§4.1) |
-| `ReceiptSummary` · `ReceiptLink` | 접수(`accepted`)와 확정(`succeeded`)을 구분해서 그린다. `unknown`은 성공으로 그리지 않는다 |
-| `EmptyState` · `ErrorState` · `Skeleton` | 빈 화면은 조용하게, 오류는 `error.code`별 "할 일"을 원문보다 먼저 |
-| `ConfirmDialog` · `DestructiveActionDialog` | shadcn Dialog 위. 결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다 |
-| `Button` · `Badge` · `Card` · `Dialog*` | shadcn primitive. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
+`src`는 아는 것에 따라 층으로 나뉜다. 층마다 `index.ts`가 있고, 루트 `src/index.ts`가 층 index를 다시 내보낸다.
+층 안의 파일끼리는 index를 거치지 않고 파일 경로로 import한다.
 
-`Timeline`·`Message`·`Composer`·`ApprovalCard`는 I1-3~5에서, `ArtifactPreview`는 I4-9에서 온다.
+| 층 · 디렉터리 | 아는 것 | 들어 있는 것 |
+|---|---|---|
+| foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `formatTimestamp` |
+| primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
+| patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
+| (도메인) `src/session/`·`src/status/`·`src/receipt/`·`src/feedback/` | `@werft-ai/contracts` 타입 | `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ErrorState`(`error.code`별 "할 일"을 원문보다 먼저), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`QuestionCard`·`StageIndicator` |
+
+도메인 파일은 `packages/react`로 옮길 예정이라 층 디렉터리에 넣지 않았다. 루트 index가 이름을 직접 내보낸다.
 
 ## 테스트
 
@@ -76,7 +78,7 @@ Tailwind 4의 `@theme` 블록 대신 `--ap-` 접두사를 붙인 평범한 커�
    `await import(...)`로 가져온다. 자세한 사정은 `src/test-support/dom.ts`에 적어 뒀다.
 
 레이아웃 엔진이 없는 환경이라 "360px에서 가로 스크롤 없음"과 "`prefers-reduced-motion` 존중"은
-렌더로 관측할 수 없다. 둘 다 `src/styles.test.ts`가 스타일시트의 성질로 검사한다.
+렌더로 관측할 수 없다. 둘 다 `src/foundations/styles.test.ts`가 스타일시트의 성질로 검사한다.
 
 ## 눈으로 보기
 

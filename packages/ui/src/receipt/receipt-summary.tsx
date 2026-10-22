@@ -7,9 +7,9 @@ import type {
 import type { JSX, ReactNode } from "react";
 
 import { guidanceFor } from "../feedback/error-guidance.ts";
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
+import { formatTimestamp } from "../foundations/format-timestamp.ts";
 import { StatusLabel } from "../status/status-label.tsx";
-import { formatTimestamp } from "./format-timestamp.ts";
 
 export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   create_session: "세션 시작",

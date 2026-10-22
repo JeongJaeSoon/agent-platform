@@ -1,6 +1,6 @@
 import type { JSX, ReactNode } from "react";
 
-import { cn } from "../lib/cn.ts";
+import { cn } from "../foundations/cn.ts";
 
 export interface EmptyStateProps {
   readonly title: string;
