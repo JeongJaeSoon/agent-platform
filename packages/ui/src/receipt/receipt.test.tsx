@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RECEIPT_STATUS_VALUES } from "@agent-platform/contracts";
+import { RECEIPT_STATUS_VALUES } from "@werft-ai/contracts";
 
 import { describeStatus } from "../status/vocabulary.ts";
 import { setupDom } from "../test-support/dom.ts";
@@ -186,6 +186,15 @@ describe("formatTimestamp", () => {
     // …and the one after it rolls over to the next, at hour 00 rather than 24.
     expect(formatTimestamp("2026-09-21T15:00:00.000Z")).toBe(
       "2026. 09. 22. 00:00",
+    );
+  });
+
+  test("en은 영어 월 이름으로, 같은 서울 시각을 쓴다", () => {
+    expect(formatTimestamp("2026-09-21T02:15:00.000Z", "en")).toBe(
+      "Sep 21, 2026, 11:15",
+    );
+    expect(formatTimestamp("2026-09-21T15:00:00.000Z", "en")).toBe(
+      "Sep 22, 2026, 00:00",
     );
   });
 

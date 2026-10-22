@@ -1,0 +1,1 @@
+ALTER TABLE "checkpoints" ADD COLUMN "transcript_bytes" bigint;

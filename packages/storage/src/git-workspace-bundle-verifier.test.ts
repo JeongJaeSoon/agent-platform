@@ -15,7 +15,7 @@ import {
   createGitBundleChain,
   type GitBundleFixture,
   verifyBundleBytes,
-} from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/git-bundle";
 
 import {
   createGitWorkspaceBundleVerifier,

@@ -1,18 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
-  type ApiErrorCode,
-  apiErrorResponseSchema,
-} from "@agent-platform/contracts";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
-import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
   type SessionCatalog,
   type SessionControl,
   type SessionReader,
   type SessionUnitOfWork,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 
@@ -65,8 +62,13 @@ function app(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     catalog,
+    releases: {
+      resolveRelease: async () => {
+        throw new Error("not reached");
+      },
+    },
     inputs: {
       acceptInputAtomic: async () => {
         throw new Error("not reached");
@@ -83,10 +85,16 @@ function app(
       pauseAtomic: async () => {
         throw new Error("not reached");
       },
+      closeAtomic: async () => {
+        throw new Error("not reached");
+      },
       decideRecoveryAtomic: async () => {
         throw new Error("not reached");
       },
       resumeAtomic: async () => {
+        throw new Error("not reached");
+      },
+      changeProfileAtomic: async () => {
         throw new Error("not reached");
       },
       ...overrides,
@@ -164,6 +172,11 @@ describe("POST /v1/sessions validation", () => {
     const disallowed = await request({ ...valid, repository_id: "other-app" });
     expect(disallowed.status).toBe(422);
     expect(await errorCode(disallowed)).toBe("UNSUPPORTED_CAPABILITY");
+  });
+
+  test("a key from before workspaces names no agent release", async () => {
+    const response = await post({ ...valid, agent_release_id: "rel-1" });
+    expect(response.status).toBe(404);
   });
 
   test("replays an accepted receipt even when the catalog no longer lists the profile", async () => {
@@ -816,7 +829,22 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         sessionTokenLimit: null,
       },
       authorization: {
-        authorize: (_actor, action) => action !== "sessions:recover",
+        authorize: async ({ action }) =>
+          action === "session.recover"
+            ? {
+                outcome: "deny",
+                reason_code: "role",
+                effective_scopes: [],
+                policy_version: "test",
+                decision_id: crypto.randomUUID(),
+              }
+            : {
+                outcome: "allow",
+                reason_code: "ok",
+                effective_scopes: [],
+                policy_version: "test",
+                decision_id: crypto.randomUUID(),
+              },
       },
       catalog,
       inputs: {
@@ -834,10 +862,16 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         pauseAtomic: async () => {
           throw new Error("not reached");
         },
+        closeAtomic: async () => {
+          throw new Error("not reached");
+        },
         decideRecoveryAtomic: async () => {
           throw new Error("must not reach the transaction");
         },
         resumeAtomic: async () => {
+          throw new Error("not reached");
+        },
+        changeProfileAtomic: async () => {
           throw new Error("not reached");
         },
       },

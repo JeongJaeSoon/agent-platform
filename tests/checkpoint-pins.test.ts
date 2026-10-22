@@ -3,45 +3,50 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
   type CheckpointPointer,
   createCheckpointService,
   manifestRefFor,
   profileFingerprint,
+  profileWithModel,
   resolveSessionCatalog,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   ClaudeSessionStore,
   claudeCheckpointCodec,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/runtime-claude";
 import type {
   CheckpointManifest,
   ObjectRef,
   TranscriptRevision,
-} from "@agent-platform/runtime-core";
-import { createGitWorkspaceBundleVerifier } from "@agent-platform/storage";
+} from "@werft-ai/runtime-core";
+import { createGitWorkspaceBundleVerifier } from "@werft-ai/storage";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 import {
   createGitBundle,
   createGitBundleChain,
   type GitBundleFixture,
-} from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/git-bundle";
 import { readCatalogConfig } from "../apps/control-host/src/api/catalog-config.ts";
 import {
   imageClaimFingerprint,
   imageRuntimeOf,
 } from "../apps/worker/src/image-runtime.ts";
 import {
+  alternateDigests,
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
   captureCheckpointObjects,
   describeMismatches,
+  earlierProfileClaims,
+  earlierProfileKey,
   parseImageRuntime,
   planRepin,
   planRuntime,
@@ -235,6 +240,7 @@ async function restorePlan(
   pointer: CheckpointPointer,
   seeded: Seeded,
   runtime = seeded.manifest.runtime,
+  alternateProfileSha256s?: readonly string[],
 ) {
   const service = createCheckpointService({
     codecs,
@@ -251,6 +257,9 @@ async function restorePlan(
   });
   return service.getRestorePlan({
     runtime,
+    ...(alternateProfileSha256s === undefined
+      ? {}
+      : { alternateProfileSha256s }),
     sessionId: seeded.row.sessionId,
   });
 }
@@ -772,6 +781,149 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     if (result.status !== "incompatible") return;
     expect(describeMismatches(result.mismatches)).toBe(
       `profileSha256 ${sealedDigest} → ${changedDigest}`,
+    );
+  });
+
+  test("a session whose profile was changed is planned with the digest of the profile its checkpoint was made under", async () => {
+    const resolved = await catalog();
+    const earlierProfile = resolved.profiles[PROFILE_ID] as CatalogProfile;
+    const repository = resolved.repositories[REPOSITORY_ID];
+    if (repository === undefined) throw new Error("no sample repository");
+    const switchedProfile = { ...earlierProfile, model: "claude-haiku-4-5" };
+    const switchedCatalog = {
+      profiles: { ...resolved.profiles, "switch-haiku": switchedProfile },
+      repositories: {
+        ...resolved.repositories,
+        [REPOSITORY_ID]: {
+          ...repository,
+          profiles: [...repository.profiles, "switch-haiku"],
+        },
+      },
+    };
+    const earlierClaim = sessionClaim(await sessionOf({}), switchedCatalog);
+    const objects = createMemoryCheckpointObjectStore({ versioned: true });
+    const seeded = await seed(
+      objects,
+      [],
+      undefined,
+      imageClaimFingerprint(earlierClaim).profileSha256,
+    );
+    const { sessionId } = seeded.row;
+    const pointer = pointerOf({
+      ...seeded.row,
+      manifestVersion: seeded.row.manifestVersion as string,
+    });
+    const key = earlierProfileKey(sessionId, PROFILE_ID);
+    const image = imageOf({
+      [sessionId]: sessionClaim(
+        await sessionOf({
+          profileId: "switch-haiku",
+          profileFingerprint: profileFingerprint(switchedProfile),
+        }),
+        switchedCatalog,
+      ),
+      [key]: earlierClaim,
+    });
+    const runtime = planRuntime(seeded.manifest.runtime, image, sessionId);
+
+    expect((await restorePlan(objects, pointer, seeded, runtime)).status).toBe(
+      "incompatible",
+    );
+    expect(
+      (
+        await restorePlan(
+          objects,
+          pointer,
+          seeded,
+          runtime,
+          alternateDigests(image, [key]),
+        )
+      ).status,
+    ).toBe("ready");
+    expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
+  });
+
+  test("earlier profiles are offered as the gateway's claim offers them", async () => {
+    const resolved = await catalog();
+    const base = resolved.profiles[PROFILE_ID] as CatalogProfile;
+    const repository = resolved.repositories[REPOSITORY_ID];
+    if (repository === undefined) throw new Error("no sample repository");
+    const extra = Array.from({ length: 18 }, (_, n) => `p${n}`);
+    const switched = {
+      profiles: {
+        ...resolved.profiles,
+        ...Object.fromEntries(
+          extra.map((id) => [id, { ...base, model: `model-${id}` }]),
+        ),
+      },
+      // The repository no longer allows the first profile it ran.
+      repositories: {
+        ...resolved.repositories,
+        [REPOSITORY_ID]: { ...repository, profiles: ["p0"] },
+      },
+    };
+    const made = (id: string) => ({
+      profileId: id,
+      profileFingerprint: profileFingerprint(
+        switched.profiles[id] as CatalogProfile,
+      ),
+    });
+    const session = { id: "s1", ownerId: "owner-1" };
+
+    const unpaired = earlierProfileClaims(
+      session,
+      [made(PROFILE_ID)],
+      switched,
+    );
+    expect(unpaired.map(([key]) => key)).toEqual([
+      earlierProfileKey("s1", PROFILE_ID),
+    ]);
+    expect(unpaired[0]?.[1].principal.owner_scope).toBe("owner-1");
+
+    expect(
+      earlierProfileClaims(
+        session,
+        [
+          { profileId: PROFILE_ID, profileFingerprint: "sha256:other" },
+          { profileId: "gone", profileFingerprint: "sha256:x" },
+        ],
+        switched,
+      ),
+    ).toEqual([]);
+
+    // A checkpoint made on another of the profile's models is offered with
+    // that model.
+    const offering = {
+      ...switched,
+      profiles: {
+        ...switched.profiles,
+        [PROFILE_ID]: { ...base, models: ["model-long"] },
+      },
+    };
+    const onLong = profileWithModel(
+      offering.profiles[PROFILE_ID] as CatalogProfile,
+      "model-long",
+    );
+    if (!onLong) throw new Error("the profile offers model-long");
+    const longClaims = earlierProfileClaims(
+      session,
+      [
+        {
+          profileId: PROFILE_ID,
+          profileFingerprint: profileFingerprint(onLong),
+        },
+      ],
+      offering,
+    );
+    expect(longClaims.map(([, claim]) => claim.runtime_config.model)).toEqual([
+      "model-long",
+    ]);
+
+    const many = earlierProfileClaims(session, extra.map(made), switched);
+    expect(many.map(([key]) => key)).toEqual(
+      extra
+        .slice(0, MAX_RESTORE_PROFILES)
+        .map((id) => earlierProfileKey("s1", id)),
     );
   });
 

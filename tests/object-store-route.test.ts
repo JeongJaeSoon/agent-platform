@@ -7,16 +7,6 @@ import {
   test,
 } from "bun:test";
 import {
-  type CredentialProxyServer,
-  startCredentialProxy,
-} from "@agent-platform/egress-proxy/src/credential.ts";
-import {
-  createLocalstackBucket,
-  type LocalstackBucket,
-  localstackEnabled,
-  localstackEnv,
-} from "@agent-platform/testkit/localstack";
-import {
   CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -28,6 +18,16 @@ import {
   S3Client,
   S3ServiceException,
 } from "@aws-sdk/client-s3";
+import {
+  type CredentialProxyServer,
+  startCredentialProxy,
+} from "@werft-ai/egress-proxy/src/credential.ts";
+import {
+  createLocalstackBucket,
+  type LocalstackBucket,
+  localstackEnabled,
+  localstackEnv,
+} from "@werft-ai/testkit/localstack";
 import {
   createWorkerObjectStore,
   objectStoreConfigFromEnv,

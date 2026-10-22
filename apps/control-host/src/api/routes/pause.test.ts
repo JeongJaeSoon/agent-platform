@@ -1,14 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { type ApiErrorCode, apiErrorResponseSchema } from "@werft-ai/contracts";
 import {
-  type ApiErrorCode,
-  apiErrorResponseSchema,
-} from "@agent-platform/contracts";
-import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   type PauseSessionResult,
   type SessionControl,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPauseRoutes } from "./pause.ts";
 
@@ -34,14 +31,16 @@ function pause(
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     catalog: { profiles: {}, repositories: {} },
     inputs: { acceptInputAtomic: notReached, appendInputAtomic: notReached },
     controls: {
       terminateAtomic: notReached,
       pauseAtomic,
+      closeAtomic: notReached,
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
+      changeProfileAtomic: notReached,
     },
     reader: {
       listSessions: notReached,

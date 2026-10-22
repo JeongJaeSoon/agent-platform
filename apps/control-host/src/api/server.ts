@@ -1,33 +1,58 @@
-import { REQUEST_BODY_MAX_BYTES } from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
+  createDatabaseAgentAuthority,
+  createDatabaseIdentityReader,
+  createPostgresAgentAdminStore,
+  createPostgresAgentIdentityStore,
+  createPostgresAgentStore,
+  createPostgresAuditRetention,
+  createPostgresCredentialBindingStore,
+  createPostgresDecisionLog,
+  createPostgresInviteStore,
+  createPostgresLinkedAccountStore,
+  createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresPullRequests,
   createPostgresPushRequests,
   createPostgresSessionControl,
   createPostgresSessionReader,
+  createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
+  createPostgresSlackGuestSetting,
+  createPostgresTeamStore,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
+  createPostgresWorkspaceKeyStore,
   hasUncollectedCheckpoint,
-} from "@agent-platform/db";
-import { createLogger, sanitizeText } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
-  allowAllPolicy,
   catalogRevision,
+  createAgentAdminService,
+  createAgentIdentityService,
+  createAgentService,
+  createApiKeyService,
+  createAuthorizationPolicy,
+  createCredentialBindingService,
   createInterruptService,
+  createInviteService,
+  createLinkedAccountService,
+  createMemberService,
   createPendingRequestService,
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
   createSessionService,
+  createSessionShareService,
+  createTeamService,
   createUsageService,
   createWorkerGateway,
   InstallationConfigError,
   installationLimitsFromEnv,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   API_READINESS_REQUIRED_ENV,
@@ -36,7 +61,12 @@ import {
   apiSettingsFromEnv,
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
-import { bootstrapGateFromEnv, DatabaseIdentityStore } from "./auth.ts";
+import {
+  bootstrapGateFromEnv,
+  DatabaseIdentityStore,
+  LoginLockout,
+  WorkGate,
+} from "./auth.ts";
 import {
   DEFAULT_CONFIG_DIR,
   loadSessionCatalog,
@@ -58,22 +88,39 @@ import {
 } from "./egress-authorizer.ts";
 import { forgesOf } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
-import { DatabaseApiKeyStore } from "./keys.ts";
+import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
+import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
+import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerCloseRoutes } from "./routes/close.ts";
+import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import {
+  registerInviteRoutes,
+  registerPublicInviteRoutes,
+} from "./routes/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
+import { registerMemberRoutes } from "./routes/members.ts";
 import { registerPauseRoutes } from "./routes/pause.ts";
 import { registerPendingRoutes } from "./routes/pending.ts";
+import { registerProfileRoutes } from "./routes/profiles.ts";
 import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/push-requests.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
+import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
+import { slackOidcConfigFromEnv } from "./slack-link.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -163,8 +210,27 @@ const checkpoints = createApiCheckpoints(
   checkpointStorage,
   checkpointGitMemoryBytes,
 );
+const credentialBindings = createPostgresCredentialBindingStore(db);
+const slackGuests = createPostgresSlackGuestSetting(db);
+const sessionShares = createPostgresSessionShareStore(db);
+const authorization = createAuthorizationPolicy({
+  ...(authMode === "none"
+    ? {}
+    : { identity: createDatabaseIdentityReader(db) }),
+  agents: createDatabaseAgentAuthority(db),
+  credentials: credentialBindings,
+  slackGuests,
+  sessions: sessionShares,
+  decisions: createPostgresDecisionLog(db),
+});
+const agents = createAgentService({
+  authorization,
+  store: createPostgresAgentStore(db),
+  catalog,
+  credentials: credentialBindings,
+});
 const sessions = createSessionService({
-  authorization: allowAllPolicy,
+  authorization,
   inputs: createPostgresSessionUnitOfWork(db),
   controls: createPostgresSessionControl(db, {
     connect: () => pool.connect(),
@@ -172,29 +238,78 @@ const sessions = createSessionService({
   }),
   reader: createPostgresSessionReader(db, { logger }),
   catalog,
+  releases: agents,
+  credentials: credentialBindings,
   limits,
 });
 // The same parsed limits admission and dispatch run under, so what this
 // reports is what the gates enforce.
 const usage = createUsageService({
-  authorization: allowAllPolicy,
+  authorization,
   reader: createPostgresUsageReader(db),
   limits,
 });
 const pendingRequests = createPendingRequestService({
-  authorization: allowAllPolicy,
+  authorization,
   store: createPostgresPendingRequests(db),
 });
+const members = createMemberService({
+  authorization,
+  store: createPostgresMemberStore(db),
+});
+const agentIdentities = createAgentIdentityService({
+  authorization,
+  store: createPostgresAgentIdentityStore(db),
+});
+const linkedAccounts = createLinkedAccountService({
+  authorization,
+  store: createPostgresLinkedAccountStore(db),
+});
+const slackOidc = slackOidcConfigFromEnv(process.env);
+if (slackOidc === null) {
+  logger.warn(
+    "Sign in with Slack is off (SLACK_OIDC_CLIENT_ID unset); Slack accounts cannot be linked",
+    {},
+  );
+}
+const credentialBindingService = createCredentialBindingService({
+  authorization,
+  store: credentialBindings,
+});
+const apiKeys = createApiKeyService({
+  authorization,
+  store: createPostgresWorkspaceKeyStore(db),
+  mint: () => {
+    const secret = generateApiKey();
+    return { secret, hash: hashApiKey(secret) };
+  },
+});
+const shares = createSessionShareService({
+  authorization,
+  store: sessionShares,
+});
+const teams = createTeamService({
+  authorization,
+  store: createPostgresTeamStore(db),
+});
+const agentAdmins = createAgentAdminService({
+  authorization,
+  store: createPostgresAgentAdminStore(db),
+});
+const inviteStore = createPostgresInviteStore(db);
+const invites = createInviteService({ authorization, store: inviteStore });
 // One adapter per repository, shared by clone (the gateway), push and pull
 // requests, so all draw on one token cache.
 const forges = forgesOf(catalog, { logger });
 const pushStore = createPostgresPushRequests(db);
 const pushRequests = createPushRequestService({
+  authorization,
   store: pushStore,
   source: checkpoints.pushSource,
   catalog,
 });
 const pullRequests = createPullRequestService({
+  authorization,
   store: createPostgresPullRequests(db),
   catalog,
   forges,
@@ -209,9 +324,10 @@ const pushExecutor = createPushExecutor({
   logger,
 }).start();
 const interrupts = createInterruptService({
-  authorization: allowAllPolicy,
+  authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
 });
+const shutdown = createShutdown({ logger });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
@@ -231,6 +347,7 @@ const workers = createWorkerGateway({
     // How long a permission or question takes answers. The worker waits
     // exactly this long once the request is registered.
     pendingTtlMs: settings.pendingTtlMs,
+    stopWaiting: shutdown.stopWaiting,
   },
 });
 // The egress proxy's authorizer, on a port of its own that no
@@ -269,8 +386,22 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
+const google = googleLoginConfigFromEnv(process.env);
+if (google.problems.length > 0) {
+  throw new Error(
+    `Invalid Google sign-in settings: ${google.problems.join("; ")}`,
+  );
+}
+// One window and one hashing gate for every account password check (login,
+// the reset issuer's re-check, invite accept), so no route resets another's
+// count.
+const lockout = new LoginLockout();
+const passwordWork = new WorkGate();
 const auth = {
   identity,
+  ...(google.config ? { google: createGoogleLogin(google.config) } : {}),
+  lockout,
+  passwordWork,
   bootstrap: await bootstrapGateFromEnv(
     process.env.BOOTSTRAP_TOKEN,
     identity,
@@ -279,23 +410,55 @@ const auth = {
   logger,
 };
 const probePool = createProbePool(databaseUrl, logger);
-const shutdown = createShutdown({ logger });
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
   keyStore: new DatabaseApiKeyStore(db),
   identity,
-  registerPublicRoutes: (router) => registerPublicAuthRoutes(router, auth),
+  authorization,
+  registerPublicRoutes: (router) => {
+    registerPublicAuthRoutes(router, auth);
+    registerPublicInviteRoutes(router, {
+      invites: inviteStore,
+      identity,
+      lockout,
+      passwordWork,
+      logger,
+    });
+  },
   registerRoutes: (router) => {
     registerAuthRoutes(router, auth);
+    registerInviteRoutes(router, invites);
+    registerWorkspaceRoutes(router, {
+      authorization,
+      retention: createPostgresAuditRetention(db),
+      slackGuests,
+    });
     registerSessionRoutes(router, sessions);
+    registerSessionShareRoutes(router, shares, sessions);
     registerPauseRoutes(router, sessions);
+    registerCloseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
+    registerProfileRoutes(router, catalog);
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
     registerInterruptRoutes(router, interrupts);
+    registerLinkedAccountRoutes(router, {
+      service: linkedAccounts,
+      slack: slackOidc,
+      logger,
+    });
+    registerMemberRoutes(router, members, invites);
+    registerAgentRoutes(router, agents);
+    registerAgentIdentityRoutes(router, {
+      service: agentIdentities,
+      logger,
+    });
+    registerApiKeyRoutes(router, apiKeys);
+    registerTeamRoutes(router, teams, agentAdmins);
+    registerCredentialBindingRoutes(router, credentialBindingService);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
@@ -303,6 +466,9 @@ const app = createApiApp({
     });
   },
   registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
+  ...(settings.webDistDir === undefined
+    ? {}
+    : { webDistDir: settings.webDistDir }),
   readiness: shutdown.readiness(
     createReadinessProbe({
       db: probePool,

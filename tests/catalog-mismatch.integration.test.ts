@@ -5,12 +5,12 @@ import {
   getReceiptResponseSchema,
   getSessionResponseSchema,
   listTurnsResponseSchema,
-} from "@agent-platform/contracts";
-import { createApiApp } from "@agent-platform/control-host/src/api/app.ts";
-import { registerReceiptRoutes } from "@agent-platform/control-host/src/api/routes/receipts.ts";
-import { registerSessionRoutes } from "@agent-platform/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "@agent-platform/control-host/src/api/routes/worker.ts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import { createApiApp } from "@werft-ai/control-host/src/api/app.ts";
+import { registerReceiptRoutes } from "@werft-ai/control-host/src/api/routes/receipts.ts";
+import { registerSessionRoutes } from "@werft-ai/control-host/src/api/routes/sessions.ts";
+import { registerWorkerRoutes } from "@werft-ai/control-host/src/api/routes/worker.ts";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSchedulerStore,
   createPostgresSessionControl,
@@ -19,10 +19,10 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   queueMessages,
-} from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
   type EnsureExecutionResult,
@@ -34,12 +34,9 @@ import {
   runScheduler,
   type SessionCatalog,
   type TerminateExecutionResult,
-} from "@agent-platform/platform";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-} from "@agent-platform/runtime-claude";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/platform";
+import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -289,7 +286,7 @@ integration("a session whose pair left the catalog, end to end", () => {
 
   const serviceFor = (catalog: SessionCatalog) =>
     createSessionService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),

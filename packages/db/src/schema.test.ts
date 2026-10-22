@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 import {
   ADMISSION_STATE_VALUES,
+  CREDENTIAL_REF_PATTERN as CONTRACT_CREDENTIAL_REF_PATTERN,
+  CREDENTIAL_BINDING_TARGET_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
-} from "@agent-platform/contracts";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/contracts";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {
   admissionState,
+  CREDENTIAL_BINDING_TARGETS,
+  CREDENTIAL_REF_PATTERN,
   checkpoints,
   events,
   idempotencyKeys,
@@ -35,6 +39,10 @@ afterEach(async () => {
 describe("database schema", () => {
   test("uses the contract session status values", () => {
     expect(sessionStatus.enumValues).toEqual([...SESSION_STATUS_VALUES]);
+    expect(CREDENTIAL_BINDING_TARGETS).toEqual(
+      CREDENTIAL_BINDING_TARGET_VALUES,
+    );
+    expect(CREDENTIAL_REF_PATTERN).toBe(CONTRACT_CREDENTIAL_REF_PATTERN);
   });
 
   test("uses the contract admission and receipt status values", () => {
@@ -50,25 +58,43 @@ describe("database schema", () => {
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
+      "agent_activation_events",
+      "agent_admin_teams",
+      "agent_admins",
+      "agent_identities",
+      "agent_releases",
+      "agent_versions",
+      "agents",
       "api_keys",
       "attempts",
+      "authz_decisions",
+      "bootstrap_token_uses",
       "catalog_authority",
       "checkpoints",
       "control_intents",
+      "credential_bindings",
       "events",
       "executions",
       "grants",
       "idempotency_keys",
       "invites",
+      "linked_accounts",
+      "login_methods",
+      "member_team_members",
+      "member_teams",
       "memberships",
       "owner_workspace_map",
+      "password_resets",
       "pending_requests",
       "provider_usage",
       "pull_requests",
       "push_requests",
       "queue_messages",
       "receipts",
+      "session_share_targets",
+      "session_shares",
       "sessions",
+      "slack_installations",
       "storage_usage",
       "turns",
       "unassigned_sessions",
@@ -207,9 +233,13 @@ describe("database schema", () => {
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'api_keys' ORDER BY column_name",
     );
     expect(columns.rows.map(({ column_name }) => column_name)).toEqual([
+      "agent_id",
       "created_at",
+      "created_by_user_id",
+      "expires_at",
       "id",
       "key_hash",
+      "kind",
       "owner_id",
       "revoked_at",
       "scopes",

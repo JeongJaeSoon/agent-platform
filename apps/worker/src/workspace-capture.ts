@@ -10,8 +10,8 @@ import {
   DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   gitBundleOffersFrom,
   readWorkspaceFile,
-} from "@agent-platform/runtime-core";
-import type { GitResourceLimits } from "@agent-platform/system";
+} from "@werft-ai/runtime-core";
+import type { GitResourceLimits } from "@werft-ai/system";
 
 import {
   check,

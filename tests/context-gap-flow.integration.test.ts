@@ -6,14 +6,14 @@ import {
   getReceiptResponseSchema,
   getSessionResponseSchema,
   type SessionDetail,
-} from "@agent-platform/contracts";
-import { createApiApp } from "@agent-platform/control-host/src/api/app.ts";
-import { registerEventRoutes } from "@agent-platform/control-host/src/api/routes/events.ts";
-import { registerReceiptRoutes } from "@agent-platform/control-host/src/api/routes/receipts.ts";
-import { registerSessionRoutes } from "@agent-platform/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "@agent-platform/control-host/src/api/routes/worker.ts";
-import { PostgresSessionNotifier } from "@agent-platform/control-host/src/api/session-notifier.ts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import { createApiApp } from "@werft-ai/control-host/src/api/app.ts";
+import { registerEventRoutes } from "@werft-ai/control-host/src/api/routes/events.ts";
+import { registerReceiptRoutes } from "@werft-ai/control-host/src/api/routes/receipts.ts";
+import { registerSessionRoutes } from "@werft-ai/control-host/src/api/routes/sessions.ts";
+import { registerWorkerRoutes } from "@werft-ai/control-host/src/api/routes/worker.ts";
+import { PostgresSessionNotifier } from "@werft-ai/control-host/src/api/session-notifier.ts";
+import * as schema from "@werft-ai/db";
 import {
   attempts,
   createPostgresSessionControl,
@@ -24,21 +24,21 @@ import {
   queueMessages,
   turns,
   unassignedSessions,
-} from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
-} from "@agent-platform/platform";
-import { FakeAgentRuntime } from "@agent-platform/runtime-claude";
+} from "@werft-ai/platform";
+import { FakeAgentRuntime } from "@werft-ai/runtime-claude";
 import type {
   CheckpointPreparation,
   NativeSdkMessage,
-} from "@agent-platform/runtime-core";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/runtime-core";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -142,6 +142,42 @@ function checkpointPort(
   return { port, restores, captures };
 }
 
+/**
+ * A port whose publish fails the way SessionCheckpoints reports it: the
+ * ready capture yields no ref, and `publish_failed` reaches the gateway
+ * under the turn's scope through the worker's own client.
+ */
+function failingPublishPort(
+  gateway: HttpWorkerGatewayClient,
+  engineOf: (revision: number) => string,
+) {
+  const restores: Array<CheckpointRef | null> = [];
+  const captures: CheckpointPreparation[] = [];
+  const port: WorkerCheckpointPort = {
+    restorePlan: async ({ restore }) => {
+      restores.push(restore);
+      return restore === null
+        ? { mode: "new" }
+        : { mode: "resume", resume: engineOf(restore.revision) };
+    },
+    capture: async (preparation, context) => {
+      captures.push(preparation);
+      if (preparation.status === "ready") {
+        await gateway.requestCheckpoint({
+          ...context.scope,
+          preparation: {
+            status: "rejected",
+            reason: "publish_failed",
+            detail: "publish: store unavailable",
+          },
+        });
+      }
+      return null;
+    },
+  };
+  return { port, restores, captures };
+}
+
 integration(
   "a replaced worker without a covering checkpoint never silently drops the conversation",
   () => {
@@ -161,7 +197,7 @@ integration(
       notifier = new PostgresSessionNotifier(database.url, logger);
       await notifier.start();
       const sessions = createSessionService({
-        authorization: allowAllPolicy,
+        authorization: createAuthorizationPolicy(),
         inputs: createPostgresSessionUnitOfWork(db),
         controls: createPostgresSessionControl(db),
         reader: createPostgresSessionReader(db),
@@ -177,6 +213,16 @@ integration(
         work: createPostgresWorkerUnitOfWork(db),
         catalog,
         checkpoints: { verify: async () => ({ status: "verified" }) },
+        // The gateway records a rejected capture only when a store is
+        // configured; the ports here never ask it for a key.
+        checkpointProtocol: {
+          async requestCheckpoint() {
+            throw new Error("no checkpoint store in these tests");
+          },
+          async getRestorePlan() {
+            throw new Error("no checkpoint store in these tests");
+          },
+        },
         pending: createPostgresWorkerPendingStore(db),
         options: {
           leaseTtlMs: 30_000,
@@ -310,7 +356,9 @@ integration(
       partition: string;
       turn: number | null;
       engineSession: string;
-      checkpoints: WorkerCheckpointPort;
+      checkpoints:
+        | WorkerCheckpointPort
+        | ((gateway: HttpWorkerGatewayClient) => WorkerCheckpointPort);
       claimTimeoutMs?: number;
     }) {
       const executionId = `exec-${crypto.randomUUID()}`;
@@ -341,18 +389,22 @@ integration(
             ],
       );
       const launches: Array<{ mode: string; resume: string | null }> = [];
+      const client = new HttpWorkerGatewayClient({
+        baseUrl: base(),
+        credential: launch.nonce,
+        requestTimeoutMs: 5_000,
+      });
       const host = new WorkerHost({
-        checkpoints: input.checkpoints,
+        checkpoints:
+          typeof input.checkpoints === "function"
+            ? input.checkpoints(client)
+            : input.checkpoints,
         execution: {
           bootstrapNonce: launch.nonce,
           generation: 1,
           id: executionId,
         },
-        gateway: new HttpWorkerGatewayClient({
-          baseUrl: base(),
-          credential: launch.nonce,
-          requestTimeoutMs: 5_000,
-        }),
+        gateway: client,
         logger: silent,
         runtimes: {
           launcherFor: () => ({
@@ -607,6 +659,133 @@ integration(
       expect(restored.summary.turns).toEqual([
         { turnId: "3", status: "completed", reason: null },
       ]);
+    }, 60_000);
+
+    // 94S-668 pins today's path; the option it adopts flips the marked
+    // expectations (retry: one more capture; hold: the 202; show: attention).
+    test("a completed turn whose publish failed leaves an unannounced gap that becomes CONTEXT_GAP once its worker is replaced", async () => {
+      const created = await post("/v1/sessions", {
+        profile_id: PROFILE_ID,
+        repository_id: "sample-app",
+        message: "first",
+      });
+      expect(created.status).toBe(201);
+      const sessionId = createSessionResponseSchema.parse(
+        await created.json(),
+      ).session_id;
+      const partition = `publish-failed-gap-${crypto.randomUUID()}`;
+      await db
+        .update(schema.sessions)
+        .set({ partition })
+        .where(eq(schema.sessions.id, sessionId));
+      await db
+        .update(unassignedSessions)
+        .set({ partition })
+        .where(eq(unassignedSessions.sessionId, sessionId));
+
+      // Turn 1 is covered by revision 0.
+      const first = await runWorker({
+        sessionId,
+        partition,
+        turn: 1,
+        engineSession: "engine-4c1e",
+        checkpoints: checkpointPort(true).port,
+      });
+      await gateway.confirmExecutionGone(first.executionId);
+      expect(
+        (
+          await post(`/v1/sessions/${sessionId}/messages`, {
+            message: "second",
+            mode: "enqueue",
+          })
+        ).status,
+      ).toBe(202);
+
+      // 1. The next worker resumes it and completes turn 2, but the publish
+      // fails: only the advisory publish_failed is reported, and nothing
+      // tries again while the worker idles out.
+      let failing: ReturnType<typeof failingPublishPort> | undefined;
+      const second = await runWorker({
+        sessionId,
+        partition,
+        turn: 2,
+        engineSession: "engine-4c1e",
+        checkpoints: (client) => {
+          failing = failingPublishPort(client, () => "engine-4c1e");
+          return failing.port;
+        },
+      });
+      expect(failing?.restores.map((r) => r?.revision ?? null)).toEqual([0]);
+      expect(second.launches).toEqual([
+        { mode: "resume", resume: "engine-4c1e" },
+      ]);
+      expect(second.summary).toMatchObject({
+        outcome: "idle",
+        turns: [{ turnId: "2", status: "completed", reason: null }],
+      });
+      // retry within this 300ms idle window would add captures here; one on
+      // a longer timer needs a longer window to show.
+      expect(failing?.captures.map((p) => p.status)).toEqual(["ready"]);
+
+      // 2. Until the exit is observed nothing calls the gap out: the session
+      // is active with no attention, only the durability block differs, the
+      // stream carries no system event, and the next message is accepted.
+      const gap = await detail(sessionId);
+      expect(gap).toMatchObject({
+        admission_state: "active",
+        // show would put an attention here.
+        attention: null,
+        durability: {
+          checkpoint_pending_reason: "publish_failed",
+          checkpoint_revision: 0,
+          last_completed_turn_id: "2",
+          last_checkpointed_turn_id: "1",
+        },
+      });
+      // The backlog is replayed before the first keepalive.
+      const quiet = await streamUntil(sessionId, ": keepalive");
+      expect(
+        new Set([...quiet.matchAll(/^event: (\S+)$/gm)].map((m) => m[1])),
+      ).toEqual(new Set(["status", "result"]));
+      expect(framesOf(quiet, "result")).toHaveLength(2);
+      // hold would refuse this.
+      expect(
+        (
+          await post(`/v1/sessions/${sessionId}/messages`, {
+            message: "third",
+            mode: "enqueue",
+          })
+        ).status,
+      ).toBe(202);
+
+      // 3. The worker is gone before any later publish succeeds: the
+      // replacement could only restore revision 0, so the session goes to
+      // an operator with CONTEXT_GAP and nothing claims it.
+      await gateway.confirmExecutionGone(second.executionId);
+      expect(await detail(sessionId)).toMatchObject({
+        admission_state: "recovery_required",
+        status: "failed",
+        queued_turn_count: 1,
+        attention: {
+          code: "CONTEXT_GAP",
+          last_ran_turn_id: "2",
+          checkpointed_turn_id: "1",
+        },
+        durability: {
+          checkpoint_pending_reason: "publish_failed",
+          checkpoint_revision: 0,
+        },
+      });
+      const replaced = await runWorker({
+        sessionId,
+        partition,
+        turn: null,
+        engineSession: "never",
+        checkpoints: checkpointPort(true, 1).port,
+        claimTimeoutMs: 500,
+      });
+      expect(replaced.summary.outcome).toBe("unclaimed");
+      expect(replaced.launches).toEqual([]);
     }, 60_000);
   },
 );

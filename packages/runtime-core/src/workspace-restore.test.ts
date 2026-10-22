@@ -14,7 +14,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restorePlanResponseSchema } from "@agent-platform/contracts";
+import { restorePlanResponseSchema } from "@werft-ai/contracts";
 
 import {
   readWorkspaceFile,

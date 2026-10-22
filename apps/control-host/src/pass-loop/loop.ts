@@ -1,5 +1,5 @@
 import { rename, writeFile } from "node:fs/promises";
-import { integerSetting } from "@agent-platform/contracts/settings";
+import { integerSetting } from "@werft-ai/contracts/settings";
 
 /**
  * Runs a role one pass per child process, forever. The

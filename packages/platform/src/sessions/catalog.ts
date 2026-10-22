@@ -4,9 +4,11 @@ import {
   canonicalJson,
   permissionModeSchema,
   projectSettingsSchema,
+  type RepositoryMode,
   type RuntimeConfig,
+  repositoryModeSchema,
   type runtimeConfigSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 
@@ -177,8 +179,18 @@ export const catalogProfileConfigSchema = z
     // Off unless the operator turns it on: a profile written before this
     // field existed keeps the run it was reviewed for.
     project_settings: projectSettingsSchema.default({ claude_md: false }),
+    repository: repositoryModeSchema.default("required"),
   })
   .strict()
+  .refine(
+    (profile) =>
+      profile.repository !== "none" || !profile.project_settings.claude_md,
+    {
+      message:
+        "a profile with repository none has no repository CLAUDE.md to read",
+      path: ["project_settings", "claude_md"],
+    },
+  )
   .refine(
     (profile) =>
       profile.provider.billing !== "none" ||
@@ -305,6 +317,12 @@ export const sessionCatalogConfigSchema = z
             path: ["repositories", id, "profiles", index],
             message: `names profile ${profileId}, which is not in profiles`,
           });
+        } else if (config.profiles[profileId]?.repository === "none") {
+          ctx.addIssue({
+            code: "custom",
+            path: ["repositories", id, "profiles", index],
+            message: `names profile ${profileId}, whose repository is none`,
+          });
         }
       });
     }
@@ -340,6 +358,8 @@ export type CatalogProfile = {
   tools: string[];
   permission_mode: z.infer<typeof permissionModeSchema>;
   project_settings?: z.infer<typeof projectSettingsSchema> | undefined;
+  // Absent is `required`, never spelled out: see `repositoryModeOf`.
+  repository?: Exclude<RepositoryMode, "required"> | undefined;
   provider:
     | {
         kind: "anthropic";
@@ -407,6 +427,10 @@ export type EgressUpstream = {
   /** Set on the upstream request, replacing whatever the worker sent. */
   headers: Array<[string, string]>;
 };
+
+export function repositoryModeOf(profile: CatalogProfile): RepositoryMode {
+  return profile.repository ?? "required";
+}
 
 /** Whether the profile declared `billing: none`: no cost, no dollar limit. */
 export function isUnmetered(profile: CatalogProfile): boolean {
@@ -681,16 +705,18 @@ export function resolveSessionCatalog(
     const { kind, ...refFields } = profile.provider.auth;
     const ref = credentialRefOf(refFields);
     const value = resolved(`profiles.${id}.provider.auth`, ref);
-    // `per_token` is the default spelled out: dropped, so a profile that
-    // writes it keeps the fingerprint it had before the field existed.
+    // `per_token` and `required` are the defaults: dropped, so a profile
+    // keeps the fingerprint it had before the field existed.
     const { billing, ...provider } = profile.provider;
+    const { repository, ...settings } = profile;
     profiles[id] = {
-      ...profile,
+      ...settings,
       provider: {
         ...provider,
         auth: { kind, value, ref },
         ...(billing === "none" ? { billing } : {}),
       },
+      ...(repository === "required" ? {} : { repository }),
     } as CatalogProfile;
   }
   const repositories: Record<string, CatalogRepository> = {};

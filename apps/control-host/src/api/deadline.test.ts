@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { apiErrorResponseSchema } from "@agent-platform/contracts";
-import { currentDeadline } from "@agent-platform/db/pool";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+import { apiErrorResponseSchema } from "@werft-ai/contracts";
+import { currentDeadline } from "@werft-ai/db/pool";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { createApiApp } from "./app.ts";
 import { CLOSING_IDLE_TIMEOUT_SECONDS, readBodyWithin } from "./deadline.ts";
 

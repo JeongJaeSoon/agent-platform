@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { gitBundleOffersFrom } from "@agent-platform/runtime-core";
+import { gitBundleOffersFrom } from "@werft-ai/runtime-core";
 
 export type WorkspaceBundleVerdict =
   | { readonly status: "restorable" }

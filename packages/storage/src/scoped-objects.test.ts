@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit";
 
 import {
   ObjectScopeError,

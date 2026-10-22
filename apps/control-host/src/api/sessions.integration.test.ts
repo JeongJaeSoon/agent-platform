@@ -9,8 +9,8 @@ import {
   listTurnsResponseSchema,
   postSessionMessageResponseSchema,
   readyResponseSchema,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   checkpoints,
   createPostgresSessionControl,
@@ -23,13 +23,13 @@ import {
   sessions,
   turns,
   unassignedSessions,
-} from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
+} from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -104,7 +104,7 @@ integration("sessions API on PostgreSQL", () => {
     }) =>
       createSessionService({
         limits,
-        authorization: allowAllPolicy,
+        authorization: createAuthorizationPolicy(),
         inputs: createPostgresSessionUnitOfWork(db),
         controls: createPostgresSessionControl(db),
         reader: createPostgresSessionReader(db),
@@ -949,6 +949,7 @@ integration("sessions API on PostgreSQL", () => {
       stopping: [409, "SESSION_STOPPED"],
       stopped: [409, "SESSION_STOPPED"],
       recovery_required: [409, "RECOVERY_REQUIRED"],
+      closing: [409, "SESSION_CLOSING"],
       closed: [409, "SESSION_CLOSED"],
     };
     expect(Object.keys(expected).sort()).toEqual(

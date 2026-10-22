@@ -7,8 +7,8 @@ import {
   TURN_BUDGET_EXCEEDED_REASON,
   terminalTurnStatusSchema,
   type WorkerEvent,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import {
   budgetExceeded,
   CHECKPOINT_ROOT_PARENT,
@@ -21,6 +21,7 @@ import {
   type CommitEventsResult,
   type ConfirmExecutionGoneInput,
   type ConfirmExecutionGoneResult,
+  checkpointReasonBlocks,
   checkpointReasonHoldsWork,
   type EgressAuthorization,
   type EgressPurpose,
@@ -50,23 +51,32 @@ import {
   type RunnablePair,
   type SessionBudget,
   storedPendingReasonHoldsWork,
+  TRANSCRIPT_LIMITS,
+  transcriptLimitReachedEvent,
+  transcriptWarnBytes,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   and,
   asc,
   count,
+  desc,
   eq,
   gt,
+  gte,
   inArray,
+  isNotNull,
   isNull,
+  lt,
+  lte,
   max,
   notInArray,
   type SQL,
   sql,
 } from "drizzle-orm";
+import { finishClose } from "./close-control.ts";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
   type ControlResultEvent,
@@ -89,12 +99,9 @@ import {
 } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
+import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
-import {
-  openPauseReceipt,
-  pauseBlocker,
-  pauseReceiptResult,
-} from "./pause-control.ts";
+import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import { abandonUndeliveredAnswers } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -446,7 +453,12 @@ async function restoreRef(
  * the failure at best and says nothing about the transcript since; a fresh
  * run that re-mirrored from the local file is what a valid checkpoint
  * proves. An advisory reason (the run was not quiescent) is cleared by any
- * commit: a checkpoint that committed is exactly what it was missing.
+ * commit: a checkpoint that committed is exactly what it was missing. An
+ * exhausted one (a transcript past the limits) is cleared like a blocking
+ * one: the attempt that reported it cannot shrink its transcript.
+ *
+ * The first commit since start_fresh that takes the transcript past the
+ * warning threshold says so on the event stream, once.
  */
 /**
  * What the committing attempt's state was built on: the fallback's revision
@@ -477,6 +489,7 @@ export async function advanceCheckpointPointer(
     turnRowId: number | null;
     now: Date;
     versionsHeld: boolean;
+    transcriptBytes?: number;
   },
 ): Promise<
   | { outcome: "committed"; revision: number }
@@ -500,7 +513,15 @@ export async function advanceCheckpointPointer(
     parentRevision: parentRevisionOf(input.session, input.fence.attemptId),
     turnId: input.turnRowId,
     committedAt: input.now,
+    // The runtime fingerprint in the manifest was computed from the profile
+    // this attempt claimed, which the session may have changed since.
+    profileId: sql`(SELECT ${attempts.profileId} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
+    profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
+    transcriptBytes: input.transcriptBytes ?? null,
   });
+  if (input.transcriptBytes !== undefined) {
+    await warnNearTranscriptLimit(tx, input, input.transcriptBytes);
+  }
   const pending = storedPendingReason(input.session.checkpointPendingReason);
   const resolvesPending =
     pending !== null &&
@@ -526,6 +547,53 @@ export async function advanceCheckpointPointer(
     "session pointer",
   );
   return { outcome: "committed", revision: input.checkpoint.revision };
+}
+
+async function warnNearTranscriptLimit(
+  tx: Database,
+  input: {
+    fence: WorkerFence;
+    session: SessionRow;
+    checkpoint: CheckpointRef;
+    turnRowId: number | null;
+    now: Date;
+  },
+  bytes: number,
+): Promise<void> {
+  const warn = transcriptWarnBytes();
+  if (bytes < warn) return;
+  // Any earlier checkpoint past the threshold, not just the pointer: a
+  // fallback restore resumes a smaller one without the warning becoming news
+  // again. Revisions start_fresh retired belong to the engine session it gave up.
+  const retired = input.session.contextResetCheckpointRevision;
+  const [warned] = await tx
+    .select({ revision: checkpoints.revision })
+    .from(checkpoints)
+    .where(
+      and(
+        eq(checkpoints.sessionId, input.fence.sessionId),
+        lt(checkpoints.revision, input.checkpoint.revision),
+        retired === null ? undefined : gt(checkpoints.revision, retired),
+        gte(checkpoints.transcriptBytes, warn),
+      ),
+    )
+    .limit(1);
+  if (warned) return;
+  await recordEvent(tx, {
+    sessionId: input.fence.sessionId,
+    type: "system",
+    payload: {
+      type: "system",
+      subtype: "transcript_near_limit",
+      transcript_bytes: bytes,
+      warn_bytes: warn,
+      limit_bytes: TRANSCRIPT_LIMITS.totalBytes,
+      checkpoint_revision: input.checkpoint.revision,
+    },
+    turnRowId: input.turnRowId,
+    attemptId: input.fence.attemptId,
+    now: input.now,
+  });
 }
 
 function storedPendingReason(
@@ -846,9 +914,54 @@ async function bindingOf(
       url: session.repoUrl,
       branch: session.branch,
     },
-    restore: restore === undefined ? await restoreRef(tx, session) : restore,
+    ...(await withRestoreProfiles(
+      tx,
+      session.id,
+      restore === undefined ? await restoreRef(tx, session) : restore,
+    )),
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
+  };
+}
+
+// The profiles the checkpoints a restore may land on were committed under:
+// the pointer's and any earlier one a fallback walks back to, newest first,
+// so a cap on how many the claim carries drops the oldest. A row from before
+// the column names none; it ran the session's own.
+async function withRestoreProfiles(
+  tx: Database,
+  sessionId: string,
+  restore: CheckpointRef | null,
+): Promise<Pick<WorkerBinding, "restore" | "restoreProfiles">> {
+  if (restore === null) return { restore, restoreProfiles: [] };
+  const rows = await tx
+    .select({
+      profileId: checkpoints.profileId,
+      profileFingerprint: checkpoints.profileFingerprint,
+    })
+    .from(checkpoints)
+    .where(
+      and(
+        eq(checkpoints.sessionId, sessionId),
+        lte(checkpoints.revision, restore.revision),
+        isNotNull(checkpoints.profileId),
+        isNotNull(checkpoints.profileFingerprint),
+      ),
+    )
+    .groupBy(checkpoints.profileId, checkpoints.profileFingerprint)
+    .orderBy(desc(max(checkpoints.revision)));
+  return {
+    restore,
+    restoreProfiles: rows.flatMap((row) =>
+      row.profileId === null || row.profileFingerprint === null
+        ? []
+        : [
+            {
+              profileId: row.profileId,
+              profileFingerprint: row.profileFingerprint,
+            },
+          ],
+    ),
   };
 }
 
@@ -1054,7 +1167,14 @@ export function createPostgresWorkerUnitOfWork(
             // The attempt has not started, so the replay gets a whole lease:
             // handing back the expired one would answer "claimed" and then
             // refuse every call the worker makes with it.
-            .set({ authRevision: session.authRevision, leaseExpiresAt })
+            // It has run nothing yet either, so it takes the profile the
+            // session names now, as the tokens just issued do.
+            .set({
+              authRevision: session.authRevision,
+              leaseExpiresAt,
+              profileId: session.profileId,
+              profileFingerprint: session.profileFingerprint,
+            })
             .where(eq(attempts.id, bound.attempt.id))
             .returning();
           if (!attempt) return { outcome: "invalid_credential" };
@@ -1080,6 +1200,7 @@ export function createPostgresWorkerUnitOfWork(
               isNull(sessions.podId),
               inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
               isNull(sessions.executionRevokedAt),
+              isNull(sessions.takeoverRequiredAt),
               runnableCondition(input.runnable),
               withinBudget(budgetOf(input)),
               restoreRetryDue(),
@@ -1123,6 +1244,7 @@ export function createPostgresWorkerUnitOfWork(
           locked.podId !== null ||
           !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
           locked.executionRevokedAt !== null ||
+          locked.takeoverRequiredAt !== null ||
           (locked.restoreRetryAt !== null &&
             locked.restoreRetryAt > (await dbNow(tx)))
         ) {
@@ -1190,6 +1312,8 @@ export function createPostgresWorkerUnitOfWork(
             state: "allocated",
             leaseExpiresAt,
             startedAt: input.now,
+            profileId: session.profileId,
+            profileFingerprint: session.profileFingerprint,
           })
           .returning();
         if (!attempt) throw new Error("Failed to insert attempt");
@@ -1301,7 +1425,9 @@ export function createPostgresWorkerUnitOfWork(
           sessionId: fence.sessionId,
           attemptId: fence.attemptId,
           binding,
-          profileId: fenced.session.profileId,
+          // The profile the attempt claimed: a change on the session since
+          // reaches the next attempt, not the turn this one is running.
+          profileId: fenced.attempt.profileId ?? fenced.session.profileId,
           repository: {
             id: fenced.session.repositoryId,
             url: fenced.session.repoUrl,
@@ -1423,6 +1549,14 @@ export function createPostgresWorkerUnitOfWork(
         // unfinished once the execution goes, which costs the session a
         // recovery decision it never needed.
         const draining = fenced.attempt.state === "draining";
+        // The session's profile was changed after this attempt claimed it:
+        // it finishes what it holds on its own profile and goes, and the
+        // next claim runs the new one.
+        const profileMoved =
+          fenced.attempt.profileFingerprint !== null &&
+          (fenced.attempt.profileId !== fenced.session.profileId ||
+            fenced.attempt.profileFingerprint !==
+              fenced.session.profileFingerprint);
 
         const [head] = await tx
           .select({ message: queueMessages, turn: turns })
@@ -1459,7 +1593,7 @@ export function createPostgresWorkerUnitOfWork(
           outcome: "ok" as const,
           input: null,
           leaseExpiresAt,
-          ...(draining ? { draining: true as const } : {}),
+          ...(draining || profileMoved ? { draining: true as const } : {}),
           ...(overBudget ? { blocked: "BUDGET_EXCEEDED" as const } : {}),
         };
         if (!head) return none;
@@ -1472,7 +1606,7 @@ export function createPostgresWorkerUnitOfWork(
           turn.attemptId === fence.attemptId &&
           OPEN_TURN_STATUSES.includes(turn.status);
         if (turn.status !== "queued" && !redelivery) return none;
-        if (draining && !redelivery) return none;
+        if ((draining || profileMoved) && !redelivery) return none;
         // Pausing (or any state but active) admits nothing new; the turn
         // this attempt already holds is still its to finish.
         if (fenced.session.admissionState !== "active" && !redelivery) {
@@ -1481,6 +1615,20 @@ export function createPostgresWorkerUnitOfWork(
         // A turn this attempt already holds is finished whatever it costs;
         // only a new one is refused.
         if (overBudget && !redelivery) return none;
+        if (fenced.session.takeoverRequiredAt !== null && !redelivery) {
+          return none;
+        }
+        // Nor a turn queued before the session stopped taking new ones (a
+        // transcript past the limits, or a mirror failure that outranked
+        // it): it would run on a session no checkpoint can carry.
+        if (
+          checkpointReasonHoldsWork(
+            storedPendingReason(fenced.session.checkpointPendingReason),
+          ) &&
+          !redelivery
+        ) {
+          return none;
+        }
         // The scheduler is draining the launch to replace it: the
         // turn this attempt runs is its last. Read under the session lock,
         // which `requestDrain` takes before it looks for an open turn.
@@ -1838,8 +1986,7 @@ export function createPostgresWorkerUnitOfWork(
         if (
           input.terminal.status === "completed" &&
           !input.checkpoint &&
-          pendingReason !== null &&
-          checkpointReasonHoldsWork(pendingReason)
+          checkpointReasonBlocks(pendingReason)
         ) {
           return { outcome: "checkpoint_required", reason: pendingReason };
         }
@@ -1853,6 +2000,9 @@ export function createPostgresWorkerUnitOfWork(
             turnRowId: turn.id,
             now,
             versionsHeld: input.checkpointVersionsHeld === true,
+            ...(input.checkpointTranscriptBytes === undefined
+              ? {}
+              : { transcriptBytes: input.checkpointTranscriptBytes }),
           });
           if (advanced.outcome === "not_next") {
             // An interrupt has no second capture to wait for: its checkpoint
@@ -1993,20 +2143,21 @@ export function createPostgresWorkerUnitOfWork(
             now,
           });
         }
-        if (unknownOutcome && fenced.session.admissionState === "pausing") {
-          // recovery_required takes the session out of pausing, so the pause
-          // it was draining for can no longer complete.
+        const drain = drainOf(fenced.session.admissionState);
+        if (unknownOutcome && drain !== undefined) {
+          // recovery_required takes the session out of its drain, so the
+          // pause or close it was draining for can no longer complete.
           await tx
             .update(receipts)
             .set({
               status: "failed",
               error: {
                 code: "RECOVERY_REQUIRED",
-                message: `turn ${input.turnId} ended with an unknown outcome while the pause was draining`,
+                message: `turn ${input.turnId} ended with an unknown outcome while the ${drain.operation} was draining`,
               },
               updatedAt: now,
             })
-            .where(openPauseReceipt(fence.sessionId));
+            .where(openDrainReceipt(fence.sessionId));
         }
         return {
           outcome: "finalized",
@@ -2042,6 +2193,22 @@ export function createPostgresWorkerUnitOfWork(
           nextPendingReason(pendingReason, input.pendingReason) ===
             input.pendingReason
         ) {
+          // Announced when it is first recorded, not on every turn that
+          // reports it again.
+          if (
+            pendingReason !== input.pendingReason &&
+            (input.pendingReason === "transcript_too_large" ||
+              input.pendingReason === "transcript_part_too_large")
+          ) {
+            await recordEvent(tx, {
+              sessionId: fence.sessionId,
+              type: "system",
+              payload: transcriptLimitReachedEvent(input.pendingReason),
+              turnRowId: null,
+              attemptId: fence.attemptId,
+              now: input.now,
+            });
+          }
           expectFenced(
             await tx
               .update(sessions)
@@ -2158,18 +2325,20 @@ export function createPostgresWorkerUnitOfWork(
           if (fenced.outcome !== "ok") {
             return { released: false, refused: "lease_expired" };
           }
+          // A close drains through the same control, so the receipt it
+          // names may be either.
           const [open] =
-            fenced.session.admissionState === "pausing"
+            drainOf(fenced.session.admissionState) !== undefined
               ? await tx
                   .select({ id: receipts.id })
                   .from(receipts)
-                  .where(openPauseReceipt(fence.sessionId))
+                  .where(openDrainReceipt(fence.sessionId))
                   .limit(1)
               : [];
           if (open?.id !== pause) {
             return { released: false, refused: "pause_stale" };
           }
-          const blocker = await pauseBlocker(tx, fenced.session);
+          const blocker = await drainBlocker(tx, fenced.session);
           if (blocker !== null) {
             return {
               released: false,
@@ -2493,11 +2662,15 @@ export function createPostgresWorkerUnitOfWork(
         // the context check below hands to an operator. A blocking pending reason (a dropped mirror batch, or
         // one this build does not know) cannot be carried on from, so that
         // one goes to an operator instead, as a cancel would.
+        // A close drains and settles the same way, into closed.
+        const drain = drainOf(session.admissionState);
         const pauseBlockedBy =
-          session.admissionState === "pausing" && unresolved.length === 0
-            ? await pauseBlocker(tx, session)
+          drain !== undefined && unresolved.length === 0
+            ? await drainBlocker(tx, session)
             : undefined;
-        const paused = pauseBlockedBy === null;
+        const drained = pauseBlockedBy === null;
+        const paused = drained && drain?.settlesInto === "paused";
+        const closedNow = drained && drain?.settlesInto === "closed";
         const pauseFailed =
           pauseBlockedBy !== undefined && pauseBlockedBy !== null;
         const pauseFailedInto = storedPendingReasonHoldsWork(
@@ -2565,14 +2738,19 @@ export function createPostgresWorkerUnitOfWork(
                     }
                   : paused
                     ? { admissionState: "paused" as const }
-                    : pauseFailed
-                      ? pauseFailedInto === "active"
-                        ? { admissionState: "active" as const }
-                        : {
-                            status: "failed" as const,
-                            admissionState: "recovery_required" as const,
-                          }
-                      : {}),
+                    : closedNow
+                      ? {
+                          status: "stopped" as const,
+                          admissionState: "closed" as const,
+                        }
+                      : pauseFailed
+                        ? pauseFailedInto === "active"
+                          ? { admissionState: "active" as const }
+                          : {
+                              status: "failed" as const,
+                              admissionState: "recovery_required" as const,
+                            }
+                        : {}),
           })
           .where(eq(sessions.id, session.id));
         const startupOutcome =
@@ -2618,11 +2796,11 @@ export function createPostgresWorkerUnitOfWork(
                   pauseFailedInto === "active"
                     ? "CHECKPOINT_UNAVAILABLE"
                     : "RECOVERY_REQUIRED",
-                message: `the execution ended before the pause could commit (${pauseBlockedBy})`,
+                message: `the execution ended before the ${drain?.operation} could commit (${pauseBlockedBy})`,
               },
               updatedAt: observedAt,
             })
-            .where(openPauseReceipt(session.id));
+            .where(openDrainReceipt(session.id));
         }
         // Every admission this exit settles is a status change the event
         // stream has to carry, or a client following it stays at stopping,
@@ -2635,8 +2813,8 @@ export function createPostgresWorkerUnitOfWork(
             ? "recovery_required"
             : stopping
               ? "stopped"
-              : paused
-                ? "paused"
+              : drained
+                ? (drain?.settlesInto ?? null)
                 : pauseFailed
                   ? pauseFailedInto
                   : null;
@@ -2646,16 +2824,78 @@ export function createPostgresWorkerUnitOfWork(
             phase:
               settledInto === "recovery_required"
                 ? "failed"
-                : settledInto === "stopped"
+                : settledInto === "stopped" || settledInto === "closed"
                   ? "stopped"
                   : session.status,
             extra: {
               admission_state: settledInto,
-              ...(pauseFailed ? { pause_failed: pauseBlockedBy } : {}),
+              ...(pauseFailed
+                ? {
+                    [drain?.operation === "close"
+                      ? "close_failed"
+                      : "pause_failed"]: pauseBlockedBy,
+                  }
+                : {}),
             },
             turnRowId: null,
             now: observedAt,
           });
+        }
+        if (closedNow) {
+          const [open] = await tx
+            .select({ id: receipts.id, acceptedAt: receipts.createdAt })
+            .from(receipts)
+            .where(openDrainReceipt(session.id))
+            .limit(1);
+          if (open) {
+            await tx
+              .update(receipts)
+              .set({
+                status: "succeeded",
+                error: null,
+                result: await finishClose(tx, session, {
+                  receiptId: open.id,
+                  now: observedAt,
+                }),
+                updatedAt: observedAt,
+              })
+              .where(eq(receipts.id, open.id));
+            controlResults.push({
+              acceptedAt: open.acceptedAt,
+              controlId: open.id,
+              effectiveAt: observedAt,
+              operation: "close",
+              outcome: "succeeded",
+              reasonCode: "drained",
+              sessionId: session.id,
+            });
+          }
+        }
+        // A close with nothing to drain closed the session at once and
+        // waited only on this absence.
+        if (closed) {
+          const settledCloses = await tx
+            .update(receipts)
+            .set({ status: "succeeded", updatedAt: observedAt })
+            .where(
+              and(
+                eq(receipts.operation, CLOSE),
+                eq(receipts.status, "accepted"),
+                sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+              ),
+            )
+            .returning({ id: receipts.id, acceptedAt: receipts.createdAt });
+          for (const settled of settledCloses) {
+            controlResults.push({
+              acceptedAt: settled.acceptedAt,
+              controlId: settled.id,
+              effectiveAt: observedAt,
+              operation: "close",
+              outcome: "succeeded",
+              reasonCode: "execution_gone",
+              sessionId: session.id,
+            });
+          }
         }
         // After the pause's own outcome, so the stream ends on where the
         // session actually is.
@@ -2667,19 +2907,18 @@ export function createPostgresWorkerUnitOfWork(
             now: observedAt,
           });
         }
-        if (session.admissionState === "pausing" && unresolved.length > 0) {
+        if (drain !== undefined && unresolved.length > 0) {
           await tx
             .update(receipts)
             .set({
               status: "failed",
               error: {
                 code: "RECOVERY_REQUIRED",
-                message:
-                  "execution ended before the turn the pause was draining was finalized",
+                message: `execution ended before the turn the ${drain.operation} was draining was finalized`,
               },
               updatedAt: observedAt,
             })
-            .where(openPauseReceipt(session.id));
+            .where(openDrainReceipt(session.id));
         }
         // The terminate receipt, and an execution revocation's
         // succeeds only here, on the observed absence;

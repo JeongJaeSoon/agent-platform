@@ -21,12 +21,12 @@ import {
   restorePlanResponseSchema,
   workerReadyRequestSchema,
   workerReadyResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type { z } from "zod";
 import {
   ApiHttpError,

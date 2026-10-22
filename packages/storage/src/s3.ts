@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import { ObjectIntegrityError } from "@agent-platform/runtime-core";
-import { resolveEveryTime } from "@agent-platform/system";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { HttpRequest } from "@smithy/core/protocols";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { ObjectIntegrityError } from "@werft-ai/runtime-core";
+import { resolveEveryTime } from "@werft-ai/system";
 
 export interface S3ClientLike {
   send(

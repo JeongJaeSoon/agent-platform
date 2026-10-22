@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sessionEventSchema } from "@agent-platform/contracts";
+import { sessionEventSchema } from "@werft-ai/contracts";
 
 import { frameFromNativeMessage, pendingRequestEvent } from "./mapper.ts";
 

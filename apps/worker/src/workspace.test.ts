@@ -13,7 +13,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WorkspaceDescriptor } from "@agent-platform/contracts";
+import type { WorkspaceDescriptor } from "@werft-ai/contracts";
 
 import { RESTORED_CHECKPOINT_DIRECTORY } from "./checkpoint-restore.ts";
 import { COMMITTED_CLAUDE_MD_MAX_BYTES, GitWorkspace } from "./workspace.ts";

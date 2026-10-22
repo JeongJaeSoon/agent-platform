@@ -4,11 +4,11 @@ import type {
   ControlAcceptedResponse,
   ReceiptStatus,
   ResumeReceiptResult,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type ResumeSessionResult,
   storedPendingReasonHoldsWork,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, count, eq, gt, notInArray, sql } from "drizzle-orm";
 import {
   earliestUnknownTurn,
@@ -210,6 +210,8 @@ async function writeResumeReceipt(
   await tx.insert(receipts).values({
     id: receiptId,
     ownerId: input.scope.principal,
+    actor: input.scope.actor,
+    requestId: input.scope.requestId,
     operation: RESUME,
     targetRef,
     status: input.status,

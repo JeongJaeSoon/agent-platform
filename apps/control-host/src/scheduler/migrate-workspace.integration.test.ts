@@ -1,21 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as schema from "@agent-platform/db";
-import {
-  sessions,
-  unassignedSessions,
-  workerLaunches,
-} from "@agent-platform/db";
+import * as schema from "@werft-ai/db";
+import { sessions, unassignedSessions, workerLaunches } from "@werft-ai/db";
 import {
   DEFAULT_MIGRATION_HELPER_IMAGE,
   DockerClient,
   LABELS,
   legacyWorkspaceVolumeName,
-} from "@agent-platform/execution-local-docker";
+} from "@werft-ai/execution-local-docker";
 import {
   removeWorkerNetworks,
   startStandInProxy,
-} from "@agent-platform/execution-local-docker/testing";
-import { createTempDatabase, type TempDatabase } from "@agent-platform/testkit";
+} from "@werft-ai/execution-local-docker/testing";
+import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

@@ -1,16 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import * as schema from "@agent-platform/db";
+import { PGlite } from "@electric-sql/pglite";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
-} from "@agent-platform/db";
-import { createLogger } from "@agent-platform/observability";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@agent-platform/platform";
-import { createObjectRouteSigner } from "@agent-platform/storage";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";

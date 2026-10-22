@@ -3,8 +3,8 @@ import {
   apiErrorResponseSchema,
   installationLimitsResponseSchema,
   sessionUsageResponseSchema,
-} from "@agent-platform/contracts";
-import * as schema from "@agent-platform/db";
+} from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresUsageReader,
@@ -12,18 +12,19 @@ import {
   storageUsage,
   turns,
   workerLaunches,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createUsageService,
   type InputLimits,
   type InstallationLimits,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
+import { testCaller } from "@werft-ai/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -57,7 +58,7 @@ integration("usage API on PostgreSQL", () => {
     pool = new Pool({ connectionString: database.url, max: 5 });
     db = drizzle(pool, { schema });
     const service = createUsageService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       reader: createPostgresUsageReader(db),
       limits,
     });
@@ -330,12 +331,12 @@ integration("usage API on PostgreSQL", () => {
     });
 
     const tokenLimited = createUsageService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       reader: createPostgresUsageReader(db),
       limits: { ...limits, sessionTokenLimit: 1_000 },
     });
     const usage = sessionUsageResponseSchema.parse(
-      await tokenLimited.getSessionUsage({ ownerId: owner }, id),
+      await tokenLimited.getSessionUsage(testCaller(owner), id),
     );
     expect(usage).toMatchObject({
       cost: { amount_usd: "0.000000" },

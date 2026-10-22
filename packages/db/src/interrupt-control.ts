@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   type ControlAcceptedResponse,
   terminalTurnStatusSchema,
-} from "@agent-platform/contracts";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   InterruptTurnInput,
   InterruptTurnResult,
   TurnInterrupts,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   type ControlResultEvent,
@@ -20,6 +20,7 @@ import {
   lockIdempotencyScope,
   OPEN_TURN_STATUSES,
   parseTurnSequence,
+  receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -48,6 +49,8 @@ export function createPostgresTurnInterrupts(
       let completed: ControlResultEvent | undefined;
       const scope: IdempotencyScope = {
         principal: input.principal.ownerId,
+        actor: receiptActorOf(input.principal),
+        requestId: input.principal.requestId ?? null,
         operation: INTERRUPT,
         resource: sessionId,
         key: input.idempotencyKey,
@@ -121,6 +124,8 @@ export function createPostgresTurnInterrupts(
         await tx.insert(receipts).values({
           id: receiptId,
           ownerId: scope.principal,
+          actor: scope.actor,
+          requestId: scope.requestId,
           operation: INTERRUPT,
           targetRef: {
             session_id: sessionId,

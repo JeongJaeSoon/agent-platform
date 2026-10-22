@@ -1,8 +1,8 @@
 import {
   getReceiptResponseSchema,
   receiptIdParamsSchema,
-} from "@agent-platform/contracts";
-import type { SessionService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { SessionService } from "@werft-ai/platform";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 
@@ -13,7 +13,7 @@ export function registerReceiptRoutes(
   apiRoute(router, "getReceipt", async (context) => {
     const params = requireParams(context, receiptIdParamsSchema);
     const receipt = await mapped(() =>
-      service.getReceipt({ ownerId: context.get("ownerId") }, params.id),
+      service.getReceipt(context.get("caller"), params.id),
     );
     return jsonWithSchema(context, getReceiptResponseSchema, receipt);
   });

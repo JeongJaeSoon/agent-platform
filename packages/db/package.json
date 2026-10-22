@@ -1,5 +1,5 @@
 {
-  "name": "@agent-platform/db",
+  "name": "@werft-ai/db",
   "description": "Kiel session runtime: Drizzle schema, migrations and session queries",
   "version": "0.0.0",
   "private": true,
@@ -18,10 +18,10 @@
     "db:restack": "bun run scripts/restack-migration.ts"
   },
   "dependencies": {
-    "@agent-platform/contracts": "workspace:*",
-    "@agent-platform/observability": "workspace:*",
-    "@agent-platform/platform": "workspace:*",
-    "@agent-platform/system": "workspace:*",
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/observability": "workspace:*",
+    "@werft-ai/platform": "workspace:*",
+    "@werft-ai/system": "workspace:*",
     "drizzle-orm": "0.45.2",
     "pg": "8.16.3",
     "pg-connection-string": "2.14.0"
@@ -30,6 +30,6 @@
     "@electric-sql/pglite": "0.3.10",
     "@types/pg": "8.15.5",
     "drizzle-kit": "0.31.4",
-    "@agent-platform/testkit": "workspace:*"
+    "@werft-ai/testkit": "workspace:*"
   }
 }

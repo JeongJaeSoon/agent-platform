@@ -3,11 +3,8 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  ForgeCredentialError,
-  type SessionCatalog,
-} from "@agent-platform/platform";
-import { type FakeGitHub, startFakeGitHub } from "@agent-platform/testkit";
+import { ForgeCredentialError, type SessionCatalog } from "@werft-ai/platform";
+import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import {
   createGitHubForge,
   forgesOf,

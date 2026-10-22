@@ -5,7 +5,7 @@ export {
   CLAUDE_CODE_VERSION,
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
-} from "@agent-platform/runtime-claude-codec";
+} from "@werft-ai/runtime-claude-codec";
 export type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 export {
   FakeAgentRuntime,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ObjectRef } from "@agent-platform/runtime-core";
+import type { ObjectRef } from "@werft-ai/runtime-core";
 
 /**
  * The digest that pins a transcript revision's part list.

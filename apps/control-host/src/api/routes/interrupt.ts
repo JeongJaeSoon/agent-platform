@@ -2,8 +2,8 @@ import {
   controlAcceptedResponseSchema,
   interruptSessionRequestSchema,
   sessionIdParamsSchema,
-} from "@agent-platform/contracts";
-import type { InterruptService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { InterruptService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
@@ -21,7 +21,7 @@ export function registerInterruptRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, interruptSessionRequestSchema);
     const accepted = await mapped(() =>
-      service.interrupt({ ownerId: context.get("ownerId") }, params.id, {
+      service.interrupt(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),

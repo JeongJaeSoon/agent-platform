@@ -1,34 +1,95 @@
+import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
 import {
   type ApiErrorCode,
+  acceptInviteRequestSchema,
+  acceptInviteResponseSchema,
+  activateAgentRequestSchema,
+  activateAgentResponseSchema,
+  activationCredentialUnboundDetailsSchema,
+  addAgentAdminRequestSchema,
+  addTeamMemberRequestSchema,
+  adminTerminateSessionRequestSchema,
+  agentAdminChangeResponseSchema,
+  agentAdminParamsSchema,
+  agentAdminsViewSchema,
+  agentDetailSchema,
+  agentIdentityParamsSchema,
+  agentIdParamsSchema,
   apiErrorResponseSchema,
+  apiKeyIdParamsSchema,
   apiRootResponseSchema,
+  auditReadRequestSchema,
+  auditReadResponseSchema,
+  auditRetentionRequestSchema,
+  auditRetentionResponseSchema,
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  changeSessionProfileRequestSchema,
+  closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
+  createAgentReleaseRequestSchema,
+  createAgentReleaseResponseSchema,
+  createAgentRequestSchema,
+  createApiKeyRequestSchema,
+  createApiKeyResponseSchema,
+  createCredentialBindingRequestSchema,
+  createCredentialBindingResponseSchema,
+  createInviteRequestSchema,
+  createInviteResponseSchema,
   createPushRequestRequestSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  createTeamRequestSchema,
+  credentialBindingParamsSchema,
   decidePushRequestRequestSchema,
+  deleteTeamResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getTurnResponseSchema,
+  googleLoginCallbackRequestSchema,
   healthResponseSchema,
   installationLimitsResponseSchema,
   interruptSessionRequestSchema,
+  inviteIdParamsSchema,
+  issuePasswordResetRequestSchema,
+  issuePasswordResetResponseSchema,
+  linkAgentIdentityRequestSchema,
+  linkAgentIdentityResponseSchema,
+  linkedAccountParamsSchema,
+  listAdministeredAgentsResponseSchema,
+  listAdminSessionsResponseSchema,
+  listAgentIdentitiesResponseSchema,
+  listAgentsResponseSchema,
+  listApiKeysResponseSchema,
+  listCredentialBindingsResponseSchema,
+  listInvitesResponseSchema,
+  listLinkedAccountsResponseSchema,
+  listMembersResponseSchema,
+  listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
+  listProfilesResponseSchema,
   listPushRequestsResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
+  listTakeoversResponseSchema,
+  listTeamsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
+  loginMethodsResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
+  memberParamsSchema,
+  memberUserParamsSchema,
+  memberViewSchema,
   openPullRequestRequestSchema,
   openPullRequestResponseSchema,
+  passwordResetRequestSchema,
+  passwordResetResponseSchema,
   pauseSessionRequestSchema,
   postSessionAnswerRequestSchema,
+  postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
   pushRequestParamsSchema,
@@ -38,19 +99,42 @@ import {
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
   resumeSessionRequestSchema,
+  revokeAgentIdentityResponseSchema,
+  revokeApiKeyResponseSchema,
+  revokeCredentialBindingResponseSchema,
   type SessionScope,
+  sessionCredentialUnboundDetailsSchema,
   sessionDurabilitySchema,
   sessionIdParamsSchema,
+  sessionShareSchema,
   sessionSummarySchema,
   sessionUsageResponseSchema,
+  setAccessRequestSchema,
+  setAccessResponseSchema,
+  setSessionShareRequestSchema,
+  setSessionShareResponseSchema,
+  slackGuestRequestSchema,
+  slackGuestResponseSchema,
+  slackLinkCallbackRequestSchema,
+  slackLinkCallbackResponseSchema,
   sseEventSchema,
+  startGoogleLoginResponseSchema,
+  startSlackLinkResponseSchema,
+  takeOverSessionRequestSchema,
+  teamChangeResponseSchema,
+  teamDetailSchema,
+  teamIdParamsSchema,
+  teamMemberParamsSchema,
   terminateSessionRequestSchema,
   terminateSessionResponseSchema,
   turnIdParamsSchema,
   turnSummarySchema,
+  updateAgentRequestSchema,
+  updateMemberRequestSchema,
+  updateTeamRequestSchema,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
-import { createRoute, OpenAPIHono, type RouteConfig } from "@hono/zod-openapi";
+  workspaceParamsSchema,
+} from "@werft-ai/contracts";
 import { z } from "zod";
 import {
   API_INFO_DESCRIPTION,
@@ -76,10 +160,13 @@ const requestComponents = {
   PostSessionMessageRequest: postSessionMessageRequestSchema,
   ListTurnsQuery: listTurnsQuerySchema,
   PostSessionAnswerRequest: postSessionAnswerRequestSchema,
+  PostSessionAnswerResponse: postSessionAnswerResponseSchema,
   InterruptSessionRequest: interruptSessionRequestSchema,
   PauseSessionRequest: pauseSessionRequestSchema,
   TerminateSessionRequest: terminateSessionRequestSchema,
+  CloseSessionRequest: closeSessionRequestSchema,
   ResumeSessionRequest: resumeSessionRequestSchema,
+  ChangeSessionProfileRequest: changeSessionProfileRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   CreatePushRequestRequest: createPushRequestRequestSchema,
   DecidePushRequestRequest: decidePushRequestRequestSchema,
@@ -87,6 +174,29 @@ const requestComponents = {
   CommentPullRequestRequest: commentPullRequestRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
+  PasswordResetRequest: passwordResetRequestSchema,
+  SlackLinkCallbackRequest: slackLinkCallbackRequestSchema,
+  CreateInviteRequest: createInviteRequestSchema,
+  AcceptInviteRequest: acceptInviteRequestSchema,
+  UpdateMemberRequest: updateMemberRequestSchema,
+  SetAccessRequest: setAccessRequestSchema,
+  GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
+  AuditRetentionRequest: auditRetentionRequestSchema,
+  SlackGuestRequest: slackGuestRequestSchema,
+  CreateAgentRequest: createAgentRequestSchema,
+  UpdateAgentRequest: updateAgentRequestSchema,
+  CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
+  ActivateAgentRequest: activateAgentRequestSchema,
+  CreateApiKeyRequest: createApiKeyRequestSchema,
+  CreateTeamRequest: createTeamRequestSchema,
+  SetSessionShareRequest: setSessionShareRequestSchema,
+  AuditReadRequest: auditReadRequestSchema,
+  AdminTerminateSessionRequest: adminTerminateSessionRequestSchema,
+  TakeOverSessionRequest: takeOverSessionRequestSchema,
+  UpdateTeamRequest: updateTeamRequestSchema,
+  AddTeamMemberRequest: addTeamMemberRequestSchema,
+  AddAgentAdminRequest: addAgentAdminRequestSchema,
+  LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -104,6 +214,20 @@ const responseComponents = {
   TurnDetail: getTurnResponseSchema,
   SseEvent: sseEventSchema,
   ListPendingRequestsResponse: listPendingRequestsResponseSchema,
+  ListTakeoversResponse: listTakeoversResponseSchema,
+  SessionShare: sessionShareSchema,
+  SetSessionShareResponse: setSessionShareResponseSchema,
+  AuditReadResponse: auditReadResponseSchema,
+  ListAdminSessionsResponse: listAdminSessionsResponseSchema,
+  StartSlackLinkResponse: startSlackLinkResponseSchema,
+  SlackLinkCallbackResponse: slackLinkCallbackResponseSchema,
+  ListLinkedAccountsResponse: listLinkedAccountsResponseSchema,
+  CreateInviteResponse: createInviteResponseSchema,
+  ListInvitesResponse: listInvitesResponseSchema,
+  AcceptInviteResponse: acceptInviteResponseSchema,
+  ListMembersResponse: listMembersResponseSchema,
+  MemberView: memberViewSchema,
+  SetAccessResponse: setAccessResponseSchema,
   PushRequest: pushRequestSchema,
   ListPushRequestsResponse: listPushRequestsResponseSchema,
   OpenPullRequestResponse: openPullRequestResponseSchema,
@@ -113,9 +237,41 @@ const responseComponents = {
   Receipt: getReceiptResponseSchema,
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
+  LoginMethodsResponse: loginMethodsResponseSchema,
+  StartGoogleLoginResponse: startGoogleLoginResponseSchema,
+  IssuePasswordResetRequest: issuePasswordResetRequestSchema,
+  IssuePasswordResetResponse: issuePasswordResetResponseSchema,
+  AuditRetentionResponse: auditRetentionResponseSchema,
+  SlackGuestResponse: slackGuestResponseSchema,
+  PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   InstallationLimitsResponse: installationLimitsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
+  ListAgentsResponse: listAgentsResponseSchema,
+  ListProfilesResponse: listProfilesResponseSchema,
+  AgentDetail: agentDetailSchema,
+  CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
+  ActivateAgentResponse: activateAgentResponseSchema,
+  SessionCredentialUnboundDetails: sessionCredentialUnboundDetailsSchema,
+  ActivationCredentialUnboundDetails: activationCredentialUnboundDetailsSchema,
+  CreateApiKeyResponse: createApiKeyResponseSchema,
+  ListApiKeysResponse: listApiKeysResponseSchema,
+  RevokeApiKeyResponse: revokeApiKeyResponseSchema,
+  ListTeamsResponse: listTeamsResponseSchema,
+  TeamDetail: teamDetailSchema,
+  TeamChangeResponse: teamChangeResponseSchema,
+  DeleteTeamResponse: deleteTeamResponseSchema,
+  AgentAdmins: agentAdminsViewSchema,
+  AgentAdminChangeResponse: agentAdminChangeResponseSchema,
+  ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
+  ListMyTeamsResponse: listMyTeamsResponseSchema,
+  CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
+  CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
+  ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
+  RevokeCredentialBindingResponse: revokeCredentialBindingResponseSchema,
+  LinkAgentIdentityResponse: linkAgentIdentityResponseSchema,
+  ListAgentIdentitiesResponse: listAgentIdentitiesResponseSchema,
+  RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
 } satisfies Record<string, z.ZodType>;
 
@@ -151,11 +307,41 @@ export const OPENAPI_TAGS = [
   },
   {
     name: "Session control",
-    description: "Stop, pause, resume or interrupt a session's execution.",
+    description:
+      "Stop, pause, resume, close or interrupt a session's execution.",
   },
   {
     name: "Recovery",
     description: "Resolve sessions that require an operator recovery decision.",
+  },
+  {
+    name: "Members",
+    description:
+      "Invite people, change member roles and take over the sessions of members who were offboarded. Owners and admins, from a browser session; only an owner grants or changes the owner role.",
+  },
+  {
+    name: "Teams",
+    description:
+      "Group people into teams; a team named an agent's admin makes every member of it one. Owners and admins change teams, from a browser session. A person added joins at once, without accepting.",
+  },
+  {
+    name: "Workspace settings",
+    description: "Change workspace-wide settings. Owners only.",
+  },
+  {
+    name: "Agents",
+    description:
+      "Write agent cards, release a version against a runtime profile, activate a release and bind the credential names it runs with. Owners, admins, and each agent's own admins.",
+  },
+  {
+    name: "Linked accounts",
+    description:
+      "Link and unlink the caller's own Slack account through Sign in with Slack.",
+  },
+  {
+    name: "API keys",
+    description:
+      "Issue and revoke keys, never above what the issuer holds. Signed-in people only.",
   },
   {
     name: "Limits & receipts",
@@ -171,7 +357,7 @@ type ComponentName =
 type ApiTagName = (typeof OPENAPI_TAGS)[number]["name"];
 
 export type RouteDeclaration = {
-  method: "get" | "post";
+  method: "get" | "post" | "patch" | "delete";
   path: string;
   operationId: string;
   tag: ApiTagName;
@@ -242,6 +428,8 @@ const EXAMPLE_WORKSPACE = {
     kill_switch: false,
     daily_cost_limit_usd: null,
     idle_pause_minutes: 30,
+    audit_retention_days: 90,
+    slack_guest_enabled: false,
   },
   created_at: "2026-10-01T09:00:00Z",
 };
@@ -407,13 +595,14 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/auth/bootstrap",
     operationId: "bootstrap",
     tag: "Auth",
-    summary: "Create the first owner and default workspace (once)",
+    summary:
+      "Create the first owner and default workspace, or recover an owner",
     description:
-      "Creates the installation's first user, a workspace and the user's `owner` membership, authorized by the one-time `bootstrap_token` printed at install. It runs once: as soon as any user exists it answers `409 BOOTSTRAP_DONE`. It sets no cookie; sign in with `POST /v1/auth/login` afterwards.",
+      "Allowed only while no live owner exists (an owner whose account or membership is disabled is not live). On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt. Each BOOTSTRAP_TOKEN works once per installation; a token presented while a live owner exists is spent. A wrong or spent token answers 401 before the owner state is looked at.",
     auth: "public",
     body: "BootstrapRequest",
     requestExample: {
-      bootstrap_token: "bt_4f9c2a7e1d8b6c3a5e0f9d2b7c4a1e8f6d3b0c9a",
+      bootstrap_token: "<the BOOTSTRAP_TOKEN printed at install>",
       email: "owner@example.com",
       password: "correct horse battery staple",
       display_name: "Ada Owner",
@@ -423,7 +612,8 @@ export const API_ROUTE_DECLARATIONS = [
     success: {
       status: 201,
       schema: "BootstrapResponse",
-      description: "The owner, the workspace and the membership are created.",
+      description:
+        "The owner, the workspace and the membership are created, or the owner is restored in the existing workspace.",
       example: {
         user_id: EXAMPLE_USER_ID,
         workspace: EXAMPLE_WORKSPACE,
@@ -434,11 +624,23 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["BOOTSTRAP_DONE"] },
     errorNotes: {
       UNAUTHORIZED:
-        "`bootstrap_token` is missing or does not match the installation's token; checked before the rest of the body.",
+        "`bootstrap_token` is missing, does not match the installation's token, or was already used; checked first, before the owner state and the rest of the body.",
       BOOTSTRAP_DONE:
-        "Checked before the token, and also the answer to the loser of two concurrent bootstraps.",
+        "A live owner exists, checked only after the token matched (the token is then spent); also the answer to the loser of two concurrent bootstraps.",
     },
     idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/auth/login-methods",
+    operationId: "listLoginMethods",
+    tag: "Auth",
+    summary: "How a person can sign in on this installation",
+    description:
+      "`password` always; `google` when Google sign-in is configured. The login page offers these.",
+    auth: "public",
+    success: { status: 200, schema: "LoginMethodsResponse" },
+    errors: [],
   },
   {
     method: "post",
@@ -479,6 +681,92 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/auth/google/start",
+    operationId: "startGoogleLogin",
+    tag: "Auth",
+    summary: "Begin Google sign-in; answers the Google URL to open",
+    description:
+      "Sets a short-lived cookie that binds the flow (state, nonce, PKCE verifier) to this browser. 404 when Google sign-in is not configured.",
+    auth: "public",
+    csrf: "always",
+    success: { status: 200, schema: "StartGoogleLoginResponse" },
+    errors: [403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/auth/google/callback",
+    operationId: "googleLoginCallback",
+    tag: "Auth",
+    summary: "Finish Google sign-in; sets the session cookie",
+    description:
+      "Posts the `code` and `state` Google returned to the redirect URI. The first matching rule decides: an already linked Google account signs in as its user; an address that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for the address, or JIT for an allowed domain, creates the account. Anything else answers 401 without saying whether an account exists. A Google account outside the allowed domains answers 403.",
+    auth: "public",
+    csrf: "always",
+    body: "GoogleLoginCallbackRequest",
+    success: { status: 200, schema: "LoginResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["LOGIN_LINK_REQUIRED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/auth/password-reset",
+    operationId: "resetPassword",
+    tag: "Auth",
+    summary: "Set a new password with a one-time reset link",
+    description:
+      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429.",
+    auth: "public",
+    body: "PasswordResetRequest",
+    success: { status: 200, schema: "PasswordResetResponse" },
+    errors: [400, 401, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/members/{userId}/password-reset",
+    operationId: "issuePasswordReset",
+    tag: "Auth",
+    summary: "Issue a one-time password reset link for a member (owner only)",
+    description:
+      "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.",
+    auth: "session",
+    body: "IssuePasswordResetRequest",
+    success: { status: 201, schema: "IssuePasswordResetResponse" },
+    errors: [400, 401, 403, 404, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/audit-retention",
+    operationId: "setAuditRetention",
+    tag: "Workspace settings",
+    summary: "Set how many days authorization decisions are kept (owner only)",
+    description:
+      "At least 30 days; the default is 90. Rows older than this are deleted by the reconciler. The current value is `workspace.settings.audit_retention_days` in GET /v1/auth/me.",
+    auth: "session",
+    body: "AuditRetentionRequest",
+    success: { status: 200, schema: "AuditRetentionResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/slack-guest",
+    operationId: "setSlackGuest",
+    tag: "Workspace settings",
+    summary: "Let Slack guests call agents, or stop them (owner or admin)",
+    description:
+      "Off by default. While off, a Slack guest (`is_restricted`) who calls an agent is refused with `guest_disabled`; while on, a guest still has to link their Slack account. Slack Connect users from other organizations are refused either way. An app with Slack's agent features on is closed to guests by Slack itself. The current value is `workspace.settings.slack_guest_enabled` in GET /v1/auth/me.",
+    auth: "session",
+    body: "SlackGuestRequest",
+    success: { status: 200, schema: "SlackGuestResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
     path: "/v1/auth/logout",
     operationId: "logout",
     tag: "Auth",
@@ -503,7 +791,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "The authenticated principal, user and workspace",
     description:
-      "Says who the credential authenticates as and what it may do: the principal with its scopes, and for a cookie session the user and the workspace. An API key has no user, so `user` is null, and `workspace` is null as well. The web app boots from this. It changes nothing.",
+      "Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. The web app boots from this. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -524,6 +812,23 @@ export const API_ROUTE_DECLARATIONS = [
         },
         workspace: EXAMPLE_WORKSPACE,
         scopes: ALL_SCOPES,
+        permissions: [
+          "workspace.manage",
+          "audit_retention.manage",
+          "member.manage",
+          "team.manage",
+          "api_key.manage",
+          "api_key.manage_own",
+          "account.link",
+          "agent.create",
+          "agent.manage",
+          "agent.restore",
+          "agent.admin.manage",
+          "credential.bind",
+          "binding.manage",
+          "session.audit_read",
+          "session.admin_list",
+        ],
       },
     },
     errors: [401, 503],
@@ -538,7 +843,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
     description:
-      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog) and is fixed for the session's life; omitted, the profile's default runs. A session waits in `queued` while no execution slot is free; it is never refused for that. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
+      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the profile's default runs. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it; `profile_id` must be the release's runtime profile (409 RELEASE_PROFILE_MISMATCH). The run itself follows `profile_id`. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
     scope: "write",
     body: "CreateSessionRequest",
     requestExample: {
@@ -559,9 +864,14 @@ export const API_ROUTE_DECLARATIONS = [
         status: "queued",
       },
     },
-    errors: [400, 401, 409, 413, 422, 429, 503],
+    errors: [400, 401, 404, 409, 413, 422, 429, 503],
     errorCodes: {
-      409: ["IDEMPOTENCY_CONFLICT"],
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "RELEASE_PROFILE_MISMATCH",
+        "PROFILE_DIGEST_MISMATCH",
+        "CREDENTIAL_UNBOUND",
+      ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
     errorNotes: {
@@ -599,7 +909,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Session detail with projection, execution and durability",
     description:
-      "Reads one session: its `admission_state` (whether it takes input and controls: `active`, `pausing`, `paused`, `resuming`, `stopping`, `stopped`, `recovery_required`, `closed`), its `status`, the current `revision`, the execution as last observed, the number of pending requests, `attention` (why the session is held or slowed, if it is) and checkpoint `durability`. Read `revision` here and send it as `expected_revision` to pause, resume, terminate or decide recovery. `status: needs_input` and `attention` are computed on each read; reading changes nothing.",
+      "Reads one session: its `admission_state` (whether it takes input and controls: `active`, `pausing`, `paused`, `resuming`, `stopping`, `stopped`, `recovery_required`, `closing`, `closed`), its `status`, the current `revision`, the execution as last observed, the number of pending requests, `attention` (why the session is held or slowed, if it is) and checkpoint `durability`. Read `revision` here and send it as `expected_revision` to pause, resume, close, terminate or decide recovery. `status: needs_input` and `attention` are computed on each read; reading changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -628,6 +938,109 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 404, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/sessions/{id}/share",
+    operationId: "getSessionShare",
+    tag: "Sessions",
+    summary: "Who sees the session",
+    description:
+      "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0.",
+    scope: "read",
+    success: { status: 200, schema: "SessionShare" },
+    errors: [401, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/share",
+    operationId: "setSessionShare",
+    tag: "Sessions",
+    summary: "Change who sees the session",
+    description:
+      "`private` is the creator alone; `people` and `team` add the people or the current members of the teams named; `workspace` is every member. A person's session is changed only by its creator; a session an API key made, by owners, admins and the admins of its agent. Anyone else the session is visible to gets 403; anyone it is not visible to, 404. Open event streams that may no longer see the session end. Writes a `share_session` receipt unless the share was already as asked (`receipt_id` null).",
+    auth: "session",
+    body: "SetSessionShareRequest",
+    success: { status: 200, schema: "SetSessionShareResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/audit-read",
+    operationId: "auditReadSession",
+    tag: "Sessions",
+    summary: "Read a session outside its share, with a reason",
+    description:
+      "Owners and admins. The session detail and a page of its turns, whatever the share; nothing on the session changes and no other action is opened by it. Every read is recorded with its `justification`.",
+    auth: "session",
+    body: "AuditReadRequest",
+    success: { status: 200, schema: "AuditReadResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/admin/sessions",
+    operationId: "listAdminSessions",
+    tag: "Sessions",
+    summary: "Every session of the workspace, metadata only",
+    description:
+      "Owners and admins. Who made each session, its agent release, state and share scope, newest first; no content, title or summary.",
+    auth: "session",
+    success: { status: 200, schema: "ListAdminSessionsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/admin/sessions/{id}/terminate",
+    operationId: "adminTerminateSession",
+    tag: "Session control",
+    summary: "Stop any session of the workspace, with a reason",
+    description:
+      "Owners and admins, whatever the session's share. The `justification` is recorded with the decision and becomes the stop reason. Otherwise as `POST /v1/sessions/{id}/terminate`.",
+    auth: "session",
+    body: "AdminTerminateSessionRequest",
+    success: { status: 202, schema: "TerminateSessionResponse" },
+    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+      ],
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/admin/sessions/{id}/recovery-decisions",
+    operationId: "adminDecideSessionRecovery",
+    tag: "Recovery",
+    summary: "Decide recovery for any session of the workspace",
+    description:
+      "Owners only, whatever the session's share. The decision's `reason` is the justification, recorded with the decision. Otherwise as `POST /v1/sessions/{id}/recovery-decisions`.",
+    auth: "session",
+    body: "RecoveryDecisionRequest",
+    success: { status: 202, schema: "ReceiptAcceptedResponse" },
+    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "REQUEST_STALE",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+    },
   },
   {
     method: "get",
@@ -695,8 +1108,10 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_RESUMING",
         "SESSION_STOPPED",
         "RECOVERY_REQUIRED",
+        "SESSION_CLOSING",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "TAKEOVER_REQUIRED",
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
@@ -769,6 +1184,7 @@ export const API_ROUTE_DECLARATIONS = [
             execution_generation: 1,
             started_at: "2026-10-11T08:00:05Z",
             ended_at: "2026-10-11T08:03:12Z",
+            profile_id: "claude-coding-real",
           },
         ],
       },
@@ -785,7 +1201,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Events",
     summary: "Durable event replay and live stream (SSE)",
     description:
-      "Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. The stream does not end with a turn or the session: it stays open until the client disconnects or the credential is revoked. Reading changes nothing.\n\nReconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
+      "Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.\n\nReconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
     scope: "read",
     lastEventId: true,
     success: {
@@ -862,9 +1278,21 @@ export const API_ROUTE_DECLARATIONS = [
     },
     success: {
       status: 202,
-      schema: "ReceiptAcceptedResponse",
-      description: "The answer is stored; the receipt tracks its delivery.",
-      example: ACCEPTED_RECEIPT,
+      schema: "PostSessionAnswerResponse",
+      description:
+        "The answer is stored; the receipt tracks its delivery, and `approval` records who answered and the decision that let them.",
+      example: {
+        ...ACCEPTED_RECEIPT,
+        approval: {
+          answered_by: {
+            principal: { kind: "user", id: EXAMPLE_USER_ID },
+            actor_user_id: EXAMPLE_USER_ID,
+            agent_id: null,
+          },
+          surface: "web",
+          decision_id: "5b9e2d7a-1c4f-4a83-b6e0-8d3f7a2c1e94",
+        },
+      },
     },
     errors: [...CONFLICTS, 413, 503],
     errorCodes: {
@@ -1130,6 +1558,7 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_RESUMING",
         "SESSION_STOPPED",
         "RECOVERY_REQUIRED",
+        "SESSION_CLOSING",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
       ],
@@ -1144,12 +1573,58 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/sessions/{id}/close",
+    operationId: "closeSession",
+    tag: "Session control",
+    summary: "Finish the session: drain, checkpoint, close for good",
+    description:
+      "Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. `docs/api-guide.md` compares the three.\n\n- **`active` with a live worker:** the worker drains as for a pause and the session goes `closing`. The receipt stays `accepted` until the execution is observed gone with a checkpoint covering every turn that ran; then the session is `closed` and the receipt `succeeded`. A drain over 60 seconds shows `attention.code: CLOSE_BLOCKED` with the reason; nothing is killed for it. An open question or approval holds the close until it is answered or the turn interrupted. If the drain cannot commit, the receipt fails and the session goes back to `active` (or `recovery_required` for a turn whose outcome is unknown), with its queued input intact; a terminate overtakes it (`CONTROL_SUPERSEDED`).\n- **`active` with no live worker, `paused`, or a `stopped` session that can be resumed:** closed in this request. With an execution still bound the receipt is `accepted` until it is observed gone; otherwise `succeeded` in the response.\n\nQueued input is cancelled in the transaction that closes the session (each input's receipt fails with `SESSION_CLOSED`). Push requests are left alone; request a push of the result after the close has succeeded, since a push requested inside the last turn is refused `CHECKPOINT_MOVED` once the close commits that turn's checkpoint. The receipt result is `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`. The stream carries a `status` event for `closing` and for `closed`, and a `system` event `{subtype: session_closed, closed_by: close, close_receipt_id, checkpoint_revision, cancelled_turn_count}`. A caller closing its own session from inside a turn must not wait on the receipt: the drain waits for that turn to end. After the close, messages and controls answer `409 SESSION_CLOSED`.",
+    scope: "control",
+    body: "CloseSessionRequest",
+    requestExample: { expected_revision: 7, reason: "Work is done" },
+    success: {
+      status: 202,
+      schema: "ReceiptAcceptedResponse",
+      description:
+        "The close is stored (`accepted`), or the session had nothing to wait on and is `closed` already (`succeeded`).",
+      example: ACCEPTED_RECEIPT,
+    },
+    // 422: a legacy pod binding, as for terminate.
+    errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "SESSION_CLOSING",
+        "SESSION_CLOSED",
+        "RECOVERY_REQUIRED",
+        "CHECKPOINT_UNAVAILABLE",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Checked before the admission state, but after `closed`: a closed session answers `SESSION_CLOSED` whatever the revision.",
+      SESSION_PAUSED: "The session is pausing; close it once it is paused.",
+      SESSION_STOPPED:
+        "The session is stopping; close it once the terminate receipt has settled.",
+      RECOVERY_REQUIRED:
+        "The session is `recovery_required`, or `stopped` and cannot be resumed; end it with a recovery close instead.",
+      CHECKPOINT_UNAVAILABLE:
+        "No live worker can drain and no trusted checkpoint covers the last turn that ran; terminate, then use a recovery close.",
+      UNSUPPORTED_CAPABILITY: "The session runs on a legacy pod binding.",
+    },
+  },
+  {
+    method: "post",
     path: "/v1/sessions/{id}/terminate",
     operationId: "terminateSession",
     tag: "Session control",
     summary: "Block dispatch and force the execution down",
     description:
-      "Stops the session by force, in any admission state but `closed`: dispatch is blocked, queued input is cancelled (each input's receipt fails with `SESSION_STOPPED`), open requests close and the execution is killed. The session goes `stopping` until the kill is observed, then `stopped`; with nothing to kill it is `stopped` at once and the receipt is `succeeded` in the response. A `recovery_required` session keeps that state. A turn the kill cut short may end `outcome_unknown`, which holds the session in `recovery_required` until `POST /v1/sessions/{id}/recovery-decisions`. The kill reverts nothing the execution already did outside (commits, pushes, API calls): the response and the receipt say `external_effects_reverted: false`. The receipt result is `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`. Resume a `stopped` session from its last checkpoint with `POST /v1/sessions/{id}/resume`.",
+      "Stops the session by force, in any admission state but `closed`: dispatch is blocked, queued input is cancelled (each input's receipt fails with `SESSION_STOPPED`), open requests close and the execution is killed. The session goes `stopping` until the kill is observed, then `stopped`; with nothing to kill it is `stopped` at once and the receipt is `succeeded` in the response. A `recovery_required` session keeps that state. A turn the kill cut short may end `outcome_unknown`, which holds the session in `recovery_required` until `POST /v1/sessions/{id}/recovery-decisions`. The kill reverts nothing the execution already did outside (commits, pushes, API calls): the response and the receipt say `external_effects_reverted: false`. The receipt result is `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`. Resume a `stopped` session from its last checkpoint with `POST /v1/sessions/{id}/resume`. A pause or close still draining is overtaken: its receipt fails with `CONTROL_SUPERSEDED`. To end a session whose work is done, close it instead (`POST /v1/sessions/{id}/close`).",
     scope: "control",
     body: "TerminateSessionRequest",
     requestExample: { expected_revision: 7, reason: "Runaway tool loop" },
@@ -1185,6 +1660,48 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/sessions/{id}/profile",
+    operationId: "changeSessionProfile",
+    tag: "Session control",
+    summary: "Run the session's next turns on another profile",
+    description:
+      "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. The session then runs the new profile's default `model`, whatever `model` it was created with. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.",
+    scope: "control",
+    body: "ChangeSessionProfileRequest",
+    requestExample: { expected_revision: 8, profile_id: "claude-coding-fast" },
+    success: {
+      status: 200,
+      schema: "ReceiptAcceptedResponse",
+      description: "The session runs `profile_id` from its next turn on.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID, receipt_status: "succeeded" },
+    },
+    errors: [...CONFLICTS, 413, 422, 503],
+    errorCodes: {
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "REVISION_CONFLICT",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "SESSION_CLOSING",
+        "SESSION_CLOSED",
+        "RECOVERY_REQUIRED",
+        "RELEASE_PROFILE_MISMATCH",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Also when the session's profile changed between the read and the change.",
+      SESSION_PAUSED: "The session is pausing.",
+      SESSION_STOPPED: "The session is stopping.",
+      RELEASE_PROFILE_MISMATCH:
+        "The session belongs to an agent release, which sets its profile.",
+      UNSUPPORTED_CAPABILITY:
+        "The profile is not in the catalog, not allowed with the session's repository, runs another runtime, or is billed differently.",
+    },
+  },
+  {
+    method: "post",
     path: "/v1/sessions/{id}/resume",
     operationId: "resumeSession",
     tag: "Session control",
@@ -1211,6 +1728,7 @@ export const API_ROUTE_DECLARATIONS = [
         "REVISION_CONFLICT",
         "REQUEST_STALE",
         "SESSION_RESUMING",
+        "SESSION_CLOSING",
         "SESSION_CLOSED",
         "RECOVERY_REQUIRED",
         "CHECKPOINT_UNAVAILABLE",
@@ -1287,6 +1805,639 @@ export const API_ROUTE_DECLARATIONS = [
     },
   },
   {
+    method: "post",
+    path: "/v1/invites",
+    operationId: "createInvite",
+    tag: "Members",
+    summary: "Invite a person to the workspace",
+    description:
+      "The token is returned once and expires in seven days; only its sha256 is stored. Inviting an address that already has a live invite revokes that invite. An address that is already a live member answers 400. Every invite writes an `invite_member` receipt.",
+    auth: "session",
+    body: "CreateInviteRequest",
+    success: { status: 201, schema: "CreateInviteResponse" },
+    errors: [400, 401, 403, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/invites",
+    operationId: "listInvites",
+    tag: "Members",
+    summary: "Invites of the workspace, newest first",
+    description:
+      "Each invite's status is pending, accepted, revoked or expired. Tokens are never returned.",
+    auth: "session",
+    success: { status: 200, schema: "ListInvitesResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/invites/{id}",
+    operationId: "revokeInvite",
+    tag: "Members",
+    summary: "Revoke an invite",
+    description:
+      "Writes a `revoke_invite` receipt. Revoking an invite that was already revoked does nothing; an accepted one answers 409.",
+    auth: "session",
+    success: { status: 204 },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["INVITE_USED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/invites/accept",
+    operationId: "acceptInvite",
+    tag: "Members",
+    summary: "Redeem an invite; sets the session cookie",
+    description:
+      "An address with no account gets one with this password. An existing account joins with its current password, which is never changed. The token is spent once; a revoked, replaced or expired token answers 410, an accepted one 409. Writes an `accept_invite` receipt.",
+    auth: "public",
+    csrf: "always",
+    body: "AcceptInviteRequest",
+    success: { status: 200, schema: "AcceptInviteResponse" },
+    errors: [400, 401, 403, 409, 410, 413, 429, 503],
+    errorCodes: { 409: ["INVITE_USED"], 410: ["INVITE_EXPIRED"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/members",
+    operationId: "listMembers",
+    tag: "Members",
+    summary: "Members of the workspace, oldest first",
+    auth: "session",
+    success: { status: 200, schema: "ListMembersResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/members/{user_id}",
+    operationId: "updateMember",
+    tag: "Members",
+    summary: "Change a member's role",
+    description:
+      "Demoting the workspace's last live owner answers 409 LAST_OWNER. Writes a `change_member_role` receipt when the role changes.",
+    auth: "session",
+    body: "UpdateMemberRequest",
+    success: { status: 200, schema: "MemberView" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "OWNER_PROTECTED"], 409: ["LAST_OWNER"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/members/{user_id}/disable",
+    operationId: "disableMember",
+    tag: "Members",
+    summary: "Disable a member of the workspace",
+    description:
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Service keys are untouched. Disabling yourself, or the last live owner, answers 409 LAST_OWNER. Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["LAST_OWNER"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/members/{user_id}/enable",
+    operationId: "enableMember",
+    tag: "Members",
+    summary: "Enable a disabled member again",
+    description:
+      "Revoked web sessions and personal keys stay revoked: the person signs in again. Sessions no owner took over go back to them. Writes an `enable_member` receipt unless the membership was already live (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/users/{user_id}/disable",
+    operationId: "disableUser",
+    tag: "Members",
+    summary: "Suspend an account",
+    description:
+      "Allowed only when every live membership of the account is in a workspace the caller owns; otherwise 403. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 409 LAST_OWNER. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["LAST_OWNER"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/users/{user_id}/enable",
+    operationId: "enableUser",
+    tag: "Members",
+    summary: "Lift an account suspension",
+    description:
+      "The same ownership rule as suspending. Revoked web sessions and personal keys stay revoked. Writes an `enable_user` receipt unless the account was not suspended (`receipt_id` null).",
+    auth: "session",
+    body: "SetAccessRequest",
+    success: { status: 200, schema: "SetAccessResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/takeovers",
+    operationId: "listTakeovers",
+    tag: "Members",
+    summary: "Sessions waiting for an owner to take them over",
+    description:
+      "Sessions whose requester was offboarded. Each takes no further input until an owner takes it over. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ListTakeoversResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/takeover",
+    operationId: "takeOverSession",
+    tag: "Members",
+    summary: "Become the requester of an offboarded member's session",
+    description:
+      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
+    auth: "session",
+    body: "TakeOverSessionRequest",
+    success: { status: 200, schema: "ReceiptAcceptedResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REQUEST_STALE"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/linked-accounts/slack/start",
+    operationId: "startSlackLink",
+    tag: "Linked accounts",
+    summary: "Start linking the caller's Slack account",
+    description:
+      "Returns Slack's consent URL and sets a one-time state cookie for the callback, valid ten minutes. Scopes are `openid profile`; no email is requested. Refused with 409 when the workspace has no verified Slack install. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "StartSlackLinkResponse" },
+    errors: [401, 403, 409, 503],
+    errorCodes: { 409: ["SLACK_NOT_INSTALLED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/linked-accounts/slack/callback",
+    operationId: "slackLinkCallback",
+    tag: "Linked accounts",
+    summary: "Finish linking with the code Slack returned",
+    description:
+      "Spends the state cookie, exchanges the code and verifies the id_token, then links the Slack account to the caller and writes a `link_account` receipt. Refused when the account's Slack team is not installed for the workspace, when the account is linked to someone else (never overwritten), or when the caller already linked another account in that team. API keys are refused.",
+    auth: "session",
+    body: "SlackLinkCallbackRequest",
+    success: { status: 201, schema: "SlackLinkCallbackResponse" },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "SLACK_NOT_INSTALLED",
+        "LINK_TEAM_MISMATCH",
+        "LINK_TAKEN",
+        "LINK_EXISTS",
+      ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/linked-accounts",
+    operationId: "listLinkedAccounts",
+    tag: "Linked accounts",
+    summary: "The caller's linked accounts that are active or stale",
+    description: "API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ListLinkedAccountsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/linked-accounts/{id}",
+    operationId: "unlinkAccount",
+    tag: "Linked accounts",
+    summary: "Unlink one of the caller's accounts",
+    description:
+      "Revokes the link and writes an `unlink_account` receipt. Input from that Slack account is refused from then on, including input that was already waiting to be processed. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ReceiptAcceptedResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents",
+    operationId: "listAgents",
+    tag: "Agents",
+    summary: "The workspace's agents",
+    description: "Up to 500, oldest first. API keys are refused.",
+    auth: "session",
+    success: { status: 200, schema: "ListAgentsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents",
+    operationId: "createAgent",
+    tag: "Agents",
+    summary: "Create an agent and its first card version",
+    description:
+      "Nothing is released or activated. A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.",
+    auth: "session",
+    body: "CreateAgentRequest",
+    success: { status: 201, schema: "AgentDetail" },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}",
+    operationId: "getAgent",
+    tag: "Agents",
+    summary: "An agent with its versions, releases and active release",
+    auth: "session",
+    success: { status: 200, schema: "AgentDetail" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/agents/{id}",
+    operationId: "updateAgent",
+    tag: "Agents",
+    summary: "Rename an agent or add a card version",
+    description:
+      "A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.",
+    auth: "session",
+    body: "UpdateAgentRequest",
+    success: { status: 200, schema: "AgentDetail" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/releases",
+    operationId: "createAgentRelease",
+    tag: "Agents",
+    summary: "Release a version against a runtime profile",
+    description:
+      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A card tool outside the profile, a different model or an unknown profile answers 422. Releasing approves and activates nothing.",
+    auth: "session",
+    body: "CreateAgentReleaseRequest",
+    success: { status: 200, schema: "CreateAgentReleaseResponse" },
+    errors: [400, 401, 403, 404, 413, 422, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/activate",
+    operationId: "activateAgent",
+    tag: "Agents",
+    summary: "Point the agent at a release (compare-and-swap)",
+    description:
+      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
+    auth: "session",
+    body: "ActivateAgentRequest",
+    success: { status: 200, schema: "ActivateAgentResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "REVISION_CONFLICT",
+        "PROFILE_DIGEST_MISMATCH",
+        "CREDENTIAL_UNBOUND",
+      ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/credential-bindings",
+    operationId: "listCredentialBindings",
+    tag: "Agents",
+    summary: "The credential names bound to an agent",
+    description:
+      "Owners, admins and the agent's admins. Each binding carries `running_sessions`, the sessions of this agent that name it and have not closed, with the `revoke_notice` the unbind screen shows: unbinding stops the next session, not a running one (D11). Names only; no value is ever stored.",
+    auth: "session",
+    success: { status: 200, schema: "ListCredentialBindingsResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/credential-bindings",
+    operationId: "createCredentialBinding",
+    tag: "Agents",
+    summary: "Bind a credential name to an agent",
+    description:
+      "Owners, admins and the agent's admins; never an API key. `credential_ref` names a credential held outside Werft (a secret store entry, a remote MCP server connection). Binding a name already bound answers `created: false` and a null `receipt_id`; otherwise writes a `bind_credential` receipt. A name an agent identity holds answers 409 CREDENTIAL_REF_IN_USE.",
+    auth: "session",
+    body: "CreateCredentialBindingRequest",
+    success: { status: 200, schema: "CreateCredentialBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["CREDENTIAL_REF_IN_USE"] },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/credential-bindings/{binding_id}",
+    operationId: "revokeCredentialBinding",
+    tag: "Agents",
+    summary: "Unbind a credential name from an agent",
+    description:
+      "Takes what binding takes. The next session of a release naming it is refused 409 CREDENTIAL_UNBOUND; sessions already running keep it until they end, which the answer's `binding.running_sessions` and `revoke_notice` say. Writes an `unbind_credential` receipt; a binding already revoked is not found.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeCredentialBindingResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/identities",
+    operationId: "linkAgentIdentity",
+    tag: "Agents",
+    summary: "Pin the agent to its Slack app's install in one team",
+    description:
+      "Slack events from that app and team then resolve to this agent and no other; events from another app, or after the identity or the install is revoked, are dropped. The install must be verified for the workspace (409 SLACK_NOT_INSTALLED); one already pinned to another agent answers 409 AGENT_IDENTITY_TAKEN, and to this agent 409 ALREADY_EXISTS. `credential_ref` names the bot token in the secret store, never its value, and is this identity's alone: a name bound to an agent or another identity answers 409 CREDENTIAL_REF_IN_USE, and the name is freed when the identity is revoked. Owners, admins and the agent's admins; API keys are refused. Writes a `link_agent_identity` receipt.",
+    auth: "session",
+    body: "LinkAgentIdentityRequest",
+    success: { status: 201, schema: "LinkAgentIdentityResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: {
+      409: [
+        "SLACK_NOT_INSTALLED",
+        "AGENT_IDENTITY_TAKEN",
+        "ALREADY_EXISTS",
+        "CREDENTIAL_REF_IN_USE",
+      ],
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/identities",
+    operationId: "listAgentIdentities",
+    tag: "Agents",
+    summary: "The agent's Slack app identities",
+    description:
+      "Active first, then revoked, newest first within each; up to 50. Owners, admins and the agent's admins.",
+    auth: "session",
+    success: { status: 200, schema: "ListAgentIdentitiesResponse" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/identities/{identity_id}",
+    operationId: "revokeAgentIdentity",
+    tag: "Agents",
+    summary: "Revoke an agent identity",
+    description:
+      "Events from that app and team are dropped from then on, including events already waiting to be processed. Revoking one already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_agent_identity` receipt. Linking again makes a new identity.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeAgentIdentityResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/api-keys",
+    operationId: "createApiKey",
+    tag: "API keys",
+    summary: "Issue a personal key, a service key, or one bound to an agent",
+    description:
+      "A personal key is the caller's own; a service key takes an owner or an admin, and one with `agent_id` also that agent's admin. `scopes` may not exceed what the caller holds now, and a key with `agent_id` never holds `sessions:approve` (403 SCOPE_NOT_GRANTABLE). An API key never issues one. The secret is returned once; only its sha256 is stored. Writes a `create_api_key` receipt.",
+    auth: "session",
+    body: "CreateApiKeyRequest",
+    success: { status: 201, schema: "CreateApiKeyResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    errorCodes: { 403: ["FORBIDDEN", "SCOPE_NOT_GRANTABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/api-keys",
+    operationId: "listApiKeys",
+    tag: "API keys",
+    summary: "The caller's personal keys and the service keys they manage",
+    description:
+      "Owners and admins see every service key; an agent's admin sees that agent's keys. Secrets are never returned.",
+    auth: "session",
+    success: { status: 200, schema: "ListApiKeysResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/api-keys/{id}",
+    operationId: "revokeApiKey",
+    tag: "API keys",
+    summary: "Revoke a key",
+    description:
+      "Takes the right issuing that kind of key takes. Revoking a key already revoked changes nothing and answers a null `receipt_id`; otherwise writes a `revoke_api_key` receipt.",
+    auth: "session",
+    success: { status: 200, schema: "RevokeApiKeyResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/teams",
+    operationId: "createTeam",
+    tag: "Teams",
+    summary: "Create a team",
+    description:
+      "Owners and admins (`team.manage`). A live team's name is unique in its workspace (409 ALREADY_EXISTS). Writes a `create_team` receipt.",
+    auth: "session",
+    body: "CreateTeamRequest",
+    success: { status: 201, schema: "TeamChangeResponse" },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/teams",
+    operationId: "listTeams",
+    tag: "Teams",
+    summary: "The workspace's teams, by name",
+    auth: "session",
+    success: { status: 200, schema: "ListTeamsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/my-teams",
+    operationId: "listMyTeams",
+    tag: "Teams",
+    summary: "The teams the caller belongs to",
+    description:
+      "Any signed-in person, as of this request: each team's id and name, never who else is in it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListMyTeamsResponse",
+      description: "The caller's live teams, by name.",
+      example: {
+        items: [
+          {
+            id: "019a0000-0000-7000-8000-00000000b0a1",
+            name: "research admins",
+          },
+        ],
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/teams/{team_id}",
+    operationId: "getTeam",
+    tag: "Teams",
+    summary: "A team and its members",
+    auth: "session",
+    success: { status: 200, schema: "TeamDetail" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/teams/{team_id}",
+    operationId: "updateTeam",
+    tag: "Teams",
+    summary: "Rename a team",
+    description:
+      "Writes a `rename_team` receipt unless the name is unchanged (`receipt_id` null).",
+    auth: "session",
+    body: "UpdateTeamRequest",
+    success: { status: 200, schema: "TeamChangeResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/teams/{team_id}",
+    operationId: "deleteTeam",
+    tag: "Teams",
+    summary: "Delete a team",
+    description:
+      "Every agent the team administered loses it from the next request on; its members keep whatever they hold on their own. Writes a `delete_team` receipt.",
+    auth: "session",
+    success: { status: 200, schema: "DeleteTeamResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/teams/{team_id}/members",
+    operationId: "addTeamMember",
+    tag: "Teams",
+    summary: "Add a member of the workspace to a team",
+    description:
+      "No invite and no acceptance: the person is a member of the team at once. A disabled member is not found. Writes an `add_team_member` receipt naming the person, unless they already were in (`receipt_id` null).",
+    auth: "session",
+    body: "AddTeamMemberRequest",
+    success: { status: 200, schema: "TeamChangeResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/teams/{team_id}/members/{user_id}",
+    operationId: "removeTeamMember",
+    tag: "Teams",
+    summary: "Take a member out of a team",
+    description:
+      "What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).",
+    auth: "session",
+    success: { status: 200, schema: "TeamChangeResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/admins",
+    operationId: "listAgentAdmins",
+    tag: "Agents",
+    summary: "The people and teams who administer an agent",
+    description:
+      "Owners, admins and the agent's own admins (`agent.admin.manage`).",
+    auth: "session",
+    success: { status: 200, schema: "AgentAdmins" },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/admins",
+    operationId: "addAgentAdmin",
+    tag: "Agents",
+    summary: "Name a person or a team an agent's admin",
+    description:
+      "Owners, admins and the agent's own admins. A team's members administer the agent while they are in it. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).",
+    auth: "session",
+    body: "AddAgentAdminRequest",
+    success: { status: 200, schema: "AgentAdminChangeResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/admins/{kind}/{subject_id}",
+    operationId: "removeAgentAdmin",
+    tag: "Agents",
+    summary: "Stop a person or a team administering an agent",
+    description:
+      "`kind` is `users` or `teams`. Writes a `remove_agent_admin` receipt unless they were not one (`receipt_id` null).",
+    auth: "session",
+    success: { status: 200, schema: "AgentAdminChangeResponse" },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/administered-agents",
+    operationId: "listAdministeredAgents",
+    tag: "Agents",
+    summary: "The agents the caller administers",
+    description:
+      "Directly or through a team, as of this request: what an agent's admin needs to issue that agent's own key.",
+    auth: "session",
+    success: { status: 200, schema: "ListAdministeredAgentsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/profiles",
+    operationId: "listProfiles",
+    tag: "Limits & receipts",
+    summary: "The runtime profiles this installation can run",
+    description:
+      "Lists the catalog profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`, with the model each one runs and its `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). The catalog is the operator's config, read once at startup; this reads it and changes nothing. A profile's provider endpoint and credential are not included.",
+    scope: "read",
+    success: {
+      status: 200,
+      schema: "ListProfilesResponse",
+      description: "Every profile in the catalog, ordered by `id`.",
+      example: {
+        items: [
+          {
+            id: "claude-coding-real",
+            model: "claude-sonnet-5",
+            tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            billing: "metered",
+            repository_mode: "required",
+          },
+        ],
+      },
+    },
+    errors: [401, 503],
+  },
+  {
     method: "get",
     path: "/v1/limits",
     operationId: "getInstallationLimits",
@@ -1331,7 +2482,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -1374,7 +2525,7 @@ export type ApiOperationId =
  * probes, the public auth routes and cookie-only logout.
  */
 export const DOCUMENTED_ROUTE_SCOPES: ReadonlyArray<{
-  method: "GET" | "POST";
+  method: Uppercase<RouteDeclaration["method"]>;
   path: string;
   scope: SessionScope;
   checkedBy: "api" | "service";
@@ -1384,7 +2535,9 @@ export const DOCUMENTED_ROUTE_SCOPES: ReadonlyArray<{
   return scope
     ? [
         {
-          method: route.method === "get" ? "GET" : "POST",
+          method: route.method.toUpperCase() as Uppercase<
+            RouteDeclaration["method"]
+          >,
           path: route.path,
           scope,
           checkedBy: route.scopeCheckedBy ?? "api",
@@ -1411,7 +2564,7 @@ function securityFor(route: RouteDeclaration): Array<Record<string, string[]>> {
 }
 
 function takesIdempotencyKey(route: RouteDeclaration): boolean {
-  return route.method === "post" && route.idempotent !== false;
+  return route.method !== "get" && route.idempotent !== false;
 }
 
 function errorContext(route: RouteDeclaration): ErrorContext {
@@ -1431,12 +2584,12 @@ function errorContext(route: RouteDeclaration): ErrorContext {
   };
 }
 
-// The /v1 middleware refuses a cookie-authenticated POST without the CSRF
-// header (403), so every such operation documents both; bearer calls never
-// send it, hence `required: false`.
+// The /v1 middleware refuses a cookie-authenticated mutation without the
+// CSRF header (403), so every such operation documents both; bearer calls
+// never send it, hence `required: false`.
 function takesCookieMutation(route: RouteDeclaration): boolean {
   return (
-    route.method === "post" &&
+    route.method !== "get" &&
     securityFor(route).some((scheme) => "cookieSession" in scheme)
   );
 }
@@ -1514,9 +2667,31 @@ function queryParameters(schema: JsonSchema) {
 
 function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
+  if (path.startsWith("/v1/agents/{id}/admins/")) return agentAdminParamsSchema;
+  if (path.includes("{binding_id}")) return credentialBindingParamsSchema;
+  if (path === "/v1/agents/{id}/identities/{identity_id}")
+    return agentIdentityParamsSchema;
+  if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
+  if (path.startsWith("/v1/teams/{team_id}/members/"))
+    return teamMemberParamsSchema;
+  if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
+  if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
+    return memberParamsSchema;
+  if (path === "/v1/invites/{id}") return inviteIdParamsSchema;
+  if (path === "/v1/api-keys/{id}") return apiKeyIdParamsSchema;
+  if (path.startsWith("/v1/members/{user_id}")) return memberUserParamsSchema;
+  if (path.startsWith("/v1/users/{user_id}")) return memberUserParamsSchema;
+  if (path.startsWith("/v1/workspaces/{id}")) return workspaceParamsSchema;
   if (path.includes("{turn_id}")) return turnIdParamsSchema;
   if (path.includes("{push_request_id}")) return pushRequestParamsSchema;
-  if (path.startsWith("/v1/sessions/{id}")) return sessionIdParamsSchema;
+  if (
+    path.startsWith("/v1/sessions/{id}") ||
+    path.startsWith("/v1/admin/sessions/{id}")
+  ) {
+    return sessionIdParamsSchema;
+  }
+  if (path.startsWith("/v1/linked-accounts/{id}"))
+    return linkedAccountParamsSchema;
   throw new Error(`No params schema registered for ${path}`);
 }
 

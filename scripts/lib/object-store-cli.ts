@@ -25,14 +25,6 @@ import { mkdir, readdir, readFile, rename, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { pipeline } from "node:stream/promises";
 import {
-  createCheckpointObjectStore,
-  createStorageS3Client,
-  describeBucketEncryption,
-  describeBucketProtection,
-  type S3ClientLike,
-  type StorageS3Settings,
-} from "@agent-platform/storage";
-import {
   type BucketLocationConstraint,
   CreateBucketCommand,
   DeleteObjectCommand,
@@ -42,6 +34,14 @@ import {
   PutBucketEncryptionCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import {
+  createCheckpointObjectStore,
+  createStorageS3Client,
+  describeBucketEncryption,
+  describeBucketProtection,
+  type S3ClientLike,
+  type StorageS3Settings,
+} from "@werft-ai/storage";
 import { backupPath } from "./checkpoint-pins.ts";
 
 export const EXIT_TARGET_REFUSED = 4;

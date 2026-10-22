@@ -18,13 +18,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import type { CheckpointObjectCollector } from "@agent-platform/platform";
-import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
+import type { CheckpointObjectCollector } from "@werft-ai/platform";
+import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectCollector,
   createCheckpointObjectStore,
   createStorageS3Client,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 import {
   assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,

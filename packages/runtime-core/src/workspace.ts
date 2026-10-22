@@ -1,7 +1,4 @@
-import type {
-  CheckpointRef,
-  WorkspaceDescriptor,
-} from "@agent-platform/contracts";
+import type { CheckpointRef, WorkspaceDescriptor } from "@werft-ai/contracts";
 
 /**
  * What a worker found at its workspace root before starting an engine. The

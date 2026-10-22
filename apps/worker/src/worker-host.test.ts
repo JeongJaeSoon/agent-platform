@@ -8,17 +8,14 @@ import {
   type ReleaseRequest,
   type RuntimeConfig,
   TURN_BUDGET_EXCEEDED_REASON,
-} from "@agent-platform/contracts";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/contracts";
+import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import {
   type AgentRun,
   type CheckpointPreparation,
   type NativeSdkMessage,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";
@@ -941,6 +938,29 @@ describe("WorkerHost ownership and shutdown", () => {
     expect(summary.outcome).toBe("drained");
     // A turn whose events are not durable is never declared over.
     expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("gives the slot back at once when the gateway hands it no more input", async () => {
+    const gateway = new FakeWorkerGateway();
+    const { host } = harness([{ type: "await-input" }], {
+      gateway,
+      timeouts: { idleTimeoutMs: 60_000 },
+    });
+    // What the gateway answers an attempt whose session moved to another
+    // profile: no reason, so a build that predates it parses the answer.
+    gateway.nextInput = async () => ({
+      input: null,
+      lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+      draining: true,
+    });
+
+    const started = Date.now();
+    const summary = await host.runLoop();
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(summary.outcome).toBe("idle");
+    expect(summary.reason).toContain("no more input");
     expect(gateway.releases).toHaveLength(1);
   });
 

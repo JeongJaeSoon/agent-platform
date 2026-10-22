@@ -13,7 +13,7 @@ import type {
   TranscriptEntry,
   TranscriptKey,
   TranscriptMirror,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import { ResumedHistory } from "./resumed-history.ts";
 

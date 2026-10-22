@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
-import type {
-  CheckpointManifest,
-  ObjectRef,
-} from "@agent-platform/runtime-core";
+import type { CheckpointManifest, ObjectRef } from "@werft-ai/runtime-core";
 
 import {
   CHECKPOINT_ROOT_PARENT,

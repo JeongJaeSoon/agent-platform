@@ -1,15 +1,5 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
-import type {
-  CheckpointObjectCollector,
-  StoredObjectVersion,
-} from "@agent-platform/platform";
-import {
-  type CheckpointObjectStore,
-  type ImmutableObjectSource,
-  isImmutableObjectSource,
-  type PutImmutableResult,
-} from "@agent-platform/runtime-core";
 import {
   DeleteObjectCommand,
   GetBucketEncryptionCommand,
@@ -21,6 +11,16 @@ import {
   PutObjectCommand,
   PutObjectLegalHoldCommand,
 } from "@aws-sdk/client-s3";
+import type {
+  CheckpointObjectCollector,
+  StoredObjectVersion,
+} from "@werft-ai/platform";
+import {
+  type CheckpointObjectStore,
+  type ImmutableObjectSource,
+  isImmutableObjectSource,
+  type PutImmutableResult,
+} from "@werft-ai/runtime-core";
 
 import {
   type BodyReadBounds,

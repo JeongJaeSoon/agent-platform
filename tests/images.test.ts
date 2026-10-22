@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@agent-platform/platform";
-import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@agent-platform/storage";
+import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
+import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
 import {
   SHUTDOWN_CLOSE_MS,
   SHUTDOWN_DRAIN_MS,
@@ -257,7 +257,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(example).not.toContain("WORKER_MEM_LIMIT");
     expect(example).toContain("WORKER_MEMORY_MB=");
     expect(compose).toContain(
-      "WORKER_MEMORY_MB: $" + "{WORKER_MEMORY_MB:-2048}",
+      "WORKER_MEMORY_MB: $" + "{WORKER_MEMORY_MB:-4608}",
     );
     // The local daemon has no project quota; the opt-out must be explicit.
     expect(compose).toContain(
@@ -1185,6 +1185,31 @@ describe("compose layers", () => {
         ),
       ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
       expect(services.api?.environment?.AWS_ENDPOINT_URL).toBeUndefined();
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  // A null entry leaves the variable out of the container, so the API
+  // generates its own token; an empty string would stop it from starting.
+  test(
+    "the test-ops env file's BOOTSTRAP_TOKEN reaches the API alone, and stays unset without one",
+    () => {
+      const token = `bootstrap-${crypto.randomUUID()}`;
+      for (const [variables, expected] of [
+        [{}, null],
+        [{ BOOTSTRAP_TOKEN: token }, token],
+      ] as const) {
+        const { exitCode, stderr, model } = render(LOCALSTACK_LAYERS, {
+          ...TEST_OPS_REQUIRED,
+          ...variables,
+        });
+        expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+        for (const [name, service] of Object.entries(model?.services ?? {}))
+          expect({
+            name,
+            value: service.environment?.BOOTSTRAP_TOKEN ?? null,
+          }).toEqual({ name, value: name === "api" ? expected : null });
+      }
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

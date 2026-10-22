@@ -18,11 +18,17 @@ const FORBIDDEN_IMPORTS = [
 ];
 
 const ALLOWED_RUNTIME_DEPENDENCIES = [
-  "@agent-platform/contracts",
+  "@radix-ui/react-checkbox",
   "@radix-ui/react-dialog",
+  "@radix-ui/react-radio-group",
+  "@radix-ui/react-slot",
+  "@radix-ui/react-tabs",
+  "@werft-ai/contracts",
+  "class-variance-authority",
   "clsx",
   "react",
   "react-dom",
+  "tailwind-merge",
 ];
 
 async function sourceFiles(): Promise<string[]> {
@@ -73,13 +79,25 @@ describe("패키지 경계", () => {
     );
   });
 
+  test("Radix primitive는 primitives/ 안에서만 import한다", async () => {
+    // A second import site is a second Dialog: its own overlay, focus return
+    // and z-index, drifting apart from the first.
+    const offenders: string[] = [];
+    for (const file of await sourceFiles()) {
+      if (file.startsWith("src/primitives/")) continue;
+      const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
+      if (/\bfrom\s+["']@radix-ui\//.test(source)) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
+  });
+
   test("contracts는 타입으로만 쓴다", async () => {
     const offenders: string[] = [];
     for (const file of await sourceFiles()) {
       if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
       const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
       const imports = source.matchAll(
-        /import\s+(type\s+)?[^;]*?from\s+["']@agent-platform\/contracts["']/g,
+        /import\s+(type\s+)?[^;]*?from\s+["']@werft-ai\/contracts["']/g,
       );
       for (const match of imports) {
         // A value import would drag zod into the browser bundle for nothing.
@@ -88,10 +106,10 @@ describe("패키지 경계", () => {
       // Forms with no `type` to look for: a dynamic import, a bare
       // side-effect import, and a re-export. Each pulls zod in at runtime.
       const RUNTIME_FORMS: [RegExp, string][] = [
-        [/\bimport\s*\(\s*["'`]@agent-platform\/contracts["'`]/, "dynamic"],
-        [/\bimport\s+["']@agent-platform\/contracts["']/, "side effect"],
+        [/\bimport\s*\(\s*["'`]@werft-ai\/contracts["'`]/, "dynamic"],
+        [/\bimport\s+["']@werft-ai\/contracts["']/, "side effect"],
         [
-          /\bexport\s+(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s+["']@agent-platform\/contracts["']/,
+          /\bexport\s+(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s+["']@werft-ai\/contracts["']/,
           "re-export",
         ],
       ];

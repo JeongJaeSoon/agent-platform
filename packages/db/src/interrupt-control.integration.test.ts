@@ -3,10 +3,10 @@ import type {
   CheckpointRef,
   FinalizeRequest,
   WorkerScope,
-} from "@agent-platform/contracts";
-import { MemoryLogSink, StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createInterruptService,
   createPendingRequestService,
   createWorkerGateway,
@@ -15,12 +15,13 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
+import { testCaller } from "@werft-ai/testkit/callers";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -105,11 +106,11 @@ integration("turn interrupts on PostgreSQL", () => {
       },
     });
     interrupts = createInterruptService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       store: createPostgresTurnInterrupts(db),
     });
     answers = createPendingRequestService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       store: createPostgresPendingRequests(db),
     });
   }, 60_000);
@@ -168,7 +169,7 @@ integration("turn interrupts on PostgreSQL", () => {
   /** A session with `queued` extra inputs behind a first turn that is running. */
   async function runningSession(queued = 0) {
     const partition = `interrupt-${crypto.randomUUID()}`;
-    const owner = { ownerId: `owner-${crypto.randomUUID()}` };
+    const owner = testCaller(`owner-${crypto.randomUUID()}`);
     const inputs = createPostgresSessionUnitOfWork(db);
     const accepted = await inputs.acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
@@ -210,7 +211,7 @@ integration("turn interrupts on PostgreSQL", () => {
   }
 
   function interrupt(
-    owner: { ownerId: string },
+    owner: ReturnType<typeof testCaller>,
     sessionId: string,
     turnId: string,
     key = crypto.randomUUID(),
@@ -378,7 +379,7 @@ integration("turn interrupts on PostgreSQL", () => {
     await finalize(worker, "1", "completed");
     const sink = new MemoryLogSink();
     const instrumented = createInterruptService({
-      authorization: allowAllPolicy,
+      authorization: createAuthorizationPolicy(),
       store: createPostgresTurnInterrupts(db, {
         logger: new StructuredLogger({ sinks: [sink] }),
       }),
@@ -427,7 +428,7 @@ integration("turn interrupts on PostgreSQL", () => {
       "NOT_FOUND",
     );
     expect(
-      await failure(interrupt({ ownerId: "someone-else" }, sessionId, "1")),
+      await failure(interrupt(testCaller("someone-else"), sessionId, "1")),
     ).toBe("NOT_FOUND");
     // A refusal stores nothing: the queued turn is still queued.
     const [queued] = await db

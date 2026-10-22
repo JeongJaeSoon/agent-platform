@@ -12,12 +12,12 @@ import type {
   TerminalTurnStatus,
   TranscriptReport,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   MAX_TURN_COST_USD,
   TURN_BUDGET_EXCEEDED_REASON,
-} from "@agent-platform/contracts";
-import { endedByAbort } from "@agent-platform/runtime-claude";
+} from "@werft-ai/contracts";
+import { endedByAbort } from "@werft-ai/runtime-claude";
 import {
   type AgentRun,
   type CheckpointLease,
@@ -30,7 +30,7 @@ import {
   type RuntimeHooks,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
@@ -763,6 +763,13 @@ export class WorkerHost {
             kind: "idle",
             reason:
               "The session has spent its cost or token budget (BUDGET_EXCEEDED)",
+          });
+          return;
+        }
+        if (next.draining === true) {
+          this.stop({
+            kind: "idle",
+            reason: "The gateway hands this attempt no more input",
           });
           return;
         }

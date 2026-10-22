@@ -7,11 +7,11 @@ import {
   type LaunchIntent,
   launchNonceFingerprint,
   sessionObjectPrefix,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   createLocalstackBucket,
   type LocalstackBucket,
-} from "@agent-platform/testkit";
+} from "@werft-ai/testkit";
 import {
   asPrintfEscapes,
   clientHello,

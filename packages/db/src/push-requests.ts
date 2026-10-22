@@ -6,16 +6,20 @@ import {
   type PushRequestState,
   pushBranchFor,
   type ReceiptActor,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   PUSH_REFUSAL_ERRORS,
   type PushJob,
   type PushRefusalRecord,
   type PushRequestStore,
   type PushWriteResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { findIdempotent, lockIdempotencyScope } from "./control-shared.ts";
+import {
+  findIdempotent,
+  type IdempotencyScope,
+  lockIdempotencyScope,
+} from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { idempotencyKeys, pushRequests, receipts, sessions } from "./schema.ts";
 
@@ -78,12 +82,19 @@ async function insertRefusal(
   return id;
 }
 
-function createScope(ownerId: string, sessionId: string, key: string) {
+// The receipts here carry their own actor; the scope only finds the key.
+function createScope(
+  ownerId: string,
+  sessionId: string,
+  key: string,
+): IdempotencyScope {
   return {
     principal: ownerId,
     operation: "request_push",
     resource: sessionId.toLowerCase(),
     key,
+    actor: null,
+    requestId: null,
   };
 }
 
@@ -264,11 +275,13 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
     decide(input): Promise<PushWriteResult> {
       const sessionId = input.sessionId.toLowerCase();
       const pushRequestId = input.pushRequestId.toLowerCase();
-      const scope = {
+      const scope: IdempotencyScope = {
         principal: input.ownerId,
         operation: "decide_push",
         resource: pushRequestId,
         key: input.idempotencyKey,
+        actor: null,
+        requestId: null,
       };
       return db.transaction(async (tx) => {
         const refuse = async (

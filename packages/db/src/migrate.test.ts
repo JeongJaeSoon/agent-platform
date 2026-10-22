@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createServer, type Socket } from "node:net";
-import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import { migrateDatabase } from "./migrate.ts";
 
 test("a database that accepts the connection but never answers fails the migrate", async () => {

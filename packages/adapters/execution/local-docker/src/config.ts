@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { integerSetting } from "@agent-platform/contracts/settings";
+import { integerSetting } from "@werft-ai/contracts/settings";
 import {
   DEFAULT_DOCKER_API_VERSION,
   DEFAULT_DOCKER_HOST,

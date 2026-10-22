@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import {
-  localstackEnabled,
-  withLocalstackBucket,
-} from "@agent-platform/testkit/localstack";
-import {
   DeleteObjectCommand,
   HeadObjectCommand,
   PutBucketEncryptionCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import {
+  localstackEnabled,
+  withLocalstackBucket,
+} from "@werft-ai/testkit/localstack";
 
 import {
   createCheckpointObjectStore,

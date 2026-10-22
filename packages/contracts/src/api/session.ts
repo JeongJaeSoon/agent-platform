@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  agentReleaseIdSchema,
   pageSchema,
   paginationQuerySchema,
   receiptIdSchema,
@@ -27,6 +28,7 @@ export const ADMISSION_STATE_VALUES = [
   "stopping",
   "stopped",
   "recovery_required",
+  "closing",
   "closed",
 ] as const;
 export const TURN_STATUS_VALUES = [
@@ -130,10 +132,26 @@ export const PAUSE_BLOCKED_REASON_VALUES = [
   "checkpoint_unavailable",
 ] as const;
 export const pauseBlockedReasonSchema = z.enum(PAUSE_BLOCKED_REASON_VALUES);
+// The same for a close, plus `execution_pending`: the worker has released
+// and the execution has not been seen gone yet.
+export const CLOSE_BLOCKED_REASON_VALUES = [
+  ...PAUSE_BLOCKED_REASON_VALUES,
+  "execution_pending",
+] as const;
+export const closeBlockedReasonSchema = z.enum(CLOSE_BLOCKED_REASON_VALUES);
+export const TRANSCRIPT_LIMIT_REASON_VALUES = [
+  "transcript_near_limit",
+  "transcript_too_large",
+  "transcript_part_too_large",
+] as const;
 export const sessionAttentionSchema = z.discriminatedUnion("code", [
   z.object({
     code: z.literal("PAUSE_BLOCKED"),
     reason: pauseBlockedReasonSchema,
+  }),
+  z.object({
+    code: z.literal("CLOSE_BLOCKED"),
+    reason: closeBlockedReasonSchema,
   }),
   // The session has spent SESSION_COST_LIMIT_USD or used SESSION_TOKEN_LIMIT
   // tokens, so no further turn is
@@ -185,6 +203,20 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     reason: z.string().min(1),
     failures: z.number().int().positive(),
     retry_at: timestampSchema.nullable(),
+  }),
+  // The session's checkpoint transcript is near the limit one checkpoint
+  // may carry (transcript_near_limit: the last committed checkpoint is at
+  // 80% of it or more), or past it (transcript_too_large, or
+  // transcript_part_too_large for a single part). Past it the session takes
+  // no new turn: completed turns and the last checkpoint stay, and
+  // start_fresh or a new session goes on from there. transcript_bytes is the
+  // last committed checkpoint's total; limit_bytes is the limit the reason
+  // names (the part limit for transcript_part_too_large).
+  z.object({
+    code: z.literal("TRANSCRIPT_LIMIT"),
+    reason: z.enum(TRANSCRIPT_LIMIT_REASON_VALUES),
+    transcript_bytes: z.number().int().nonnegative().nullable(),
+    limit_bytes: z.number().int().positive(),
   }),
 ]);
 export const sessionDurabilitySchema = z.object({
@@ -257,9 +289,13 @@ export const createSessionRequestSchema = z
     profile_id: z.string().min(1),
     repository_id: z.string().min(1),
     message: messageTextSchema,
+    // Pins the session to this release of an agent: the session then belongs
+    // to that agent, and an agent's key may create it. The run itself still
+    // follows profile_id, which has to be the release's profile.
+    agent_release_id: agentReleaseIdSchema.optional(),
     model: z.string().min(1).optional().meta({
       description:
-        "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the profile's default `model`. Fixed for the session's life.",
+        "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs.",
     }),
   })
   .strict();
@@ -293,6 +329,7 @@ export type SessionRuntimeView = z.infer<typeof sessionRuntimeViewSchema>;
 export type ExecutionObservation = z.infer<typeof executionObservationSchema>;
 export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
+export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
 export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;
