@@ -83,11 +83,11 @@ describe("app shell", () => {
     );
   });
 
-  test("the key screens keep their own column instead of the reading one", async () => {
+  test("the key screens share the settings width", async () => {
     renderAt("/settings/api-keys", signedIn);
     await screen.findByRole("heading", { level: 1, name: "내 key" });
     expect(document.getElementById("main")?.className).toContain(
-      "max-w-[var(--ap-layout-content-width)]",
+      "max-w-[var(--ap-layout-settings-width)]",
     );
   });
 

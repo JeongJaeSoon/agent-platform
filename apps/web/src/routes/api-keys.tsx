@@ -75,9 +75,7 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-// A narrow settings column, left-aligned: one key per row reads better
-// narrow (GitHub's token list).
-const PAGE = "flex w-full max-w-[52.5rem] flex-col gap-6";
+const PAGE = "flex w-full flex-col gap-6";
 const HEAD = "flex flex-col gap-1";
 const INTRO = "m-0 text-control text-muted-foreground leading-5";
 const TITLE = "m-0 font-semibold text-title";

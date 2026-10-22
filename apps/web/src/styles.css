@@ -194,9 +194,6 @@ select:focus-visible,
   max-width: none;
 }
 
-.web-table-wrap {
-  overflow-x: auto;
-}
 .web-table {
   width: 100%;
   border-collapse: collapse;
@@ -240,8 +237,9 @@ select:focus-visible,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--ap-space-2) var(--ap-space-3);
-  padding: var(--ap-space-3);
+  gap: var(--ap-row-line-gap) var(--ap-space-3);
+  min-height: var(--ap-row-min-height);
+  padding: var(--ap-row-padding-y) var(--ap-row-padding-x);
   border: 1px solid var(--ap-color-border);
   border-radius: var(--ap-radius-md);
   background: var(--ap-color-surface);
