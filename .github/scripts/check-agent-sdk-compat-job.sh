@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Judges the `spikes` job of one ci.yml run from outside that run.
+# Judges the `agent-sdk-compat` job of one ci.yml run from outside that run.
 #
-# The issue step inside `spikes` cannot report the failures that stop it from
+# The issue step inside `agent-sdk-compat` cannot report the failures that stop it from
 # running: a job timeout or a cancellation skips it, and a failed `gh` call in
 # it stays hidden behind the job's continue-on-error. This reads the job's own
 # conclusion instead, which continue-on-error does not turn into `success`.
 #
-# A failed job counts as already reported when a `ci-spikes-failure` issue,
+# A failed job counts as already reported when a `ci-agent-sdk-compat-failure` issue,
 # open or closed, carries the run's URL in its body or in one of its comments:
 # the in-run step writes it there, and so does whoever reports it from here.
 # Closing that issue therefore acknowledges the run, and a second look at the
@@ -18,22 +18,22 @@
 #
 # Prints one line:
 #   ok <conclusion>                 success or skipped
-#   ok absent                       other jobs ran but none is `spikes`: the
+#   ok absent                       other jobs ran but none is `agent-sdk-compat`: the
 #                                   workflow at that commit had no such job
 #   pending <status>                the job has not finished; judge it later
 #   reported <conclusion>           failed, and an issue already names the run
 #   unreported <conclusion> <run-url> <head-sha>
 # The conclusion is `missing` when a finished run has no jobs at all (a
-# workflow that failed to start), which is no spike signal either. A renamed
+# workflow that failed to start), which is no harness signal either. A renamed
 # job would read as `absent` on every run; the tests pin the name.
 # Exits 2, printing nothing, when GitHub could not be asked.
 #
-# usage: check-spikes-job.sh <run-id>
+# usage: check-agent-sdk-compat-job.sh <run-id>
 # env:   GH_REPO (owner/name), GH_TOKEN with actions:read and issues:read
 
 set -euo pipefail
 
-label=ci-spikes-failure
+label=ci-agent-sdk-compat-failure
 
 [ "$#" -eq 1 ] || {
   echo "usage: $0 <run-id>" >&2
@@ -59,14 +59,14 @@ run=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}" \
 read -r run_status created_at run_url head_sha <<<"$run"
 
 # Every attempt, not only the latest (`filter=latest`, the default): a rerun
-# of some other job alone leaves an attempt without `spikes`, which would read
-# as `absent` and bury the failure before it. The newest attempt that ran
-# `spikes` is the one judged, so a rerun of it that passed clears the failure.
-# One `jobs <n>` line per page, then a line per `spikes` attempt.
+# of some other job alone leaves an attempt without `agent-sdk-compat`, which
+# would read as `absent` and bury the failure before it. The newest attempt that
+# ran `agent-sdk-compat` is the one judged, so a rerun of it that passed clears
+# the failure. One `jobs <n>` line per page, then a line per attempt of the job.
 jobs=$(gh api "repos/${GH_REPO}/actions/runs/${run_id}/jobs?filter=all&per_page=100" --paginate \
-  --jq '"jobs \(.jobs | length)", (.jobs[] | select(.name == "spikes") | "spikes \(.run_attempt) \(.status) \(.conclusion)")') ||
+  --jq '"jobs \(.jobs | length)", (.jobs[] | select(.name == "agent-sdk-compat") | "agent-sdk-compat \(.run_attempt) \(.status) \(.conclusion)")') ||
   api_failed "runs/${run_id}/jobs"
-job=$(awk '$1 == "spikes" { print $2, $3, $4 }' <<<"$jobs" | sort -n | tail -n 1 | cut -d' ' -f2-)
+job=$(awk '$1 == "agent-sdk-compat" { print $2, $3, $4 }' <<<"$jobs" | sort -n | tail -n 1 | cut -d' ' -f2-)
 job_count=$(awk '$1 == "jobs" { n += $2 } END { print n + 0 }' <<<"$jobs")
 
 if [ -z "$job" ]; then

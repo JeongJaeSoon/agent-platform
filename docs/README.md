@@ -39,4 +39,5 @@ API로 세션을 만들고 쓰는 사람.
 | [CI에서 실행되는 것](contributing/ci.md) | CI job과 그 조건 |
 | [로컬 모델로 확인하기](contributing/local-model.md) | Ollama·LiteLLM으로 확인 |
 | [결정: transcript 저장](contributing/decisions/session-store.md) | SessionStore를 고른 이유, 실패 계약, 그 계약을 지키는 테스트 |
+| [결정: Agent SDK 버전](contributing/decisions/agent-sdk.md) | SDK·LiteLLM 버전 고정 방식, 운영 제약, 호환 harness가 지키는 계약과 실행 방법 |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |

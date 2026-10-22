@@ -103,15 +103,15 @@ describe("upsert-ci-issue.sh", () => {
       const outcome = await run(
         "upsert-ci-issue.sh",
         [
-          "ci-spikes-failure",
-          "CI: spikes failed (non-blocking job)",
+          "ci-agent-sdk-compat-failure",
+          "CI: agent-sdk-compat failed (non-blocking job)",
           body.path,
         ],
         {
           "label create": "",
           "issue list": [
             "[]",
-            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
+            '[{"number":12,"title":"CI: agent-sdk-compat failed (non-blocking job)"}]',
           ],
           "issue create": "https://github.com/octo/repo/issues/12",
         },
@@ -127,8 +127,10 @@ describe("upsert-ci-issue.sh", () => {
       const create = outcome.calls.find((call) =>
         call.startsWith("issue create"),
       );
-      expect(create).toContain("--label ci-spikes-failure");
-      expect(create).toContain("--title CI: spikes failed (non-blocking job)");
+      expect(create).toContain("--label ci-agent-sdk-compat-failure");
+      expect(create).toContain(
+        "--title CI: agent-sdk-compat failed (non-blocking job)",
+      );
     } finally {
       await body.dispose();
     }
@@ -140,14 +142,14 @@ describe("upsert-ci-issue.sh", () => {
       const outcome = await run(
         "upsert-ci-issue.sh",
         [
-          "ci-spikes-failure",
-          "CI: spikes failed (non-blocking job)",
+          "ci-agent-sdk-compat-failure",
+          "CI: agent-sdk-compat failed (non-blocking job)",
           body.path,
         ],
         {
           "label create": "",
           "issue list":
-            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
+            '[{"number":12,"title":"CI: agent-sdk-compat failed (non-blocking job)"}]',
           "issue comment 12": "",
         },
       );
@@ -197,15 +199,15 @@ describe("upsert-ci-issue.sh", () => {
       const outcome = await run(
         "upsert-ci-issue.sh",
         [
-          "ci-spikes-failure",
-          "CI: spikes failed (non-blocking job)",
+          "ci-agent-sdk-compat-failure",
+          "CI: agent-sdk-compat failed (non-blocking job)",
           body.path,
         ],
         {
           "label create": "",
           "issue list": [
             "[]",
-            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
+            '[{"number":12,"title":"CI: agent-sdk-compat failed (non-blocking job)"}]',
           ],
           "issue create": "https://github.com/octo/repo/issues/13",
           "issue close 13": "",
@@ -345,15 +347,15 @@ describe("upsert-ci-issue.sh", () => {
       const outcome = await run(
         "upsert-ci-issue.sh",
         [
-          "ci-spikes-failure",
-          "CI: spikes failed (non-blocking job)",
+          "ci-agent-sdk-compat-failure",
+          "CI: agent-sdk-compat failed (non-blocking job)",
           body.path,
         ],
         {
           "label create": "",
           "issue list": [
             "[]",
-            '[{"number":12,"title":"CI: spikes failed (non-blocking job)"}]',
+            '[{"number":12,"title":"CI: agent-sdk-compat failed (non-blocking job)"}]',
           ],
           "issue create": "https://github.com/octo/repo/issues/12",
         },
@@ -370,7 +372,7 @@ describe("upsert-ci-issue.sh", () => {
   test("refuses a missing body file before touching GitHub", async () => {
     const outcome = await run(
       "upsert-ci-issue.sh",
-      ["ci-spikes-failure", "title", "/nonexistent/body.md"],
+      ["ci-agent-sdk-compat-failure", "title", "/nonexistent/body.md"],
       {},
     );
 
@@ -392,7 +394,7 @@ describe("check-main-push-run.sh", () => {
     });
 
     expect(outcome.exitCode).toBe(0);
-    // The run id is what the spikes check reads next.
+    // The run id is what the agent-sdk-compat check reads next.
     expect(outcome.stdout).toBe("present 10e58fb 35688714425\n");
   });
 
@@ -599,13 +601,13 @@ describe("check-main-push-run.sh", () => {
   });
 });
 
-describe("check-spikes-job.sh", () => {
+describe("check-agent-sdk-compat-job.sh", () => {
   const created = "2026-09-22T04:55:23Z";
   const runUrl = "https://github.com/octo/repo/actions/runs/555";
   const runQuery = "api repos/octo/repo/actions/runs/555 --jq";
   const jobsQuery =
     "api repos/octo/repo/actions/runs/555/jobs?filter=all&per_page=100";
-  const issuesQuery = `api repos/octo/repo/issues?labels=ci-spikes-failure&state=all&since=${created}&per_page=100`;
+  const issuesQuery = `api repos/octo/repo/issues?labels=ci-agent-sdk-compat-failure&state=all&since=${created}&per_page=100`;
   const commentsQuery = `api repos/octo/repo/issues/comments?since=${created}&per_page=100`;
   const completedRun = `completed ${created} ${runUrl} abc1234def`;
   const issue = (number: number, body: string) =>
@@ -622,14 +624,14 @@ describe("check-spikes-job.sh", () => {
 
   const failed = (conclusion: string, issues: string, comments: string) => ({
     [runQuery]: completedRun,
-    [jobsQuery]: `jobs 4\\nspikes 1 completed ${conclusion}`,
+    [jobsQuery]: `jobs 4\\nagent-sdk-compat 1 completed ${conclusion}`,
     [issuesQuery]: issues,
     [commentsQuery]: comments,
   });
 
   test("a timed-out job that no issue names is unreported", async () => {
     const outcome = await run(
-      "check-spikes-job.sh",
+      "check-agent-sdk-compat-job.sh",
       ["555"],
       failed(
         "timed_out",
@@ -644,7 +646,7 @@ describe("check-spikes-job.sh", () => {
     // not search, and closed issues too.
     const jobs = outcome.calls.find((call) => call.startsWith(jobsQuery));
     expect(jobs).toContain("--paginate");
-    expect(jobs).toContain('select(.name == "spikes")');
+    expect(jobs).toContain('select(.name == "agent-sdk-compat")');
     expect(outcome.calls.some((call) => call.startsWith(issuesQuery))).toBe(
       true,
     );
@@ -656,11 +658,11 @@ describe("check-spikes-job.sh", () => {
 
   test("a failure the in-run step already opened an issue for is reported", async () => {
     const outcome = await run(
-      "check-spikes-job.sh",
+      "check-agent-sdk-compat-job.sh",
       ["555"],
       failed(
         "failure",
-        `[${issue(12, `spikes failed ([run 555](${runUrl})).`)}]`,
+        `[${issue(12, `agent-sdk-compat failed ([run 555](${runUrl})).`)}]`,
         "[]",
       ),
     );
@@ -673,7 +675,7 @@ describe("check-spikes-job.sh", () => {
     // Two pages of issues and of comments, printed back to back as gh
     // --paginate does; #13 may be closed, which acknowledges the run too.
     const outcome = await run(
-      "check-spikes-job.sh",
+      "check-agent-sdk-compat-job.sh",
       ["555"],
       failed(
         "cancelled",
@@ -688,7 +690,7 @@ describe("check-spikes-job.sh", () => {
 
   test("a comment naming the run on an unlabelled issue does not count", async () => {
     const outcome = await run(
-      "check-spikes-job.sh",
+      "check-agent-sdk-compat-job.sh",
       ["555"],
       failed("failure", `[${issue(12, "older")}]`, `[${comment(99, runUrl)}]`),
     );
@@ -698,7 +700,7 @@ describe("check-spikes-job.sh", () => {
 
   test("a longer run id that starts with this one does not count", async () => {
     const outcome = await run(
-      "check-spikes-job.sh",
+      "check-agent-sdk-compat-job.sh",
       ["555"],
       failed(
         "failure",
@@ -712,9 +714,9 @@ describe("check-spikes-job.sh", () => {
 
   for (const conclusion of ["success", "skipped"]) {
     test(`a ${conclusion} job is ok without looking at issues`, async () => {
-      const outcome = await run("check-spikes-job.sh", ["555"], {
+      const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
         [runQuery]: completedRun,
-        [jobsQuery]: `jobs 4\\nspikes 1 completed ${conclusion}`,
+        [jobsQuery]: `jobs 4\\nagent-sdk-compat 1 completed ${conclusion}`,
       });
 
       expect(outcome.exitCode).toBe(0);
@@ -722,24 +724,24 @@ describe("check-spikes-job.sh", () => {
     });
   }
 
-  test("the newest attempt that ran spikes is judged, across pages", async () => {
-    // Attempt 3 reran only `integration`, so it has no spikes line; attempt 1
-    // failed and attempt 2 reran spikes and passed.
-    const outcome = await run("check-spikes-job.sh", ["555"], {
+  test("the newest attempt that ran the job is judged, across pages", async () => {
+    // Attempt 3 reran only `integration`, so it has no agent-sdk-compat line;
+    // attempt 1 failed and attempt 2 reran agent-sdk-compat and passed.
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
       [runQuery]: completedRun,
       [jobsQuery]:
-        "jobs 5\\nspikes 2 completed success\\nspikes 1 completed failure\\njobs 4",
+        "jobs 5\\nagent-sdk-compat 2 completed success\\nagent-sdk-compat 1 completed failure\\njobs 4",
     });
 
     expect(outcome.stdout).toBe("ok success\n");
   });
 
-  test("a rerun of some other job does not bury an earlier spikes failure", async () => {
+  test("a rerun of some other job does not bury an earlier agent-sdk-compat failure", async () => {
     // Attempt 2 reran only `integration`; the latest-only view would have no
-    // spikes job and call it absent.
-    const outcome = await run("check-spikes-job.sh", ["555"], {
+    // agent-sdk-compat job and call it absent.
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
       [runQuery]: completedRun,
-      [jobsQuery]: "jobs 5\\nspikes 1 completed cancelled",
+      [jobsQuery]: "jobs 5\\nagent-sdk-compat 1 completed cancelled",
       [issuesQuery]: "[]",
       [commentsQuery]: "[]",
     });
@@ -748,19 +750,19 @@ describe("check-spikes-job.sh", () => {
   });
 
   test("a job still running is pending", async () => {
-    const outcome = await run("check-spikes-job.sh", ["555"], {
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
       [runQuery]: `in_progress ${created} ${runUrl} abc1234def`,
-      [jobsQuery]: "jobs 4\\nspikes 1 in_progress null",
+      [jobsQuery]: "jobs 4\\nagent-sdk-compat 1 in_progress null",
     });
 
     expect(outcome.exitCode).toBe(0);
     expect(outcome.stdout).toBe("pending in_progress\n");
   });
 
-  test("a run whose other jobs ran but no spikes job predates the job", async () => {
-    // Failed or not: a commit whose ci.yml had no spikes job gave no spike
-    // signal to lose. Pages add up.
-    const outcome = await run("check-spikes-job.sh", ["555"], {
+  test("a run whose other jobs ran but no agent-sdk-compat job predates the job", async () => {
+    // Failed or not: a commit whose ci.yml had no agent-sdk-compat job gave no
+    // harness signal to lose. Pages add up.
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
       [runQuery]: completedRun,
       [jobsQuery]: "jobs 0\\njobs 1",
     });
@@ -769,25 +771,25 @@ describe("check-spikes-job.sh", () => {
     expect(outcome.stdout).toBe("ok absent\n");
   });
 
-  test("ci.yml still names the job spikes and links the run in its issue", async () => {
+  test("ci.yml still names the job agent-sdk-compat and links the run in its issue", async () => {
     // A rename would turn every run into `ok absent` without a word, and an
     // in-run issue without the run URL would be reported a second time.
     const workflow = await readFile(
       join(import.meta.dir, "..", ".github", "workflows", "ci.yml"),
       "utf8",
     );
-    expect(workflow).toMatch(/^ {2}spikes:$/m);
-    const spikes = workflow.slice(workflow.search(/^ {2}spikes:$/m));
-    expect(spikes).toContain(
+    expect(workflow).toMatch(/^ {2}agent-sdk-compat:$/m);
+    const job = workflow.slice(workflow.search(/^ {2}agent-sdk-compat:$/m));
+    expect(job).toContain(
       // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
       "RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
     );
     // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
-    expect(spikes).toContain("[run ${GITHUB_RUN_ID}](${RUN_URL})");
+    expect(job).toContain("[run ${GITHUB_RUN_ID}](${RUN_URL})");
   });
 
   test("a finished run with no jobs at all is a missing conclusion", async () => {
-    const outcome = await run("check-spikes-job.sh", ["555"], {
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
       [runQuery]: completedRun,
       [jobsQuery]: "jobs 0",
       [issuesQuery]: "[]",
@@ -798,8 +800,8 @@ describe("check-spikes-job.sh", () => {
     expect(outcome.stdout).toBe(`unreported missing ${runUrl} abc1234def\n`);
   });
 
-  test("an unfinished run without a spikes job yet is pending", async () => {
-    const outcome = await run("check-spikes-job.sh", ["555"], {
+  test("an unfinished run without an agent-sdk-compat job yet is pending", async () => {
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
       [runQuery]: `queued ${created} ${runUrl} abc1234def`,
       [jobsQuery]: "jobs 0",
     });
@@ -809,9 +811,9 @@ describe("check-spikes-job.sh", () => {
 
   test("a failed lookup exits 2 and prints no verdict", async () => {
     // No reply for the comments query: the fake fails it like an API error.
-    const outcome = await run("check-spikes-job.sh", ["555"], {
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
       [runQuery]: completedRun,
-      [jobsQuery]: "jobs 4\\nspikes 1 completed failure",
+      [jobsQuery]: "jobs 4\\nagent-sdk-compat 1 completed failure",
       [issuesQuery]: "[]",
     });
 
@@ -821,7 +823,7 @@ describe("check-spikes-job.sh", () => {
   });
 
   test("refuses a run id that is not a number before touching GitHub", async () => {
-    const outcome = await run("check-spikes-job.sh", ["55a"], {});
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["55a"], {});
 
     expect(outcome.exitCode).toBe(2);
     expect(outcome.calls).toEqual([]);
