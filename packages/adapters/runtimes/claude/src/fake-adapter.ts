@@ -10,7 +10,7 @@ import type {
   PermissionRequest,
   RuntimeCapabilities,
   RuntimeHooks,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,

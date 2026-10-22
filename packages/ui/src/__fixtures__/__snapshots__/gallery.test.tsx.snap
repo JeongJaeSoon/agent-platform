@@ -68,6 +68,16 @@ exports[`컴포넌트 갤러리 360px 1`] = `
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
       </span>
+      <span class="ap-status" data-axis="admission" data-state="closing" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관 중</span>
+      </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
         <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
           <rect x="2" y="2" width="10" height="10" rx="3">
@@ -379,8 +389,8 @@ exports[`컴포넌트 갤러리 360px 1`] = `
     <p class="ap-state__title">아직 세션이 없습니다</p>
     <p class="ap-state__description">에이전트에게 첫 지시를 보내면 여기에 쌓입니다.</p>
     <div class="ap-state__actions">
-      <button type="button" class="ap-button ap-button--primary">새 세션</button>
-      <button type="button" class="ap-button ap-button--quiet">에이전트 보기</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">새 세션</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">에이전트 보기</button>
     </div>
   </div>
   <div class="ap-state ap-state--error" role="alert" data-code="SESSION_CLOSED">
@@ -413,6 +423,40 @@ exports[`컴포넌트 갤러리 360px 1`] = `
     </span>
     <span class="ap-visually-hidden">불러오는 중</span>
   </output>
+  <h2>Button · Badge · Card</h2>
+  <div class="gallery__row">
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">기본</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">테두리</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 px-4 py-2 has-[>svg]:px-3" type="button">보조</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">조용히</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20 h-9 px-4 py-2 has-[>svg]:px-3" type="button">삭제</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-9 px-4 py-2 has-[>svg]:px-3" type="button">링크</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center whitespace-nowrap font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5" type="button">작게</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button" disabled="">잠김</button>
+    <a href="/agents" data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3">링크를 버튼처럼</a>
+  </div>
+  <div class="gallery__row">
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-primary text-primary-foreground">기본</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-secondary text-secondary-foreground">보조</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-destructive text-destructive-foreground">위험</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 text-foreground">테두리</span>
+  </div>
+  <div data-slot="card" class="flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm">
+    <div data-slot="card-header" class="@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6">
+      <div data-slot="card-title" class="font-semibold leading-none">결제 담당</div>
+      <div data-slot="card-description" class="text-muted-foreground text-sm">청구서 문의에 답하고 환불을 접수합니다.</div>
+      <div data-slot="card-action" class="col-start-2 row-span-2 row-start-1 self-start justify-self-end">
+        <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 text-foreground">초안</span>
+      </div>
+    </div>
+    <div data-slot="card-content" class="px-6">
+      <p class="break-all font-mono text-sm">agt_000000000000000000000000000000000000000000000000000000000000</p>
+    </div>
+    <div data-slot="card-footer" class="flex items-center px-6 [.border-t]:pt-6 gap-2">
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">이어서 설정</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">나중에</button>
+    </div>
+  </div>
   <h2>Dialog</h2>
 </div>"
 `;
@@ -485,6 +529,16 @@ exports[`컴포넌트 갤러리 768px 1`] = `
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
       </span>
+      <span class="ap-status" data-axis="admission" data-state="closing" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관 중</span>
+      </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
         <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
           <rect x="2" y="2" width="10" height="10" rx="3">
@@ -796,8 +850,8 @@ exports[`컴포넌트 갤러리 768px 1`] = `
     <p class="ap-state__title">아직 세션이 없습니다</p>
     <p class="ap-state__description">에이전트에게 첫 지시를 보내면 여기에 쌓입니다.</p>
     <div class="ap-state__actions">
-      <button type="button" class="ap-button ap-button--primary">새 세션</button>
-      <button type="button" class="ap-button ap-button--quiet">에이전트 보기</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">새 세션</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">에이전트 보기</button>
     </div>
   </div>
   <div class="ap-state ap-state--error" role="alert" data-code="SESSION_CLOSED">
@@ -830,6 +884,40 @@ exports[`컴포넌트 갤러리 768px 1`] = `
     </span>
     <span class="ap-visually-hidden">불러오는 중</span>
   </output>
+  <h2>Button · Badge · Card</h2>
+  <div class="gallery__row">
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">기본</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">테두리</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 px-4 py-2 has-[>svg]:px-3" type="button">보조</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">조용히</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20 h-9 px-4 py-2 has-[>svg]:px-3" type="button">삭제</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-9 px-4 py-2 has-[>svg]:px-3" type="button">링크</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center whitespace-nowrap font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5" type="button">작게</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button" disabled="">잠김</button>
+    <a href="/agents" data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3">링크를 버튼처럼</a>
+  </div>
+  <div class="gallery__row">
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-primary text-primary-foreground">기본</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-secondary text-secondary-foreground">보조</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-destructive text-destructive-foreground">위험</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 text-foreground">테두리</span>
+  </div>
+  <div data-slot="card" class="flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm">
+    <div data-slot="card-header" class="@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6">
+      <div data-slot="card-title" class="font-semibold leading-none">결제 담당</div>
+      <div data-slot="card-description" class="text-muted-foreground text-sm">청구서 문의에 답하고 환불을 접수합니다.</div>
+      <div data-slot="card-action" class="col-start-2 row-span-2 row-start-1 self-start justify-self-end">
+        <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 text-foreground">초안</span>
+      </div>
+    </div>
+    <div data-slot="card-content" class="px-6">
+      <p class="break-all font-mono text-sm">agt_000000000000000000000000000000000000000000000000000000000000</p>
+    </div>
+    <div data-slot="card-footer" class="flex items-center px-6 [.border-t]:pt-6 gap-2">
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">이어서 설정</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">나중에</button>
+    </div>
+  </div>
   <h2>Dialog</h2>
 </div>"
 `;
@@ -902,6 +990,16 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
         <span class="ap-visually-hidden">세션: </span>
         <span class="ap-status__text">확인 필요 — 결과를 알 수 없음</span>
       </span>
+      <span class="ap-status" data-axis="admission" data-state="closing" data-tone="neutral">
+        <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <rect x="2" y="2" width="10" height="10" rx="3">
+          </rect>
+        </svg>
+        <span class="ap-status__spinner" data-animated="true" aria-hidden="true">
+        </span>
+        <span class="ap-visually-hidden">세션: </span>
+        <span class="ap-status__text">보관 중</span>
+      </span>
       <span class="ap-status" data-axis="admission" data-state="closed" data-tone="neutral">
         <svg class="ap-status__icon" viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
           <rect x="2" y="2" width="10" height="10" rx="3">
@@ -1213,8 +1311,8 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
     <p class="ap-state__title">아직 세션이 없습니다</p>
     <p class="ap-state__description">에이전트에게 첫 지시를 보내면 여기에 쌓입니다.</p>
     <div class="ap-state__actions">
-      <button type="button" class="ap-button ap-button--primary">새 세션</button>
-      <button type="button" class="ap-button ap-button--quiet">에이전트 보기</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">새 세션</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">에이전트 보기</button>
     </div>
   </div>
   <div class="ap-state ap-state--error" role="alert" data-code="SESSION_CLOSED">
@@ -1247,22 +1345,56 @@ exports[`컴포넌트 갤러리 1440px 1`] = `
     </span>
     <span class="ap-visually-hidden">불러오는 중</span>
   </output>
+  <h2>Button · Badge · Card</h2>
+  <div class="gallery__row">
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">기본</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">테두리</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 px-4 py-2 has-[>svg]:px-3" type="button">보조</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">조용히</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20 h-9 px-4 py-2 has-[>svg]:px-3" type="button">삭제</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-9 px-4 py-2 has-[>svg]:px-3" type="button">링크</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center whitespace-nowrap font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5" type="button">작게</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button" disabled="">잠김</button>
+    <a href="/agents" data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3">링크를 버튼처럼</a>
+  </div>
+  <div class="gallery__row">
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-primary text-primary-foreground">기본</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-secondary text-secondary-foreground">보조</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 border-transparent bg-destructive text-destructive-foreground">위험</span>
+    <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 text-foreground">테두리</span>
+  </div>
+  <div data-slot="card" class="flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm">
+    <div data-slot="card-header" class="@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6">
+      <div data-slot="card-title" class="font-semibold leading-none">결제 담당</div>
+      <div data-slot="card-description" class="text-muted-foreground text-sm">청구서 문의에 답하고 환불을 접수합니다.</div>
+      <div data-slot="card-action" class="col-start-2 row-span-2 row-start-1 self-start justify-self-end">
+        <span data-slot="badge" class="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none [&amp;>svg]:pointer-events-none [&amp;>svg]:size-3 text-foreground">초안</span>
+      </div>
+    </div>
+    <div data-slot="card-content" class="px-6">
+      <p class="break-all font-mono text-sm">agt_000000000000000000000000000000000000000000000000000000000000</p>
+    </div>
+    <div data-slot="card-footer" class="flex items-center px-6 [.border-t]:pt-6 gap-2">
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-hover h-9 px-4 py-2 has-[>svg]:px-3" type="button">이어서 설정</button>
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">나중에</button>
+    </div>
+  </div>
   <h2>Dialog</h2>
 </div>"
 `;
 
 exports[`컴포넌트 갤러리 열린 다이얼로그까지 포함한 좁은 화면 1`] = `
-"<div role="dialog" id="radix-_id1_" data-state="open" data-ap-dialog="_id2_" class="ap-dialog" data-tone="danger" tabindex="-1" aria-describedby="radix-_id3_" aria-labelledby="radix-_id4_" style="pointer-events: auto;">
-  <h2 id="radix-_id4_" class="ap-dialog__title">에이전트를 해고할까요?</h2>
-  <p id="radix-_id3_" class="ap-dialog__consequence">카드와 release가 비활성화되고, 진행 중인 세션은 종료됩니다.</p>
+"<div role="dialog" id="radix-_id1_" data-state="open" data-slot="dialog-content" class="fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-lg border bg-background p-6 shadow-lg sm:max-w-lg ap-dialog translate-x-0 translate-y-0" data-ap-dialog="_id2_" data-tone="danger" tabindex="-1" aria-describedby="radix-_id3_" aria-labelledby="radix-_id4_" style="pointer-events: auto;">
+  <h2 id="radix-_id4_" data-slot="dialog-title" class="font-semibold text-lg ap-dialog__title leading-[inherit]">에이전트를 해고할까요?</h2>
+  <p id="radix-_id3_" data-slot="dialog-description" class="text-muted-foreground ap-dialog__consequence text-[length:inherit]">카드와 release가 비활성화되고, 진행 중인 세션은 종료됩니다.</p>
   <div class="ap-dialog__match">
     <label class="ap-dialog__match-label" for="_id5_">계속하려면 아래 이름을 그대로 입력하세요</label>
     <code class="ap-dialog__match-target">결제 담당</code>
     <input id="_id5_" class="ap-input" autocomplete="off" type="text" value="">
   </div>
   <div class="ap-dialog__actions">
-    <button type="button" class="ap-button ap-button--quiet">취소</button>
-    <button type="button" class="ap-button ap-button--danger" disabled="">삭제</button>
+    <button data-slot="dialog-close" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 has-[>svg]:px-3" type="button">취소</button>
+    <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20 h-9 px-4 py-2 has-[>svg]:px-3" type="button" disabled="">삭제</button>
   </div>
 </div>"
 `;

@@ -22,7 +22,7 @@ import type {
   RestorePlanResponse,
   WorkerReadyRequest,
   WorkerReadyResponse,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 // The worker's only door to the control plane. The port stays transport-free
 // so gRPC can replace it without touching the loop.

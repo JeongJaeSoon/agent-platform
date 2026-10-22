@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CheckpointManifest } from "@agent-platform/runtime-core";
+import type { CheckpointManifest } from "@werft-ai/runtime-core";
 import { serviceCheckpointVerifier } from "./checkpoint-verifier.ts";
 
 const fence = {
@@ -20,7 +20,11 @@ describe("serviceCheckpointVerifier", () => {
     const asked: unknown[] = [];
     let verdict:
       | { status: "verified"; manifest: CheckpointManifest }
-      | { status: "rejected"; reason: string } = {
+      | {
+          limit?: "transcript_too_large";
+          status: "rejected";
+          reason: string;
+        } = {
       status: "rejected",
       reason: "manifest digest mismatch",
     };
@@ -38,9 +42,36 @@ describe("serviceCheckpointVerifier", () => {
     // attempt pick the key, the epochs ride along for the pointer CAS.
     expect(asked).toEqual([{ checkpoint, fence }]);
 
-    verdict = { status: "verified", manifest: {} as CheckpointManifest };
+    verdict = {
+      status: "rejected",
+      reason: "the transcript is over the limit",
+      limit: "transcript_too_large",
+    };
     expect(
       await verifier.verify({ fence, turnId: "1", checkpoint, at }),
-    ).toEqual({ status: "verified" });
+    ).toEqual({
+      status: "rejected",
+      reason: "the transcript is over the limit",
+      limit: "transcript_too_large",
+    });
+
+    const part = (key: string, bytes: number) => ({
+      bytes,
+      key,
+      sha256: "0".repeat(64),
+    });
+    verdict = {
+      status: "verified",
+      manifest: {
+        transcripts: {
+          root: { parts: [part("a", 10), part("b", 5)] },
+          subagents: { "agent-1": { parts: [part("c", 7)] } },
+        },
+      } as unknown as CheckpointManifest,
+    };
+    // The total the session detail judges TRANSCRIPT_LIMIT on.
+    expect(
+      await verifier.verify({ fence, turnId: "1", checkpoint, at }),
+    ).toEqual({ status: "verified", transcriptBytes: 22 });
   });
 });

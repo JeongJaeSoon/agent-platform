@@ -1,11 +1,8 @@
-import * as schema from "@agent-platform/db";
-import { createPostgresSchedulerStore } from "@agent-platform/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@agent-platform/db/pool";
-import { createLogger } from "@agent-platform/observability";
-import {
-  runScheduler,
-  type SchedulerRunSummary,
-} from "@agent-platform/platform";
+import * as schema from "@werft-ai/db";
+import { createPostgresSchedulerStore } from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger } from "@werft-ai/observability";
+import { runScheduler, type SchedulerRunSummary } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerBackendFor } from "./backend.ts";

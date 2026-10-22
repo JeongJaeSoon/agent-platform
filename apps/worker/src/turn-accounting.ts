@@ -1,4 +1,4 @@
-import type { NativeSdkMessage } from "@agent-platform/runtime-core";
+import type { NativeSdkMessage } from "@werft-ai/runtime-core";
 
 /** The provider failure a turn ended on, as the engine classified it. */
 export type ProviderFailure = {

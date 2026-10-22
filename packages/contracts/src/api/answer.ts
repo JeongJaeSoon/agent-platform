@@ -1,5 +1,6 @@
 import { z } from "zod";
-
+import { surfaceKindSchema } from "../kollegium/surfaces.ts";
+import { receiptActorSchema } from "../musterrolle/authorization.ts";
 import { requestIdSchema } from "../shared/index.ts";
 import type { PendingQuestion } from "./pending.ts";
 import { receiptAcceptedResponseSchema } from "./receipt.ts";
@@ -9,18 +10,10 @@ export const permissionAnswerSchema = z
     request_id: requestIdSchema,
     kind: z.literal("permission"),
     decision: z.enum(["allow", "deny"]),
+    /** Optional even on a denial; the worker tells the model it was denied. */
     reason: z.string().min(1).optional(),
   })
-  .strict()
-  .superRefine((answer, context) => {
-    if (answer.decision === "deny" && answer.reason === undefined) {
-      context.addIssue({
-        code: "custom",
-        message: "A denial needs a reason the model can act on",
-        path: ["reason"],
-      });
-    }
-  });
+  .strict();
 
 export const questionAnswerSchema = z
   .object({
@@ -106,9 +99,25 @@ export const postSessionAnswerRequestSchema = z.discriminatedUnion("kind", [
   permissionAnswerSchema,
   questionsAnswerSchema,
 ]);
-export const postSessionAnswerResponseSchema = receiptAcceptedResponseSchema;
+/**
+ * Who answered, from where, and the `session.approve` decision that let them.
+ * `answered_by` is null for a principal with no recorded actor.
+ */
+export const approvalRecordSchema = z
+  .object({
+    answered_by: receiptActorSchema.nullable(),
+    surface: surfaceKindSchema,
+    decision_id: z.uuid(),
+  })
+  .strict();
+/** `approval` is absent only when replaying an answer stored before it existed. */
+export const postSessionAnswerResponseSchema =
+  receiptAcceptedResponseSchema.extend({
+    approval: approvalRecordSchema.optional(),
+  });
 
 export type PermissionAnswer = z.infer<typeof permissionAnswerSchema>;
+export type ApprovalRecord = z.infer<typeof approvalRecordSchema>;
 export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 export type QuestionsAnswer = z.infer<typeof questionsAnswerSchema>;
 export type PostSessionAnswerRequest = z.infer<

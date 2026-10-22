@@ -2,17 +2,17 @@ import {
   KubernetesBackend,
   KubernetesClient,
   kubernetesConnectionFromEnv,
-} from "@agent-platform/execution-kubernetes";
+} from "@werft-ai/execution-kubernetes";
 import {
   LocalDockerBackend,
   type LocalDockerBackendConfig,
-} from "@agent-platform/execution-local-docker";
+} from "@werft-ai/execution-local-docker";
 import {
   type ExecutionBackend,
   type ReclaimOptions,
   reclaimNetworks,
   reclaimWorkspaces,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type { SchedulerExecution } from "./config.ts";
 import { verifyWorkspaceQuotaOnce } from "./quota-preflight.ts";
 

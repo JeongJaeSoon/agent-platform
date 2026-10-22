@@ -13,16 +13,18 @@ import {
   MAX_WORKSPACE_BUNDLE_CHAIN,
   type ObjectRef,
   type RuntimeFingerprint,
+  transcriptBytes,
+  transcriptParts,
   type WorkspaceArtifact,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   createMemoryCheckpointObjectStore,
   type MemoryCheckpointObjectStore,
-} from "@agent-platform/testkit/checkpoint-objects";
+} from "@werft-ai/testkit/checkpoint-objects";
 import {
   createGitBundle,
   createGitBundleChain,
-} from "@agent-platform/testkit/git-bundle";
+} from "@werft-ai/testkit/git-bundle";
 
 import {
   CHECKPOINT_ROOT_PARENT,
@@ -823,6 +825,41 @@ describe("validateManifest", () => {
     });
     expect(checkpoints.pointer()).toBeNull();
     expect(new Set(requests)).toEqual(new Set([checkpoint.manifest_ref]));
+  });
+
+  test("judges a manifest against the transcript limits it was given, and says which one it is past", async () => {
+    const body = manifest();
+    const total = transcriptBytes(transcriptParts(body.transcripts));
+    const largest = Math.max(
+      ...transcriptParts(body.transcripts).map((part) => part.bytes),
+    );
+    const { checkpoint } = await upload(body);
+    const verdictUnder = (limits: { partBytes: number; totalBytes: number }) =>
+      createCheckpointService({
+        codecs: { [runtime.engine]: codec },
+        objectProtection: "unversioned",
+        objects,
+        store: checkpoints.store,
+        transcriptLimits: limits,
+        workspaceBundles: structuralBundleVerifier,
+      }).verifyAttemptManifest({ checkpoint, fence: fence() });
+
+    expect(
+      await verdictUnder({ partBytes: largest, totalBytes: total }),
+    ).toMatchObject({ status: "verified" });
+    expect(
+      await verdictUnder({ partBytes: largest, totalBytes: total - 1 }),
+    ).toEqual({
+      status: "rejected",
+      limit: "transcript_too_large",
+      reason: `the transcript is ${total} bytes, over the ${total - 1}-byte limit`,
+    });
+    expect(
+      await verdictUnder({ partBytes: largest - 1, totalBytes: total }),
+    ).toMatchObject({
+      status: "rejected",
+      limit: "transcript_part_too_large",
+    });
   });
 
   test("defers the commit question to the injected bundle verifier", async () => {
@@ -2252,6 +2289,33 @@ describe("getRestorePlan falls back to an earlier revision", () => {
         fallback: { pointerRevision: 1, skipped: [{ revision: 1 }] },
       },
     });
+  });
+
+  test("a fallback made under the profile the session ran before verifies against that one's digest", async () => {
+    const [, latest] = await commitRevisions(1);
+    objects.remove(latest?.manifest_ref as string);
+    const switched = { ...runtime, profileSha256: "c".repeat(64) };
+
+    expect(
+      await service.getRestorePlan({ runtime: switched, sessionId }),
+    ).toMatchObject({ status: "incompatible" });
+    expect(
+      await service.getRestorePlan({
+        runtime: switched,
+        alternateProfileSha256s: [runtime.profileSha256],
+        sessionId,
+      }),
+    ).toMatchObject({
+      status: "ready",
+      plan: { revision: 0, fallback: { pointerRevision: 1 } },
+    });
+    expect(
+      await service.getRestorePlan({
+        runtime: { ...switched, sdkVersion: "0.0.0" },
+        alternateProfileSha256s: [runtime.profileSha256],
+        sessionId,
+      }),
+    ).toMatchObject({ status: "incompatible" });
   });
 
   test("walks down past every broken revision and lists each one it skipped", async () => {

@@ -4,14 +4,14 @@ import type {
   GitPusher,
   GitPushInput,
   GitPushResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
   type GitCommandRunner,
   type GitResourceLimits,
   gitRefNameAcceptable,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 
 export const DEFAULT_GIT_PUSH_TIMEOUT_MS = 5 * 60_000;
 

@@ -2,8 +2,8 @@ import {
   controlAcceptedResponseSchema,
   pauseSessionRequestSchema,
   sessionIdParamsSchema,
-} from "@agent-platform/contracts";
-import type { SessionService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { SessionService } from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
@@ -21,7 +21,7 @@ export function registerPauseRoutes(
     const key = requireIdempotencyKey(context);
     const body = await parseJsonBody(context, pauseSessionRequestSchema);
     const accepted = await mapped(() =>
-      service.pauseSession({ ownerId: context.get("ownerId") }, params.id, {
+      service.pauseSession(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
       }),

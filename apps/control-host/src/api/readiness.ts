@@ -1,11 +1,11 @@
-import type { ReadinessCheck } from "@agent-platform/contracts";
+import type { ReadinessCheck } from "@werft-ai/contracts";
 import {
   APPLIED_MIGRATIONS_SQL,
   expectedMigrationHead,
   expectedMigrations,
   type MigrationEntry,
   type MigrationHead,
-} from "@agent-platform/db";
+} from "@werft-ai/db";
 
 export type ReadinessResult =
   | { ready: true }

@@ -2,8 +2,8 @@ import {
   installationLimitsResponseSchema,
   sessionIdParamsSchema,
   sessionUsageResponseSchema,
-} from "@agent-platform/contracts";
-import type { UsageService } from "@agent-platform/platform";
+} from "@werft-ai/contracts";
+import type { UsageService } from "@werft-ai/platform";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 
@@ -16,7 +16,7 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
   apiRoute(router, "getSessionUsage", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const usage = await mapped(() =>
-      service.getSessionUsage({ ownerId: context.get("ownerId") }, params.id),
+      service.getSessionUsage(context.get("caller"), params.id),
     );
     return jsonWithSchema(context, sessionUsageResponseSchema, usage);
   });

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { apiErrorResponseSchema } from "@agent-platform/contracts";
+import { apiErrorResponseSchema } from "@werft-ai/contracts";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createInterruptService,
   type InterruptTurnInput,
   type InterruptTurnResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerInterruptRoutes } from "./interrupt.ts";
 
@@ -21,7 +21,7 @@ function interrupt(
 ) {
   const seen: InterruptTurnInput[] = [];
   const service = createInterruptService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     store: {
       interruptAtomic: async (input) => {
         seen.push(input);

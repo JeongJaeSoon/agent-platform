@@ -1,7 +1,9 @@
 import { z } from "zod";
 
+import { PAYLOAD_TOO_LARGE_ISSUE } from "../api/session.ts";
 import {
   inviteIdSchema,
+  receiptIdSchema,
   timestampSchema,
   userIdSchema,
   workspaceIdSchema,
@@ -16,12 +18,23 @@ export const workspaceSlugSchema = z
   .max(64)
   .regex(/^[a-z0-9][a-z0-9-]*$/, "must be lowercase kebab-case");
 export const emailSchema = z.email().max(254);
-export const displayNameSchema = z.string().min(1).max(64);
+export const DISPLAY_NAME_MAX = 64;
+export const displayNameSchema = z.string().min(1).max(DISPLAY_NAME_MAX);
 
 /** Emails are compared lower-cased; store what this returns. */
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
+
+export const AUDIT_RETENTION_DEFAULT_DAYS = 90;
+export const AUDIT_RETENTION_MIN_DAYS = 30;
+// The upper bound only keeps a typo from meaning forever.
+export const AUDIT_RETENTION_MAX_DAYS = 3650;
+export const auditRetentionDaysSchema = z
+  .number()
+  .int()
+  .min(AUDIT_RETENTION_MIN_DAYS)
+  .max(AUDIT_RETENTION_MAX_DAYS);
 
 export const workspaceSettingsSchema = z
   .object({
@@ -32,8 +45,31 @@ export const workspaceSettingsSchema = z
     daily_cost_limit_usd: z.number().nonnegative().nullable().default(null),
     /** Minutes of silence before the reconciler pauses a session. */
     idle_pause_minutes: z.number().int().positive().default(30),
+    /** How long `authz_decisions` rows are kept before the reconciler deletes them. */
+    audit_retention_days: auditRetentionDaysSchema.default(
+      AUDIT_RETENTION_DEFAULT_DAYS,
+    ),
+    /**
+     * Whether a Slack guest may call an agent at all. On, a guest still has
+     * to link their Slack account like anyone else (D25).
+     */
+    slack_guest_enabled: z.boolean().default(false),
   })
   .strict();
+
+export const workspaceParamsSchema = z
+  .object({ id: workspaceIdSchema })
+  .strict();
+
+export const auditRetentionRequestSchema = z
+  .object({ audit_retention_days: auditRetentionDaysSchema })
+  .strict();
+export const auditRetentionResponseSchema = auditRetentionRequestSchema;
+
+export const slackGuestRequestSchema = z
+  .object({ slack_guest_enabled: z.boolean() })
+  .strict();
+export const slackGuestResponseSchema = slackGuestRequestSchema;
 
 export const workspaceSchema = z
   .object({
@@ -147,25 +183,61 @@ export const createInviteResponseSchema = z
   })
   .strict();
 
+export const INVITE_TTL_DAYS = 7;
+export const INVITE_LIST_LIMIT = 200;
+export const inviteTokenSchema = createInviteResponseSchema.shape.invite_token;
+
+export const inviteIdParamsSchema = z.object({ id: inviteIdSchema }).strict();
+export const memberUserParamsSchema = z
+  .object({ user_id: userIdSchema })
+  .strict();
+
+// Deactivation is its own route (94S-464); this patch changes the role only.
 export const updateMemberRequestSchema = z
+  .object({ role: workspaceRoleSchema })
+  .strict();
+export const updateMemberResponseSchema = memberViewSchema;
+
+export const ACCESS_REASON_MAX_BYTES = 1024;
+const utf8 = new TextEncoder();
+
+/** Disabling or enabling a membership or an account. */
+export const setAccessRequestSchema = z
   .object({
-    role: workspaceRoleSchema.optional(),
-    disabled: z.boolean().optional(),
+    /** Kept on the receipt, for whoever reads the audit later. */
+    reason: z
+      .string()
+      .min(1)
+      .refine((text) => utf8.encode(text).length <= ACCESS_REASON_MAX_BYTES, {
+        message: `Reason exceeds ${ACCESS_REASON_MAX_BYTES} UTF-8 bytes`,
+        params: { code: PAYLOAD_TOO_LARGE_ISSUE },
+      })
+      .meta({
+        description: `At most ${ACCESS_REASON_MAX_BYTES} bytes of UTF-8`,
+      })
+      .optional(),
   })
-  .strict()
-  .refine(
-    (patch) => Object.keys(patch).length > 0,
-    "at least one field is required",
-  );
+  .strict();
+
+export const setAccessResponseSchema = z
+  .object({
+    member: memberViewSchema,
+    /** Null when the state already was what was asked: nothing was written. */
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
 
 export const listMembersResponseSchema = z
   .object({ items: z.array(memberViewSchema) })
   .strict();
+/** Newest first; at most INVITE_LIST_LIMIT. */
 export const listInvitesResponseSchema = z
-  .object({ items: z.array(inviteSchema) })
+  .object({ items: z.array(inviteSchema).max(INVITE_LIST_LIMIT) })
   .strict();
 
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
+export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
+export type SlackGuestRequest = z.infer<typeof slackGuestRequestSchema>;
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Membership = z.infer<typeof membershipSchema>;
@@ -175,5 +247,8 @@ export type Invite = z.infer<typeof inviteSchema>;
 export type CreateInviteRequest = z.infer<typeof createInviteRequestSchema>;
 export type CreateInviteResponse = z.infer<typeof createInviteResponseSchema>;
 export type UpdateMemberRequest = z.infer<typeof updateMemberRequestSchema>;
+export type UpdateMemberResponse = z.infer<typeof updateMemberResponseSchema>;
+export type SetAccessRequest = z.infer<typeof setAccessRequestSchema>;
+export type SetAccessResponse = z.infer<typeof setAccessResponseSchema>;
 export type ListMembersResponse = z.infer<typeof listMembersResponseSchema>;
 export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;

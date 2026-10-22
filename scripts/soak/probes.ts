@@ -1,4 +1,4 @@
-import type { PendingRequest } from "@agent-platform/contracts";
+import type { PendingRequest } from "@werft-ai/contracts";
 import type { Pool } from "pg";
 import { prompt, type Step, write } from "../../tests/d2-gate/harness.ts";
 import { runningWorkers } from "./invariants.ts";

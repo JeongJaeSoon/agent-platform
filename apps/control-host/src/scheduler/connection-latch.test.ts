@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SchedulerStore } from "@agent-platform/platform";
+import type { SchedulerStore } from "@werft-ai/platform";
 import { isConnectionLoss, latchOnConnectionLoss } from "./connection-latch.ts";
 
 const coded = (code: string) => Object.assign(new Error("boom"), { code });

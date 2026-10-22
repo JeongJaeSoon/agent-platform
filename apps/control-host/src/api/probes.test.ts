@@ -3,7 +3,7 @@ import {
   apiErrorResponseSchema,
   healthResponseSchema,
   readyResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { ReadinessResult } from "./readiness.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
 

@@ -1,11 +1,11 @@
 import {
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   integerSetting,
   positiveNumberSetting,
-} from "@agent-platform/contracts/settings";
+} from "@werft-ai/contracts/settings";
 
 import {
   objectStoreConfigFromEnv,

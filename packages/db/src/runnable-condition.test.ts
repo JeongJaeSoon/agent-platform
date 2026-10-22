@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { HEARTBEAT_STATES, type RunnablePair } from "@agent-platform/platform";
 import { PGlite } from "@electric-sql/pglite";
+import { HEARTBEAT_STATES, type RunnablePair } from "@werft-ai/platform";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "./schema.ts";

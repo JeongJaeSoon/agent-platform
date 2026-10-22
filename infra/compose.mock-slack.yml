@@ -1,0 +1,35 @@
+# Opt-in overlay: Sign in with Slack against a mock IdP
+# (packages/testkit/src/mock-slack-oidc-main.ts, run from the control-host
+# image), so linking a Slack account can be driven end to end without a
+# Slack app. Consent is automatic and returns MOCK_SLACK_TEAM_ID and
+# MOCK_SLACK_USER_ID, or the mock_team/mock_user query parameters added to
+# the authorize URL. The issuer is only reachable inside the compose network.
+# The client id and secret are fixed test values. Never layer this over a
+# real deployment: the API would trust whatever the mock signs.
+services:
+  mock-slack:
+    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    profiles: ["apps"]
+    # Built by the api service in the same `up --build`; never pulled.
+    pull_policy: never
+    command: ["bun", "run", "/app/packages/testkit/src/mock-slack-oidc-main.ts"]
+    environment:
+      MOCK_SLACK_PORT: "4020"
+      MOCK_SLACK_PUBLIC_URL: http://mock-slack:4020
+      MOCK_SLACK_TEAM_ID: ${MOCK_SLACK_TEAM_ID:-T0MOCK}
+      MOCK_SLACK_USER_ID: ${MOCK_SLACK_USER_ID:-U0MOCK}
+    healthcheck:
+      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4020/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+  api:
+    environment:
+      SLACK_OIDC_CLIENT_ID: mock-client-id
+      SLACK_OIDC_CLIENT_SECRET: mock-client-secret
+      SLACK_OIDC_ISSUER: http://mock-slack:4020
+      SLACK_OIDC_REDIRECT_URI: http://127.0.0.1:3000/settings/linked-accounts/slack
+    depends_on:
+      mock-slack:
+        condition: service_healthy

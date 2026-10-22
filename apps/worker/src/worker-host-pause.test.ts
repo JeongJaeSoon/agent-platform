@@ -3,15 +3,12 @@ import type {
   AppendEventsRequest,
   ControlIntent,
   ReleaseResponse,
-} from "@agent-platform/contracts";
-import {
-  FakeAgentRuntime,
-  type FakeStep,
-} from "@agent-platform/runtime-claude";
+} from "@werft-ai/contracts";
+import { FakeAgentRuntime, type FakeStep } from "@werft-ai/runtime-claude";
 import {
   type NativeSdkMessage,
   WorkerGatewayRequestError,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import { engineProfile } from "./composition.ts";

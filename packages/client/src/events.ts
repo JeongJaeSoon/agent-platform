@@ -1,0 +1,196 @@
+import { type ApiClient, policyOf } from "./client.ts";
+import { ApiError, errorFromResponse, retryAfterSeconds } from "./errors.ts";
+import {
+  createFrameParser,
+  type RawFrame,
+  readFrame,
+  type SessionEventFrame,
+} from "./sse.ts";
+
+export type StreamState = "connecting" | "open" | "closed";
+
+export interface SubscribeOptions {
+  /** The caller's way to stop; the returned promise resolves once it aborts. */
+  readonly signal: AbortSignal;
+  /** Resume strictly after this cursor; without it the stream replays from the start. */
+  readonly lastEventId?: string;
+  /** An event id among the last 1,000 delivered is not delivered again. */
+  readonly onEvent: (frame: SessionEventFrame) => void;
+  readonly onState?: (state: StreamState) => void;
+  /** An error the stream does not recover from; the subscription has ended. */
+  readonly onError?: (error: ApiError) => void;
+  readonly retry?: RetryTiming;
+}
+
+export interface RetryTiming {
+  /** First wait before reconnecting; doubles per failed attempt. */
+  readonly initialMs?: number;
+  readonly maxMs?: number;
+  /**
+   * No bytes for this long reads as a dead connection. The server sends a
+   * keepalive comment every 15 s.
+   */
+  readonly idleMs?: number;
+}
+
+const OPERATION = "SSE /v1/sessions/{id}/events";
+const DEDUPE_WINDOW = 1_000;
+
+/**
+ * Session events over fetch: unlike EventSource it carries the client's
+ * headers, sees HTTP statuses, and resumes with Last-Event-ID after any drop.
+ * Frames of a kind or envelope version this client does not know are dropped,
+ * but the cursor still moves past them, or a reconnect would stall on them.
+ */
+export async function subscribeSessionEvents(
+  client: ApiClient,
+  sessionId: string,
+  options: SubscribeOptions,
+): Promise<void> {
+  const { signal } = options;
+  const policy = policyOf(client);
+  const initialMs = options.retry?.initialMs ?? 1_000;
+  const maxMs = options.retry?.maxMs ?? 30_000;
+  const idleMs = options.retry?.idleMs ?? 45_000;
+  // Recent ids only: a repeat can only come from a replay around a reconnect.
+  const delivered = new Set<string>();
+  let cursor = options.lastEventId || undefined;
+  let backoff = initialMs;
+
+  /** Returns false once the subscription must end. */
+  const receive = (raw: RawFrame): boolean => {
+    const reading = readFrame(raw, sessionId);
+    // A repeat is an older frame replayed; following it would move the
+    // cursor backwards.
+    if (reading.kind === "event" && delivered.has(reading.frame.id))
+      return true;
+    // Every other frame moves the cursor, dropped ones too, or a reconnect
+    // would stall on the same frame for good.
+    if (raw.id) cursor = raw.id;
+    try {
+      if (reading.kind !== "event") {
+        if (reading.kind === "mismatch" || policy.mode === "strict")
+          policy.report(
+            { operation: OPERATION, issues: reading.issues },
+            200,
+            null,
+          );
+        return true;
+      }
+      policy.check(
+        OPERATION,
+        policy.validators.sessionEvent,
+        reading.wire,
+        200,
+        null,
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      options.onError?.(error);
+      return false;
+    }
+    delivered.add(reading.frame.id);
+    if (delivered.size > DEDUPE_WINDOW)
+      delivered.delete(delivered.values().next().value as string);
+    // A stream that opens and then fails at once must not retry every second.
+    backoff = initialMs;
+    options.onEvent(reading.frame);
+    return true;
+  };
+
+  /** One connection; resolves to the wait before the next, or null to end. */
+  const connect = async (): Promise<number | null> => {
+    // onState("connecting") may have aborted; the listener below would never fire.
+    if (signal.aborted) return null;
+    const attempt = new AbortController();
+    const stop = () => attempt.abort();
+    signal.addEventListener("abort", stop, { once: true });
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const touch = () => {
+      clearTimeout(idle);
+      idle = setTimeout(stop, idleMs);
+    };
+    touch();
+    try {
+      const open = () =>
+        client.GET("/v1/sessions/{id}/events", {
+          params: {
+            path: { id: sessionId },
+            header: cursor ? { "Last-Event-ID": cursor } : {},
+          },
+          headers: { accept: "text/event-stream" },
+          parseAs: "stream",
+          signal: attempt.signal,
+        });
+      let result: Awaited<ReturnType<typeof open>>;
+      try {
+        result = await open();
+      } catch {
+        return signal.aborted ? null : backoff;
+      }
+      const { data: body, error, response } = result;
+      if (!response.ok) {
+        const retryAfter = retryAfterSeconds(response);
+        if (response.status === 429 || response.status === 503)
+          return retryAfter ? retryAfter * 1_000 : backoff;
+        if (response.status >= 500 || response.status === 408) return backoff;
+        options.onError?.(errorFromResponse(response, error));
+        return null;
+      }
+      if (!body) return backoff;
+      options.onState?.("open");
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      const parser = createFrameParser();
+      for (;;) {
+        let chunk: Awaited<ReturnType<typeof reader.read>>;
+        try {
+          chunk = await reader.read();
+        } catch {
+          break;
+        }
+        if (chunk.done) break;
+        touch();
+        for (const raw of parser.push(
+          decoder.decode(chunk.value, { stream: true }),
+        )) {
+          // An onEvent that aborts must not see the rest of the chunk.
+          if (signal.aborted || !receive(raw)) {
+            await reader.cancel().catch(() => {});
+            return null;
+          }
+        }
+      }
+      await reader.cancel().catch(() => {});
+      return signal.aborted ? null : backoff;
+    } finally {
+      clearTimeout(idle);
+      signal.removeEventListener("abort", stop);
+    }
+  };
+
+  try {
+    while (!signal.aborted) {
+      options.onState?.("connecting");
+      const wait = await connect();
+      if (wait === null) return;
+      backoff = Math.min(backoff * 2, maxMs);
+      await sleep(wait, signal);
+    }
+  } finally {
+    options.onState?.("closed");
+  }
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}

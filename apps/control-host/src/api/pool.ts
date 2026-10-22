@@ -3,8 +3,8 @@ import {
   enforcedConfig,
   type PoolTimeouts,
   watchIdleErrors,
-} from "@agent-platform/db/pool";
-import type { StructuredLogger } from "@agent-platform/observability";
+} from "@werft-ai/db/pool";
+import type { StructuredLogger } from "@werft-ai/observability";
 import { Pool } from "pg";
 
 // Generous enough for a write that waits on another request's row lock,

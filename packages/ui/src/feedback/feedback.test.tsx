@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { API_ERROR_CODE_VALUES } from "@agent-platform/contracts";
+import { API_ERROR_CODE_VALUES } from "@werft-ai/contracts";
 
 import { setupDom, stubPrefersReducedMotion } from "../test-support/dom.ts";
 import { htmlOf } from "../test-support/html.ts";

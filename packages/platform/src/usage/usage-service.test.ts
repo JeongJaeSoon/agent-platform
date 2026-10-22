@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   installationLimitsResponseSchema,
   sessionUsageResponseSchema,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
+import { testCaller } from "@werft-ai/testkit/callers";
 import type { InstallationLimits } from "../limits/installation-limits.ts";
-import { allowAllPolicy } from "../musterrolle/policy.ts";
+import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { SessionUsageRecord } from "../ports/usage-reader.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createUsageService, decimalUsd } from "./usage-service.ts";
@@ -33,7 +34,7 @@ const record: SessionUsageRecord = {
 
 function service(session: SessionUsageRecord | null = record) {
   return createUsageService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     limits,
     reader: {
       installationUsage: async () => ({
@@ -77,7 +78,7 @@ describe("usage service", () => {
       [{ reportedTurnCount: 4 }, true],
     ] as const) {
       const usage = await service({ ...record, ...counts }).getSessionUsage(
-        { ownerId: "owner-a" },
+        testCaller("owner-a"),
         record.sessionId,
       );
       expect(sessionUsageResponseSchema.parse(usage).cost.complete).toBe(
@@ -88,7 +89,7 @@ describe("usage service", () => {
 
   test("a session the reader does not show the owner is NOT_FOUND", async () => {
     const error = await service(null)
-      .getSessionUsage({ ownerId: "owner-a" }, record.sessionId)
+      .getSessionUsage(testCaller("owner-a"), record.sessionId)
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(SessionServiceError);
     expect((error as SessionServiceError).code).toBe("NOT_FOUND");
@@ -96,14 +97,14 @@ describe("usage service", () => {
 
   test("a zero spend under a sub-micro limit is not over budget, the next micro-dollar is", async () => {
     const zero = await service().getSessionUsage(
-      { ownerId: "owner-a" },
+      testCaller("owner-a"),
       record.sessionId,
     );
     expect(zero.budget_exceeded).toBe(false);
     const spent = await service({
       ...record,
       costUsd: "0.000001",
-    }).getSessionUsage({ ownerId: "owner-a" }, record.sessionId);
+    }).getSessionUsage(testCaller("owner-a"), record.sessionId);
     expect(spent.budget_exceeded).toBe(true);
   });
 
@@ -113,7 +114,7 @@ describe("usage service", () => {
       [false, "estimated", "0.0000005"],
     ] as const) {
       const usage = await service({ ...record, unmetered }).getSessionUsage(
-        { ownerId: "owner-a" },
+        testCaller("owner-a"),
         record.sessionId,
       );
       const parsed = sessionUsageResponseSchema.parse(usage);

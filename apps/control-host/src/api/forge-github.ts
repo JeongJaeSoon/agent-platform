@@ -1,4 +1,8 @@
-import type { StructuredLogger } from "@agent-platform/observability";
+import { createAppAuth } from "@octokit/auth-app";
+import { Octokit } from "@octokit/core";
+import { retry } from "@octokit/plugin-retry";
+import { throttling } from "@octokit/plugin-throttling";
+import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type ForgeAccess,
   type ForgeAdapter,
@@ -11,11 +15,7 @@ import {
   type GitCredential,
   type RepoRef,
   type SessionCatalog,
-} from "@agent-platform/platform";
-import { createAppAuth } from "@octokit/auth-app";
-import { Octokit } from "@octokit/core";
-import { retry } from "@octokit/plugin-retry";
-import { throttling } from "@octokit/plugin-throttling";
+} from "@werft-ai/platform";
 
 /**
  * A cached token is re-issued once it has less than this left, so a

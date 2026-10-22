@@ -9,13 +9,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bucketHoldsObjectVersion } from "@agent-platform/storage";
+import { PutBucketEncryptionCommand } from "@aws-sdk/client-s3";
+import { bucketHoldsObjectVersion } from "@werft-ai/storage";
 import {
   createMemoryCheckpointObjectStore,
   localstackEnabled,
   withLocalstackBucket,
-} from "@agent-platform/testkit";
-import { PutBucketEncryptionCommand } from "@aws-sdk/client-s3";
+} from "@werft-ai/testkit";
 import {
   catalogRevision,
   checkRender,

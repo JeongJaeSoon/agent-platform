@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createLogger, MemoryLogSink } from "@agent-platform/observability";
+import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import { Pool } from "pg";
 import {
   createEnforcedPool,

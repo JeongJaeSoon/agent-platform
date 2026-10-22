@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CLAUDE_RUNTIME_FINGERPRINT } from "@agent-platform/runtime-claude";
+import { CLAUDE_RUNTIME_FINGERPRINT } from "@werft-ai/runtime-claude";
 
 import { claudeClaimFingerprint } from "./composition.ts";
 import { imageRuntimeOf } from "./image-runtime.ts";

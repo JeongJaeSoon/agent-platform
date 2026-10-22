@@ -1,4 +1,4 @@
-import type { CheckpointObjectStore } from "@agent-platform/runtime-core";
+import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
 
 /** No empty, `.` or `..` segment anywhere in the key. */
 function plainSegments(key: string): boolean {

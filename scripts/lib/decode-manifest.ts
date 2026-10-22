@@ -9,7 +9,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { claudeCheckpointCodec } from "@agent-platform/runtime-claude-codec";
+import { claudeCheckpointCodec } from "@werft-ai/runtime-claude-codec";
 
 const path = process.argv[2];
 if (!path) {

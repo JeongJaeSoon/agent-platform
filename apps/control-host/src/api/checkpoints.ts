@@ -1,5 +1,5 @@
-import type { Database, LostCheckpoints } from "@agent-platform/db";
-import { createPostgresCheckpointStore } from "@agent-platform/db";
+import type { Database, LostCheckpoints } from "@werft-ai/db";
+import { createPostgresCheckpointStore } from "@werft-ai/db";
 import {
   type CheckpointProtocol,
   type CheckpointServiceDependencies,
@@ -10,11 +10,11 @@ import {
   type PushSource,
   rejectUnverifiedCheckpoints,
   serviceCheckpointVerifier,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   CLAUDE_CHECKPOINT_ENGINE,
   claudeCheckpointCodec,
-} from "@agent-platform/runtime-claude-codec";
+} from "@werft-ai/runtime-claude-codec";
 import {
   bucketHoldsObjectVersion,
   createCheckpointObjectStore,
@@ -29,7 +29,7 @@ import {
   type S3ClientLike,
   type StorageS3Settings,
   storageS3Credentials,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 
 export type ApiCheckpointServiceDependencies = Pick<
   CheckpointServiceDependencies,

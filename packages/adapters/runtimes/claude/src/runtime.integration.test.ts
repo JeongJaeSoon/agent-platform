@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, readdir, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentFrame, TranscriptKey } from "@agent-platform/runtime-core";
-import { createMemoryCheckpointObjectStore } from "@agent-platform/testkit/checkpoint-objects";
+import { type Options, query } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentFrame, TranscriptKey } from "@werft-ai/runtime-core";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
   toolReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
-import { type Options, query } from "@anthropic-ai/claude-agent-sdk";
+} from "@werft-ai/testkit/workspace";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { InputStream } from "./run.ts";
 import { buildSdkOptions, ClaudeSdkRuntime } from "./runtime.ts";
@@ -753,6 +753,119 @@ describe("resumed history against the actual SDK", () => {
       10_000,
       "Did not close",
     );
+  }, 60_000);
+
+  test("resumes from the transcript the store wrote to a linked projects directory", async () => {
+    isolated = await createIsolatedWorkspace({ prefix: "94s-667-" });
+    const { home, root, workspace } = isolated;
+    server = startFakeAnthropicServer((_request, index) =>
+      textReply(index === 0 ? "TURN_ONE_CONTEXT" : "TURN_TWO_RESUMED"),
+    );
+    const objects = createMemoryCheckpointObjectStore();
+    const prefix = "sessions/resume/disk";
+    const runtime = new ClaudeSdkRuntime({
+      endpoints: [server.url],
+      models: ["claude-sonnet-4-5"],
+    });
+    const base = {
+      correlationId: "actual-disk-resume",
+      cwd: workspace,
+      maxTurns: 2,
+      model: "claude-sonnet-4-5",
+      profile: {
+        kind: "anthropic" as const,
+        endpoint: server.url,
+        auth: { kind: "api_key" as const, value: "placeholder-local" },
+        principal: { ownerScope: "owner-a" },
+      },
+      settingSources: ["project"] as ["project"],
+      tools: [],
+    };
+    const hooks = {
+      onPermission: async () => ({
+        behavior: "deny" as const,
+        message: "No tools expected",
+      }),
+    };
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const consumed = crypto.randomUUID();
+    const firstRun = runtime.start(
+      {
+        ...base,
+        claudeConfigDir: home,
+        home,
+        mode: "new",
+        sessionStore: first,
+      },
+      hooks,
+    );
+    const frames: AgentFrame[] = [];
+    const firstDone = (async () => {
+      for await (const frame of firstRun) frames.push(frame);
+    })();
+    firstRun.send({ message: "remember the first turn", uuid: consumed });
+    firstRun.finishInput();
+    await withTimeout(firstDone, 20_000, "First run did not settle");
+    const sessionId = sessionIdOf(frames);
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+
+    // As the worker lays it out: the engine's projects directory is a link
+    // onto another disk, and the store fills it before the engine starts.
+    const resumedHome = join(root, "home-resumed");
+    const disk = join(root, "volume-transcripts");
+    await mkdir(resumedHome);
+    await mkdir(disk);
+    await symlink(disk, join(resumedHome, "projects"));
+    const second = new ClaudeSessionStore({
+      generation: 2,
+      inherit: { sessionId, transcripts },
+      objects,
+      prefix,
+    });
+    await second.verifyInherited();
+    await second.materialize(join(resumedHome, "projects"));
+    const resumed = runtime.start(
+      {
+        ...base,
+        claudeConfigDir: resumedHome,
+        home: resumedHome,
+        mode: "resume",
+        resume: sessionId,
+        sessionStore: second,
+      },
+      hooks,
+    );
+    const resumedFrames: AgentFrame[] = [];
+    const resumedDone = (async () => {
+      for await (const frame of resumed) resumedFrames.push(frame);
+    })();
+    expect(
+      await withTimeout(resumed.holdsInput(consumed), 10_000, "No history"),
+    ).toBe(true);
+    resumed.send({ message: "what did I ask?", uuid: crypto.randomUUID() });
+    resumed.finishInput();
+    await withTimeout(resumedDone, 20_000, "Resumed run did not settle");
+
+    expect(
+      resumedFrames.some(
+        (frame) =>
+          frame.envelope.message.type === "system" &&
+          frame.envelope.message.subtype === "mirror_error",
+      ),
+    ).toBe(false);
+    const resumedRequest = JSON.stringify(server.requests[1]?.body.messages);
+    expect(resumedRequest).toContain("remember the first turn");
+    expect(resumedRequest).toContain("TURN_ONE_CONTEXT");
+    // The engine kept writing to the file on the other disk, and the mirror
+    // kept receiving what it wrote.
+    const local = await readTranscript(resumedHome, workspace, sessionId);
+    expect(await readdir(disk)).toHaveLength(1);
+    expect(JSON.stringify(local)).toContain("TURN_TWO_RESUMED");
+    const next = (await second.captureTranscripts(sessionId))?.root;
+    if (next === undefined) throw new Error("expected a revision");
+    expect(next.parts.length).toBeGreaterThan(transcripts.root.parts.length);
+    expect(byUuid(await second.loadRevision(next))).toEqual(byUuid(local));
   }, 60_000);
 });
 

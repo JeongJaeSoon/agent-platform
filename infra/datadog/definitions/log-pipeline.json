@@ -3,7 +3,7 @@
   "requests": [
     {
       "name": "Agent Platform structured stdout",
-      "description": "Parse the JSON record emitted by @agent-platform/observability; keep message as the event fallback for records predating the top-level event field.",
+      "description": "Parse the JSON record emitted by @werft-ai/observability; keep message as the event fallback for records predating the top-level event field.",
       "is_enabled": true,
       "filter": {
         "query": "source:agent-platform OR service:agent-platform-worker"

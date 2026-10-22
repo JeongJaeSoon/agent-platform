@@ -6,7 +6,7 @@ import {
   checkpointBundleRefs,
   PEELED_REF_FORMAT,
   peeledCommits,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 import {
   type CommittedClaudeMd,
   check,

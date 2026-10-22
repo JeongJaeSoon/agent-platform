@@ -4,13 +4,13 @@ import type {
   RecoveryDecisionResult as RecoveryDecisionReceiptResult,
   RecoveryDecisionRequest,
   ResumeReceiptResult,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type {
   RecoveryDecisionInput,
   RecoveryDecisionResult,
   ResumeSessionInput,
   ResumeSessionResult,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { contextCoverage, contextGap } from "./context-gap.ts";
 import {
@@ -23,6 +23,7 @@ import {
   lockIdempotencyScope,
   lockSessionForControl,
   parseTurnSequence,
+  receiptActorOf,
   restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
@@ -56,7 +57,7 @@ export {
 const RECOVERY_DECISION = "recovery_decision";
 // Control receipts a close supersedes: whichever of these is still open
 // was waiting on an outcome the close makes irrelevant.
-const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume", "pause"];
+const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume", "pause", "close"];
 
 type SessionRow = typeof sessions.$inferSelect;
 
@@ -103,7 +104,7 @@ async function closableByRecovery(
  * checkpoint — a resume would bring the session back without it
  * and nobody would be told. start_fresh is the way on for one that cannot.
  */
-async function resumableFromStopped(
+export async function resumableFromStopped(
   tx: Database,
   session: Pick<
     SessionRow,
@@ -166,6 +167,8 @@ async function writeReceipt(
   await tx.insert(receipts).values({
     id: receiptId,
     ownerId: input.scope.principal,
+    actor: input.scope.actor,
+    requestId: input.scope.requestId,
     operation: input.scope.operation,
     targetRef: {
       session_id: input.scope.resource,
@@ -190,7 +193,7 @@ async function writeReceipt(
   return { receipt_id: receiptId, receipt_status: "succeeded" };
 }
 
-async function cancelQueuedInput(
+export async function cancelQueuedInput(
   tx: Database,
   input: {
     sessionId: string;
@@ -281,6 +284,8 @@ export function decideRecoveryAtomic(
   const sessionId = input.sessionId.toLowerCase();
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
+    actor: receiptActorOf(input.principal),
+    requestId: input.principal.requestId ?? null,
     operation: RECOVERY_DECISION,
     resource: sessionId,
     key: input.idempotencyKey,
@@ -816,6 +821,8 @@ export function resumeAtomic(
   const sessionId = input.sessionId.toLowerCase();
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
+    actor: receiptActorOf(input.principal),
+    requestId: input.principal.requestId ?? null,
     operation: RESUME,
     resource: sessionId,
     key: input.idempotencyKey,

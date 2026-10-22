@@ -2,12 +2,6 @@ import { EventEmitter } from "node:events";
 import { writeSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
-import type {
-  AgentRun,
-  AgentRuntime,
-  RuntimeCapabilities,
-  RuntimeHooks,
-} from "@agent-platform/runtime-core";
 import {
   type HookCallback,
   type Options,
@@ -15,6 +9,12 @@ import {
   type SpawnedProcess,
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  AgentRun,
+  AgentRuntime,
+  RuntimeCapabilities,
+  RuntimeHooks,
+} from "@werft-ai/runtime-core";
 
 import {
   CLAUDE_RUNTIME_CAPABILITIES,

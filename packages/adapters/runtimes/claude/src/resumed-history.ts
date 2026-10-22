@@ -1,9 +1,6 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type {
-  TranscriptEntry,
-  TranscriptMirror,
-} from "@agent-platform/runtime-core";
+import type { TranscriptEntry, TranscriptMirror } from "@werft-ai/runtime-core";
 
 /**
  * The entry uuids of the transcript a resumed run continues. A send whose uuid
@@ -80,7 +77,9 @@ export class ResumedHistory {
    * Wraps the mirror a checkpoint resume hands the engine, so the history is
    * exactly what the engine loaded — the SDK reads the root transcript once,
    * in this process, before it spawns the CLI. No second read, and no second
-   * guess at the key it used.
+   * guess at the key it used. A mirror that already wrote the transcript to
+   * the engine's disk answers that read with null and names the uuids it
+   * wrote instead.
    */
   static watching(store: TranscriptMirror): {
     history: ResumedHistory;
@@ -97,7 +96,11 @@ export class ResumedHistory {
         if (key.subpath !== undefined) return store.load(key);
         try {
           const entries = await store.load(key);
-          if (entries === null) {
+          const written =
+            entries === null ? store.resumedEntryIds?.() : undefined;
+          if (written !== undefined) {
+            history.#settle.resolve(written);
+          } else if (entries === null) {
             history.#settle.reject(
               new Error(
                 `The resumed transcript for session ${key.sessionId} is empty`,

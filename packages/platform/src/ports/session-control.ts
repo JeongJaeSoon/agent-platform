@@ -2,7 +2,7 @@ import type {
   AdmissionState,
   ControlAcceptedResponse,
   RecoveryDecisionRequest,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export type TerminateSessionInput = {
@@ -87,6 +87,30 @@ export type PauseSessionResult =
   // Legacy pod binding, as for terminate.
   | { outcome: "unsupported" };
 
+export type CloseSessionInput = TerminateSessionInput;
+
+export type CloseSessionResult =
+  | { outcome: "accepted" | "replayed"; response: ControlAcceptedResponse }
+  | { outcome: "conflict" | "not_found" }
+  | { outcome: "revision_conflict"; currentRevision: number }
+  // active, paused and a resumable stopped close; every other state keeps
+  // its own answer.
+  | {
+      outcome: "rejected";
+      admissionState: Exclude<
+        AdmissionState,
+        "active" | "paused" | "stopped" | "recovery_required"
+      >;
+    }
+  // recovery_required, or a stopped session that cannot be resumed: a
+  // recovery close is the way to end it.
+  | { outcome: "recovery_required" }
+  // Nothing is left to drain and no trusted checkpoint covers the last turn
+  // that ran, so the close would end the session on work it cannot show.
+  | { outcome: "checkpoint_unavailable" }
+  // Legacy pod binding, as for terminate.
+  | { outcome: "unsupported" };
+
 export type ResumeSessionInput = {
   principal: Principal;
   sessionId: string;
@@ -125,6 +149,49 @@ export type ResumeSessionResult =
   // An operator revoked the session's execution authority.
   | { outcome: "execution_revoked" };
 
+// The states a profile change is accepted in: nothing is on its way in or
+// out. A pausing or resuming session settles first.
+export const PROFILE_CHANGE_ADMISSION_STATES = [
+  "active",
+  "paused",
+  "stopped",
+] as const satisfies readonly AdmissionState[];
+
+export type ChangeProfileInput = {
+  principal: Principal;
+  sessionId: string;
+  idempotencyKey: string;
+  payloadHash: string;
+  expectedRevision: number;
+  // Judged against the catalog for the session's repository and its
+  // profile `judgedFrom`; null when the catalog refuses it, which is
+  // answered only after a replay of the same key has been.
+  profile: { id: string; fingerprint: string; unmetered: boolean } | null;
+  // The session's profile the judgement was made against; another one under
+  // the lock means the session moved since it was read.
+  judgedFrom: string | null;
+  now: Date;
+};
+
+export type ChangeProfileResult =
+  | { outcome: "accepted" | "replayed"; response: ControlAcceptedResponse }
+  | { outcome: "conflict" | "not_found" }
+  | { outcome: "revision_conflict"; currentRevision: number }
+  | {
+      outcome: "rejected";
+      admissionState: Exclude<
+        AdmissionState,
+        (typeof PROFILE_CHANGE_ADMISSION_STATES)[number]
+      >;
+    }
+  // The session belongs to an agent release, whose profile it runs.
+  | { outcome: "release_bound"; releaseId: string }
+  // `billing: none` on one side only: the session's cost limit would start
+  // or stop applying mid-session, so the change is refused.
+  | { outcome: "billing_mismatch" }
+  // The catalog refused the profile for this session (input.profile null).
+  | { outcome: "unsupported" };
+
 /**
  * api.md § 승인·중단·강제 종료: the terminate transaction blocks dispatch,
  * discards the epoch, cancels queued input, invalidates pending requests and
@@ -142,6 +209,14 @@ export interface SessionControl {
    * checkpoint covering every turn that ran.
    */
   pauseAtomic(input: PauseSessionInput): Promise<PauseSessionResult>;
+  /**
+   * The owner's ordinary close. A bound worker drains as for a pause and the
+   * session goes `closing`; it is `closed` once the execution is seen gone
+   * with a checkpoint covering every turn that ran. A session with nothing
+   * left to drain is closed in this transaction. Queued input is cancelled
+   * in the transaction that closes the session.
+   */
+  closeAtomic(input: CloseSessionInput): Promise<CloseSessionResult>;
   /**
    * api.md § 최소 운영 복구: abandon, confirm_completed or close, decided
    * under the session lock against the operator's expected_revision, with
@@ -163,4 +238,10 @@ export interface SessionControl {
    * instead and the session is active again with the same worker.
    */
   resumeAtomic(input: ResumeSessionInput): Promise<ResumeSessionResult>;
+  /**
+   * Moves the session onto another profile, effective at its next claim:
+   * the bound attempt, if any, finishes the turn it holds on its own
+   * profile and is handed no more input. Settles at once.
+   */
+  changeProfileAtomic(input: ChangeProfileInput): Promise<ChangeProfileResult>;
 }

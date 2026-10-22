@@ -5,7 +5,7 @@
  * back, clean up after the run — comes in through the harness.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ExecutionState } from "@agent-platform/contracts";
+import type { ExecutionState } from "@werft-ai/contracts";
 import {
   type ExecutionBackend,
   type ExecutionRef,

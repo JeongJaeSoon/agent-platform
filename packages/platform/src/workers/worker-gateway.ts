@@ -28,8 +28,11 @@ import type {
   WorkerReadyRequest,
   WorkerReadyResponse,
   WorkerScope,
-} from "@agent-platform/contracts";
-import { executionBackendSchema } from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
+import {
+  executionBackendSchema,
+  MAX_RESTORE_PROFILES,
+} from "@werft-ai/contracts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -59,6 +62,7 @@ import type {
   FinalizeResult,
   ResolvedCredential,
   RunnablePair,
+  WorkerBinding,
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
@@ -123,6 +127,7 @@ export type CheckpointProtocol = {
       profileSha256: string;
       sdkVersion: string;
     };
+    alternateProfileSha256s?: readonly string[];
     sessionId: string;
     pointer: CheckpointPointer | null;
   }): Promise<RestorePlanResult>;
@@ -508,6 +513,34 @@ export function createWorkerGateway(deps: {
     };
   }
 
+  // The configs the session's checkpoints were made under other than the
+  // one it runs now: the worker accepts a restored checkpoint, the pointer's
+  // or a fallback's, made under any of them, and runs the engine on
+  // runtime_config. A profile this catalog no longer holds as it was is left
+  // out, so a checkpoint made under it is refused as incompatible.
+  function restoreRuntimesOf(
+    binding: Pick<WorkerBinding, "profileId" | "restoreProfiles">,
+    profileFingerprintNow: string,
+    providerToken: string,
+  ): { restore_runtime_configs?: RuntimeConfig[] } {
+    const configs = binding.restoreProfiles.flatMap((made) => {
+      if (
+        made.profileId === binding.profileId &&
+        made.profileFingerprint === profileFingerprintNow
+      ) {
+        return [];
+      }
+      const listed = own(catalog.profiles, made.profileId);
+      const profile = listed
+        ? sessionProfile(listed, made.profileFingerprint)
+        : null;
+      return profile ? [runtimeConfigOf(profile, providerToken)] : [];
+    });
+    return configs.length === 0
+      ? {}
+      : { restore_runtime_configs: configs.slice(0, MAX_RESTORE_PROFILES) };
+  }
+
   // What each egress token is held to, taken from the catalog at the moment
   // the claim binds the session. Only a runnable pair is ever claimed, so
   // both entries exist here.
@@ -785,6 +818,11 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
+          const resolved = resolveProfile(
+            binding.profileId,
+            binding.profileFingerprint,
+            providerToken,
+          );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -795,9 +833,10 @@ export function createWorkerGateway(deps: {
             session_credential: sessionToken,
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
-            ...resolveProfile(
-              binding.profileId,
-              binding.profileFingerprint,
+            ...resolved,
+            ...restoreRuntimesOf(
+              binding,
+              resolved.profile_fingerprint,
               providerToken,
             ),
             workspace: {
@@ -994,9 +1033,11 @@ export function createWorkerGateway(deps: {
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),
-            ...(result.blocked === undefined
-              ? {}
-              : { draining: true, reason: result.blocked }),
+            ...(result.blocked !== undefined
+              ? { draining: true, reason: result.blocked }
+              : result.draining === true
+                ? { draining: true }
+                : {}),
           };
         }
         // Never sleep past the deadline the caller asked for: a one
@@ -1193,6 +1234,7 @@ export function createWorkerGateway(deps: {
       const settled = await work.peekFinalizeAtomic(attempt);
       if (settled.outcome !== "open") return finalizeAnswer(settled);
       let checkpointVersionsHeld = false;
+      let checkpointTranscriptBytes: number | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
         const verdict = await checkpointInfrastructure(() =>
@@ -1204,6 +1246,17 @@ export function createWorkerGateway(deps: {
           }),
         );
         if (verdict.status === "rejected") {
+          // A transcript past the limits is where the engine session stands,
+          // not a fault of this upload: recorded before the refusal, so the
+          // session takes no new turn whatever the worker reports next.
+          if (verdict.limit !== undefined) {
+            const state = await work.checkpointStateAtomic({
+              fence,
+              now: now(),
+              pendingReason: verdict.limit,
+            });
+            if (state.outcome !== "ok") rejected(state);
+          }
           throw new WorkerGatewayError(
             409,
             "CHECKPOINT_UNAVAILABLE",
@@ -1211,6 +1264,7 @@ export function createWorkerGateway(deps: {
           );
         }
         checkpointVersionsHeld = verdict.versionsHeld === true;
+        checkpointTranscriptBytes = verdict.transcriptBytes;
       }
       // Verification is a network call that can outlast the lease, so the
       // fence is judged against the clock at commit time, not the one this
@@ -1219,6 +1273,9 @@ export function createWorkerGateway(deps: {
         await work.finalizeAtomic({
           ...attempt,
           checkpointVersionsHeld,
+          ...(checkpointTranscriptBytes === undefined
+            ? {}
+            : { checkpointTranscriptBytes }),
           now: now(),
         }),
       );
@@ -1297,6 +1354,9 @@ export function createWorkerGateway(deps: {
             profileSha256: request.runtime.profile_sha256,
             sdkVersion: request.runtime.sdk_version,
           },
+          ...(request.alternate_profile_sha256s === undefined
+            ? {}
+            : { alternateProfileSha256s: request.alternate_profile_sha256s }),
           sessionId: fence.sessionId,
           // A pointer the claim did not hand out is not one to restore: a
           // retired one belongs to the engine session start_fresh gave up.

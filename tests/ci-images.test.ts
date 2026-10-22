@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_MIGRATION_HELPER_IMAGE } from "@agent-platform/execution-local-docker";
+import { DEFAULT_MIGRATION_HELPER_IMAGE } from "@werft-ai/execution-local-docker";
 import { suiteFiles } from "../.github/scripts/test-files.ts";
 import { LOCAL_LAYERS, layeredServices } from "./compose-layers.ts";
 

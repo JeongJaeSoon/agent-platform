@@ -3,15 +3,15 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  type LocalstackBucket,
-  localstackEnabled,
-  withLocalstackBucket,
-} from "@agent-platform/testkit/localstack";
-import {
   GetObjectCommand,
   ListObjectVersionsCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import {
+  type LocalstackBucket,
+  localstackEnabled,
+  withLocalstackBucket,
+} from "@werft-ai/testkit/localstack";
 
 /**
  * The write paths of scripts/lib/object-store-cli.ts against

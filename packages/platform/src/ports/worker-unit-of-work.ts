@@ -8,7 +8,7 @@ import type {
   PauseBlockedReason,
   WorkerEvent,
   WorkspaceRepository,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "./checkpoint-store.ts";
 
@@ -61,6 +61,13 @@ export type WorkerBinding = {
   // As fixed when the session was accepted; the catalog is not consulted.
   repository: WorkspaceRepository;
   restore: CheckpointRef | null;
+  // The profiles the session's checkpoints up to `restore` were committed
+  // under, where the rows record one; more than the session's own once its
+  // profile was changed. Empty without a restore.
+  restoreProfiles: ReadonlyArray<{
+    profileId: string;
+    profileFingerprint: string;
+  }>;
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
   providerTokens: number;
@@ -220,7 +227,10 @@ export type NextInputResult =
       outcome: "ok";
       input: DeliveredInput | null;
       leaseExpiresAt: Date;
-      /** Set when the attempt is draining: nothing new is coming, so stop polling. */
+      /**
+       * Nothing new is coming, so stop polling: the attempt is draining, or
+       * the session's profile changed after it claimed.
+       */
       draining?: true;
       /**
        * Nothing new will come for a reason outside the attempt: the session
@@ -286,6 +296,7 @@ export type FinalizeInput = {
   tokenLimit: number | null;
   // The verifier's verdict on `checkpoint`, never the worker's say.
   checkpointVersionsHeld?: boolean;
+  checkpointTranscriptBytes?: number;
 };
 export type FinalizeOutcome = {
   turnId: string;

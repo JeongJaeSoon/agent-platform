@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 import {
-  allowAllPolicy,
+  createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
-import { PGlite } from "@electric-sql/pglite";
+} from "@werft-ai/platform";
+import { testCaller } from "@werft-ai/testkit/callers";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -28,7 +29,7 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
  */
 
 const PROFILE_ID = "claude-coding-v1";
-const OWNER = { ownerId: "owner-a" };
+const OWNER = testCaller("owner-a");
 const CATALOG: SessionCatalog = {
   profiles: {
     [PROFILE_ID]: {
@@ -100,7 +101,7 @@ function schedulerStore() {
 /** A session with its first input, bound to a claimed, pinned launch. */
 async function claimedSession() {
   const service = createSessionService({
-    authorization: allowAllPolicy,
+    authorization: createAuthorizationPolicy(),
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
     reader: createPostgresSessionReader(db),

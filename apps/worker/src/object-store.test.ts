@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { ObjectIntegrityError } from "@agent-platform/runtime-core";
+import { ObjectIntegrityError } from "@werft-ai/runtime-core";
 import {
   BodyLimitError,
   BodyStallError,
   BodyTruncatedError,
-} from "@agent-platform/storage";
+} from "@werft-ai/storage";
 
 import {
   createWorkerObjectStore,

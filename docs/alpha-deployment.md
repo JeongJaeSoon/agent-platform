@@ -79,8 +79,8 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 
 1. `main`의 검증된 commit에 `v*` tag를 만들고 Images workflow가 게시한 세 이미지 digest를 확인한다.
 2. [release manifest](test-ops.md#release-manifest)에 `source_commit`, control-host·worker·egress-proxy digest, catalog revision을 기록한다. tag만 적지 않는다.
-3. `/etc/agent-platform` 아래에 [env 파일과 카탈로그](test-ops.md#env-파일)를 만들고 요구된 mode를 적용한다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 catalog 파일은 API 컨테이너가 읽을 수 있는 mode를 사용한다.
-4. provider key, S3 key, PostgreSQL password, egress token, GHCR token을 shell history, PR, evidence 파일, 터미널 캡처와 로그에 넣지 않는다. secret 값은 저장소 밖 env 또는 각 도구의 credential store로만 전달한다.
+3. `/etc/agent-platform` 아래에 [env 파일과 카탈로그](test-ops.md#env-파일)를 만들고 요구된 mode를 적용한다. env 파일에 `BOOTSTRAP_TOKEN`(32~256자 무작위 값)을 넣는다. 넣지 않으면 API가 토큰을 만들어 컨테이너 로그에 출력하고, 첫 owner가 생길 때까지 로그를 읽는 누구나 bootstrap할 수 있다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 catalog 파일은 API 컨테이너가 읽을 수 있는 mode를 사용한다.
+4. provider key, S3 key, PostgreSQL password, egress token, bootstrap token, GHCR token을 shell history, PR, evidence 파일, 터미널 캡처와 로그에 넣지 않는다. secret 값은 저장소 밖 env 또는 각 도구의 credential store로만 전달한다.
 5. release manifest와 catalog revision을 배포 증거 디렉터리에 복사한다. env 파일과 credential은 복사하지 않는다.
 
 ## 5. 설치하고 첫 사용을 확인한다
@@ -91,9 +91,10 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 2. S3 object store로 `preflight`를 먼저 실행한다. 실패하면 `deploy`하지 않는다.
 3. 같은 manifest로 `deploy`하고 `/readyz`, scheduler와 reconciler health를 [감시 지점](test-ops.md#감시-지점)에서 확인한다. 사용자가 접속할 endpoint의 인증 없는 `/docs`와 같은 origin의 `/docs/scalar.js`가 각각 HTML·JavaScript로 200을 응답하는지도 확인한다. 이 화면의 요청 시험 기능은 꺼져 있으므로 실제 API 호출은 다음 단계에서 발급한 key로 별도 수행한다.
 4. [배포 절차의 Gitea 단계](test-ops.md#배포)대로 owner와 public sample repository를 만든다. 무작위 password는 화면이나 evidence에 기록하지 않는다.
-5. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
-6. [quickstart의 curl 준비](quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `profile_id`는 배포 catalog의 `claude-coding`을 쓴다.
-7. [실제 Claude 직접 대화](real-claude.md#b-실제-claude와-직접-대화하기)의 첫 요청처럼 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 세션이 `idle`이 될 때까지 기다린 뒤 turn 1이 `completed`인지와 SSE에 남은 `git commit` 실행 결과를 확인한다. worker는 push하지 않으므로 commit은 4단계의 sample repository에 올라가지 않고 worker의 작업 트리와 checkpoint에만 있다([실제 Claude 직접 대화](real-claude.md#b-실제-claude와-직접-대화하기)의 커밋 작성자 설명). 아래 명령은 turn 1에서 `git commit`을 실행한 `tool_use`의 짝인 `tool_result`만 뽑는다. `is_error`가 `false`이고 `content`가 `[<branch> <hash>] <message>`로 시작하면 commit이 만들어진 것이다. 결과가 비어 있으면 Claude가 commit하지 않은 것이므로 실패로 판정한다. `curl: (28)`은 [quickstart ②](quickstart.md#-이벤트-관찰)와 같이 정상이다.
+5. [첫 owner 절차](test-ops.md#첫-owner)대로 웹 콘솔 `/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`으로 첫 owner와 workspace를 만들고 `/login`으로 로그인한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`인지 확인한다. 토큰과 비밀번호는 evidence에 남기지 않고 응답 코드만 적는다. env 파일에 토큰을 넣은 배포에서는 `docker logs agent-platform-test-ops-api-1 2>&1 | grep -c '^BOOTSTRAP_TOKEN='`가 `0`이어야 한다.
+6. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
+7. [quickstart의 curl 준비](quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `profile_id`는 배포 catalog의 `claude-coding`을 쓴다.
+8. [실제 Claude 직접 대화](real-claude.md#b-실제-claude와-직접-대화하기)의 첫 요청처럼 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 세션이 `idle`이 될 때까지 기다린 뒤 turn 1이 `completed`인지와 SSE에 남은 `git commit` 실행 결과를 확인한다. worker는 push하지 않으므로 commit은 4단계의 sample repository에 올라가지 않고 worker의 작업 트리와 checkpoint에만 있다([실제 Claude 직접 대화](real-claude.md#b-실제-claude와-직접-대화하기)의 커밋 작성자 설명). 아래 명령은 turn 1에서 `git commit`을 실행한 `tool_use`의 짝인 `tool_result`만 뽑는다. `is_error`가 `false`이고 `content`가 `[<branch> <hash>] <message>`로 시작하면 commit이 만들어진 것이다. 결과가 비어 있으면 Claude가 commit하지 않은 것이므로 실패로 판정한다. `curl: (28)`은 [quickstart ②](quickstart.md#-이벤트-관찰)와 같이 정상이다.
 
    ```sh
    curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
@@ -104,8 +105,8 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
        | $t[] | .data | select(.type == "tool_result" and (.tool_use_id as $u | $ids | index($u))) | {is_error, content}'
    ```
 
-8. 그 세션을 pause하고 checkpoint revision이 생긴 뒤 resume하여 admission state가 `active`가 되는 데까지만 확인한다. 첫 사용 smoke에서는 추가 메시지를 보내지 않아 실제 provider turn을 하나로 제한한다. 성공 판정은 응답 문장이 아니라 API·turn·admission 상태, 7단계의 `git commit` `tool_result`, checkpoint revision으로 한다. pause가 끝난 뒤 `checkpoint_revision`이 `null`이 아니면 그 commit을 담은 작업 트리가 checkpoint에 저장된 것이다.
-9. 세션 usage와 Anthropic Console의 실제 비용을 함께 기록한다. key 취급과 비용 판정 기준은 [실제 Claude 확인 문서](real-claude.md#key-입력과-폐기)와 [비용 절](real-claude.md#비용)을 따른다. 이 서버에서는 그 문서의 로컬 `local.sh` 명령을 실행하지 않는다.
+9. 그 세션을 pause하고 checkpoint revision이 생긴 뒤 resume하여 admission state가 `active`가 되는 데까지만 확인한다. 첫 사용 smoke에서는 추가 메시지를 보내지 않아 실제 provider turn을 하나로 제한한다. 성공 판정은 응답 문장이 아니라 API·turn·admission 상태, 8단계의 `git commit` `tool_result`, checkpoint revision으로 한다. pause가 끝난 뒤 `checkpoint_revision`이 `null`이 아니면 그 commit을 담은 작업 트리가 checkpoint에 저장된 것이다.
+10. 세션 usage와 Anthropic Console의 실제 비용을 함께 기록한다. key 취급과 비용 판정 기준은 [실제 Claude 확인 문서](real-claude.md#key-입력과-폐기)와 [비용 절](real-claude.md#비용)을 따른다. 이 서버에서는 그 문서의 로컬 `local.sh` 명령을 실행하지 않는다.
 
 알파 owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용자마다 다른 owner/API key를 발급하며, 한 사용자의 key를 다른 사용자에게 공유하지 않는다.
 

@@ -5,7 +5,7 @@ import {
   isImmutableObjectSource,
   type ObjectHead,
   type PutImmutableResult,
-} from "@agent-platform/runtime-core";
+} from "@werft-ai/runtime-core";
 
 export type MemoryCheckpointObjectStore = CheckpointObjectStore & {
   /** Keys written, in insertion order. */

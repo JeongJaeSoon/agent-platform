@@ -9,26 +9,33 @@ import {
   SESSION_SCOPE_VALUES,
   scopesForRole,
   WEB_SESSION_COOKIE_NAME,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   type ApiKeyRecord,
-  bootstrapFirstOwner,
-  countUsers,
+  bootstrapOwner,
+  consumePasswordReset,
+  countLiveOwners,
   createWebSession,
   type Database,
   findLiveMembership,
   findUserForLogin,
   findWorkspace,
+  issuePasswordReset,
   renewWebSession,
   resolveWebSession,
+  retireBootstrapToken,
   revokeWebSession,
-} from "@agent-platform/db";
-import type { StructuredLogger } from "@agent-platform/observability";
+  signInWithExternalIdentity,
+} from "@werft-ai/db";
+import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   BootstrapInput,
+  ConsumePasswordResetInput,
+  ExternalSignInInput,
   IdentityStore,
+  IssuePasswordResetInput,
   ResolvedWebSession,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
@@ -48,11 +55,20 @@ const LOGIN_LOCKOUT_WINDOW_MS = LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000;
 
 export class DatabaseIdentityStore implements IdentityStore {
   constructor(private readonly db: Database) {}
-  countUsers() {
-    return countUsers(this.db);
+  countLiveOwners() {
+    return countLiveOwners(this.db);
   }
   bootstrap(input: BootstrapInput) {
-    return bootstrapFirstOwner(this.db, input);
+    return bootstrapOwner(this.db, input);
+  }
+  retireBootstrapToken(tokenHash: Uint8Array) {
+    return retireBootstrapToken(this.db, tokenHash);
+  }
+  issuePasswordReset(input: IssuePasswordResetInput) {
+    return issuePasswordReset(this.db, input);
+  }
+  consumePasswordReset(input: ConsumePasswordResetInput) {
+    return consumePasswordReset(this.db, input);
   }
   findUserForLogin(email: string) {
     return findUserForLogin(this.db, email);
@@ -66,12 +82,16 @@ export class DatabaseIdentityStore implements IdentityStore {
   createWebSession(input: {
     id: string;
     userId: string;
+    verifiedPasswordHash: string;
     tokenHash: Uint8Array;
     ttlMs: number;
     userAgent: string | null;
     maxLive: number;
   }) {
     return createWebSession(this.db, input);
+  }
+  signInWithExternalIdentity(input: ExternalSignInInput) {
+    return signInWithExternalIdentity(this.db, input);
   }
   resolveWebSession(tokenHash: Uint8Array) {
     return resolveWebSession(this.db, tokenHash);
@@ -94,6 +114,10 @@ export function generateWebSessionToken(): string {
 }
 
 export const hashWebSessionToken = hashApiKey;
+
+export function generatePasswordResetToken(): string {
+  return `apr_${randomBytes(32).toString("base64url")}`;
+}
 
 export function hashPassword(password: string): Promise<string> {
   return Bun.password.hash(password, { algorithm: "argon2id" });
@@ -153,23 +177,37 @@ export function createBootstrapGate(token: string): BootstrapGate {
   };
 }
 
+const BOOTSTRAP_RETIRE_RETRY_MS = 30_000;
+
+/** Retries until `work` resolves once; the timer never holds the process. */
+function retryInBackground(work: () => Promise<void>, delayMs: number) {
+  const attempt = () => {
+    work().catch(() => {
+      setTimeout(attempt, delayMs).unref();
+    });
+  };
+  setTimeout(attempt, delayMs).unref();
+}
+
 function generateBootstrapToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
 /**
  * Take the operator's token or mint one. A minted token is printed once, and
- * only while the install still needs it, so an established deployment that
- * forgot the variable does not print a secret nobody can use. It goes
+ * only while the install needs it — no live owner, first install or
+ * recovery — so an established deployment that forgot the variable does
+ * not print a secret nobody can use. It goes
  * through `print`, not the structured logger: that logger redacts any
  * `*token*` field on purpose, and this is the one value that must reach the
  * operator's terminal in the clear.
  */
 export async function bootstrapGateFromEnv(
   value: string | undefined,
-  store: Pick<IdentityStore, "countUsers">,
+  store: Pick<IdentityStore, "countLiveOwners" | "retireBootstrapToken">,
   logger: StructuredLogger,
   print: (line: string) => void = (line) => console.error(line),
+  retryMs = BOOTSTRAP_RETIRE_RETRY_MS,
 ): Promise<BootstrapGate> {
   if (value !== undefined) {
     // The request schema bounds the token; a configured value outside it
@@ -183,23 +221,42 @@ export async function bootstrapGateFromEnv(
         "BOOTSTRAP_TOKEN must be 32 to 256 characters (or unset to generate one)",
       );
     }
+    // A value configured while an owner is live cannot be the new token a
+    // recovery needs, and an install that predates bootstrap_token_uses
+    // never recorded the one it used. Spend it now, or as soon as the
+    // database answers: left unchecked, it would still open recovery if the
+    // owners were lost later.
+    const tokenHash = hashWebSessionToken(parsed.data);
+    const retire = async () => {
+      if ((await store.countLiveOwners()) > 0) {
+        await store.retireBootstrapToken(tokenHash);
+      }
+    };
+    try {
+      await retire();
+    } catch (error) {
+      logger.warn("BOOTSTRAP_TOKEN could not be checked against live owners", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+      retryInBackground(retire, retryMs);
+    }
     return createBootstrapGate(parsed.data);
   }
   const token = generateBootstrapToken();
-  let users: number | null;
+  let owners: number | null;
   try {
-    users = await store.countUsers();
+    owners = await store.countLiveOwners();
   } catch (error) {
     // The API starts without its database and answers readiness 503
     // so an unreachable database cannot stop startup here. The
     // count is unknown; print anyway, since the value only ever works while
-    // users is 0.
-    users = null;
-    logger.warn("BOOTSTRAP_TOKEN not set and users could not be counted", {
+    // no live owner exists.
+    owners = null;
+    logger.warn("BOOTSTRAP_TOKEN not set and owners could not be counted", {
       error_name: error instanceof Error ? error.name : typeof error,
     });
   }
-  if (users === null || users === 0) {
+  if (owners === null || owners === 0) {
     logger.warn(
       "BOOTSTRAP_TOKEN not set; a value for this process was printed to stderr",
     );
@@ -220,7 +277,6 @@ const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
 // work one process admits no matter how many addresses are tried.
 // Per-client (IP) and cross-replica limits need the ingress's view of the
 // client and are left to the deployment.
-// TODO(94S-264): Add product-owned account recovery and shared rate limits.
 const PASSWORD_WORK_CONCURRENCY = 4;
 const PASSWORD_WORK_QUEUE = 64;
 
@@ -399,6 +455,8 @@ type Authenticated = {
   webSession?: ResolvedWebSession;
   /** Re-runs the credential check; SSE calls it so revocation ends a stream. */
   reauthenticate: () => Promise<boolean>;
+  /** Set when a key row authenticated; a personal key names its creator. */
+  storedKey?: { creatorId: string | null };
 };
 
 function bearerToken(value: string | undefined): string | null {
@@ -424,24 +482,22 @@ export function unauthenticatedPrincipal(ownerId: string): Principal {
 // before scopes existed (NULL) holds none and has to be reissued: guessing
 // "everything" would hand it recovery too.
 export function apiKeyPrincipal(key: ApiKeyRecord): Principal {
+  const scopes = key.scopes === null ? [] : [...key.scopes];
+  const ceiling =
+    key.kind === "personal" && key.creatorRole !== null
+      ? new Set(scopesForRole(key.creatorRole))
+      : null;
   return {
     kind: "api_key",
     id: key.id,
     owner_id: key.ownerId,
     workspace_id: key.workspaceId,
-    scopes: key.scopes === null ? [] : [...key.scopes],
+    scopes: ceiling === null ? scopes : scopes.filter((s) => ceiling.has(s)),
   };
 }
 
 function samePrincipal(left: Principal, right: Principal): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
-}
-
-/** The alpha partition key every existing route authorizes on. */
-export function ownerIdOf(principal: Principal): string {
-  return principal.kind === "user"
-    ? principal.workspace_id
-    : principal.owner_id;
 }
 
 export interface Authenticator {
@@ -481,6 +537,9 @@ export function createAuthenticator(
         const principal = apiKeyPrincipal(key);
         return {
           principal,
+          storedKey: {
+            creatorId: key.kind === "personal" ? key.createdByUserId : null,
+          },
           verified: true,
           // Nothing edits a key's scopes today, but a stream that outlives
           // a narrowed key must not keep what the key no longer holds.

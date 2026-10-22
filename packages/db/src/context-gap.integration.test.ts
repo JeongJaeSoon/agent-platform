@@ -3,19 +3,19 @@ import type {
   CheckpointRef,
   RecoveryDecisionRequest,
   WorkerScope,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 import {
   CHECKPOINT_ROOT_PARENT,
   createWorkerGateway,
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-} from "@agent-platform/platform";
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
-} from "@agent-platform/testkit/postgres";
+} from "@werft-ai/testkit/postgres";
 import { and, asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

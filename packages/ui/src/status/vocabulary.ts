@@ -3,7 +3,7 @@ import type {
   ExecutionState,
   ReceiptStatus,
   TurnStatus,
-} from "@agent-platform/contracts";
+} from "@werft-ai/contracts";
 
 /**
  * admission·turn·receipt·execution are separate axes and are never merged into
@@ -64,6 +64,7 @@ const admission: Record<AdmissionState, StatusDescriptor> = {
     tone: "danger",
     inFlight: false,
   },
+  closing: { label: "보관 중", tone: "neutral", inFlight: true },
   closed: { label: "보관됨", tone: "neutral", inFlight: false },
 };
 

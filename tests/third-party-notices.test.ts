@@ -33,26 +33,24 @@ const lock: Lockfile = {
   workspaces: {
     "": { name: "root" },
     "apps/control-host": {
-      name: "@agent-platform/control-host",
-      dependencies: { "@agent-platform/storage": "workspace:*", hono: "4" },
+      name: "@werft-ai/control-host",
+      dependencies: { "@werft-ai/storage": "workspace:*", hono: "4" },
     },
     "apps/worker": {
-      name: "@agent-platform/worker",
+      name: "@werft-ai/worker",
       dependencies: { sdk: "1" },
     },
     "packages/storage": {
-      name: "@agent-platform/storage",
+      name: "@werft-ai/storage",
       dependencies: { "@scope/a": "1" },
     },
   },
   packages: {
-    "@agent-platform/control-host": [
-      "@agent-platform/control-host@workspace:apps/control-host",
+    "@werft-ai/control-host": [
+      "@werft-ai/control-host@workspace:apps/control-host",
     ],
-    "@agent-platform/storage": [
-      "@agent-platform/storage@workspace:packages/storage",
-    ],
-    "@agent-platform/worker": ["@agent-platform/worker@workspace:apps/worker"],
+    "@werft-ai/storage": ["@werft-ai/storage@workspace:packages/storage"],
+    "@werft-ai/worker": ["@werft-ai/worker@workspace:apps/worker"],
     hono: ["hono@4.0.0", "", {}, "sha"],
     "@scope/a": ["@scope/a@1.0.0", "", { dependencies: { b: "2" } }, "sha"],
     // A second b that only @scope/a sees: the nested key wins over the hoisted.

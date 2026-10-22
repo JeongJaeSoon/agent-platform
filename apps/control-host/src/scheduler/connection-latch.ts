@@ -1,5 +1,5 @@
-import { isConnectionFailure } from "@agent-platform/db/pool";
-import type { SchedulerStore } from "@agent-platform/platform";
+import { isConnectionFailure } from "@werft-ai/db/pool";
+import type { SchedulerStore } from "@werft-ai/platform";
 
 /**
  * The connection is gone, not the statement: 08xxx connection exceptions,

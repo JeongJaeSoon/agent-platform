@@ -9,9 +9,10 @@
 #              points at the local `secrets` LocalStack under compose)
 # Each profile's fingerprint (sha256 over these settings and the reference,
 # never the value) rides every worker claim; rotating the value behind the
-# same reference keeps it. A session is held to the fingerprint it was
-# created with: change a setting under a new id, since editing one
-# in place stops every session made with it (CATALOG_MISMATCH).
+# same reference keeps it. A session is held to the fingerprint of its
+# profile: change a setting under a new id, since editing one in place
+# stops every session on it (CATALOG_MISMATCH). A session moves to another
+# id of the same runtime and billing with POST /v1/sessions/{id}/profile.
 #
 # `models` (optional) lists other models a session may name with `model`
 # on POST /v1/sessions; `model` stays the default. A session is pinned to

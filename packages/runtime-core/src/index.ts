@@ -10,11 +10,15 @@ export {
   MAX_TRANSCRIPT_BYTES,
   MAX_TRANSCRIPT_PART_BYTES,
   ObjectIntegrityError,
+  runtimeFor,
+  TRANSCRIPT_LIMITS,
   TRANSCRIPT_MIRROR_DIRECTORY,
+  transcriptBytes,
   transcriptGenerationDirectory,
   transcriptGenerationOf,
   transcriptParts,
   transcriptSizeProblem,
+  transcriptWarnBytes,
 } from "./checkpoint-manifest.ts";
 export * from "./git-bundle.ts";
 export * from "./worker-gateway-client.ts";

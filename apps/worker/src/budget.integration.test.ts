@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { CheckpointRef, RuntimeConfig } from "@agent-platform/contracts";
+import type { CheckpointRef, RuntimeConfig } from "@werft-ai/contracts";
 import {
   type FakeAnthropicServer,
   startFakeAnthropicServer,
   textReply,
   toolReply,
-} from "@agent-platform/testkit/fake-anthropic";
+} from "@werft-ai/testkit/fake-anthropic";
 import {
   createIsolatedWorkspace,
   type IsolatedWorkspace,
-} from "@agent-platform/testkit/workspace";
+} from "@werft-ai/testkit/workspace";
 
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { claudeRuntimeRegistry } from "./composition.ts";
