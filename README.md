@@ -15,6 +15,7 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 | 독자 | 먼저 읽을 문서 | 이어서 볼 문서와 파일 |
 | --- | --- | --- |
 | API 사용자 | [API 유즈케이스 가이드](docs/api-guide.md) | 배포 서버의 인증 없는 `GET /docs`에서 읽기 전용 API 참조를 보고, `GET /v1/openapi.json`에서 같은 사양을 받는다. 저장소 생성물은 [HTML](docs/api/index.html)과 [OpenAPI JSON](docs/openapi.json)이다 |
+| SDK 사용자 | [TypeScript SDK](docs/sdk.md) | 서버·스크립트에서 API key로 세션을 다루는 `packages/sdk`(`@werft-ai/sdk`). 예제는 [packages/sdk/examples](packages/sdk/examples/session-close.ts) |
 | 운영자 | [단일 서버 배포](docs/operator/server-deployment.md) | [운영 참고](docs/operations.md), [Datadog 감시 기준](docs/operator/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/operator/test-ops.md), [백업과 복원](docs/operator/backup-restore.md) |
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/contributing/development.md), [구성요소와 경계](docs/contributing/architecture.md), [CI](docs/contributing/ci.md), [실제 Claude 확인](docs/real-claude.md) |
 

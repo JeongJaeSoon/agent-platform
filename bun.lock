@@ -257,6 +257,16 @@
         "@werft-ai/contracts": "workspace:*",
       },
     },
+    "packages/sdk": {
+      "name": "@werft-ai/sdk",
+      "version": "0.1.0",
+      "dependencies": {
+        "@werft-ai/client": "workspace:*",
+      },
+      "devDependencies": {
+        "@werft-ai/contracts": "workspace:*",
+      },
+    },
     "packages/storage": {
       "name": "@werft-ai/storage",
       "version": "0.0.0",
@@ -1115,6 +1125,8 @@
     "@werft-ai/runtime-claude-codec": ["@werft-ai/runtime-claude-codec@workspace:packages/adapters/runtimes/claude-codec"],
 
     "@werft-ai/runtime-core": ["@werft-ai/runtime-core@workspace:packages/runtime-core"],
+
+    "@werft-ai/sdk": ["@werft-ai/sdk@workspace:packages/sdk"],
 
     "@werft-ai/storage": ["@werft-ai/storage@workspace:packages/storage"],
 
