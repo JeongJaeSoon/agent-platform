@@ -1581,9 +1581,13 @@ describe("session profile", () => {
     });
     const allow = await screen.findByRole("button", { name: "허용" });
     expect(allow.hasAttribute("disabled")).toBe(true);
+    // Beside the buttons and in the answerers card, which says the same.
     expect(
-      screen.getByText("sessions:approve 권한이 있어야 할 수 있습니다."),
-    ).toBeTruthy();
+      screen.getAllByText("sessions:approve 권한이 있어야 할 수 있습니다."),
+    ).toHaveLength(2);
+    expect(
+      screen.queryByText("나는 이 세션의 요청에 답할 수 있습니다."),
+    ).toBeNull();
     const stop = screen.getByRole("button", { name: "지금 turn 멈추기" });
     expect(stop.hasAttribute("disabled")).toBe(true);
     expect(

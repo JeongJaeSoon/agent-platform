@@ -243,9 +243,10 @@ export function SessionDetail({
       >
         {pending.data ? (
           <p className="m-0 text-body">
-            {pending.data.answerable
-              ? t("session.answerers.you")
-              : t("session.answerers.viewOnly")}
+            {/* The same condition that turns the answer buttons off. */}
+            {!pending.data.answerable
+              ? t("session.answerers.viewOnly")
+              : (unavailable?.answer ?? t("session.answerers.you"))}
           </p>
         ) : null}
       </Section>
