@@ -95,10 +95,12 @@ export function SettingRow({
   readonly title: ReactNode;
   readonly description?: ReactNode;
   readonly extra?: ReactNode;
-  readonly control?: (ids: {
-    readonly titleId: string;
-    readonly descriptionId: string | undefined;
-  }) => ReactNode;
+  readonly control?:
+    | ((ids: {
+        readonly titleId: string;
+        readonly descriptionId: string | undefined;
+      }) => ReactNode)
+    | undefined;
 }) {
   const titleId = useId();
   const descriptionId = useId();

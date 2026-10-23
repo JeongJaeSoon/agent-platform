@@ -95,7 +95,7 @@ function NewAgentScreen({
                 : `${DETAIL}-slack-overview`,
             )}
             settingsHref={storyHref(
-              "screens-workspace-settings-v4--workspace-settings",
+              "screens-workspace-settings-v4--workspace-settings-slack-unset-edit",
             )}
           />
         </div>
