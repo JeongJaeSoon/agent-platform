@@ -156,6 +156,8 @@ function withCount(
   );
 }
 
+const resultKey = (row: TimelineRow): string => `${row.key}:result`;
+
 const isNoise = (row: TimelineEntry): boolean =>
   !row.presentation.error && NOISE_LABELS.has(row.presentation.label.key);
 
@@ -215,13 +217,29 @@ function timelineRows(
 }
 
 function turnGroups(rows: readonly TimelineRow[], fold: boolean): TurnGroup[] {
+  // A line with no turn between two lines of one turn belongs to that turn,
+  // so a turn is not split in two around it.
+  const turnOf = rows.map((row) => row.turnId);
+  let previous: string | null = null;
+  rows.forEach((row, index) => {
+    if (row.turnId !== null) {
+      previous = row.turnId;
+      return;
+    }
+    const next = rows.slice(index + 1).find((later) => later.turnId !== null);
+    if (previous !== null && next?.turnId === previous) {
+      turnOf[index] = previous;
+    }
+  });
+  // Lines with no turn share a group without a head, so their noise folds too.
   const groups: { key: string; turnId: string | null; rows: TimelineRow[] }[] =
     [];
-  for (const row of rows) {
+  rows.forEach((row, index) => {
+    const turnId = turnOf[index] ?? null;
     const last = groups.at(-1);
-    if (row.turnId !== null && last?.turnId === row.turnId) last.rows.push(row);
-    else groups.push({ key: row.key, turnId: row.turnId, rows: [row] });
-  }
+    if (last && last.turnId === turnId) last.rows.push(row);
+    else groups.push({ key: row.key, turnId, rows: [row] });
+  });
   return groups.map((group) => {
     const items: TimelineItem[] = [];
     let run: TimelineRow[] = [];
@@ -373,13 +391,16 @@ export function Timeline({
     for (const item of group.items) {
       if (!item.fold) {
         see(item.row.key, item.row.occurredAt);
+        if (item.row.result) {
+          see(resultKey(item.row), item.row.result.occurredAt);
+        }
         continue;
       }
-      // Folded lines may be out of sight, so the line after the fold
-      // compares with what stood before it.
+      // Closed, the folded lines are out of sight, so the line after the
+      // fold compares with what stood before it.
       const before = said;
       for (const row of item.rows) see(row.key, row.occurredAt);
-      said = before;
+      if (!open.has(item.key)) said = before;
     }
   }
 
@@ -421,6 +442,7 @@ export function Timeline({
                 messages={messages}
                 time={time}
                 shown={shown.has(row.key)}
+                resultShown={shown.has(resultKey(row))}
                 first={first}
                 last={last}
               />
@@ -568,12 +590,19 @@ function KindIcon({
   );
 }
 
+const NOISE_LINE = "min-w-0 text-caption leading-4 text-muted-foreground";
+const DETAIL =
+  "mt-1 whitespace-pre-wrap rounded-control border bg-muted px-3 py-2 font-mono text-caption leading-[1.6] [overflow-wrap:anywhere]";
+
 function Summary({
   entry,
   formatMessage,
+  stamp,
 }: {
   readonly entry: TimelineEntry;
   readonly formatMessage: FormatTurnMessage;
+  /** Its own time, for a result drawn in its call's row. */
+  readonly stamp?: JSX.Element | undefined;
 }): JSX.Element {
   const { presentation } = entry;
   const summary = turnSummaryText(presentation.summary, formatMessage);
@@ -582,16 +611,20 @@ function Summary({
     presentation.error && "text-destructive",
   );
   if (!presentation.detail) {
-    return <span className={summaryClass}>{summary}</span>;
+    return (
+      <span className={summaryClass}>
+        {summary}
+        {stamp}
+      </span>
+    );
   }
   return (
     <details className="min-w-0">
       <summary className={cn(summaryClass, "cursor-pointer")}>
         {summary}
+        {stamp}
       </summary>
-      <p className="mt-1 whitespace-pre-wrap rounded-control border bg-muted px-3 py-2 font-mono text-caption leading-[1.6] [overflow-wrap:anywhere]">
-        {presentation.detail}
-      </p>
+      <p className={DETAIL}>{presentation.detail}</p>
     </details>
   );
 }
@@ -602,12 +635,14 @@ function EventItem({
   messages,
   time,
   shown,
+  resultShown,
   first,
   last,
 }: LineProps & {
   readonly row: TimelineRow;
   readonly time: TimeContext;
   readonly shown: boolean;
+  readonly resultShown: boolean;
 }): JSX.Element {
   const { presentation, result } = row;
   const error =
@@ -642,7 +677,20 @@ function EventItem({
         </div>
         <Summary entry={row} formatMessage={formatMessage} />
         {result ? (
-          <Summary entry={result} formatMessage={formatMessage} />
+          <Summary
+            entry={result}
+            formatMessage={formatMessage}
+            stamp={
+              resultShown ? (
+                <>
+                  {" "}
+                  <Stamp at={result.occurredAt} time={time} />
+                </>
+              ) : (
+                <HiddenStamp at={result.occurredAt} time={time} />
+              )
+            }
+          />
         ) : null}
       </div>
     </li>
@@ -663,6 +711,21 @@ function NoiseItem({
   readonly shown: boolean;
 }): JSX.Element {
   const { presentation } = row;
+  const line = (
+    <>
+      <span className="font-medium">{formatMessage(presentation.label)}</span>{" "}
+      <span className="min-w-0 [overflow-wrap:anywhere]">
+        {turnSummaryText(presentation.summary, formatMessage)}
+        {shown ? null : <HiddenStamp at={row.occurredAt} time={time} />}
+      </span>
+      {shown ? (
+        <>
+          {" "}
+          <Stamp at={row.occurredAt} time={time} />
+        </>
+      ) : null}
+    </>
+  );
   return (
     <li
       data-kind="system"
@@ -671,14 +734,16 @@ function NoiseItem({
     >
       <Rail top="h-2" bottom="top-6" first={first} last={last} />
       <KindIcon kind="system" messages={messages} small={true} />
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-caption leading-4 text-muted-foreground">
-        <span className="font-medium">{formatMessage(presentation.label)}</span>
-        <span className="min-w-0 [overflow-wrap:anywhere]">
-          {turnSummaryText(presentation.summary, formatMessage)}
-          {shown ? null : <HiddenStamp at={row.occurredAt} time={time} />}
-        </span>
-        {shown ? <Stamp at={row.occurredAt} time={time} /> : null}
-      </div>
+      {presentation.detail ? (
+        <details className="min-w-0">
+          <summary className={cn(NOISE_LINE, "cursor-pointer")}>{line}</summary>
+          <p className={DETAIL}>{presentation.detail}</p>
+        </details>
+      ) : (
+        <div className={cn(NOISE_LINE, "flex flex-wrap items-center gap-x-2")}>
+          {line}
+        </div>
+      )}
     </li>
   );
 }

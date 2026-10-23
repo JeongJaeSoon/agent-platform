@@ -123,6 +123,35 @@ describe("Timeline turn 묶음", () => {
     expect(second?.firstElementChild?.textContent).not.toContain("tokens");
     expect(top[2]?.textContent).toContain("loose");
   });
+
+  test("turn 없는 줄이 한 turn 사이에 끼어도 turn은 한 묶음이다", () => {
+    const { getByRole } = render(
+      <Timeline
+        entries={[
+          status("running", { turnId: "a" }),
+          entry("system", { subtype: "init" }, { turnId: null }),
+          entry(
+            "result",
+            {
+              subtype: "success",
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+            { turnId: "a" },
+          ),
+        ]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        now={START}
+      />,
+    );
+    expect(
+      document.querySelectorAll('[data-slot="timeline-turn"]'),
+    ).toHaveLength(1);
+    expect(rows(getByRole("list", { name: /^turn a/ }))).toHaveLength(1);
+    expect(
+      document.querySelector('[data-slot="timeline-turn"]')?.textContent,
+    ).toContain('session.event.result.tokens{"count":2}');
+  });
 });
 
 describe("Timeline 도구 호출과 결과", () => {
@@ -143,6 +172,26 @@ describe("Timeline 도구 호출과 결과", () => {
     expect(paired?.textContent).not.toContain("running");
     expect(between?.textContent).toContain("between");
     expect(open?.textContent).toContain("running");
+  });
+
+  test("호출 행에 들어간 결과도 제 시각을 키보드로 닿게 둔다", () => {
+    render(
+      <Timeline
+        entries={[call("c1", { at: 0 }), result("c1", false, { at: 120 })]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        locale="en"
+        now={START + 5 * 60_000}
+      />,
+    );
+    const [row] = rows();
+    const times = [...(row?.querySelectorAll("time") ?? [])];
+    expect(times.map((time) => time.getAttribute("dateTime"))).toEqual([
+      new Date(START).toISOString(),
+      new Date(START + 120_000).toISOString(),
+    ]);
+    expect(times[1]?.textContent).toBe("3 min ago");
+    expect(times[1]?.tabIndex).toBe(0);
   });
 
   test("실패한 결과는 호출 행을 빨간 실패 원과 이름·빨간 글자로 바꾼다", () => {
@@ -291,6 +340,66 @@ describe("Timeline 잡음 접기", () => {
     ]);
     await user.keyboard(" ");
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("turn 밖에서 이어진 잡음도 접힌다", () => {
+    render(
+      <Timeline
+        entries={[
+          status("running", { turnId: null }),
+          entry("system", { subtype: "init" }, { turnId: null }),
+        ]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        now={START}
+      />,
+    );
+    expect(document.querySelector("button")?.textContent).toContain("2 events");
+    expect(rows()).toHaveLength(0);
+  });
+
+  test("잡음 줄도 detail을 펼쳐 볼 수 있다", () => {
+    const noisy = status("running");
+    render(
+      <Timeline
+        entries={[
+          {
+            ...noisy,
+            presentation: { ...noisy.presentation, detail: "raw payload" },
+          },
+        ]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        now={START}
+      />,
+    );
+    const [row] = rows();
+    expect(row?.dataset.noise).toBe("true");
+    expect(row?.querySelector("details p")?.textContent).toBe("raw payload");
+  });
+
+  test("펼친 잡음 뒤 줄은 마지막 잡음 줄과 같은 글자면 시각을 숨긴다", async () => {
+    const user = await setupUser();
+    render(
+      <Timeline
+        entries={[
+          reply("a", { turnId: null, at: 0 }),
+          status("running", { turnId: null, at: 200 }),
+          status("idle", { turnId: null, at: 200 }),
+          reply("b", { turnId: null, at: 210 }),
+        ]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        locale="en"
+        now={START + 5 * 60_000}
+      />,
+    );
+    const last = () => rows().at(-1)?.querySelector("time");
+    // Closed, b compares with a: "5 min ago" against "1 min ago".
+    expect(last()?.className).not.toContain("sr-only");
+    const toggle = document.querySelector("button");
+    if (toggle) await user.click(toggle);
+    expect(last()?.className).toContain("sr-only");
   });
 
   test("접힘 문구를 받지 않으면 접지 않고 한 줄씩 작게 둔다", () => {
