@@ -216,7 +216,7 @@ export async function runSlackApp(
     }
     return fail(
       SLACK_APP_EXIT.unexpected,
-      `unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      `unexpected error: ${error instanceof Error ? error.name : typeof error}`,
     );
   }
 }

@@ -99,8 +99,10 @@ describe("slack-app command line", () => {
     expect(run.opened).toEqual([]);
   });
 
-  test("an unexpected failure is exit 1", async () => {
+  test("an unexpected failure is exit 1 and prints only the error's name", async () => {
     const run = io(ENV);
     expect(await runSlackApp(ARGS, run.io)).toBe(SLACK_APP_EXIT.unexpected);
+    expect(run.err.join("\n")).toContain("unexpected error: Error");
+    expect(run.err.join("\n")).not.toContain("not opened in this test");
   });
 });
