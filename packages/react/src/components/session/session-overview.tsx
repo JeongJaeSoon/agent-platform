@@ -189,15 +189,19 @@ export function SessionOverviewRow({
       </span>
       <span
         role="cell"
-        className="flex min-w-0 justify-end whitespace-nowrap text-caption text-subtle-foreground"
+        className="flex min-w-0 justify-end overflow-hidden whitespace-nowrap text-caption text-subtle-foreground"
       >
         <span className="sr-only">{messages.recent} </span>
-        {/* Above the row link's overlay, so hovering shows the time's title. */}
-        <span className="relative">
+        {/* Above the row link's overlay, so hovering shows the time's title.
+            A longer word than the column ("yesterday 15:14") is cut, not
+            spilled over the repository. */}
+        <span className="relative min-w-0 truncate">
           {renderTime ? (
             renderTime(at)
           ) : (
-            <time dateTime={at}>{formatTimestamp(at, locale)}</time>
+            <time dateTime={at} title={formatTimestamp(at, locale)}>
+              {formatTimestamp(at, locale)}
+            </time>
           )}
         </span>
       </span>
