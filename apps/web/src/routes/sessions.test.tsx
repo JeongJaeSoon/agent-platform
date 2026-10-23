@@ -229,6 +229,8 @@ const detailRoutes = {
 };
 
 describe("approval inbox", () => {
+  // A row names the request and session on its buttons, as the card title does.
+  const ALLOW = `허용: Bash · ${SESSION_ID.slice(0, 8)}`;
   const waitingRoutes = (items: unknown[], next_cursor: string | null) => ({
     "GET /v1/auth/me": () => json(200, me()),
     "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
@@ -255,6 +257,10 @@ describe("approval inbox", () => {
       ),
     );
     const inbox = await screen.findByRole("region", { name: "답변 대기" });
+    expect(
+      await within(inbox).findAllByRole("button", { name: ALLOW }),
+    ).toHaveLength(1);
+    expect(inbox.querySelector('[data-slot="approval-row"]')).toBeTruthy();
     // The count sits beside the heading as a badge; no line of its own.
     const badge = (await within(inbox).findByText("답을 기다리는 세션 2개"))
       .parentElement as HTMLElement;
@@ -313,7 +319,7 @@ describe("approval inbox", () => {
     });
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: ALLOW });
     const before = waitingReads();
     await user.click(allow);
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
@@ -337,7 +343,7 @@ describe("approval inbox", () => {
     const waitingReads = () =>
       api.calls.filter((call) => call.search === "?status=needs_input").length;
     await waitFor(() => expect(waitingReads()).toBe(2));
-    await user.click(await screen.findByRole("button", { name: "허용" }));
+    await user.click(await screen.findByRole("button", { name: ALLOW }));
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
     // The inbox's page and the tab's list are separate queries: both read again.
     await waitFor(() => expect(waitingReads()).toBeGreaterThanOrEqual(4));
@@ -358,7 +364,7 @@ describe("approval inbox", () => {
         });
       },
     });
-    const allow = await screen.findByRole("button", { name: "허용" });
+    const allow = await screen.findByRole("button", { name: ALLOW });
     allow.focus();
     await user.keyboard("{Enter}");
     expect(
@@ -396,12 +402,11 @@ describe("sessions list", () => {
     const link = await screen.findByRole("link", { name: SESSION_ID });
     expect(link.getAttribute("href")).toBe(`/sessions/${SESSION_ID}`);
     const row = link.closest('[role="row"]') as HTMLElement;
-    expect(within(row).getByText("쉬는 중")).toBeTruthy();
-    expect(screen.getByText("default · claude_agent_sdk 1.0.0")).toBeTruthy();
-    // An idle session that still takes input: "작업 상태" and "세션 상태" differ.
+    // Untitled: the row shows the id's head, the link keeps the whole id.
+    expect(link.textContent).toBe(SESSION_ID.slice(0, 8));
     expect(row.textContent).toContain("작업 상태: 쉬는 중");
-    expect(row.textContent).toContain("세션 상태: 열림");
-    expect(screen.getByText("열림")).toBeTruthy();
+    expect(within(row).getByText("model-default")).toBeTruthy();
+    expect(within(row).getByText("demo")).toBeTruthy();
     expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "더 보기" }));
@@ -472,12 +477,14 @@ describe("sessions list", () => {
       "en",
     );
     const link = await screen.findByRole("link", { name: SESSION_ID });
-    expect(link.textContent).toBe(SESSION_ID);
+    const row = link.closest('[role="row"]') as HTMLElement;
     expect(screen.getByRole("table", { name: "Sessions table" })).toBeTruthy();
-    expect(screen.getByText("Open")).toBeTruthy();
+    expect(within(row).getByText("Working")).toBeTruthy();
+    expect(screen.getByRole("searchbox", { name: "Find by title or ID" }));
     expect(screen.queryByText(/세션/)).toBeNull();
-    expect(screen.getAllByText("Oct 11, 2026, 17:14").length).toBeGreaterThan(
-      0,
+    // The exact time rides on the short one until the ui-kit's tooltip.
+    expect(row.querySelector("time")?.getAttribute("title")).toBe(
+      "Oct 11, 2026, 17:14",
     );
   });
 
@@ -493,6 +500,131 @@ describe("sessions list", () => {
       expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
     );
     expect(await screen.findByText("권한 요청: Bash")).toBeTruthy();
+  });
+
+  test("a titled session shows its title over the id's head", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [
+            summary(SESSION_ID, { title: "hello.txt 만들고 commit" }),
+            summary(OTHER_ID, { repository_id: null, runtime: null }),
+          ],
+          next_cursor: null,
+        }),
+    });
+    const titled = await screen.findByRole("link", {
+      name: "hello.txt 만들고 commit",
+    });
+    const row = titled.closest('[role="row"]') as HTMLElement;
+    expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
+    const untitled = screen.getByRole("link", { name: OTHER_ID });
+    const bare = untitled.closest('[role="row"]') as HTMLElement;
+    expect(within(bare).getByText("저장소 없음")).toBeTruthy();
+    // No runtime in the summary: the model is a placeholder, not a guess.
+    expect(within(bare).getAllByText("—")).toHaveLength(1);
+  });
+
+  test("the search box narrows the loaded sessions by title or id head", async () => {
+    const user = await setupUser();
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [
+            summary(SESSION_ID, { title: "README 정리" }),
+            summary(OTHER_ID, { title: "api6.txt 쓰고 push" }),
+          ],
+          next_cursor: null,
+        }),
+    });
+    const search = await screen.findByRole("searchbox", {
+      name: "제목이나 ID로 찾기",
+    });
+    await screen.findByRole("link", { name: "README 정리" });
+    expect(screen.getByText(/2개 표시/)).toBeTruthy();
+    expect(
+      screen.getByText(/검색은 지금 불러온 세션 안에서만 찾습니다/),
+    ).toBeTruthy();
+
+    await user.type(search, "readme");
+    expect(
+      screen.queryByRole("link", { name: "api6.txt 쓰고 push" }),
+    ).toBeNull();
+    expect(screen.getByText(/1개 표시/)).toBeTruthy();
+
+    await user.clear(search);
+    await user.type(search, OTHER_ID.slice(0, 4));
+    expect(
+      screen.getByRole("link", { name: "api6.txt 쓰고 push" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "README 정리" })).toBeNull();
+
+    await user.clear(search);
+    await user.type(search, "없는 세션");
+    expect(screen.getByText("조건에 맞는 세션이 없습니다")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "필터 지우기" }));
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(screen.getByRole("link", { name: "README 정리" })).toBeTruthy();
+  });
+
+  test("a waiting row says how long its oldest request has waited", async () => {
+    const asked = new Date(Date.now() - 12 * 60_000 - 5_000).toISOString();
+    const later = new Date(Date.now() - 3 * 60_000).toISOString();
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [summary(SESSION_ID, { status: "needs_input" })],
+          next_cursor: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          // Newest first, so taking the first item would read 3분.
+          items: [
+            {
+              kind: "question",
+              request_id: "req-2",
+              turn_id: "1",
+              attempt_id: "1",
+              created_at: later,
+              expires_at: LATER,
+              questions: [
+                {
+                  question_id: "q1",
+                  prompt: "어느 쪽?",
+                  options: [],
+                  multi_select: false,
+                  allow_free_text: true,
+                },
+              ],
+            },
+            {
+              kind: "question",
+              request_id: "req-1",
+              turn_id: "1",
+              attempt_id: "1",
+              created_at: asked,
+              expires_at: LATER,
+              questions: [
+                {
+                  question_id: "q1",
+                  prompt: "어느 쪽?",
+                  options: [],
+                  multi_select: false,
+                  allow_free_text: true,
+                },
+              ],
+            },
+          ],
+          answerable: true,
+        } satisfies ListPendingRequestsResponse),
+    });
+    const table = await screen.findByRole("table", { name: "세션 표" });
+    await waitFor(() =>
+      expect(table.textContent).toContain("작업 상태: 답변 대기 · 12분"),
+    );
   });
 
   test("says so when there are none", async () => {
